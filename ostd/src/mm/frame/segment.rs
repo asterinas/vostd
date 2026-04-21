@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! A contiguous range of frames.
 use vstd::prelude::*;
-use vstd_extra::seq_extra::{seq_tracked_map_values, seq_tracked_subrange};
+use vstd_extra::seq_extra::seq_tracked_split_at;
 
 use core::{fmt::Debug, ops::Range};
 
-use crate::mm::frame::{inc_frame_ref_count, untyped::AnyUFrameMeta, Frame};
+use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
+use crate::mm::page_table::RCClone;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::cast_ptr::*;
@@ -41,9 +42,8 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
     pub _marker: core::marker::PhantomData<M>,
 }
 
-// TODO: treat `manually_drop` as equivalent to `into_raw`
 impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
-    type State = MetaRegionOwners;
+    type State = (MetaRegionOwners, SegmentOwner<M>);
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         true
@@ -57,14 +57,42 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
-        true
+        let (regions, owner) = s;
+        &&& self.inv_with(&owner)
+        &&& owner.inv()
+        &&& regions.inv()
+        // Each frame's slot must be accessible with the right properties
+        &&& forall|i: int|
+            #![trigger owner.perms[i]]
+            0 <= i < owner.perms.len() as int ==> {
+                let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
+                &&& regions.slot_owners.contains_key(idx)
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value() != super::meta::REF_COUNT_UNUSED
+                &&& regions.slot_owners[idx].raw_count == 0
+                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                // The perm's PointsTo matches the slot
+                &&& owner.perms[i].points_to.is_init()
+                &&& owner.perms[i].points_to.value().wf(regions.slot_owners[idx])
+                // Last-ref condition
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value() == 1 ==> {
+                    &&& regions.slot_owners[idx].inner_perms.storage.is_init()
+                    &&& regions.slot_owners[idx].inner_perms.in_list.value() == 0
+                }
+            }
+        // Distinct slot indices for different frames
+        &&& forall|i: int, j: int|
+            #![trigger owner.perms[i], owner.perms[j]]
+            0 <= i < j < owner.perms.len() as int ==>
+                frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
+                    != frame_to_index((self.range.start + j * PAGE_SIZE) as usize)
     }
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
-        s0 =~= s1
+        true
     }
 
-    proof fn drop_spec(self, tracked s: &mut Self::State) {
+    proof fn drop_tracked(self, tracked s: &mut Self::State) {
     }
 }
 
@@ -626,18 +654,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             Self { range: at..self.range.end, _marker: core::marker::PhantomData },
         );
 
-        let _ = ManuallyDrop::new(self, Tracked(regions));
+        let _ = core::mem::ManuallyDrop::new(self);
 
-        let tracked frame_perms1 = SegmentOwner {
-            perms: seq_tracked_subrange(owner.perms, 0, idx as int),
-        };
-        let tracked frame_perms2 = SegmentOwner {
-            perms: seq_tracked_subrange(owner.perms, idx as int, owner.perms.len() as int),
-        };
-
-        proof {
-            owner.perms.lemma_split_at(idx as int);
-        }
+        let tracked mut perms = owner.perms;
+        let tracked rest = seq_tracked_split_at(&mut perms, idx as int);
+        let tracked frame_perms1 = SegmentOwner { perms };
+        let tracked frame_perms2 = SegmentOwner { perms: rest };
 
         proof_with!(|= (Tracked(frame_perms1), Tracked(frame_perms2)));
         res
@@ -661,7 +683,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     )]
     pub(crate) fn into_raw(self) -> Range<Paddr> {
         let range = self.range.clone();
-        let _ = ManuallyDrop::new(self, Tracked(regions));
+        let _ = core::mem::ManuallyDrop::new(self);
 
         proof_with!(|= Tracked(owner));
         range
@@ -793,6 +815,263 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             Some(frame)
         } else {
             None
+        }
+    }
+}
+
+impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
+    /// Verified drop: iterates over each frame in the segment, decrements its
+    /// reference count, and if it was the last reference, tears down the metadata.
+    fn drop(self, Tracked(s): Tracked<(MetaRegionOwners, SegmentOwner<M>)>) -> (res: Tracked<(MetaRegionOwners, SegmentOwner<M>)>)
+    {
+        let tracked (mut regions, mut owner) = s;
+        let ghost n = owner.perms.len();
+        let mut paddr = self.range.start;
+
+        let ghost mut k: int = 0;
+
+        let ghost old_regions = regions;
+        let ghost old_owner = owner;
+
+        // Helper spec: the frame index for the j-th frame in the segment
+        let ghost frame_idx = |j: int| -> usize { frame_to_index((self.range.start + j * PAGE_SIZE) as usize) };
+
+        loop
+            invariant
+                regions.inv(),
+                self.inv(),
+                self.range.start <= paddr <= self.range.end,
+                paddr == (self.range.start + k * PAGE_SIZE) as usize,
+                paddr % PAGE_SIZE == 0,
+                paddr < MAX_PADDR,
+                0 <= k <= n,
+                n == (self.range.end - self.range.start) as int / PAGE_SIZE as int,
+                owner.perms.len() == n - k,
+                paddr < self.range.end <==> k < n,
+                // Remaining owner.perms are the suffix of the original
+                forall|j: int|
+                    #![trigger owner.perms[j]]
+                    0 <= j < (n - k) ==>
+                        owner.perms[j] == old_owner.perms[j + k],
+                // Unprocessed frames' slot_owners are present and unchanged
+                forall|j: int| #![trigger old_owner.perms[j]]
+                    k <= j < n ==> {
+                        &&& regions.slot_owners.contains_key(frame_idx(j))
+                        &&& regions.slot_owners[frame_idx(j)] == old_regions.slot_owners[frame_idx(j)]
+                    },
+                // Slots not belonging to any frame in the segment are unchanged
+                forall|si: usize| #![trigger regions.slot_owners[si]]
+                    (forall|j: int| #![trigger old_owner.perms[j]]
+                        0 <= j < n ==> si != frame_idx(j))
+                    ==> regions.slot_owners[si] == old_regions.slot_owners[si],
+                // slots map: processed frames' PointsTo re-inserted, rest unchanged
+                forall|si: usize| #![trigger regions.slots[si]]
+                    (forall|j: int| #![trigger old_owner.perms[j]]
+                        0 <= j < k ==> si != frame_idx(j))
+                    ==> regions.slots.contains_key(si) == old_regions.slots.contains_key(si),
+                // Distinct indices (from drop_requires, propagated)
+                forall|i: int, j: int|
+                    #![trigger old_owner.perms[i], old_owner.perms[j]]
+                    0 <= i < j < n ==> frame_idx(i) != frame_idx(j),
+                // Original drop_requires still holds (old_regions/old_owner are immutable ghosts)
+                self.drop_requires((old_regions, old_owner)),
+            decreases n - k,
+        {
+            if paddr >= self.range.end {
+                break;
+            }
+
+            let ghost cur_idx = frame_idx(k);
+            let tracked perm = owner.perms.tracked_remove(0);
+
+            // perm == old_owner.perms[k] (from shift invariant)
+            let tracked slot_perm = perm.points_to;
+
+            proof {
+                assert(self.drop_requires((old_regions, old_owner)));
+                let ghost idx_k = frame_to_index((self.range.start + k * PAGE_SIZE) as usize);
+                assert(idx_k == cur_idx);
+            }
+
+            let ghost pre_slot_own = regions.slot_owners[cur_idx];
+            let tracked mut slot_own = regions.slot_owners.tracked_remove(cur_idx);
+
+            let meta_vaddr = frame_to_meta(paddr);
+            let ptr = vstd::simple_pptr::PPtr::<super::MetaSlot>::from_addr(meta_vaddr);
+
+            proof {
+                assert(slot_perm.is_init());
+                assert(slot_perm.value().wf(slot_own));
+                assert(slot_perm.value().ref_count.id() == slot_own.inner_perms.ref_count.id());
+                assert(slot_own.inner_perms.ref_count.value() > 0);
+                assert(meta_addr(frame_to_index(paddr)) == frame_to_meta(paddr)) by {
+                    assert(frame_to_index(paddr) == paddr / PAGE_SIZE);
+                    assert(meta_addr(frame_to_index(paddr)) == (crate::specs::arch::kspace::FRAME_METADATA_RANGE.start + frame_to_index(paddr) * super::meta::mapping::META_SLOT_SIZE) as usize);
+                }
+                assert(slot_perm.pptr() == ptr);
+            }
+
+            let slot = ptr.borrow(Tracked(&slot_perm));
+            let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.inner_perms.ref_count), 1);
+
+            if last_ref_cnt == 1 {
+                super::acquire_fence();
+
+                proof {
+                    assert(slot_own.inner_perms.ref_count.value() == 0u64);
+                    assert(slot_own.raw_count == 0);
+                    assert(slot_own.inner_perms.storage.is_init());
+                    assert(slot_own.inner_perms.in_list.value() == 0u64);
+                    assert(slot_own.inv());
+                    assert(MetaSlot::drop_last_in_place_safety_cond(slot_own));
+                }
+
+                #[verus_spec(with Tracked(&mut slot_own))]
+                slot.drop_last_in_place();
+            }
+
+            proof {
+                let ghost mid_regions = regions;
+
+                regions.slot_owners.tracked_insert(cur_idx, slot_own);
+
+                assert(regions.slot_owners.dom() =~= mid_regions.slot_owners.dom().insert(cur_idx));
+                assert(slot_own.inv());
+
+                regions.slots.tracked_insert(cur_idx, slot_perm);
+                assert(regions.slots.dom().finite());
+
+                assert forall|i: usize| i < super::meta::mapping::max_meta_slots() <==>
+                    #[trigger] regions.slot_owners.contains_key(i) by { }
+
+                assert forall|i: usize| #[trigger] regions.slots.contains_key(i) implies i < super::meta::mapping::max_meta_slots() by {
+                    if i == cur_idx {
+                        assert(regions.slot_owners.contains_key(cur_idx));
+                    }
+                }
+
+                assert forall|i: usize| #[trigger] regions.slots.contains_key(i) implies ({
+                    &&& regions.slot_owners.contains_key(i)
+                    &&& regions.slot_owners[i].inv()
+                    &&& regions.slots[i].is_init()
+                    &&& regions.slots[i].addr() == meta_addr(i)
+                    &&& regions.slots[i].value().wf(regions.slot_owners[i])
+                    &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
+                }) by {
+                    if i == cur_idx {
+                        assert(regions.slots[i].is_init());
+                        assert(regions.slots[i].addr() == meta_addr(i));
+                        assert(regions.slots[i].value().wf(regions.slot_owners[i]));
+                        assert(regions.slot_owners[i].self_addr == regions.slots[i].addr());
+                    }
+                }
+
+                assert forall|i: usize| #[trigger] regions.slot_owners.contains_key(i) implies regions.slot_owners[i].inv() by {
+                    if i == cur_idx {
+                        assert(slot_own.inv());
+                    }
+                }
+            }
+
+            paddr = paddr + PAGE_SIZE;
+
+            proof {
+                k = k + 1;
+
+                assert forall|j: int| #![trigger old_owner.perms[j]]
+                    k <= j < n implies
+                        regions.slot_owners[frame_idx(j)] == old_regions.slot_owners[frame_idx(j)]
+                by {
+                    let ghost _a = old_owner.perms[j];
+                    let ghost _b = old_owner.perms[(k - 1) as int];
+                    assert(frame_idx(j) != frame_idx(k - 1));
+                };
+
+                assert forall|si: usize| #![trigger regions.slot_owners[si]]
+                    (forall|j: int| #![trigger old_owner.perms[j]]
+                        0 <= j < n ==> si != frame_idx(j))
+                    implies regions.slot_owners[si] == old_regions.slot_owners[si]
+                by {
+                    let ghost _trigger = old_owner.perms[(k - 1) as int];
+                    assert(si != frame_idx(k - 1));
+                };
+            }
+        }
+
+        Tracked((regions, owner))
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
+    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
+        &&& self.inv()
+        &&& perm.inv()
+        &&& forall|pa: Paddr|
+            #![trigger frame_to_index(pa)]
+            (self.range.start <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
+                let idx = frame_to_index(pa);
+                &&& perm.slots.contains_key(idx)
+                &&& has_safe_slot(pa)
+                &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
+                    < super::meta::REF_COUNT_MAX
+                &&& !MetaSlot::inc_ref_count_panic_cond(
+                    perm.slot_owners[idx].inner_perms.ref_count)
+            }
+    }
+
+    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+        &&& res.range == self.range
+        &&& res.inv()
+        &&& new_perm.inv()
+    }
+
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self)
+    {
+        let mut paddr = self.range.start;
+
+        let ghost old_perm = *perm;
+        loop
+            invariant
+                perm.inv(),
+                self.inv(),
+                perm.slots =~= old_perm.slots,
+                perm.slot_owners.dom() =~= old_perm.slot_owners.dom(),
+                self.range.start <= paddr <= self.range.end,
+                paddr % PAGE_SIZE == 0,
+                paddr < MAX_PADDR,
+                forall|pa: Paddr|
+                    #![trigger frame_to_index(pa)]
+                    (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
+                        let idx = frame_to_index(pa);
+                        &&& perm.slots.contains_key(idx)
+                        &&& has_safe_slot(pa)
+                        &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
+                        &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
+                            < super::meta::REF_COUNT_MAX
+                        &&& !MetaSlot::inc_ref_count_panic_cond(
+                            perm.slot_owners[idx].inner_perms.ref_count)
+                    },
+            decreases self.range.end - paddr,
+        {
+            if paddr >= self.range.end {
+                break;
+            }
+
+            proof {
+                assert(paddr + PAGE_SIZE <= self.range.end);
+                assert(paddr + PAGE_SIZE <= MAX_PADDR);
+            }
+
+            #[verus_spec(with Tracked(perm))]
+            crate::mm::frame::inc_frame_ref_count(paddr);
+
+            paddr = paddr + PAGE_SIZE;
+        }
+
+        Self {
+            range: self.range.start..self.range.end,
+            _marker: core::marker::PhantomData,
         }
     }
 }

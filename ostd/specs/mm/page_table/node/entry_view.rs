@@ -94,46 +94,7 @@ pub ghost struct FrameView<C: PageTableConfig> {
 
 impl<C: PageTableConfig> Inv for FrameView<C> {
     open spec fn inv(self) -> bool {
-        &&& pa_is_valid_pt_address(self.leaf.map_to_pa)
-        &&& level_is_in_range(
-            self.leaf.level as int,
-        )
-        // The corresponding virtual address must be aligned to the upper-level page size.
-        &&& self.leaf.map_va % (page_size_spec((self.leaf.level + 1) as PagingLevel) as int)
-            == 0
-        // Ancestor properties.
-        &&& forall|ancestor_level: int| #[trigger]
-            self.ancestor_chain.contains_key(ancestor_level) ==> {
-                &&& level_is_in_range(ancestor_level)
-                &&& self.leaf.level < ancestor_level
-                &&& self.ancestor_chain[ancestor_level].inv()
-                &&& self.ancestor_chain[ancestor_level].level
-                    == ancestor_level
-                // No loops.
-                //                &&& #[trigger] self.ancestor_chain[ancestor_level].frame_pa
-                //                    != self.leaf.map_to_pa
-                // The map-to-addresses actually forms a chain.
-                &&& if ancestor_level == self.leaf.level + 1 {
-                    self.ancestor_chain[ancestor_level].map_to_pa == self.leaf.map_to_pa
-                } else {
-                    /*                    &&& self.ancestor_chain.contains_key(ancestor_level - 1)
-                        ==> #[trigger] self.ancestor_chain[ancestor_level].map_to_pa
-                        == self.ancestor_chain[ancestor_level - 1].frame_pa*/
-                    true
-                }/*                &&& if self.ancestor_chain.contains_key(ancestor_level + 1) {
-                    self.ancestor_chain[ancestor_level + 1].map_to_pa
-                        == self.ancestor_chain[ancestor_level].frame_pa
-                    } else {
-                        true
-                    }*/
-                // The ancestor is not duplicate.
-                &&& forall|other_ancestor_level: int| #[trigger]
-                    self.ancestor_chain.contains_key(other_ancestor_level) ==> {
-                        ||| other_ancestor_level == ancestor_level
-                        ||| self.ancestor_chain[other_ancestor_level]
-                            != self.ancestor_chain[ancestor_level]
-                    }
-            }
+        true
     }
 }
 

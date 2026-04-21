@@ -18,7 +18,7 @@ pub use super::map_extra::*;
 
 pub use super::ownership::*;
 
-pub use super::ptr_extra::*;
+pub use super::trans_macros::*;
 
 pub use super::raw_ptr_extra::*;
 

@@ -493,6 +493,18 @@ impl VirtPtr {
         self.vaddr = self.vaddr + n
     }
 
+    pub open spec fn wrapping_add_spec(self, n: usize) -> Self {
+        VirtPtr { vaddr: self.vaddr.wrapping_add(n), range: self.range }
+    }
+
+    /// Returns a new pointer whose address is `self.vaddr` advanced by `n`
+    /// bytes using wrapping arithmetic.
+    pub fn wrapping_add(self, n: usize) -> (res: Self)
+        returns self.wrapping_add_spec(n),
+    {
+        VirtPtr { vaddr: self.vaddr.wrapping_add(n), range: self.range }
+    }
+
     pub open spec fn read_offset_spec(self, mem: MemView, n: usize) -> u8 {
         mem.read((self.vaddr + n) as usize).value()
     }

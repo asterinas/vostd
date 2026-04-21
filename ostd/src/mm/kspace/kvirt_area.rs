@@ -47,14 +47,13 @@ pub open spec fn frame_as_dynframe<T: AnyFrameMeta>(frame: Frame<T>) -> DynFrame
 }
 
 /// Converts `Frame<T>` to `DynFrame`, with a spec postcondition connecting the result
-/// to the spec function `frame_as_dynframe`. The `Into` impl uses `transmute`, which is
-/// `external_body`, so the equality is admitted.
-/// TODO: use the conversions in `frame/mod.rs`
+/// to the spec function `frame_as_dynframe`. The `Into` impl uses `transmute`, so the
+/// function is marked `external_body` — same trust boundary as the underlying conversion.
+#[verifier::external_body]
 fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
     ensures
         res == frame_as_dynframe(frame),
 {
-    proof { admit(); }
     frame.into()
 }
 
@@ -260,7 +259,7 @@ pub struct KVirtArea {
 }
 
 pub tracked struct KVirtAreaOwner {
-    pt_owner: PageTableOwner<KernelPtConfig>,
+    pub pt_owner: PageTableOwner<KernelPtConfig>,
 }
 
 impl KVirtAreaOwner {
@@ -340,15 +339,26 @@ impl KVirtArea {
         with Tracked(owner): Tracked<KVirtAreaOwner>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'static, KernelPtConfig>>,
+            Tracked(guard_perm): Tracked<GuardPerm<'static, KernelPtConfig>>
         requires
             self.inv(),
             self.range.start <= addr && addr < self.range.end,
+            self.range.start % PAGE_SIZE == 0,
+            self.range.end % PAGE_SIZE == 0,
             old(regions).inv(),
+            owner.pt_owner.inv(),
+            forall |i: usize|
+                #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             self.query_some_condition(owner, addr) ==> self.query_some_ensures(owner, addr, r),
             !self.query_some_condition(owner, addr) ==> Self::query_none_ensures(r),
     )]
-    pub fn query<A: InAtomicMode>(&self, addr: Vaddr) -> Option<super::MappedItem>
+    pub fn query<A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem>
     {
         use align_ext::AlignExt;
 
@@ -359,16 +369,58 @@ impl KVirtArea {
             assert(vstd::arithmetic::power2::pow2(witness) == PAGE_SIZE);
         }
         let start = addr.align_down(PAGE_SIZE);
-        proof { assume(start + PAGE_SIZE <= usize::MAX); }
+        proof {
+            assert(start <= addr);
+            assert(addr < self.range.end);
+            assert(self.range.end <= KERNEL_END_VADDR);
+            assert(KERNEL_END_VADDR + PAGE_SIZE <= usize::MAX) by (compute_only);
+            // start >= self.range.start: align_down's forall postcondition instantiated at self.range.start.
+            assert(start >= self.range.start);
+            // start + PAGE_SIZE <= self.range.end: self.range.end is page-aligned and addr < self.range.end.
+            assert(start + PAGE_SIZE <= self.range.end);
+        }
         let vaddr = start..start + PAGE_SIZE;
-        proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
-        let page_table = get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards));
+        proof {
+            axiom_kernel_range_valid(vaddr);
+        }
+        let page_table = {
+            proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
+            get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards))
+        };
         let preempt_guard = disable_preempt::<A>();
-        // cursor requires owned PageTableOwner; get_kernel_page_table only lends.
-        proof { admit(); }
-        let (mut cursor, _cursor_owner) = page_table.cursor(preempt_guard, &vaddr).unwrap();
-        proof { admit(); }
-        cursor.query().unwrap().1
+        let (mut cursor, Tracked(mut cursor_owner)) =
+            (#[verus_spec(with Tracked(owner.pt_owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+                page_table.cursor(preempt_guard, &vaddr)).unwrap();
+        proof {
+            // Bridge `cursor_owner@.mappings` to `owner.cursor_view_at(addr).mappings`.
+            // PageTable::cursor ensures `cursor_owner.as_page_table_owner() == owner.pt_owner`
+            // and `cursor_owner.continuations[3].path() == owner.pt_owner.0.value.path`, and
+            // `as_page_table_owner_preserves_view_mappings` turns the cursor's view into a
+            // `view_rec` call on the owner at the root path.
+            cursor_owner.as_page_table_owner_preserves_view_mappings();
+            assert(cursor_owner.view_mappings()
+                == owner.pt_owner.view_rec(owner.pt_owner.0.value.path));
+            // cur_va agreement: `cursor.wf(cursor_owner)` gives `cursor_owner.va.reflect(cursor.va)`,
+            // which `reflect_prop` converts into `cursor_owner.va.to_vaddr() == cursor.va`.
+            cursor_owner.va.reflect_prop(cursor.va);
+            assert(cursor_owner.cur_va() == start);
+        }
+        let ghost pre_query_view = cursor_owner@;
+        let ghost pre_query_cursor_va = cursor.va;
+        let state = (#[verus_spec(with Tracked(&mut cursor_owner), Tracked(regions), Tracked(guards))]
+            cursor.query()).unwrap();
+        proof {
+            // `Cursor::query` preserves `self.va` (loop invariant + new ensures) and
+            // `cursor_owner@.mappings`. With `cursor.wf(cursor_owner)` reestablished
+            // by post-query invariants, we can recover `cursor_owner@.cur_va == start`.
+            assert(cursor.va == pre_query_cursor_va);
+            assert(cursor_owner@.mappings == pre_query_view.mappings);
+            cursor_owner.va.reflect_prop(cursor.va);
+            assert(cursor_owner@.cur_va == start);
+            assert(cursor_owner@.mappings == owner.cursor_view_at(addr).mappings);
+            assert(cursor_owner@.cur_va == owner.cursor_view_at(addr).cur_va);
+        }
+        state.1
     }
 
     /// Create a kernel virtual area and map tracked pages into it.
@@ -382,7 +434,6 @@ impl KVirtArea {
     ///  - the area size is not a multiple of [`PAGE_SIZE`];
     ///  - the map offset is not aligned to [`PAGE_SIZE`];
     ///  - the map offset plus the size of the pages exceeds the area size.
-    // TODO: T should be any AnyFrameMeta + Repr<MetaSlotStorage>
     #[verus_spec(
         with Tracked(owner): Tracked<KVirtAreaOwner>,
             Tracked(entry_owners): Tracked<&mut Seq<EntryOwner<KernelPtConfig>>>,
@@ -390,10 +441,10 @@ impl KVirtArea {
             Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>,
             Tracked(guard_perm): Tracked<GuardPerm<'a, KernelPtConfig>>
     )]
-    pub fn map_frames<'a, T: AnyUFrameMeta, A: InAtomicMode + 'a>(
+    pub fn map_frames<'a, A: InAtomicMode + 'a>(
         area_size: usize,
         map_offset: usize,
-        frames: alloc::vec::Vec<Frame<T>>,
+        frames: alloc::vec::Vec<DynFrame>,
         prop: PageProperty,
     ) -> Self
         requires
@@ -471,9 +522,8 @@ impl KVirtArea {
 
             let tracked mut entry_owner = entry_owners.tracked_remove(0);
 
-            let dynframe = frame_into_dynframe(frame);
             // Now Verus knows: dynframe == frame_as_dynframe(it.elements[it.pos])
-            let item = MappedItem::Tracked(dynframe, prop);
+            let item = MappedItem::Tracked(frame, prop);
             assert(cursor.inner.invariants(cursor_owner, *regions, *guards));
 
             let ghost regions_before_map = *regions;
@@ -662,8 +712,11 @@ impl KVirtArea {
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
-                // TODO: derive pa < MAX_PADDR from pa_range bounds.
-                assume(pa < MAX_PADDR);
+                proof {
+                    lemma_page_size_ge_page_size(level);
+                    assert(pa as nat + page_size(level) as nat <= pa_range.end as nat);
+                    assert(pa < MAX_PADDR);
+                }
                 proof_decl! {
                     let tracked mut entry_owner =
                         EntryOwner::<KernelPtConfig>::new_untracked_frame(pa, level, prop);
@@ -690,10 +743,12 @@ impl KVirtArea {
                 // Save ghost copy of regions before map for post-map invariant maintenance.
                 let ghost pre_map_regions: MetaRegionOwners = *regions;
 
+                proof {
+                    KernelPtConfig::axiom_kernel_htl_lt_nr_levels();
+                    assert(!cursor.map_panic_conditions(item));
+                    assert(cursor.item_wf(item, entry_owner));
+                }
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
-                // TODO: derive from VA tracking + page size arithmetic.
-                assume(!cursor.map_panic_conditions(item));
-                assume(cursor.item_wf(item, entry_owner));
                 assume(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);

@@ -18,6 +18,7 @@ use vstd::prelude::*;
 pub mod mapping;
 
 use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE};
+use crate::mm::io::{Infallible, VmReader};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
@@ -147,7 +148,7 @@ pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
 
 /// Space-holder of the AnyFrameMeta virtual table.
 pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
-    exec fn on_drop(&mut self) {
+    exec fn on_drop(&mut self, _reader: &mut VmReader<'_, Infallible>) {
     }
 
     exec fn is_untyped(&self) -> bool {

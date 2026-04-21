@@ -266,7 +266,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             Tracked(new_owner): Tracked<&mut EntryOwner<C>>,
             Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
             Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>,
-            Ghost(write_path): Ghost<bool>
     )]
     pub(in crate::mm) fn replace(&mut self, new_child: Child<C>) -> (res: Child<C>)
         requires
@@ -284,24 +283,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             *final(owner) == old(owner).from_pte_owner_spec(),
             *final(new_owner) == old(new_owner).into_pte_owner_spec(),
             Self::metaregion_sound_neq_preserved(*old(owner), *final(new_owner), *old(regions), *final(regions)),
-            // When the new child is not a node and paths_in_pt is not written:
-            // metaregion_sound is preserved with only paddr_neq(old_child).
-            (!final(new_owner).is_node() && !write_path) ==>
+            !final(new_owner).is_node() ==>
                 Self::metaregion_sound_neq_old_preserved(*old(owner), *old(regions), *final(regions)),
-            // When BOTH old and new are not nodes AND paths_in_pt was empty at new_idx
-            // (from item_not_mapped), metaregion_sound is fully preserved:
-            // no node had metaregion_sound at new_idx (requires paths_in_pt == set![path]),
-            // and frames don't check paths_in_pt structurally.
-            // When paths_in_pt is NOT written (!write_path && !is_node): metaregion_sound fully preserved.
-            (!old(owner).is_node() && !final(new_owner).is_node() && !write_path) ==>
+            (!old(owner).is_node() && !final(new_owner).is_node()) ==>
                 Self::metaregion_sound_preserved(*old(regions), *final(regions)),
-            // path_tracked_pred for new owner when paths_in_pt is written (node or write_path).
-            (final(new_owner).is_node() || write_path) && !final(new_owner).is_absent() ==>
+            final(new_owner).is_node() && !final(new_owner).is_absent() ==>
                 PageTableOwner::<C>::path_tracked_pred(*final(regions))(*final(new_owner), final(new_owner).path),
             final(self).parent_perms_preserved(*old(parent_owner), *final(parent_owner), *final(guard_perm), *old(guard_perm)),
-            // paths_in_pt changes when new owner is a node OR write_path; preserved otherwise.
+            // paths_in_pt changes when new owner is a node; preserved otherwise.
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                (!(final(new_owner).is_node() || write_path) || final(new_owner).is_absent()
+                (!final(new_owner).is_node() || final(new_owner).is_absent()
                     || idx != frame_to_index(final(new_owner).meta_slot_paddr().unwrap()))
                     ==> final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
             // slots: monotonic (from_pte may add; into_pte doesn't remove for non-nodes).
@@ -311,9 +302,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
                 &&& final(regions).slots == old(regions).slots
                 &&& forall|i: usize| #![trigger final(regions).slot_owners[i]]
-                    (!(final(new_owner).is_node() || write_path) || final(new_owner).is_absent()
-                        || i != frame_to_index(final(new_owner).meta_slot_paddr().unwrap()))
-                    ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
+                    final(regions).slot_owners[i] == old(regions).slot_owners[i]
             },
             // When old child is absent and new child is not a node: slots values unchanged.
             (old(owner).is_absent() && !final(new_owner).is_node()) ==>
@@ -412,9 +401,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         assert(Self::metaregion_sound_neq_preserved(*old(owner), *new_owner, *old(regions), *regions));
 
         proof {
-            // When both old and new are not nodes and paths_in_pt is not written:
+            // When both old and new are not nodes:
             // from_pte/into_pte are identity, no slot_owners change. Regions unchanged.
-            if !old(owner).is_node() && !new_owner.is_node() && !write_path {
+            if !old(owner).is_node() && !new_owner.is_node() {
                 // slot_owners and slots are identical → metaregion_sound trivially preserved.
             }
         }
@@ -821,14 +810,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 forall|j: int| #![auto] 0 <= j < i ==> {
                     new_owner.children[j].unwrap().value.is_frame()
                 },
-                // Sub-page slots (4KB-grained, j > 0): slots.contains_key and rc != UNUSED preserved.
-                // The j = 0 case is handled separately (the huge frame's own slot).
+                // Sub-page slots (4KB-grained, j > 0): slots.contains_key, rc != UNUSED, and rc > 0
+                // are all preserved. The j = 0 case is handled separately (the huge frame's own slot).
                 forall |j: usize| #![trigger frame_to_index(
                     (pa + j * PAGE_SIZE) as usize)]
                     0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.slots.contains_key(sub_idx)
                     &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                 },
                 // j = 0: the huge frame's own slot. These come from the huge
                 // frame's `metaregion_sound` at function entry and are
@@ -837,6 +827,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 regions.slots.contains_key(frame_to_index(pa)),
                 regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0,
                 new_page.ptr.addr() == new_owner_meta_addr,
         {
             proof {
@@ -931,6 +922,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                         let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
                         let big_j_int: int = i as int * sub_pages_per_subframe as int + j_prime as int;
@@ -974,8 +966,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 Tracked(&mut new_owner_child.value),
                 Tracked(&mut child_owner),
                 Tracked(&mut new_owner_node),
-                Tracked(&mut new_guard_perm),
-                Ghost(false))]
+                Tracked(&mut new_guard_perm))]
             let old = entry.replace(Child::Frame(small_pa, level - 1, prop));
 
             proof {

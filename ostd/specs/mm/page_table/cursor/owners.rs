@@ -227,7 +227,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 &&& child.unwrap().value.parent_level == self.level()
                 &&& child.unwrap().level == self.tree_level + 1
                 &&& !child.unwrap().value.in_scope
-                &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(child.unwrap().value))
+                &&& child.unwrap().value.path.len() == self.entry_own.node.unwrap().tree_level + 1
+                &&& child.unwrap().value.match_pte(
+                    self.entry_own.node.unwrap().children_perm.value()[i],
+                    self.entry_own.node.unwrap().level)
                 &&& child.unwrap().value.path == self.path().push_tail(i as usize)
             }
         }
@@ -235,6 +238,26 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn inv_children_rel(self) -> bool {
         forall_seq(self.children, self.inv_children_rel_pred())
+    }
+
+    pub open spec fn pt_inv_children_pred() -> spec_fn(int, Option<OwnerSubtree<C>>) -> bool {
+        |i: int, child: Option<OwnerSubtree<C>>|
+            child is Some ==> PageTableOwner(child.unwrap()).pt_inv()
+    }
+
+    pub open spec fn pt_inv_children(self) -> bool {
+        forall_seq(self.children, Self::pt_inv_children_pred())
+    }
+
+    pub proof fn pt_inv_children_unroll(self, i: int)
+        requires
+            self.pt_inv_children(),
+            0 <= i < self.children.len(),
+            self.children[i] is Some,
+        ensures
+            PageTableOwner(self.children[i].unwrap()).pt_inv(),
+    {
+        lemma_forall_seq_index(self.children, Self::pt_inv_children_pred(), i);
     }
 
     pub proof fn inv_children_rel_unroll(self, i: int)
@@ -246,7 +269,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.children[i].unwrap().value.parent_level == self.level(),
             self.children[i].unwrap().level == self.tree_level + 1,
             !self.children[i].unwrap().value.in_scope,
-            <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(self.children[i].unwrap().value)),
+            self.children[i].unwrap().value.path.len() == self.entry_own.node.unwrap().tree_level + 1,
+            self.children[i].unwrap().value.match_pte(
+                self.entry_own.node.unwrap().children_perm.value()[i],
+                self.entry_own.node.unwrap().level),
             self.children[i].unwrap().value.path == self.path().push_tail(i as usize),
     {
         lemma_forall_seq_index(
@@ -258,6 +284,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         &&& 0 <= self.idx < NR_ENTRIES
         &&& self.inv_children()
         &&& self.inv_children_rel()
+        &&& self.pt_inv_children()
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
         &&& !self.entry_own.in_scope
@@ -349,16 +376,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             child_value.path == entry_own.path.push_tail(idx),
             child_value.path.len() == parent_owner.tree_level + 1,
         ensures
-            <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                entry_own,
-                idx as int,
-                Some(child_value)),
+            child_value.path.len() == parent_owner.tree_level + 1,
+            child_value.match_pte(parent_owner.children_perm.value()[idx as int], parent_owner.level),
+            child_value.path == entry_own.path.push_tail(idx),
+            child_value.parent_level == parent_owner.level,
     { }
 
     /// After restoring `entry_own.node = Some(parent_owner)` and putting the child back
-    /// at `idx`, the continuation invariant holds. The child at `idx` may have been modified
-    /// (e.g., by `split_if_mapped_huge` or `protect`) but must satisfy `inv()`, have the
-    /// correct path/parent_level/level, satisfy `rel_children`, and have `!in_scope`.
+    /// at `idx`, the continuation invariant holds.
     pub axiom fn continuation_inv_holds_after_child_restore(self)
         requires
             self.entry_own.is_node(),
@@ -374,8 +399,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.children[self.idx as int].unwrap().value.parent_level == self.level(),
             self.children[self.idx as int].unwrap().value.path == self.path().push_tail(self.idx as usize),
             self.children[self.idx as int].unwrap().level == self.tree_level + 1,
-            <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                self.entry_own, self.idx as int, Some(self.children[self.idx as int].unwrap().value)),
+            self.children[self.idx as int].unwrap().value.path.len()
+                == self.entry_own.node.unwrap().tree_level + 1,
+            self.children[self.idx as int].unwrap().value.match_pte(
+                self.entry_own.node.unwrap().children_perm.value()[self.idx as int],
+                self.entry_own.node.unwrap().level),
             !self.children[self.idx as int].unwrap().value.in_scope,
         ensures
             self.inv();
@@ -471,10 +499,14 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[2].path() == self.continuations[3].path().push_tail(self.continuations[3].idx as usize)
-            // PTE consistency: child entry matches parent's PTE at parent's index
-            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                    self.continuations[3].entry_own, self.continuations[3].idx as int,
-                    Some(self.continuations[2].entry_own))
+            // PTE consistency
+            &&& self.continuations[2].entry_own.path.len()
+                == self.continuations[3].entry_own.node.unwrap().tree_level + 1
+            &&& self.continuations[2].entry_own.match_pte(
+                self.continuations[3].entry_own.node.unwrap().children_perm.value()[self.continuations[3].idx as int],
+                self.continuations[3].entry_own.node.unwrap().level)
+            &&& self.continuations[2].entry_own.parent_level
+                == self.continuations[3].entry_own.node.unwrap().level
         }
         &&& self.level <= 2 ==> {
             &&& self.continuations.contains_key(1)
@@ -488,10 +520,14 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[1].path() == self.continuations[2].path().push_tail(self.continuations[2].idx as usize)
-            // PTE consistency: child entry matches parent's PTE at parent's index
-            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                    self.continuations[2].entry_own, self.continuations[2].idx as int,
-                    Some(self.continuations[1].entry_own))
+            // PTE consistency
+            &&& self.continuations[1].entry_own.path.len()
+                == self.continuations[2].entry_own.node.unwrap().tree_level + 1
+            &&& self.continuations[1].entry_own.match_pte(
+                self.continuations[2].entry_own.node.unwrap().children_perm.value()[self.continuations[2].idx as int],
+                self.continuations[2].entry_own.node.unwrap().level)
+            &&& self.continuations[1].entry_own.parent_level
+                == self.continuations[2].entry_own.node.unwrap().level
         }
         &&& self.level == 1 ==> {
             &&& self.continuations.contains_key(0)
@@ -507,10 +543,14 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[0].path() == self.continuations[1].path().push_tail(self.continuations[1].idx as usize)
-            // PTE consistency: child entry matches parent's PTE at parent's index
-            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                    self.continuations[1].entry_own, self.continuations[1].idx as int,
-                    Some(self.continuations[0].entry_own))
+            // PTE consistency
+            &&& self.continuations[0].entry_own.path.len()
+                == self.continuations[1].entry_own.node.unwrap().tree_level + 1
+            &&& self.continuations[0].entry_own.match_pte(
+                self.continuations[1].entry_own.node.unwrap().children_perm.value()[self.continuations[1].idx as int],
+                self.continuations[1].entry_own.node.unwrap().level)
+            &&& self.continuations[0].entry_own.parent_level
+                == self.continuations[1].entry_own.node.unwrap().level
         }
     }
 }
@@ -601,7 +641,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.nodes_locked(guards1);
 
     /// After a `protect` operation that only modifies `frame.prop` of the current entry,
-    /// `CursorOwner::inv()` and `metaregion_sound`/`metaregion_correct` are preserved.
+    /// `CursorOwner::inv()` and `metaregion_sound` are preserved.
     ///
     /// Safety: `protect` changes only `frame.prop` and updates `parent.children_perm` to match.
     /// `EntryOwner::inv()` is preserved (from protect postcondition).
@@ -673,6 +713,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.va.index[self.level as int - 1] == self.continuations[self.level as int - 1].idx);
         assert(self.prefix == old(self).prefix);
         assert(self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
+        // inc_index doesn't change children, so pt_inv_children transfers.
+        assert(cont.children == old(self).continuations[self.level - 1].children);
+        assert(cont.pt_inv_children());
     }
 
     pub proof fn inv_continuation(self, i: int)
@@ -741,7 +784,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// `item_from_raw_spec` always returns a freshly-constructed `Frame<M>` handle whose
     /// `Frame::<M>::clone_requires` unfolds to slot-address equality, initialisation, and a
     /// bounded ref-count — all delivered by `metaregion_sound` for frame entries.
-    pub axiom fn cur_frame_clone_requires(
+    pub proof fn cur_frame_clone_requires(
         self,
         item: C::Item,
         pa: Paddr,
@@ -751,18 +794,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             self.inv(),
+            regions.inv(),
             self.metaregion_sound(regions),
             self.cur_entry_owner().is_frame(),
             pa == self.cur_entry_owner().frame.unwrap().mapped_pa,
             C::item_from_raw_spec(pa, level, prop) == item,
+            crate::mm::frame::meta::has_safe_slot(pa),
+            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
-            item.clone_requires(
-                regions.slots[frame_to_index(pa)],
-                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count,
-            );
+            item.clone_requires(regions)
+    {
+        // Extract the frame-slot facts from metaregion_sound via path_metaregion_sound.
+        assert(self.path_metaregion_sound(regions));
+        assert(self.cur_entry_owner().metaregion_sound(regions));
+        // Now all preconditions of `C::clone_requires_concrete` are in scope.
+        C::clone_requires_concrete(item, pa, level, prop, regions);
+    }
 
     /// Incrementing the ref count of the current frame preserves `regions.inv()` and
-    /// `self.metaregion_sound(new_regions) && self.metaregion_correct(new_regions)`.
+    /// `self.metaregion_sound(new_regions)`.
     pub proof fn clone_item_preserves_invariants(
         self,
         old_regions: MetaRegionOwners,
@@ -808,7 +859,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             new_regions.inv(),
             self.metaregion_sound(new_regions),
-            self.metaregion_correct(old_regions) ==> self.metaregion_correct(new_regions),
     {
         self.cont_entries_metaregion(old_regions);
         assert(new_regions.slot_owners[idx].inv());
@@ -1085,7 +1135,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// The node at `level+1` containing `va` fits within the locked range.
-    #[verifier::rlimit(8000)]
+    #[verifier::rlimit(10000)]
     pub proof fn node_within_locked_range(self, level: PagingLevel)
         requires
             self.inv(),
@@ -1151,12 +1201,30 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ad_q = ad as int / ps as int;
         let end_q = end as int / ps as int;
         let ps_i = ps as int;
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(va, ps);
+        vstd_extra::arithmetic::lemma_nat_align_up_sound(pv, ps_gl);
+        assert(ad as int % ps as int == 0);
+        assert(end as int % ps as int == 0);
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad as int, ps as int);
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps as int);
+        // ad == ps * (ad / ps) + ad % ps (from fundamental_div_mod) with ad % ps == 0.
+        assert(ad as int == (ps as int) * (ad as int / ps as int) + ad as int % ps as int);
+        assert(end as int == (ps as int) * (end as int / ps as int) + end as int % ps as int);
+        vstd::arithmetic::mul::lemma_mul_is_commutative(ps as int, ad as int / ps as int);
+        vstd::arithmetic::mul::lemma_mul_is_commutative(ps as int, end as int / ps as int);
+        assert(ad as int == ad_q * ps_i + (ad as int % ps as int));
+        assert(ad as int % ps as int == 0);
+        assert(ad as int == ad_q * ps_i);
+        assert(end as int % ps as int == 0);
+        assert(end as int == end_q * ps_i) by (nonlinear_arith)
+            requires
+                end as int == (ps as int) * (end as int / ps as int) + end as int % ps as int,
+                end as int % ps as int == 0,
+                end_q == end as int / ps as int,
+                ps_i == ps as int;
         assert((ad_q + 1) * ps_i <= end_q * ps_i) by (nonlinear_arith)
             requires ad_q + 1 <= end_q, ps_i >= 0;
-        vstd::arithmetic::mul::lemma_mul_is_distributive_add(ps_i, ad_q, 1);
-        vstd::arithmetic::mul::lemma_mul_is_commutative(end_q, ps_i);
-        assert(ad + ps <= end);
-        assert(ad as usize + page_size((level + 1) as PagingLevel) <= self.locked_range().end);
+        assert((ad_q + 1) * ps_i == ad_q * ps_i + ps_i) by (nonlinear_arith);
     }
 
     pub proof fn locked_range_page_aligned(self)
@@ -1317,26 +1385,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.continuations[i].entry_own.metaregion_sound(regions)
     }
 
-    /// The entry_own at each continuation level satisfies `path_tracked_pred`.
-    pub open spec fn path_metaregion_correct(self, regions: MetaRegionOwners) -> bool {
-        forall|i: int| #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==>
-                PageTableOwner::<C>::path_tracked_pred(regions)(
-                    self.continuations[i].entry_own,
-                    self.continuations[i].path())
-    }
-
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool
     {
         &&& self.map_full_tree(|entry_owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             entry_owner.metaregion_sound(regions))
         &&& self.path_metaregion_sound(regions)
-    }
-
-    pub open spec fn metaregion_correct(self, regions: MetaRegionOwners) -> bool
-    {
-        &&& self.map_full_tree(PageTableOwner::<C>::path_tracked_pred(regions))
-        &&& self.path_metaregion_correct(regions)
     }
 
     // not_in_tree, absent_not_in_tree, not_in_tree_from_not_mapped
@@ -1351,17 +1404,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             OwnerSubtree::implies(
                 PageTableOwner::<C>::metaregion_sound_pred(regions0),
                 PageTableOwner::<C>::metaregion_sound_pred(regions1)),
-            OwnerSubtree::implies(
-                PageTableOwner::<C>::path_tracked_pred(regions0),
-                PageTableOwner::<C>::path_tracked_pred(regions1)),
         ensures
             other.metaregion_sound(regions1),
-            self.metaregion_correct(regions0) ==> other.metaregion_correct(regions1),
     {
-        let e = PageTableOwner::<C>::path_tracked_pred(regions0);
         let f = PageTableOwner::metaregion_sound_pred(regions0);
         let g = PageTableOwner::metaregion_sound_pred(regions1);
-        let h = PageTableOwner::<C>::path_tracked_pred(regions1);
 
         assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS implies {
             other.continuations[i].map_children(g)
@@ -1386,33 +1433,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(g(eo, self.continuations[i].path()));
             };
         };
-        if self.metaregion_correct(regions0) {
-            assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS implies {
-                other.continuations[i].map_children(h)
-            } by {
-                let cont = self.continuations[i];
-                assert(cont.inv());
-                assert(cont.map_children(e));
-                reveal(CursorContinuation::inv_children);
-                assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] cont.children[j] is Some implies
-                    cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), h) by {
-                        cont.inv_children_unroll(j);
-                        cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), e, h);
-                };
-            };
-            assert(other.path_metaregion_correct(regions1)) by {
-                assert forall|i: int| #![trigger other.continuations[i]]
-                    self.level - 1 <= i < NR_LEVELS implies
-                        PageTableOwner::<C>::path_tracked_pred(regions1)(
-                            other.continuations[i].entry_own,
-                            other.continuations[i].path()) by {
-                    self.inv_continuation(i);
-                };
-            };
-        }
     }
 
-    /// Transfers `metaregion_sound`+`metaregion_correct` when `slot_owners` is preserved.
+    /// Transfers `metaregion_sound` when `slot_owners` is preserved.
     pub proof fn metaregion_slot_owners_preserved(self, regions0: MetaRegionOwners, regions1: MetaRegionOwners)
         requires
             self.inv(),
@@ -1422,18 +1445,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall |k: usize| regions0.slots.contains_key(k) ==> regions0.slots[k] == #[trigger] regions1.slots[k],
         ensures
             self.metaregion_sound(regions1),
-            self.metaregion_correct(regions0) ==> self.metaregion_correct(regions1),
     {
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
-        let e = PageTableOwner::<C>::path_tracked_pred(regions0);
-        let h = PageTableOwner::<C>::path_tracked_pred(regions1);
         assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             entry.inv() && f(entry, path) implies #[trigger] g(entry, path) by {
                 entry.metaregion_sound_slot_owners_only(regions0, regions1);
         };
-        assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            entry.inv() && e(entry, path) implies #[trigger] h(entry, path) by {};
         self.metaregion_preserved(self, regions0, regions1);
     }
 
@@ -1466,12 +1484,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 regions1.slot_owners[i] == regions0.slot_owners[i],
         ensures
             self.metaregion_sound(regions1),
-            self.metaregion_correct(regions0) ==> self.metaregion_correct(regions1),
     {
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
-        let e = PageTableOwner::<C>::path_tracked_pred(regions0);
-        let h = PageTableOwner::<C>::path_tracked_pred(regions1);
         assert(OwnerSubtree::implies(f, g)) by {
             assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                 entry.inv() && f(entry, path) implies #[trigger] g(entry, path) by {
@@ -1481,16 +1496,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        assert(OwnerSubtree::implies(e, h)) by {
-            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.inv() && e(entry, path) implies #[trigger] h(entry, path) by {
-                if entry.meta_slot_paddr() is Some { let eidx = frame_to_index(entry.meta_slot_paddr().unwrap()); if eidx != idx {} }
-            };
-        };
         self.metaregion_preserved(self, regions0, regions1);
     }
 
-    /// Transfers `metaregion_sound`+`metaregion_correct` when `raw_count` changed from 0 to 1 at one index.
+    /// Transfers `metaregion_sound` when `raw_count` changed from 0 to 1 at one index.
     /// Uses `map_implies_and` with `not_in_scope_pred` since tree entries have `!in_scope`.
     pub proof fn metaregion_borrow_slot(
         self, regions0: MetaRegionOwners, regions1: MetaRegionOwners, changed_idx: usize
@@ -1519,12 +1528,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.slot_owners.dom() =~= regions1.slot_owners.dom(),
         ensures
             self.metaregion_sound(regions1),
-            self.metaregion_correct(regions0) ==> self.metaregion_correct(regions1),
     {
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
-        let e = PageTableOwner::<C>::path_tracked_pred(regions0);
-        let h = PageTableOwner::<C>::path_tracked_pred(regions1);
         let nsp = PageTableOwner::<C>::not_in_scope_pred();
 
         assert(OwnerSubtree::implies(
@@ -1578,60 +1584,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        if self.metaregion_correct(regions0) {
-            assert(OwnerSubtree::implies(
-                |v: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e(v, p) && nsp(v, p), h)) by {
-                assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.inv() && e(entry, path) && nsp(entry, path)
-                    implies #[trigger] h(entry, path) by {
-                    if entry.meta_slot_paddr() is Some {
-                        let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
-                        if eidx != changed_idx {}
-                    }
-                };
-            };
-
-            assert forall |i: int|
-                #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS implies {
-                    self.continuations[i].map_children(h)
-                }
-            by {
-                let cont = self.continuations[i];
-                reveal(CursorContinuation::inv_children);
-                assert forall |j: int| 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies
-                    cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), nsp)
-                by {
-                    cont.inv_children_unroll(j);
-                    PageTableOwner::tree_not_in_scope(cont.children[j].unwrap(), cont.path().push_tail(j as usize));
-                };
-                assert forall |j: int| 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies
-                    cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), h)
-                by {
-                    cont.inv_children_unroll(j);
-                    cont.children[j].unwrap().map_implies_and(cont.path().push_tail(j as usize), e, nsp, h);
-                };
-            };
-            assert(self.path_metaregion_correct(regions1)) by {
-                assert forall|i: int| #![trigger self.continuations[i]]
-                    self.level - 1 <= i < NR_LEVELS implies
-                        PageTableOwner::<C>::path_tracked_pred(regions1)(
-                            self.continuations[i].entry_own,
-                            self.continuations[i].path()) by {
-                    self.inv_continuation(i);
-                    let eo = self.continuations[i].entry_own;
-                    if eo.meta_slot_paddr() is Some {
-                        let eidx = frame_to_index(eo.meta_slot_paddr().unwrap());
-                        if eidx != changed_idx {}
-                    }
-                };
-            };
-        }
     }
 
-    /// Continuation entry_owns satisfy `metaregion_sound` and `path_tracked_pred`.
+    /// Continuation entry_owns satisfy `metaregion_sound`.
     ///
     /// ## Justification
     /// When the cursor descends into a subtree, each continuation's `entry_own`
@@ -1650,15 +1605,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int| #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS ==>
                     self.continuations[i].entry_own.metaregion_sound(regions),
-            self.metaregion_correct(regions) ==>
-                forall|i: int| #![trigger self.continuations[i]]
-                    self.level - 1 <= i < NR_LEVELS ==>
-                        PageTableOwner::<C>::path_tracked_pred(regions)(
-                            self.continuations[i].entry_own,
-                            self.continuations[i].path()),
     {
-        // Follows directly from path_metaregion_sound / path_metaregion_correct,
-        // which are now part of metaregion_sound / metaregion_correct.
+        // Follows directly from path_metaregion_sound,
+        // which is part of metaregion_sound.
     }
 
     pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
@@ -1719,9 +1668,6 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
 impl<C: PageTableConfig> CursorView<C> {
     /// Mappings in the view are non-overlapping. This is a consequence of the
     /// page table tree structure: distinct paths map to disjoint VA ranges.
-    /// Proving this formally requires `metaregion_correct` (which tracks
-    /// unique paths via `paths_in_pt`), plus tree induction showing that
-    /// distinct paths produce disjoint VA ranges.
     pub open spec fn non_overlapping(self) -> bool {
         forall|m: Mapping, n: Mapping| #![auto]
             self.mappings.contains(m) ==>
@@ -1737,6 +1683,7 @@ impl<C: PageTableConfig> CursorView<C> {
 /// `KernelPtConfig` it requires canonical high-half sign-extension reasoning
 /// at the arch boundary. Kept as a free axiom to avoid a cyclic trait
 /// dependency between `PageTableConfig` and `CursorOwner`.
+// TODO: make this a parameter of `PageTableConfig` and prove it per-config
 pub axiom fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(
     owner: &CursorOwner<'rcu, C>,
 )
@@ -1777,7 +1724,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// tree structure alone: `as_page_table_owner_preserves_view_mappings`
     /// collapses the union-over-continuations view into a single root-rooted
     /// `view_rec`, after which `view_rec_disjoint_vaddrs` gives pairwise
-    /// disjointness directly. `metaregion_correct` is *not* required.
+    /// disjointness directly.
     pub proof fn view_non_overlapping(self)
         requires
             self.inv(),

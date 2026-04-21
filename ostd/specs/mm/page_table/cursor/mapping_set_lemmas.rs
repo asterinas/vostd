@@ -32,9 +32,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.as_page_table_owner().view_rec(self.path()) == self.view_mappings(),
             self.as_subtree().inv(),
+            PageTableOwner(self.as_subtree()).pt_inv(),
     {
         self.inv_children_unroll_all();
         self.as_subtree_inv();
+        self.as_page_table_owner_pt_inv();
     }
 
     pub proof fn view_mappings_take_child(self)
@@ -110,18 +112,26 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.as_subtree().inv(),
     {
         self.inv_children_unroll_all();
+    }
+
+    proof fn as_page_table_owner_pt_inv(self)
+        requires
+            self.inv(),
+            self.all_some(),
+        ensures
+            PageTableOwner(self.as_subtree()).pt_inv(),
+    {
+        self.as_subtree_inv();
         let st = self.as_subtree();
-        assert(st.inv_node());
-        assert forall |i: int| 0 <= i < NR_ENTRIES implies
-            match #[trigger] st.children[i] {
-                Some(child) => {
-                    &&& child.level == st.level + 1
-                    &&& <EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::rel_children(st.value, i, Some(child.value))
-                },
-                None => <EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::rel_children(st.value, i, None),
-            }
+        let depth = (INC_LEVELS - st.level) as nat;
+        assert forall |i: int| #![trigger st.children[i]]
+            0 <= i < NR_ENTRIES implies
+                PageTableOwner::<C>::pt_edge_at(st, i)
+                && PageTableOwner(st.children[i].unwrap())
+                       .pt_inv_at_depth((depth - 1) as nat)
         by {
             self.inv_children_rel_unroll(i);
+            self.pt_inv_children_unroll(i);
         };
     }
 }
@@ -546,6 +556,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.as_page_table_owner().view_rec(self.continuations[3].path()) == self.view_mappings(),
             self.as_page_table_owner().0.inv(),
             self.as_page_table_owner().0.level == self.continuations[3].tree_level,
+            self.as_page_table_owner().pt_inv(),
     {
         if self.level == 4 {
             self.continuations[3].as_page_table_owner_preserves_view_mappings();
@@ -565,6 +576,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     if i == c3.idx as int {
                     } else {
                         assert(l4.children[i] == c3.children[i]);
+                    }
+                };
+            };
+
+            c2.as_page_table_owner_pt_inv();
+            assert(l4.pt_inv_children()) by {
+                assert forall |i: int|
+                    #![trigger l4.children[i]]
+                    !(0 <= i < l4.children.len())
+                        || (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
+                by {
+                    if 0 <= i < l4.children.len() {
+                        if i == c3.idx as int {
+                            assert(l4.children[i] == Some(c2.as_subtree()));
+                        } else {
+                            assert(l4.children[i] == c3.children[i]);
+                            c3.pt_inv_children_unroll(i);
+                        }
+                    } else {
+                        assert(!(0 <= i < l4.children.len()));
                     }
                 };
             };
@@ -598,6 +629,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     }
                 };
             };
+            c1.as_page_table_owner_pt_inv();
+            assert(l3.pt_inv_children()) by {
+                assert forall |i: int|
+                    #![trigger l3.children[i]]
+                    !(0 <= i < l3.children.len())
+                        || (l3.children[i] is Some ==> PageTableOwner(l3.children[i].unwrap()).pt_inv())
+                by {
+                    if 0 <= i < l3.children.len() {
+                        if i == c2.idx as int {
+                            assert(l3.children[i] == Some(c1.as_subtree()));
+                        } else {
+                            assert(l3.children[i] == c2.children[i]);
+                            c2.pt_inv_children_unroll(i);
+                        }
+                    } else {
+                        assert(!(0 <= i < l3.children.len()));
+                    }
+                };
+            };
 
             c1.inv_children_unroll_all();
             c2.inv_children_unroll_all();
@@ -613,6 +663,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         assert(l4.children[i] == Some(l3.as_subtree()));
                     } else {
                         assert(l4.children[i] == c3.children[i]);
+                    }
+                };
+            };
+            l3.as_page_table_owner_pt_inv();
+            assert(l4.pt_inv_children()) by {
+                assert forall |i: int|
+                    #![trigger l4.children[i]]
+                    !(0 <= i < l4.children.len())
+                        || (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
+                by {
+                    if 0 <= i < l4.children.len() {
+                        if i == c3.idx as int {
+                            assert(l4.children[i] == Some(l3.as_subtree()));
+                        } else {
+                            assert(l4.children[i] == c3.children[i]);
+                            c3.pt_inv_children_unroll(i);
+                        }
+                    } else {
+                        assert(!(0 <= i < l4.children.len()));
                     }
                 };
             };
@@ -646,6 +715,24 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     }
                 };
             };
+            c0.as_page_table_owner_pt_inv();
+            assert(l2.pt_inv_children()) by {
+                assert forall |i: int| #![trigger l2.children[i]]
+                    !(0 <= i < l2.children.len())
+                        || (l2.children[i] is Some ==> PageTableOwner(l2.children[i].unwrap()).pt_inv())
+                by {
+                    if 0 <= i < l2.children.len() {
+                        if i == c1.idx as int {
+                            assert(l2.children[i] == Some(c0.as_subtree()));
+                        } else {
+                            assert(l2.children[i] == c1.children[i]);
+                            c1.pt_inv_children_unroll(i);
+                        }
+                    } else {
+                        assert(!(0 <= i < l2.children.len()));
+                    }
+                };
+            };
 
             c0.inv_children_unroll_all();
             c1.inv_children_unroll_all();
@@ -662,6 +749,24 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     }
                 };
             };
+            l2.as_page_table_owner_pt_inv();
+            assert(l3.pt_inv_children()) by {
+                assert forall |i: int| #![trigger l3.children[i]]
+                    !(0 <= i < l3.children.len())
+                        || (l3.children[i] is Some ==> PageTableOwner(l3.children[i].unwrap()).pt_inv())
+                by {
+                    if 0 <= i < l3.children.len() {
+                        if i == c2.idx as int {
+                            assert(l3.children[i] == Some(l2.as_subtree()));
+                        } else {
+                            assert(l3.children[i] == c2.children[i]);
+                            c2.pt_inv_children_unroll(i);
+                        }
+                    } else {
+                        assert(!(0 <= i < l3.children.len()));
+                    }
+                };
+            };
 
             c2.inv_children_unroll_all();
             l3.as_page_table_owner_preserves_view_mappings();
@@ -674,6 +779,24 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     if i == c3.idx as int {
                     } else {
                         assert(l4.children[i] == c3.children[i]);
+                    }
+                };
+            };
+            l3.as_page_table_owner_pt_inv();
+            assert(l4.pt_inv_children()) by {
+                assert forall |i: int| #![trigger l4.children[i]]
+                    !(0 <= i < l4.children.len())
+                        || (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
+                by {
+                    if 0 <= i < l4.children.len() {
+                        if i == c3.idx as int {
+                            assert(l4.children[i] == Some(l3.as_subtree()));
+                        } else {
+                            assert(l4.children[i] == c3.children[i]);
+                            c3.pt_inv_children_unroll(i);
+                        }
+                    } else {
+                        assert(!(0 <= i < l4.children.len()));
                     }
                 };
             };
@@ -753,8 +876,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ///
     /// Collapses the union-over-continuations `view_mappings` into a single
     /// `view_rec` rooted at the reconstructed root page table, then applies
-    /// `view_rec_disjoint_vaddrs` on that single subtree. No `metaregion_correct`
-    /// needed — it follows from tree structure alone.
+    /// `view_rec_disjoint_vaddrs` on that single subtree.
+    /// Follows from tree structure alone.
     pub proof fn as_page_table_owner_view_non_overlapping(self)
         requires
             self.inv(),

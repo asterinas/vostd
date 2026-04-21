@@ -174,7 +174,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.no_node_at_idx(changed_idx),
         ensures
             self.metaregion_sound(regions1),
-            self.metaregion_correct(regions0) ==> self.metaregion_correct(regions1),
     {
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
@@ -218,30 +217,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     regions0, regions1, changed_idx);
             }
         };
-
-        if self.metaregion_correct(regions0) {
-            let e = PageTableOwner::<C>::path_tracked_pred(regions0);
-            let h = PageTableOwner::<C>::path_tracked_pred(regions1);
-            let e_strong = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                e(entry, path) && guard(entry, path);
-
-            assert(OwnerSubtree::implies(e_strong, h)) by {
-                assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.inv() && e_strong(entry, path)
-                implies #[trigger] h(entry, path) by {};
-            };
-
-            self.and_map_full_tree(e, guard);
-            self.map_children_implies(e_strong, h);
-
-            assert forall |i: int| #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS
-            implies
-                PageTableOwner::<C>::path_tracked_pred(regions1)(
-                    self.continuations[i].entry_own,
-                    self.continuations[i].path())
-            by {};
-        }
     }
 }
 

@@ -355,6 +355,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                 &&& regions.slots.contains_key(sub_idx)
                 &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
             }
         }
     }
@@ -375,6 +376,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slots[idx].is_init()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
             &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
             &&& self.frame_sub_pages_valid(regions)
         } else {
@@ -458,6 +460,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     || (
                         r1.slots.contains_key(sub_idx)
                         && r1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                        && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                     )
                 }
             },
@@ -470,6 +473,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// `slots` is unchanged, and the new `paths_in_pt` is correct for any node at that index.
     pub proof fn metaregion_sound_paths_in_pt_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners, changed_idx: usize)
         requires
+            self.inv(),
+            r0.inv(),
             self.metaregion_sound(r0),
             r0.slots == r1.slots,
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
@@ -504,6 +509,45 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         if self.meta_slot_paddr() is Some {
             let eidx = frame_to_index(self.meta_slot_paddr().unwrap());
+            // Bridge `rc > 0` from r0 to r1: at `eidx == changed_idx` inner_perms
+            // are identical; elsewhere the entire slot_owner is identical.
+            if self.is_frame() {
+                if eidx == changed_idx {
+                    assert(r1.slot_owners[eidx].inner_perms
+                        == r0.slot_owners[eidx].inner_perms);
+                } else {
+                    assert(r1.slot_owners[eidx] == r0.slot_owners[eidx]);
+                }
+                // Sub-page `rc > 0` for huge frames: same reasoning, per j.
+                if self.parent_level > 1 {
+                    let pa = self.frame.unwrap().mapped_pa;
+                    let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
+                    let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
+                    assert forall |j: usize|
+                        #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
+                        0 < j < nr_pages implies {
+                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                        &&& r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                        &&& r1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                        &&& r1.slots.contains_key(sub_idx)
+                    } by {
+                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                        // These come from self.metaregion_sound(r0)'s frame arm (since
+                        // self.is_frame() && self.parent_level > 1) which includes
+                        // frame_sub_pages_valid(r0).
+                        assert(r0.slots.contains_key(sub_idx));
+                        assert(r0.slot_owners[sub_idx].inner_perms.ref_count.value() > 0);
+                        assert(r0.slot_owners[sub_idx].inner_perms.ref_count.value()
+                            != REF_COUNT_UNUSED);
+                        if sub_idx == changed_idx {
+                            assert(r1.slot_owners[sub_idx].inner_perms
+                                == r0.slot_owners[sub_idx].inner_perms);
+                        } else {
+                            assert(r1.slot_owners[sub_idx] == r0.slot_owners[sub_idx]);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -540,6 +584,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     == r0.slot_owners[idx].inner_perms.ref_count.id()
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                &&& r1.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& r1.slot_owners[idx].inner_perms.storage
                     == r0.slot_owners[idx].inner_perms.storage
                 &&& r1.slot_owners[idx].inner_perms.vtable_ptr
@@ -619,6 +664,37 @@ impl<C: PageTableConfig> EntryOwner<C> {
             assert(set![self.path].contains(other.path));
             assert(self.path == other.path);
             assert(false); // Contradiction
+        }
+    }
+
+    /// Two node entries with `metaregion_sound` under the same regions cannot share
+    /// a meta slot paddr if their paths have different lengths.
+    ///
+    /// For nodes, `metaregion_sound` requires `paths_in_pt == set![path]` (singleton).
+    /// Equal slot indices would force equal singleton sets, hence equal paths —
+    /// contradicting the length difference.
+    pub proof fn nodes_different_path_lengths_neq_slot(
+        self,
+        other: Self,
+        regions: MetaRegionOwners,
+    )
+        requires
+            self.is_node(),
+            other.is_node(),
+            self.metaregion_sound(regions),
+            other.metaregion_sound(regions),
+            self.path.len() != other.path.len(),
+        ensures
+            self.meta_slot_paddr_neq(other),
+    {
+        let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
+        let other_idx = frame_to_index(other.meta_slot_paddr().unwrap());
+        if self_idx == other_idx {
+            assert(regions.slot_owners[self_idx].paths_in_pt == set![self.path]);
+            assert(regions.slot_owners[other_idx].paths_in_pt == set![other.path]);
+            assert(set![self.path].contains(other.path));
+            assert(self.path == other.path);
+            assert(false);
         }
     }
 }

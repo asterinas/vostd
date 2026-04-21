@@ -106,7 +106,7 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
-    fn on_drop(&mut self) {
+    fn on_drop(&mut self, _reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>) {
     }
 
     fn is_untyped(&self) -> bool {

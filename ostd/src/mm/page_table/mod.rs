@@ -35,6 +35,7 @@ use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
+use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::mm::kspace::kvirt_area::disable_preempt;
@@ -65,17 +66,19 @@ pub enum PageTableError {
 }
 
 pub trait RCClone: Sized {
-    spec fn clone_requires(self, slot_perm: simple_pptr::PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool;
+    spec fn clone_requires(self, perm: MetaRegionOwners) -> bool;
 
-    fn clone(&self, Tracked(slot_perm): Tracked<&simple_pptr::PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> (res: Self)
+    spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool;
+
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self)
         requires
-            self.clone_requires(*slot_perm, *old(rc_perm)),
-            old(rc_perm).is_for(slot_perm.value().ref_count),
-            old(rc_perm).value() < u64::MAX,
+            self.clone_requires(*old(perm)),
         ensures
             res == *self,
-            final(rc_perm).value() == old(rc_perm).value() + 1,
-            final(rc_perm).id() == old(rc_perm).id(),
+            self.clone_ensures(*old(perm), *final(perm), res),
+            final(perm).inv(),
+            final(perm).slots =~= old(perm).slots,
+            final(perm).slot_owners.dom() =~= old(perm).slot_owners.dom(),
     ;
 }
 
@@ -209,6 +212,49 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_from_raw_spec(paddr, level, prop),
     ;
 
+    /// Proves that `clone_ensures` for `Self::Item` implies concrete per-field
+    /// properties on `MetaRegionOwners`. Each `PageTableConfig` implementor proves
+    /// this by unfolding its `MappedItem::clone_ensures` → `Frame::clone_ensures`.
+    /// Proves that after `clone`, the slot at `frame_to_index(pa)` has the expected
+    /// per-field properties. Implementors unfold their `MappedItem::clone_ensures` to
+    /// `Frame::clone_ensures` and connect `pa` to the frame's internal pointer address.
+    proof fn clone_ensures_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        res: Self::Item,
+    )
+        requires
+            item.clone_ensures(old_regions, new_regions, res),
+            Self::item_into_raw_spec(item).0 == pa,
+            res == item,
+            new_regions.inv(),
+            new_regions.slots =~= old_regions.slots,
+            new_regions.slot_owners.dom() =~= old_regions.slot_owners.dom(),
+        ensures
+            forall|i: usize| i != frame_to_index(pa) ==>
+                (#[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]),
+            new_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1,
+            new_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
+                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.id(),
+            new_regions.slot_owners[frame_to_index(pa)].inner_perms.storage
+                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.storage,
+            new_regions.slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
+                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr,
+            new_regions.slot_owners[frame_to_index(pa)].inner_perms.in_list
+                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.in_list,
+            new_regions.slot_owners[frame_to_index(pa)].paths_in_pt
+                == old_regions.slot_owners[frame_to_index(pa)].paths_in_pt,
+            new_regions.slot_owners[frame_to_index(pa)].self_addr
+                == old_regions.slot_owners[frame_to_index(pa)].self_addr,
+            new_regions.slot_owners[frame_to_index(pa)].raw_count
+                == old_regions.slot_owners[frame_to_index(pa)].raw_count,
+            new_regions.slot_owners[frame_to_index(pa)].usage
+                == old_regions.slot_owners[frame_to_index(pa)].usage,
+    ;
+
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
         ensures
             Self::item_into_raw_spec(item) == (paddr, level, prop) <==> Self::item_from_raw_spec(
@@ -216,6 +262,31 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 level,
                 prop,
             ) == item,
+    ;
+
+    /// Proves `item.clone_requires(regions)` from the concrete frame-slot facts
+    /// delivered by `metaregion_sound` plus the non-saturation bound propagated
+    /// from `Cursor::query`. Implementors unfold their `MappedItem::clone_requires`
+    /// to `Frame::clone_requires` and connect `pa` to the frame's internal pointer
+    /// address.
+    proof fn clone_requires_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        regions: MetaRegionOwners,
+    )
+        requires
+            regions.inv(),
+            Self::item_from_raw_spec(pa, level, prop) == item,
+            crate::mm::frame::meta::has_safe_slot(pa),
+            regions.slots.contains_key(frame_to_index(pa)),
+            regions.slot_owners.contains_key(frame_to_index(pa)),
+            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0,
+            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
+        ensures
+            item.clone_requires(regions),
     ;
 }
 
@@ -912,6 +983,7 @@ impl PageTable<KernelPtConfig> {
                                 regions.slots.contains_key(sub_idx)
                                 && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                && regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                             )
                         }
                     },
@@ -959,25 +1031,13 @@ impl PageTable<KernelPtConfig> {
                         }
                     }
 
+                kernel_owner.pt_inv_unroll(i as int);
                 let tracked child_opt: &Option<OwnerSubtree<KernelPtConfig>>
                     = kernel_owner.0.children.tracked_borrow(i as int);
                 let tracked child_subtree: &OwnerSubtree<KernelPtConfig>
                     = child_opt.tracked_borrow();
                 entry_owner = child_subtree.borrow_value();
-                // Partial proof of the entry/to_ref preconditions (the
-                // structural facts about the i-th child of the kernel root).
-                // The remaining gap is discharging the lock-related and
-                // entry-state preconditions, plus the new_node take/put/write
-                // chain. These are tracked in the function-level admit below.
-                assert(kernel_owner.0.inv());
-                assert(kernel_owner.0.value.inv());
-                assert(kernel_owner.0.value.is_node());
-                assert(kernel_owner.0.value.node.unwrap().inv());
-                assert(kernel_owner.0.children[i as int] is Some);
                 let kern_node = kernel_owner.0.value.node.unwrap();
-                assert(<crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>
-                    as vstd_extra::ghost_tree::TreeNodeValue<INC_LEVELS>>::rel_children(
-                    kernel_owner.0.value, i as int, Some(child_subtree.value)));
                 assert(entry_owner.match_pte(
                     kern_node.children_perm.value()[i as int],
                     entry_owner.parent_level));
@@ -1237,7 +1297,6 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *final(regions), *final(guards))
-                &&& r.unwrap().1.metaregion_correct(*final(regions))
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
                 &&& r.unwrap().0.inner.guard_level == NR_LEVELS as PagingLevel
@@ -1275,7 +1334,37 @@ impl<C: PageTableConfig> PageTable<C> {
         requires
             owner.inv(),
         ensures
-            Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Ok
+            Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
+                &&& r is Ok
+                &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
+                &&& r.unwrap().1.in_locked_range()
+                &&& r.unwrap().0.level < r.unwrap().0.guard_level
+                &&& r.unwrap().0.va < r.unwrap().0.barrier_va.end
+                &&& r.unwrap().0.va == va.start
+                &&& r.unwrap().0.barrier_va == *va
+                &&& r.unwrap().1@.as_page_table_owner() == owner
+                &&& r.unwrap().1@.continuations[3].path() == owner.0.value.path
+            },
+            !Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Err,
+            forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+                old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> final(regions).slot_owners[idx].paths_in_pt
+                        == old(regions).slot_owners[idx].paths_in_pt,
+            // Non-saturation preservation.
+            (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+            ==>
+            (forall |i: usize| #![trigger final(regions).slot_owners[i]]
+                final(regions).slot_owners.contains_key(i)
+                && final(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
     )]
     pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>)
     -> Result<(Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {

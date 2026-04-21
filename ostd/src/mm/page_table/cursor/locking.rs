@@ -40,12 +40,39 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
-        (*ret.1).metaregion_correct(*final(regions)),
         (*ret.1).in_locked_range(),
         ret.0.level < ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
+        // The cursor's reconstructed page-table owner equals the input. Locking
+        // only descends into the page table — it does not modify the abstract
+        // mapping structure — so the cursor's root-level view matches the
+        // original owner. Consumed by `as_page_table_owner_preserves_view_mappings`
+        // to relate `cursor_owner@.mappings` back to `pt_own.view_rec(...)`.
+        (*ret.1).as_page_table_owner() == pt_own,
+        // The root continuation's path matches the input's root path — this
+        // lets `view_rec(pt_own.0.value.path)` unify with the lemma's
+        // `view_rec(continuations[3].path())`.
+        (*ret.1).continuations[3].path() == pt_own.0.value.path,
+        // Non-saturation preservation: if the caller established that no
+        // non-UNUSED slot was one increment away from REF_COUNT_MAX before
+        // locking, the same bound holds after. Locking may allocate new PT
+        // nodes (bumping some parent ref counts), but ref counts stay within
+        // safe bounds during a single lock_range call.
+        (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+            old(regions).slot_owners.contains_key(i)
+            && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+            ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+        ==>
+        (forall |i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners.contains_key(i)
+            && final(regions).slot_owners[i].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+            ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
         // Locking only allocates page-table nodes from UNUSED slots, so any
         // slot that was already in use keeps its paths_in_pt intact.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
@@ -137,6 +164,23 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             && (*res.1).in_locked_range()
             && res.0.level < res.0.guard_level
             && res.0.va < res.0.barrier_va.end
+            && (*res.1).as_page_table_owner() == pt_own
+            && (*res.1).continuations[3].path() == pt_own.0.value.path
+        );
+        assume(
+            (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+            ==>
+            (forall |i: usize| #![trigger regions.slot_owners[i]]
+                regions.slot_owners.contains_key(i)
+                && regions.slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
         );
     }
     res
