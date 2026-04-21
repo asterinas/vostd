@@ -5,7 +5,7 @@ use vstd::simple_pptr;
 use vstd::atomic::PermissionU64;
 use vstd::std_specs::clone::*;
 
-use vstd_extra::prelude::lemma_usize_ilog2_ordered;
+use vstd_extra::prelude::{lemma_usize_ilog2_ordered, lemma_usize_pow2_ilog2};
 
 use core::{
     fmt::Debug,
@@ -47,6 +47,8 @@ pub use node::*;
 mod cursor;
 
 pub(crate) use cursor::*;
+
+mod vaddr_range_bv_lemmas;
 
 #[cfg(ktest)]
 mod test;
@@ -714,6 +716,90 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> (ret: bool)
     (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end - 1 <= va_range.end)
 }
 
+/// Sanity-check: for x86_64 kernel PT, `vaddr_range_spec` evaluates to the
+/// low-half `[2^47, 2^48)` window. The exec path (`vaddr_range`) applies
+/// sign extension on top of this and wraps at `usize::MAX + 1`, which is
+/// the "KNOWN BUG" referenced in `vm_space::unmap`. See
+/// `vaddr_range_bounds_spec` below for the overflow-free formulation.
+pub(crate) proof fn lemma_vaddr_range_spec_kernel()
+    ensures
+        vaddr_range_spec::<KernelPtConfig>()
+            == (0x0000_8000_0000_0000_usize..0x0001_0000_0000_0000_usize),
+{
+    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+    lemma2_to64();
+    lemma2_to64_rest();
+    lemma_usize_pow2_ilog2(12);
+    assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
+    assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
+    lemma_usize_pow2_ilog2(9);
+    assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
+    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
+    lemma_pow2_adds(8, 39);
+    lemma_pow2_adds(9, 39);
+    assert((256 as int) * pow2(39) == pow2(47));
+    assert((512 as int) * pow2(39) == pow2(48));
+}
+
+/// Overflow-free specification of the managed virtual address range of a
+/// page table, returned as `(start_inclusive, end_inclusive)` since the
+/// sign-extended end of a kernel PT equals `usize::MAX` and cannot be
+/// represented as an exclusive `Range<Vaddr>`.
+///
+/// For configs without sign extension (or when the base range falls entirely
+/// in the low half), `high_half` is false and the bounds coincide with
+/// `(vaddr_range_spec.start, vaddr_range_spec.end - 1)`. For configs with
+/// sign extension whose base start has its sign bit set (e.g.
+/// `KernelPtConfig`), the mask `2^64 - 2^ADDRESS_WIDTH` is OR'd into both
+/// ends, yielding the canonical upper-half kernel range.
+pub(crate) open spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
+    let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
+    let off = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
+    let aw = C::ADDRESS_WIDTH() as nat;
+    let base_lo = ((idx.start as int) * pow2(off)) as usize;
+    let base_hi_incl = ((idx.end as int) * pow2(off) - 1) as usize;
+    let high_half =
+        C::VA_SIGN_EXT() && (base_lo as nat / pow2((aw - 1) as nat)) % 2 == 1;
+    let mask: usize = if high_half {
+        (pow2(64) - pow2(aw)) as usize
+    } else {
+        0_usize
+    };
+    ((base_lo | mask), (base_hi_incl | mask))
+}
+
+/// Sanity-check: for x86_64 kernel PT, the corrected bounds are
+/// `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`, i.e. the canonical
+/// upper half of the 48-bit virtual address space. Unlike the exclusive-end
+/// form, `end_inclusive = usize::MAX` is representable.
+pub(crate) proof fn lemma_vaddr_range_bounds_spec_kernel()
+    ensures
+        vaddr_range_bounds_spec::<KernelPtConfig>()
+            == (0xFFFF_8000_0000_0000_usize, 0xFFFF_FFFF_FFFF_FFFF_usize),
+{
+    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+    lemma2_to64();
+    lemma2_to64_rest();
+    lemma_usize_pow2_ilog2(12);
+    lemma_usize_pow2_ilog2(9);
+    lemma_pow2_adds(8, 39);
+    lemma_pow2_adds(9, 39);
+    assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
+    assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
+    assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
+    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
+    let base_lo: usize = ((256 as int) * pow2(39)) as usize;
+    let base_hi_incl: usize = ((512 as int) * pow2(39) - 1) as usize;
+    assert(base_lo == 0x0000_8000_0000_0000_usize);
+    assert(base_hi_incl == 0x0000_FFFF_FFFF_FFFF_usize);
+    assert((base_lo as nat / pow2(47)) % 2 == 1);
+    let mask: usize = (pow2(64) - pow2(48)) as usize;
+    assert(mask == 0xFFFF_0000_0000_0000_usize);
+    vaddr_range_bv_lemmas::lemma_kernel_mask_or_bits();
+}
+
+
+
 // Here are some const values that are determined by the paging constants.
 /// The index of a VA's PTE in a page table node at the given level.
 #[verifier::external_body]
@@ -734,8 +820,7 @@ fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize {
     C::BASE_PAGE_SIZE().ilog2() as usize + nr_pte_index_bits::<C>() * (level as usize - 1)
 }
 
-/* TODO: stub out UserPtConfig
-
+/*
 impl PageTable<UserPtConfig> {
     pub fn activate(&self) {
         // SAFETY: The user mode page table is safe to activate since the kernel

@@ -2450,7 +2450,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         //*** KNOWN BUG: `self.inner.va + size` could overflow. For now assume that it doesn't. ***
         assume(self.inner.va + size <= usize::MAX);
-        vstd_extra::assert!(self.inner.va + size <= self.inner.barrier_va.end);
+        let end = self.inner.va + size;
+        vstd_extra::assert!(end <= self.inner.barrier_va.end);
 
         assert(!self.map_panic_conditions(item));
         assert(!old(self).map_panic_conditions(item));
