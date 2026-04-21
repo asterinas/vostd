@@ -615,6 +615,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(parent_owner).relate_guard(*final(self).node)
                 &&& final(owner).value.node.unwrap().relate_guard(res.unwrap())
                 &&& final(owner).value.node.unwrap().meta_perm.addr() == res.unwrap().inner.inner@.ptr.addr()
+                &&& final(guards).lock_held(res.unwrap().inner.inner@.ptr.addr())
                 // All children of the new node subtree are frames with the same prop (from the split loop).
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
                     (#[trigger] final(owner).children[j]).unwrap().value.is_frame()
@@ -726,6 +727,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value.path == new_owner_path,
                 new_owner.value.node.unwrap().meta_perm.addr() == new_owner_meta_addr,
                 new_owner.value.node.unwrap().relate_guard(pt_lock_guard),
+                guards.lock_held(new_owner_meta_addr),
                 new_owner.value.node.unwrap().level == (level - 1) as PagingLevel,
                 forall|j: int|
                     #![auto]
@@ -883,10 +885,46 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 }
 
                 let small_idx = frame_to_index(small_pa);
+
+                // Instantiate the loop invariant's sub-page forall (or the j=0
+                // facts) at small_idx to get slots.contains_key + ref_count facts.
+                if i == 0 {
+                    // small_pa == pa + 0 * page_size(level-1) == pa.
+                    assert(i as int * page_size((level - 1) as PagingLevel) as int == 0) by {
+                        vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
+                            page_size((level - 1) as PagingLevel) as int);
+                    }
+                    assert(small_pa == pa);
+                } else {
+                    let ghost big_j = crate::specs::mm::page_table::cursor::
+                        page_size_lemmas::lemma_split_sub_page_big_j(pa, level, i);
+                    assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
+                    // Trigger the sub-page forall at j = big_j.
+                    assert(regions.slots.contains_key(
+                        frame_to_index((pa + big_j * PAGE_SIZE) as usize)));
+                    assert(regions.slot_owners[frame_to_index(
+                        (pa + big_j * PAGE_SIZE) as usize)].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED);
+                    assert(regions.slot_owners[frame_to_index(
+                        (pa + big_j * PAGE_SIZE) as usize)].inner_perms.ref_count.value() > 0);
+                }
+                assert(regions.slots.contains_key(small_idx));
+                assert(regions.slot_owners[small_idx].inner_perms.ref_count.value()
+                    != REF_COUNT_UNUSED);
+                assert(regions.slot_owners[small_idx].inner_perms.ref_count.value() > 0);
+
+                // Capture the slot's inner_perms before modification; the
+                // tracked_remove/insert below only touches paths_in_pt.
+                let ghost orig_inner_perms = regions.slot_owners[small_idx].inner_perms;
+
                 regions.inv_implies_correct_addr(small_pa);
                 let tracked mut small_slot = regions.slot_owners.tracked_remove(small_idx);
                 small_slot.paths_in_pt = small_slot.paths_in_pt.insert(child_owner.path);
                 regions.slot_owners.tracked_insert(small_idx, small_slot);
+
+                // Post-insert: ref_count and slots.contains_key are preserved.
+                assert(regions.slot_owners[small_idx].inner_perms == orig_inner_perms);
+                assert(regions.slots.contains_key(small_idx));
 
                 if (level - 1) > 1 {
                     assert(child_owner.frame_sub_pages_valid(*regions));

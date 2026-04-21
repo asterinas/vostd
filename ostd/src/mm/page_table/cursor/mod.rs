@@ -1750,7 +1750,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 .relate_guard(*res.node),
     {
         let ghost owner0 = *owner;
-        let ghost self1 = *self;
 
         let node = self.path[self.level as usize - 1].as_mut().unwrap();
         let tracked mut parent_continuation = owner.continuations.tracked_remove(owner.level - 1);
@@ -1773,18 +1772,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(&child.value))]
         let res = node.entry(pte_index::<C>(self.va, self.level));
 
-        // res.idx == ptei: entry ensures res.idx == idx (pte_index result),
-        // pte_index spec gives pte_index result == AbstractVaddr::from_vaddr(va).index[level-1] == ptei.
-
         proof {
             parent_continuation.entry_own.node = Some(parent_own);
             parent_continuation.put_child(child);
             assert(parent_continuation.children == cont0.children);
             owner.continuations.tracked_insert((owner.level - 1) as int, parent_continuation);
             assert(owner.continuations == owner0.continuations);
-            assert(self1.wf(*owner)) by { admit() };
+            admit();
         }
-        proof { admit(); }
 
         res
     }

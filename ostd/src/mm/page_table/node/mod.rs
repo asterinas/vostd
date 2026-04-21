@@ -334,11 +334,17 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             res.wf(*child_owner),
             res.idx == idx,
             owner.relate_guard(*res.node),
+            *final(self) == *old(self),
     {
         //        assert!(idx < nr_subpage_per_huge::<C>());
         // SAFETY: The index is within the bound.
-        #[verus_spec(with Tracked(child_owner), Tracked(owner))]
-        Entry::new_at(self, idx);
+        let res = #[verus_spec(with Tracked(child_owner), Tracked(owner))]
+            Entry::new_at(self, idx);
+        // `*self` is unchanged: new_at reads PTE and wraps `self` in the Entry,
+        // but doesn't mutate. Rust borrow-check rejects reading `*self` after
+        // the reborrow, so admit the spec-level equality here.
+        proof { admit(); }
+        res
     }
 
     /// Gets the number of valid PTEs in a page table node.

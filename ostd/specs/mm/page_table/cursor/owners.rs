@@ -677,6 +677,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
+    #[verifier::spinoff_prover]
     pub proof fn do_inc_index(tracked &mut self)
         requires
             old(self).inv(),

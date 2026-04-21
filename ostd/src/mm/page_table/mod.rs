@@ -1048,7 +1048,6 @@ impl PageTable<KernelPtConfig> {
                     kernel_owner.0.value.path.push_tail(i as usize),
                     PageTableOwner::<KernelPtConfig>::metaregion_sound_pred(*regions)));
                 assert(entry_owner.metaregion_sound(*regions));
-                assert(root_owner.relate_guard(root_node)) by { admit() };
             }
 
             #[verus_spec(with Tracked(root_owner), Tracked(entry_owner))]
