@@ -57,6 +57,7 @@ pub mod task;
 pub mod trap;
 // pub mod user;
 #[path = "../specs/lib.rs"]
+#[allow(missing_docs)]
 pub mod specs;
 pub mod util;
 

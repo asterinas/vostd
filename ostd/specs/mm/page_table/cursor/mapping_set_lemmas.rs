@@ -584,14 +584,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(l4.pt_inv_children()) by {
                 assert forall |i: int|
                     #![trigger l4.children[i]]
-                    0 <= i < l4.children.len() implies
-                    (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
+                    !(0 <= i < l4.children.len())
+                        || (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
                 by {
-                    if i == c3.idx as int {
-                        assert(l4.children[i] == Some(c2.as_subtree()));
+                    if 0 <= i < l4.children.len() {
+                        if i == c3.idx as int {
+                            assert(l4.children[i] == Some(c2.as_subtree()));
+                        } else {
+                            assert(l4.children[i] == c3.children[i]);
+                            c3.pt_inv_children_unroll(i);
+                        }
                     } else {
-                        assert(l4.children[i] == c3.children[i]);
-                        c3.pt_inv_children_unroll(i);
+                        assert(!(0 <= i < l4.children.len()));
                     }
                 };
             };
@@ -629,14 +633,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(l3.pt_inv_children()) by {
                 assert forall |i: int|
                     #![trigger l3.children[i]]
-                    0 <= i < l3.children.len() implies
-                    (l3.children[i] is Some ==> PageTableOwner(l3.children[i].unwrap()).pt_inv())
+                    !(0 <= i < l3.children.len())
+                        || (l3.children[i] is Some ==> PageTableOwner(l3.children[i].unwrap()).pt_inv())
                 by {
-                    if i == c2.idx as int {
-                        assert(l3.children[i] == Some(c1.as_subtree()));
+                    if 0 <= i < l3.children.len() {
+                        if i == c2.idx as int {
+                            assert(l3.children[i] == Some(c1.as_subtree()));
+                        } else {
+                            assert(l3.children[i] == c2.children[i]);
+                            c2.pt_inv_children_unroll(i);
+                        }
                     } else {
-                        assert(l3.children[i] == c2.children[i]);
-                        c2.pt_inv_children_unroll(i);
+                        assert(!(0 <= i < l3.children.len()));
                     }
                 };
             };
@@ -662,14 +670,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(l4.pt_inv_children()) by {
                 assert forall |i: int|
                     #![trigger l4.children[i]]
-                    0 <= i < l4.children.len() implies
-                    (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
+                    !(0 <= i < l4.children.len())
+                        || (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
                 by {
-                    if i == c3.idx as int {
-                        assert(l4.children[i] == Some(l3.as_subtree()));
+                    if 0 <= i < l4.children.len() {
+                        if i == c3.idx as int {
+                            assert(l4.children[i] == Some(l3.as_subtree()));
+                        } else {
+                            assert(l4.children[i] == c3.children[i]);
+                            c3.pt_inv_children_unroll(i);
+                        }
                     } else {
-                        assert(l4.children[i] == c3.children[i]);
-                        c3.pt_inv_children_unroll(i);
+                        assert(!(0 <= i < l4.children.len()));
                     }
                 };
             };
@@ -706,14 +718,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c0.as_page_table_owner_pt_inv();
             assert(l2.pt_inv_children()) by {
                 assert forall |i: int| #![trigger l2.children[i]]
-                    0 <= i < l2.children.len() implies
-                    (l2.children[i] is Some ==> PageTableOwner(l2.children[i].unwrap()).pt_inv())
+                    !(0 <= i < l2.children.len())
+                        || (l2.children[i] is Some ==> PageTableOwner(l2.children[i].unwrap()).pt_inv())
                 by {
-                    if i == c1.idx as int {
-                        assert(l2.children[i] == Some(c0.as_subtree()));
+                    if 0 <= i < l2.children.len() {
+                        if i == c1.idx as int {
+                            assert(l2.children[i] == Some(c0.as_subtree()));
+                        } else {
+                            assert(l2.children[i] == c1.children[i]);
+                            c1.pt_inv_children_unroll(i);
+                        }
                     } else {
-                        assert(l2.children[i] == c1.children[i]);
-                        c1.pt_inv_children_unroll(i);
+                        assert(!(0 <= i < l2.children.len()));
                     }
                 };
             };
@@ -736,14 +752,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             l2.as_page_table_owner_pt_inv();
             assert(l3.pt_inv_children()) by {
                 assert forall |i: int| #![trigger l3.children[i]]
-                    0 <= i < l3.children.len() implies
-                    (l3.children[i] is Some ==> PageTableOwner(l3.children[i].unwrap()).pt_inv())
+                    !(0 <= i < l3.children.len())
+                        || (l3.children[i] is Some ==> PageTableOwner(l3.children[i].unwrap()).pt_inv())
                 by {
-                    if i == c2.idx as int {
-                        assert(l3.children[i] == Some(l2.as_subtree()));
+                    if 0 <= i < l3.children.len() {
+                        if i == c2.idx as int {
+                            assert(l3.children[i] == Some(l2.as_subtree()));
+                        } else {
+                            assert(l3.children[i] == c2.children[i]);
+                            c2.pt_inv_children_unroll(i);
+                        }
                     } else {
-                        assert(l3.children[i] == c2.children[i]);
-                        c2.pt_inv_children_unroll(i);
+                        assert(!(0 <= i < l3.children.len()));
                     }
                 };
             };
@@ -765,14 +785,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             l3.as_page_table_owner_pt_inv();
             assert(l4.pt_inv_children()) by {
                 assert forall |i: int| #![trigger l4.children[i]]
-                    0 <= i < l4.children.len() implies
-                    (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
+                    !(0 <= i < l4.children.len())
+                        || (l4.children[i] is Some ==> PageTableOwner(l4.children[i].unwrap()).pt_inv())
                 by {
-                    if i == c3.idx as int {
-                        assert(l4.children[i] == Some(l3.as_subtree()));
+                    if 0 <= i < l4.children.len() {
+                        if i == c3.idx as int {
+                            assert(l4.children[i] == Some(l3.as_subtree()));
+                        } else {
+                            assert(l4.children[i] == c3.children[i]);
+                            c3.pt_inv_children_unroll(i);
+                        }
                     } else {
-                        assert(l4.children[i] == c3.children[i]);
-                        c3.pt_inv_children_unroll(i);
+                        assert(!(0 <= i < l4.children.len()));
                     }
                 };
             };
