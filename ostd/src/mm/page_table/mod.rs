@@ -124,14 +124,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// This is for the kernel page table, whose second-top-level page
     /// tables need `'static` lifetime to be shared with user page tables.
     /// Other page tables do not need to set this to `false`.
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
-        true
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool)
-        ensures
-            b == Self::TOP_LEVEL_CAN_UNMAP_spec(),
-    ;
+    const TOP_LEVEL_CAN_UNMAP: bool = true;
 
     /// The type of the page table entry.
     type E: PageTableEntryTrait;

@@ -83,7 +83,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         ||| self.inner.va >= self.inner.barrier_va.end
         ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
         ||| C::item_into_raw(item).1 >= self.inner.guard_level
-        ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw(item).1 >= NR_LEVELS)
+        ||| (!C::TOP_LEVEL_CAN_UNMAP && C::item_into_raw(item).1 >= NR_LEVELS)
         ||| self.inner.va % page_size(C::item_into_raw(item).1) != 0
         ||| self.inner.va + page_size(C::item_into_raw(item).1) > self.inner.barrier_va.end
     }

@@ -169,16 +169,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         256..512
     }
 
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
-        false
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool)
-        ensures
-            b == Self::TOP_LEVEL_CAN_UNMAP_spec(),
-    {
-        false
-    }
+    const TOP_LEVEL_CAN_UNMAP: bool = false;
 
     type E = PageTableEntry;
     type C = PagingConsts;

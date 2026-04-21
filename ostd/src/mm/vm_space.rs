@@ -1440,16 +1440,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         0..MAX_USERSPACE_VADDR
     }
 
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {
-        true
-    }
-
     fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
         0..256
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
-        true
     }
 
     type E = PageTableEntry;

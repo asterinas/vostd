@@ -777,7 +777,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             match cur_child {
                 ChildRef::PageTable(pt) => {
-                    if find_unmap_subtree && cur_entry_fits_range && (C::TOP_LEVEL_CAN_UNMAP()
+                    if find_unmap_subtree && cur_entry_fits_range && (C::TOP_LEVEL_CAN_UNMAP
                         || self.level != C::NR_LEVELS()) {
 
                         proof {
@@ -3230,7 +3230,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
             ),
             // panic
-            !C::TOP_LEVEL_CAN_UNMAP_spec() ==> old(owner).level < NR_LEVELS,
+            !C::TOP_LEVEL_CAN_UNMAP ==> old(owner).level < NR_LEVELS,
         ensures
             final(owner)@.mappings == old(owner)@.mappings - PageTableOwner(
                 old(owner).cur_subtree(),
@@ -3739,8 +3739,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
             Child::PageTable(pt) => {
                 // debug_assert_eq!(pt.level(), level - 1);
-                if !C::TOP_LEVEL_CAN_UNMAP() {
-                    assert(!C::TOP_LEVEL_CAN_UNMAP_spec());
+                if !C::TOP_LEVEL_CAN_UNMAP {
+                    assert(!C::TOP_LEVEL_CAN_UNMAP);
                     if level as usize == NR_LEVELS {
                         assert(owner.level == NR_LEVELS);
 
