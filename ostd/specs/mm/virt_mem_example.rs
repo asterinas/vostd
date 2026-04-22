@@ -113,7 +113,7 @@ pub fn map_example<'a, G: InAtomicMode>(cursor: &mut CursorMut<'a, G>,
     cursor.map(frame, prop);
 
     let ghost mapping = Mapping {
-        va_range: cursor0.pt_cursor.inner.va..(cursor0.pt_cursor.inner.va + 4096) as usize,
+        va_range: cursor0.pt_cursor.inner.va as int..cursor0.pt_cursor.inner.va as int + 4096,
         pa_range: pa..(pa + 4096) as usize,
         page_size: 4096,
         property: prop,

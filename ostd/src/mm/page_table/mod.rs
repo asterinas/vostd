@@ -48,8 +48,6 @@ mod cursor;
 
 pub(crate) use cursor::*;
 
-mod vaddr_range_bv_lemmas;
-
 #[cfg(ktest)]
 mod test;
 
@@ -110,14 +108,27 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// specified by the hardware MMU (limited by `C::ADDRESS_WIDTH`).
     spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize>;
 
-    /// The virtual address range that this page table config manages.
+    /// The leading bits `[48, 64)` of every virtual address managed by this
+    /// config.
     ///
-    /// For user page tables this is `0..MAX_USERSPACE_VADDR`; for the kernel
-    /// page table this is `KERNEL_VADDR_RANGE` (canonical high half). It is
-    /// *not* always derivable from `TOP_LEVEL_INDEX_RANGE_spec` alone, because
-    /// architectures with sign-extended canonical addresses (x86-64) place
-    /// the kernel half at a non-linear offset in VA space.
-    spec fn VADDR_RANGE_spec() -> Range<Vaddr>;
+    /// Concretely, a mapping `m` in this page table has
+    /// `m.va_range.start / 2^48 == LEADING_BITS_spec()`. For non-sign-extended
+    /// configurations (e.g. `UserPtConfig`) this is `0`. For x86-64 kernel
+    /// PT it is `0xffff` (sign-extended high half). The type is wide enough
+    /// to carry arbitrary bit patterns, so the model can accommodate future
+    /// configurations that place their managed range at a non-canonical
+    /// fixed offset.
+    ///
+    /// Combined with `TOP_LEVEL_INDEX_RANGE_spec`, this fully determines
+    /// the managed VA range, computed as
+    /// [`vaddr_range_bounds_spec::<Self>`]. Callers that previously used
+    /// `VADDR_RANGE_spec()` should use `vaddr_range_bounds_spec::<C>()`
+    /// directly — the inclusive `(start, end_inclusive)` form avoids the
+    /// `end == usize::MAX + 1` overflow that plagues `Range<Vaddr>` for
+    /// sign-extended kernel configurations.
+    open spec fn LEADING_BITS_spec() -> usize {
+        0
+    }
 
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>)
         ensures
@@ -741,37 +752,50 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     assert((512 as int) * pow2(39) == pow2(48));
 }
 
-/// Overflow-free specification of the managed virtual address range of a
-/// page table, returned as `(start_inclusive, end_inclusive)` since the
-/// sign-extended end of a kernel PT equals `usize::MAX` and cannot be
-/// represented as an exclusive `Range<Vaddr>`.
+/// Canonical bounds of the VA range managed by a page-table config,
+/// returned as inclusive `(start, end_inclusive)`. `end_inclusive` may
+/// equal `usize::MAX` for sign-extended kernel configs, which is why the
+/// inclusive form is used — `Range<Vaddr>` cannot represent that.
 ///
-/// For configs without sign extension (or when the base range falls entirely
-/// in the low half), `high_half` is false and the bounds coincide with
-/// `(vaddr_range_spec.start, vaddr_range_spec.end - 1)`. For configs with
-/// sign extension whose base start has its sign bit set (e.g.
-/// `KernelPtConfig`), the mask `2^64 - 2^ADDRESS_WIDTH` is OR'd into both
-/// ends, yielding the canonical upper-half kernel range.
-pub(crate) open spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
+/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE_spec`. For
+/// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
+/// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
+/// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
+pub closed spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
     let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
     let off = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
-    let aw = C::ADDRESS_WIDTH() as nat;
-    let base_lo = ((idx.start as int) * pow2(off)) as usize;
-    let base_hi_incl = ((idx.end as int) * pow2(off) - 1) as usize;
-    let high_half =
-        C::VA_SIGN_EXT() && (base_lo as nat / pow2((aw - 1) as nat)) % 2 == 1;
-    let mask: usize = if high_half {
-        (pow2(64) - pow2(aw)) as usize
-    } else {
-        0_usize
-    };
-    ((base_lo | mask), (base_hi_incl | mask))
+    let lb = C::LEADING_BITS_spec() as int;
+    let base = lb * 0x1_0000_0000_0000int;
+    let start = (base + (idx.start as int) * pow2(off)) as usize;
+    let end_inclusive = (base + (idx.end as int) * pow2(off) - 1) as usize;
+    (start, end_inclusive)
 }
 
-/// Sanity-check: for x86_64 kernel PT, the corrected bounds are
-/// `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`, i.e. the canonical
-/// upper half of the 48-bit virtual address space. Unlike the exclusive-end
-/// form, `end_inclusive = usize::MAX` is representable.
+/// Sanity-check: for x86_64 user PT, the bounds are
+/// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
+pub(crate) proof fn lemma_vaddr_range_bounds_spec_user()
+    ensures
+        vaddr_range_bounds_spec::<crate::mm::vm_space::UserPtConfig>()
+            == (0_usize, 0x0000_7FFF_FFFF_FFFF_usize),
+{
+    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+    lemma2_to64();
+    lemma2_to64_rest();
+    lemma_usize_pow2_ilog2(12);
+    lemma_usize_pow2_ilog2(9);
+    lemma_pow2_adds(8, 39);
+    assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
+    assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
+    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
+    assert((0 as int) * pow2(39) == 0);
+    assert((256 as int) * pow2(39) == pow2(47));
+    assert(pow2(47) as int - 1 == 0x0000_7FFF_FFFF_FFFF_int);
+    // UserPtConfig: LEADING_BITS = 0 via trait default.
+    assert(<crate::mm::vm_space::UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0_usize);
+}
+
+/// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
+/// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
 pub(crate) proof fn lemma_vaddr_range_bounds_spec_kernel()
     ensures
         vaddr_range_bounds_spec::<KernelPtConfig>()
@@ -788,14 +812,12 @@ pub(crate) proof fn lemma_vaddr_range_bounds_spec_kernel()
     assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
     assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
     assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-    let base_lo: usize = ((256 as int) * pow2(39)) as usize;
-    let base_hi_incl: usize = ((512 as int) * pow2(39) - 1) as usize;
-    assert(base_lo == 0x0000_8000_0000_0000_usize);
-    assert(base_hi_incl == 0x0000_FFFF_FFFF_FFFF_usize);
-    assert((base_lo as nat / pow2(47)) % 2 == 1);
-    let mask: usize = (pow2(64) - pow2(48)) as usize;
-    assert(mask == 0xFFFF_0000_0000_0000_usize);
-    vaddr_range_bv_lemmas::lemma_kernel_mask_or_bits();
+    assert((256 as int) * pow2(39) == pow2(47));
+    assert((512 as int) * pow2(39) == pow2(48));
+    assert(0xffff_int * 0x1_0000_0000_0000int + pow2(47) as int
+        == 0xffff_8000_0000_0000int);
+    assert(0xffff_int * 0x1_0000_0000_0000int + pow2(48) as int - 1
+        == 0xffff_ffff_ffff_ffffint);
 }
 
 

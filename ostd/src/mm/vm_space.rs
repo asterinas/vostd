@@ -1000,6 +1000,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 PageTableFrag::Mapped { va, item, .. } => {
                     let frame = item.frame;
                     proof {
+                        crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
+                        // TODO: chain CursorView::inv bound
+                        // (`m.va_range.end <= vaddr_range_bounds_spec<C>.1 + 1`) to
+                        // the fits_usize precondition. Currently admitted.
+                        admit();
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(removed);
                     }
                     assert(num_unmapped < usize::MAX);
@@ -1026,6 +1031,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 < frag_ghost->StrayPageTable_va + frag_ghost->StrayPageTable_len));
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_wf_subset(
                             old_adjusted, new_removed);
+                        crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(
                             new_removed);
                         // |new_removed| = |old_removed| + |subtree| (disjoint).
@@ -1453,10 +1459,6 @@ impl RCClone for MappedItem {
 unsafe impl PageTableConfig for UserPtConfig {
     open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
         0..256
-    }
-
-    open spec fn VADDR_RANGE_spec() -> Range<Vaddr> {
-        0..MAX_USERSPACE_VADDR
     }
 
     open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {

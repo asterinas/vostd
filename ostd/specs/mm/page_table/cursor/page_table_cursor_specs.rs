@@ -32,7 +32,7 @@ impl<C: PageTableConfig> CursorView<C> {
         let (paddr, level, prop) = C::item_into_raw_spec(item);
         let size = page_size(level);
         Mapping {
-            va_range: va..(va + size) as usize,
+            va_range: va as int..va as int + size as int,
             pa_range: paddr..(paddr + size) as Paddr,
             page_size: size,
             property: prop,
@@ -58,16 +58,16 @@ impl<C: PageTableConfig> CursorView<C> {
         m.pa_range.start == paddr && m.page_size == size && m.property == prop
     }
 
-    pub open spec fn query_range(self) -> Range<Vaddr> {
+    pub open spec fn query_range(self) -> Range<int> {
         self.query_mapping().va_range
     }
 
     /// The VA range of the current slot when mapping a page of the given size.
     /// Works for both present and absent mappings: when present, equals query_range() for
     /// a mapping of that size; when absent, returns the aligned range that would be mapped.
-    pub open spec fn cur_slot_range(self, size: usize) -> Range<Vaddr> {
-        let start = nat_align_down(self.cur_va as nat, size as nat) as Vaddr;
-        start..(start as nat + size as nat) as Vaddr
+    pub open spec fn cur_slot_range(self, size: usize) -> Range<int> {
+        let start = nat_align_down(self.cur_va as nat, size as nat) as int;
+        start..start + size as int
     }
 
     /// This predicate specifies the behavior of the `query` method. It states that the current item
@@ -79,7 +79,8 @@ impl<C: PageTableConfig> CursorView<C> {
         let (paddr, level, prop) = C::item_into_raw_spec(item);
         let size = page_size(level);
         if self.query(paddr, size, prop) {
-            Some(self.query_range())
+            let r = self.query_range();
+            Some(r.start as Vaddr..r.end as Vaddr)
         } else {
             None
         }
@@ -90,12 +91,12 @@ impl<C: PageTableConfig> CursorView<C> {
     /// `find_unmap_subtree` and `split_huge`, which are used by other functions that call this one.
     /// This returns a mapping rather than the address because that is useful when it's called as a subroutine.
     pub open spec fn find_next_impl_spec(self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> (Self, Option<Mapping>) {
-        let mappings_in_range = self.mappings.filter(|m: Mapping| self.cur_va <= m.va_range.start < self.cur_va + len);
+        let mappings_in_range = self.mappings.filter(|m: Mapping| self.cur_va as int <= m.va_range.start < self.cur_va as int + len as int);
 
         if mappings_in_range.len() > 0 {
             let mapping = mappings_in_range.find_unique_minimal(|m: Mapping, n: Mapping| m.va_range.start < n.va_range.start);
             let view = CursorView {
-                cur_va: mapping.va_range.end,
+                cur_va: mapping.va_range.end as Vaddr,
                 ..self
             };
             (view, Some(mapping))
@@ -114,7 +115,7 @@ impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn find_next_spec(self, len: usize) -> (Self, Option<Vaddr>) {
         let (cursor, mapping) = self.find_next_impl_spec(len, false, false);
         if mapping is Some {
-            (cursor, Some(mapping.unwrap().va_range.start))
+            (cursor, Some(mapping.unwrap().va_range.start as Vaddr))
         } else {
             (cursor, None)
         }
@@ -134,7 +135,8 @@ impl<C: PageTableConfig> CursorView<C> {
 
     pub open spec fn split_index(m: Mapping, new_size: usize, n: usize) -> Mapping {
         Mapping {
-            va_range: (m.va_range.start + n * new_size) as usize..(m.va_range.start + (n + 1) * new_size) as usize,
+            va_range: m.va_range.start + n as int * new_size as int
+                ..m.va_range.start + (n + 1) as int * new_size as int,
             pa_range: (m.pa_range.start + n * new_size) as usize..(m.pa_range.start + (n + 1) * new_size) as usize,
             page_size: new_size,
             property: m.property,
@@ -289,11 +291,11 @@ impl<C: PageTableConfig> CursorView<C> {
                 ..split_mapping
             };
             let new_cursor = CursorView {
-                cur_va: split_mapping.va_range.end,
+                cur_va: split_mapping.va_range.end as Vaddr,
                 mappings: split_view.mappings - set![split_mapping] + set![new_mapping],
                 ..self
             };
-            (new_cursor, Some(split_mapping.va_range))
+            (new_cursor, Some(split_mapping.va_range.start as Vaddr..split_mapping.va_range.end as Vaddr))
         } else {
             (find_cursor, None)
         }
