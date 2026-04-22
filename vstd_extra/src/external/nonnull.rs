@@ -20,7 +20,9 @@ pub broadcast axiom fn axiom_nonnull_is_nonnull<T: PointeeSized>(ptr: NonNull<T>
         (#[trigger] ptr_mut_from_nonnull(ptr))@.addr != 0,
 ;
 
-pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T) -> (ret: NonNull<T>)
+pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T) -> (ret: NonNull<
+    T,
+>)
     requires
         ptr@.addr != 0,
     ensures
