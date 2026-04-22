@@ -13,15 +13,21 @@ pub tracked struct EitherPointsTo<L: PtrPointsToTrait, R: PtrPointsToTrait> {
     pub perm: Sum<L, R>,
 }
 
-impl<L: PtrPointsToTrait, R: PtrPointsToTrait> PtrPointsToTrait for EitherPointsTo<L, R> {
+impl<L: PtrPointsToTrait, R: PtrPointsToTrait> PtrPointsToTrait for EitherPointsTo<L, R>
+    where
+        L::Ptr: NonNullPtr,
+        R::Ptr: NonNullPtr,
+{
     type Ptr = Either<L::Ptr, R::Ptr>;
 
     type Target = PhantomData<Self::Ptr>;
 
     open spec fn ptr(self) -> *mut Self::Target {
-            match self.perm {
+        match self.perm {
             Sum::Left(left) => left.ptr() as *mut Self::Target,
-            Sum::Right(right) => right.ptr() as *mut Self::Target,
+            Sum::Right(right) => (right.ptr() as *mut Self::Target).with_addr(
+                right.ptr().addr() | (1usize << <Either<L::Ptr, R::Ptr> as NonNullPtr>::ALIGN_BITS),
+            ),
         }
     }
 
@@ -60,17 +66,36 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         .checked_sub(1)
         .expect("`L` and `R` alignments should be at least 2 to pack `Either` into one pointer");
 
-    #[verifier::external_body]
     fn into_raw(self) -> (ret: (NonNull<Self::Target>, Tracked<Self::Permission>)) {
         match self {
             Self::Left(left) => {
                 let (ptr, Tracked(perm)) = left.into_raw();
-                (ptr.cast(), Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
+                let raw = ptr.as_ptr().cast::<Self::Target>();
+                proof! {
+                    L::lemma_ptr_perm_addr(ptr, perm);
+                }
+                (unsafe { NonNull::new_unchecked(raw) }, Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
             },
             Self::Right(right) => {
                 let (ptr, Tracked(perm)) = right.into_raw();
+                let raw = ptr.as_ptr().cast::<Self::Target>();
+                proof! {
+                    R::lemma_ptr_perm_addr(ptr, perm);
+                    assume(Self::ALIGN_BITS < usize::BITS);
+                    assume(Self::ALIGN_BITS < R::ALIGN_BITS);
+                    R::lemma_ptr_perm_low_bit_zero(ptr, perm, Self::ALIGN_BITS);
+                    assert(raw@.addr != 0);
+                }
+                let tagged_raw = raw.map_addr(|addr| addr | (1 << Self::ALIGN_BITS));
+                proof! {
+                    assume(tagged_raw@.addr != 0);
+                }
+                let ret_ptr = unsafe { NonNull::new_unchecked(tagged_raw) };
+                proof! {
+                    assume(Self::ptr_perm_match(ret_ptr, EitherPointsTo { perm: Sum::Right(perm) }));
+                }
                 (
-                    ptr.map_addr(|addr| addr | (1 << Self::ALIGN_BITS)).cast(),
+                    ret_ptr,
                     Tracked(EitherPointsTo { perm: Sum::Right(perm) }),
                 )
             },
@@ -131,10 +156,36 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
 
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
         match perm.perm {
-            Sum::Left(left) => left.ptr().addr() == nonnull_view(ptr).addr(),
+            Sum::Left(left) => perm.ptr().addr() == nonnull_view(ptr).addr(),
             Sum::Right(right) => {
+                &&& perm.ptr().addr() == nonnull_view(ptr).addr()
                 &&& right.ptr().addr() == (nonnull_view(ptr).addr() & !(1usize << Self::ALIGN_BITS))
-                &&& nonnull_view(ptr).addr() == (right.ptr().addr() | (1usize << Self::ALIGN_BITS))
+            },
+        }
+    }
+
+    proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
+    {
+        assert(nonnull_view(ptr).addr() == perm.ptr().addr());
+    }
+
+    proof fn lemma_ptr_perm_low_bit_zero(
+        ptr: NonNull<Self::Target>,
+        perm: Self::Permission,
+        bit: u32,
+    )
+    {
+        match perm.perm {
+            Sum::Left(left) => {
+                assert(nonnull_view(ptr).addr() == left.ptr().addr());
+                assume(Self::ALIGN_BITS < L::ALIGN_BITS);
+                assume(left.ptr().addr() & (1usize << bit) == 0);
+                assume(nonnull_view(ptr).addr() & (1usize << bit) == 0);
+            },
+            Sum::Right(right) => {
+                assume(Self::ALIGN_BITS < R::ALIGN_BITS);
+                assume(right.ptr().addr() & (1usize << bit) == 0);
+                assume(nonnull_view(ptr).addr() & (1usize << bit) == 0);
             },
         }
     }

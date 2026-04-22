@@ -3,6 +3,7 @@
 //! work with non-null pointers.
 use alloc::{boxed::Box, sync::Arc};
 use vstd::prelude::*;
+use vstd::bits::low_bits_mask;
 use vstd_extra::prelude::*;
 
 mod either;
@@ -104,6 +105,26 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// A specification function that constraints rhe pointer and permission returned by `into_raw`.
     /// This design is to support the tagged pointer trick used in `Either`.
     spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool;
+
+    proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
+        requires
+            Self::ptr_perm_match(ptr, perm),
+        ensures
+            nonnull_view(ptr).addr() == perm.ptr().addr(),
+    ;
+
+    proof fn lemma_ptr_perm_low_bit_zero(
+        ptr: NonNull<Self::Target>,
+        perm: Self::Permission,
+        bit: u32,
+    )
+        requires
+            Self::ptr_perm_match(ptr, perm),
+            bit < Self::ALIGN_BITS,
+            bit < usize::BITS,
+        ensures
+            nonnull_view(ptr).addr() & (1usize << bit) == 0,
+    ;
 
     /// A specification function that relates the original type and the permission.
     spec fn rel_perm(self, perm: Self::Permission) -> bool;
@@ -226,7 +247,21 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         unsafe { NonNull::new_unchecked(ptr_ref.inner) }
     }*/
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
-        nonnull_view(ptr) == perm.ptr()
+        &&& nonnull_view(ptr) == perm.ptr()
+        &&& nonnull_view(ptr).addr() & (low_bits_mask(Self::ALIGN_BITS as nat) as usize) == 0
+    }
+
+    proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
+    {
+    }
+
+    proof fn lemma_ptr_perm_low_bit_zero(
+        ptr: NonNull<Self::Target>,
+        perm: Self::Permission,
+        bit: u32,
+    )
+    {
+        assert(nonnull_view(ptr).addr() & (1usize << bit) == 0) by (bit_vector)
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -371,7 +406,21 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }*/
 
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool{
-        nonnull_view(ptr) == perm.ptr()
+        &&& nonnull_view(ptr) == perm.ptr()
+        &&& nonnull_view(ptr).addr() & (low_bits_mask(Self::ALIGN_BITS as nat) as usize) == 0
+    }
+
+    proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
+    {
+    }
+
+    proof fn lemma_ptr_perm_low_bit_zero(
+        ptr: NonNull<Self::Target>,
+        perm: Self::Permission,
+        bit: u32,
+    )
+    {
+        assert(nonnull_view(ptr).addr() & (1usize << bit) == 0) by (bit_vector)
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {

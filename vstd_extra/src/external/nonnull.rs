@@ -1,10 +1,10 @@
 use core::marker::PointeeSized;
+use core::num::NonZero;
 use core::ptr::NonNull;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 
 verus! {
-
 #[verifier::external_type_specification]
 #[verifier::reject_recursive_types(T)]
 #[verifier::external_body]
@@ -33,6 +33,23 @@ pub assume_specification<T: PointeeSized>[ NonNull::as_ptr ](ptr: NonNull<T>) ->
     ensures
         ret@.addr != 0,
         nonnull_view(ptr) == ret,
+;
+
+pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](
+    ptr: NonNull<T>,
+) -> (ret: NonNull<U>)
+    ensures
+        nonnull_view(ret)@.addr == nonnull_view(ptr)@.addr,
+        nonnull_view(ret)@.provenance == nonnull_view(ptr)@.provenance,
+;
+
+pub assume_specification<T: PointeeSized, F: FnOnce(NonZero<usize>) -> NonZero<usize>> [ NonNull::<T>::map_addr ](
+    ptr: NonNull<T>,
+    f: F,
+) -> (ret: NonNull<T>)
+    ensures
+        nonnull_view(ret)@.metadata == nonnull_view(ptr)@.metadata,
+        nonnull_view(ret)@.provenance == nonnull_view(ptr)@.provenance,
 ;
 
 // Specification for NonNull::dangling(), uninterpreted because the ptr only has to satisfy the alignment requirement.
