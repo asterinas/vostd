@@ -4,6 +4,7 @@ pub mod cursor;
 pub mod mapping_set_lemmas;
 pub mod node;
 mod owners;
+pub mod vaddr_range_proofs;
 mod view;
 
 pub use cursor::*;

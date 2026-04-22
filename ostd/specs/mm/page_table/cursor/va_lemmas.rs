@@ -240,12 +240,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
         assert(self.view_mappings().contains(m));
         assert(m.inv());
-        // `vaddr_of::<C>(path) <= cur_va < vaddr_of::<C>(path) + ps` —
-        // bridges the cursor's canonical `cur_va` to the path-derived
-        // `vaddr_of`. Holds by cur_va == self.va.to_vaddr() and the
-        // alignment + subtree-range invariants; admit pending extraction
-        // of the bridging lemma.
-        admit();
+        // Bridge: `vaddr_of::<C>(path) <= cur_va() < vaddr_of::<C>(path) + ps`.
+        //   cur_va_in_subtree_range gives the bound in terms of
+        //   `vaddr(path) + va.leading_bits * 2^48`. The cursor invariant
+        //   pins `va.leading_bits == C::LEADING_BITS_spec()`, and
+        //   `lemma_vaddr_of_eq_int` rewrites the sum to `vaddr_of::<C>(path)`.
+        self.cur_va_in_subtree_range();
+        crate::specs::mm::page_table::owners::lemma_vaddr_of_eq_int::<C>(path);
         assert(m.va_range.start <= self@.cur_va < m.va_range.end);
 
         let filtered = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);

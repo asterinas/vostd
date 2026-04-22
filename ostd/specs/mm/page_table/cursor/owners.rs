@@ -906,10 +906,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 property: prop,
             }]
     {
-        // TODO: bridge canonical cur_slot_range (built from cur_va, which
-        // is self.va.to_vaddr() = vaddr_of(path)) to view_rec's
-        // vaddr_of(path)-built Mapping.
-        admit();
         let path = new_subtree.value.path;
         let ps = page_size(level);
         let pt_level = INC_LEVELS - path.len();
@@ -921,10 +917,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(pt_level == self.level);
 
-        // Reuse cur_va_in_subtree_range's vaddr equality + to_path_vaddr_concrete.
+        // Bridge `nat_align_down(cur_va, ps) == vaddr_of::<C>(path) as Vaddr`:
+        //   to_path_vaddr_concrete: vaddr(path) + va.leading_bits * 2^48 == nat_align_down(cur_va, ps)
+        //   lemma_vaddr_of_eq_int : vaddr_of::<C>(path) == vaddr(path) + LEADING_BITS_spec * 2^48
+        //   cursor inv            : va.leading_bits == LEADING_BITS_spec
         self.cur_va_in_subtree_range();
-        assert(vaddr(path) == nat_align_down(self@.cur_va as nat, ps as nat) as Vaddr) by {
+        assert(vaddr_of::<C>(path) == nat_align_down(self@.cur_va as nat, ps as nat) as Vaddr) by {
             self.va.to_path_vaddr_concrete(self.level as int - 1);
+            crate::specs::mm::page_table::owners::lemma_vaddr_of_eq_int::<C>(path);
             let va_path = self.va.to_path(self.level as int - 1);
             self.va.to_path_len(self.level as int - 1);
             self.va.to_path_inv(self.level as int - 1);
@@ -949,6 +949,42 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
             AbstractVaddr::rec_vaddr_eq_if_indices_eq(path, va_path, 0);
         };
+        // Show the singleton equality. view_rec at a frame produces a
+        // singleton with va_range built from vaddr_of(path). cur_slot_range
+        // produces start..start+ps with start = nat_align_down(cur_va, ps).
+        // The bridge above identifies the two starts.
+        let target = Mapping {
+            va_range: self@.cur_slot_range(page_size(level)),
+            pa_range: pa..(pa + page_size(level)) as usize,
+            page_size: page_size(level),
+            property: prop,
+        };
+        let from_view = Mapping {
+            va_range: Range {
+                start: vaddr_of::<C>(path) as int,
+                end: vaddr_of::<C>(path) as int + ps as int,
+            },
+            pa_range: pa..(pa + ps) as usize,
+            page_size: ps,
+            property: prop,
+        };
+        // The bridge gave `vaddr_of::<C>(path) == nat_align_down(...) as Vaddr`
+        // (both usize). Cast both to int to compare.
+        let nad = nat_align_down(self@.cur_va as nat, ps as nat);
+        assert(nad <= self@.cur_va as nat) by {
+            vstd_extra::arithmetic::lemma_nat_align_down_sound(self@.cur_va as nat, ps as nat);
+        };
+        assert(nad <= usize::MAX);
+        assert(nad as int == nad as usize as int);
+        assert(vaddr_of::<C>(path) as int == nad as int);
+        assert(target.va_range.start == nad as int);
+        assert(from_view.va_range.start == vaddr_of::<C>(path) as int);
+        assert(target.va_range.start == from_view.va_range.start);
+        assert(target.va_range.end == from_view.va_range.end);
+        assert(target.va_range =~= from_view.va_range);
+        assert(target =~= from_view);
+        assert(PageTableOwner(new_subtree).view_rec(path) == set![from_view]);
+        assert(PageTableOwner(new_subtree)@.mappings == set![target]);
     }
 
     pub open spec fn locked_range(self) -> Range<Vaddr> {
@@ -1379,8 +1415,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(m.inv());
         assert(m.va_range.start <= self@.cur_va < m.va_range.end) by {
             self.cur_va_in_subtree_range();
-            // TODO: bridge cur_va (canonical) to vaddr_of::<C>(path).
-            admit();
+            crate::specs::mm::page_table::owners::lemma_vaddr_of_eq_int::<C>(path);
         };
 
         let filtered = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);

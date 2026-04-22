@@ -2450,7 +2450,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         //*** LIKELY BUG: `self.inner.va + size` could overflow. For now assume that it doesn't. ***
         // It is possible to get `self.inner.va == usize::MAX - 4095`, in which case `end` overflows
-        // and the assertion passes trivially.
+        // and the assertion passes trivially. Then the page may be mapped outside of the barrier range.
+        // While this only impacts userspace addresses, modifying the page table outside of the barrier range
+        // can lead to race conditions and inconsistency.
         assume(self.inner.va + size <= usize::MAX);
         let end = self.inner.va + size;
         vstd_extra::assert!(end <= self.inner.barrier_va.end);

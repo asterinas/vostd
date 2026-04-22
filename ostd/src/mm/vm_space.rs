@@ -913,6 +913,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 // Everything removed is in the [start, end) range.
                 forall |m: Mapping| removed.contains(m) ==>
                     start_va <= m.va_range.start < end_va,
+                // Per-config VA bound: every removed mapping fits within the
+                // user VA space. Sourced from `axiom_view_in_vaddr_range` on
+                // the cursor view prior to removal.
+                forall |m: Mapping| removed.contains(m) ==>
+                    m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
                 // Nothing in [start_va, end_va) with start < cursor_va remains,
                 // unless it is a sub-mapping of a boundary-straddling entry.
                 forall |m: Mapping| #![auto] adjusted_base.contains(m) && !removed.contains(m)
@@ -955,6 +960,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             proof {
                 cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
                 cursor_owner.view_preserves_inv();
+                // Per-config VA bound on prev_mappings — needed for
+                // preserving the `removed`-end-bound loop invariant.
+                crate::specs::mm::page_table::cursor::owners::axiom_view_in_vaddr_range::<UserPtConfig>(cursor_owner);
+                crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
             }
 
             // SAFETY: It is safe to un-map memory in the userspace.
@@ -1000,11 +1009,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 PageTableFrag::Mapped { va, item, .. } => {
                     let frame = item.frame;
                     proof {
-                        crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
-                        // TODO: chain CursorView::inv bound
-                        // (`m.va_range.end <= vaddr_range_bounds_spec<C>.1 + 1`) to
-                        // the fits_usize precondition. Currently admitted.
-                        admit();
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(removed);
                     }
                     assert(num_unmapped < usize::MAX);
@@ -1111,6 +1115,31 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     sv.split_while_huge_disjoint(mm.page_size, old_removed);
                     sv.lemma_split_while_huge_preserves_inv(mm.page_size);
                 }
+
+                // Preserve the per-config end bound on `removed`. New entries
+                // come from prev_mappings (StrayPageTable) or split-while-huge
+                // sub-mappings of prev_mappings (Mapped); in either case
+                // axiom_view_in_vaddr_range on the prior cursor view bounds
+                // the end at 0x8000_0000_0000.
+                assert forall |m: Mapping| removed.contains(m)
+                    implies m.va_range.end <= 0x0000_8000_0000_0000_usize as int by {
+                    if !old_removed.contains(m) {
+                        if is_mapped {
+                            assert(m == mm);
+                            sv.split_while_huge_refinement(mm.page_size, mm);
+                            if !prev_mappings.contains(mm) {
+                                let parent = choose |p: Mapping|
+                                    #[trigger] prev_mappings.contains(p)
+                                    && p.va_range.start <= mm.va_range.start
+                                    && mm.va_range.end <= p.va_range.end
+                                    && mm.pa_range.start == (p.pa_range.start + (mm.va_range.start - p.va_range.start)) as Paddr
+                                    && mm.property == p.property;
+                            }
+                        } else {
+                            assert(prev_mappings.contains(m));
+                        }
+                    }
+                };
 
                 // Prove |removed| tracking (disjointness + cardinality).
                 match frag_ghost {

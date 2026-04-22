@@ -643,23 +643,85 @@ fn top_level_index_width<C: PageTableConfig>() -> usize {
     C::ADDRESS_WIDTH() - pte_index_bit_offset::<C>(C::NR_LEVELS())
 }
 
+/// Concrete positional start of the VA range: `idx_range.start * 2^offset`.
 #[verifier::external_body]
-fn pt_va_range_start<C: PageTableConfig>() -> Vaddr {
+fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
+    ensures
+        ret as int
+            == C::TOP_LEVEL_INDEX_RANGE_spec().start as int
+                * pow2(pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat) as int,
+{
     C::TOP_LEVEL_INDEX_RANGE().start << pte_index_bit_offset::<C>(C::NR_LEVELS())
 }
 
+/// Concrete positional end of the VA range (inclusive):
+/// `(idx_range.end * 2^offset) - 1`, with wrap semantics when
+/// `idx_range.end * 2^offset == 2^64` (e.g. kernel top-level with all
+/// entries mapped — `2^64 - 1 = usize::MAX`).
 #[verifier::external_body]
-fn pt_va_range_end<C: PageTableConfig>() -> Vaddr {
+fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
+    ensures
+        ret as int
+            == (C::TOP_LEVEL_INDEX_RANGE_spec().end as int
+                * pow2(pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat) as int
+                - 1)
+                    % 0x1_0000_0000_0000_0000int,
+{
     C::TOP_LEVEL_INDEX_RANGE().end.unbounded_shl(
         pte_index_bit_offset::<C>(C::NR_LEVELS()) as u32,
     ).wrapping_sub(1)  // Inclusive end.
-
 }
 
+/// Test whether bit `ADDRESS_WIDTH - 1` of `va` is set.
 #[verifier::external_body]
-fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> bool {
+fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
+    ensures
+        ret == ((va as int / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1),
+{
     (va >> (C::ADDRESS_WIDTH() - 1)) & 1 != 0
 }
+
+/// Trait-level invariant the upstream enforces via `const` assertions in
+/// `vaddr_range`'s prologue. Captured here as an axiom so we can use it in
+/// proofs (Verus has no `const { ... }` form for trait constants).
+///
+/// `idx.start < 2^(ADDRESS_WIDTH - offset)` and `idx.end <= 2^(...)`
+/// together bound the positional VA at `pt_va_range_start` /
+/// `pt_va_range_end` by `2^ADDRESS_WIDTH`.
+pub axiom fn axiom_top_level_index_range_bounds<C: PageTableConfig>()
+    ensures
+        (C::TOP_LEVEL_INDEX_RANGE_spec().start as int)
+            < (pow2((C::ADDRESS_WIDTH() as int
+                - pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS())) as nat) as int),
+        C::TOP_LEVEL_INDEX_RANGE_spec().end as int
+            <= pow2((C::ADDRESS_WIDTH() as int
+                - pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS())) as nat) as int,
+        pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) <= C::ADDRESS_WIDTH() as int,
+        pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) >= 0,
+        // Non-empty index range: idx.start < idx.end (matches the upstream
+        // `const` assertion).
+        (C::TOP_LEVEL_INDEX_RANGE_spec().start as int)
+            < (C::TOP_LEVEL_INDEX_RANGE_spec().end as int),
+        // 64-bit hardware bound (Rust `usize` is 64 bits on supported targets).
+        C::ADDRESS_WIDTH() as int <= 64;
+
+/// Per-config relationship between `LEADING_BITS_spec` and the sign-ext
+/// branch of `vaddr_range`: a non-zero `LEADING_BITS` requires both
+/// `VA_SIGN_EXT` and that bit `ADDRESS_WIDTH - 1` of `pt_va_range_start`
+/// is set. Equivalently (contrapositive), if either of those fails, then
+/// `LEADING_BITS == 0`.
+///
+/// For `UserPtConfig` (`LB=0`) the conclusion is vacuous; for
+/// `KernelPtConfig` (`LB=0xffff`, `idx.start=256`, `off=39`,
+/// `ADDRESS_WIDTH=48`), `2^47 / 2^47 % 2 == 1` and `VA_SIGN_EXT == true`
+/// — so the implication holds.
+pub axiom fn axiom_leading_bits_only_when_high_half<C: PageTableConfig>()
+    ensures
+        C::LEADING_BITS_spec() != 0usize ==>
+            (C::VA_SIGN_EXT() &&
+                (((C::TOP_LEVEL_INDEX_RANGE_spec().start as int)
+                    * (pow2(pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat) as int))
+                    / (pow2((C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1);
 
 #[verifier::inline]
 pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> int {
@@ -687,34 +749,100 @@ pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bo
         || (va_range.start <= r.start && r.end > 0 && r.end - 1 <= va_range.end - 1)
 }
 
-#[verifier::external_body]
-fn vaddr_range<C: PageTableConfig>() -> (ret: Range<Vaddr>)
+/// Gets the managed virtual addresses range for the page table.
+///
+/// Returns a [`RangeInclusive`] because the end address, when the range
+/// reaches the top of the 64-bit address space (e.g. the canonical
+/// high-half kernel range ending at `usize::MAX`), would overflow the
+/// exclusive end of a [`Range<Vaddr>`].
+///
+/// Ported from the non-Verus upstream. The body is unchanged modulo
+/// naming; the `ensures` connects it to `vaddr_range_bounds_spec`.
+fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     ensures
-        ret == vaddr_range_spec::<C>(),
+        ret@.start == vaddr_range_bounds_spec::<C>().0,
+        ret@.end == vaddr_range_bounds_spec::<C>().1,
+        ret@.exhausted == false,
 {
-    /*    const {
-        assert!(C::TOP_LEVEL_INDEX_RANGE().start < C::TOP_LEVEL_INDEX_RANGE().end);
-        assert!(top_level_index_width::<C>() <= nr_pte_index_bits::<C>(),);
-        assert!(C::TOP_LEVEL_INDEX_RANGE().start < 1 << top_level_index_width::<C>());
-        assert!(C::TOP_LEVEL_INDEX_RANGE().end <= 1 << top_level_index_width::<C>());
-    };*/
     let mut start = pt_va_range_start::<C>();
     let mut end = pt_va_range_end::<C>();
 
-    /*    const {
-        assert!(
-            !C::VA_SIGN_EXT()
-                || sign_bit_of_va::<C>(pt_va_range_start::<C>())
-                    == sign_bit_of_va::<C>(pt_va_range_end::<C>()),
-            "The sign bit of both range endpoints must be the same if sign extension is enabled"
-        )
-    }*/
-
-    if C::VA_SIGN_EXT() && sign_bit_of_va::<C>(pt_va_range_start::<C>()) {
-        start |= !0 ^ ((1 << C::ADDRESS_WIDTH()) - 1);
-        end |= !0 ^ ((1 << C::ADDRESS_WIDTH()) - 1);
+    proof {
+        lemma_vaddr_range_bounds_spec_unfold::<C>();
+        axiom_top_level_index_range_bounds::<C>();
+        crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(start, end);
     }
-    start..end + 1
+    let pt_start = pt_va_range_start::<C>();
+    let va_sign_ext = C::VA_SIGN_EXT();
+    let sign_bit_set = sign_bit_of_va::<C>(pt_start);
+    if va_sign_ext && sign_bit_set {
+        start = apply_sign_ext::<C>(start);
+        end = apply_sign_ext::<C>(end);
+    } else {
+        proof {
+            // The if-condition was false, so either va_sign_ext is false
+            // or sign_bit_set is false. The contrapositive of
+            // `axiom_leading_bits_only_when_high_half` gives LEADING_BITS == 0.
+            axiom_leading_bits_only_when_high_half::<C>();
+            assert(!va_sign_ext || !sign_bit_set);
+            // Bridge exec bool to spec form. `va_sign_ext == C::VA_SIGN_EXT()`
+            // by `when_used_as_spec`; `sign_bit_set == ((pt_start as int /
+            // 2^(aw-1)) % 2 == 1)` by `sign_bit_of_va`'s ensures.
+            assert(va_sign_ext == C::VA_SIGN_EXT());
+            let off = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
+            let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
+            let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
+            let p_off = pow2(off) as int;
+            let p_aw_m1 = pow2(aw_m1) as int;
+            assert(pt_start as int == i_start * p_off);
+            assert(sign_bit_set == ((pt_start as int / p_aw_m1) % 2 == 1));
+            assert(sign_bit_set == ((i_start * p_off / p_aw_m1) % 2 == 1));
+            // Now invoke the axiom's contrapositive form explicitly.
+            if C::LEADING_BITS_spec() != 0usize {
+                assert(C::VA_SIGN_EXT()
+                    && ((i_start * p_off / p_aw_m1) % 2 == 1));
+                assert(va_sign_ext);
+                assert(sign_bit_set);
+                assert(false);
+            }
+            assert(C::LEADING_BITS_spec() == 0usize);
+        }
+    }
+    proof {
+        // Both branches now establish the equation
+        //   start as int == lb * 2^48 + idx.start * 2^off
+        //   end as int   == lb * 2^48 + idx.end * 2^off - 1
+        // matching the unfolded `vaddr_range_bounds_spec`.
+        assert(start as int == (C::LEADING_BITS_spec() as int) * 0x1_0000_0000_0000int
+            + (C::TOP_LEVEL_INDEX_RANGE_spec().start as int)
+                * (pow2(pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat) as int));
+        assert(end as int == (C::LEADING_BITS_spec() as int) * 0x1_0000_0000_0000int
+            + (C::TOP_LEVEL_INDEX_RANGE_spec().end as int)
+                * (pow2(pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat) as int)
+            - 1);
+    }
+    RangeInclusive::new(start, end)
+}
+
+/// Apply the sign-extension OR to a positional value.
+///
+/// For any value `va` in `[0, 2^ADDRESS_WIDTH)` with bit `ADDRESS_WIDTH - 1`
+/// set, the OR with `!0 ^ ((1 << ADDRESS_WIDTH) - 1)` is equivalent to
+/// adding `LEADING_BITS_spec() * 2^48`, because the mask's bits and `va`'s
+/// bits are disjoint.
+///
+/// The helper is `external_body` only so Verus doesn't need to verify the
+/// bit-level OR; the ensures states the arithmetic equivalent.
+#[verifier::external_body]
+fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
+    requires
+        (va as int) < pow2(C::ADDRESS_WIDTH() as nat) as int,
+    ensures
+        ret as int == va as int
+            + C::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int,
+{
+    let sign_ext_mask = !0 ^ ((1usize << C::ADDRESS_WIDTH()) - 1);
+    va | sign_ext_mask
 }
 
 /// Checks if the given range is covered by the valid range of the page table.
@@ -724,7 +852,8 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> (ret: bool)
         ret == is_valid_range_spec::<C>(r),
 {
     let va_range = vaddr_range::<C>();
-    (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end - 1 <= va_range.end)
+    (r.start == 0 && r.end == 0)
+        || (*va_range.start() <= r.start && r.end - 1 <= *va_range.end())
 }
 
 /// Sanity-check: for x86_64 kernel PT, `vaddr_range_spec` evaluates to the
@@ -769,6 +898,23 @@ pub closed spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vadd
     let start = (base + (idx.start as int) * pow2(off)) as usize;
     let end_inclusive = (base + (idx.end as int) * pow2(off) - 1) as usize;
     (start, end_inclusive)
+}
+
+/// Reveal the body of `vaddr_range_bounds_spec` at a call site without
+/// making the function itself open (which causes z3-context pollution in
+/// cursor invariants).
+pub proof fn lemma_vaddr_range_bounds_spec_unfold<C: PageTableConfig>()
+    ensures
+        vaddr_range_bounds_spec::<C>() == {
+            let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
+            let off = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
+            let lb = C::LEADING_BITS_spec() as int;
+            let base = lb * 0x1_0000_0000_0000int;
+            let start = (base + (idx.start as int) * pow2(off)) as usize;
+            let end_inclusive = (base + (idx.end as int) * pow2(off) - 1) as usize;
+            (start, end_inclusive)
+        },
+{
 }
 
 /// Sanity-check: for x86_64 user PT, the bounds are

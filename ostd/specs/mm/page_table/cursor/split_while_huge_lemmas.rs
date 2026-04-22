@@ -9,6 +9,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::MAX_PADDR;
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::owners::PageTableOwner;
@@ -904,14 +905,39 @@ impl<C: PageTableConfig> CursorView<C> {
                         && m.property == p.property;
                     self.split_if_mapped_huge_spec_refinement(new_size, p);
                     if !self.mappings.contains(p) {
-                        // TODO: chain the `as Paddr` equations through p.
-                        // In int arithmetic the substitution is immediate;
-                        // Verus needs an explicit no-overflow bridge to
-                        // strip the `as Paddr` casts. Defer.
-                        admit();
                         assert(qm.va_range.start <= m.va_range.start);
                         assert(m.va_range.end <= qm.va_range.end);
-                        assert(m.pa_range.start == (qm.pa_range.start + (m.va_range.start - qm.va_range.start)) as Paddr);
+                        // Extract m.inv() and p.inv() via inv preservation of
+                        // split_while_huge / split_if_mapped_huge_spec.
+                        new_self.lemma_split_while_huge_preserves_inv(size);
+                        assert(new_self.split_while_huge(size).inv());
+                        assert(m.inv());
+                        assert(new_self.inv());
+                        assert(p.inv());
+                        // Mapping::inv gives `start + page_size == end`.
+                        assert(m.va_range.start + m.page_size == m.va_range.end);
+                        assert(qm.va_range.start + qm.page_size == qm.va_range.end);
+                        // m's va offset within qm: at most qm.page_size - m.page_size <= qm.page_size.
+                        assert(m.va_range.start - qm.va_range.start
+                            <= qm.page_size - m.page_size);
+                        // pa-side chain in int arithmetic.
+                        assert(qm.pa_range.start + qm.page_size == qm.pa_range.end);
+                        assert(qm.pa_range.end <= MAX_PADDR);
+                        assert(p.pa_range.start as int
+                            == qm.pa_range.start as int
+                                + (p.va_range.start - qm.va_range.start));
+                        assert(m.pa_range.start as int
+                            == p.pa_range.start as int
+                                + (m.va_range.start - p.va_range.start));
+                        assert(m.pa_range.start as int
+                            == qm.pa_range.start as int
+                                + (m.va_range.start - qm.va_range.start));
+                        // No-overflow: sum <= qm.pa_range.end <= MAX_PADDR <= usize::MAX.
+                        assert(qm.pa_range.start as int
+                            + (m.va_range.start - qm.va_range.start)
+                            <= qm.pa_range.end as int);
+                        assert(m.pa_range.start
+                            == (qm.pa_range.start + (m.va_range.start - qm.va_range.start)) as Paddr);
                         assert(m.property == qm.property);
                     }
                 }
