@@ -58,9 +58,9 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// SOUNDNESS: Considering also returning the Dealloc permission to ensure no memory leak.
     fn into_raw(self) -> ((ret,perm): (NonNull<Self::Target>, Tracked<Self::Permission>))
         ensures
-            ptr_mut_from_nonnull(ret)@.addr != 0,
-            ptr_mut_from_nonnull(ret) == self.ptr_mut_spec(),
-            ptr_mut_from_nonnull(ret) == perm@.ptr(),
+            nonnull_view(ret)@.addr != 0,
+            nonnull_view(ret) == self.ptr_mut_spec(),
+            nonnull_view(ret) == perm@.ptr(),
             perm@.inv(),
     ;
 
@@ -85,10 +85,10 @@ pub unsafe trait NonNullPtr: Sized + 'static {
         perm: Tracked<Self::Permission>,
     ) -> (ret: Self)
         requires
-            ptr_mut_from_nonnull(ptr) == perm@.ptr(),
+            nonnull_view(ptr) == perm@.ptr(),
             perm@.inv(),
         ensures
-            ptr_mut_from_nonnull(ptr) == ret.ptr_mut_spec(),
+            nonnull_view(ptr) == ret.ptr_mut_spec(),
     ;
 
     // VERUS LIMITATION: Cannot use associated type with lifetime yet, will implement it as a free function for each type.
@@ -228,10 +228,10 @@ pub fn box_ref_as_raw<T: 'static>(ptr_ref: BoxRef<'_, T>) -> ((ret,perm): (
     Tracked<&BoxPointsTo<T>>,
 ))
     ensures
-        ptr_mut_from_nonnull(ret) == ptr_ref.ptr(),
+        nonnull_view(ret) == ptr_ref.ptr(),
         perm@.ptr().addr() != 0,
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        perm@.ptr() == ptr_mut_from_nonnull(ret),
+        perm@.ptr() == nonnull_view(ret),
         perm@.inv(),
 {
     proof!{
@@ -246,7 +246,7 @@ pub unsafe fn box_raw_as_ref<'a, T: 'static>(
     perm: Tracked<&'a BoxPointsTo<T>>,
 ) -> BoxRef<'a, T>
     requires
-        perm@.ptr() == ptr_mut_from_nonnull(raw),
+        perm@.ptr() == nonnull_view(raw),
         perm@.inv(),
 {
     BoxRef { inner: raw.as_ptr(), _marker: PhantomData, v_perm: perm }
@@ -365,10 +365,10 @@ pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> ((ret,perm): (
     Tracked<ArcPointsTo<T>>,
 ))
     ensures
-        ptr_mut_from_nonnull(ret) == ptr_ref.ptr() as *mut T,
+        nonnull_view(ret) == ptr_ref.ptr() as *mut T,
         perm@.ptr().addr() != 0,
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        perm@.ptr() == ptr_mut_from_nonnull(ret),
+        perm@.ptr() == nonnull_view(ret),
         perm@.inv(),
 {
     // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
@@ -381,7 +381,7 @@ pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
     perm: Tracked<ArcPointsTo<T>>,
 ) -> (ret: ArcRef<'a, T>)
     requires
-        perm@.ptr() == ptr_mut_from_nonnull(raw),
+        perm@.ptr() == nonnull_view(raw),
         perm@.inv(),
     ensures
         ret.ptr() == perm@.ptr(),

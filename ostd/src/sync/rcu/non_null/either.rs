@@ -149,8 +149,8 @@ const fn min(a: u32, b: u32) -> u32 {
 /// non-null pointer.
 #[verus_spec(
     requires
-        (ptr_mut_from_nonnull(ptr)@.addr & bits) < ptr_mut_from_nonnull(ptr)@.addr,
-        (ptr_mut_from_nonnull(ptr)@.addr & !bits) != 0,
+        (nonnull_view(ptr)@.addr & bits) < nonnull_view(ptr)@.addr,
+        (nonnull_view(ptr)@.addr & !bits) != 0,
 )]
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     // use core::num::NonZeroUsize;
