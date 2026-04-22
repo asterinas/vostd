@@ -28,6 +28,10 @@ impl<L: PtrPointsToTrait, R: PtrPointsToTrait> PtrPointsToTrait for EitherPoints
     open spec fn addr(self) -> usize {
         self.ptr().addr()
     }
+
+    open spec fn view_target(self) -> Self::Target {
+        PhantomData
+    }
 }
 
 impl<L: PtrPointsToTrait + Inv, R: PtrPointsToTrait + Inv> Inv for EitherPointsTo<L, R> {
@@ -46,13 +50,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     type Target = PhantomData<Self>;
 
     type Permission = EitherPointsTo<L::Permission, R::Permission>;
-
-    open spec fn ptr_mut_spec(self) -> *mut Self::Target {
-        match self {
-            Either::Left(left) => left.ptr_mut_spec() as *mut Self::Target,
-            Either::Right(right) => right.ptr_mut_spec() as *mut Self::Target,
-        }
-    }
 
     // type Ref<'a>
     //     = Either<L::Ref<'a>, R::Ref<'a>>
@@ -131,6 +128,24 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 .cast(),
         }
     } */
+
+    open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
+        match perm.perm {
+            Sum::Left(left) => left.ptr().addr() == nonnull_view(ptr).addr(),
+            Sum::Right(right) => {
+                &&& right.ptr().addr() == (nonnull_view(ptr).addr() & !(1usize << Self::ALIGN_BITS))
+                &&& nonnull_view(ptr).addr() == (right.ptr().addr() | (1usize << Self::ALIGN_BITS))
+            },
+        }
+    }
+
+    open spec fn rel_perm(self, perm: Self::Permission) -> bool {
+        match (self, perm.perm) {
+            (Either::Left(left), Sum::Left(left_perm)) => left.rel_perm(left_perm),
+            (Either::Right(right), Sum::Right(right_perm)) => right.rel_perm(right_perm),
+            _ => false,
+        }
+    }
 }
 
 // A `min` implementation for use in constant evaluation.
