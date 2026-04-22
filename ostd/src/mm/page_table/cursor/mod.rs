@@ -2448,7 +2448,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let size = page_size(level);
         vstd_extra::assert_eq!(self.inner.va % size, 0);
 
-        //*** KNOWN BUG: `self.inner.va + size` could overflow. For now assume that it doesn't. ***
+        //*** LIKELY BUG: `self.inner.va + size` could overflow. For now assume that it doesn't. ***
+        // It is possible to get `self.inner.va == usize::MAX - 4095`, in which case `end` overflows
+        // and the assertion passes trivially.
         assume(self.inner.va + size <= usize::MAX);
         let end = self.inner.va + size;
         vstd_extra::assert!(end <= self.inner.barrier_va.end);
