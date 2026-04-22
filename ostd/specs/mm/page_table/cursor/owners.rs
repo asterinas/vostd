@@ -475,6 +475,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // The cursor stays within the same canonical half of the address
         // space as its prefix — so `leading_bits` agrees throughout traversal.
         &&& self.va.leading_bits == self.prefix.leading_bits
+        // Established at construction (new_spec initializes both va and
+        // prefix with LEADING_BITS_spec()) and preserved by cursor ops.
+        &&& self.prefix.leading_bits == C::LEADING_BITS_spec() as int
         // The cursor's VA shares upper indices with the prefix as long as
         // the cursor hasn't popped above guard_level.
         &&& !self.popped_too_high ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
@@ -1623,7 +1626,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let va = AbstractVaddr {
             offset: 0,
             index: Map::new(|i: int| 0 <= i < NR_LEVELS, |i: int| 0).insert(NR_LEVELS - 1, idx as int),
-            leading_bits: 0,
+            // Canonical-high-half shift for this config. `UserPtConfig` has
+            // `LEADING_BITS_spec() == 0`, making this identical to the old
+            // hard-coded 0 and preserving all existing user-cursor proofs.
+            // `KernelPtConfig` has `LEADING_BITS_spec() == 0xffff`, putting
+            // kernel cursors in the canonical upper half from construction.
+            leading_bits: C::LEADING_BITS_spec() as int,
         };
         Self {
             level: NR_LEVELS as PagingLevel,

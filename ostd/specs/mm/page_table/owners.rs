@@ -99,6 +99,75 @@ pub open spec fn vaddr_of<C: PageTableConfig>(path: TreePath<NR_ENTRIES>) -> usi
     vaddr_at(path, C::LEADING_BITS_spec() as int)
 }
 
+/// Runtime bound on `LEADING_BITS_spec`: every valid config uses at most the
+/// 16 high bits.
+///
+/// Axiomatized because the trait doesn't enforce it structurally — the two
+/// configs in this codebase (`UserPtConfig` with `0` and `KernelPtConfig`
+/// with `0xffff`) both satisfy it, and any future config that wants the
+/// `vaddr_of` / `Mapping` arithmetic to work without wrap must too.
+pub axiom fn axiom_leading_bits_bounded<C: PageTableConfig>()
+    ensures
+        C::LEADING_BITS_spec() < 0x1_0000_usize;
+
+/// `vaddr(path) < 2^48` for every valid path: each term in the positional
+/// sum is `i_k * 2^(12 + 9·k)` with `i_k < 512 = 2^9`, so the sum is
+/// strictly less than `2^48`.
+#[verifier::rlimit(400)]
+pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
+    requires
+        path.inv(),
+        path.len() <= INC_LEVELS - 1,
+    ensures
+        (vaddr(path) as int) < 0x1_0000_0000_0000int,
+{
+    broadcast use TreePath::index_satisfies_elem_inv;
+    broadcast use TreePath::push_tail_property;
+    lemma_page_size_spec_values();
+    vstd::arithmetic::power2::lemma2_to64();
+    vstd::arithmetic::power2::lemma2_to64_rest();
+    if path.len() == 0 {
+        assert(rec_vaddr(path, 0) == 0);
+    } else if path.len() == 1 {
+        // TODO: the `by (compute)` simplification for `vaddr_make::<NR_LEVELS>(...)
+        // == 0x80_0000_0000 * i` doesn't fire at module-level proof-fn scope the
+        // way it does inside `impl AbstractVaddr` blocks in `mod.rs`. Keeping
+        // the `vaddr(path) < 2^48` bound as an admit for the non-trivial cases
+        // until the compute context is resolved.
+        admit();
+    } else {
+        admit();
+    }
+}
+
+/// `vaddr_of::<C>(path)` in `int` equals the unconditional sum — no usize
+/// wrap. Holds because `vaddr(path) < 2^48` (any valid path) and
+/// `LEADING_BITS < 2^16`, so the sum is `< 2^64 = usize::MAX + 1`.
+pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES>)
+    requires
+        path.inv(),
+        path.len() <= INC_LEVELS - 1,
+    ensures
+        vaddr_of::<C>(path) as int
+            == vaddr(path) as int
+                + C::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int,
+{
+    axiom_leading_bits_bounded::<C>();
+    lemma_vaddr_strict_bound(path);
+    let lb = C::LEADING_BITS_spec() as int;
+    let v = vaddr(path) as int;
+    // `0 <= v + lb * 2^48 < 2^64`: sum fits in usize, cast is lossless.
+    assert(0 <= v);
+    assert(lb * 0x1_0000_0000_0000int <= 0xffff_int * 0x1_0000_0000_0000int)
+        by (nonlinear_arith) requires lb < 0x1_0000int, lb >= 0;
+    assert(v + lb * 0x1_0000_0000_0000int < 0x1_0000_0000_0000_0000int)
+        by (nonlinear_arith)
+        requires
+            v < 0x1_0000_0000_0000int,
+            lb < 0x1_0000int,
+            lb >= 0;
+}
+
 /// page_size is monotonically increasing in its argument.
 pub proof fn page_size_monotonic(a: PagingLevel, b: PagingLevel)
     requires
@@ -580,11 +649,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 requires 0 <= i < 512, child_ps >= 0;
             assert(m.va_range.end <= vaddr_of::<C>(path.push_tail(i as usize)) as int + child_ps);
             assert(vaddr(path.push_tail(i as usize)) == vaddr(path) + i * child_ps);
-            // TODO: derive `vaddr_of(push_tail(i)) == vaddr_of(path) + i * child_ps`
-            // from the positional identity above plus
-            // `vaddr_of(x) = vaddr(x) + LEADING_BITS * 2^48`. Cleanly a
-            // lemma, admit() here pending extraction.
-            admit();
+            // Bridge `vaddr_of(push_tail(i)) == vaddr_of(path) + i * child_ps`
+            // via the no-wrap helper: both `vaddr_of` terms equal their `int`
+            // counterparts, and the `vaddr` identity above lifts directly.
+            lemma_vaddr_of_eq_int::<C>(path);
+            lemma_vaddr_of_eq_int::<C>(path.push_tail(i as usize));
             assert(vaddr_of::<C>(path.push_tail(i as usize)) as int
                 == vaddr_of::<C>(path) as int + i * child_ps);
             assert(i * child_ps + child_ps == (i + 1) * child_ps) by (nonlinear_arith);
@@ -609,9 +678,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
         broadcast use group_set_properties;
 
-        // TODO: lift sibling-disjointness reasoning from positional vaddr
-        // to vaddr_of; mechanically the shift preserves disjointness.
-        admit();
         if self.0.value.is_frame() {
             assert(self.view_rec(path).is_singleton());
         } else if self.0.value.is_node() {
@@ -640,6 +706,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 } else {
                     sibling_paths_disjoint::<C>(path, i2 as usize, i1 as usize, child_ps);
                 }
+                // Bridge `vaddr_of == vaddr + LEADING_BITS * 2^48` for both
+                // children, then the int-arithmetic shift cancels across
+                // the disjointness inequality.
+                lemma_vaddr_of_eq_int::<C>(path.push_tail(i1 as usize));
+                lemma_vaddr_of_eq_int::<C>(path.push_tail(i2 as usize));
             }
         }
     }
@@ -913,17 +984,44 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(ps > 0);
             assert((frame.mapped_pa as int + ps) % ps == 0) by (nonlinear_arith)
                 requires (frame.mapped_pa as int) % ps == 0, ps > 0;
-            // TODO: Complete alignment + overflow reasoning for `vaddr_of`.
-            // Claims:
-            //   (A) `vaddr_of(path) % ps == 0`: follows from
-            //       `vaddr(path) % ps == 0` (from lemma_vaddr_path_alignment_and_bound)
-            //       and `LEADING_BITS * 2^48 % ps == 0` (since ps <= 2^30 < 2^48).
-            //   (B) `vaddr_of(path) + ps <= pow2(64)`: follows from
-            //       `vaddr(path) + ps <= 2^48` and `LEADING_BITS < 2^16`.
-            // These are provable but require lemma composition; admitted
-            // as the overflow-correctness boundary for the `Range<int>`
-            // refactor.
-            admit();
+            // Bridge `vaddr_of(path) as int == vaddr(path) + LB * 2^48`.
+            lemma_vaddr_of_eq_int::<C>(path);
+            axiom_leading_bits_bounded::<C>();
+            lemma_vaddr_strict_bound(path);
+            let lb = C::LEADING_BITS_spec() as int;
+            vstd::arithmetic::power2::lemma2_to64();
+            vstd::arithmetic::power2::lemma2_to64_rest();
+            // (A) Alignment. For `ps ∈ {2^12, 2^21, 2^30}`, `ps | 2^48`, so
+            //     `lb * 2^48 % ps == 0` and `vaddr(path) % ps == 0` gives
+            //     `vaddr_of(path) % ps == 0` via `lemma_mod_adds`.
+            assert(vaddr(path) as int % ps == 0);
+            assert(lb * 0x1_0000_0000_0000int % ps == 0) by (nonlinear_arith)
+                requires
+                    lb >= 0,
+                    (ps == 0x1000int || ps == 0x20_0000int || ps == 0x4000_0000int);
+            vstd::arithmetic::div_mod::lemma_mod_adds(
+                vaddr(path) as int, lb * 0x1_0000_0000_0000int, ps);
+            assert((vaddr_of::<C>(path) as int) % ps == 0);
+            assert((vaddr_of::<C>(path) as int + ps) % ps == 0) by (nonlinear_arith)
+                requires (vaddr_of::<C>(path) as int) % ps == 0, ps > 0;
+            // (B) Overflow: `vaddr_of(path) + ps <= 2^64`.
+            //     `vaddr(path) + ps <= 2^48`: from strict bound plus alignment.
+            let v = vaddr(path) as int;
+            assert((v % ps) == 0);
+            assert(v < 0x1_0000_0000_0000int);
+            assert(v + ps <= 0x1_0000_0000_0000int) by (nonlinear_arith)
+                requires
+                    v % ps == 0,
+                    v < 0x1_0000_0000_0000int,
+                    (ps == 0x1000int || ps == 0x20_0000int || ps == 0x4000_0000int),
+                    (0x1_0000_0000_0000int % ps == 0);
+            assert(vaddr_of::<C>(path) as int + ps <= pow2(64)) by (nonlinear_arith)
+                requires
+                    vaddr_of::<C>(path) as int == v + lb * 0x1_0000_0000_0000int,
+                    v + ps <= 0x1_0000_0000_0000int,
+                    lb < 0x1_0000int,
+                    lb >= 0,
+                    pow2(64) == 0x1_0000_0000_0000_0000int;
             assert(m.inv());
         } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
             assert forall |m: Mapping| #[trigger] self.view_rec(path).contains(m) implies m.inv()

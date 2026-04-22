@@ -904,11 +904,10 @@ impl<C: PageTableConfig> CursorView<C> {
                         && m.property == p.property;
                     self.split_if_mapped_huge_spec_refinement(new_size, p);
                     if !self.mappings.contains(p) {
-                        // TODO: the pa_range ↔ va_range delta relation was
-                        // straightforward when both were usize-typed; now
-                        // va_range is int, and the `as Paddr` cast logic
-                        // needs explicit int↔usize bridging through a pair
-                        // of `p → m` and `qm → p` refinements.
+                        // TODO: chain the `as Paddr` equations through p.
+                        // In int arithmetic the substitution is immediate;
+                        // Verus needs an explicit no-overflow bridge to
+                        // strip the `as Paddr` casts. Defer.
                         admit();
                         assert(qm.va_range.start <= m.va_range.start);
                         assert(m.va_range.end <= qm.va_range.end);

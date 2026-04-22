@@ -301,12 +301,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_up(cur_va, ps_nat) as Vaddr);
     }
 
-    /// The current virtual address falls within the VA range of the current subtree's path.
+    /// The current virtual address falls within the VA range of the
+    /// current subtree's path, in canonical form (positional vaddr plus
+    /// the `leading_bits * 2^48` shift).
     pub proof fn cur_va_in_subtree_range(self)
         requires
             self.inv(),
         ensures
-            vaddr(self.cur_subtree().value.path) <= self.cur_va() < vaddr(self.cur_subtree().value.path) + page_size(self.level as PagingLevel)
+            vaddr(self.cur_subtree().value.path) as int
+                + self.va.leading_bits * 0x1_0000_0000_0000int
+                <= self.cur_va() as int,
+            (self.cur_va() as int)
+                < vaddr(self.cur_subtree().value.path) as int
+                    + self.va.leading_bits * 0x1_0000_0000_0000int
+                    + page_size(self.level as PagingLevel) as int,
     {
         let L = self.level as int;
         let cont = self.continuations[L - 1];
