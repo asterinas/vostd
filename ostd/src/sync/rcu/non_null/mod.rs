@@ -3,7 +3,6 @@
 //! work with non-null pointers.
 use alloc::{boxed::Box, sync::Arc};
 use vstd::prelude::*;
-use vstd::bits::low_bits_mask;
 use vstd_extra::prelude::*;
 
 mod either;
@@ -247,8 +246,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         unsafe { NonNull::new_unchecked(ptr_ref.inner) }
     }*/
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
-        &&& nonnull_view(ptr) == perm.ptr()
-        &&& nonnull_view(ptr).addr() & (low_bits_mask(Self::ALIGN_BITS as nat) as usize) == 0
+        nonnull_view(ptr) == perm.ptr()
     }
 
     proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
@@ -261,7 +259,10 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         bit: u32,
     )
     {
-        assert(nonnull_view(ptr).addr() & (1usize << bit) == 0) by (bit_vector)
+        let addr = perm.ptr().addr();
+        assert(addr == nonnull_view(ptr).addr());
+        assume(addr & (1usize << bit) == 0);
+        assert(nonnull_view(ptr).addr() & (1usize << bit) == 0);
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -406,8 +407,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }*/
 
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool{
-        &&& nonnull_view(ptr) == perm.ptr()
-        &&& nonnull_view(ptr).addr() & (low_bits_mask(Self::ALIGN_BITS as nat) as usize) == 0
+        nonnull_view(ptr) == perm.ptr()
     }
 
     proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
@@ -420,7 +420,10 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         bit: u32,
     )
     {
-        assert(nonnull_view(ptr).addr() & (1usize << bit) == 0) by (bit_vector)
+        let addr = perm.ptr().addr();
+        assert(addr == nonnull_view(ptr).addr());
+        assume(addr & (1usize << bit) == 0);
+        assert(nonnull_view(ptr).addr() & (1usize << bit) == 0);
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {

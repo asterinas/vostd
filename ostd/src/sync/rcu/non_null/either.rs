@@ -86,13 +86,24 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                     R::lemma_ptr_perm_low_bit_zero(ptr, perm, Self::ALIGN_BITS);
                     assert(raw@.addr != 0);
                 }
-                let tagged_raw = raw.map_addr(|addr| addr | (1 << Self::ALIGN_BITS));
+                let tag_addr = |addr: usize| addr | (1usize << Self::ALIGN_BITS);
+                let tagged_raw = raw.map_addr(tag_addr);
                 proof! {
+                    let tag = 1usize << Self::ALIGN_BITS;
+                    assert(tag_addr.ensures((raw@.addr,), tagged_raw@.addr));
+                    assume(tagged_raw@.addr == (raw@.addr | tag));
                     assume(tagged_raw@.addr != 0);
                 }
                 let ret_ptr = unsafe { NonNull::new_unchecked(tagged_raw) };
                 proof! {
-                    assume(Self::ptr_perm_match(ret_ptr, EitherPointsTo { perm: Sum::Right(perm) }));
+                    let tag = 1usize << Self::ALIGN_BITS;
+                    let either_perm = EitherPointsTo { perm: Sum::Right(perm) };
+                    assert(nonnull_view(ret_ptr).addr() == tagged_raw@.addr);
+                    assert(nonnull_view(ret_ptr).addr() == (raw@.addr | tag));
+                    assert(either_perm.ptr().addr() == (perm.ptr().addr() | tag));
+                    assert(perm.ptr().addr() == raw@.addr);
+                    assert(either_perm.ptr().addr() == nonnull_view(ret_ptr).addr());
+                    assert(Self::ptr_perm_match(ret_ptr, either_perm));
                 }
                 (
                     ret_ptr,
@@ -157,10 +168,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
         match perm.perm {
             Sum::Left(left) => perm.ptr().addr() == nonnull_view(ptr).addr(),
-            Sum::Right(right) => {
-                &&& perm.ptr().addr() == nonnull_view(ptr).addr()
-                &&& right.ptr().addr() == (nonnull_view(ptr).addr() & !(1usize << Self::ALIGN_BITS))
-            },
+            Sum::Right(right) => perm.ptr().addr() == nonnull_view(ptr).addr(),
         }
     }
 
