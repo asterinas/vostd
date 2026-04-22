@@ -41,7 +41,6 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     type Ref<'a>
     where
         Self: 'a;*/
-    // Verus LIMITATION: Cannot use `const` associated type yet.
     /// The power of two of the pointer alignment.
     // const ALIGN_BITS: u32;
     const ALIGN_BITS: u32;
