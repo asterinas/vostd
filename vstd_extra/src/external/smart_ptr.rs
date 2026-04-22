@@ -8,8 +8,8 @@ use vstd::raw_ptr::*;
 // A unified interface for the raw ptr permission returned by `into_raw` methods of smart pointers like `Box` and `Arc`.
 verus! {
 
-/// A verification-only trait that abstracts the permission that can be obtained from a raw pointer.
-pub trait RawPtrPerm {
+/// A verification-only trait that abstracts the permission that tracks both the pointer and the value it points to.
+pub trait PtrPointsToTrait {
     /// The type of the pointer.
     type Ptr;
 
@@ -19,9 +19,11 @@ pub trait RawPtrPerm {
     spec fn ptr(self) -> *mut Self::Target;
 
     spec fn addr(self) -> usize;
+
+    spec fn view_target(self) -> Self::Target;
 }
 
-impl<T> RawPtrPerm for BoxPointsTo<T> {
+impl<T> PtrPointsToTrait for BoxPointsTo<T> {
     type Ptr = Box<T>;
 
     type Target = T;
@@ -33,9 +35,13 @@ impl<T> RawPtrPerm for BoxPointsTo<T> {
     open spec fn addr(self) -> usize {
         self.ptr().addr()
     }
+
+    open spec fn view_target(self) -> T {
+        self.perm.value()
+    }
 }
 
-impl<T> RawPtrPerm for ArcPointsTo<T> {
+impl<T> PtrPointsToTrait for ArcPointsTo<T> {
     type Ptr = Arc<T>;
 
     type Target = T;
@@ -46,6 +52,10 @@ impl<T> RawPtrPerm for ArcPointsTo<T> {
 
     open spec fn addr(self) -> usize {
         self.ptr().addr()
+    }
+
+    open spec fn view_target(self) -> T {
+        self.perm.value()
     }
 }
 
@@ -186,6 +196,7 @@ pub fn box_into_raw<T>(b: Box<T>) -> ((ret, perm, dealloc): (*mut T, Tracked<Poi
         perm@.ptr().addr() != 0,
         perm@.is_init(),
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        perm@.value() == *b,
         match dealloc@ {
             Some(dealloc) => {
                 &&& vstd::layout::size_of::<T>() > 0
@@ -225,6 +236,7 @@ pub unsafe fn box_from_raw<T>(
         },
     ensures
         box_pointer_spec(ret) == ptr,
+        *ret == points_to@.value(),
 {
     unsafe { Box::from_raw(ptr) }
 }
@@ -241,6 +253,7 @@ pub fn arc_into_raw<T>(p: Arc<T>) -> ((ret, perm): (*const T, Tracked<ArcPointsT
         perm@.ptr().addr() != 0,
         perm@.is_init(),
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        perm@.value() == *p,
 {
     (Arc::into_raw(p), Tracked::assume_new())
 }
@@ -257,6 +270,7 @@ pub unsafe fn arc_from_raw<T>(ptr: *const T, tracked points_to: Tracked<ArcPoint
         points_to@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
     ensures
         arc_pointer_spec(ret) == ptr,
+        *ret == points_to@.value(),
 {
     unsafe { Arc::from_raw(ptr) }
 }

@@ -9,11 +9,11 @@ use crate::util::Either;
 
 verus! {
 
-pub tracked struct EitherPointsTo<L: RawPtrPerm, R: RawPtrPerm> {
+pub tracked struct EitherPointsTo<L: PtrPointsToTrait, R: PtrPointsToTrait> {
     pub perm: Sum<L, R>,
 }
 
-impl<L: RawPtrPerm, R: RawPtrPerm> RawPtrPerm for EitherPointsTo<L, R> {
+impl<L: PtrPointsToTrait, R: PtrPointsToTrait> PtrPointsToTrait for EitherPointsTo<L, R> {
     type Ptr = Either<L::Ptr, R::Ptr>;
 
     type Target = PhantomData<Self::Ptr>;
@@ -30,7 +30,7 @@ impl<L: RawPtrPerm, R: RawPtrPerm> RawPtrPerm for EitherPointsTo<L, R> {
     }
 }
 
-impl<L: RawPtrPerm + Inv, R: RawPtrPerm + Inv> Inv for EitherPointsTo<L, R> {
+impl<L: PtrPointsToTrait + Inv, R: PtrPointsToTrait + Inv> Inv for EitherPointsTo<L, R> {
     closed spec fn inv(self) -> bool {
         match self.perm {
             Sum::Left(left) => left.inv(),
