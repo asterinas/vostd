@@ -78,6 +78,13 @@ impl<V, Own> Deref for AtomicDataWithOwner<V, Own> {
     }
 }
 
+impl<V, Own> AtomicDataWithOwner<V, Own> {
+    #[inline]
+    pub fn new(data: V, permission: Tracked<Own>) -> Self {
+        Self { data, permission }
+    }
+}
+
 impl<V, Own> !Copy for AtomicDataWithOwner<V, Own> {
 
 }

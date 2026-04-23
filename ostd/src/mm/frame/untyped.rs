@@ -76,7 +76,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
     pub fn reader(&self) -> VmReader<'_> {
         proof_decl! {
             let ghost id: nat;
-            let tracked owner: Tracked<VmIoOwner<'_>>;
+            let tracked owner: VmIoOwner<'_>;
         }
         proof {
             lemma_max_paddr_range();
@@ -94,8 +94,10 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             assert(ptr.inv());
         }
 
-        proof_with!(Ghost(id) => Tracked(owner));
-        let reader = VmReader::from_kernel_space(ptr, len);
+        let reader = unsafe {
+            #[verus_spec(with Ghost(id) => Tracked(owner))]
+            VmReader::from_kernel_space(ptr, len)
+        };
 
         proof_with!(|= Tracked(owner));
         reader
@@ -119,7 +121,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
     pub fn writer(&self) -> VmWriter<'_> {
         proof_decl! {
             let ghost id: nat;
-            let tracked owner: Tracked<VmIoOwner<'_>>;
+            let tracked owner: VmIoOwner<'_>;
         }
         proof {
             lemma_max_paddr_range();
@@ -137,8 +139,10 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             assert(ptr.inv());
         }
 
-        proof_with!(Ghost(id), Tracked(false) => Tracked(owner));
-        let writer = VmWriter::from_kernel_space(ptr, len);
+        let writer = unsafe {
+            #[verus_spec(with Ghost(id), Tracked(false) => Tracked(owner))]
+            VmWriter::from_kernel_space(ptr, len)
+        };
 
         proof_with!(|= Tracked(owner));
         writer

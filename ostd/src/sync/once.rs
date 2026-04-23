@@ -5,6 +5,8 @@ use vstd::{
     prelude::*,
 };
 
+use super::AtomicDataWithOwner;
+
 verus! {
 
 pub const UNINIT: u64 = 0;
@@ -23,47 +25,6 @@ pub tracked enum OnceState<V: 'static> {
     /// The cell is initialized with a value and extended with
     /// static lifetime.
     Init(&'static PointsTo<Option<V>>),
-}
-
-/// A structure that combines some data with a permission to access it.
-///
-/// For example, in `aster_common` we can see a lot of structs with
-/// its `owner` associated. E.g., `MetaSlotOwner` is the owner of
-/// `MetaSlot`. This struct can be used to represent such a combination
-/// because now the permission is no longer exclusively owner by some
-/// specific CPU and is "shared" among multiple threads via atomic
-/// operations.
-///
-/// This struct is especially useful when used in conjunction with
-/// synchronization primitives like [`Once`], where we want to ensure that
-/// the data is initialized only once and the permission is preserved
-/// throughout the lifetime of the data.
-#[repr(transparent)]
-#[allow(repr_transparent_non_zst_fields)]
-pub struct AtomicDataWithOwner<V, Own> {
-    /// The underlying data.
-    pub data: V,
-    /// The permission to access the data.
-    pub permission: Tracked<Own>,
-}
-
-impl<U, Own> View for AtomicDataWithOwner<U, Own> {
-    type V = U;
-
-    open spec fn view(&self) -> Self::V {
-        self.data
-    }
-}
-
-impl<V, Own> AtomicDataWithOwner<V, Own> {
-    /// Creates a new `AtomicDataWithOwner` with the given data and permission.
-    pub const fn new(data: V, permission: Tracked<Own>) -> (r: Self)
-        ensures
-            r.data == data,
-            r.permission == permission,
-    {
-        AtomicDataWithOwner { data, permission }
-    }
 }
 
 /// A [`Predicate`] is something you're gonna preserve during the lifetime
