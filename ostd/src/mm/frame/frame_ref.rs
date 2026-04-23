@@ -57,6 +57,8 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
         requires
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
             old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,
+            old(regions).slot_owners[frame_to_index(raw)].inner_perms.ref_count.value()
+                != crate::mm::frame::meta::REF_COUNT_UNUSED,
             perm.points_to.is_init(),
             perm.points_to.addr() == frame_to_meta(raw),
             perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(raw)]),
@@ -72,8 +74,8 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
                 == old(regions).slot_owners[frame_to_index(raw)].self_addr,
             final(regions).slot_owners[frame_to_index(raw)].usage
                 == old(regions).slot_owners[frame_to_index(raw)].usage,
-            final(regions).slot_owners[frame_to_index(raw)].path_if_in_pt
-                == old(regions).slot_owners[frame_to_index(raw)].path_if_in_pt,
+            final(regions).slot_owners[frame_to_index(raw)].paths_in_pt
+                == old(regions).slot_owners[frame_to_index(raw)].paths_in_pt,
             // Other slots are unchanged
             forall |i: usize|
                 #![trigger final(regions).slot_owners[i]]

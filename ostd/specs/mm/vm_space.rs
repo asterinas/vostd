@@ -320,7 +320,7 @@ impl<'a> VmSpaceOwner<'a> {
             old(self).mem_view matches Some(mv) &&
                 forall |va: usize|
                 #![auto]
-                    old(owner_r).range@.start <= va < old(owner_r).range@.end ==>
+                    old(owner_r).range.start <= va < old(owner_r).range.end ==>
                         mv.addr_transl(va) is Some
             ,
             old(self).inv(),
@@ -331,8 +331,8 @@ impl<'a> VmSpaceOwner<'a> {
         ensures
             reader.wf(*final(owner_r)),
             final(owner_r).mem_view == Some(VmIoMemView::ReadView(&old(self).mem_view@.unwrap().borrow_at_spec(
-                old(owner_r).range@.start,
-                (old(owner_r).range@.end - old(owner_r).range@.start) as usize,
+                old(owner_r).range.start,
+                (old(owner_r).range.end - old(owner_r).range.start) as usize,
             ))),
     )]
     pub proof fn activate_reader(tracked &'a mut self, reader: &'a VmReader<'a>, tracked owner_r: &'a mut VmIoOwner<'a>) {
@@ -341,22 +341,22 @@ impl<'a> VmSpaceOwner<'a> {
                 _ => { proof_from_false() },
             };
             let tracked borrowed_mv = mv.borrow_at(
-                owner_r.range@.start,
-                (owner_r.range@.end - owner_r.range@.start) as usize,
+                owner_r.range.start,
+                (owner_r.range.end - owner_r.range.start) as usize,
             );
 
             owner_r.mem_view = Some(VmIoMemView::ReadView(borrowed_mv));
 
             assert forall|va: usize|
                 #![auto]
-                owner_r.range@.start <= va < owner_r.range@.end implies borrowed_mv.addr_transl(
+                owner_r.range.start <= va < owner_r.range.end implies borrowed_mv.addr_transl(
                 va,
             ) is Some by {
-                if owner_r.range@.start <= va && va < owner_r.range@.end {
+                if owner_r.range.start <= va && va < owner_r.range.end {
                     assert(borrowed_mv.mappings =~= mv.mappings.filter(
                         |m: Mapping|
-                            m.va_range.start < (owner_r.range@.end) && m.va_range.end
-                                > owner_r.range@.start,
+                            m.va_range.start < (owner_r.range.end) && m.va_range.end
+                                > owner_r.range.start,
                     ));
                     let o_borrow_mv = borrowed_mv.mappings.filter(
                         |m: Mapping| m.va_range.start <= va < m.va_range.end,
@@ -366,13 +366,11 @@ impl<'a> VmSpaceOwner<'a> {
                     );
                     assert(mv.addr_transl(va) is Some);
                     assert(o_mv.len() > 0);
-                    assert(o_borrow_mv.len() > 0) by {
-                        let m = o_mv.choose();
-                        assert(o_mv.contains(m)) by {
-                            vstd::set::axiom_set_choose_len(o_mv);
-                        }
-                        assert(o_borrow_mv.contains(m));
-                    }
+                    let m = o_mv.choose();
+                    vstd::set::axiom_set_choose_len(o_mv);
+                    assert(o_mv.contains(m));
+                    assert(o_borrow_mv.contains(m));
+                    assert(o_borrow_mv.len() > 0);
                 }
             }
 
@@ -398,7 +396,7 @@ impl<'a> VmSpaceOwner<'a> {
             old(self).mem_view matches Some(mv) &&
                 forall |va: usize|
                 #![auto]
-                    old(owner_w).range@.start <= va < old(owner_w).range@.end ==>
+                    old(owner_w).range.start <= va < old(owner_w).range.end ==>
                         mv.addr_transl(va) is Some
             ,
             old(self).inv(),
@@ -409,16 +407,16 @@ impl<'a> VmSpaceOwner<'a> {
         ensures
             writer.wf(*final(owner_w)),
             final(owner_w).mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@.unwrap().split_spec(
-                old(owner_w).range@.start,
-                (old(owner_w).range@.end - old(owner_w).range@.start) as usize,
+                old(owner_w).range.start,
+                (old(owner_w).range.end - old(owner_w).range.start) as usize,
             ).0)),
     )]
     pub proof fn activate_writer(tracked &mut self, writer: &'a VmWriter<'a>, tracked owner_w: &'a mut VmIoOwner<'a>) {
             let tracked mut mv = self.mem_view.tracked_take();
             let ghost old_mv = mv;
             let tracked (lhs, rhs) = mv.split(
-                owner_w.range@.start,
-                (owner_w.range@.end - owner_w.range@.start) as usize,
+                owner_w.range.start,
+                (owner_w.range.end - owner_w.range.start) as usize,
             );
 
             owner_w.mem_view = Some(VmIoMemView::WriteView(lhs));
@@ -426,14 +424,14 @@ impl<'a> VmSpaceOwner<'a> {
 
             assert forall|va: usize|
                 #![auto]
-                owner_w.range@.start <= va < owner_w.range@.end implies lhs.addr_transl(
+                owner_w.range.start <= va < owner_w.range.end implies lhs.addr_transl(
                 va,
             ) is Some by {
-                if owner_w.range@.start <= va && va < owner_w.range@.end {
+                if owner_w.range.start <= va && va < owner_w.range.end {
                     assert(lhs.mappings =~= old_mv.mappings.filter(
                         |m: Mapping|
-                            m.va_range.start < (owner_w.range@.end) && m.va_range.end
-                                > owner_w.range@.start,
+                            m.va_range.start < (owner_w.range.end) && m.va_range.end
+                                > owner_w.range.start,
                     ));
                     let o_lhs = lhs.mappings.filter(
                         |m: Mapping| m.va_range.start <= va < m.va_range.end,
@@ -444,14 +442,12 @@ impl<'a> VmSpaceOwner<'a> {
 
                     assert(old_mv.addr_transl(va) is Some);
                     assert(o_mv.len() > 0);
-                    assert(o_lhs.len() > 0) by {
-                        broadcast use vstd::set::axiom_set_choose_len;
-
-                        let m = o_mv.choose();
-                        assert(o_mv.contains(m));
-                        assert(m.va_range.start <= va < m.va_range.end);
-                        assert(o_lhs.contains(m));
-                    }
+                    broadcast use vstd::set::axiom_set_choose_len;
+                    let m = o_mv.choose();
+                    assert(o_mv.contains(m));
+                    assert(m.va_range.start <= va < m.va_range.end);
+                    assert(o_lhs.contains(m));
+                    assert(o_lhs.len() > 0);
                 }
             }
 
@@ -508,13 +504,11 @@ impl<'a> VmSpaceOwner<'a> {
     {
         let tracked writer = self.writers.tracked_remove(idx as int);
 
-        // Now we need to "return" the memory view back to the vm space owner.
         let tracked mv = match writer.mem_view {
             Some(VmIoMemView::WriteView(mv)) => mv,
             _ => { proof_from_false() },
         };
 
-        // "Join" the memory view back.
         let tracked mut remaining = self.mem_view.tracked_take();
         let ghost old_remaining = remaining;
         remaining.join(mv);
@@ -545,13 +539,11 @@ impl<'a> VmSpaceOwner<'a> {
                 assert(w_mappings.subset_of(t_mappings));
 
                 if r_mappings.len() > 0 {
-                    assert(t_mappings.len() > 0) by {
-                        let r = r_mappings.choose();
-                        assert(r_mappings.contains(r)) by {
-                            vstd::set::axiom_set_choose_len(r_mappings);
-                        }
-                        assert(t_mappings.contains(r));
-                    }
+                    let r = r_mappings.choose();
+                    vstd::set::axiom_set_choose_len(r_mappings);
+                    assert(r_mappings.contains(r));
+                    assert(t_mappings.contains(r));
+                    assert(t_mappings.len() > 0);
                 }
             }
 
@@ -571,14 +563,13 @@ impl<'a> VmSpaceOwner<'a> {
                     _ => { proof_from_false() },
                 };
 
-                assert(mv.mappings.disjoint(writer_mv.mappings)) by {
-                    assert(exists|i: int|
-                        0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
-                            == other_writer);
-                    assert(exists|i: int|
-                        0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
-                            == writer);
-                }
+                assert(exists|i: int|
+                    0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
+                        == other_writer);
+                assert(exists|i: int|
+                    0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
+                        == writer);
+                assert(mv.mappings.disjoint(writer_mv.mappings));
             }
         }
     }
@@ -663,14 +654,14 @@ impl<'a> VmSpaceOwner<'a> {
             final(self).inv(),
             final(self).active == old(self).active,
             final(self).shared_reader == old(self).shared_reader,
-            owner.range@.start < owner.range@.end ==> final(self).writers == old(self).writers.push(owner),
+            owner.range.start < owner.range.end ==> final(self).writers == old(self).writers.push(owner),
     {
         // If the writer has consumed all the memory, nothing to do;
         // just discard the writer and return the permission back to
         // the vm space owner.
         match owner.mem_view {
             Some(VmIoMemView::WriteView(ref writer_mv)) => {
-                if owner.range@.start < owner.range@.end {
+                if owner.range.start < owner.range.end {
                     self.writers.tracked_push(owner);
                 }
             },

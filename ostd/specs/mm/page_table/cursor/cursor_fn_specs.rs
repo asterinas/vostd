@@ -4,7 +4,7 @@ use crate::mm::page_table::*;
 use crate::mm::{PagingConstsTrait, Vaddr};
 use crate::specs::arch::mm::{NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
+use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
@@ -52,7 +52,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         &&& owner.cur_va_range().start.reflect(res.0.start)
         &&& owner.cur_va_range().end.reflect(res.0.end)
         &&& res.1 is Some
-        &&& owner@.query_item_spec(res.1.unwrap()) == Some(owner@.query_range())
+        &&& {
+            let qr = owner@.query_range();
+            owner@.query_item_spec(res.1.unwrap()) == Some(qr.start as Vaddr..qr.end as Vaddr)
+        }
     }
 
     pub open spec fn query_none_ensures(
@@ -107,6 +110,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let idx = frame_to_index(pa);
         &&& regions.slots.contains_key(idx)
         &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+        // Allocator invariant for huge frames (level > 1): all 4KB sub-page slots are valid.
+        // Established by huge-frame allocator postcondition.
+        &&& level > 1 ==> {
+            forall |j: usize| #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
+                0 < j < page_size(level) / PAGE_SIZE ==> {
+                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                &&& regions.slots.contains_key(sub_idx)
+                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+            }
+        }
     }
 
     pub open spec fn map_item_ensures(

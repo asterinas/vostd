@@ -2,7 +2,30 @@ use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
 
-verus! {
+use crate::panic::*;
+
+#[macro_export]
+macro_rules! assert {
+    ($cond:expr) => {
+        if !($cond) {
+            $crate::panic::panic_diverge()
+        }
+    };
+    ($cond:expr, $msg:literal) => {
+        if !($cond) {
+            $crate::panic::panic_diverge()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! assert_eq {
+    ($l:expr, $r:expr) => {
+        if ($l != $r) {
+            $crate::panic::panic_diverge()
+        }
+    };
+}
 
 #[macro_export]
 macro_rules! borrow_field {
@@ -93,5 +116,4 @@ macro_rules! update_field {
     }
 }
 
-} // verus!
-pub use {borrow_field, update_field};
+pub use crate::{assert, borrow_field, update_field};

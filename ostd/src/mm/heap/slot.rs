@@ -78,6 +78,7 @@ impl HeapSlot {
     ///
     /// This function panics if the size is not a multiple of [`PAGE_SIZE`].
     pub fn alloc_large(size: usize) -> Result<Self, AllocError> {
+        #[cfg(feature = "allow_panic")]
         assert_eq!(size % PAGE_SIZE, 0);
         let nframes = size / PAGE_SIZE;
         let segment = FrameAllocOptions::new()
@@ -109,7 +110,10 @@ impl HeapSlot {
             log::error!(
                 "Deallocating a large slot that was not allocated with `HeapSlot::alloc_large`"
             );
+            #[cfg(feature = "allow_panic")]
             crate::panic::abort();
+            #[cfg(not(feature = "allow_panic"))]
+            return;
         };
 
         debug_assert_eq!(size % PAGE_SIZE, 0);

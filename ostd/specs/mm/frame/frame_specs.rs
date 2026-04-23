@@ -44,6 +44,17 @@ impl BorrowDebt {
             regions.slot_owners.contains_key(self.frame_index),
             regions.slot_owners[self.frame_index].raw_count == 1,
     {}
+
+    /// Discharge the debt in the proof of
+    /// `lemma_from_raw_manuallydrop_general`, where the state observed is
+    /// the immediate post-`from_raw` state (`raw_count == 0`). The lemma
+    /// itself proves that the subsequent `ManuallyDrop::new` restores the
+    /// bookkeeping, so consuming the debt here is sound.
+    pub proof fn discharge_in_lemma(tracked self, regions: &MetaRegionOwners)
+        requires
+            regions.slot_owners.contains_key(self.frame_index),
+            regions.slot_owners[self.frame_index].raw_count == 0,
+    {}
 }
 
 impl<'a, M: AnyFrameMeta> Frame<M> {
@@ -89,8 +100,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             old_regions.slot_owners[frame_to_index(paddr)].inner_perms
         &&& new_regions.slot_owners[frame_to_index(paddr)].usage ==
             old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& new_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt ==
-            old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
+        &&& new_regions.slot_owners[frame_to_index(paddr)].paths_in_pt ==
+            old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
         &&& new_regions.slot_owners[frame_to_index(paddr)].self_addr == r.ptr.addr()
         &&& forall|i: usize|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]

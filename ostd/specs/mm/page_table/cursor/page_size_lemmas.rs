@@ -131,7 +131,7 @@ pub proof fn lemma_page_size_monotone(l1: PagingLevel, l2: PagingLevel)
     }
 }
 
-proof fn lemma_page_size_spec_values()
+pub proof fn lemma_page_size_spec_values()
     ensures
         page_size_spec(1) == 4096,
         page_size_spec(2) == 2097152,
@@ -144,6 +144,74 @@ proof fn lemma_page_size_spec_values()
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
     vstd::bits::lemma_usize_pow2_no_overflow(48);
+}
+
+/// `(page_size(level) / PAGE_SIZE) * PAGE_SIZE == page_size(level)` for level in [1, NR_LEVELS+1].
+/// page_size(level) is divisible by PAGE_SIZE so the integer division is exact.
+pub proof fn lemma_page_size_div_mul_eq(level: PagingLevel)
+    requires
+        1 <= level <= NR_LEVELS + 1,
+    ensures
+        (page_size_spec(level) / PAGE_SIZE) * PAGE_SIZE == page_size_spec(level),
+{
+    lemma_page_size_spec_values();
+}
+
+/// `NR_ENTRIES * page_size(level - 1) == page_size(level)` for level in [2, NR_LEVELS + 1].
+/// A huge page at `level` consists of NR_ENTRIES sub-pages each of size `page_size(level - 1)`.
+pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
+    requires
+        2 <= level <= NR_LEVELS + 1,
+    ensures
+        crate::specs::arch::mm::NR_ENTRIES as int * page_size_spec((level - 1) as PagingLevel) as int
+            == page_size_spec(level) as int,
+{
+    lemma_page_size_spec_values();
+    crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+}
+
+/// Used by `Entry::split_if_mapped_huge` to instantiate the 4KB sub-page
+/// forall invariant at the `i`-th sub-frame's slot.
+///
+/// For a huge frame at paddr `pa` with level `level > 1`, the `i`-th sub-frame
+/// lives at `small_pa = pa + i * page_size(level - 1)`. In units of 4KB sub-pages
+/// that's `big_j = i * (page_size(level - 1) / PAGE_SIZE)`. This lemma discharges
+/// the arithmetic facts needed at the call site:
+///   * `0 < big_j < page_size(level) / PAGE_SIZE` so the sub-page forall
+///     (quantified over `j ∈ (0, page_size(level) / PAGE_SIZE)`) fires.
+///   * `small_pa == pa + big_j * PAGE_SIZE` so the forall trigger matches.
+pub proof fn lemma_split_sub_page_big_j(
+    pa: Paddr,
+    level: PagingLevel,
+    i: usize,
+) -> (big_j: usize)
+    requires
+        2 <= level <= NR_LEVELS,
+        0 < i < crate::specs::arch::mm::NR_ENTRIES,
+    ensures
+        0 < big_j < page_size_spec(level) / PAGE_SIZE,
+        (pa + i * page_size_spec((level - 1) as PagingLevel)) as int
+            == pa as int + big_j as int * PAGE_SIZE as int,
+        big_j as int == i as int * (page_size_spec((level - 1) as PagingLevel) / PAGE_SIZE) as int,
+{
+    let sub_pages_per_entry: int =
+        (page_size_spec((level - 1) as PagingLevel) / PAGE_SIZE) as int;
+    let big_j_int: int = i as int * sub_pages_per_entry;
+    lemma_page_size_spec_values();
+    lemma_page_size_div_mul_eq((level - 1) as PagingLevel);
+    lemma_page_size_div_mul_eq(level);
+    lemma_nr_entries_times_sub_page_size(level);
+    vstd::arithmetic::mul::lemma_mul_strictly_positive(
+        i as int, sub_pages_per_entry);
+    vstd::arithmetic::mul::lemma_mul_strict_inequality(
+        i as int, crate::specs::arch::mm::NR_ENTRIES as int, sub_pages_per_entry);
+    vstd::arithmetic::mul::lemma_mul_is_associative(
+        crate::specs::arch::mm::NR_ENTRIES as int, sub_pages_per_entry, PAGE_SIZE as int);
+    vstd::arithmetic::div_mod::lemma_div_by_multiple(
+        crate::specs::arch::mm::NR_ENTRIES as int * sub_pages_per_entry, PAGE_SIZE as int);
+    vstd::arithmetic::mul::lemma_mul_is_associative(
+        i as int, sub_pages_per_entry, PAGE_SIZE as int);
+    big_j_int as usize
 }
 
 /// page_size(l2) is divisible by page_size(l1) when l1 <= l2.

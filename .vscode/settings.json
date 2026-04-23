@@ -33,5 +33,8 @@
         "**/Thumbs.db": false
     },
     "verus-analyzer.procMacro.attributes.enable": false,
-    "verus-analyzer.procMacro.enable": false
+    "verus-analyzer.procMacro.enable": false,
+    "verus-analyzer.verus.extraArgs": [
+        "-V new-mut-ref"
+    ]
 }

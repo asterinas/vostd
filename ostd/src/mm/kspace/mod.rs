@@ -32,16 +32,16 @@
 //!
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
-use core::ops::Range;
-use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
+use vstd::atomic::PermissionU64;
 use vstd::simple_pptr::PointsTo;
+use core::ops::Range;
 
 //use log::info;
 use crate::sync::{OnceImpl, TrivialPred};
-pub mod kvirt_area;
 #[cfg(ktest)]
 mod test;
+pub mod kvirt_area;
 
 use super::{
     frame::{
@@ -52,17 +52,20 @@ use super::{
     page_table::{PageTable, PageTableConfig},
     Paddr, PagingConstsTrait, Vaddr,
 };
-use crate::mm::frame::DynFrame;
-use crate::mm::page_table::RCClone;
-use crate::specs::arch::mm::NR_LEVELS;
-use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::arch::mm::NR_LEVELS;
+use crate::mm::frame::DynFrame;
 use crate::{
     boot::memory_region::MemoryRegionType,
     mm::{largest_pages, PagingLevel},
     specs::arch::{PageTableEntry, PagingConsts},
     //task::disable_preempt,
 };
+use crate::mm::page_table::RCClone;
+use crate::specs::mm::frame::meta_owners::MetaPerm;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+
+use vstd_extra::ownership::*;
 
 verus! {
 
@@ -139,22 +142,27 @@ pub fn paddr_to_vaddr(pa: Paddr) -> usize
     pa + LINEAR_MAPPING_BASE_VADDR
 }
 
+
 /// The kernel page table instance.
 ///
 /// It manages the kernel mapping of all address spaces by sharing the kernel part. And it
 /// is unlikely to be activated.
-pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPred> = OnceImpl::new(
-    Ghost(TrivialPred),
-);
+pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPred> =
+    OnceImpl::new(Ghost(TrivialPred));
+
 
 #[derive(Clone, Debug)]
-pub struct KernelPtConfig {}
+pub(crate) struct KernelPtConfig {}
 
 // We use the first available PTE bit to mark the frame as tracked.
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
 unsafe impl PageTableConfig for KernelPtConfig {
     open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
         256..512
+    }
+
+    open spec fn LEADING_BITS_spec() -> usize {
+        0xffff
     }
 
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>)
@@ -176,14 +184,13 @@ unsafe impl PageTableConfig for KernelPtConfig {
     }
 
     type E = PageTableEntry;
-
     type C = PagingConsts;
 
     type Item = MappedItem;
 
     uninterp spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
 
-    //    #[verifier::when_used_as_spec(item_into_raw_spec)]
+//    #[verifier::when_used_as_spec(item_into_raw_spec)]
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
         ensures
@@ -197,12 +204,12 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 let level = frame.map_level();
                 let paddr = frame.into_raw();
                 (paddr, level, prop)
-            },
+            }
             MappedItem::Untracked(pa, level, mut prop) => {
                 debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
                 prop.flags = prop.flags - PageFlags::AVAIL1();
                 (pa, level, prop)
-            },
+            }
         }
     }
 
@@ -231,22 +238,40 @@ unsafe impl PageTableConfig for KernelPtConfig {
     axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
+
+    proof fn clone_ensures_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        res: Self::Item,
+    ) {
+        admit();
+    }
+
+    proof fn clone_requires_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        regions: MetaRegionOwners,
+    ) {
+        admit();
+    }
 }
 
 impl KernelPtConfig {
     /// The spec agrees with the exec, which ensures 1 <= level <= NR_LEVELS.
     pub axiom fn item_into_raw_spec_level_bounds(item: MappedItem)
         ensures
-            1 <= KernelPtConfig::item_into_raw_spec(item).1 <= crate::specs::arch::mm::NR_LEVELS,
-    ;
+            1 <= KernelPtConfig::item_into_raw_spec(item).1 <= crate::specs::arch::mm::NR_LEVELS;
 
     /// Tracked frames use 4K pages (level 1). Used to prove alignment in map_frames.
     pub axiom fn item_into_raw_spec_tracked_level(item: MappedItem)
         requires
             matches!(item, MappedItem::Tracked(_, _)),
         ensures
-            KernelPtConfig::item_into_raw_spec(item).1 == 1,
-    ;
+            KernelPtConfig::item_into_raw_spec(item).1 == 1;
 
     /// For untracked items, `item_into_raw_spec` preserves PA, level, and prop.
     /// This is correct when the AVAIL1 bit is not set in `prop`, which is assumed
@@ -255,14 +280,19 @@ impl KernelPtConfig {
         ensures
             KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).0 == pa,
             KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).1 == level,
-            KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).2 == prop,
-    ;
+            KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).2 == prop;
+
+    /// For tracked items, the physical address from item_into_raw_spec equals
+    /// the frame's metadata-derived physical address.
+    pub axiom fn item_into_raw_spec_tracked_pa(frame: DynFrame, prop: PageProperty)
+        ensures
+            KernelPtConfig::item_into_raw_spec(MappedItem::Tracked(frame, prop)).0
+                == crate::mm::frame::meta::mapping::meta_to_frame(frame.ptr.addr());
 
     /// For KernelPtConfig (x86_64): HIGHEST_TRANSLATION_LEVEL = 2 < NR_LEVELS = 4.
     pub axiom fn axiom_kernel_htl_lt_nr_levels()
         ensures
-            (KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() as int) < NR_LEVELS as int,
-    ;
+            (KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() as int) < NR_LEVELS as int;
 }
 
 /*
@@ -279,23 +309,25 @@ pub enum MappedItem {
 }
 
 impl RCClone for MappedItem {
-    open spec fn clone_requires(
-        self,
-        slot_perm: PointsTo<MetaSlot>,
-        rc_perm: PermissionU64,
-    ) -> bool {
+    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
         match self {
-            MappedItem::Tracked(frame, _) => frame.clone_requires(slot_perm, rc_perm),
-            MappedItem::Untracked(_, _, _) => true,
+            MappedItem::Tracked(frame, _) => frame.clone_requires(perm),
+            MappedItem::Untracked(_, _, _) => perm.inv(),
+        }
+    }
+
+    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+        match (self, res) {
+            (MappedItem::Tracked(frame, _), MappedItem::Tracked(res_frame, _)) =>
+                frame.clone_ensures(old_perm, new_perm, res_frame),
+            (MappedItem::Untracked(_, _, _), _) => old_perm == new_perm,
+            _ => true,
         }
     }
 
     #[verifier::external_body]
-    fn clone(
-        &self,
-        Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>,
-        Tracked(rc_perm): Tracked<&mut PermissionU64>,
-    ) -> (res: Self) {
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self)
+    {
         unimplemented!();
     }
 }

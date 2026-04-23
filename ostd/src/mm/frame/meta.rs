@@ -18,6 +18,7 @@ use vstd::prelude::*;
 pub mod mapping;
 
 use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE};
+use crate::mm::io::{Infallible, VmReader};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
@@ -147,7 +148,7 @@ pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
 
 /// Space-holder of the AnyFrameMeta virtual table.
 pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
-    exec fn on_drop(&mut self) {
+    exec fn on_drop(&mut self, _reader: &mut VmReader<'_, Infallible>) {
     }
 
     exec fn is_untyped(&self) -> bool {
@@ -161,7 +162,8 @@ global layout MetaSlot is size == 64, align == 8;
 
 pub broadcast axiom fn size_of_meta_slot()
     ensures
-        #![auto]
+        #![trigger size_of::<MetaSlot>()]
+        #![trigger align_of::<MetaSlot>()]
         size_of::<MetaSlot>() == 64,
         align_of::<MetaSlot>() == 8;
 
@@ -233,23 +235,21 @@ impl MetaSlot {
             addr == perm.addr(),
         ensures
             res.ptr.addr() == addr,
-            res.addr == addr,
+            res.addr() == addr,
     {
-        ReprPtr::<MetaSlot, Metadata<M>> { addr: addr, ptr: PPtr::from_addr(addr), _T: PhantomData }
+        ReprPtr::<MetaSlot, Metadata<M>> { ptr: PPtr::from_addr(addr), _T: PhantomData }
     }
 
     /// A helper function that casts `MetaSlot` permission to a `Metadata` permission of type `M`.
-    pub fn cast_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        addr: usize,
-        Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>,
-        Tracked(inner_perms): Tracked<MetadataInnerPerms>,
-    ) -> (res: Tracked<PointsTo<MetaSlot, Metadata<M>>>)
+    pub proof fn cast_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+        tracked perm: vstd::simple_pptr::PointsTo<MetaSlot>,
+        tracked inner_perms: MetadataInnerPerms,
+    ) -> (tracked res: PointsTo<MetaSlot, Metadata<M>>)
         ensures
-            res@.addr == addr,
-            res@.points_to == perm,
-            res@.inner_perms == inner_perms,
+            res.points_to == perm,
+            res.inner_perms == inner_perms,
     {
-        Tracked(PointsTo { addr, points_to: perm, inner_perms, _T: PhantomData })
+        PointsTo { points_to: perm, inner_perms, _T: PhantomData }
     }
 
     /// Initializes the metadata slot of a frame assuming it is unused.
@@ -353,10 +353,9 @@ impl MetaSlot {
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
             assert(regions.inv());
         }
+        let tracked perm = MetaSlot::cast_perm::<M>(slot_perm, inner_perms);
 
-        let perm = MetaSlot::cast_perm::<M>(slot.addr(), Tracked(slot_perm), Tracked(inner_perms));
-
-        Ok((slot, perm))
+        Ok((slot, Tracked(perm)))
     }
 
     /// The inner loop of `Self::get_from_in_use`.
@@ -402,7 +401,7 @@ impl MetaSlot {
             last_ref_cnt => {
                 if last_ref_cnt >= REF_COUNT_MAX {
                     // See `Self::inc_ref_count` for the explanation.
-                    assert(false)
+                    vstd_extra::panic::panic_diverge();
                 }
                 // Using `Acquire` here to pair with `get_from_unused` or
                 // `<Frame<M> as From<UniqueFrame<M>>>::from` (who must be
@@ -488,7 +487,7 @@ impl MetaSlot {
                 slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
                 slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
                 slot_own.raw_count == regions0.slot_owners[frame_to_index(paddr)].raw_count,
-                slot_own.path_if_in_pt == regions0.slot_owners[frame_to_index(paddr)].path_if_in_pt,
+                slot_own.paths_in_pt == regions0.slot_owners[frame_to_index(paddr)].paths_in_pt,
                 FRAME_METADATA_RANGE.start <= slot_own.self_addr < FRAME_METADATA_RANGE.end,
                 slot_own.self_addr % META_SLOT_SIZE == 0,
                 slot_own.self_addr == slot_perm.addr(),
@@ -628,6 +627,8 @@ impl MetaSlot {
             // This follows the same principle as the `Arc::clone` implementation to prevent the
             // reference count from overflowing. See also
             // <https://doc.rust-lang.org/std/sync/struct.Arc.html#method.clone>.
+            #[cfg(feature = "allow_panic")]
+            crate::panic::abort();
             assert(false);
         }
     }
@@ -707,7 +708,7 @@ impl MetaSlot {
             self == perm.value(),
         ensures
             res.ptr.addr() == perm.addr(),
-            res.addr == perm.addr(),
+            res.addr() == perm.addr(),
     {
         let addr = self.addr_of(Tracked(perm));
         self.cast_slot(addr, Tracked(perm))
@@ -792,7 +793,7 @@ impl MetaSlot {
             final(owner).self_addr == old(owner).self_addr,
             final(owner).usage == old(owner).usage,
             final(owner).raw_count == old(owner).raw_count,
-            final(owner).path_if_in_pt == old(owner).path_if_in_pt,
+            final(owner).paths_in_pt == old(owner).paths_in_pt,
     {
         // This should be guaranteed as a safety requirement.
         //        debug_assert_eq!(self.ref_count.load(Tracked(&*rc_perm)), 0);
@@ -845,7 +846,7 @@ impl MetaSlot {
             final(slot_own).self_addr == old(slot_own).self_addr,
             final(slot_own).usage == old(slot_own).usage,
             final(slot_own).raw_count == old(slot_own).raw_count,
-            final(slot_own).path_if_in_pt == old(slot_own).path_if_in_pt,
+            final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
     )]
     #[verifier::external_body]
     pub(super) fn drop_meta_in_place(&self) {

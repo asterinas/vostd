@@ -23,10 +23,11 @@ pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
 pub mod ownership;
+pub mod panic;
 pub mod resource;
 
 #[macro_use]
-pub mod ptr_extra;
+pub mod trans_macros;
 pub mod map_extra;
 
 pub mod prelude;

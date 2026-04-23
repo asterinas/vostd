@@ -1,7 +1,9 @@
-use vstd::cell::pcell_maybe_uninit::{PCell, PointsTo};
-use vstd::{atomic_with_ghost, cell::MemContents, modes::tracked_static_ref, prelude::*};
-
-use super::AtomicDataWithOwner;
+use vstd::{
+    atomic_with_ghost,
+    cell::pcell::{PCell, PointsTo},
+    modes::tracked_static_ref,
+    prelude::*,
+};
 
 verus! {
 
@@ -21,6 +23,36 @@ pub tracked enum OnceState<V: 'static> {
     /// The cell is initialized with a value and extended with
     /// static lifetime.
     Init(&'static PointsTo<Option<V>>),
+}
+
+/// A structure that combines some data with a permission to access it.
+///
+/// For example, in `aster_common` we can see a lot of structs with
+/// its `owner` associated. E.g., `MetaSlotOwner` is the owner of
+/// `MetaSlot`. This struct can be used to represent such a combination
+/// because now the permission is no longer exclusively owner by some
+/// specific CPU and is "shared" among multiple threads via atomic
+/// operations.
+///
+/// This struct is especially useful when used in conjunction with
+/// synchronization primitives like [`Once`], where we want to ensure that
+/// the data is initialized only once and the permission is preserved
+/// throughout the lifetime of the data.
+#[repr(transparent)]
+#[allow(repr_transparent_non_zst_fields)]
+pub struct AtomicDataWithOwner<V, Own> {
+    /// The underlying data.
+    pub data: V,
+    /// The permission to access the data.
+    pub permission: Tracked<Own>,
+}
+
+impl<U, Own> View for AtomicDataWithOwner<U, Own> {
+    type V = U;
+
+    open spec fn view(&self) -> Self::V {
+        self.data
+    }
 }
 
 impl<V, Own> AtomicDataWithOwner<V, Own> {
@@ -84,7 +116,7 @@ pub closed spec fn wf(&self) -> bool {
             OnceState::Uninit(points_to) => {
                 &&& v == UNINIT
                 &&& points_to.id() == cell.id()
-                &&& points_to.mem_contents() matches MemContents::Init(None)
+                &&& points_to.value() is None
             }
             OnceState::Occupied => {
                 &&& v == OCCUPIED
@@ -92,8 +124,8 @@ pub closed spec fn wf(&self) -> bool {
             OnceState::Init(points_to) => {
                 &&& v == INITED
                 &&& points_to.id() == cell.id()
-                &&& points_to.mem_contents() matches MemContents::Init(Some(value))
-                &&& f@.inv(value)
+                &&& points_to.value() is Some 
+                &&& f@.inv(points_to.value()->Some_0)
             }
         }
     }

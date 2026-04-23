@@ -237,6 +237,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
 
                 regions.inv_implies_correct_addr(paddr);
+                assert(entry_owner.metaregion_sound(*regions));
+                assert(entry_owner.meta_slot_paddr().unwrap() == paddr);
             }
 
             #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]

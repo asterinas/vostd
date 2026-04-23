@@ -74,7 +74,6 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::page_table::RCClone;
 use crate::mm::{
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     Paddr, PagingLevel, Vaddr, MAX_PADDR,
@@ -83,8 +82,14 @@ use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::mm::page_table::RCClone;
 
 verus! {
+
+#[verifier::external_body]
+fn acquire_fence() {
+    core::sync::atomic::fence(Ordering::Acquire);
+}
 
 /// A smart pointer to a frame.
 ///
@@ -138,8 +143,23 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count > 0
+        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let slot_own = s.slot_owners[idx];
+        &&& self.inv()
+        &&& s.inv()
+        &&& s.slots.contains_key(idx)
+        &&& s.slots[idx].pptr() == self.ptr
+        &&& s.slot_owners.contains_key(idx)
+        &&& slot_own.raw_count > 0
+        &&& slot_own.inner_perms.ref_count.value() > 0
+        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        // When this is the last reference (ref_count == 1), we need to be able to
+        // call drop_last_in_place, which requires:
+        &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
+            &&& slot_own.raw_count == 1
+            &&& slot_own.inner_perms.storage.is_init()
+            &&& slot_own.inner_perms.in_list.value() == 0
+        }
     }
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
@@ -154,7 +174,7 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
 
-    proof fn drop_spec(self, tracked s: &mut Self::State) {
+    proof fn drop_tracked(self, tracked s: &mut Self::State) {
         let index = frame_to_index(meta_to_frame(self.ptr.addr()));
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         slot_own.raw_count = (slot_own.raw_count - 1) as usize;
@@ -297,9 +317,10 @@ impl<M: AnyFrameMeta> Frame<M> {
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
-        #[verus_spec(with Tracked(regions))]
-        let from_in_use = MetaSlot::get_from_in_use(paddr);
-        Ok(Self { ptr: from_in_use?, _marker: PhantomData })
+        Ok(Self { 
+            ptr: (#[verus_spec(with Tracked(regions))] MetaSlot::get_from_in_use(paddr))?, 
+            _marker: PhantomData 
+        })
     }
 }
 
@@ -323,6 +344,36 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
 
         #[verus_spec(with Tracked(perm))]
         slot.frame_paddr()
+    }
+
+    /// Compares two frames by their start physical address.
+    ///
+    /// Inherent sibling of `PartialEq::eq` for `Frame<M>`: freed from the
+    /// trait-signature straitjacket, this version can thread the tracked
+    /// `MetaRegionOwners` via `verus_spec` to reach `start_paddr` without
+    /// a perm-free escape hatch.
+    #[verus_spec(
+        with Tracked(regions): Tracked<&MetaRegionOwners>
+    )]
+    pub fn eq(&self, other: &Self) -> (res: bool)
+        requires
+            self.inv(),
+            other.inv(),
+            regions.inv(),
+            regions.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr()))),
+            regions.slots.contains_key(frame_to_index(meta_to_frame(other.ptr.addr()))),
+            regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))].pptr() == self.ptr,
+            regions.slots[frame_to_index(meta_to_frame(other.ptr.addr()))].pptr() == other.ptr,
+        ensures
+            res == (meta_to_frame(self.ptr.addr()) == meta_to_frame(other.ptr.addr())),
+    {
+        let ghost self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let ghost other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
+        let tracked self_perm = regions.slots.tracked_borrow(self_idx);
+        let tracked other_perm = regions.slots.tracked_borrow(other_idx);
+
+        (#[verus_spec(with Tracked(self_perm))] self.start_paddr() ==
+        #[verus_spec(with Tracked(other_perm))] other.start_paddr())
     }
 
     /// Gets the map level of this page.
@@ -378,9 +429,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         returns
             perm.value().ref_count,
     {
-        #[verus_spec(with Tracked(&perm.points_to))]
-        let slot = self.slot();
-        slot.ref_count.load(Tracked(&perm.inner_perms.ref_count))
+        let refcnt = (#[verus_spec(with Tracked(&perm.points_to))] self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
+        refcnt
     }
 
     /// Borrows a reference from the given frame.
@@ -398,6 +448,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         requires
             old(regions).inv(),
             old(regions).slot_owners[self.index()].raw_count <= 1,
+            old(regions).slot_owners[self.index()].inner_perms.ref_count.value()
+                != crate::mm::frame::meta::REF_COUNT_UNUSED,
             old(regions).slot_owners[self.index()].self_addr == self.ptr.addr(),
             perm.points_to.pptr() == self.ptr,
             perm.points_to.value().wf(old(regions).slot_owners[self.index()]),
@@ -415,8 +467,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
                 == old(regions).slot_owners[self.index()].self_addr,
             final(regions).slot_owners[self.index()].usage
                 == old(regions).slot_owners[self.index()].usage,
-            final(regions).slot_owners[self.index()].path_if_in_pt
-                == old(regions).slot_owners[self.index()].path_if_in_pt,
+            final(regions).slot_owners[self.index()].paths_in_pt
+                == old(regions).slot_owners[self.index()].paths_in_pt,
             // Other slots are unchanged
             forall |i: usize|
                 #![trigger final(regions).slot_owners[i]]
@@ -427,17 +479,19 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall |k: usize| old(regions).slots.contains_key(k) && k != self.index()
                 ==> old(regions).slots[k] == #[trigger] final(regions).slots[k],
+            // No new keys are added except possibly self.index().
+            forall |k: usize| k != self.index() ==>
+                (#[trigger] final(regions).slots.contains_key(k) ==> old(regions).slots.contains_key(k)),
     )]
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
         // SAFETY: Both the lifetime and the type matches `self`.
-
-        #[verus_spec(with Tracked(&perm.points_to))]
-        let paddr = self.start_paddr();
-
-        #[verus_spec(with Tracked(regions), Tracked(perm))]
-        FrameRef::borrow_paddr(paddr)
+        unsafe { 
+            #[verus_spec(with Tracked(regions), Tracked(perm))]
+            FrameRef::borrow_paddr(#[verus_spec(with Tracked(&perm.points_to))] self.start_paddr())
+        }
     }
 
     /// Forgets the handle to the frame.
@@ -627,6 +681,22 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id()
+            == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id(),
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage
+            == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage,
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr
+            == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr,
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list
+            == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list,
+        final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt
+            == old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt,
+        final(regions).slot_owners[frame_to_index(paddr)].self_addr
+            == old(regions).slot_owners[frame_to_index(paddr)].self_addr,
+        final(regions).slot_owners[frame_to_index(paddr)].raw_count
+            == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
+        final(regions).slot_owners[frame_to_index(paddr)].usage
+            == old(regions).slot_owners[frame_to_index(paddr)].usage,
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             i != frame_to_index(paddr) ==> (#[trigger] final(regions).slot_owners[i] == old(
@@ -672,51 +742,108 @@ pub type DynFrame = Frame<MetaSlotStorage>;
 
 #[verus_verify]
 impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
-    open spec fn clone_requires(
-        self,
-        slot_perm: simple_pptr::PointsTo<MetaSlot>,
-        rc_perm: PermissionU64,
-    ) -> bool {
-        &&& self.ptr.addr() == slot_perm.addr()
-        &&& slot_perm.is_init()
-        &&& !MetaSlot::inc_ref_count_panic_cond(rc_perm)
+    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
+        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        &&& self.inv()
+        &&& perm.inv()
+        &&& perm.slots.contains_key(idx)
+        &&& perm.slot_owners.contains_key(idx)
+        &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
+        &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1 < meta::REF_COUNT_MAX
+        &&& has_safe_slot(meta_to_frame(self.ptr.addr()))
     }
 
-    fn clone(
-        &self,
-        Tracked(slot_perm): Tracked<&simple_pptr::PointsTo<MetaSlot>>,
-        Tracked(rc_perm): Tracked<&mut PermissionU64>,
-    ) -> Self {
-        // SAFETY: We have already held a reference to the frame.
-        #[verus_spec(with Tracked(slot_perm))]
-        let slot = self.slot();
+    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        &&& new_perm.inv()
+        // ref_count incremented
+        &&& new_perm.slot_owners[idx].inner_perms.ref_count.value()
+            == old_perm.slot_owners[idx].inner_perms.ref_count.value() + 1
+        &&& new_perm.slot_owners[idx].inner_perms.ref_count.id()
+            == old_perm.slot_owners[idx].inner_perms.ref_count.id()
+        // All other fields at idx unchanged
+        &&& new_perm.slot_owners[idx].inner_perms.storage == old_perm.slot_owners[idx].inner_perms.storage
+        &&& new_perm.slot_owners[idx].inner_perms.vtable_ptr == old_perm.slot_owners[idx].inner_perms.vtable_ptr
+        &&& new_perm.slot_owners[idx].inner_perms.in_list == old_perm.slot_owners[idx].inner_perms.in_list
+        &&& new_perm.slot_owners[idx].paths_in_pt == old_perm.slot_owners[idx].paths_in_pt
+        &&& new_perm.slot_owners[idx].self_addr == old_perm.slot_owners[idx].self_addr
+        &&& new_perm.slot_owners[idx].raw_count == old_perm.slot_owners[idx].raw_count
+        &&& new_perm.slot_owners[idx].usage == old_perm.slot_owners[idx].usage
+        // Other slot_owners unchanged
+        &&& new_perm.slots =~= old_perm.slots
+        &&& forall|i: usize| i != idx ==>
+            (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
+        &&& new_perm.slot_owners.dom() =~= old_perm.slot_owners.dom()
+    }
 
-        #[verus_spec(with Tracked(rc_perm))]
-        slot.inc_ref_count();
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self
+    {
+        let paddr = meta_to_frame(self.ptr.addr());
 
-        Self { ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0), _marker: PhantomData }
+        #[verus_spec(with Tracked(perm))]
+        inc_frame_ref_count(paddr);
+
+        Self {
+            ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0),
+            _marker: PhantomData,
+        }
     }
 }
 
-/*
-impl<M: AnyFrameMeta + ?Sized> Drop for Frame<M> {
-    fn drop(&mut self) {
-        let last_ref_cnt = self.slot().ref_count.fetch_sub(1, Ordering::Release);
-        debug_assert!(last_ref_cnt != 0 && last_ref_cnt != REF_COUNT_UNUSED);
+impl<M: AnyFrameMeta> Drop for Frame<M> {
+    fn drop(self, Tracked(regions): Tracked<MetaRegionOwners>) -> (res: Tracked<MetaRegionOwners>)
+    {
+        let tracked mut regions = regions;
+        let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let ghost old_regions = regions;
+
+        let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+        let tracked perm = regions.slots.tracked_remove(idx);
+        let slot = self.ptr.borrow(Tracked(&perm));
+
+        proof {
+            assert(slot.ref_count.id() == slot_own.inner_perms.ref_count.id());
+        }
+        let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.inner_perms.ref_count), 1);
+
+        proof {
+            slot_own.raw_count = (slot_own.raw_count - 1) as usize;
+        }
 
         if last_ref_cnt == 1 {
             // A fence is needed here with the same reasons stated in the implementation of
             // `Arc::drop`: <https://doc.rust-lang.org/std/sync/struct.Arc.html#method.drop>.
-            core::sync::atomic::fence(Ordering::Acquire);
+            acquire_fence();
 
-            // SAFETY: this is the last reference and is about to be dropped.
-            unsafe { self.slot().drop_last_in_place() };
+            proof {
+                assert(slot_own.inner_perms.ref_count.value() == 0u64);
+                assert(slot_own.raw_count == 0);
+                assert(slot_own.inner_perms.storage.is_init());
+                assert(slot_own.inner_perms.in_list.value() == 0u64);
+                assert(slot_own.inv());
+                assert(MetaSlot::drop_last_in_place_safety_cond(slot_own));
+                assert(slot.ref_count.id() == slot_own.inner_perms.ref_count.id());
+            }
+            #[verus_spec(with Tracked(&mut slot_own))]
+            slot.drop_last_in_place();
 
-            allocator::get_global_frame_allocator().dealloc(self.start_paddr(), PAGE_SIZE);
+            // TODO: return page to allocator
+            // allocator::get_global_frame_allocator().dealloc(paddr, PAGE_SIZE);
         }
+
+        proof {
+            regions.slot_owners.tracked_insert(idx, slot_own);
+            regions.slots.tracked_insert(idx, perm);
+
+            assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i] == old_regions.slot_owners[i] by {}
+            assert(regions.slots =~= old_regions.slots);
+            assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());
+        }
+
+        Tracked(regions)
     }
 }
-*/
+
 /*
 impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
     type Error = Frame<dyn AnyFrameMeta>;
@@ -740,12 +867,14 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         unsafe { core::mem::transmute(frame) }
     }
 }*/
-/*impl From<UFrame> for Frame<FrameMeta> {
-    fn from(frame: UFrame) -> Self {
+
+/*impl<M: AnyFrameMeta> From<UFrame> for Frame<M> {
+    fn from(frame: UFrame) -> Self { 
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute(frame) }
     }
 }*/
+
 /*impl TryFrom<Frame<FrameMeta>> for UFrame {
     type Error = Frame<FrameMeta>;
 
@@ -762,7 +891,9 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         }
     }
 }*/
+
 } // verus!
+
 impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
     fn from(frame: Frame<M>) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.

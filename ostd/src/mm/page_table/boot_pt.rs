@@ -191,7 +191,10 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
                 unsafe { pte_ptr.write(pte) };
                 pte.paddr() / C::BASE_PAGE_SIZE()
             } else if pte.is_last(level) {
-                panic!("mapping an already mapped huge page in the boot page table");
+                #[cfg(feature = "allow_panic")]
+                { panic!("mapping an already mapped huge page in the boot page table") }
+                #[cfg(not(feature = "allow_panic"))]
+                { return }
             } else {
                 pte.paddr() / C::BASE_PAGE_SIZE()
             };
@@ -202,7 +205,10 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
         let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE()) as *mut E).add(index) };
         let pte = unsafe { pte_ptr.read() };
         if pte.is_present() {
+            #[cfg(feature = "allow_panic")]
             panic!("mapping an already mapped page in the boot page table");
+            #[cfg(not(feature = "allow_panic"))]
+            return;
         }
         unsafe { pte_ptr.write(E::new_page(to * C::BASE_PAGE_SIZE(), 1, prop)) };
     }
@@ -235,7 +241,10 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
             let pte = unsafe { pte_ptr.read() };
             pt =
             if !pte.is_present() {
-                panic!("protecting an unmapped page in the boot page table");
+                #[cfg(feature = "allow_panic")]
+                { panic!("protecting an unmapped page in the boot page table") }
+                #[cfg(not(feature = "allow_panic"))]
+                { return }
             } else if pte.is_last(level) {
                 // Split the huge page.
                 let child_pte = self.alloc_child();
@@ -261,7 +270,10 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
         let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE()) as *mut E).add(index) };
         let pte = unsafe { pte_ptr.read() };
         if !pte.is_present() {
+            #[cfg(feature = "allow_panic")]
             panic!("protecting an unmapped page in the boot page table");
+            #[cfg(not(feature = "allow_panic"))]
+            return;
         }
         let mut prop = pte.prop();
         op(&mut prop);

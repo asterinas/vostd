@@ -477,8 +477,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         // Self::new(lv).children[i] = None for all i, so the forall in tree_predicate_map is vacuous.
     }
 
-    /// `Node::new_val(val, lv)` has children `Some(Node::new(lv+1))` (absent defaults).
-    /// `tree_predicate_map` holds if `f(val, path)` and `f` is trivially true for all defaults.
+    /// `Node::new_val(val, lv)` has all-None children.
+    /// `tree_predicate_map` holds trivially: `f(val, path)` at the root,
+    /// no children to recurse into.
     pub proof fn new_val_tree_predicate_map(
         self,
         path: TreePath<N>,
@@ -488,24 +489,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.inv(),
             self == Self::new_val(self.value, self.level),
             f(self.value, path),
-            forall|lv: nat, p: TreePath<N>| lv < L ==> #[trigger] f(T::default(lv), p),
         ensures
             self.tree_predicate_map(path, f),
     {
-        if self.level < L - 1 {
-            assert forall|j: int|
-                #![auto]
-                0 <= j < self.children.len()
-                    && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
-            path.push_tail(j as usize), f) by {
-                // self.children[j] = Some(Self::new(self.level + 1)) by new_val definition
-                assert(self.children[j] == Some(Self::new(self.level + 1)));
-                // child.inv() follows from self.inv() (recursive invariant)
-                assert(self.children[j].unwrap().inv());
-                assert(Self::new(self.level + 1).inv());
-                Self::new_tree_predicate_map(self.level + 1, path.push_tail(j as usize), f);
-            };
-        }
+        // All children are None, so the forall in tree_predicate_map is vacuous.
     }
 
     /// Proves `tree_predicate_map(self, path, g)` from two source predicates `f1`, `f2`,
@@ -589,7 +576,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         recommends
             lv < L,
     {
-        Node { value: val, level: lv, children: Seq::new(N as nat, |i| Some(Self::new(lv + 1))) }
+        Node { value: val, level: lv, children: Seq::new(N as nat, |i| None) }
     }
 
     pub axiom fn new_val_tracked(tracked val: T, lv: nat) -> (tracked res: Self)

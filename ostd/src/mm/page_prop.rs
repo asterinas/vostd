@@ -43,14 +43,14 @@ pub broadcast proof fn lemma_page_property_equal_soundness(a: PageProperty, b: P
 verus! {
 
 impl PageProperty {
-    pub open spec fn new_spec(flags: PageFlags, cache: CachePolicy) -> Self {
+    pub open spec fn new_user_spec(flags: PageFlags, cache: CachePolicy) -> Self {
         Self { flags, cache, priv_flags: PrivilegedPageFlags::USER() }
     }
 
-    #[verifier::when_used_as_spec(new_spec)]
-    pub fn new(flags: PageFlags, cache: CachePolicy) -> Self
+    #[verifier::when_used_as_spec(new_user_spec)]
+    pub fn new_user(flags: PageFlags, cache: CachePolicy) -> Self
         returns
-            Self::new_spec(flags, cache),
+            Self::new_user_spec(flags, cache),
     {
         Self { flags, cache, priv_flags: PrivilegedPageFlags::USER() }
     }

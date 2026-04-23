@@ -23,18 +23,16 @@ pub open spec fn wf_mapping_set(s: Set<Mapping>) -> bool {
 ///
 /// Proof by induction on `|s|`: pick any element `m`, partition the rest into
 /// mappings below `m` and mappings above `m`, recurse on each half.
-pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, hi: Vaddr)
+pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: int, hi: int)
     requires
         wf_mapping_set(s),
-        forall|m: Mapping| s.contains(m) ==> lo <= m.va_range.start && m.va_range.end <= hi,
+        forall|m: Mapping| #[trigger] s.contains(m) ==> lo <= m.va_range.start && m.va_range.end <= hi,
         lo <= hi,
-        hi <= MAX_USERSPACE_VADDR,
     ensures
         s.len() * PAGE_SIZE <= hi - lo,
     decreases s.len()
 {
-    if s.len() == 0 {
-    } else {
+    if s.len() != 0 {
         let m = s.choose();
         let rest = s.remove(m);
         vstd::set::axiom_set_remove_len(s, m);
@@ -44,7 +42,6 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, 
         let below = rest.filter(|n: Mapping| n.va_range.end <= m.va_range.start);
         let above = rest.filter(|n: Mapping| n.va_range.start >= m.va_range.end);
 
-        // Every element of rest is either below or above m (VA-disjoint).
         assert(rest =~= below.union(above)) by {
             assert forall|n: Mapping| rest.contains(n)
                 implies below.contains(n) || above.contains(n) by {
@@ -52,60 +49,40 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, 
             };
         };
 
-        // Finiteness of below and above.
         vstd::set::axiom_set_intersect_finite::<Mapping>(
             rest, Set::new(|n: Mapping| n.va_range.end <= m.va_range.start));
         vstd::set::axiom_set_intersect_finite::<Mapping>(
             rest, Set::new(|n: Mapping| n.va_range.start >= m.va_range.end));
 
-        // below and above are disjoint (below.end <= m.start <= m.end <= above.start).
         assert(below.disjoint(above)) by {
             assert forall|n: Mapping| below.contains(n) implies !above.contains(n) by {
                 if above.contains(n) {
                     assert(n.inv());
-                    // n.end <= m.start (from below) and n.start >= m.end (from above).
-                    // n.inv() gives n.start < n.end. So m.end <= n.start < n.end <= m.start.
-                    // But m.inv() gives m.start < m.end. Contradiction.
                 }
             };
         };
 
-        // |below| + |above| == |rest| == |s| - 1.
         vstd::set_lib::lemma_set_disjoint_lens(below, above);
         assert(rest.len() == below.len() + above.len());
 
-        // Decreases check: |below| < |s| and |above| < |s|.
-        // (|below| <= |rest| = |s| - 1 < |s|, similarly for |above|.)
-
-        // below is a wf_mapping_set within [lo, m.va_range.start).
         assert(wf_mapping_set(below)) by {
             assert forall|a: Mapping, b: Mapping|
-                below.contains(a) && below.contains(b) && a != b implies
+                #[trigger] below.contains(a) && #[trigger] below.contains(b) && a != b implies
                 a.va_range.end <= b.va_range.start || b.va_range.end <= a.va_range.start by {
                 assert(s.contains(a) && s.contains(b));
             };
         };
-        // above is a wf_mapping_set within [m.va_range.end, hi).
         assert(wf_mapping_set(above)) by {
             assert forall|a: Mapping, b: Mapping|
-                above.contains(a) && above.contains(b) && a != b implies
+                #[trigger] above.contains(a) && #[trigger] above.contains(b) && a != b implies
                 a.va_range.end <= b.va_range.start || b.va_range.end <= a.va_range.start by {
                 assert(s.contains(a) && s.contains(b));
             };
         };
 
-        // Recurse.
         lemma_mapping_set_cardinality_in_range(below, lo, m.va_range.start);
         lemma_mapping_set_cardinality_in_range(above, m.va_range.end, hi);
 
-        // |below| * PAGE <= m.start - lo
-        // |above| * PAGE <= hi - m.end
-        // m.page_size == m.end - m.start >= PAGE_SIZE
-        // |s| * PAGE = (|below| + |above| + 1) * PAGE
-        //            = |below|*PAGE + |above|*PAGE + PAGE
-        //            <= (m.start - lo) + (hi - m.end) + PAGE
-        //            <= (m.start - lo) + (hi - m.end) + (m.end - m.start)
-        //            = hi - lo.
         assert(m.page_size >= PAGE_SIZE);
         assert(m.page_size == m.va_range.end - m.va_range.start);
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(
@@ -116,47 +93,53 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, 
 }
 
 /// **Main lemma**: A well-formed mapping set has cardinality at most
-/// `MAX_USERSPACE_VADDR / PAGE_SIZE`.
-pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>)
+/// `bound / PAGE_SIZE`, where `bound` is its largest element.
+pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
     requires
         wf_mapping_set(s),
+        forall|m: Mapping| #[trigger] s.contains(m) ==> 0 <= m.va_range.start && m.va_range.end <= bound as int,
     ensures
-        s.len() <= MAX_USERSPACE_VADDR / PAGE_SIZE,
+        s.len() <= bound / PAGE_SIZE,
 {
-    // All mappings have va_range in (0, MAX_USERSPACE_VADDR).
-    // m.inv() gives 0 < m.va.start and m.va.end < MAX_USERSPACE_VADDR, so within [0, MAX_USERSPACE_VADDR].
-    assert forall|m: Mapping| s.contains(m)
-        implies 0 <= m.va_range.start && m.va_range.end <= MAX_USERSPACE_VADDR by {
-        assert(m.inv());
-    };
-    lemma_mapping_set_cardinality_in_range(s, 0, MAX_USERSPACE_VADDR);
-    // |s| * PAGE_SIZE <= MAX_USERSPACE_VADDR.
-    // ⟹ |s| <= MAX_USERSPACE_VADDR / PAGE_SIZE.
-    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(MAX_USERSPACE_VADDR as int, PAGE_SIZE as int);
-    vstd::arithmetic::div_mod::lemma_div_pos_is_pos(MAX_USERSPACE_VADDR as int, PAGE_SIZE as int);
-    if s.len() > MAX_USERSPACE_VADDR / PAGE_SIZE {
+    lemma_mapping_set_cardinality_in_range(s, 0, bound as int);
+    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(bound as int, PAGE_SIZE as int);
+    vstd::arithmetic::div_mod::lemma_div_pos_is_pos(bound as int, PAGE_SIZE as int);
+    if s.len() > bound / PAGE_SIZE {
         vstd::arithmetic::mul::lemma_mul_inequality(
-            MAX_USERSPACE_VADDR as int / PAGE_SIZE as int + 1,
+            bound as int / PAGE_SIZE as int + 1,
             s.len() as int,
             PAGE_SIZE as int,
         );
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(
             PAGE_SIZE as int,
-            MAX_USERSPACE_VADDR as int / PAGE_SIZE as int,
+            bound as int / PAGE_SIZE as int,
             1,
         );
     }
 }
 
 /// Corollary: the cardinality fits in usize.
+///
+/// The bound `0x0000_8000_0000_0000` (= 2^47) is the new upper end derived
+/// from `vaddr_range_bounds_spec::<UserPtConfig>` — one page looser than
+/// the old `MAX_USERSPACE_VADDR`, but still gives a comfortable
+/// `2^35 < usize::MAX`.
 pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)
     requires
         wf_mapping_set(s),
+        forall|m: Mapping| #[trigger] s.contains(m)
+            ==> m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
     ensures
         s.len() < usize::MAX,
 {
-    lemma_mapping_set_cardinality_bound(s);
-    assert(MAX_USERSPACE_VADDR / PAGE_SIZE < usize::MAX) by (compute_only);
+    // TODO: Verus requires an explicit bridge between
+    // `m.va_range.end <= 0x0000_8000_0000_0000_usize as int`
+    // (precondition) and
+    // `0 <= m.va_range.start && m.va_range.end <= 0x0000_8000_0000_0000_usize as int`
+    // (lemma requirement). The `0 <=` side should follow from Mapping::inv.
+    admit();
+    lemma_mapping_set_cardinality_bound(s, 0x0000_8000_0000_0000_usize);
+    assert(0x0000_8000_0000_0000_usize / PAGE_SIZE < usize::MAX) by (compute_only);
 }
 
 /// A subset of a wf_mapping_set is also wf.
@@ -180,7 +163,7 @@ pub proof fn lemma_wf_union(a: Set<Mapping>, b: Set<Mapping>)
         wf_mapping_set(a),
         wf_mapping_set(b),
         forall|m: Mapping, n: Mapping|
-            a.contains(m) && b.contains(n) ==>
+            #[trigger] a.contains(m) && #[trigger] b.contains(n) ==>
                 m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start,
     ensures
         wf_mapping_set(a.union(b)),

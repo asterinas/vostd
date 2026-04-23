@@ -44,9 +44,13 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     pub fn push(&mut self, slot: HeapSlot) {
         let slot_ptr = slot.as_ptr();
         let super::SlotInfo::SlabSlot(slot_size) = slot.info() else {
+            #[cfg(feature = "allow_panic")]
             panic!("The slot does not come from a slab");
+            #[cfg(not(feature = "allow_panic"))]
+            return;
         };
 
+        #[cfg(feature = "allow_panic")]
         assert_eq!(slot_size, SLOT_SIZE);
         const { assert!(SLOT_SIZE >= core::mem::size_of::<usize>()) };
 
