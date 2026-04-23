@@ -67,6 +67,13 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         .expect("`L` and `R` alignments should be at least 2 to pack `Either` into one pointer");
 
     fn into_raw(self) -> (ret: (NonNull<Self::Target>, Tracked<Self::Permission>)) {
+        /* match self {
+            Self::Left(left) => left.into_raw().cast(),
+            Self::Right(right) => right
+                .into_raw()
+                .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
+                .cast(),
+        } */
         match self {
             Self::Left(left) => {
                 let (ptr, Tracked(perm)) = left.into_raw();
@@ -86,13 +93,16 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                     R::lemma_ptr_perm_low_bit_zero(ptr, perm, Self::ALIGN_BITS);
                     assert(raw@.addr != 0);
                 }
-                let tag_addr = |addr: usize| addr | (1usize << Self::ALIGN_BITS);
-                let tagged_raw = raw.map_addr(tag_addr);
+                let tag = 1usize << Self::ALIGN_BITS;
+                let tagged_raw = raw.with_addr(raw.addr() | tag);
                 proof! {
-                    let tag = 1usize << Self::ALIGN_BITS;
-                    assert(tag_addr.ensures((raw@.addr,), tagged_raw@.addr));
-                    assume(tagged_raw@.addr == (raw@.addr | tag));
-                    assume(tagged_raw@.addr != 0);
+                    let addr = raw@.addr;
+                    assert(tagged_raw@.addr == (raw@.addr | tag));
+                    assert((addr | tag) != 0) by (bit_vector)
+                        requires
+                            addr != 0,
+                    ;
+                    assert(tagged_raw@.addr != 0);
                 }
                 let ret_ptr = unsafe { NonNull::new_unchecked(tagged_raw) };
                 proof! {
