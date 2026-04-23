@@ -55,11 +55,12 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// `1 << Self::ALIGN_BITS`.
     /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
     /// SOUNDNESS: Considering also returning the Dealloc permission to ensure no memory leak.
-    fn into_raw(self) -> ((ptr,perm): (NonNull<Self::Target>, Tracked<Self::Permission>))
+    fn into_raw(self) -> ((res_ptr,perm): (NonNull<Self::Target>, Tracked<Self::Permission>))
         ensures
-            Self::ptr_perm_match(ptr, perm@),
+            Self::ptr_perm_match(res_ptr, perm@),
             self.rel_perm(perm@),
             perm@.inv(),
+            res_ptr.view_ptr_mut().addr() % (1usize << Self::ALIGN_BITS) == 0,
     ;
 
     /// Converts back from a raw pointer.
@@ -104,26 +105,6 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// A specification function that constraints rhe pointer and permission returned by `into_raw`.
     /// This design is to support the tagged pointer trick used in `Either`.
     spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool;
-
-    proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
-        requires
-            Self::ptr_perm_match(ptr, perm),
-        ensures
-            ptr.view_ptr_mut().addr() == perm.ptr().addr(),
-    ;
-
-    proof fn lemma_ptr_perm_low_bit_zero(
-        ptr: NonNull<Self::Target>,
-        perm: Self::Permission,
-        bit: u32,
-    )
-        requires
-            Self::ptr_perm_match(ptr, perm),
-            bit < Self::ALIGN_BITS,
-            bit < usize::BITS,
-        ensures
-            ptr.view_ptr_mut().addr() & (1usize << bit) == 0,
-    ;
 
     /// A specification function that relates the original type and the permission.
     spec fn rel_perm(self, perm: Self::Permission) -> bool;
@@ -217,6 +198,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
                 perm: PointsTowithDealloc::new(points_to, dealloc),
             };
         }
+        assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(box_points_to))
     }
@@ -247,22 +229,6 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     }*/
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
         ptr.view_ptr_mut() == perm.ptr()
-    }
-
-    proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
-    {
-    }
-
-    proof fn lemma_ptr_perm_low_bit_zero(
-        ptr: NonNull<Self::Target>,
-        perm: Self::Permission,
-        bit: u32,
-    )
-    {
-        let addr = perm.ptr().addr();
-        assert(addr == ptr.view_ptr_mut().addr());
-        assume(addr & (1usize << bit) == 0);
-        assert(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -375,6 +341,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         // let ptr = Arc::into_raw(self).cast_mut();
         let (ptr, Tracked(perm)) = arc_into_raw(self);
         let ptr = ptr as *mut T;
+        assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
         // [VERIFIED] SAFETY: The pointer representing an `Arc` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
     }
@@ -408,22 +375,6 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
 
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool{
         ptr.view_ptr_mut() == perm.ptr()
-    }
-
-    proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
-    {
-    }
-
-    proof fn lemma_ptr_perm_low_bit_zero(
-        ptr: NonNull<Self::Target>,
-        perm: Self::Permission,
-        bit: u32,
-    )
-    {
-        let addr = perm.ptr().addr();
-        assert(addr == ptr.view_ptr_mut().addr());
-        assume(addr & (1usize << bit) == 0);
-        assert(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {

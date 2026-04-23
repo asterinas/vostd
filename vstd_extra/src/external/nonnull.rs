@@ -16,10 +16,13 @@ pub trait NonNullAdditionalFns<T: PointeeSized> {
     // See https://doc.rust-lang.org/stable/std/ptr/struct.NonNull.html.
     spec fn view_ptr_mut(self) -> *mut T;
 
+    /// Specification for `NonNull::cast`.
     spec fn cast_spec<U>(self) -> NonNull<U>;
 
+    /// Specification for `NonNull::dangling()`.
     spec fn dangling_spec() -> NonNull<T>;
 
+    /// Type invariant: the address of the pointer is non-null.
     proof fn lemma_addr_is_nonnull(self)
         ensures
             self.view_ptr_mut()@.addr != 0,;
@@ -45,13 +48,29 @@ pub open spec fn nonnull_cast_spec_wrapper<T: PointeeSized, U>(ptr: NonNull<T>) 
     ptr.cast_spec::<U>()
 }
 
+/// An uninterpreted specification that constructs a `NonNull<T>` from a raw pointer.
 pub uninterp spec fn nonnull_from_ptr_mut_spec<T: PointeeSized>(ptr: *mut T) -> NonNull<T>;
 
+/// The view of a `NonNull<T>` constructed from `*mut T` should be exactly that `*mut T`.
 pub broadcast axiom fn axiom_nonnull_from_ptr_mut_spec_eq<T: PointeeSized>(ptr: *mut T)
     requires
         ptr@.addr != 0,
     ensures
         (#[trigger] nonnull_from_ptr_mut_spec(ptr)).view_ptr_mut() == ptr,
+;
+
+/// The `NonNull` constructed from the view of a `NonNull<T>` should be exactly that `NonNull<T>`.
+/// Implies that `a.view_ptr_mut() == b.view_ptr_mut() ==> a == b`.
+pub broadcast axiom fn axiom_view_ptr_mut_eq<T: PointeeSized>(a: NonNull<T>)
+    ensures
+        nonnull_from_ptr_mut_spec(#[trigger] a.view_ptr_mut()) == a,
+;
+
+/// The semantic of casting a `NonNull<T>` should be the same as casting the underlying raw pointer 
+/// (including the address, metadata, and provenance).
+pub broadcast axiom fn axiom_cast_spec_eq<T: PointeeSized, U>(ptr: NonNull<T>)
+    ensures
+        (#[trigger] ptr.cast_spec::<U>()).view_ptr_mut() == ptr.view_ptr_mut() as *mut U,
 ;
 
 #[verifier::when_used_as_spec(nonnull_from_ptr_mut_spec)]
@@ -108,6 +127,8 @@ pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
 
 pub broadcast group group_nonull_axioms {
     axiom_nonnull_from_ptr_mut_spec_eq,
+    axiom_cast_spec_eq,
+    axiom_view_ptr_mut_eq,
 }
 
 } // verus!
