@@ -23,7 +23,6 @@ pub trait NonNullAdditionalFns<T: PointeeSized> {
     proof fn lemma_addr_is_nonnull(self)
         ensures
             self.view_ptr_mut()@.addr != 0,;
-        
 }
 
 impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
@@ -46,7 +45,16 @@ pub open spec fn nonnull_cast_spec_wrapper<T: PointeeSized, U>(ptr: NonNull<T>) 
     ptr.cast_spec::<U>()
 }
 
+pub uninterp spec fn nonnull_from_ptr_mut_spec<T: PointeeSized>(ptr: *mut T) -> NonNull<T>;
 
+pub broadcast axiom fn axiom_nonnull_from_ptr_mut_spec_eq<T: PointeeSized>(ptr: *mut T)
+    requires
+        ptr@.addr != 0,
+    ensures
+        (#[trigger] nonnull_from_ptr_mut_spec(ptr)).view_ptr_mut() == ptr,
+;
+
+#[verifier::when_used_as_spec(nonnull_from_ptr_mut_spec)]
 pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T) -> (ret: NonNull<
     T,
 >)
@@ -54,6 +62,8 @@ pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T)
         ptr@.addr != 0,
     ensures
         ret.view_ptr_mut() == ptr,
+    returns
+        nonnull_from_ptr_mut_spec(ptr),
 ;
 
 #[verifier::when_used_as_spec(nonnull_view_ptr_mut_wrapper)]
@@ -95,5 +105,9 @@ pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
     returns
         nonnull_dangling_spec::<T>(),
 ;
+
+pub broadcast group group_nonull_axioms {
+    axiom_nonnull_from_ptr_mut_spec_eq,
+}
 
 } // verus!
