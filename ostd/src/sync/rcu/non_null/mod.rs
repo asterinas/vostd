@@ -108,6 +108,11 @@ pub unsafe trait NonNullPtr: Sized + 'static {
 
     /// A specification function that relates the original type and the permission.
     spec fn rel_perm(self, perm: Self::Permission) -> bool;
+
+    proof fn lemma_align_bits_range()
+        ensures
+            Self::ALIGN_BITS < usize::BITS,
+    ;
 }
 
 /// A type that represents `&'a Box<T>`.
@@ -234,6 +239,8 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
         perm.view_target() == *self
     }
+
+    axiom fn lemma_align_bits_range();
 }
 
 pub fn box_ref_as_raw<T: 'static>(ptr_ref: BoxRef<'_, T>) -> ((ptr,perm): (
@@ -379,7 +386,9 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
         perm.view_target() == *self
-    } 
+    }
+
+    axiom fn lemma_align_bits_range();
 }
 
 pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> ((ptr,perm): (

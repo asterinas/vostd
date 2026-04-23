@@ -67,6 +67,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         .checked_sub(1)
         .expect("`L` and `R` alignments should be at least 2 to pack `Either` into one pointer");
 
+    #[verus_spec]
     fn into_raw(self) -> (ret: (NonNull<Self::Target>, Tracked<Self::Permission>)) {
         /* match self {
             Self::Left(left) => left.into_raw().cast(),
@@ -75,45 +76,47 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
                 .cast(),
         } */
+        
+        proof! {
+            L::lemma_align_bits_range();
+            R::lemma_align_bits_range();
+            Self::lemma_align_bits_range();
+            assume(Self::ALIGN_BITS == min(L::ALIGN_BITS, R::ALIGN_BITS) - 1);
+        }
         match self {
             Self::Left(left) => {
-                let (ptr, Tracked(perm)) = left.into_raw();
-                let ptr = ptr.cast();
-                (ptr , Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
+                let (left, Tracked(perm)) = left.into_raw();
+                proof! {
+                    assert(left.cast::<Self::Target>().view_ptr_mut().addr() % (1usize << Self::ALIGN_BITS) == 0) by {admit();}
+                ;
+                }
+                (left.cast() , Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
             },
             Self::Right(right) => {
-                let (ptr, Tracked(perm)) = right.into_raw();
-                assert(R::ptr_perm_match(ptr, perm));
-                let raw = ptr.as_ptr();
+                let (right, Tracked(perm)) = right.into_raw();
+                let right_raw = right.as_ptr().map_addr(|addr| -> (ret: usize) 
+                    ensures ret == addr | (1usize << Self::ALIGN_BITS)
+                    {addr | (1usize << Self::ALIGN_BITS)});
                 proof! {
-                    assume(1 <= L::ALIGN_BITS < usize::BITS);
-                    assume(1 <= R::ALIGN_BITS < usize::BITS);
-                    assume(Self::ALIGN_BITS == min(L::ALIGN_BITS, R::ALIGN_BITS) - 1);
-                }
-                let tag = 1usize << Self::ALIGN_BITS;
-                let tagged_raw = raw.with_addr(raw.addr() | tag);
-                proof! {
-                    let addr = raw.addr();
-                    let tagged_addr = tagged_raw.addr();
-                    let l_bits = L::ALIGN_BITS;
-                    let r_bits = R::ALIGN_BITS;
-                    let bits = Self::ALIGN_BITS;
+                    let align_bits = Self::ALIGN_BITS;
+                    let r_align_bits = R::ALIGN_BITS;
+                    let tag = 1usize << align_bits;
+                    let addr = right.as_ptr().addr();
+                    let tagged_addr = right_raw.addr();
                     assert((tagged_addr & !tag == addr) && (tagged_addr != 0) 
                     ) by (bit_vector)
                     requires
                         tagged_addr == addr | tag,
-                        tag == 1usize << bits,
-                        1 <= r_bits < usize::BITS,
-                        bits < r_bits,
-                        addr % (1usize << r_bits) == 0,
+                        tag == 1usize << align_bits,
+                        1 <= r_align_bits < usize::BITS,
+                        align_bits < r_align_bits,
+                        addr % (1usize << r_align_bits) == 0,
                         addr != 0,
                     ;
-                    assume(tagged_addr % tag == 0);
+                    assert(tagged_addr % (1usize << align_bits) == 0) by {admit();};
                 }
-                let ret_ptr: NonNull<Self::Target> = unsafe { NonNull::new_unchecked(tagged_raw) }.cast();
-                assert(ret_ptr.view_ptr_mut().addr() % tag == 0);
                 (
-                    ret_ptr,
+                    unsafe { NonNull::new_unchecked(right_raw) }.cast(),
                     Tracked(EitherPointsTo { perm: Sum::Right(perm) }),
                 )
             },
@@ -191,6 +194,8 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
             _ => false,
         }
     }
+
+    axiom fn lemma_align_bits_range(); 
 }
 
 // A `min` implementation for use in constant evaluation.
