@@ -27,6 +27,12 @@ pub assume_specification<T: PointeeSized>[ <*mut T>::map_addr ](
         f.ensures((ptr@.addr,), ret@.addr),
 ;
 
+#[inline(always)]
+pub open spec fn ptr_cast_spec<T: PointeeSized, U>(ptr: *const T) -> *const U {
+    ptr as *const U
+}
+
+#[verifier::when_used_as_spec(ptr_cast_spec)]
 pub assume_specification<T: PointeeSized, U>[ <*const T>::cast::<U> ](ptr: *const T) -> *const U
     returns
         ptr as *const U,
