@@ -11,15 +11,27 @@ verus! {
 #[verifier::external_body]
 pub struct ExNonNull<T: PointeeSized>(NonNull<T>);
 
-// The model for NonNull<T> is *mut T, so we can reuse the existing pointer specs.
-// See https://doc.rust-lang.org/stable/std/ptr/struct.NonNull.html.
-pub uninterp spec fn nonnull_view<T: PointeeSized>(ptr: NonNull<T>) -> *mut T;
+pub trait NonNullAdditionalFns<T: PointeeSized> {
+    // The model for NonNull<T> is *mut T, so that we can reuse the existing pointer infrastructure.
+    // See https://doc.rust-lang.org/stable/std/ptr/struct.NonNull.html.
+    spec fn view_ptr_mut(self) -> *mut T;
 
-// This is the type invariant, the address (represented by the View of *mut T)) is not zero.
-pub broadcast axiom fn axiom_nonnull_is_nonnull<T: PointeeSized>(ptr: NonNull<T>)
-    ensures
-        (#[trigger] nonnull_view(ptr))@.addr != 0,
-;
+    spec fn cast_spec<U>(self) -> NonNull<U>;
+
+    proof fn lemma_addr_is_nonnull(self)
+        ensures
+            self.view_ptr_mut()@.addr != 0,;
+}
+
+impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
+    uninterp spec fn view_ptr_mut(self) -> *mut T; 
+
+    uninterp spec fn cast_spec<U>(self) -> NonNull<U>;
+
+    axiom fn lemma_addr_is_nonnull(self)
+        ensures
+            self.view_ptr_mut()@.addr != 0;
+}
 
 pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T) -> (ret: NonNull<
     T,
@@ -27,20 +39,20 @@ pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T)
     requires
         ptr@.addr != 0,
     ensures
-        nonnull_view(ret) == ptr,
+        ret.view_ptr_mut() == ptr,
 ;
 
 pub assume_specification<T: PointeeSized>[ NonNull::as_ptr ](ptr: NonNull<T>) -> (ret: *mut T)
     ensures
         ret@.addr != 0,
-        nonnull_view(ptr) == ret,
+        ptr.view_ptr_mut() == ret,
 ;
 
 pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](
     ptr: NonNull<T>,
 ) -> (ret: NonNull<U>)
     ensures
-        nonnull_view(ret) == nonnull_view(ptr) as *mut U,
+        ret.view_ptr_mut() == ptr.view_ptr_mut() as *mut U,
 ;
 
 /// FIXME: Better specification that captures the effect of the mapping function `f` on the pointer's address, instead of just saying the metadata and provenance are unchanged.
@@ -49,8 +61,8 @@ pub assume_specification<T: PointeeSized, F: FnOnce(NonZero<usize>) -> NonZero<u
     f: F,
 ) -> (ret: NonNull<T>)
     ensures
-        nonnull_view(ret)@.metadata == nonnull_view(ptr)@.metadata,
-        nonnull_view(ret)@.provenance == nonnull_view(ptr)@.provenance,
+        ret.view_ptr_mut()@.metadata == ptr.view_ptr_mut()@.metadata,
+        ret.view_ptr_mut()@.provenance == ptr.view_ptr_mut()@.provenance,
 ;
 
 // Specification for NonNull::dangling(), uninterpreted because the ptr only has to satisfy the alignment requirement.
@@ -59,13 +71,9 @@ pub uninterp spec fn nonnull_dangling_spec<T>() -> NonNull<T>;
 
 pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
     ensures
-        nonnull_view(ret)@.addr as nat % align_of::<T>() as nat == 0,
+        ret.view_ptr_mut()@.addr as nat % align_of::<T>() as nat == 0,
     returns
         nonnull_dangling_spec::<T>(),
 ;
-
-pub broadcast group group_nonnull {
-    axiom_nonnull_is_nonnull,
-}
 
 } // verus!

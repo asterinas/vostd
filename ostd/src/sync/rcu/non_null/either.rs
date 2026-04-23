@@ -108,11 +108,11 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 proof! {
                     let tag = 1usize << Self::ALIGN_BITS;
                     let either_perm = EitherPointsTo { perm: Sum::Right(perm) };
-                    assert(nonnull_view(ret_ptr).addr() == tagged_raw@.addr);
-                    assert(nonnull_view(ret_ptr).addr() == (raw@.addr | tag));
+                    assert(ret_ptr.view_ptr_mut().addr() == tagged_raw@.addr);
+                    assert(ret_ptr.view_ptr_mut().addr() == (raw@.addr | tag));
                     assert(either_perm.ptr().addr() == (perm.ptr().addr() | tag));
                     assert(perm.ptr().addr() == raw@.addr);
-                    assert(either_perm.ptr().addr() == nonnull_view(ret_ptr).addr());
+                    assert(either_perm.ptr().addr() == ret_ptr.view_ptr_mut().addr());
                     assert(Self::ptr_perm_match(ret_ptr, either_perm));
                 }
                 (
@@ -177,14 +177,14 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
 
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
         match perm.perm {
-            Sum::Left(left) => perm.ptr().addr() == nonnull_view(ptr).addr(),
-            Sum::Right(right) => perm.ptr().addr() == nonnull_view(ptr).addr(),
+            Sum::Left(left) => perm.ptr().addr() == ptr.view_ptr_mut().addr(),
+            Sum::Right(right) => perm.ptr().addr() == ptr.view_ptr_mut().addr(),
         }
     }
 
     proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
     {
-        assert(nonnull_view(ptr).addr() == perm.ptr().addr());
+        assert(ptr.view_ptr_mut().addr() == perm.ptr().addr());
     }
 
     proof fn lemma_ptr_perm_low_bit_zero(
@@ -195,15 +195,15 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     {
         match perm.perm {
             Sum::Left(left) => {
-                assert(nonnull_view(ptr).addr() == left.ptr().addr());
+                assert(ptr.view_ptr_mut().addr() == left.ptr().addr());
                 assume(Self::ALIGN_BITS < L::ALIGN_BITS);
                 assume(left.ptr().addr() & (1usize << bit) == 0);
-                assume(nonnull_view(ptr).addr() & (1usize << bit) == 0);
+                assume(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
             },
             Sum::Right(right) => {
                 assume(Self::ALIGN_BITS < R::ALIGN_BITS);
                 assume(right.ptr().addr() & (1usize << bit) == 0);
-                assume(nonnull_view(ptr).addr() & (1usize << bit) == 0);
+                assume(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
             },
         }
     }
@@ -233,8 +233,8 @@ const fn min(a: u32, b: u32) -> u32 {
 /// non-null pointer.
 #[verus_spec(
     requires
-        (nonnull_view(ptr)@.addr & bits) < nonnull_view(ptr)@.addr,
-        (nonnull_view(ptr)@.addr & !bits) != 0,
+        (ptr.view_ptr_mut()@.addr & bits) < ptr.view_ptr_mut()@.addr,
+        (ptr.view_ptr_mut()@.addr & !bits) != 0,
 )]
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     // use core::num::NonZeroUsize;

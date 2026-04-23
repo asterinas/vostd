@@ -109,7 +109,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
         requires
             Self::ptr_perm_match(ptr, perm),
         ensures
-            nonnull_view(ptr).addr() == perm.ptr().addr(),
+            ptr.view_ptr_mut().addr() == perm.ptr().addr(),
     ;
 
     proof fn lemma_ptr_perm_low_bit_zero(
@@ -122,7 +122,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
             bit < Self::ALIGN_BITS,
             bit < usize::BITS,
         ensures
-            nonnull_view(ptr).addr() & (1usize << bit) == 0,
+            ptr.view_ptr_mut().addr() & (1usize << bit) == 0,
     ;
 
     /// A specification function that relates the original type and the permission.
@@ -246,7 +246,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         unsafe { NonNull::new_unchecked(ptr_ref.inner) }
     }*/
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
-        nonnull_view(ptr) == perm.ptr()
+        ptr.view_ptr_mut() == perm.ptr()
     }
 
     proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
@@ -260,9 +260,9 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     )
     {
         let addr = perm.ptr().addr();
-        assert(addr == nonnull_view(ptr).addr());
+        assert(addr == ptr.view_ptr_mut().addr());
         assume(addr & (1usize << bit) == 0);
-        assert(nonnull_view(ptr).addr() & (1usize << bit) == 0);
+        assert(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -407,7 +407,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }*/
 
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool{
-        nonnull_view(ptr) == perm.ptr()
+        ptr.view_ptr_mut() == perm.ptr()
     }
 
     proof fn lemma_ptr_perm_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
@@ -421,9 +421,9 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     )
     {
         let addr = perm.ptr().addr();
-        assert(addr == nonnull_view(ptr).addr());
+        assert(addr == ptr.view_ptr_mut().addr());
         assume(addr & (1usize << bit) == 0);
-        assert(nonnull_view(ptr).addr() & (1usize << bit) == 0);
+        assert(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -439,7 +439,7 @@ pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> ((ptr,perm): (
         Arc::ptr_perm_match(ptr, perm@),
         perm@.ptr().addr() != 0,
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        perm@.ptr() == nonnull_view(ptr),
+        perm@.ptr() == ptr.view_ptr_mut(),
         perm@.inv(),
 {
     // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
@@ -462,7 +462,5 @@ pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
         ArcRef { inner: ManuallyDrop::new(arc_from_raw(raw.as_ptr(), perm)), _marker: PhantomData }
     }
 }
-
-broadcast use group_nonnull;
 
 } // verus!
