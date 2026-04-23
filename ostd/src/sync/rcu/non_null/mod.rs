@@ -125,13 +125,6 @@ pub unsafe trait NonNullPtr: Sized + 'static {
             ptr.view_ptr_mut().addr() & (1usize << bit) == 0,
     ;
 
-    proof fn lemma_ptr_perm_from_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
-        requires
-            ptr.view_ptr_mut().addr() == perm.ptr().addr(),
-        ensures
-            Self::ptr_perm_match(ptr, perm),
-    ;
-
     /// A specification function that relates the original type and the permission.
     spec fn rel_perm(self, perm: Self::Permission) -> bool;
 }
@@ -270,12 +263,6 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         assert(addr == ptr.view_ptr_mut().addr());
         assume(addr & (1usize << bit) == 0);
         assert(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
-    }
-
-    proof fn lemma_ptr_perm_from_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
-    {
-        assume(ptr.view_ptr_mut() == perm.ptr());
-        assert(Self::ptr_perm_match(ptr, perm));
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -437,12 +424,6 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         assert(addr == ptr.view_ptr_mut().addr());
         assume(addr & (1usize << bit) == 0);
         assert(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
-    }
-
-    proof fn lemma_ptr_perm_from_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
-    {
-        assume(ptr.view_ptr_mut() == perm.ptr());
-        assert(Self::ptr_perm_match(ptr, perm));
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {

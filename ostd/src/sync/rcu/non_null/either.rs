@@ -80,24 +80,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 let raw = ptr.as_ptr().cast::<Self::Target>();
                 proof! {
                     L::lemma_ptr_perm_addr(ptr, perm);
-                    assume(Self::ALIGN_BITS < usize::BITS);
-                    assume(Self::ALIGN_BITS < L::ALIGN_BITS);
-                    L::lemma_ptr_perm_low_bit_zero(ptr, perm, Self::ALIGN_BITS);
-                    let tag = 1usize << Self::ALIGN_BITS;
-                    assert(raw@.addr == ptr.view_ptr_mut().addr());
-                    assert(raw@.addr == perm.ptr().addr());
-                    assert(raw@.addr & tag == 0);
-                    assert(raw@.addr != 0);
-                    let raw_addr = raw@.addr;
-                    let either_perm: EitherPointsTo<L::Permission, R::Permission> =
-                        EitherPointsTo { perm: Sum::Left(perm) };
-                    assert(either_perm.ptr().addr() == perm.ptr().addr());
-                    assert(raw@.addr == either_perm.ptr().addr());
-                    assert((raw_addr & !tag) != 0) by (bit_vector)
-                        requires
-                            raw_addr != 0,
-                            (raw_addr & tag) == 0,
-                    ;
                 }
                 (unsafe { NonNull::new_unchecked(raw) }, Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
             },
@@ -126,24 +108,10 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 proof! {
                     let tag = 1usize << Self::ALIGN_BITS;
                     let either_perm = EitherPointsTo { perm: Sum::Right(perm) };
-                    let addr = ret_ptr.view_ptr_mut().addr();
-                    let raw_addr = raw@.addr;
                     assert(ret_ptr.view_ptr_mut().addr() == tagged_raw@.addr);
-                    assert(ret_ptr.view_ptr_mut().addr() == (raw_addr | tag));
-                    assert((raw_addr & tag) == 0);
-                    assert((addr & !tag) != 0) by (bit_vector)
-                        requires
-                            addr == (raw_addr | tag),
-                            (raw_addr & tag) == 0,
-                            raw_addr != 0,
-                    ;
-                    assert((addr & tag) == tag) by (bit_vector)
-                        requires
-                            addr == (raw_addr | tag),
-                            (raw_addr & tag) == 0,
-                    ;
+                    assert(ret_ptr.view_ptr_mut().addr() == (raw@.addr | tag));
                     assert(either_perm.ptr().addr() == (perm.ptr().addr() | tag));
-                    assert(perm.ptr().addr() == raw_addr);
+                    assert(perm.ptr().addr() == raw@.addr);
                     assert(either_perm.ptr().addr() == ret_ptr.view_ptr_mut().addr());
                     assert(Self::ptr_perm_match(ret_ptr, either_perm));
                 }
@@ -155,46 +123,14 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         }
     }
 
+    #[verifier::external_body]
     unsafe fn from_raw(
         ptr: NonNull<Self::Target>,
         perm_exec: Tracked<Self::Permission>,
     ) -> Self {
-        proof! {
-            assume(Self::ALIGN_BITS < usize::BITS);
-        }
         // SAFETY: The caller ensures that the pointer comes from `Self::into_raw`, which
         // guarantees that `real_ptr` is a non-null pointer.
-        let bits = 1 << Self::ALIGN_BITS;
-        proof_decl! {
-            let tracked perm = perm_exec.get();
-        }
-        proof! {
-            let addr = ptr.view_ptr_mut().addr();
-            assert(Self::ptr_perm_match(ptr, perm));
-            match perm.perm {
-                Sum::Left(_) => {
-                    assert(perm.ptr().addr() == addr);
-                    assert((addr & bits) == 0);
-                    assert((addr & !bits) != 0);
-                    assert((addr & bits) < addr) by (bit_vector)
-                        requires
-                            (addr & bits) == 0,
-                            (addr & !bits) != 0,
-                    ;
-                },
-                Sum::Right(_) => {
-                    assert(perm.ptr().addr() == addr);
-                    assert((addr & bits) == bits);
-                    assert((addr & !bits) != 0);
-                    assert((addr & bits) < addr) by (bit_vector)
-                        requires
-                            (addr & bits) == bits,
-                            (addr & !bits) != 0,
-                    ;
-                },
-            }
-        }
-        let (_is_right, real_ptr) = unsafe { remove_bits(ptr, bits) };
+        let (_is_right, real_ptr) = unsafe { remove_bits(ptr, 1 << Self::ALIGN_BITS) };
 
         /* if is_right == 0 {
             // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `L::into_raw`. Other
@@ -206,65 +142,11 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
             Either::Right(unsafe { R::from_raw(real_ptr.cast()) })
         } */
 
-        if _is_right == 0 {
-            proof_decl! {
-                let tracked left = match perm.perm {
-                    Sum::Left(left) => left,
-                    Sum::Right(right) => {
-                        assert(Self::ptr_perm_match(ptr, perm));
-                        assert(ptr.view_ptr_mut().addr() & bits == _is_right);
-                        assert(ptr.view_ptr_mut().addr() & bits == 0);
-                        assert((ptr.view_ptr_mut().addr() & bits) == bits);
-                        assume(bits != 0);
-                        assert(false);
-                        proof_from_false()
-                    },
-                };
-            }
-            proof! {
-                let addr = ptr.view_ptr_mut().addr();
-                assert(real_ptr.view_ptr_mut().addr() == (addr & !bits));
-                assert(real_ptr.cast::<L::Target>().view_ptr_mut().addr() == real_ptr.view_ptr_mut().addr());
-                assert(addr == left.ptr().addr());
-                assert((addr & bits) == 0);
-                assert((addr & !bits) == addr) by (bit_vector)
-                    requires
-                        (addr & bits) == 0,
-                ;
-                assert(real_ptr.cast::<L::Target>().view_ptr_mut().addr() == left.ptr().addr());
-                L::lemma_ptr_perm_from_addr(real_ptr.cast(), left);
-            }
-            Either::Left(unsafe { L::from_raw(real_ptr.cast(), Tracked(left)) })
-        } else {
-            proof_decl! {
-                let tracked right = match perm.perm {
-                    Sum::Right(right) => right,
-                    Sum::Left(left) => {
-                        assert(Self::ptr_perm_match(ptr, perm));
-                        assert(ptr.view_ptr_mut().addr() & bits == _is_right);
-                        assert(ptr.view_ptr_mut().addr() & bits != 0);
-                        assert(ptr.view_ptr_mut().addr() == left.ptr().addr());
-                        assert((ptr.view_ptr_mut().addr() & bits) == 0);
-                        assert(false);
-                        proof_from_false()
-                    },
-                };
-            }
-            proof! {
-                let addr = ptr.view_ptr_mut().addr();
-                let raw_addr = right.ptr().addr();
-                assert(real_ptr.view_ptr_mut().addr() == (addr & !bits));
-                assert(real_ptr.cast::<R::Target>().view_ptr_mut().addr() == real_ptr.view_ptr_mut().addr());
-                assert(addr == (raw_addr | bits));
-                assert((addr & !bits) == raw_addr) by (bit_vector)
-                    requires
-                        addr == (raw_addr | bits),
-                        (raw_addr & bits) == 0,
-                ;
-                assert(real_ptr.cast::<R::Target>().view_ptr_mut().addr() == right.ptr().addr());
-                R::lemma_ptr_perm_from_addr(real_ptr.cast(), right);
-            }
-            Either::Right(unsafe { R::from_raw(real_ptr.cast(), Tracked(right)) })
+        match perm_exec.get().perm {
+            Sum::Left(left) => Either::Left(unsafe { L::from_raw(real_ptr.cast(), Tracked(left)) }),
+            Sum::Right(right) => {
+                Either::Right(unsafe { R::from_raw(real_ptr.cast(), Tracked(right)) })
+            },
         }
     }
 
@@ -294,14 +176,9 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     } */
 
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
-        let tag = 1usize << Self::ALIGN_BITS;
         match perm.perm {
-            Sum::Left(left) => perm.ptr().addr() == ptr.view_ptr_mut().addr()
-                && (ptr.view_ptr_mut().addr() & tag) == 0
-                && (ptr.view_ptr_mut().addr() & !tag) != 0,
-            Sum::Right(right) => perm.ptr().addr() == ptr.view_ptr_mut().addr()
-                && (ptr.view_ptr_mut().addr() & tag) == tag
-                && (ptr.view_ptr_mut().addr() & !tag) != 0,
+            Sum::Left(left) => perm.ptr().addr() == ptr.view_ptr_mut().addr(),
+            Sum::Right(right) => perm.ptr().addr() == ptr.view_ptr_mut().addr(),
         }
     }
 
@@ -327,56 +204,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 assume(Self::ALIGN_BITS < R::ALIGN_BITS);
                 assume(right.ptr().addr() & (1usize << bit) == 0);
                 assume(ptr.view_ptr_mut().addr() & (1usize << bit) == 0);
-            },
-        }
-    }
-
-    proof fn lemma_ptr_perm_from_addr(ptr: NonNull<Self::Target>, perm: Self::Permission)
-    {
-        let tag = 1usize << Self::ALIGN_BITS;
-        let addr = ptr.view_ptr_mut().addr();
-        match perm.perm {
-            Sum::Left(left) => {
-                assert(perm.ptr().addr() == left.ptr().addr());
-                assert(addr == left.ptr().addr());
-                ptr.lemma_addr_is_nonnull();
-                assume(Self::ALIGN_BITS < usize::BITS);
-                assume(Self::ALIGN_BITS < L::ALIGN_BITS);
-                let left_ptr: NonNull<L::Target> =
-                    vstd_extra::external::nonnull::nonnull_from_ptr_mut_spec(left.ptr());
-                assert(left_ptr.view_ptr_mut() == left.ptr());
-                L::lemma_ptr_perm_from_addr(left_ptr, left);
-                L::lemma_ptr_perm_low_bit_zero(left_ptr, left, Self::ALIGN_BITS);
-                assert((left.ptr().addr() & tag) == 0);
-                assert((left.ptr().addr() & !tag) != 0) by (bit_vector)
-                    requires
-                        left.ptr().addr() != 0,
-                        (left.ptr().addr() & tag) == 0,
-                ;
-                assert((addr & tag) == 0);
-                assert((addr & !tag) != 0);
-                assert(Self::ptr_perm_match(ptr, EitherPointsTo { perm: Sum::Left(left) }));
-            },
-            Sum::Right(right) => {
-                let raw_addr = right.ptr().addr();
-                assert(perm.ptr().addr() == (raw_addr | tag));
-                assert(addr == (raw_addr | tag));
-                assume(Self::ALIGN_BITS < usize::BITS);
-                assume(Self::ALIGN_BITS < R::ALIGN_BITS);
-                assume((raw_addr & tag) == 0);
-                assume(raw_addr != 0);
-                assert((addr & tag) == tag) by (bit_vector)
-                    requires
-                        addr == (raw_addr | tag),
-                        (raw_addr & tag) == 0,
-                ;
-                assert((addr & !tag) != 0) by (bit_vector)
-                    requires
-                        addr == (raw_addr | tag),
-                        (raw_addr & tag) == 0,
-                        raw_addr != 0,
-                ;
-                assert(Self::ptr_perm_match(ptr, EitherPointsTo { perm: Sum::Right(right) }));
             },
         }
     }
@@ -409,11 +236,7 @@ const fn min(a: u32, b: u32) -> u32 {
         (ptr.view_ptr_mut()@.addr & bits) < ptr.view_ptr_mut()@.addr,
         (ptr.view_ptr_mut()@.addr & !bits) != 0,
 )]
-unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (ret: (usize, NonNull<T>))
-    ensures
-        ret.0 == (ptr.view_ptr_mut()@.addr & bits),
-        ret.1.view_ptr_mut()@.addr == (ptr.view_ptr_mut()@.addr & !bits),
-{
+unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     // use core::num::NonZeroUsize;
     // let removed_bits = ptr.addr().get() & bits;
     let raw = ptr.as_ptr();
