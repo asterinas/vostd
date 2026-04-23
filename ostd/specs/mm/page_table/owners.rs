@@ -113,6 +113,9 @@ pub axiom fn axiom_leading_bits_bounded<C: PageTableConfig>()
 /// `vaddr(path) < 2^48` for every valid path: each term in the positional
 /// sum is `i_k * 2^(12 + 9·k)` with `i_k < 512 = 2^9`, so the sum is
 /// strictly less than `2^48`.
+///
+/// Tightest case (all indices `= 511`):
+///   `(2^9 - 1) · (2^39 + 2^30 + 2^21 + 2^12) = 2^48 − 2^12 < 2^48`.
 #[verifier::rlimit(400)]
 pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     requires
@@ -129,14 +132,73 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     if path.len() == 0 {
         assert(rec_vaddr(path, 0) == 0);
     } else if path.len() == 1 {
-        // TODO: the `by (compute)` simplification for `vaddr_make::<NR_LEVELS>(...)
-        // == 0x80_0000_0000 * i` doesn't fire at module-level proof-fn scope the
-        // way it does inside `impl AbstractVaddr` blocks in `mod.rs`. Keeping
-        // the `vaddr(path) < 2^48` bound as an admit for the non-trivial cases
-        // until the compute context is resolved.
-        admit();
+        let i0 = path.index(0);
+        assert(0 <= i0 < NR_ENTRIES);
+        assert(rec_vaddr(path, 1) == 0);
+        assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(0x80_0000_0000usize * i0 < 0x1_0000_0000_0000int) by (nonlinear_arith)
+            requires i0 < 512;
+    } else if path.len() == 2 {
+        let i0 = path.index(0);
+        let i1 = path.index(1);
+        assert(0 <= i0 < NR_ENTRIES);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(rec_vaddr(path, 2) == 0);
+        assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0)
+            + vaddr_make::<NR_LEVELS>(1, i1)) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 < 0x1_0000_0000_0000int)
+            by (nonlinear_arith)
+            requires i0 < 512, i1 < 512;
+    } else if path.len() == 3 {
+        let i0 = path.index(0);
+        let i1 = path.index(1);
+        let i2 = path.index(2);
+        assert(0 <= i0 < NR_ENTRIES);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(0 <= i2 < NR_ENTRIES);
+        assert(rec_vaddr(path, 3) == 0);
+        assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
+        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1)
+            + vaddr_make::<NR_LEVELS>(2, i2)) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0)
+            + vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(2, i2)) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
+        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2
+            < 0x1_0000_0000_0000int) by (nonlinear_arith)
+            requires i0 < 512, i1 < 512, i2 < 512;
     } else {
-        admit();
+        assert(path.len() == 4);
+        let i0 = path.index(0);
+        let i1 = path.index(1);
+        let i2 = path.index(2);
+        let i3 = path.index(3);
+        assert(0 <= i0 < NR_ENTRIES);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(0 <= i2 < NR_ENTRIES);
+        assert(0 <= i3 < NR_ENTRIES);
+        assert(rec_vaddr(path, 4) == 0);
+        assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3) as usize);
+        assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2)
+            + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
+        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1)
+            + vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0)
+            + vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(2, i2)
+            + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(3, i3) == 0x1000usize * i3) by (compute);
+        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1
+            + 0x20_0000usize * i2 + 0x1000usize * i3 < 0x1_0000_0000_0000int)
+            by (nonlinear_arith)
+            requires i0 < 512, i1 < 512, i2 < 512, i3 < 512;
     }
 }
 

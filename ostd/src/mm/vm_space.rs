@@ -1108,9 +1108,17 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 // Mapped-case setup: establish split_while_huge properties once.
                 if is_mapped {
                     assert(sv.cur_va < MAX_USERSPACE_VADDR);
-                    assert(prev_mappings.disjoint(old_removed)) by {
-                        assert forall |e: Mapping| prev_mappings.contains(e)
-                            implies !old_removed.contains(e) by {};
+                    // VA-disjointness of prev_mappings and old_removed: both
+                    // are subsets of `old_adjusted`, which is wf (pairwise
+                    // VA-disjoint). m == x is impossible: prev_mappings =
+                    // old_adjusted \ old_removed, so prev_mappings.contains(m)
+                    // implies !old_removed.contains(m).
+                    assert forall|m: Mapping, x: Mapping|
+                        #[trigger] prev_mappings.contains(m)
+                            && #[trigger] old_removed.contains(x) implies
+                        Mapping::disjoint_vaddrs(m, x) by {
+                        assert(old_adjusted.contains(m));
+                        assert(old_adjusted.contains(x));
                     };
                     sv.split_while_huge_disjoint(mm.page_size, old_removed);
                     sv.lemma_split_while_huge_preserves_inv(mm.page_size);

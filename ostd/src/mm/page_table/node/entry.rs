@@ -958,6 +958,25 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     assert(child_owner.frame_sub_pages_valid(*regions));
                 }
 
+                let ghost target_idx = frame_to_index(small_pa);
+                assert(target_idx == small_idx);
+                if i != 0 {
+                    let ghost big_j = crate::specs::mm::page_table::cursor::
+                        page_size_lemmas::lemma_split_sub_page_big_j(pa, level, i);
+                    assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
+                    assert(target_idx == frame_to_index((pa + big_j * PAGE_SIZE) as usize));
+                    assert(regions.slots.contains_key(target_idx));
+                    assert(regions.slot_owners[target_idx].inner_perms.ref_count.value()
+                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
+                    assert(regions.slot_owners[target_idx].inner_perms.ref_count.value() > 0);
+                } else {
+                    // i == 0: small_pa = pa + 0 * page_size(level - 1) = pa.
+                    assert(0 * page_size((level - 1) as PagingLevel) == 0)
+                        by (nonlinear_arith);
+                    assert(small_pa as int == pa as int);
+                    assert(target_idx == frame_to_index(pa));
+                }
+                assert(child_owner.metaregion_sound(*regions));
                 assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop)
                     .invariants(child_owner, *regions));
             }

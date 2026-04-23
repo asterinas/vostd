@@ -783,7 +783,9 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
 
 impl<C: PageTableConfig> InvView for EntryOwner<C> {
     proof fn view_preserves_inv(self) {
-        admit()
+        // `EntryView::inv()` is trivially `true` (the view of an `EntryOwner`
+        // is never inspected outside this trait obligation), so the
+        // postcondition `self.view().inv()` discharges automatically.
     }
 }
 
