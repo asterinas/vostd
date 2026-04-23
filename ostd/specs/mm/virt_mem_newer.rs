@@ -598,11 +598,7 @@ impl VirtPtr {
         ensures
             *final(mem_dst) == Self::copy_offset_spec(*src, *dst, *mem_src, *old(mem_dst), n),
             final(mem_dst).mappings == old(mem_dst).mappings,
-            // dom() can only grow (insert may add the translated pa).
-            // `MemView` has no inv connecting tlb_mappings to memory.dom,
-            // so we cannot promise equality without a stronger precondition.
             old(mem_dst).memory.dom().subset_of(final(mem_dst).memory.dom()),
-
     {
         let x = src.read_offset(Tracked(mem_src), n);
         dst.write_offset(Tracked(mem_dst), n, x)

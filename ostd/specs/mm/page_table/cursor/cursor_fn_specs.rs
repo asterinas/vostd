@@ -83,12 +83,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     // (unwrap of None path entry). Doing so requires tweaking the cursor invariant's
     // treatment of locks so that `pop_level` can express the panic as a precondition violation.
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
-        ||| self.inner.va >= self.inner.barrier_va.end
+        ||| self.0.va >= self.0.barrier_va.end
         ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
-        ||| C::item_into_raw(item).1 >= self.inner.guard_level
+        ||| C::item_into_raw(item).1 >= self.0.guard_level
         ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw(item).1 >= NR_LEVELS)
-        ||| self.inner.va % page_size(C::item_into_raw(item).1) != 0
-        ||| self.inner.va + page_size(C::item_into_raw(item).1) > self.inner.barrier_va.end
+        ||| self.0.va % page_size(C::item_into_raw(item).1) != 0
+        ||| self.0.va + page_size(C::item_into_raw(item).1) > self.0.barrier_va.end
     }
 
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`

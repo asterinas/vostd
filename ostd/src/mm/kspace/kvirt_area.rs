@@ -499,12 +499,12 @@ impl KVirtArea {
 
         for frame in it: frames.into_iter()
             invariant
-                cursor.inner.invariants(cursor_owner, *regions, *guards),
+                cursor.0.invariants(cursor_owner, *regions, *guards),
                 forall |i: int| 0 <= i < entry_owners.len() ==> (#[trigger]entry_owners[i]).inv(),
-                cursor.inner.va % PAGE_SIZE == 0,
-                cursor.inner.va as int + entry_owners.len() as int * PAGE_SIZE as int
-                    <= cursor.inner.barrier_va.end as int,
-                cursor.inner.barrier_va.end % PAGE_SIZE == 0,
+                cursor.0.va % PAGE_SIZE == 0,
+                cursor.0.va as int + entry_owners.len() as int * PAGE_SIZE as int
+                    <= cursor.0.barrier_va.end as int,
+                cursor.0.barrier_va.end % PAGE_SIZE == 0,
                 it.elements.len() == init_frames_len,
                 init_frames_len <= old(entry_owners).len(),
                 entry_owners.len() == old(entry_owners).len() - it.pos,
@@ -529,20 +529,20 @@ impl KVirtArea {
 
             // Now Verus knows: dynframe == frame_as_dynframe(it.elements[it.pos])
             let item = MappedItem::Tracked(frame, prop);
-            assert(cursor.inner.invariants(cursor_owner, *regions, *guards));
+            assert(cursor.0.invariants(cursor_owner, *regions, *guards));
 
             let ghost regions_before_map = *regions;
-            let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor.inner.model(cursor_owner);
+            let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor.0.model(cursor_owner);
             let ghost old_cursor_owner_va = cursor_owner.va;
             proof {
                 cursor_owner.view_preserves_inv(); // old_cursor_model.inv()
-                cursor_owner.va.reflect_prop(cursor.inner.va);
+                cursor_owner.va.reflect_prop(cursor.0.va);
                 let (pa, level, prop_from_item) = KernelPtConfig::item_into_raw_spec(item);
                 KernelPtConfig::item_into_raw_spec_level_bounds(item);
                 KernelPtConfig::item_into_raw_spec_tracked_level(item);
-                lemma_va_align_page_size_level_1(cursor.inner.va);
+                lemma_va_align_page_size_level_1(cursor.0.va);
                 cursor_owner.locked_range_page_aligned();
-                let ghost diff: int = cursor.inner.barrier_va.end as int - cursor.inner.va as int;
+                let ghost diff: int = cursor.0.barrier_va.end as int - cursor.0.va as int;
                 vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
                     nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
                 );
@@ -585,7 +585,7 @@ impl KVirtArea {
                     old_cursor_owner_va.to_vaddr() as nat, PAGE_SIZE as nat)
                     == old_cursor_owner_va.to_vaddr() as nat);
                 
-                cursor_owner.va.reflect_prop(cursor.inner.va);
+                cursor_owner.va.reflect_prop(cursor.0.va);
             }
         }
 
@@ -687,7 +687,7 @@ impl KVirtArea {
 
             for (pa, level) in it: pages.into_iter()
                 invariant
-                    cursor.inner.invariants(cursor_owner, *regions, *guards),
+                    cursor.0.invariants(cursor_owner, *regions, *guards),
                     forall |i: int| 0 <= i < it.elements.len() ==> (#[trigger] it.elements[i]).0 % PAGE_SIZE == 0,
                     forall |i: int| 0 <= i < it.elements.len() ==>
                         1 <= (#[trigger] it.elements[i]).1<= NR_LEVELS,
@@ -698,10 +698,10 @@ impl KVirtArea {
                         (va_range.start as nat + #[trigger] sum_page_sizes_spec(it.elements, 0, i))
                             % page_size(it.elements[i].1) as nat == 0,
                     // VA tracking invariant: cursor has advanced past sum of processed pages.
-                    cursor.inner.va as nat
+                    cursor.0.va as nat
                         == va_range.start as nat
                             + sum_page_sizes_spec(it.elements, 0, it.pos as int),
-                    cursor.inner.barrier_va.end == va_range.start + len,
+                    cursor.0.barrier_va.end == va_range.start + len,
                     it.pos <= it.elements.len(),
                     // PA tracking: element[i].0 == pa_range.start + sum of preceding sizes.
                     forall |i: int| #![auto] 0 <= i < it.elements.len() ==>
@@ -716,7 +716,7 @@ impl KVirtArea {
                     // pa_range.end == pa_range.start + len in nat (constant throughout loop).
                     pa_range.end as nat == pa_range.start as nat + len as nat,
                     // guard_level == NR_LEVELS (from cursor_mut postcondition, preserved by map).
-                    cursor.inner.guard_level == NR_LEVELS as u8,
+                    cursor.0.guard_level == NR_LEVELS as u8,
                     // Physical address bound (function precondition; constant throughout loop).
                     pa_range.end <= MAX_PADDR,
             {
@@ -740,13 +740,13 @@ impl KVirtArea {
                 }
 
                 let ghost old_cursor_model: CursorView<KernelPtConfig> =
-                    cursor.inner.model(cursor_owner);
+                    cursor.0.model(cursor_owner);
                 let ghost old_cursor_owner_va = cursor_owner.va;
-                let ghost old_va: nat = cursor.inner.va as nat;
+                let ghost old_va: nat = cursor.0.va as nat;
 
                 proof {
                     cursor_owner.view_preserves_inv(); // old_cursor_model.inv()
-                    cursor_owner.va.reflect_prop(cursor.inner.va);
+                    cursor_owner.va.reflect_prop(cursor.0.va);
 
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
 
