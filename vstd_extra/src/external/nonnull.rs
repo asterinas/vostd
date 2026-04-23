@@ -3,6 +3,7 @@ use core::num::NonZero;
 use core::ptr::NonNull;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
+use crate::external::nonzero::*;
 
 verus! {
 #[verifier::external_type_specification]
@@ -39,10 +40,10 @@ pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](
     ptr: NonNull<T>,
 ) -> (ret: NonNull<U>)
     ensures
-        nonnull_view(ret)@.addr == nonnull_view(ptr)@.addr,
-        nonnull_view(ret)@.provenance == nonnull_view(ptr)@.provenance,
+        nonnull_view(ret) == nonnull_view(ptr) as *mut U,
 ;
 
+/// FIXME: Better specification that captures the effect of the mapping function `f` on the pointer's address, instead of just saying the metadata and provenance are unchanged.
 pub assume_specification<T: PointeeSized, F: FnOnce(NonZero<usize>) -> NonZero<usize>> [ NonNull::<T>::map_addr ](
     ptr: NonNull<T>,
     f: F,
