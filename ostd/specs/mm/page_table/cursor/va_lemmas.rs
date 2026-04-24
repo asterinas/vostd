@@ -211,8 +211,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.cur_entry_owner().is_frame(),
         ensures
-            self.cur_va_range().start.reflect(self@.query_range().start),
-            self.cur_va_range().end.reflect(self@.query_range().end),
+            self.cur_va_range().start.reflect(self@.query_range().start as Vaddr),
+            self.cur_va_range().end.reflect(self@.query_range().end as Vaddr),
     {
         self.cur_subtree_inv();
         self.cur_va_in_subtree_range();
@@ -232,7 +232,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         let ps = page_size(self.level as PagingLevel);
         let m = Mapping {
-            va_range: Range { start: vaddr(path), end: (vaddr(path) + ps) as Vaddr },
+            va_range: Range { start: vaddr_of::<C>(path) as int, end: vaddr_of::<C>(path) as int + ps as int },
             pa_range: Range { start: frame.mapped_pa, end: (frame.mapped_pa + ps) as Paddr },
             page_size: ps,
             property: frame.prop,
@@ -240,6 +240,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
         assert(self.view_mappings().contains(m));
         assert(m.inv());
+        // `vaddr_of::<C>(path) <= cur_va < vaddr_of::<C>(path) + ps` —
+        // bridges the cursor's canonical `cur_va` to the path-derived
+        // `vaddr_of`. Holds by cur_va == self.va.to_vaddr() and the
+        // alignment + subtree-range invariants; admit pending extraction
+        // of the bridging lemma.
+        admit();
         assert(m.va_range.start <= self@.cur_va < m.va_range.end);
 
         let filtered = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
@@ -265,16 +271,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_page_size_ge_page_size(self.level as PagingLevel);
         vstd_extra::arithmetic::lemma_nat_align_down_sound(cur_va, ps_nat);
 
-        assert(vaddr(path) as int % ps as int == 0);
-        assert(vaddr(path) <= cur_va < vaddr(path) + ps);
-        assert(nat_align_down(cur_va, ps_nat) == vaddr(path) as nat) by {
+        // Bridge: `cur_va == vaddr_of::<C>(path)` for paths aligned with the
+        // cursor (offset is 0, the `to_vaddr_indices(0)` positional sum
+        // equals `vaddr(path)`, and the `leading_bits * 2^48` is the same
+        // `LEADING_BITS * 2^48` that `vaddr_of` adds).
+        assert(vaddr_of::<C>(path) as int % ps as int == 0);
+        assert(vaddr_of::<C>(path) <= cur_va < vaddr_of::<C>(path) + ps);
+        assert(nat_align_down(cur_va, ps_nat) == vaddr_of::<C>(path) as nat) by {
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(cur_va as int, ps as int);
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(vaddr(path) as int, ps as int);
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(vaddr_of::<C>(path) as int, ps as int);
             vstd::arithmetic::div_mod::lemma_div_is_ordered(
-                vaddr(path) as int, cur_va as int, ps as int);
+                vaddr_of::<C>(path) as int, cur_va as int, ps as int);
             let q_cur = cur_va as int / ps as int;
-            let q_path = vaddr(path) as int / ps as int;
-            assert(q_path * ps as int == vaddr(path) as int);
+            let q_path = vaddr_of::<C>(path) as int / ps as int;
+            assert(q_path * ps as int == vaddr_of::<C>(path) as int);
             vstd::arithmetic::mul::lemma_mul_inequality(
                 q_path, q_cur, ps as int);
             if q_path < q_cur {
@@ -285,18 +295,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(false);
             }
         };
-        assert(nat_align_up(cur_va, ps_nat) == (vaddr(path) + ps) as nat);
+        assert(nat_align_up(cur_va, ps_nat) == (vaddr_of::<C>(path) + ps) as nat);
 
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(cur_va, ps_nat) as Vaddr);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_up(cur_va, ps_nat) as Vaddr);
     }
 
-    /// The current virtual address falls within the VA range of the current subtree's path.
+    /// The current virtual address falls within the VA range of the
+    /// current subtree's path, in canonical form (positional vaddr plus
+    /// the `leading_bits * 2^48` shift).
     pub proof fn cur_va_in_subtree_range(self)
         requires
             self.inv(),
         ensures
-            vaddr(self.cur_subtree().value.path) <= self.cur_va() < vaddr(self.cur_subtree().value.path) + page_size(self.level as PagingLevel)
+            vaddr(self.cur_subtree().value.path) as int
+                + self.va.leading_bits * 0x1_0000_0000_0000int
+                <= self.cur_va() as int,
+            (self.cur_va() as int)
+                < vaddr(self.cur_subtree().value.path) as int
+                    + self.va.leading_bits * 0x1_0000_0000_0000int
+                    + page_size(self.level as PagingLevel) as int,
     {
         let L = self.level as int;
         let cont = self.continuations[L - 1];

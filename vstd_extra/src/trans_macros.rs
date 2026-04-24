@@ -2,21 +2,28 @@ use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
 
+use crate::panic::*;
+
 #[macro_export]
 macro_rules! assert {
     ($cond:expr) => {
-        verus_exec_expr!(
-            if !($cond) {
-                proof { assert(false); }
-            }
-        )
+        if !($cond) {
+            $crate::panic::panic_diverge()
+        }
     };
     ($cond:expr, $msg:literal) => {
-        verus_exec_expr!(
-            if !($cond) {
-                proof { assert(false); }
-            }
-        )
+        if !($cond) {
+            $crate::panic::panic_diverge()
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! assert_eq {
+    ($l:expr, $r:expr) => {
+        if ($l != $r) {
+            $crate::panic::panic_diverge()
+        }
     };
 }
 

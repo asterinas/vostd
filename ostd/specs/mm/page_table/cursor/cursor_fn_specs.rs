@@ -52,7 +52,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         &&& owner.cur_va_range().start.reflect(res.0.start)
         &&& owner.cur_va_range().end.reflect(res.0.end)
         &&& res.1 is Some
-        &&& owner@.query_item_spec(res.1.unwrap()) == Some(owner@.query_range())
+        &&& {
+            let qr = owner@.query_range();
+            owner@.query_item_spec(res.1.unwrap()) == Some(qr.start as Vaddr..qr.end as Vaddr)
+        }
     }
 
     pub open spec fn query_none_ensures(

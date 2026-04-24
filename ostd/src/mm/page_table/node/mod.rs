@@ -208,6 +208,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             mm::page_prop::CachePolicy,
         };
 
+        #[cfg(feature = "allow_panic")]
         assert_eq!(self.level(), C::NR_LEVELS());
 
         let last_activated_paddr = current_page_table_paddr();
@@ -238,10 +239,17 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
 #[verus_verify]
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
-    pub open spec fn locks_preserved_except<'rcu>(addr: usize, guards0: Guards<'rcu, C>, guards1: Guards<'rcu, C>) -> bool {
-        &&& OwnerSubtree::implies(CursorOwner::node_unlocked(guards0), CursorOwner::node_unlocked_except(guards1, addr))
-        &&& forall |i: usize| guards0.lock_held(i) ==> guards1.lock_held(i)
-        &&& forall |i: usize| guards0.unlocked(i) && i != addr ==> guards1.unlocked(i)
+    pub open spec fn locks_preserved_except<'rcu>(
+        addr: usize,
+        guards0: Guards<'rcu, C>,
+        guards1: Guards<'rcu, C>,
+    ) -> bool {
+        &&& OwnerSubtree::implies(
+            CursorOwner::node_unlocked(guards0),
+            CursorOwner::node_unlocked_except(guards1, addr),
+        )
+        &&& forall|i: usize| guards0.lock_held(i) ==> guards1.lock_held(i)
+        &&& forall|i: usize| guards0.unlocked(i) && i != addr ==> guards1.unlocked(i)
     }
 
     /// Locks the page table node.
@@ -266,7 +274,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
+    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
+        PageTableGuard<'rcu, C>,
+    > where 'a: 'rcu {
         unimplemented!()
     }
 
@@ -291,7 +301,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
+        PageTableGuard<'rcu, C>,
+    > where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
 
@@ -344,7 +356,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             res.node.addr() == guard_perm.addr(),
             res.idx == idx,
     {
-        //        assert!(idx < nr_subpage_per_huge::<C>());
+        #[cfg(feature = "allow_panic")]
+        assert!(idx < nr_subpage_per_huge::<C>());
         // SAFETY: The index is within the bound.
         #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(guard_perm))]
         Entry::new_at(guard, idx);
@@ -363,7 +376,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub fn nr_children(&self) -> (nr: u16)
         requires
-            // Node invariants: owner well-formedness and node-owner consistency
+    // Node invariants: owner well-formedness and node-owner consistency
+
             self.inner.inner@.invariants(*owner),
         returns
             owner.meta_own.nr_children.value(),

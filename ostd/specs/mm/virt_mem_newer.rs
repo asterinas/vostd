@@ -830,7 +830,8 @@ impl GlobalMemView {
 
     pub open spec fn pas_uniquely_mapped(self) -> bool {
         forall|m1: Mapping, m2: Mapping|
-             #[trigger] self.tlb_mappings.contains(m1) && #[trigger] self.tlb_mappings.contains(m2) && m1 != m2 ==>
+             #![trigger self.tlb_mappings.contains(m1), self.tlb_mappings.contains(m2)]
+             self.tlb_mappings.contains(m1) && self.tlb_mappings.contains(m2) && m1 != m2 ==>
             m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
     }
 

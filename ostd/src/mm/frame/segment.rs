@@ -14,10 +14,11 @@ use vstd_extra::ownership::*;
 
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
-use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::mm::{paddr_to_vaddr, Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::virt_mem_newer::MemView;
 use vstd_extra::drop_tracking::*;
 
 verus! {
@@ -148,6 +149,78 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             0 <= i < owner.perms.len() as int ==> owner.perms[i].addr() == meta_addr(
                 frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
             )
+    }
+
+    /// Whether a [`MemView`] covers the segment through the kernel direct mapping.
+    ///
+    /// This predicate only describes the virtual-to-physical relation and the
+    /// presence of initialized backing frame contents.
+    pub open spec fn kernel_mem_view_covers(&self, view: &MemView) -> bool {
+        &&& self.inv()
+        &&& view.mappings.finite()
+        &&& view.mappings_are_disjoint()
+        &&& forall|vaddr: Vaddr|
+            #![trigger view.addr_transl(vaddr)]
+            paddr_to_vaddr(self.range.start) <= vaddr < paddr_to_vaddr(self.range.start)
+                + self.range.end - self.range.start ==> {
+                &&& view.addr_transl(vaddr) is Some
+                &&& view.memory.contains_key(view.addr_transl(vaddr).unwrap().0)
+                &&& view.memory[view.addr_transl(vaddr).unwrap().0].inv()
+                &&& view.memory[view.addr_transl(vaddr).unwrap().0].contents[view.addr_transl(
+                    vaddr,
+                ).unwrap().1 as int] is Init
+            }
+        &&& forall|paddr: Paddr|
+            #![trigger paddr_to_vaddr(paddr)]
+            self.range.start <= paddr < self.range.end ==> {
+                let vaddr = paddr_to_vaddr(paddr);
+                &&& view.addr_transl(vaddr) is Some
+                &&& view.addr_transl(vaddr).unwrap().0 <= paddr
+                &&& paddr < view.addr_transl(vaddr).unwrap().0 + view.memory[view.addr_transl(
+                    vaddr,
+                ).unwrap().0].size@
+                &&& view.addr_transl(vaddr).unwrap().1 == paddr - view.addr_transl(vaddr).unwrap().0
+                &&& view.memory.contains_key(view.addr_transl(vaddr).unwrap().0)
+                &&& view.memory[view.addr_transl(vaddr).unwrap().0].inv()
+                &&& view.memory[view.addr_transl(vaddr).unwrap().0].contents[view.addr_transl(
+                    vaddr,
+                ).unwrap().1 as int] is Init
+            }
+    }
+}
+
+impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
+    /// Produces a kernel direct-mapping memory view for the segment.
+    ///
+    /// This is a proof bridge from segment ownership to the VM I/O memory-view
+    /// model. It should eventually be justified by a real frame-content owner
+    /// instead of metadata permissions alone.
+    #[verifier::external_body]
+    pub proof fn produce_kernel_mem_view(tracked &self, segment: Segment<M>) -> (tracked view:
+        MemView)
+        requires
+            self.inv(),
+            segment.inv_with(self),
+        ensures
+            segment.kernel_mem_view_covers(&view),
+    {
+        arbitrary()
+    }
+
+    /// Borrows a kernel direct-mapping memory view for the segment.
+    ///
+    /// This is the read-side counterpart of [`Self::produce_kernel_mem_view`],
+    /// used when the VM I/O owner only needs a shared read view.
+    #[verifier::external_body]
+    pub proof fn borrow_kernel_mem_view<'a>(tracked &'a self, segment: Segment<M>) -> (tracked view:
+        &'a MemView)
+        requires
+            self.inv(),
+            segment.inv_with(self),
+        ensures
+            segment.kernel_mem_view_covers(view),
+    {
+        arbitrary()
     }
 }
 

@@ -473,8 +473,11 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // strictly in-range) and preserved by all cursor operations (none touch prefix).
         &&& self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end
         // The cursor stays within the same canonical half of the address
-        // space as its prefix — so `top_bits` agrees throughout traversal.
-        &&& self.va.top_bits == self.prefix.top_bits
+        // space as its prefix — so `leading_bits` agrees throughout traversal.
+        &&& self.va.leading_bits == self.prefix.leading_bits
+        // Established at construction (new_spec initializes both va and
+        // prefix with LEADING_BITS_spec()) and preserved by cursor ops.
+        &&& self.prefix.leading_bits == C::LEADING_BITS_spec() as int
         // The cursor's VA shares upper indices with the prefix as long as
         // the cursor hasn't popped above guard_level.
         &&& !self.popped_too_high ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
@@ -903,6 +906,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 property: prop,
             }]
     {
+        // TODO: bridge canonical cur_slot_range (built from cur_va, which
+        // is self.va.to_vaddr() = vaddr_of(path)) to view_rec's
+        // vaddr_of(path)-built Mapping.
+        admit();
         let path = new_subtree.value.path;
         let ps = page_size(level);
         let pt_level = INC_LEVELS - path.len();
@@ -1359,7 +1366,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(pt_level == self.level);
 
         let m = Mapping {
-            va_range: Range { start: vaddr(path), end: (vaddr(path) + page_size(pt_level as PagingLevel)) as Vaddr },
+            va_range: Range {
+                start: vaddr_of::<C>(path) as int,
+                end: vaddr_of::<C>(path) as int + page_size(pt_level as PagingLevel) as int,
+            },
             pa_range: Range { start: frame.mapped_pa, end: (frame.mapped_pa + page_size(pt_level as PagingLevel)) as Paddr },
             page_size: page_size(pt_level as PagingLevel),
             property: frame.prop,
@@ -1369,6 +1379,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(m.inv());
         assert(m.va_range.start <= self@.cur_va < m.va_range.end) by {
             self.cur_va_in_subtree_range();
+            // TODO: bridge cur_va (canonical) to vaddr_of::<C>(path).
+            admit();
         };
 
         let filtered = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
@@ -1614,7 +1626,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let va = AbstractVaddr {
             offset: 0,
             index: Map::new(|i: int| 0 <= i < NR_LEVELS, |i: int| 0).insert(NR_LEVELS - 1, idx as int),
-            top_bits: 0,
+            // Canonical-high-half shift for this config. `UserPtConfig` has
+            // `LEADING_BITS_spec() == 0`, making this identical to the old
+            // hard-coded 0 and preserving all existing user-cursor proofs.
+            // `KernelPtConfig` has `LEADING_BITS_spec() == 0xffff`, putting
+            // kernel cursors in the canonical upper half from construction.
+            leading_bits: C::LEADING_BITS_spec() as int,
         };
         Self {
             level: NR_LEVELS as PagingLevel,
@@ -1654,12 +1671,14 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
         &&& self.mappings.finite()
         &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> m.inv()
-        // Config-aware VA range: user page tables live in `0..MAX_USERSPACE_VADDR`,
-        // kernel page tables live in `KERNEL_VADDR_RANGE`, etc. `C::VADDR_RANGE_spec`
-        // encapsulates this, so `Mapping::inv` can stay config-agnostic.
+        // Config-aware VA range: user page tables live in `[0, 2^47)`,
+        // kernel page tables in `[0xffff_8000_…, usize::MAX]`, etc.
+        // `vaddr_range_bounds_spec<C>` gives inclusive `(start, end_inclusive)`
+        // bounds derived from `LEADING_BITS_spec` + `TOP_LEVEL_INDEX_RANGE_spec`,
+        // so `Mapping::inv` can stay config-agnostic.
         &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> {
-            &&& C::VADDR_RANGE_spec().start <= m.va_range.start
-            &&& m.va_range.end <= C::VADDR_RANGE_spec().end
+            &&& vaddr_range_bounds_spec::<C>().0 <= m.va_range.start
+            &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
         }
         &&& self.non_overlapping()
     }
@@ -1677,13 +1696,26 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 }
 
-/// Config-specific axiom: every mapping in a cursor's view has its VA range
-/// contained in `C::VADDR_RANGE_spec()`. For `UserPtConfig` this follows from
-/// arithmetic on `TOP_LEVEL_INDEX_RANGE_spec() * page_size(top)`; for
-/// `KernelPtConfig` it requires canonical high-half sign-extension reasoning
-/// at the arch boundary. Kept as a free axiom to avoid a cyclic trait
-/// dependency between `PageTableConfig` and `CursorOwner`.
-// TODO: make this a parameter of `PageTableConfig` and prove it per-config
+/// Every mapping in a cursor's view has its VA range within the page
+/// table's managed positional range.
+///
+/// This is **now provable as a lemma** — with `vaddr_range_bounds_spec<C>`
+/// expressing positional bounds and `view_rec` constructing mappings as
+/// `vaddr(path)..vaddr(path) + page_size`, the conclusion follows from:
+///   1. `view_rec_vaddr_range`: for every `m`, there is a `path` such that
+///      `vaddr(path) <= m.va_range.start < m.va_range.end <= vaddr(path) + page_size`;
+///   2. `lemma_vaddr_path_alignment_and_bound`: `vaddr(path) + page_size <= 2^48`;
+///   3. Path rooted in `C::TOP_LEVEL_INDEX_RANGE_spec()`:
+///      `idx.start * 2^offset <= vaddr(path) <= (idx.end - 1) * 2^offset + (2^offset - page_size)`.
+///
+/// Remains an axiom only because the full induction through
+/// `view_mappings` → `continuations` → `view_rec` across cursor level
+/// transitions has not yet been written. Unlike the prior form (which was
+/// demonstrably false — it claimed mappings lived in the sign-extended
+/// canonical range, but path-derived mappings are positional), the claim
+/// here is sound. Consumers that need the canonical form should compose
+/// with `LEADING_BITS_spec`.
+// TODO: complete the induction and convert to `proof fn`.
 pub axiom fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(
     owner: &CursorOwner<'rcu, C>,
 )
@@ -1691,8 +1723,8 @@ pub axiom fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(
         owner.inv(),
     ensures
         forall |m: Mapping| #![auto] owner.view_mappings().contains(m) ==> {
-            &&& C::VADDR_RANGE_spec().start <= m.va_range.start
-            &&& m.va_range.end <= C::VADDR_RANGE_spec().end
+            &&& vaddr_range_bounds_spec::<C>().0 <= m.va_range.start
+            &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
         };
 
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {

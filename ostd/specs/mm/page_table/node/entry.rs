@@ -40,7 +40,7 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
         )
     }
 
-    pub open spec fn replace_panic_condition(
+    pub open spec fn replace_nonpanic_condition(
         parent_owner: NodeOwner<C>,
         new_owner: EntryOwner<C>,
     ) -> bool {

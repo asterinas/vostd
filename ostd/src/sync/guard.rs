@@ -52,11 +52,9 @@ impl SpinGuardian for PreemptDisabled {
     type Guard = DisabledPreemptGuard;
     type ReadGuard = DisabledPreemptGuard;
 
-    #[verifier::external_body]
     fn guard() -> Self::Guard {
         disable_preempt()
     }
-    #[verifier::external_body]
     fn read_guard() -> Self::Guard {
         disable_preempt()
     }
@@ -81,11 +79,10 @@ impl SpinGuardian for LocalIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
     type ReadGuard = DisabledLocalIrqGuard;
 
-    #[verifier::external_body]
     fn guard() -> Self::Guard {
         disable_local()
     }
-    #[verifier::external_body]
+
     fn read_guard() -> Self::Guard {
         disable_local()
     }
@@ -115,11 +112,10 @@ impl SpinGuardian for WriteIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
     type ReadGuard = DisabledPreemptGuard;
 
-    #[verifier::external_body]
     fn guard() -> Self::Guard {
         disable_local()
     }
-    #[verifier::external_body]
+
     fn read_guard() -> Self::ReadGuard {
         disable_preempt()
     }

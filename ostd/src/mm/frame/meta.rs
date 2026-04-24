@@ -401,7 +401,7 @@ impl MetaSlot {
             last_ref_cnt => {
                 if last_ref_cnt >= REF_COUNT_MAX {
                     // See `Self::inc_ref_count` for the explanation.
-                    assert(false)
+                    vstd_extra::panic::panic_diverge();
                 }
                 // Using `Acquire` here to pair with `get_from_unused` or
                 // `<Frame<M> as From<UniqueFrame<M>>>::from` (who must be
@@ -627,6 +627,8 @@ impl MetaSlot {
             // This follows the same principle as the `Arc::clone` implementation to prevent the
             // reference count from overflowing. See also
             // <https://doc.rust-lang.org/std/sync/struct.Arc.html#method.clone>.
+            #[cfg(feature = "allow_panic")]
+            crate::panic::abort();
             assert(false);
         }
     }

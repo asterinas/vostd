@@ -65,7 +65,6 @@
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
 // mod fifo_scheduler;
 // pub mod info;
-
 use alloc::sync::Arc;
 use spin::Once;
 

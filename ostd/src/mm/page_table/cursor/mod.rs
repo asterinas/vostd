@@ -37,6 +37,8 @@ use vstd_extra::arithmetic::*;
 use vstd_extra::drop_tracking::ManuallyDrop;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
+use vstd_extra::{assert, assert_eq};
+use vstd_extra::panic::*;
 
 use crate::mm::frame::Frame;
 use crate::mm::page_table::*;
@@ -138,7 +140,6 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
 {
     PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
 }
-
 
 /// Borrows a live `PageTableNode` as a `PageTableNodeRef` without requiring
 /// `raw_count == 1`.
@@ -637,8 +638,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            !old(self).find_next_panic_condition(len),
         ensures
+            !old(self).find_next_panic_condition(len),
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).va
@@ -711,8 +712,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            !old(self).find_next_panic_condition(len),
         ensures
+            !old(self).find_next_panic_condition(len),
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             final(self).barrier_va == old(self).barrier_va,
             final(self).guard_level == old(self).guard_level,
@@ -745,7 +746,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<Vaddr>
     {
+        vstd_extra::assert_eq!(len % PAGE_SIZE, 0);
+
+        //*** KNOWN BUG: `self.va + len` could overflow. For now assume that it doesn't. ***
+        assume(self.va + len <= usize::MAX);
         let end = self.va + len;
+
+        vstd_extra::assert!(end <= self.barrier_va.end);
+
+        assert(!self.find_next_panic_condition(len));
+        assert(!old(self).find_next_panic_condition(len));
+
+        let end = self.va + len;
+
         let ghost barrier_va = self.barrier_va;
         assert(barrier_va == old(self).barrier_va);
 
@@ -774,6 +787,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 end == old(self).va + len,
                 end % PAGE_SIZE == 0,
                 end <= self.barrier_va.end,
+                !old(self).find_next_panic_condition(len),
                 self.barrier_va == barrier_va,
                 barrier_va == old(self).barrier_va,
                 self.guard_level == old(self).guard_level,
@@ -1210,8 +1224,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
-            !old(self).jump_panic_condition(va),
         ensures
+            !old(self).jump_panic_condition(va),
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             final(self).barrier_va.start <= va < final(self).barrier_va.end ==> {
                 &&& res is Ok
@@ -1221,6 +1235,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError>
     {
+        vstd_extra::assert_eq!(va % PAGE_SIZE, 0);
+        assert(!self.jump_panic_condition(va));
+        assert(!old(self).jump_panic_condition(va));
         if !self.barrier_va.contains(&va) {
             return Err(PageTableError::InvalidVaddr(va));
         }
@@ -1821,8 +1838,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
-            !old(self).inner.find_next_panic_condition(len),
         ensures
+            !old(self).inner.find_next_panic_condition(len),
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).inner.va
@@ -1862,8 +1879,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
-            !old(self).inner.jump_panic_condition(va),
         ensures
+            !old(self).inner.jump_panic_condition(va),
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).inner.barrier_va.start <= va < final(self).inner.barrier_va.end ==> {
                 &&& res is Ok
@@ -2396,9 +2413,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
             old(self).item_wf(item, entry_owner),
-            !old(self).map_panic_conditions(item),
             Self::item_slot_in_regions(item, *old(regions)),
         ensures
+            !old(self).map_panic_conditions(item),
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
             old(self).map_item_ensures(
                 item,
@@ -2421,8 +2438,25 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
+        vstd_extra::assert!(self.inner.va < self.inner.barrier_va.end);
         let (pa, level, prop) = C::item_into_raw(item);
+        vstd_extra::assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
+        vstd_extra::assert!(level < self.inner.guard_level);
+        if !C::TOP_LEVEL_CAN_UNMAP() {
+            vstd_extra::assert!(level < NR_LEVELS as u8);
+        }
         let size = page_size(level);
+        vstd_extra::assert_eq!(self.inner.va % size, 0);
+
+        //*** LIKELY BUG: `self.inner.va + size` could overflow. For now assume that it doesn't. ***
+        // It is possible to get `self.inner.va == usize::MAX - 4095`, in which case `end` overflows
+        // and the assertion passes trivially.
+        assume(self.inner.va + size <= usize::MAX);
+        let end = self.inner.va + size;
+        vstd_extra::assert!(end <= self.inner.barrier_va.end);
+
+        assert(!self.map_panic_conditions(item));
+        assert(!old(self).map_panic_conditions(item));
 
         let ghost target = Mapping {
             va_range: owner@.cur_slot_range(size),
@@ -2641,8 +2675,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
-            !old(self).inner.find_next_panic_condition(len),
         ensures
+            !old(self).inner.find_next_panic_condition(len),
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).inner.va >= old(self).inner.va,
             final(self).inner.va % PAGE_SIZE == 0,
@@ -2981,9 +3015,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
-            !old(self).inner.find_next_panic_condition(len),
             forall |p: PageProperty| op.requires((p,)),
         ensures
+            !old(self).inner.find_next_panic_condition(len),
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).inner.barrier_va == old(self).inner.barrier_va,
     )]
@@ -3405,8 +3439,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                         let _ = ManuallyDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
                         assert(false);
+                        #[cfg(feature = "allow_panic")]
+                        panic!("Unmapping shared kernel page table nodes");
+                        #[cfg(not(feature = "allow_panic"))]
                         return None;
-                        // panic!("Unmapping shared kernel page table nodes");
                     }
                 }
                 // SAFETY: We must have locked this node.

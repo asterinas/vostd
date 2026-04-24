@@ -274,7 +274,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(self).node_matching(*old(owner), *old(parent_owner), *old(guard_perm)),
             old(self).new_owner_compatible(new_child, *old(owner), *old(new_owner), *old(regions)),
             !old(owner).in_scope,
-            Self::replace_panic_condition(*old(parent_owner), *old(new_owner)),
         ensures
             final(self).invariants(*final(new_owner), *final(regions)),
             res.invariants(*final(owner), *final(regions)),
@@ -308,23 +307,24 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             (old(owner).is_absent() && !final(new_owner).is_node()) ==>
                 forall|k: usize| old(regions).slots.contains_key(k)
                     ==> old(regions).slots[k] == #[trigger] final(regions).slots[k],
+            Self::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
     {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
         let ghost old_idx = frame_to_index(owner.meta_slot_paddr().unwrap());
 
         let mut guard = self.node.take(Tracked(guard_perm));
 
-        /*
         match &new_child {
             Child::PageTable(node) => {
-                assert(node.level() == guard.level() - 1);
+                #[cfg(feature = "allow_panic")]
+                assert!(node.level() == guard.level() - 1);
             }
             Child::Frame(_, level, _) => {
-                assert(*level == guard.level());
+                #[cfg(feature = "allow_panic")]
+                assert!(*level == guard.level());
             }
             Child::None => {}
         }
-        */
 
         // SAFETY:
         //  - The PTE is not referenced by other `ChildRef`s (since we have `&mut self`).

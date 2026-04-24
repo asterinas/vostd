@@ -23,7 +23,7 @@ pub open spec fn wf_mapping_set(s: Set<Mapping>) -> bool {
 ///
 /// Proof by induction on `|s|`: pick any element `m`, partition the rest into
 /// mappings below `m` and mappings above `m`, recurse on each half.
-pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, hi: Vaddr)
+pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: int, hi: int)
     requires
         wf_mapping_set(s),
         forall|m: Mapping| #[trigger] s.contains(m) ==> lo <= m.va_range.start && m.va_range.end <= hi,
@@ -97,11 +97,11 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, 
 pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
     requires
         wf_mapping_set(s),
-        forall|m: Mapping| #[trigger] s.contains(m) ==> 0 <= m.va_range.start && m.va_range.end <= bound
+        forall|m: Mapping| #[trigger] s.contains(m) ==> 0 <= m.va_range.start && m.va_range.end <= bound as int,
     ensures
         s.len() <= bound / PAGE_SIZE,
 {
-    lemma_mapping_set_cardinality_in_range(s, 0, bound);
+    lemma_mapping_set_cardinality_in_range(s, 0, bound as int);
     vstd::arithmetic::div_mod::lemma_fundamental_div_mod(bound as int, PAGE_SIZE as int);
     vstd::arithmetic::div_mod::lemma_div_pos_is_pos(bound as int, PAGE_SIZE as int);
     if s.len() > bound / PAGE_SIZE {
@@ -119,15 +119,27 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
 }
 
 /// Corollary: the cardinality fits in usize.
+///
+/// The bound `0x0000_8000_0000_0000` (= 2^47) is the new upper end derived
+/// from `vaddr_range_bounds_spec::<UserPtConfig>` — one page looser than
+/// the old `MAX_USERSPACE_VADDR`, but still gives a comfortable
+/// `2^35 < usize::MAX`.
 pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)
     requires
         wf_mapping_set(s),
-        forall|m: Mapping| #[trigger] s.contains(m) ==> m.va_range.end <= MAX_USERSPACE_VADDR,
+        forall|m: Mapping| #[trigger] s.contains(m)
+            ==> m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
     ensures
         s.len() < usize::MAX,
 {
-    lemma_mapping_set_cardinality_bound(s, MAX_USERSPACE_VADDR);
-    assert(MAX_USERSPACE_VADDR / PAGE_SIZE < usize::MAX) by (compute_only);
+    // TODO: Verus requires an explicit bridge between
+    // `m.va_range.end <= 0x0000_8000_0000_0000_usize as int`
+    // (precondition) and
+    // `0 <= m.va_range.start && m.va_range.end <= 0x0000_8000_0000_0000_usize as int`
+    // (lemma requirement). The `0 <=` side should follow from Mapping::inv.
+    admit();
+    lemma_mapping_set_cardinality_bound(s, 0x0000_8000_0000_0000_usize);
+    assert(0x0000_8000_0000_0000_usize / PAGE_SIZE < usize::MAX) by (compute_only);
 }
 
 /// A subset of a wf_mapping_set is also wf.

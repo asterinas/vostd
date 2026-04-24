@@ -1377,7 +1377,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level < self.guard_level,
             new_va.inv(),
             new_va.offset == 0,
-            new_va.top_bits == self.prefix.top_bits,
+            new_va.leading_bits == self.prefix.leading_bits,
             forall |i: int| #![auto] self.level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.va.index[i],
             forall |i: int| #![auto] self.guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.prefix.index[i],
         ensures

@@ -76,8 +76,7 @@ fn kvirt_area_tracked_drop() {
     drop(kvirt_area);
 
     // After dropping, the virtual address range should be freed and no longer mapped.
-    let kvirt_area =
-        KVirtArea::map_frames(size, 0, alloc::vec::Vec::new(), default_prop());
+    let kvirt_area = KVirtArea::map_frames(size, 0, alloc::vec::Vec::new(), default_prop());
     assert_eq!(kvirt_area.query(kvirt_area.start()), None);
 }
 

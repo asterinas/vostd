@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
-use vstd::prelude::*;
 use vstd::atomic_ghost::*;
+use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
 use alloc::sync::Arc;
 //use core::sync::atomic::{fence, AtomicUsize, Ordering};
-
 
 use super::{PreemptDisabled, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -40,7 +39,7 @@ struct Inner<T> {
 closed spec fn wf(&self) -> bool {
   invariant on num_rw with (data) is (v:usize, g:int) {
     v == g
-  } 
+  }
 }
 }
 
@@ -61,7 +60,7 @@ impl<T> RwArc<T> {
     pub fn new(data: T) -> Self {
         //let inner = Inner { data: RwLock::new(data), num_rw: AtomicUsize::new(1) };
         let data = RwLock::new(data);
-        let inner = Inner { data, num_rw: AtomicUsize::new(Ghost(data),1,Tracked(1int)) };
+        let inner = Inner { data, num_rw: AtomicUsize::new(Ghost(data), 1, Tracked(1int)) };
         Self(Arc::new(inner))
     }
 
@@ -110,7 +109,7 @@ impl<T> RwArc<T> {
 #[verus_verify]
 impl<T> Clone for RwArc<T> {
     #[verus_spec]
-    fn clone(&self) -> Self 
+    fn clone(&self) -> Self
         returns
             self,
     {
@@ -160,7 +159,6 @@ impl<T> RoArc<T> {
 }
 
 } // verus!
-
 #[cfg(ktest)]
 mod test {
     use super::*;

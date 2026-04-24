@@ -81,7 +81,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
             let tracked mut locked_state: Option<PointsTo<T>> = None;
         }
         {#[verus_spec(with => Tracked(locked_state))] self.acquire_lock()}.then(
-            || requires 
+            || requires
                 locked_state is Some,
                 locked_state -> Some_0.id() == self.cell_id(),
                 {unsafe { proof_with!{Tracked(locked_state.tracked_unwrap())};
