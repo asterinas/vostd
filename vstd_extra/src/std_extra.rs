@@ -10,6 +10,7 @@ pub assume_specification<T>[ <[T]>::as_ptr ](s: &[T]) -> (r: *const T)
 
 pub uninterp spec fn as_ptr_spec<T>(s: &[T]) -> *const T;
 
-pub assume_specification<T>[ <[T]>::as_mut_ptr ](s: &mut [T]) -> *mut T;
+pub assume_specification<T>[ <[T]>::as_mut_ptr ](s: &mut [T]) -> *mut T
+;
 
 } // verus!

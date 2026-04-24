@@ -15,8 +15,7 @@ pub proof fn seq_tracked_split_at<T>(tracked s: &mut Seq<T>, n: int) -> (tracked
     ensures
         *final(s) =~= old(s).subrange(0, n),
         result =~= old(s).subrange(n, old(s).len() as int),
-    decreases
-        old(s).len() - n,
+    decreases old(s).len() - n,
 {
     if n == s.len() {
         Seq::tracked_empty()
