@@ -363,9 +363,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
             let tracked perm: ArcPointsTo<T> = uninitialized();
         }
         // let ptr = Arc::into_raw(self).cast_mut();
-        proof_with!(=> Tracked(perm));
-        let ptr = arc_into_raw(self);
-        let ptr = ptr.cast_mut();
+        let ptr = (#[verus_spec(with => Tracked(perm))] arc_into_raw(self)).cast_mut();
         assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
         // [VERIFIED] SAFETY: The pointer representing an `Arc` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
