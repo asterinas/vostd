@@ -114,7 +114,7 @@ impl WaitQueue {
             self.enqueue(waiter.waker());
             if let Some(res) = cond() {
                 assert(cond.ensures((), Some(res)));
-                proof! { admit(); } // FIXME: https://github.com/verus-lang/verus/issues/2295
+                proof! { admit(); }  // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return res;
             }
             waiter.wait();

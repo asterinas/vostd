@@ -53,8 +53,8 @@ pub use unwinding::panic::{begin_panic, catch_unwind};
 #[cfg(not(target_arch = "loongarch64"))]
 pub fn print_stack_trace() {
     use unwinding::abi::{
-        UnwindContext, UnwindReasonCode, _Unwind_Backtrace, _Unwind_FindEnclosingFunction,
-        _Unwind_GetGR, _Unwind_GetIP,
+        _Unwind_Backtrace, _Unwind_FindEnclosingFunction, _Unwind_GetGR, _Unwind_GetIP,
+        UnwindContext, UnwindReasonCode,
     };
 
     /// We acquire a global lock to prevent the frames in the stack trace from

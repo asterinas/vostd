@@ -1,5 +1,5 @@
-use vstd::prelude::*;
 use vstd::arithmetic::power2::pow2;
+use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 

@@ -9,7 +9,7 @@ use vstd::prelude::*;
 
 use super::*;
 use crate::mm::{
-    io::{VmIoOwner, VmReader, VmWriter},
+    io::{VmReader, VmWriter},
     kspace::{
         paddr_to_vaddr_spec, KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR,
         VMALLOC_BASE_VADDR,
@@ -18,6 +18,7 @@ use crate::mm::{
 };
 use crate::specs::arch::kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties};
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::mm::io::VmIoOwner;
 use crate::specs::mm::virt_mem_newer::VirtPtr;
 use vstd_extra::ownership::OwnerOf;
 

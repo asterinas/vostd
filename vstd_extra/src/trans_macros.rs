@@ -29,15 +29,15 @@ macro_rules! assert_eq {
 
 #[macro_export]
 macro_rules! borrow_field {
-    ($ptr:expr) => { $ptr };
+    ($ptr:expr) => {
+        $ptr
+    };
     ($ptr:expr => $field:tt, $perm:expr) => {
-        verus_exec_expr!(
-            $ptr.borrow(Tracked($perm)).$field
-    )};
+        verus_exec_expr!($ptr.borrow(Tracked($perm)).$field)
+    };
     ($ptr:expr => $field1:tt . $field2:tt, $perm:expr) => {
-        verus_exec_expr!(
-            $ptr.borrow(Tracked($perm)).$field1.$field2
-    )};
+        verus_exec_expr!($ptr.borrow(Tracked($perm)).$field1.$field2)
+    };
 }
 
 #[macro_export]

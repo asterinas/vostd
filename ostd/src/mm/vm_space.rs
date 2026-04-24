@@ -18,7 +18,6 @@ use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::frame::MetaSlot;
-use crate::mm::io::VmIoMemView;
 use crate::mm::kspace::KernelPtConfig;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
@@ -26,6 +25,7 @@ use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::meta_to_frame;
 use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage, MetadataInnerPerms};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::io::VmIoMemView;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::tlb::TlbModel;
@@ -38,9 +38,10 @@ use crate::mm::kspace::KERNEL_PAGE_TABLE;
 use crate::mm::tlb::*;
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
 
+use crate::specs::mm::io::VmIoOwner;
 use crate::{
     mm::{
-        io::{VmIoOwner, VmReader, VmWriter},
+        io::{VmReader, VmWriter},
         page_prop::PageProperty,
         Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
     },
@@ -169,7 +170,9 @@ impl<'a> VmSpace<'a> {
             let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;
         }
         let kpt = crate::mm::kspace::kvirt_area::get_kernel_page_table(
-            Tracked(&mut kernel_owner_opt), Tracked(regions), Tracked(guards_k),
+            Tracked(&mut kernel_owner_opt),
+            Tracked(regions),
+            Tracked(guards_k),
         );
         proof_decl! {
             let tracked kernel_owner = kernel_owner_opt.tracked_take();
@@ -961,17 +964,18 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
                     // At break: take_next returned None, so no mappings in [prev_va, end_va).
                     // Any m with start >= prev_va leads to contradiction via the empty filter.
-                    assert forall |m: Mapping|
-                        #![auto] adjusted_base.contains(m) && !removed.contains(m)
-                        && start_va <= m.va_range.start && m.va_range.start < end_va
-                    implies m.va_range.start >= cursor_owner@.cur_va
-                        || exists |parent: Mapping| #[trigger] old(cursor_owner)@.mappings.contains(parent)
-                            && parent.va_range.start < start_va
-                            && parent.va_range.start <= m.va_range.start
-                            && m.va_range.end <= parent.va_range.end
-                            && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
-                            && m.property == parent.property
-                    by {
+                    assert forall|m: Mapping|
+                        #![auto]
+                        adjusted_base.contains(m) && !removed.contains(m) && start_va
+                            <= m.va_range.start && m.va_range.start
+                            < end_va implies m.va_range.start >= cursor_owner@.cur_va || exists|
+                        parent: Mapping,
+                    | #[trigger]
+                        old(cursor_owner)@.mappings.contains(parent) && parent.va_range.start
+                            < start_va && parent.va_range.start <= m.va_range.start
+                            && m.va_range.end <= parent.va_range.end && m.pa_range.start == (
+                        parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
+                            && m.property == parent.property by {
                         if m.va_range.start >= prev_va {
                             assert(prev_mappings.filter(
                                 |m2: Mapping| prev_va <= m2.va_range.start < end_va,
@@ -1001,7 +1005,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         // (`m.va_range.end <= vaddr_range_bounds_spec<C>.1 + 1`) to
                         // the fits_usize precondition. Currently admitted.
                         admit();
-                        crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(removed);
+                        crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(
+                        removed);
                     }
                     assert(num_unmapped < usize::MAX);
                     num_unmapped += 1;
@@ -1011,11 +1016,16 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 PageTableFrag::StrayPageTable { pt, va, len, num_frames } => {
                     proof {
                         let ghost new_removed = old_removed.union(
-                            prev_mappings.filter(|m2: Mapping| frag_ghost->StrayPageTable_va <= m2.va_range.start
-                                < frag_ghost->StrayPageTable_va + frag_ghost->StrayPageTable_len));
+                            prev_mappings.filter(
+                                |m2: Mapping|
+                                    frag_ghost->StrayPageTable_va <= m2.va_range.start
+                                        < frag_ghost->StrayPageTable_va
+                                        + frag_ghost->StrayPageTable_len,
+                            ),
+                        );
                         assert(new_removed.subset_of(old_adjusted)) by {
-                            assert forall|m: Mapping| new_removed.contains(m)
-                                implies old_adjusted.contains(m) by {
+                            assert forall|m: Mapping|
+                                new_removed.contains(m) implies old_adjusted.contains(m) by {
                                 if prev_mappings.contains(m) {
                                     // m ∈ prev_mappings = old_adjusted \ old_removed ⊆ old_adjusted.
                                 }
@@ -1023,31 +1033,57 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         };
                         vstd::set::axiom_set_union_finite(
                             old_removed,
-                            prev_mappings.filter(|m2: Mapping| frag_ghost->StrayPageTable_va <= m2.va_range.start
-                                < frag_ghost->StrayPageTable_va + frag_ghost->StrayPageTable_len));
+                            prev_mappings.filter(
+                                |m2: Mapping|
+                                    frag_ghost->StrayPageTable_va <= m2.va_range.start
+                                        < frag_ghost->StrayPageTable_va
+                                        + frag_ghost->StrayPageTable_len,
+                            ),
+                        );
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_wf_subset(
-                            old_adjusted, new_removed);
+                            old_adjusted,
+                            new_removed,
+                        );
                         crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(
-                            new_removed);
+                        new_removed);
                         // |new_removed| = |old_removed| + |subtree| (disjoint).
                         assert(old_removed.disjoint(
-                            prev_mappings.filter(|m2: Mapping| frag_ghost->StrayPageTable_va <= m2.va_range.start
-                                < frag_ghost->StrayPageTable_va + frag_ghost->StrayPageTable_len))) by {
-                            assert forall|m: Mapping| old_removed.contains(m) implies
-                                !prev_mappings.filter(|m2: Mapping| frag_ghost->StrayPageTable_va <= m2.va_range.start
-                                    < frag_ghost->StrayPageTable_va + frag_ghost->StrayPageTable_len).contains(m) by {
+                            prev_mappings.filter(
+                                |m2: Mapping|
+                                    frag_ghost->StrayPageTable_va <= m2.va_range.start
+                                        < frag_ghost->StrayPageTable_va
+                                        + frag_ghost->StrayPageTable_len,
+                            ),
+                        )) by {
+                            assert forall|m: Mapping|
+                                old_removed.contains(m) implies !prev_mappings.filter(
+                                |m2: Mapping|
+                                    frag_ghost->StrayPageTable_va <= m2.va_range.start
+                                        < frag_ghost->StrayPageTable_va
+                                        + frag_ghost->StrayPageTable_len,
+                            ).contains(m) by {
                                 assert(!prev_mappings.contains(m));
                             };
                         };
                         vstd::set::axiom_set_intersect_finite::<Mapping>(
                             prev_mappings,
-                            Set::new(|m2: Mapping| frag_ghost->StrayPageTable_va <= m2.va_range.start
-                                < frag_ghost->StrayPageTable_va + frag_ghost->StrayPageTable_len));
+                            Set::new(
+                                |m2: Mapping|
+                                    frag_ghost->StrayPageTable_va <= m2.va_range.start
+                                        < frag_ghost->StrayPageTable_va
+                                        + frag_ghost->StrayPageTable_len,
+                            ),
+                        );
                         vstd::set_lib::lemma_set_disjoint_lens(
                             old_removed,
-                            prev_mappings.filter(|m2: Mapping| frag_ghost->StrayPageTable_va <= m2.va_range.start
-                                < frag_ghost->StrayPageTable_va + frag_ghost->StrayPageTable_len));
+                            prev_mappings.filter(
+                                |m2: Mapping|
+                                    frag_ghost->StrayPageTable_va <= m2.va_range.start
+                                        < frag_ghost->StrayPageTable_va
+                                        + frag_ghost->StrayPageTable_len,
+                            ),
+                        );
                         assert(num_unmapped + num_frames < usize::MAX);
                     }
                     num_unmapped += num_frames;
@@ -1111,8 +1147,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     sv.split_while_huge_disjoint(mm.page_size, old_removed);
                     sv.lemma_split_while_huge_preserves_inv(mm.page_size);
                 }
-
                 // Prove |removed| tracking (disjointness + cardinality).
+
                 match frag_ghost {
                     PageTableFrag::StrayPageTable { .. } => {
                         assert(old_removed.disjoint(subtree)) by {
@@ -1120,14 +1156,16 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 old_removed.contains(e) implies !subtree.contains(e) by {};
                         };
                         vstd::set::axiom_set_intersect_finite::<Mapping>(
-                            prev_mappings, Set::new(|m2: Mapping| subtree.contains(m2)));
+                            prev_mappings,
+                            Set::new(|m2: Mapping| subtree.contains(m2)),
+                        );
                         vstd::set_lib::lemma_set_disjoint_lens(old_removed, subtree);
                         assert(removed =~= old_removed + subtree);
                     },
                     PageTableFrag::Mapped { .. } => {
                         assert(old_removed.disjoint(set![mm])) by {
-                            assert forall |e: Mapping| #[trigger] old_removed.contains(e)
-                                implies !set![mm].contains(e) by {};
+                            assert forall|e: Mapping| #[trigger]
+                                old_removed.contains(e) implies !set![mm].contains(e) by {};
                         };
                         vstd::set::axiom_set_insert_finite(Set::<Mapping>::empty(), mm);
                         vstd::set_lib::lemma_set_disjoint_lens(old_removed, set![mm]);
@@ -1142,29 +1180,34 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 if is_mapped {
                     vstd::set::axiom_set_union_finite(sm, old_removed);
                     crate::specs::mm::page_table::mapping_set_lemmas::lemma_wf_subset(
-                        old_adjusted, old_removed);
-                    assert forall|m: Mapping, n: Mapping|
-                        #[trigger] sm.contains(m) && #[trigger] old_removed.contains(n) implies
-                        m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start by {
+                        old_adjusted,
+                        old_removed,
+                    );
+                    assert forall|m: Mapping, n: Mapping| #[trigger]
+                        sm.contains(m) && #[trigger] old_removed.contains(n) implies m.va_range.end
+                        <= n.va_range.start || n.va_range.end <= m.va_range.start by {
                         sv.split_while_huge_refinement(mm.page_size, m);
                         assert(!prev_mappings.contains(n));
                         if prev_mappings.contains(m) {
                         } else {
-                            let p = choose |p: Mapping| #[trigger] prev_mappings.contains(p)
-                                && p.va_range.start <= m.va_range.start
-                                && m.va_range.end <= p.va_range.end
-                                && m.pa_range.start == (p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
-                                && m.property == p.property;
+                            let p = choose|p: Mapping| #[trigger]
+                                prev_mappings.contains(p) && p.va_range.start <= m.va_range.start
+                                    && m.va_range.end <= p.va_range.end && m.pa_range.start == (
+                                p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
+                                    && m.property == p.property;
                             assert(old_adjusted.contains(p));
                         }
                     };
                     crate::specs::mm::page_table::mapping_set_lemmas::lemma_wf_union(
-                        sm, old_removed);
+                        sm,
+                        old_removed,
+                    );
                 }
-
                 // Maintain mappings =~= adjusted_base \ removed.
-                assert forall |e: Mapping| #[trigger] adjusted_base.difference(removed).contains(e)
-                    <==> cursor_owner@.mappings.contains(e) by {};
+
+                assert forall|e: Mapping| #[trigger]
+                    adjusted_base.difference(removed).contains(e)
+                        <==> cursor_owner@.mappings.contains(e) by {};
                 assert(cursor_owner@.mappings =~= adjusted_base.difference(removed));
 
                 assert(removed.subset_of(adjusted_base)) by {
@@ -1174,16 +1217,16 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 // Maintain: not-yet-removed mappings in [start, end) are either
                 // ahead of the cursor or sub-mappings of a boundary-straddling parent.
-                assert forall |m: Mapping| #![auto] adjusted_base.contains(m) && !removed.contains(m)
-                    && start_va <= m.va_range.start && m.va_range.start < end_va
-                    implies m.va_range.start >= cursor_owner@.cur_va
-                        || exists |parent: Mapping| #[trigger] old(cursor_owner)@.mappings.contains(parent)
-                            && parent.va_range.start < start_va
-                            && parent.va_range.start <= m.va_range.start
-                            && m.va_range.end <= parent.va_range.end
-                            && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
-                            && m.property == parent.property
-                by {
+                assert forall|m: Mapping|
+                    #![auto]
+                    adjusted_base.contains(m) && !removed.contains(m) && start_va
+                        <= m.va_range.start && m.va_range.start < end_va implies m.va_range.start
+                    >= cursor_owner@.cur_va || exists|parent: Mapping| #[trigger]
+                    old(cursor_owner)@.mappings.contains(parent) && parent.va_range.start < start_va
+                        && parent.va_range.start <= m.va_range.start && m.va_range.end
+                        <= parent.va_range.end && m.pa_range.start == (parent.pa_range.start + (
+                    m.va_range.start - parent.va_range.start)) as Paddr && m.property
+                        == parent.property by {
                     if m.va_range.start < cursor_owner@.cur_va {
                         if m.va_range.start >= prev_va {
                             // m was just processed — contradiction via empty filtered sets.
@@ -1225,40 +1268,44 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 // m ∈ old_adjusted \ old_removed — previous invariant applies directly.
                             } else {
                                 // m is a sub-mapping of some p ∈ prev_mappings.
-                                let p = choose |p: Mapping| #[trigger] prev_mappings.contains(p)
-                                    && p.va_range.start <= m.va_range.start
-                                    && m.va_range.end <= p.va_range.end
-                                    && m.pa_range.start == (p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
-                                    && m.property == p.property;
+                                let p = choose|p: Mapping| #[trigger]
+                                    prev_mappings.contains(p) && p.va_range.start
+                                        <= m.va_range.start && m.va_range.end <= p.va_range.end
+                                        && m.pa_range.start == (p.pa_range.start + (m.va_range.start
+                                        - p.va_range.start)) as Paddr && m.property == p.property;
                                 assert(old_adjusted.contains(p) && !old_removed.contains(p));
                                 if p.va_range.start < start_va {
                                     // p itself or its ancestor is the boundary parent.
                                     if !old(cursor_owner)@.mappings.contains(p) {
-                                        let orig = choose |orig: Mapping|
-                                            #[trigger] old(cursor_owner)@.mappings.contains(orig)
-                                            && orig.va_range.start <= p.va_range.start
-                                            && p.va_range.end <= orig.va_range.end
-                                            && p.pa_range.start == (orig.pa_range.start + (p.va_range.start - orig.va_range.start)) as Paddr
-                                            && p.property == orig.property;
+                                        let orig = choose|orig: Mapping| #[trigger]
+                                            old(cursor_owner)@.mappings.contains(orig)
+                                                && orig.va_range.start <= p.va_range.start
+                                                && p.va_range.end <= orig.va_range.end
+                                                && p.pa_range.start == (orig.pa_range.start + (
+                                            p.va_range.start - orig.va_range.start)) as Paddr
+                                                && p.property == orig.property;
                                         assert(orig.inv());
                                         assert(m.inv());
-                                        crate::specs::mm::page_table::mapping_set_lemmas::lemma_sub_mapping_pa_compose(m, p, orig);
+                                        crate::specs::mm::page_table::mapping_set_lemmas::lemma_sub_mapping_pa_compose(
+                                        m, p, orig);
                                     }
                                 } else if p.va_range.start >= end_va {
-                                    assert(false); // p.start <= m.start < end_va, contradiction.
+                                    assert(false);  // p.start <= m.start < end_va, contradiction.
                                 } else {
                                     // start_va <= p.start < end_va, p.start < prev_va.
                                     // Previous invariant gives boundary ancestor orig.
-                                    let orig = choose |orig: Mapping|
-                                        #[trigger] old(cursor_owner)@.mappings.contains(orig)
-                                        && orig.va_range.start < start_va
-                                        && orig.va_range.start <= p.va_range.start
-                                        && p.va_range.end <= orig.va_range.end
-                                        && p.pa_range.start == (orig.pa_range.start + (p.va_range.start - orig.va_range.start)) as Paddr
-                                        && p.property == orig.property;
+                                    let orig = choose|orig: Mapping| #[trigger]
+                                        old(cursor_owner)@.mappings.contains(orig)
+                                            && orig.va_range.start < start_va && orig.va_range.start
+                                            <= p.va_range.start && p.va_range.end
+                                            <= orig.va_range.end && p.pa_range.start == (
+                                        orig.pa_range.start + (p.va_range.start
+                                            - orig.va_range.start)) as Paddr && p.property
+                                            == orig.property;
                                     assert(orig.inv());
                                     assert(m.inv());
-                                    crate::specs::mm::page_table::mapping_set_lemmas::lemma_sub_mapping_pa_compose(m, p, orig);
+                                    crate::specs::mm::page_table::mapping_set_lemmas::lemma_sub_mapping_pa_compose(
+                                    m, p, orig);
                                 }
                             }
                         }
@@ -1267,50 +1314,53 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 // Maintain: old mappings outside [start, end) survive in adjusted_base.
                 if is_mapped {
-                    assert forall |m: Mapping| old(cursor_owner)@.mappings.contains(m)
-                        && (m.va_range.end <= start_va || m.va_range.start >= end_va)
-                        implies #[trigger] adjusted_base.contains(m) by {
-                        if m.va_range.end <= start_va { assert(m.inv()); }
+                    assert forall|m: Mapping|
+                        old(cursor_owner)@.mappings.contains(m) && (m.va_range.end <= start_va
+                            || m.va_range.start
+                            >= end_va) implies #[trigger] adjusted_base.contains(m) by {
+                        if m.va_range.end <= start_va {
+                            assert(m.inv());
+                        }
                         sv.split_while_huge_locality(mm.page_size, m);
                     };
 
                     // Maintain: refinement — every mapping in adjusted_base comes from
                     // old mappings or is a sub-mapping of one.
-                    assert forall |m: Mapping| #[trigger] adjusted_base.contains(m) implies
-                            old(cursor_owner)@.mappings.contains(m)
-                            || exists |parent: Mapping| #[trigger] old(cursor_owner)@.mappings.contains(parent)
-                                && parent.va_range.start <= m.va_range.start
-                                && m.va_range.end <= parent.va_range.end
-                                && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
-                                && m.property == parent.property
-                        by {
-                            if !old_removed.contains(m) {
-                                sv.split_while_huge_refinement(mm.page_size, m);
-                                if !prev_mappings.contains(m) {
-                                    let p = choose |p: Mapping| #[trigger] prev_mappings.contains(p)
-                                        && p.va_range.start <= m.va_range.start
-                                        && m.va_range.end <= p.va_range.end
-                                        && m.pa_range.start == (p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
-                                        && m.property == p.property;
-                                    assert(old_adjusted.contains(p));
-                                    if !old(cursor_owner)@.mappings.contains(p) {
-                                        let orig = choose |orig: Mapping|
-                                            #[trigger] old(cursor_owner)@.mappings.contains(orig)
+                    assert forall|m: Mapping| #[trigger] adjusted_base.contains(m) implies old(
+                        cursor_owner,
+                    )@.mappings.contains(m) || exists|parent: Mapping| #[trigger]
+                        old(cursor_owner)@.mappings.contains(parent) && parent.va_range.start
+                            <= m.va_range.start && m.va_range.end <= parent.va_range.end
+                            && m.pa_range.start == (parent.pa_range.start + (m.va_range.start
+                            - parent.va_range.start)) as Paddr && m.property == parent.property by {
+                        if !old_removed.contains(m) {
+                            sv.split_while_huge_refinement(mm.page_size, m);
+                            if !prev_mappings.contains(m) {
+                                let p = choose|p: Mapping| #[trigger]
+                                    prev_mappings.contains(p) && p.va_range.start
+                                        <= m.va_range.start && m.va_range.end <= p.va_range.end
+                                        && m.pa_range.start == (p.pa_range.start + (m.va_range.start
+                                        - p.va_range.start)) as Paddr && m.property == p.property;
+                                assert(old_adjusted.contains(p));
+                                if !old(cursor_owner)@.mappings.contains(p) {
+                                    let orig = choose|orig: Mapping| #[trigger]
+                                        old(cursor_owner)@.mappings.contains(orig)
                                             && orig.va_range.start <= p.va_range.start
                                             && p.va_range.end <= orig.va_range.end
                                             && p.pa_range.start == (orig.pa_range.start + (
                                         p.va_range.start - orig.va_range.start)) as Paddr
                                             && p.property == orig.property;
-                                        assert(orig.inv());
-                                        assert(m.inv());
-                                        crate::specs::mm::page_table::mapping_set_lemmas::lemma_sub_mapping_pa_compose(m, p, orig);
-                                    }
+                                    assert(orig.inv());
+                                    assert(m.inv());
+                                    crate::specs::mm::page_table::mapping_set_lemmas::lemma_sub_mapping_pa_compose(
+                                    m, p, orig);
                                 }
                             }
                         }
-                    };
-                }
+                    }
+                };
             }
+        }
         proof {
             cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
 
@@ -1323,33 +1373,34 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
             assert(new_view.cur_va >= end);
 
-            assert forall |m: Mapping| #![auto] old_view.mappings.contains(m)
-                && (m.va_range.end <= start || m.va_range.start >= end)
-                implies new_view.mappings.contains(m) by {
+            assert forall|m: Mapping|
+                #![auto]
+                old_view.mappings.contains(m) && (m.va_range.end <= start || m.va_range.start
+                    >= end) implies new_view.mappings.contains(m) by {
                 assert(adjusted_base.contains(m));
                 if m.va_range.end <= start {
                     assert(m.inv());
                 }
             };
 
-            assert forall |m: Mapping| new_view.mappings.contains(m)
-                && start <= m.va_range.start < end
-                implies exists |parent: Mapping| #[trigger] old_view.mappings.contains(parent)
-                    && parent.va_range.start < start
-                    && parent.va_range.start <= m.va_range.start
-                    && m.va_range.end <= parent.va_range.end
-                    && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
-                    && m.property == parent.property
-            by { };
+            assert forall|m: Mapping|
+                new_view.mappings.contains(m) && start <= m.va_range.start < end implies exists|
+                parent: Mapping,
+            | #[trigger]
+                old_view.mappings.contains(parent) && parent.va_range.start < start
+                    && parent.va_range.start <= m.va_range.start && m.va_range.end
+                    <= parent.va_range.end && m.pa_range.start == (parent.pa_range.start + (
+                m.va_range.start - parent.va_range.start)) as Paddr && m.property
+                    == parent.property by {};
 
-            assert forall |m: Mapping| new_view.mappings.contains(m)
-                implies old_view.mappings.contains(m)
-                || exists |parent: Mapping| #[trigger] old_view.mappings.contains(parent)
-                    && parent.va_range.start <= m.va_range.start
-                    && m.va_range.end <= parent.va_range.end
-                    && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
-                    && m.property == parent.property
-            by { };
+            assert forall|m: Mapping|
+                new_view.mappings.contains(m) implies old_view.mappings.contains(m) || exists|
+                parent: Mapping,
+            | #[trigger]
+                old_view.mappings.contains(parent) && parent.va_range.start <= m.va_range.start
+                    && m.va_range.end <= parent.va_range.end && m.pa_range.start == (
+                parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
+                    && m.property == parent.property by {};
         }
 
         #[verus_spec(with Tracked(tlb_model))]
@@ -1446,17 +1497,18 @@ impl RCClone for MappedItem {
         self.frame.clone_requires(perm)
     }
 
-    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+    open spec fn clone_ensures(
+        self,
+        old_perm: MetaRegionOwners,
+        new_perm: MetaRegionOwners,
+        res: Self,
+    ) -> bool {
         self.frame.clone_ensures(old_perm, new_perm, res.frame)
     }
 
-    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self)
-    {
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self) {
         let frame = self.frame.clone(Tracked(perm));
-        Self {
-            frame,
-            prop: self.prop,
-        }
+        Self { frame, prop: self.prop }
     }
 }
 

@@ -1,4 +1,7 @@
-use core::{marker::PhantomData, ops::Deref};
+use core::{
+    marker::PhantomData,
+    ops::{Deref, Range},
+};
 
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{predicate::Predicate, prelude::*};
@@ -6,14 +9,16 @@ use vstd_extra::array_ptr::{ArrayPtr, PointsToArray};
 use vstd_extra::ownership::{Inv, OwnerOf};
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
+use crate::specs::mm::io::VmIoMemView;
+use crate::specs::mm::io::VmIoOwner;
 use crate::{
     error::Error,
     mm::{
         dma::{dma_type, Daddr, DmaType},
         frame::{segment::SegmentOwner, untyped::AnyUFrameMeta, AnyFrameMeta, Segment},
-        io::{VmIo, VmIoMemView, VmIoOwner, VmReader, VmWriter},
+        io::{VmIo, VmReader, VmWriter},
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
-        paddr_to_vaddr, Paddr,
+        paddr_to_vaddr, HasPaddr, Paddr,
     },
     specs::{
         arch::{
@@ -526,7 +531,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     //     let inner = self.read_inner();
     //     &inner.segment
     // }
-
     /// Returns the number of frames.
     #[inline(always)]
     #[verus_spec(r =>
@@ -551,6 +555,15 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     pub fn nbytes(&self) -> usize {
         let inner = self.read_inner();
         Self::nbytes_inner(&inner)
+    }
+
+    /// Synchronizes a byte range of the DMA stream with the device.
+    #[verifier::external_body]
+    pub fn sync(&self, byte_range: Range<usize>) -> Result<(), Error> {
+        if byte_range.start > byte_range.end || byte_range.end > self.nbytes() {
+            return Err(Error::InvalidArgs);
+        }
+        Ok(())
     }
 
     /// Returns a reader to read data from it.
@@ -731,6 +744,117 @@ pub enum DmaDirection {
     Bidirectional,
 }
 
+/// A slice view over a [`DmaStream`].
+pub struct DmaStreamSlice<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> {
+    stream: &'a DmaStream<M>,
+    offset: usize,
+    len: usize,
+}
+
+impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStreamSlice<'a, M> {
+    /// Constructs a DMA stream slice.
+    #[verifier::external_body]
+    pub fn new(stream: &'a DmaStream<M>, offset: usize, len: usize) -> Self {
+        assert!(offset < stream.nbytes(), "slice offset out of bounds");
+        assert!(offset + len <= stream.nbytes(), "slice range out of bounds");
+
+        Self { stream, offset, len }
+    }
+
+    /// Returns the underlying DMA stream.
+    pub fn stream(&self) -> &'a DmaStream<M> {
+        self.stream
+    }
+
+    /// Returns the slice offset in bytes.
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Returns the slice length in bytes.
+    pub fn nbytes(&self) -> usize {
+        self.len
+    }
+
+    /// Returns the starting device address of the slice.
+    #[verifier::external_body]
+    pub fn daddr(&self) -> Daddr {
+        self.stream.daddr() + self.offset
+    }
+
+    /// Returns the starting physical address of the slice.
+    #[verifier::external_body]
+    pub fn paddr(&self) -> Paddr {
+        self.stream.paddr() + self.offset
+    }
+
+    /// Synchronizes the slice with the device.
+    #[verifier::external_body]
+    pub fn sync(&self) -> Result<(), Error> {
+        self.stream.sync(self.offset..self.offset + self.len)
+    }
+
+    /// Returns a reader limited to this slice.
+    #[verifier::external_body]
+    pub fn reader(&self) -> Result<VmReader<'a>, Error> {
+        let mut reader = self.stream.reader()?;
+        reader.advance(self.offset);
+        reader.end.vaddr = reader.cursor.vaddr + self.len;
+        Ok(reader)
+    }
+
+    /// Returns a writer limited to this slice.
+    #[verifier::external_body]
+    pub fn writer(&self) -> Result<VmWriter<'a>, Error> {
+        let mut writer = self.stream.writer()?;
+        writer.advance(self.offset);
+        writer.end.vaddr = writer.cursor.vaddr + self.len;
+        Ok(writer)
+    }
+
+    /// Reads bytes from the slice into `buf`.
+    #[verifier::external_body]
+    pub fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<(), Error> {
+        if offset > self.len || buf.len() > self.len - offset {
+            return Err(Error::InvalidArgs);
+        }
+        let mut reader = self.reader()?;
+        reader.advance(offset);
+        reader.end.vaddr = reader.cursor.vaddr + buf.len();
+        let mut writer: VmWriter<'_> = buf.into();
+        let copied = reader.read(&mut writer);
+        if copied == buf.len() {
+            Ok(())
+        } else {
+            Err(Error::InvalidArgs)
+        }
+    }
+
+    /// Writes bytes from `buf` into the slice.
+    #[verifier::external_body]
+    pub fn write_bytes(&self, offset: usize, buf: &[u8]) -> Result<(), Error> {
+        if offset > self.len || buf.len() > self.len - offset {
+            return Err(Error::InvalidArgs);
+        }
+        let mut writer = self.writer()?;
+        writer.advance(offset);
+        writer.end.vaddr = writer.cursor.vaddr + buf.len();
+        let mut reader: VmReader<'_> = buf.into();
+        let copied = writer.write(&mut reader);
+        if copied == buf.len() {
+            Ok(())
+        } else {
+            Err(Error::InvalidArgs)
+        }
+    }
+}
+
+impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> Clone for DmaStreamSlice<'a, M> {
+    fn clone(&self) -> Self {
+        Self { stream: self.stream, offset: self.offset, len: self.len }
+    }
+}
+
 impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<M>> for DmaStream<
     M,
 > {
@@ -903,7 +1027,9 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             assert(len == old(writer).avail_spec());
             assert(writer.avail_spec() == 0);
             assert(writer.cursor.vaddr == old(writer).cursor.vaddr + old(writer).avail_spec());
-            assert(writer_own.range@.start == old(writer_own).range@.start + old(writer).avail_spec());
+            assert(writer_own.range@.start == old(writer_own).range@.start + old(
+                writer,
+            ).avail_spec());
             assert(*owner == *old(owner));
         }
 
@@ -961,7 +1087,9 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             assert(len == old(reader).remain_spec());
             assert(reader.remain_spec() == 0);
             assert(reader.cursor.vaddr == old(reader).cursor.vaddr + old(reader).remain_spec());
-            assert(reader_own.range@.start == old(reader_own).range@.start + old(reader).remain_spec());
+            assert(reader_own.range@.start == old(reader_own).range@.start + old(
+                reader,
+            ).remain_spec());
             assert(*owner == *old(owner));
         }
 

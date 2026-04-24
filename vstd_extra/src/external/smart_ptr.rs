@@ -12,10 +12,10 @@ verus! {
 pub trait RawPtrPerm {
     /// The type of the pointer.
     type Ptr;
-    
+
     /// The type of the value that the pointer points to.
     type Target;
-    
+
     spec fn ptr(self) -> *mut Self::Target;
 
     spec fn addr(self) -> usize;
@@ -23,7 +23,7 @@ pub trait RawPtrPerm {
 
 impl<T> RawPtrPerm for BoxPointsTo<T> {
     type Ptr = Box<T>;
-    
+
     type Target = T;
 
     open spec fn ptr(self) -> *mut T {
@@ -37,7 +37,7 @@ impl<T> RawPtrPerm for BoxPointsTo<T> {
 
 impl<T> RawPtrPerm for ArcPointsTo<T> {
     type Ptr = Arc<T>;
-    
+
     type Target = T;
 
     open spec fn ptr(self) -> *mut T {

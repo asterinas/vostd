@@ -469,7 +469,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).meta_own == old(owner).meta_own,
             final(owner).meta_perm.points_to == old(owner).meta_perm.points_to,
             final(owner).meta_perm.inner_perms == old(owner).meta_perm.inner_perms,
-            final(owner).children_perm.value() == old(owner).children_perm.value().update(idx as int, pte),
+            final(owner).children_perm.value() == old(owner).children_perm.value().update(
+                idx as int,
+                pte,
+            ),
             *final(self) == *old(self),
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());

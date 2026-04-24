@@ -33,9 +33,11 @@ use core::{
 
 use crate::specs::*;
 
-use crate::mm::frame::meta::mapping::{frame_to_index, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::mm::frame::meta::mapping::{
+    frame_to_index, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE,
+};
 use crate::mm::frame::meta::{get_slot, has_safe_slot, AnyFrameMeta, MetaSlot};
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 
 verus! {
 

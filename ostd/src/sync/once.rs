@@ -85,7 +85,7 @@ pub closed spec fn wf(&self) -> bool {
             OnceState::Init(points_to) => {
                 &&& v == INITED
                 &&& points_to.id() == cell.id()
-                &&& points_to.value() is Some 
+                &&& points_to.value() is Some
                 &&& f@.inv(points_to.value()->Some_0)
             }
         }

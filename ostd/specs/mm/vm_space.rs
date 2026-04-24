@@ -5,13 +5,15 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::untyped::UFrame;
-use crate::mm::io::{VmIoMemView, VmIoOwner, VmReader, VmWriter};
+use crate::mm::io::{VmReader, VmWriter};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace};
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR};
 use crate::specs::arch::mm::{current_page_table_paddr_spec, NR_LEVELS};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::io::VmIoMemView;
+use crate::specs::mm::io::VmIoOwner;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::cursor::CursorView;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;

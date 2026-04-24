@@ -16,18 +16,14 @@ use crate::specs::mm::Guards;
 use crate::specs::mm::Mapping;
 use crate::specs::mm::MetaRegionOwners;
 
+use crate::mm::page_table::page_size_spec as page_size;
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame};
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_ge_page_size,
-    lemma_page_size_divides,
+    lemma_page_size_divides, lemma_page_size_ge_page_size,
 };
 use vstd_extra::arithmetic::{
-    lemma_nat_align_down_sound,
-    lemma_nat_align_down_within_block,
-    nat_align_down,
-    nat_align_up,
+    lemma_nat_align_down_sound, lemma_nat_align_down_within_block, nat_align_down, nat_align_up,
 };
-use crate::mm::page_table::page_size_spec as page_size;
 
 use core::ops::Range;
 
@@ -1949,7 +1945,3 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 }
 
 }
-
- 
- 
- 

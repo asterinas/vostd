@@ -74,6 +74,7 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
+use crate::mm::page_table::RCClone;
 use crate::mm::{
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
     Paddr, PagingLevel, Vaddr, MAX_PADDR,
@@ -82,7 +83,6 @@ use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::mm::page_table::RCClone;
 
 verus! {
 
@@ -152,7 +152,8 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         &&& s.slot_owners.contains_key(idx)
         &&& slot_own.raw_count > 0
         &&& slot_own.inner_perms.ref_count.value() > 0
-        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& slot_own.inner_perms.ref_count.value()
+            != REF_COUNT_UNUSED
         // When this is the last reference (ref_count == 1), we need to be able to
         // call drop_last_in_place, which requires:
         &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
@@ -317,10 +318,13 @@ impl<M: AnyFrameMeta> Frame<M> {
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
-        Ok(Self { 
-            ptr: (#[verus_spec(with Tracked(regions))] MetaSlot::get_from_in_use(paddr))?, 
-            _marker: PhantomData 
-        })
+        Ok(
+            Self {
+                ptr: (#[verus_spec(with Tracked(regions))]
+                MetaSlot::get_from_in_use(paddr))?,
+                _marker: PhantomData,
+            },
+        )
     }
 }
 
@@ -372,8 +376,9 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         let tracked self_perm = regions.slots.tracked_borrow(self_idx);
         let tracked other_perm = regions.slots.tracked_borrow(other_idx);
 
-        (#[verus_spec(with Tracked(self_perm))] self.start_paddr() ==
-        #[verus_spec(with Tracked(other_perm))] other.start_paddr())
+        (#[verus_spec(with Tracked(self_perm))]
+        self.start_paddr() == #[verus_spec(with Tracked(other_perm))]
+        other.start_paddr())
     }
 
     /// Gets the map level of this page.
@@ -429,7 +434,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         returns
             perm.value().ref_count,
     {
-        let refcnt = (#[verus_spec(with Tracked(&perm.points_to))] self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
+        let refcnt = (#[verus_spec(with Tracked(&perm.points_to))]
+        self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
         refcnt
     }
 
@@ -486,11 +492,14 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
         // SAFETY: Both the lifetime and the type matches `self`.
-        unsafe { 
+
+        unsafe {
             #[verus_spec(with Tracked(regions), Tracked(perm))]
-            FrameRef::borrow_paddr(#[verus_spec(with Tracked(&perm.points_to))] self.start_paddr())
+            FrameRef::borrow_paddr(
+                #[verus_spec(with Tracked(&perm.points_to))]
+                self.start_paddr(),
+            )
         }
     }
 
@@ -681,22 +690,30 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id()
-            == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id(),
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage
-            == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr
-            == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list
-            == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list,
-        final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt
-            == old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt,
-        final(regions).slot_owners[frame_to_index(paddr)].self_addr
-            == old(regions).slot_owners[frame_to_index(paddr)].self_addr,
-        final(regions).slot_owners[frame_to_index(paddr)].raw_count
-            == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
-        final(regions).slot_owners[frame_to_index(paddr)].usage
-            == old(regions).slot_owners[frame_to_index(paddr)].usage,
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id() == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id(),
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].inner_perms.storage,
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr,
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].inner_perms.in_list,
+        final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].paths_in_pt,
+        final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].self_addr,
+        final(regions).slot_owners[frame_to_index(paddr)].raw_count == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].raw_count,
+        final(regions).slot_owners[frame_to_index(paddr)].usage == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].usage,
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             i != frame_to_index(paddr) ==> (#[trigger] final(regions).slot_owners[i] == old(
@@ -720,8 +737,9 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         let idx = frame_to_index(paddr);
 
         // inc_ref_count preserves permission id
-        assert(inner_perms.ref_count.id()
-            == old(regions).slot_owners[idx].inner_perms.ref_count.id());
+        assert(inner_perms.ref_count.id() == old(
+            regions,
+        ).slot_owners[idx].inner_perms.ref_count.id());
 
         // sync_inner: slot_own.inner_perms = inner_perms, other fields unchanged
         slot_own.sync_inner(&inner_perms);
@@ -753,7 +771,12 @@ impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
         &&& has_safe_slot(meta_to_frame(self.ptr.addr()))
     }
 
-    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+    open spec fn clone_ensures(
+        self,
+        old_perm: MetaRegionOwners,
+        new_perm: MetaRegionOwners,
+        res: Self,
+    ) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         &&& new_perm.inv()
         // ref_count incremented
@@ -762,37 +785,36 @@ impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
         &&& new_perm.slot_owners[idx].inner_perms.ref_count.id()
             == old_perm.slot_owners[idx].inner_perms.ref_count.id()
         // All other fields at idx unchanged
-        &&& new_perm.slot_owners[idx].inner_perms.storage == old_perm.slot_owners[idx].inner_perms.storage
-        &&& new_perm.slot_owners[idx].inner_perms.vtable_ptr == old_perm.slot_owners[idx].inner_perms.vtable_ptr
-        &&& new_perm.slot_owners[idx].inner_perms.in_list == old_perm.slot_owners[idx].inner_perms.in_list
+        &&& new_perm.slot_owners[idx].inner_perms.storage
+            == old_perm.slot_owners[idx].inner_perms.storage
+        &&& new_perm.slot_owners[idx].inner_perms.vtable_ptr
+            == old_perm.slot_owners[idx].inner_perms.vtable_ptr
+        &&& new_perm.slot_owners[idx].inner_perms.in_list
+            == old_perm.slot_owners[idx].inner_perms.in_list
         &&& new_perm.slot_owners[idx].paths_in_pt == old_perm.slot_owners[idx].paths_in_pt
         &&& new_perm.slot_owners[idx].self_addr == old_perm.slot_owners[idx].self_addr
         &&& new_perm.slot_owners[idx].raw_count == old_perm.slot_owners[idx].raw_count
-        &&& new_perm.slot_owners[idx].usage == old_perm.slot_owners[idx].usage
+        &&& new_perm.slot_owners[idx].usage
+            == old_perm.slot_owners[idx].usage
         // Other slot_owners unchanged
         &&& new_perm.slots =~= old_perm.slots
-        &&& forall|i: usize| i != idx ==>
-            (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
+        &&& forall|i: usize|
+            i != idx ==> (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
         &&& new_perm.slot_owners.dom() =~= old_perm.slot_owners.dom()
     }
 
-    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self
-    {
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self {
         let paddr = meta_to_frame(self.ptr.addr());
 
         #[verus_spec(with Tracked(perm))]
         inc_frame_ref_count(paddr);
 
-        Self {
-            ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0),
-            _marker: PhantomData,
-        }
+        Self { ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0), _marker: PhantomData }
     }
 }
 
 impl<M: AnyFrameMeta> Drop for Frame<M> {
-    fn drop(self, Tracked(regions): Tracked<MetaRegionOwners>) -> (res: Tracked<MetaRegionOwners>)
-    {
+    fn drop(self, Tracked(regions): Tracked<MetaRegionOwners>) -> (res: Tracked<MetaRegionOwners>) {
         let tracked mut regions = regions;
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let ghost old_regions = regions;
@@ -804,7 +826,10 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
         proof {
             assert(slot.ref_count.id() == slot_own.inner_perms.ref_count.id());
         }
-        let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.inner_perms.ref_count), 1);
+        let last_ref_cnt = slot.ref_count.fetch_sub(
+            Tracked(&mut slot_own.inner_perms.ref_count),
+            1,
+        );
 
         proof {
             slot_own.raw_count = (slot_own.raw_count - 1) as usize;
@@ -830,12 +855,12 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
             // TODO: return page to allocator
             // allocator::get_global_frame_allocator().dealloc(paddr, PAGE_SIZE);
         }
-
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);
             regions.slots.tracked_insert(idx, perm);
 
-            assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i] == old_regions.slot_owners[i] by {}
+            assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i]
+                == old_regions.slot_owners[i] by {}
             assert(regions.slots =~= old_regions.slots);
             assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());
         }
@@ -867,14 +892,12 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         unsafe { core::mem::transmute(frame) }
     }
 }*/
-
 /*impl<M: AnyFrameMeta> From<UFrame> for Frame<M> {
-    fn from(frame: UFrame) -> Self { 
+    fn from(frame: UFrame) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute(frame) }
     }
 }*/
-
 /*impl TryFrom<Frame<FrameMeta>> for UFrame {
     type Error = Frame<FrameMeta>;
 
@@ -891,9 +914,7 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         }
     }
 }*/
-
 } // verus!
-
 impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
     fn from(frame: Frame<M>) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.
