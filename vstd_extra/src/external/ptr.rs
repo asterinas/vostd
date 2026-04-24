@@ -37,6 +37,16 @@ pub open spec fn ptr_mut_cast_spec<T: PointeeSized, U>(ptr: *mut T) -> *mut U {
     ptr as *mut U
 }
 
+#[inline(always)]
+pub open spec fn ptr_mut_cast_const_spec<T: PointeeSized>( ptr: *mut T) -> *const T {
+    ptr as *const T
+}
+
+#[inline(always)]
+pub open spec fn ptr_cast_mut_spec<T: PointeeSized>( ptr: *const T) -> *mut T {
+    ptr as *mut T
+}
+
 #[verifier::when_used_as_spec(ptr_cast_spec)]
 pub assume_specification<T: PointeeSized, U>[ <*const T>::cast::<U> ](ptr: *const T) -> *const U
     returns
@@ -49,6 +59,22 @@ pub assume_specification<T: PointeeSized, U>[ <*const T>::cast::<U> ](ptr: *cons
 pub assume_specification<T: PointeeSized, U>[ <*mut T>::cast::<U> ](ptr: *mut T) -> *mut U
     returns
         ptr as *mut U,
+    opens_invariants none
+    no_unwind
+;
+
+#[verifier::when_used_as_spec(ptr_mut_cast_const_spec)]
+pub assume_specification<T: PointeeSized>[ <*mut T>::cast_const ](ptr: *mut T) -> *const T
+    returns
+        ptr as *const T,
+    opens_invariants none
+    no_unwind
+;
+
+#[verifier::when_used_as_spec(ptr_cast_mut_spec)]
+pub assume_specification<T: PointeeSized>[ <*const T>::cast_mut ](ptr: *const T) -> *mut T
+    returns
+        ptr as *mut T,
     opens_invariants none
     no_unwind
 ;

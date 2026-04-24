@@ -183,40 +183,44 @@ impl<T> ArcAdditionalFns<T> for Arc<T> {
 // See https://doc.rust-lang.org/stable/std/boxed/index.html
 // Its guarantee is actually much stronger than PointsTowithDealloc.inv().
 #[verifier::external_body]
-pub fn box_into_raw<T>(b: Box<T>) -> ((ret, perm, dealloc): (*mut T, Tracked<PointsTo<T>>, Tracked<Option<Dealloc>>))
+#[verus_spec(ret =>
+    with
+        -> perm: Tracked<(PointsTo<T>, Option<Dealloc>)>, 
     ensures
         ret == b.ptr_mut_spec(),
-        ret == perm@.ptr(),
-        perm@.ptr().addr() != 0,
-        perm@.is_init(),
-        perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        perm@.value() == *b,
-        match dealloc@ {
+        ret == perm@.0.ptr(),
+        perm@.0.ptr().addr() != 0,
+        perm@.0.is_init(),
+        perm@.0.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        perm@.0.value() == *b,
+        match perm@.1 {
             Some(dealloc) => {
                 &&& vstd::layout::size_of::<T>() > 0
-                &&& dealloc.addr() == perm@.ptr().addr()
+                &&& dealloc.addr() == perm@.0.ptr().addr()
                 &&& dealloc.size() == vstd::layout::size_of::<T>()
                 &&& dealloc.align() == vstd::layout::align_of::<T>()
-                &&& dealloc.provenance() == perm@.ptr()@.provenance
+                &&& dealloc.provenance() == perm@.0.ptr()@.provenance
                 &&& valid_layout(size_of::<T>(), align_of::<T>())
             },
             None => { &&& vstd::layout::size_of::<T>() == 0 },
-        },
+        }
+)]
+pub fn box_into_raw<T>(b: Box<T>) -> *mut T
 {
-    (Box::into_raw(b), Tracked::assume_new(), Tracked::assume_new())
+    proof_with!(|= Tracked::assume_new());
+    Box::into_raw(b)
 }
 
 #[verifier::external_body]
-pub unsafe fn box_from_raw<T>(
-    ptr: *mut T,
-    tracked points_to: Tracked<PointsTo<T>>,
-    tracked dealloc: Tracked<Option<Dealloc>>,
-) -> (ret: Box<T>)
+#[verus_spec(ret =>
+    with
+        Tracked(points_to): Tracked<PointsTo<T>>,
+        Tracked(dealloc): Tracked<Option<Dealloc>>,
     requires
         ptr@.addr != 0,
-        points_to@.ptr() == ptr,
-        points_to@.is_init(),
-        points_to@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        points_to.ptr() == ptr,
+        points_to.is_init(),
+        points_to.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
         match dealloc@ {
             Some(dealloc) => {
                 &&& vstd::layout::size_of::<T>() > 0
@@ -230,7 +234,9 @@ pub unsafe fn box_from_raw<T>(
         },
     ensures
         ret.ptr_mut_spec() == ptr,
-        *ret == points_to@.value(),
+        *ret == points_to.value(),
+    )]
+pub unsafe fn box_from_raw<T>(ptr: *mut T) -> Box<T>
 {
     unsafe { Box::from_raw(ptr) }
 }
@@ -238,7 +244,9 @@ pub unsafe fn box_from_raw<T>(
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // `Arc::into_raw` will not decrease the reference count, so the memory will keep valid until we convert back to Arc<T> and drop it.
 #[verifier::external_body]
-pub fn arc_into_raw<T>(p: Arc<T>) -> ((ret, perm): (*const T, Tracked<ArcPointsTo<T>>))
+#[verus_spec(ret =>
+    with
+        -> perm: Tracked<ArcPointsTo<T>>,
     ensures
         ret == p.ptr_spec(),
         ret == perm@.ptr(),
@@ -246,23 +254,29 @@ pub fn arc_into_raw<T>(p: Arc<T>) -> ((ret, perm): (*const T, Tracked<ArcPointsT
         perm@.is_init(),
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
         perm@.value() == *p,
+)]
+pub fn arc_into_raw<T>(p: Arc<T>) -> *const T
 {
-    (Arc::into_raw(p), Tracked::assume_new())
+    proof_with!(|= Tracked::assume_new());
+    Arc::into_raw(p)
 }
 
-#[verifier::external_body]
 /// According to the documentation, [`Arc::from_raw`](<https://doc.rust-lang.org/std/sync/struct.Arc.html#method.from_raw>) allows transmuting between different types as long as the pointer has the same size and alignment.
 /// In verification this responsibility is dispatched to casting the `PointsTo<T>` appropriately, which is not handled here.
-pub unsafe fn arc_from_raw<T>(ptr: *const T, tracked points_to: Tracked<ArcPointsTo<T>>) -> (ret:
-    Arc<T>)
+#[verifier::external_body]
+#[verus_spec(ret =>
+    with
+        Tracked(points_to): Tracked<ArcPointsTo<T>>,
     requires
-        ptr@.addr != 0,
-        points_to@.ptr() == ptr,
-        points_to@.is_init(),
-        points_to@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        ptr.addr() != 0,
+        points_to.ptr() == ptr,
+        points_to.is_init(),
+        points_to.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
     ensures
         ret.ptr_spec() == ptr,
-        *ret == points_to@.value(),
+        *ret == points_to.value(),
+)]
+pub unsafe fn arc_from_raw<T>(ptr: *const T) -> Arc<T>
 {
     unsafe { Arc::from_raw(ptr) }
 }

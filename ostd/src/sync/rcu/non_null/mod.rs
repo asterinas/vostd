@@ -3,6 +3,7 @@
 //! work with non-null pointers.
 use alloc::{boxed::Box, sync::Arc};
 use vstd::prelude::*;
+use vstd::raw_ptr::*;
 use vstd_extra::prelude::*;
 
 mod either;
@@ -195,19 +196,27 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     #[verifier::external_body]
     const ALIGN_BITS: u32 = core::mem::align_of::<T>().trailing_zeros();
 
+    #[verus_spec]
     fn into_raw(self) -> (NonNull<Self::Target>, Tracked<Self::Permission>) {
         //let ptr = Box::into_raw(self);
-        let (ptr, Tracked(points_to), Tracked(dealloc)) = box_into_raw(self);
+        proof_decl! {
+            let tracked perm: (PointsTo<T>, Option<Dealloc>) = uninitialized();
+        }
+        proof_with!(=> Tracked(perm));
+        let ptr = box_into_raw(self);
+
         proof_decl!{
             let tracked box_points_to = BoxPointsTo {
-                perm: PointsTowithDealloc::new(points_to, dealloc),
+                perm: PointsTowithDealloc::new(perm.0, perm.1),
             };
         }
         assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
+        
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(box_points_to))
     }
 
+    #[verus_spec]
     unsafe fn from_raw(
         ptr: NonNull<Self::Target>,
         Tracked(perm): Tracked<Self::Permission>,
@@ -215,11 +224,15 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         proof_decl!{
             let tracked perm = perm.tracked_get_points_to_with_dealloc();
         }
+        
         let ptr = ptr.as_ptr();
 
         // [VERIFIED] SAFETY: The safety is upheld by the caller.
         // unsafe { Box::from_raw(ptr) }
-        unsafe { box_from_raw(ptr, Tracked(perm.points_to), Tracked(perm.dealloc)) }
+        unsafe { 
+            proof_with!(Tracked(perm.points_to), Tracked(perm.dealloc));
+            box_from_raw(ptr) 
+        }
     }
 
     /*unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
@@ -344,10 +357,15 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     #[verifier::external_body]
     const ALIGN_BITS: u32 = core::mem::align_of::<T>().trailing_zeros();
 
+    #[verus_spec]
     fn into_raw(self) -> (NonNull<Self::Target>, Tracked<Self::Permission>) {
+        proof_decl!{
+            let tracked perm: ArcPointsTo<T> = uninitialized();
+        }
         // let ptr = Arc::into_raw(self).cast_mut();
-        let (ptr, Tracked(perm)) = arc_into_raw(self);
-        let ptr = ptr as *mut T;
+        proof_with!(=> Tracked(perm));
+        let ptr = arc_into_raw(self);
+        let ptr = ptr.cast_mut();
         assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
         // [VERIFIED] SAFETY: The pointer representing an `Arc` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
@@ -357,12 +375,11 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         ptr: NonNull<Self::Target>,
         Tracked(perm): Tracked<Self::Permission>,
     ) -> Self {
-        //let ptr = ptr.as_ptr().cast_const();
-        let ptr = ptr.as_ptr() as *const T;
+        let ptr = ptr.as_ptr().cast_const();
 
         // [VERIFIED] SAFETY: The safety is upheld by the caller.
         // unsafe { Arc::from_raw(ptr) }
-        unsafe { arc_from_raw(ptr, Tracked(perm)) }
+        unsafe { #[verus_spec(with Tracked(perm))] arc_from_raw(ptr) }
     }
 
     /*
@@ -419,7 +436,7 @@ pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
         ret.ptr() == perm@.ptr(),
 {
     unsafe {
-        ArcRef { inner: ManuallyDrop::new(arc_from_raw(raw.as_ptr(), perm)), _marker: PhantomData }
+        ArcRef { inner: ManuallyDrop::new(#[verus_spec(with perm)] arc_from_raw(raw.as_ptr())), _marker: PhantomData }
     }
 }
 
