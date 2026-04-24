@@ -241,14 +241,20 @@ pub unsafe fn box_from_raw<T>(
     unsafe { Box::from_raw(ptr) }
 }
 
-pub uninterp spec fn arc_pointer_spec<T>(a: Arc<T>) -> *const T;
+pub trait ArcAdditionalFns<T> {
+    spec fn ptr_spec(self) -> *const T;
+}
+
+impl<T> ArcAdditionalFns<T> for Arc<T> {
+    uninterp spec fn ptr_spec(self) -> *const T;
+}
 
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // `Arc::into_raw` will not decrease the reference count, so the memory will keep valid until we convert back to Arc<T> and drop it.
 #[verifier::external_body]
 pub fn arc_into_raw<T>(p: Arc<T>) -> ((ret, perm): (*const T, Tracked<ArcPointsTo<T>>))
     ensures
-        ret == arc_pointer_spec(p),
+        ret == p.ptr_spec(),
         ret == perm@.ptr(),
         perm@.ptr().addr() != 0,
         perm@.is_init(),
@@ -269,7 +275,7 @@ pub unsafe fn arc_from_raw<T>(ptr: *const T, tracked points_to: Tracked<ArcPoint
         points_to@.is_init(),
         points_to@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
     ensures
-        arc_pointer_spec(ret) == ptr,
+        ret.ptr_spec() == ptr,
         *ret == points_to@.value(),
 {
     unsafe { Arc::from_raw(ptr) }

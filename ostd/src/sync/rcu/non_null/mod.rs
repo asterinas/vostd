@@ -293,7 +293,7 @@ impl<'a, T> ArcRef<'a, T> {
     }
 
     pub open spec fn ptr(self) -> *const T {
-        arc_pointer_spec(*self.deref_as_arc_spec())
+        self.deref_as_arc_spec().ptr_spec()
     }
 
     pub closed spec fn deref_as_arc_spec(&self) -> &Arc<T> {
