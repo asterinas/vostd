@@ -32,12 +32,18 @@ impl<L: PtrPointsToTrait, R: PtrPointsToTrait> PtrPointsToTrait for EitherPoints
         }
     }
 
-    open spec fn addr(self) -> usize {
-        self.ptr().addr()
-    }
-
     open spec fn view_target(self) -> Self::Target {
         PhantomData
+    }
+}
+
+impl<L: PtrPointsToTrait, R: PtrPointsToTrait> EitherPointsTo<L, R>
+where
+    L::Ptr: NonNullPtr,
+    R::Ptr: NonNullPtr,
+{
+    pub open spec fn addr(self) -> usize {
+        self.ptr().addr()
     }
 }
 

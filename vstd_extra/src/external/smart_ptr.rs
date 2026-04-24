@@ -18,8 +18,6 @@ pub trait PtrPointsToTrait {
 
     spec fn ptr(self) -> *mut Self::Target;
 
-    spec fn addr(self) -> usize;
-
     spec fn view_target(self) -> Self::Target;
 }
 
@@ -30,10 +28,6 @@ impl<T> PtrPointsToTrait for BoxPointsTo<T> {
 
     open spec fn ptr(self) -> *mut T {
         self.perm.ptr()
-    }
-
-    open spec fn addr(self) -> usize {
-        self.ptr().addr()
     }
 
     open spec fn view_target(self) -> T {
@@ -50,16 +44,10 @@ impl<T> PtrPointsToTrait for ArcPointsTo<T> {
         self.perm.ptr()
     }
 
-    open spec fn addr(self) -> usize {
-        self.ptr().addr()
-    }
-
     open spec fn view_target(self) -> T {
         self.perm.value()
     }
 }
-
-
 
 // The permission to access memory given by the `into_raw` methods of smart pointers like `Box` and `Arc`.
 /// For `Box<T>`, the `into_raw` method gives you the ownership of the memory
@@ -85,10 +73,6 @@ impl<T> BoxPointsTo<T> {
 
     pub open spec fn addr(self) -> usize {
         self.ptr().addr()
-    }
-
-    pub open spec fn is_uninit(self) -> bool {
-        self.perm.is_uninit()
     }
 
     pub open spec fn is_init(self) -> bool {
@@ -143,10 +127,6 @@ impl<T> ArcPointsTo<T> {
         self.ptr().addr()
     }
 
-    pub open spec fn is_uninit(self) -> bool {
-        self.perm.is_uninit()
-    }
-
     pub open spec fn is_init(self) -> bool {
         self.perm.is_init()
     }
@@ -167,7 +147,7 @@ impl<T> Inv for BoxPointsTo<T> {
     open spec fn inv(self) -> bool {
         &&& self.perm.inv()
         &&& self.perm.dealloc_aligned()
-        &&& self.is_init()
+        &&& self.perm.is_init()
     }
 }
 
@@ -175,11 +155,25 @@ impl<T> Inv for ArcPointsTo<T> {
     open spec fn inv(self) -> bool {
         &&& self.addr() != 0
         &&& self.addr() as int % vstd::layout::align_of::<T>() as int == 0
-        &&& self.is_init()
+        &&& self.perm.is_init()
     }
 }
 
-pub uninterp spec fn box_pointer_spec<T>(b: Box<T>) -> *mut T;
+pub trait BoxAdditionalFns<T> {
+    spec fn ptr_mut_spec(self) -> *mut T;
+}
+
+impl<T> BoxAdditionalFns<T> for Box<T> {
+    uninterp spec fn ptr_mut_spec(self) -> *mut T;
+}
+
+pub trait ArcAdditionalFns<T> {
+    spec fn ptr_spec(self) -> *const T;
+}
+
+impl<T> ArcAdditionalFns<T> for Arc<T> {
+    uninterp spec fn ptr_spec(self) -> *const T;
+}
 
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // The memory layout ensures that Box<T> has the following properties:
@@ -191,7 +185,7 @@ pub uninterp spec fn box_pointer_spec<T>(b: Box<T>) -> *mut T;
 #[verifier::external_body]
 pub fn box_into_raw<T>(b: Box<T>) -> ((ret, perm, dealloc): (*mut T, Tracked<PointsTo<T>>, Tracked<Option<Dealloc>>))
     ensures
-        ret == box_pointer_spec(b),
+        ret == b.ptr_mut_spec(),
         ret == perm@.ptr(),
         perm@.ptr().addr() != 0,
         perm@.is_init(),
@@ -235,18 +229,10 @@ pub unsafe fn box_from_raw<T>(
             None => { &&& vstd::layout::size_of::<T>() == 0 },
         },
     ensures
-        box_pointer_spec(ret) == ptr,
+        ret.ptr_mut_spec() == ptr,
         *ret == points_to@.value(),
 {
     unsafe { Box::from_raw(ptr) }
-}
-
-pub trait ArcAdditionalFns<T> {
-    spec fn ptr_spec(self) -> *const T;
-}
-
-impl<T> ArcAdditionalFns<T> for Arc<T> {
-    uninterp spec fn ptr_spec(self) -> *const T;
 }
 
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
