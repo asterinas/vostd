@@ -1546,6 +1546,11 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 
+    open spec fn clone_bumps_refcount(_item: Self::Item) -> bool {
+        // Every UserPt item is a ref-counted UFrame.
+        true
+    }
+
     proof fn clone_ensures_concrete(
         item: Self::Item,
         pa: Paddr,
@@ -1553,7 +1558,22 @@ unsafe impl PageTableConfig for UserPtConfig {
         new_regions: MetaRegionOwners,
         res: Self::Item,
     ) {
-        admit();
+        // `MappedItem::clone_ensures` unfolds to `item.frame.clone_ensures(...,
+        // res.frame)`, which delivers per-field facts at `frame_to_index(meta_to_frame(
+        // item.frame.ptr.addr()))`. Bridge that index to `frame_to_index(pa)` via
+        // `pa == item.frame.paddr() == meta_to_frame(item.frame.ptr.addr())`.
+        use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+        let frame_idx = frame_to_index(meta_to_frame(item.frame.ptr.addr()));
+        assert(pa == item.frame.paddr());
+        assert(frame_to_index(pa) == frame_idx);
+        // The MappedItem clone_ensures unfolds to its frame's clone_ensures.
+        // Verus needs `item.clone_ensures` (a trait method) revealed via the impl.
+        assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
+        assert(item.frame.clone_ensures(old_regions, new_regions, res.frame));
+        assert(new_regions.slot_owners[frame_idx].inner_perms.ref_count.value()
+            == old_regions.slot_owners[frame_idx].inner_perms.ref_count.value() + 1);
+        assert(forall|i: usize| i != frame_idx
+            ==> #[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]);
     }
 
     proof fn clone_requires_concrete(
@@ -1563,7 +1583,25 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         regions: MetaRegionOwners,
     ) {
-        admit();
+        // `MappedItem::clone_requires` unfolds to `item.frame.clone_requires(regions)`.
+        // The trait precondition delivers all the slot facts at `frame_to_index(pa)`.
+        // We need to bridge:
+        //   (1) `item.frame.inv()` — Frame's structural invariant about ptr
+        //       alignment/range. Can't derive from `item_from_raw_spec` (uninterp);
+        //       ASSUMED here as the trust boundary for `item_from_raw`.
+        //   (2) `frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa)`
+        //       from `pa == item.frame.paddr()` (UserPtConfig::item_into_raw_spec).
+        use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+        // The roundtrip law: item == item_from_raw_spec(pa, level, prop) means
+        // item.frame.paddr() == pa (by `item_into_raw_spec` definition for UserPt).
+        Self::item_roundtrip(item, pa, level, prop);
+        assert(item.frame.paddr() == pa);
+        assert(meta_to_frame(item.frame.ptr.addr()) == pa);
+        assert(frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa));
+        // ASSUMED: `Frame::inv` (ptr alignment / FRAME_METADATA_RANGE bounds). Trust
+        // this from `item_from_raw`'s contract (which constructs the frame from a
+        // valid paddr produced by `item_into_raw`).
+        assume(item.frame.inv());
     }
 }
 

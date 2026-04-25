@@ -225,6 +225,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_from_raw_spec(paddr, level, prop),
     ;
 
+    /// Whether cloning this item bumps a slot's refcount. For ref-counted items
+    /// (e.g. `MappedItem::Tracked`), `true`; for items where clone is a no-op
+    /// (e.g. `MappedItem::Untracked` for kernel MMIO frames), `false`.
+    spec fn clone_bumps_refcount(item: Self::Item) -> bool;
+
     /// Proves that `clone_ensures` for `Self::Item` implies concrete per-field
     /// properties on `MetaRegionOwners`. Each `PageTableConfig` implementor proves
     /// this by unfolding its `MappedItem::clone_ensures` → `Frame::clone_ensures`.
@@ -246,26 +251,33 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             new_regions.slots =~= old_regions.slots,
             new_regions.slot_owners.dom() =~= old_regions.slot_owners.dom(),
         ensures
+            // Other slots always unchanged.
             forall|i: usize| i != frame_to_index(pa) ==>
                 (#[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]),
-            new_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
-                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1,
-            new_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
-                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.id(),
-            new_regions.slot_owners[frame_to_index(pa)].inner_perms.storage
-                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.storage,
-            new_regions.slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
-                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr,
-            new_regions.slot_owners[frame_to_index(pa)].inner_perms.in_list
-                == old_regions.slot_owners[frame_to_index(pa)].inner_perms.in_list,
-            new_regions.slot_owners[frame_to_index(pa)].paths_in_pt
-                == old_regions.slot_owners[frame_to_index(pa)].paths_in_pt,
-            new_regions.slot_owners[frame_to_index(pa)].self_addr
-                == old_regions.slot_owners[frame_to_index(pa)].self_addr,
-            new_regions.slot_owners[frame_to_index(pa)].raw_count
-                == old_regions.slot_owners[frame_to_index(pa)].raw_count,
-            new_regions.slot_owners[frame_to_index(pa)].usage
-                == old_regions.slot_owners[frame_to_index(pa)].usage,
+            // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
+            Self::clone_bumps_refcount(item) ==> {
+                &&& new_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                    == old_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1
+                &&& new_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
+                    == old_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
+                &&& new_regions.slot_owners[frame_to_index(pa)].inner_perms.storage
+                    == old_regions.slot_owners[frame_to_index(pa)].inner_perms.storage
+                &&& new_regions.slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
+                    == old_regions.slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
+                &&& new_regions.slot_owners[frame_to_index(pa)].inner_perms.in_list
+                    == old_regions.slot_owners[frame_to_index(pa)].inner_perms.in_list
+                &&& new_regions.slot_owners[frame_to_index(pa)].paths_in_pt
+                    == old_regions.slot_owners[frame_to_index(pa)].paths_in_pt
+                &&& new_regions.slot_owners[frame_to_index(pa)].self_addr
+                    == old_regions.slot_owners[frame_to_index(pa)].self_addr
+                &&& new_regions.slot_owners[frame_to_index(pa)].raw_count
+                    == old_regions.slot_owners[frame_to_index(pa)].raw_count
+                &&& new_regions.slot_owners[frame_to_index(pa)].usage
+                    == old_regions.slot_owners[frame_to_index(pa)].usage
+            },
+            !Self::clone_bumps_refcount(item) ==>
+                new_regions.slot_owners[frame_to_index(pa)]
+                    == old_regions.slot_owners[frame_to_index(pa)],
     ;
 
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)

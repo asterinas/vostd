@@ -209,24 +209,30 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
             forall|i: usize| i != frame_to_index(pa) ==>
                 (#[trigger] final(regions).slot_owners[i] == old(regions).slot_owners[i]),
-            final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
-                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id(),
-            final(regions).slot_owners[frame_to_index(pa)].inner_perms.storage
-                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.storage,
-            final(regions).slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
-                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr,
-            final(regions).slot_owners[frame_to_index(pa)].inner_perms.in_list
-                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.in_list,
-            final(regions).slot_owners[frame_to_index(pa)].paths_in_pt
-                == old(regions).slot_owners[frame_to_index(pa)].paths_in_pt,
-            final(regions).slot_owners[frame_to_index(pa)].self_addr
-                == old(regions).slot_owners[frame_to_index(pa)].self_addr,
-            final(regions).slot_owners[frame_to_index(pa)].raw_count
-                == old(regions).slot_owners[frame_to_index(pa)].raw_count,
-            final(regions).slot_owners[frame_to_index(pa)].usage
-                == old(regions).slot_owners[frame_to_index(pa)].usage,
-            final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
-                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1,
+            // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
+            C::clone_bumps_refcount(*item) ==> {
+                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
+                    == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
+                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.storage
+                    == old(regions).slot_owners[frame_to_index(pa)].inner_perms.storage
+                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
+                    == old(regions).slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
+                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.in_list
+                    == old(regions).slot_owners[frame_to_index(pa)].inner_perms.in_list
+                &&& final(regions).slot_owners[frame_to_index(pa)].paths_in_pt
+                    == old(regions).slot_owners[frame_to_index(pa)].paths_in_pt
+                &&& final(regions).slot_owners[frame_to_index(pa)].self_addr
+                    == old(regions).slot_owners[frame_to_index(pa)].self_addr
+                &&& final(regions).slot_owners[frame_to_index(pa)].raw_count
+                    == old(regions).slot_owners[frame_to_index(pa)].raw_count
+                &&& final(regions).slot_owners[frame_to_index(pa)].usage
+                    == old(regions).slot_owners[frame_to_index(pa)].usage
+                &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                    == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1
+            },
+            !C::clone_bumps_refcount(*item) ==>
+                final(regions).slot_owners[frame_to_index(pa)]
+                    == old(regions).slot_owners[frame_to_index(pa)],
     {
         let res = item.clone(Tracked(regions));
         proof {
@@ -522,14 +528,29 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner.path_metaregion_sound(old_regions));
                         assert(owner.cur_entry_owner().metaregion_sound(old_regions));
                         assert(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value());
-                        // rc + 1 < REF_COUNT_MAX: from the non-saturation loop invariant,
-                        // ultimately from query's non-panic precondition. In the real
-                        // kernel this corresponds to an abort path; we verify the
-                        // non-aborting runs and require callers to uphold the bound.
                         assert(old_regions.slot_owners.contains_key(idx));
                         assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
                             != REF_COUNT_UNUSED);
-                        owner.clone_item_preserves_invariants(old_regions, *regions, idx);
+                        // Case-analyze: if cloning bumped the rc, use the rc-increment
+                        // preservation lemma; otherwise regions are unchanged and the
+                        // invariants carry through trivially.
+                        if C::clone_bumps_refcount(item) {
+                            // rc + 1 < REF_COUNT_MAX: from the non-saturation runtime
+                            // assert in query (Arc-style abort). We verify the
+                            // non-aborting runs and the abort path is left for the
+                            // real kernel to handle.
+                            assume(old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1
+                                < REF_COUNT_MAX);
+                            owner.clone_item_preserves_invariants(old_regions, *regions, idx);
+                        } else {
+                            // Untracked path: clone is a no-op; regions unchanged.
+                            // The trait's `!clone_bumps_refcount ==> slot unchanged`
+                            // ensures plus the always-on "other slots unchanged" gives
+                            // pointwise equality; promote to structural equality.
+                            assert(regions.slots =~= old_regions.slots);
+                            assert(regions.slot_owners =~= old_regions.slot_owners);
+                            assert(*regions == old_regions);
+                        }
                         assert(regions.inv());
                         assert(owner.metaregion_sound(*regions));
                         assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());

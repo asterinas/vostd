@@ -239,6 +239,12 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 
+    open spec fn clone_bumps_refcount(item: Self::Item) -> bool {
+        // Tracked items hold a reference; clone bumps rc. Untracked items
+        // (MMIO frames) are not ref-counted; clone is a no-op.
+        item is Tracked
+    }
+
     proof fn clone_ensures_concrete(
         item: Self::Item,
         pa: Paddr,
@@ -246,7 +252,35 @@ unsafe impl PageTableConfig for KernelPtConfig {
         new_regions: MetaRegionOwners,
         res: Self::Item,
     ) {
-        admit();
+        // `MappedItem::clone_ensures` case-analyzes:
+        //   - Tracked: `frame.clone_ensures(old, new, res_frame)` — gives per-field facts at
+        //     `frame_to_index(meta_to_frame(frame.ptr.addr()))`. Bridge to `frame_to_index(pa)`.
+        //   - Untracked: `old == new`. Then trait's `rc + 1` ensures becomes contradictory.
+        //     This case is ASSUMED unreachable (clone_item only runs on Tracked items in
+        //     the verified call chain).
+        // Force the trait method's open-spec body to unfold by asserting the UFCS form.
+        assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
+        match (item, res) {
+            (MappedItem::Tracked(frame, prop_actual),
+             MappedItem::Tracked(res_frame, _)) => {
+                use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+                Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
+                let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
+                assert(pa == meta_to_frame(frame.ptr.addr()));
+                assert(frame_to_index(pa) == frame_idx);
+                assert(frame.clone_ensures(old_regions, new_regions, res_frame));
+            },
+            (MappedItem::Untracked(_, _, _), _) => {
+                // clone_ensures for Untracked is `old == new`; the trait's
+                // `!clone_bumps_refcount ==> slot unchanged` ensures follows directly.
+                assert(old_regions == new_regions);
+            },
+            _ => {
+                // res == item by precondition; if item is Tracked, res is Tracked too.
+                // The mismatched-tag arm is unreachable.
+                assert(res == item);
+            },
+        }
     }
 
     proof fn clone_requires_concrete(
@@ -256,7 +290,25 @@ unsafe impl PageTableConfig for KernelPtConfig {
         prop: PageProperty,
         regions: MetaRegionOwners,
     ) {
-        admit();
+        // `MappedItem::clone_requires` case-analyzes:
+        //   - Tracked: `frame.clone_requires(regions)` — needs `frame.inv()` and the
+        //     slot facts at `frame_to_index(meta_to_frame(frame.ptr.addr()))`.
+        //   - Untracked: `regions.inv()`. Trivially satisfied from precondition.
+        match item {
+            MappedItem::Tracked(frame, prop_actual) => {
+                use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+                Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
+                Self::item_roundtrip(item, pa, level, prop);
+                assert(meta_to_frame(frame.ptr.addr()) == pa);
+                assert(frame_to_index(meta_to_frame(frame.ptr.addr())) == frame_to_index(pa));
+                // ASSUMED: structural Frame::inv (ptr alignment / FRAME_METADATA_RANGE).
+                // Trust from `item_from_raw`'s contract.
+                assume(frame.inv());
+            },
+            MappedItem::Untracked(_, _, _) => {
+                // clone_requires for Untracked is just `regions.inv()` which we have.
+            },
+        }
     }
 }
 
