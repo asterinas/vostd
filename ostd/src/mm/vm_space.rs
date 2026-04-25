@@ -885,10 +885,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let ghost mut removed: Set<Mapping> = Set::empty();
 
         proof {
-            // end_va <= barrier_va.end <= MAX_USERSPACE_VADDR for user page tables.
-            // barrier_va.end = locked_range().end which is bounded by the user VA space.
-            // TODO: derive from cursor construction postcondition.
-            assume(end_va <= MAX_USERSPACE_VADDR);
+            // end_va <= barrier_va.end == locked_range().end. The cursor invariant
+            // bounds locked_range().end by `vaddr_range_bounds_spec::<C>().1 + 1`,
+            // and for UserPtConfig that evaluates to 2^47.
+            crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
+            assert(end_va <= 0x0000_8000_0000_0000usize);
 
             assert((self.pt_cursor.0.va + len) % PAGE_SIZE as int == 0) by (compute);
             assert(adjusted_base.difference(removed) =~= adjusted_base);
@@ -898,7 +899,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             invariant
                 self.pt_cursor.0.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
-                end_va <= MAX_USERSPACE_VADDR,
+                end_va <= 0x0000_8000_0000_0000usize,
                 self.pt_cursor.0.invariants(*cursor_owner, *regions, *guards),
                 end_va <= self.pt_cursor.0.barrier_va.end,
                 tlb_model.inv(),
@@ -1061,8 +1062,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     num_unmapped += num_frames;
                     proof {
                         // va + len <= end_va: from take_next VA bound (StrayPageTable_va + StrayPageTable_len <= old_va + len_arg = end_va).
-                        // end_va <= MAX_USERSPACE_VADDR < KERNEL_VADDR_RANGE.end.
-                        assert(MAX_USERSPACE_VADDR < KERNEL_VADDR_RANGE.end as usize) by (compute_only);
+                        // end_va <= 2^47 < KERNEL_VADDR_RANGE.end (= 0xffff_ffff_ffff_0000).
+                        assert(0x0000_8000_0000_0000usize < KERNEL_VADDR_RANGE.end as usize)
+                            by (compute_only);
                         assert(va + len <= KERNEL_VADDR_RANGE.end as usize);
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_plus_page_size_no_overflow(va, len);
                     }
@@ -1107,7 +1109,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 // Mapped-case setup: establish split_while_huge properties once.
                 if is_mapped {
-                    assert(sv.cur_va < MAX_USERSPACE_VADDR);
+                    assert(sv.cur_va < 0x0000_8000_0000_0000usize);
                     // VA-disjointness of prev_mappings and old_removed: both
                     // are subsets of `old_adjusted`, which is wf (pairwise
                     // VA-disjoint). m == x is impossible: prev_mappings =

@@ -296,8 +296,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             regions.slots.contains_key(frame_to_index(pa)),
             regions.slot_owners.contains_key(frame_to_index(pa)),
             regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0,
-            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
+            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
         ensures
             item.clone_requires(regions),
     ;
@@ -755,9 +755,6 @@ pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bo
 /// reaches the top of the 64-bit address space (e.g. the canonical
 /// high-half kernel range ending at `usize::MAX`), would overflow the
 /// exclusive end of a [`Range<Vaddr>`].
-///
-/// Ported from the non-Verus upstream. The body is unchanged modulo
-/// naming; the `ensures` connects it to `vaddr_range_bounds_spec`.
 fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     ensures
         ret@.start == vaddr_range_bounds_spec::<C>().0,
@@ -1557,6 +1554,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
             },
+            !Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Err,
             forall |item: C::Item| #![trigger CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions))]
                 CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions)) ==>
                 CursorMut::<'rcu, C, G>::item_not_mapped(item, *final(regions)),

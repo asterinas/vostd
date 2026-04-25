@@ -599,11 +599,8 @@ impl<'a> VmReader<'a, Infallible> {
             mem_view: None,
         };
 
-        let ghost range = ptr.vaddr..(ptr.vaddr + len) as usize;
-        let end = VirtPtr { vaddr: ptr.vaddr + len, range: Ghost(range) };
-
         proof_with!(|= Tracked(owner));
-        Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
+        Self { id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
     }
 
     /// Constructs a `VmReader<'a, Infallible>` from a shared byte slice.
@@ -777,7 +774,6 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     /// - `self` must satisfy its invariant.
     /// ## Postconditions
     /// - The returned value equals [`Self::remain_spec`].
-    #[inline]
     #[verus_spec(r =>
         requires
             self.inv(),
@@ -785,7 +781,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             r == self.remain_spec(),
     )]
     pub fn remain(&self) -> usize {
-        self.end.vaddr - self.cursor.vaddr
+        self.end.addr() - self.cursor.addr()
     }
 
     /// Advances the cursor by `len` bytes.
@@ -1307,7 +1303,6 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     /// - The owners still match the updated writer and reader.
     /// - The returned byte count equals the minimum of writable bytes and readable bytes.
     /// - Both cursors advance by exactly the returned byte count.
-    #[inline]
     #[verus_spec(r =>
         with
             Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,

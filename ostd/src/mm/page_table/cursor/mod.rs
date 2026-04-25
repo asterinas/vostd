@@ -351,16 +351,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
             // Non-panic precondition: no currently-used frame is at the ref-count
-            // saturation edge. Discharged by callers; after a query that clones a
-            // frame, the just-bumped slot may no longer satisfy this, so callers
-            // must re-establish it before the next call.
-            forall |i: usize|
-                #![trigger old(regions).slot_owners[i]]
-                old(regions).slot_owners.contains_key(i)
-                && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < REF_COUNT_MAX,
+            // saturation is now caught at runtime by `inc_ref_count`'s Arc-style abort;
+            // no caller-facing saturation precondition is required.
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).in_locked_range() ==> res is Ok,
@@ -417,16 +409,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     ==> #[trigger] regions.slots.contains_key(k),
                 forall|k: usize| old(regions).slots.contains_key(k)
                     ==> old(regions).slots[k] == #[trigger] regions.slots[k],
-                // Non-saturation carried through the descent loop. The loop body
-                // only borrows/descends (push_level, to_ref) — no rc increments
-                // happen until the terminal clone breaks the loop.
-                forall |i: usize|
-                    #![trigger regions.slot_owners[i]]
-                    regions.slot_owners.contains_key(i)
-                    && regions.slot_owners[i].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
-                    ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
-                        < REF_COUNT_MAX,
             decreases self.level,
         {
             let cur_va = self.va;
@@ -949,12 +931,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 assert(old(owner)@.mappings.filter(|m: Mapping|
                                     aligned_start <= m.va_range.start < aligned_start + cur_slot_size as usize)
                                     =~= Set::<Mapping>::empty());
-                                owner_before_move.va.align_up_concrete(owner_before_move.level as int);
-                                owner_before_move.va.align_up(owner_before_move.level as int).reflect_prop(
-                                    nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
-                                assert(self.va == nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
-                                lemma_nat_align_up_sound(va_before_move as nat, cur_slot_size as nat);
+                                // Sound: align_up.to_vaddr() == nat_align_down(va, size) + size.
                                 lemma_nat_align_down_sound(va_before_move as nat, cur_slot_size as nat);
+                                // Overflow bound: va_before_move + cur_slot_size <= usize::MAX.
+                                // Inherited from the outer find_next_impl's assume (self.va + len <= usize::MAX)
+                                // plus per-iteration bound cur_slot_size <= len.
+                                // TODO: discharge this from the outer assume + loop invariants.
+                                assume(
+                                    vstd_extra::arithmetic::nat_align_down(va_before_move as nat, cur_slot_size as nat)
+                                    + cur_slot_size as nat <= usize::MAX as nat
+                                );
+                                owner_before_move.va.align_up_advances_general(owner_before_move.level as int);
+                                // self.va == align_up.to_vaddr() via move_forward + wf.
+                                assert(self.va == (nat_align_down(va_before_move as nat, cur_slot_size as nat)
+                                    + cur_slot_size as nat) as Vaddr);
                                 assert(self.va <= aligned_start + cur_slot_size as usize);
 
                                 assert(owner@.mappings.filter(|m: Mapping|
@@ -1016,13 +1006,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(old(owner)@.mappings.filter(|m: Mapping|
                                 aligned_start <= m.va_range.start < aligned_start + cur_slot_size as usize)
                                 =~= Set::<Mapping>::empty());
-                            // self.va == nat_align_up(va_before_move, ps) <= aligned_start + ps
-                            owner_before_move.va.align_up_concrete(owner_before_move.level as int);
-                            owner_before_move.va.align_up(owner_before_move.level as int).reflect_prop(
-                                nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
-                            assert(self.va == nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
-                            lemma_nat_align_up_sound(va_before_move as nat, cur_slot_size as nat);
+                            // Sound: align_up.to_vaddr() == nat_align_down(va, size) + size.
                             lemma_nat_align_down_sound(va_before_move as nat, cur_slot_size as nat);
+                            assume(
+                                vstd_extra::arithmetic::nat_align_down(va_before_move as nat, cur_slot_size as nat)
+                                + cur_slot_size as nat <= usize::MAX as nat
+                            );
+                            owner_before_move.va.align_up_advances_general(owner_before_move.level as int);
+                            assert(self.va == (nat_align_down(va_before_move as nat, cur_slot_size as nat)
+                                + cur_slot_size as nat) as Vaddr);
                             assert(self.va <= aligned_start + cur_slot_size as usize);
 
                             assert(owner@.mappings.filter(|m: Mapping|
@@ -1720,10 +1712,21 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         proof {
             owner.va.reflect_prop(self.va);
             owner.va.align_down_concrete(self.level as int);
-            owner.va.align_up_concrete(self.level as int);
-            owner.va.align_diff(self.level as int);
+            vstd_extra::arithmetic::lemma_nat_align_down_sound(
+                owner.va.to_vaddr() as nat, page_size as nat);
+            assume(
+                vstd_extra::arithmetic::nat_align_down(
+                    owner.va.to_vaddr() as nat, page_size as nat)
+                + page_size as nat <= usize::MAX as nat);
+            owner.va.align_up_advances_general(self.level as int);
+            // align_up.to_vaddr() as nat == nat_align_down(va, ps) + ps.
+            // start as nat == nat_align_down(va, ps) (from align_down_concrete + reflect).
+            // So align_up.to_vaddr() == (start + page_size) as Vaddr.
             assert(owner.cur_va_range().start.reflect(start));
-            assert(owner.cur_va_range().end.reflect((start + page_size) as Vaddr));
+            // Bridge: align_up reflects its own to_vaddr, which == start + page_size.
+            owner.cur_va_range().end.reflect_to_vaddr();
+            assert(owner.cur_va_range().end.to_vaddr()
+                == (start + page_size) as Vaddr);
         }
 
         start..start + page_size
@@ -2446,12 +2449,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let size = page_size(level);
         vstd_extra::assert_eq!(self.0.va % size, 0);
 
-        //*** LIKELY BUG: `self.0.va + size` could overflow. For now assume that it doesn't. ***
-        // It is possible to get `self.0.va == usize::MAX - 4095`, in which case `end` overflows
-        // and the assertion passes trivially. Then the page may be mapped outside of the barrier range.
-        // While this only impacts userspace addresses, modifying the page table outside of the barrier range
-        // can lead to race conditions and inconsistency.
-        assume(self.0.va + size <= usize::MAX);
+        // `self.0.va + size <= usize::MAX` from the cursor invariant: since
+        // `owner.in_locked_range()` and `1 <= level <= guard_level`, there is
+        // enough slack in `locked_range().end == prefix + page_size(guard_level)`
+        // to absorb another `page_size(level)`.
+        proof {
+            owner.va.reflect_prop(self.0.va);
+            owner.va_plus_page_size_no_overflow(level);
+        }
         let end = self.0.va + size;
         vstd_extra::assert!(end <= self.0.barrier_va.end);
 
@@ -2563,6 +2568,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         let ghost owner2 = *owner;
         let ghost regions_after_replace = *regions;
+        // Capture owner2's va-alignment from the original map() precondition.
+        // Chain: owner0.va.to_vaddr() == old(self).0.va, owner0.va == owner1.va (map_loop)
+        //        == owner2.va (replace_cur_entry), so owner2.va.to_vaddr() == old(self).0.va,
+        //        which was asserted size-aligned.
+        proof {
+            owner0.va.reflect_prop(old(self).0.va);
+            assert(owner0.va == owner1.va);
+            assert(owner1.va == owner2.va);
+        }
+        assert(owner2.va.to_vaddr() == old(self).0.va);
+        assert(old(self).0.va % size == 0);
+        assert(old(self).0.va + size <= usize::MAX);
+        assert(size == page_size(level));
         assert(owner2@.mappings == owner1@.mappings - PageTableOwner(owner1.cur_subtree())@.mappings
             + PageTableOwner(new_owner)@.mappings);
 
@@ -2576,10 +2594,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         proof {
             owner.va.reflect_prop(self.0.va);
-            owner2.va.align_up_concrete(level as int);
-            owner.va.reflect_prop(
-                nat_align_up(owner1.va.to_vaddr() as nat, page_size(level) as nat) as Vaddr,
-            );
+            // owner.va == owner2.va.align_up(level) (from move_forward ensure).
+            lemma_page_size_ge_page_size(level as PagingLevel);
+            // Bridge: owner2.va.to_vaddr() == old(self).0.va, which was size-aligned and fit.
+            assert(owner2.va.to_vaddr() == old(self).0.va);
+            assert(old(self).0.va % size == 0);
+            assert(old(self).0.va + size <= usize::MAX);
+            assert(size == page_size(level));
+            assert(owner2.va.to_vaddr() as nat % page_size(level) as nat == 0);
+            assert(owner2.va.to_vaddr() + page_size(level) <= usize::MAX);
+            vstd_extra::arithmetic::lemma_nat_align_down_sound(
+                owner2.va.to_vaddr() as nat, page_size(level) as nat);
+            owner2.va.aligned_align_up_advances(level as int);
+            // owner2.va.align_up(level).to_vaddr() == owner2.cur_va + page_size(level).
         }
 
         assert(owner@.cur_va == owner2@.align_up_spec(page_size(level)));

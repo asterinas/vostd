@@ -764,6 +764,12 @@ impl VirtPtr {
 
         (left, right)
     }
+
+    pub fn addr(&self) -> Vaddr
+        returns self.vaddr
+    {
+        self.vaddr
+    }
 }
 
 /// A [`GlobalMemView`] is a more abstract view of memory that elides most of the details. The API specifications

@@ -36,8 +36,6 @@ verus! {
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
-    // ─── Theme 7: PTE & entry modification invariant preservation ────────
-
     pub proof fn protect_preserves_cursor_inv_metaregion(
         self,
         other: Self,
@@ -349,10 +347,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let pv = self.prefix.to_vaddr() as nat;
             let ps = page_size(self.guard_level as PagingLevel) as nat;
             self.prefix.align_down_concrete(self.guard_level as int);
-            self.prefix.align_up_concrete(self.guard_level as int);
-            self.prefix.align_diff(self.guard_level as int);
+            self.prefix_aligned_to_guard_level();
+            self.prefix_plus_ps_no_overflow();
+            self.prefix.aligned_align_up_advances(self.guard_level as int);
             AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(pv, ps) as Vaddr);
-            AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_up(pv, ps) as Vaddr);
         }
     }
 }

@@ -289,6 +289,11 @@ impl KernelPtConfig {
             KernelPtConfig::item_into_raw_spec(MappedItem::Tracked(frame, prop)).0
                 == crate::mm::frame::meta::mapping::meta_to_frame(frame.ptr.addr());
 
+    /// For tracked items, item_into_raw_spec returns the same `prop` that was passed in.
+    pub axiom fn item_into_raw_spec_tracked_prop(frame: DynFrame, prop: PageProperty)
+        ensures
+            KernelPtConfig::item_into_raw_spec(MappedItem::Tracked(frame, prop)).2 == prop;
+
     /// For KernelPtConfig (x86_64): HIGHEST_TRANSLATION_LEVEL = 2 < NR_LEVELS = 4.
     pub axiom fn axiom_kernel_htl_lt_nr_levels()
         ensures
