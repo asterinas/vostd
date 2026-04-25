@@ -535,11 +535,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         // preservation lemma; otherwise regions are unchanged and the
                         // invariants carry through trivially.
                         if C::clone_bumps_refcount(item) {
-                            // rc + 1 < REF_COUNT_MAX: from the non-saturation runtime
-                            // assert in query (Arc-style abort). We verify the
-                            // non-aborting runs and the abort path is left for the
-                            // real kernel to handle.
-                            assume(old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1
+                            // Derive `old.rc + 1 < REF_COUNT_MAX` from the post-state:
+                            // `clone_item`'s ensures gives `final(regions).inv()` which
+                            // forces `final.slot_owner[idx].inv()`, and the slot inv
+                            // excludes `rc in [MAX, UNIQUE)`. The clone bumped rc to
+                            // `old.rc + 1`; if that landed in the forbidden zone,
+                            // `inv()` would not hold. Since `clone_item` returned (Arc-
+                            // style runtime abort would have fired otherwise), we know
+                            // `final.rc < REF_COUNT_MAX`, so `old.rc + 1 < REF_COUNT_MAX`.
+                            assert(regions.slot_owners[idx].inv());
+                            assert(regions.slot_owners[idx].inner_perms.ref_count.value()
+                                == old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1);
+                            assert(regions.slot_owners[idx].inner_perms.ref_count.value()
                                 < REF_COUNT_MAX);
                             owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         } else {
