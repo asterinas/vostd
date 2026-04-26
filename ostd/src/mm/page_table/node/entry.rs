@@ -190,6 +190,29 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(self).node_matching(*old(owner), *old(parent_owner), *old(guard_perm)),
             op.requires((old(self).pte.prop(),)),
             old(owner).is_frame(),
+            // POTENTIALLY UNSOUND PATCH: `op` must preserve the trackedness of
+            // `item_from_raw_spec(pa, level, _)` across the prop change.
+            //
+            // `axiom_frame_is_tracked_matches_item` asserts that the entry's recorded
+            // `is_tracked` field equals `C::tracked(C::item_from_raw_spec(pa, level, prop))`.
+            // `protect` updates `prop = op(old_prop)` but preserves `is_tracked`. If
+            // `C::tracked` of the reconstructed item depended on a bit `op` flipped, the
+            // axiom would be violated.
+            //
+            // For `KernelPtConfig`, `C::tracked(item)` reads `prop.flags.AVAIL1`, so this
+            // precondition reduces to "op preserves AVAIL1". For `UserPtConfig`,
+            // `C::tracked` is constant `true`, so this is trivial.
+            //
+            // This precondition is a *patch*, not a fix. The underlying issue is that
+            // `KernelPtConfig` overloads the PTE's `prop.AVAIL1` to encode tracked-ness,
+            // conflating "page property bits the user wants to mutate" with "internal
+            // accounting." A clean fix is to track tracked-ness separately from `prop`,
+            // or to reformulate `axiom_frame_is_tracked_matches_item` so it doesn't
+            // depend on `prop`.
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+                op.ensures((p_in,), p_out) ==>
+                    C::tracked(C::item_from_raw_spec(pa, level, p_out))
+                    == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
         ensures
             final(owner).inv(),
             final(self).wf(*final(owner)),
@@ -197,6 +220,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             final(self).parent_perms_preserved(*old(parent_owner), *final(parent_owner), *old(guard_perm), *final(guard_perm)),
             final(owner).is_frame(),
             final(owner).frame.unwrap().mapped_pa == old(owner).frame.unwrap().mapped_pa,
+            final(owner).frame.unwrap().is_tracked == old(owner).frame.unwrap().is_tracked,
             final(owner).path == old(owner).path,
             final(owner).parent_level == old(owner).parent_level,
             final(owner).in_scope == old(owner).in_scope,
@@ -504,6 +528,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 // The allocated slot had ref_count == UNUSED before allocation (from get_from_unused).
                 &&& old(regions).slot_owners[frame_to_index(final(owner).value.meta_slot_paddr().unwrap())]
                     .inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                // Allocator pool is disjoint from MMIO ranges (from `PageTableNode::alloc`).
+                &&& !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
+                    final(owner).value.meta_slot_paddr().unwrap())
             },
             !old(owner).value.is_absent() ==> {
                 &&& res is None
@@ -643,10 +670,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(parent_owner).inv(),
             old(parent_owner).level == old(owner).value.parent_level,
             old(parent_owner).level < NR_LEVELS,
-            // For huge-page split: all 4KB sub-pages (j > 0) must be valid.
-            // The j = 0 sub-page coincides with the huge frame's own slot, which is
-            // already accounted for by the frame's own metaregion_sound.
-            // Fine-grained form (over 4KB pages) enables the recursive split case.
+            // Sub-page validity for huge-page split: each 4KB sub-page slot must
+            // exist; non-MMIO sub-pages must additionally have `rc != UNUSED`.
+            // (MMIO sub-pages keep `usage == MMIO` and `rc == UNUSED`.)
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
                 forall |j: usize| #![trigger frame_to_index(
                     (old(owner).value.frame.unwrap().mapped_pa
@@ -656,8 +682,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                         (old(owner).value.frame.unwrap().mapped_pa
                             + j * PAGE_SIZE) as usize);
                     &&& old(regions).slots.contains_key(sub_idx)
-                    &&& old(regions).slot_owners[sub_idx].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
+                    &&& old(regions).slot_owners[sub_idx].usage
+                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==>
+                        old(regions).slot_owners[sub_idx].inner_perms.ref_count.value()
+                            != REF_COUNT_UNUSED
                 },
         ensures
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==> {
@@ -810,24 +838,28 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 forall|j: int| #![auto] 0 <= j < i ==> {
                     new_owner.children[j].unwrap().value.is_frame()
                 },
-                // Sub-page slots (4KB-grained, j > 0): slots.contains_key, rc != UNUSED, and rc > 0
-                // are all preserved. The j = 0 case is handled separately (the huge frame's own slot).
+                // Sub-page slots (4KB-grained, j > 0): slots.contains_key is unconditional;
+                // rc constraints apply only to non-MMIO sub-pages (MMIO sub-pages keep
+                // `usage == MMIO` and `rc == UNUSED`).
                 forall |j: usize| #![trigger frame_to_index(
                     (pa + j * PAGE_SIZE) as usize)]
                     0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.slots.contains_key(sub_idx)
-                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                    &&& regions.slot_owners[sub_idx].usage
+                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                    }
                 },
-                // j = 0: the huge frame's own slot. These come from the huge
-                // frame's `metaregion_sound` at function entry and are
-                // preserved by the split loop (which only inserts into
-                // paths_in_pt, never touches slots/ref_count).
+                // j = 0: the huge frame's own slot.
                 regions.slots.contains_key(frame_to_index(pa)),
-                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
-                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0,
+                regions.slot_owners[frame_to_index(pa)].usage
+                        != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                    &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0
+                },
                 new_page.ptr.addr() == new_owner_meta_addr,
         {
             proof {
@@ -870,6 +902,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 new_owner.value.path.push_tail(i as usize),
                 (level - 1) as PagingLevel,
                 prop,
+                /* is_tracked */ owner.value.frame.unwrap().is_tracked,
             );
 
             #[verus_spec(with Tracked(&new_owner_node), Tracked(&new_owner.children.tracked_borrow(i as int).tracked_borrow().value), Tracked(&new_guard_perm))]
@@ -921,8 +954,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                         0 < j_prime < nr_subpages implies {
                         let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
-                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                        &&& regions.slot_owners[sub_idx].usage
+                                != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                        }
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
                         let big_j_int: int = i as int * sub_pages_per_subframe as int + j_prime as int;
@@ -966,9 +1002,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                     assert(target_idx == frame_to_index((pa + big_j * PAGE_SIZE) as usize));
                     assert(regions.slots.contains_key(target_idx));
-                    assert(regions.slot_owners[target_idx].inner_perms.ref_count.value()
-                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
-                    assert(regions.slot_owners[target_idx].inner_perms.ref_count.value() > 0);
+                    assert(regions.slot_owners[target_idx].usage
+                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                        &&& regions.slot_owners[target_idx].inner_perms.ref_count.value()
+                            != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                        &&& regions.slot_owners[target_idx].inner_perms.ref_count.value() > 0
+                    });
                 } else {
                     // i == 0: small_pa = pa + 0 * page_size(level - 1) = pa.
                     assert(0 * page_size((level - 1) as PagingLevel) == 0)

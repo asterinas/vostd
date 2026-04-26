@@ -163,6 +163,11 @@ impl<C: PageTableConfig> PageTableNode<C> {
             guards.unlocked(owner@.value.node.unwrap().meta_perm.addr()),
             MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()), false, *old(regions), *final(regions)),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
+            // Allocator trust boundary: PT-node allocations come from the regular
+            // RAM pool, never from MMIO ranges. Used by `alloc_if_none_metaregion_sound_preserved`
+            // to rule out untracked-frame collisions at the freshly-allocated idx.
+            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
+                meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())),
             owner@.value.metaregion_sound(*final(regions)),
             owner@.value.in_scope,
             owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())), level as PagingLevel),

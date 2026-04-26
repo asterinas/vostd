@@ -1431,6 +1431,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             forall |p: PageProperty| op.requires((p,)),
+            // POTENTIALLY UNSOUND PATCH: trackedness preservation. For UserPtConfig
+            // this is trivially true (tracked is constant). See `Entry::protect`.
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+                op.ensures((p_in,), p_out) ==>
+                    UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_out))
+                    == UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_in)),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -1546,9 +1552,25 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 
-    open spec fn clone_bumps_refcount(_item: Self::Item) -> bool {
+    open spec fn tracked(_item: Self::Item) -> bool {
         // Every UserPt item is a ref-counted UFrame.
         true
+    }
+
+    open spec fn item_well_formed(item: Self::Item) -> bool {
+        item.frame.inv()
+    }
+
+    proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
+        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+        // Derive `frame.inv()` from the structural-shape axiom + soundness lemmas.
+        Self::item_from_raw_spec_frame_ptr(pa, level, prop);
+        let item = Self::item_from_raw_spec(pa, level, prop);
+        assert(item.frame.ptr.addr()
+            == crate::mm::frame::meta::mapping::frame_to_meta(pa));
+        // frame.inv() unfolds to `addr % META_SLOT_SIZE == 0` and addr in
+        // FRAME_METADATA_RANGE. Both follow from `lemma_frame_to_meta_soundness`.
+        assert(item.frame.inv());
     }
 
     proof fn clone_ensures_concrete(
@@ -1585,24 +1607,32 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) {
         // `MappedItem::clone_requires` unfolds to `item.frame.clone_requires(regions)`.
         // The trait precondition delivers all the slot facts at `frame_to_index(pa)`.
-        // We need to bridge:
-        //   (1) `item.frame.inv()` — Frame's structural invariant about ptr
-        //       alignment/range. Can't derive from `item_from_raw_spec` (uninterp);
-        //       ASSUMED here as the trust boundary for `item_from_raw`.
+        // We bridge:
+        //   (1) `item.frame.inv()` — discharged via `item_from_raw_well_formed`
+        //       (the trait-level structural well-formedness method).
         //   (2) `frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa)`
         //       from `pa == item.frame.paddr()` (UserPtConfig::item_into_raw_spec).
         use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
-        // The roundtrip law: item == item_from_raw_spec(pa, level, prop) means
-        // item.frame.paddr() == pa (by `item_into_raw_spec` definition for UserPt).
         Self::item_roundtrip(item, pa, level, prop);
         assert(item.frame.paddr() == pa);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
         assert(frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa));
-        // ASSUMED: `Frame::inv` (ptr alignment / FRAME_METADATA_RANGE bounds). Trust
-        // this from `item_from_raw`'s contract (which constructs the frame from a
-        // valid paddr produced by `item_into_raw`).
-        assume(item.frame.inv());
+        Self::item_from_raw_well_formed(pa, level, prop);
+        // `Self::item_well_formed(item)` unfolds to `item.frame.inv()`.
+        assert(item.frame.inv());
     }
+}
+
+impl UserPtConfig {
+    /// Structural shape of `item_from_raw_spec` for UserPtConfig: the reconstructed
+    /// item's frame has its pointer at `frame_to_meta(pa)`. Mirrors the exec body's
+    /// `UFrame::from_raw(pa)` call whose ensures gives this address shape.
+    pub axiom fn item_from_raw_spec_frame_ptr(pa: Paddr, level: PagingLevel, prop: PageProperty)
+        requires
+            crate::mm::frame::meta::has_safe_slot(pa),
+        ensures
+            UserPtConfig::item_from_raw_spec(pa, level, prop).frame.ptr.addr()
+                == crate::mm::frame::meta::mapping::frame_to_meta(pa);
 }
 
 } // verus!

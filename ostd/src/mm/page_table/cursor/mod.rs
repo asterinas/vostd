@@ -210,7 +210,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             forall|i: usize| i != frame_to_index(pa) ==>
                 (#[trigger] final(regions).slot_owners[i] == old(regions).slot_owners[i]),
             // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
-            C::clone_bumps_refcount(*item) ==> {
+            C::tracked(*item) ==> {
                 &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
                     == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
                 &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.storage
@@ -230,7 +230,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                     == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1
             },
-            !C::clone_bumps_refcount(*item) ==>
+            !C::tracked(*item) ==>
                 final(regions).slot_owners[frame_to_index(pa)]
                     == old(regions).slot_owners[frame_to_index(pa)],
     {
@@ -504,17 +504,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     proof {
                         let idx = frame_to_index(pa);
-                        // rc > 0: from metaregion_sound (frame arm) via path_metaregion_sound
-                        // at i = self.level - 1.
                         assert(owner.path_metaregion_sound(*regions));
                         assert(owner.cur_entry_owner().metaregion_sound(*regions));
-                        assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
-                        // rc + 1 < REF_COUNT_MAX: from the non-saturation loop invariant,
-                        // ultimately from Cursor::query's non-panic precondition.
                         assert(regions.slot_owners.contains_key(idx));
-                        // has_safe_slot(pa): EntryOwner::inv_base() gives
-                        // mapped_pa % PAGE_SIZE == 0 and mapped_pa < MAX_PADDR.
                         assert(owner.cur_entry_owner().inv_base());
+                        // Connection between the entry's recorded `is_tracked` and the
+                        // reconstructed item's trackedness, via the structural axiom.
+                        EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
+                            owner.cur_entry_owner());
                         owner.cur_frame_clone_requires(item, pa, level, prop, *regions);
                     }
 
@@ -523,18 +520,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     proof {
                         let idx = frame_to_index(pa);
-                        // rc > 0: from metaregion_sound (frame arm) via path_metaregion_sound at
-                        // i = self.level - 1.
+                        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
                         assert(owner.path_metaregion_sound(old_regions));
                         assert(owner.cur_entry_owner().metaregion_sound(old_regions));
-                        assert(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value());
                         assert(old_regions.slot_owners.contains_key(idx));
-                        assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
-                            != REF_COUNT_UNUSED);
                         // Case-analyze: if cloning bumped the rc, use the rc-increment
-                        // preservation lemma; otherwise regions are unchanged and the
-                        // invariants carry through trivially.
-                        if C::clone_bumps_refcount(item) {
+                        // preservation lemma; otherwise regions are unchanged.
+                        if C::tracked(item) {
+                            EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
+                                owner.cur_entry_owner());
+                            // Bridge `is_tracked` to `usage != MMIO` to recover the
+                            // unconditional rc bookkeeping for tracked frames.
+                            EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
+                                owner.cur_entry_owner());
+                            assert(old_regions.slot_owners[idx].self_addr
+                                == crate::mm::frame::meta::mapping::meta_addr(idx));
+                            assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
+                                != REF_COUNT_UNUSED);
+                            assert(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value());
                             // Derive `old.rc + 1 < REF_COUNT_MAX` from the post-state:
                             // `clone_item`'s ensures gives `final(regions).inv()` which
                             // forces `final.slot_owner[idx].inv()`, and the slot inv
@@ -551,7 +554,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         } else {
                             // Untracked path: clone is a no-op; regions unchanged.
-                            // The trait's `!clone_bumps_refcount ==> slot unchanged`
+                            // The trait's `!tracked ==> slot unchanged`
                             // ensures plus the always-on "other slots unchanged" gives
                             // pointwise equality; promote to structural equality.
                             assert(regions.slots =~= old_regions.slots);
@@ -581,19 +584,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         regions.inv_implies_correct_addr(e.meta_slot_paddr().unwrap());
                     }
                     if e.is_frame() && e.parent_level > 1 {
+                        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
                         let pa = e.frame.unwrap().mapped_pa;
                         let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
                         assert forall |j: usize| #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
                             0 < j < nr_pages implies {
                             let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                             &&& regions.slots.contains_key(sub_idx)
-                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                            &&& regions.slot_owners[sub_idx].usage
+                                    != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                            }
                         } by {
                             let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                             assert(old(regions).slots.contains_key(sub_idx));
-                            assert(old(regions).slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
                             assert(regions.slots.contains_key(sub_idx));
-                            assert(regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
                         }
                     }
                 };
@@ -961,14 +967,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     =~= Set::<Mapping>::empty());
                                 // Sound: align_up.to_vaddr() == nat_align_down(va, size) + size.
                                 lemma_nat_align_down_sound(va_before_move as nat, cur_slot_size as nat);
-                                // Overflow bound: va_before_move + cur_slot_size <= usize::MAX.
-                                // Inherited from the outer find_next_impl's assume (self.va + len <= usize::MAX)
-                                // plus per-iteration bound cur_slot_size <= len.
-                                // TODO: discharge this from the outer assume + loop invariants.
-                                assume(
-                                    vstd_extra::arithmetic::nat_align_down(va_before_move as nat, cur_slot_size as nat)
-                                    + cur_slot_size as nat <= usize::MAX as nat
-                                );
+                                // `va_before_move + cur_slot_size <= usize::MAX` from the
+                                // pre-move cursor invariant; with `nat_align_down(va, ps) <= va`,
+                                // the aligned end stays below MAX.
+                                owner_before_move.va_plus_page_size_no_overflow(
+                                    owner_before_move.level);
                                 owner_before_move.va.align_up_advances_general(owner_before_move.level as int);
                                 // self.va == align_up.to_vaddr() via move_forward + wf.
                                 assert(self.va == (nat_align_down(va_before_move as nat, cur_slot_size as nat)
@@ -1036,10 +1039,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 =~= Set::<Mapping>::empty());
                             // Sound: align_up.to_vaddr() == nat_align_down(va, size) + size.
                             lemma_nat_align_down_sound(va_before_move as nat, cur_slot_size as nat);
-                            assume(
-                                vstd_extra::arithmetic::nat_align_down(va_before_move as nat, cur_slot_size as nat)
-                                + cur_slot_size as nat <= usize::MAX as nat
-                            );
+                            // `va_before_move + cur_slot_size <= usize::MAX` from the
+                            // pre-move cursor invariant.
+                            owner_before_move.va_plus_page_size_no_overflow(
+                                owner_before_move.level);
                             owner_before_move.va.align_up_advances_general(owner_before_move.level as int);
                             assert(self.va == (nat_align_down(va_before_move as nat, cur_slot_size as nat)
                                 + cur_slot_size as nat) as Vaddr);
@@ -1367,6 +1370,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // move_forward only calls pop_level, which does not touch regions.
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
+            // Slots and slot_owners fully unchanged (pop_level is purely cursor manipulation).
+            final(regions).slots =~= old(regions).slots,
+            forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+                final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
     {
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
@@ -1727,6 +1734,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         requires
             owner.inv(),
             self.wf(*owner),
+            owner.in_locked_range(),
+            1 <= self.level <= owner.guard_level,
         ensures
             owner.cur_va_range().start.reflect(res.start),
             owner.cur_va_range().end.reflect(res.end),
@@ -1742,10 +1751,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner.va.align_down_concrete(self.level as int);
             vstd_extra::arithmetic::lemma_nat_align_down_sound(
                 owner.va.to_vaddr() as nat, page_size as nat);
-            assume(
-                vstd_extra::arithmetic::nat_align_down(
-                    owner.va.to_vaddr() as nat, page_size as nat)
-                + page_size as nat <= usize::MAX as nat);
+            // `va + page_size(level) <= usize::MAX` from the cursor invariant; combined
+            // with `nat_align_down(va, ps) <= va`, the aligned end stays below MAX.
+            owner.va_plus_page_size_no_overflow(self.level);
             owner.va.align_up_advances_general(self.level as int);
             // align_up.to_vaddr() as nat == nat_align_down(va, ps) + ps.
             // start as nat == nat_align_down(va, ps) (from align_down_concrete + reflect).
@@ -2070,6 +2078,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             forall|idx: usize|
                 old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
                 (#[trigger] final(regions).slot_owners[idx]) == old(regions).slot_owners[idx],
+            // `regions.slots` is monotonic — PT-node allocation removes-and-re-inserts
+            // each slot it touches, so all old keys are preserved.
+            forall|idx: usize| #![trigger final(regions).slots.contains_key(idx)]
+                old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
     )]
     pub fn map_loop(&mut self, level: PagingLevel, rcu_guard: &'rcu A) {
         let ghost guard_level = self.0.guard_level;
@@ -2107,6 +2119,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 forall|idx: usize|
                     old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
                     (#[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx],
+                forall|idx: usize| #![trigger regions.slots.contains_key(idx)]
+                    old(regions).slots.contains_key(idx) ==> regions.slots.contains_key(idx),
             decreases abs(level - self.0.level),
         {
             if self.0.level < level {
@@ -2459,6 +2473,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 idx != frame_to_index(C::item_into_raw(item).0) &&
                 old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
+            // `regions.slots` is monotonic — slot existence is preserved through map.
+            forall|idx: usize| #![trigger final(regions).slots.contains_key(idx)]
+                old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
             final(self).0.guard_level == old(self).0.guard_level,
     )]
     #[verifier::rlimit(1200)]
@@ -2510,7 +2527,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost owner1 = *owner;
         let ghost regions_before_new_child = *regions;
 
-        let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(pa, prop, regions);
+        let ghost is_tracked = C::tracked(item);
+        let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(pa, prop, is_tracked, regions);
 
         let ghost regions_after_new_child = *regions;
 
@@ -2522,6 +2540,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont.path().push_tail(cont.idx as usize),
                 cont.level(),
                 prop,
+                is_tracked,
             ).set_in_scope(false));
             assert(new_owner.value.is_frame());
             assert(new_owner.value.frame.unwrap().mapped_pa == pa);
@@ -2553,9 +2572,29 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 regions_before_new_child, *regions, pa_idx_install, new_frame_path);
 
             assert(new_owner.value.metaregion_sound(*regions)) by {
+                broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
                 assert(regions.slot_owners[pa_idx_install].paths_in_pt
                     .contains(new_frame_path));
+                // Bridge `C::tracked(item) <=> usage != MMIO` for sub-pages, via:
+                //   axiom_frame_is_tracked_iff_not_mmio (is_tracked <=> !is_mmio_paddr(pa))
+                //   axiom_mmio_paddr_huge_page_closed (sub_paddr inherits MMIO-ness)
+                //   axiom_mmio_usage_iff_mmio_paddr (usage == MMIO <=> is_mmio_paddr)
+                EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(new_owner.value);
+                if level > 1 {
+                    assert forall |j: usize|
+                        #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
+                        0 < j < page_size(level) / PAGE_SIZE implies {
+                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                        regions.slot_owners[sub_idx].usage
+                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO
+                            ==> C::tracked(item)
+                    } by {
+                        let sub_pa = (pa + j * PAGE_SIZE) as usize;
+                        crate::specs::mm::frame::meta_owners::axiom_mmio_paddr_huge_page_closed(
+                            pa, page_size(level), (j * PAGE_SIZE) as usize);
+                    }
+                }
                 assert(new_owner.value.frame_sub_pages_valid(*regions));
             };
 
@@ -2657,7 +2696,28 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             by {
                 assert(regions_after_new_child.slot_owners =~= regions_before_new_child.slot_owners);
             };
-//            assert((level <= self0.0.level && old(owner).cur_entry_owner().is_absent()) ==> owner1.cur_entry_owner().is_absent());
+            // Slots monotonicity derivation. Chain:
+            //   old → regions_before_new_child (via map_loop's monotonic-slots ensures)
+            //   regions_before_new_child → regions_after_new_child (new_child only mutates
+            //     slot_owners[pa_idx2].paths_in_pt; slots untouched)
+            //   regions_after_new_child → regions_after_replace (via replace_cur_entry's
+            //     monotonic-slots ensures)
+            //   regions_after_replace → regions (move_forward doesn't touch regions)
+            assert(regions_before_new_child.slots =~= regions_after_new_child.slots);
+            assert(forall |k: usize| #![trigger regions_after_replace.slots.contains_key(k)]
+                regions_after_new_child.slots.contains_key(k)
+                ==> regions_after_replace.slots.contains_key(k));
+            assert(forall |k: usize| #![trigger regions.slots.contains_key(k)]
+                regions_after_replace.slots.contains_key(k) ==> regions.slots.contains_key(k));
+            assert forall|idx: usize|
+                old(regions).slots.contains_key(idx)
+            implies
+                #[trigger] regions.slots.contains_key(idx)
+            by {
+                assert(regions_before_new_child.slots.contains_key(idx));
+                assert(regions_after_new_child.slots.contains_key(idx));
+                assert(regions_after_replace.slots.contains_key(idx));
+            };
         }
 
         if let Some(frag) = frag {
@@ -3071,6 +3131,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             forall |p: PageProperty| op.requires((p,)),
+            // POTENTIALLY UNSOUND PATCH: see `Entry::protect` for rationale.
+            // `op` must preserve `C::tracked` of the reconstructed item so that
+            // `axiom_frame_is_tracked_matches_item` remains consistent across the
+            // prop change. Quantified over `(pa, level)` because `find_next_impl`
+            // may descend to any frame in the range. For UserPtConfig
+            // (`tracked == true` always) this is trivial; for KernelPtConfig it
+            // reduces to "op preserves AVAIL1".
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+                op.ensures((p_in,), p_out) ==>
+                    C::tracked(C::item_from_raw_spec(pa, level, p_out))
+                    == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
         ensures
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -3244,6 +3315,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 (new_owner.value.is_absent() || idx != frame_to_index(new_owner.value.meta_slot_paddr().unwrap()))
                     ==> final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
+            // `regions.slots` keys are monotonic across the entry replacement.
+            forall|idx: usize| #![trigger final(regions).slots.contains_key(idx)]
+                old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
+            // When `res is None` (⇔ pre-replace cur_entry was absent), `Entry::replace`
+            // fully preserves `regions.slots` (and `slot_owners`, but the latter is
+            // `Map<usize, MetaSlotOwner>` where `MetaSlotOwner` is a tracked struct
+            // whose `==` doesn't propagate across function boundaries — only extensional
+            // `=~=` does, and that requires per-idx instantiation at the call site,
+            // which Verus's quantifier instantiator doesn't do reliably here).
+            res is None ==> final(regions).slots == old(regions).slots,
     {
 
         let ghost owner0 = *owner;
@@ -3299,6 +3380,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         ));
 
         let ghost regions_after_replace = *regions;
+        // When old child was absent (⇒ res is None), Entry::replace's ensures
+        // gives full regions preservation; surface the slots equality (as Map ==)
+        // for use at call sites.
+        proof {
+            if old_child_pre_replace.is_absent() {
+                assert(regions.slots =~= regions0.slots);
+            }
+        }
         assert(cur_entry.idx == continuation.idx) by {
             assert(cur_entry.idx == owner0.continuations[(owner0.level - 1) as int].idx);
         };

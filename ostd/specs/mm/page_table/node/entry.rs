@@ -106,10 +106,16 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
             regions0.slots.contains_key(frame_to_index(new_child.meta_slot_paddr().unwrap())),
             regions0.slot_owners[frame_to_index(new_child.meta_slot_paddr().unwrap())]
                 .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+            // Allocator-pool / MMIO disjointness: the freshly-allocated node's
+            // paddr is non-MMIO. Rules out an MMIO-frame entry sitting at the
+            // same idx as the new node (delivered by `PageTableNode::alloc`).
+            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
+                new_child.meta_slot_paddr().unwrap()),
             Self::metaregion_sound_neq_preserved(old_child, new_child, regions0, regions1),
         ensures
             Self::metaregion_sound_preserved(regions0, regions1),
     {
+        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
         let new_idx = frame_to_index(new_child.meta_slot_paddr().unwrap());
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
@@ -122,6 +128,11 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
             if entry.meta_slot_paddr() is Some && entry.is_node() {
                 EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions0, new_idx);
             }
+            // Frame entries colliding at new_idx are ruled out: either the
+            // slot's `usage != MMIO` (then `metaregion_sound` requires
+            // `rc != UNUSED`, contradicting the precondition), or the slot's
+            // `usage == MMIO` (then by axiom the paddr is MMIO, contradicting
+            // the allocator's non-MMIO guarantee).
         };
     }
 

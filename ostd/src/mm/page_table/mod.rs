@@ -228,7 +228,24 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// Whether cloning this item bumps a slot's refcount. For ref-counted items
     /// (e.g. `MappedItem::Tracked`), `true`; for items where clone is a no-op
     /// (e.g. `MappedItem::Untracked` for kernel MMIO frames), `false`.
-    spec fn clone_bumps_refcount(item: Self::Item) -> bool;
+    spec fn tracked(item: Self::Item) -> bool;
+
+    /// Per-config predicate that captures the structural well-formedness an item
+    /// reconstructed via `item_from_raw_spec` must satisfy. Typically: the
+    /// `Frame::inv()` of the tracked-frame component (if any).
+    ///
+    /// `KernelPtConfig` defines this as `match item { Tracked(f, _) => f.inv(),
+    /// Untracked => true }`. `UserPtConfig` defines it as `item.frame.inv()`.
+    spec fn item_well_formed(item: Self::Item) -> bool;
+
+    /// The item produced by `item_from_raw_spec` is structurally
+    /// well-formed (see `item_well_formed`).
+    proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty)
+        requires
+            crate::mm::frame::meta::has_safe_slot(pa),
+        ensures
+            Self::item_well_formed(Self::item_from_raw_spec(pa, level, prop)),
+    ;
 
     /// Proves that `clone_ensures` for `Self::Item` implies concrete per-field
     /// properties on `MetaRegionOwners`. Each `PageTableConfig` implementor proves
@@ -255,7 +272,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             forall|i: usize| i != frame_to_index(pa) ==>
                 (#[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]),
             // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
-            Self::clone_bumps_refcount(item) ==> {
+            Self::tracked(item) ==> {
                 &&& new_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                     == old_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1
                 &&& new_regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
@@ -275,7 +292,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 &&& new_regions.slot_owners[frame_to_index(pa)].usage
                     == old_regions.slot_owners[frame_to_index(pa)].usage
             },
-            !Self::clone_bumps_refcount(item) ==>
+            !Self::tracked(item) ==>
                 new_regions.slot_owners[frame_to_index(pa)]
                     == old_regions.slot_owners[frame_to_index(pa)],
     ;
@@ -307,9 +324,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             crate::mm::frame::meta::has_safe_slot(pa),
             regions.slots.contains_key(frame_to_index(pa)),
             regions.slot_owners.contains_key(frame_to_index(pa)),
-            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0,
-            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+            Self::tracked(item) ==>
+                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0,
+            // `rc != UNUSED` is needed only for tracked frames (untracked clone is a no-op).
+            Self::tracked(item) ==>
+                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
         ensures
             item.clone_requires(regions),
     ;

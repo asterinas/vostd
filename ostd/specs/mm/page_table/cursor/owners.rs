@@ -408,7 +408,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.inv();
 
-    pub proof fn new_child(tracked &self, paddr: Paddr, prop: PageProperty, tracked regions: &mut MetaRegionOwners) -> (tracked res: OwnerSubtree<C>)
+    pub proof fn new_child(tracked &self, paddr: Paddr, prop: PageProperty, is_tracked: bool, tracked regions: &mut MetaRegionOwners) -> (tracked res: OwnerSubtree<C>)
         requires
             self.inv(),
             self.level() < NR_LEVELS,
@@ -421,12 +421,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
-            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop).set_in_scope(false),
+            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, is_tracked).set_in_scope(false),
             res.inv(),
             res.level == self.tree_level + 1,
             res == OwnerSubtree::new_val(res.value, res.level as nat),
     {
-        let tracked mut owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop);
+        let tracked mut owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, is_tracked);
         owner.in_scope = false;
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
     }
@@ -809,14 +809,31 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pa == self.cur_entry_owner().frame.unwrap().mapped_pa,
             C::item_from_raw_spec(pa, level, prop) == item,
             crate::mm::frame::meta::has_safe_slot(pa),
-            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+            // The recorded entry trackedness matches the item being cloned.
+            C::tracked(item) == self.cur_entry_owner().frame.unwrap().is_tracked,
         ensures
             item.clone_requires(regions)
     {
+        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
         // Extract the frame-slot facts from metaregion_sound via path_metaregion_sound.
         assert(self.path_metaregion_sound(regions));
         assert(self.cur_entry_owner().metaregion_sound(regions));
+        let entry = self.cur_entry_owner();
+        let idx = frame_to_index(pa);
+        // Bridge `C::tracked(item)` to `usage != MMIO`: the entry's `is_tracked`
+        // is connected to its paddr's MMIO-ness by `axiom_frame_is_tracked_iff_not_mmio`,
+        // and `usage == MMIO` to the paddr by `axiom_mmio_usage_iff_mmio_paddr`.
+        EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
+        assert(regions.slot_owners[idx].self_addr
+            == crate::mm::frame::meta::mapping::meta_addr(idx));
+        if C::tracked(item) {
+            assert(!crate::specs::mm::frame::meta_owners::is_mmio_paddr(pa));
+            assert(regions.slot_owners[idx].usage
+                != crate::specs::mm::frame::meta_owners::PageUsage::MMIO);
+            assert(regions.slot_owners[idx].inner_perms.ref_count.value() > 0);
+            assert(regions.slot_owners[idx].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
+        }
         // Now all preconditions of `C::clone_requires_concrete` are in scope.
         C::clone_requires_concrete(item, pa, level, prop, regions);
     }

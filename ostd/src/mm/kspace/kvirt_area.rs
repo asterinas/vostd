@@ -474,6 +474,13 @@ impl KVirtArea {
                 &&& old(entry_owners)[pa].inv()
                 &&& frame_entry_wf(frames[i], prop, old(entry_owners)[pa])
             },
+            // `Frame ↔ MetaRegionOwners` ownership obligation, hoisted as a precondition
+            // (rather than an axiom). Each owned `DynFrame` must have its slot allocated
+            // with `rc > 0` in the current regions. The runtime invariant of `Frame<M>`
+            // implies this; the caller is responsible for projecting it into spec form.
+            forall |i: int| 0 <= i < frames.len() ==>
+                CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
+                    MappedItem::Tracked(#[trigger] frames[i], prop), *old(regions)),
     {
         vstd_extra::assert!(area_size % PAGE_SIZE == 0);
         vstd_extra::assert!(map_offset % PAGE_SIZE == 0);
@@ -521,6 +528,13 @@ impl KVirtArea {
                     &&& entry_owners[pa].inv()
                     &&& frame_entry_wf(it.elements[i], prop, entry_owners[pa])
                 },
+                // Slot facts for each remaining frame are preserved across iterations.
+                // (Initially established by the function precondition; preserved by
+                // `cursor.map`'s effect on unrelated slots — see the focused assume in
+                // the loop body.)
+                forall |i: int| it.pos <= i < it.elements.len() ==>
+                    CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
+                        MappedItem::Tracked(#[trigger] it.elements[i], prop), *regions),
         {
             // Capacity fit check: if the cursor has advanced past its barrier
             // (i.e., too many frames for the allocated area), panic. This
@@ -594,11 +608,21 @@ impl KVirtArea {
 
             // SAFETY: The constructor of the `KVirtArea` has already ensured
             // that this mapping does not affect kernel's memory safety.
+            // `item_slot_in_regions` for the current item is delivered by the
+            // loop invariant (instantiated at i = it.pos), itself established by
+            // the function precondition.
             assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
                 item, *regions,
-            )) by { admit() };
+            ));
             #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
             let res = cursor.map(item);
+
+            proof {
+                assert(forall |i: int| (it.pos as int + 1) <= i < it.elements.len() ==>
+                    CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
+                        MappedItem::Tracked(#[trigger] it.elements[i], prop), *regions))
+                by { admit() }
+            }
 
             proof {
                 let cur_idx = frame_to_index_spec(cur_mapped_pa);
@@ -637,7 +661,7 @@ impl KVirtArea {
                 // Note: `new_frame` returns with `in_scope = true`; clear it for
                 // `inv()` to hold (which requires `!in_scope`).
                 let tracked mut fresh = EntryOwner::<KernelPtConfig>::new_frame(
-                    cur_mapped_pa, cur_path, cur_parent_level, prop);
+                    cur_mapped_pa, cur_path, cur_parent_level, prop, /* is_tracked */ true);
                 fresh.in_scope = false;
                 entry_owners.tracked_insert(cur_mapped_pa, fresh);
             }
@@ -685,7 +709,7 @@ impl KVirtArea {
         vstd_extra::assert!(area_size % PAGE_SIZE == 0);
         vstd_extra::assert!(map_offset % PAGE_SIZE == 0);
 
-        // Guard the capacity sum against exec-level overflow by rearranging:
+        // SUSPECTED BUG: Guard the capacity sum against exec-level overflow by rearranging:
         // asserting `len <= area_size - map_offset` requires `map_offset <= area_size`
         // first (else the subtraction underflows).
         vstd_extra::assert!(map_offset <= area_size);
@@ -760,6 +784,17 @@ impl KVirtArea {
                     pa_range.end as nat == pa_range.start as nat + len as nat,
                     cursor.0.guard_level == NR_LEVELS as u8,
                     pa_range.end <= MAX_PADDR,
+                    // Slot facts for the remaining PAs are preserved across iterations.
+                    // Initially established by the function precondition; each iteration's
+                    // `cursor.map` only touches the slot at its own mapped PA — see the
+                    // focused assume in the loop body.
+                    forall |pa: Paddr| #![trigger crate::mm::frame::meta::mapping::frame_to_index(pa)]
+                        pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
+                            let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
+                            &&& regions.slots.contains_key(idx)
+                            &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                        },
             {
                 let pos: Ghost<int> = Ghost(it.pos as int);
 
@@ -813,7 +848,18 @@ impl KVirtArea {
                     assert(cursor.item_wf(item, entry_owner));
                 }
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
-                assume(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
+                // `item_slot_in_regions` for the current `(pa, level)` follows from the
+                // loop invariant's per-PA slot facts, instantiated at the current `pa`.
+                proof {
+                    KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
+                    let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
+                    assert(pa % PAGE_SIZE == 0);
+                    assert(pa_range.start <= pa < pa_range.end);
+                    assert(regions.slots.contains_key(idx));
+                    assert(regions.slot_owners[idx].inner_perms.ref_count.value()
+                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
+                    assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
+                }
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);
 
