@@ -1,4 +1,5 @@
 use vstd::prelude::*;
+use vstd::arithmetic::power2::pow2;
 
 use vstd_extra::ownership::*;
 
@@ -15,10 +16,19 @@ verus! {
 
 /// A `Mapping` maps a virtual address range to a physical address range.
 /// Its size, `page_size`, is fixed and must be one of 4096, 2097152, 1073741824.
-/// The `va_range` and `pa_range` must of size `page_size` and aligned on a page boundary.
+/// The `va_range` and `pa_range` must be of size `page_size` and aligned on a
+/// page boundary.
 /// The `property` is a bitfield of flags that describe the properties of the mapping.
+///
+/// `va_range` is `Range<int>` rather than `Range<Vaddr>` because the
+/// canonical upper-half kernel range can reach `usize::MAX + 1` for its
+/// exclusive end (`2^64`), which cannot be represented in `usize`. The
+/// `Mapping::inv` predicate bounds `va_range.end` by `pow2(64)` so all
+/// concretely realized mappings stay within the addressable space; this
+/// is a no-op constraint for user mappings and the essential cap for
+/// kernel mappings.
 pub ghost struct Mapping {
-    pub va_range: Range<Vaddr>,
+    pub va_range: Range<int>,
     pub pa_range: Range<Paddr>,
     pub page_size: usize,
     pub property: PageProperty,
@@ -45,14 +55,18 @@ impl Mapping {
         &&& self.pa_range.end % self.page_size == 0
         &&& self.pa_range.start + self.page_size == self.pa_range.end
         &&& self.pa_range.start <= self.pa_range.end <= MAX_PADDR
-        &&& self.va_range.start % self.page_size == 0
-        &&& self.va_range.end % self.page_size == 0
-        &&& self.va_range.start + self.page_size == self.va_range.end
-        &&& self.va_range.start <= self.va_range.end
-        // Per-config VA range bounds (e.g. `0..MAX_USERSPACE_VADDR` for user
-        // page tables, `KERNEL_VADDR_RANGE` for kernel) are enforced by
-        // `CursorView<C>::inv` via `C::VADDR_RANGE_spec()`, not here — a
-        // single config-agnostic `Mapping::inv` cannot express them.
+        &&& self.va_range.start % self.page_size as int == 0
+        &&& self.va_range.end % self.page_size as int == 0
+        &&& self.va_range.start + self.page_size as int == self.va_range.end
+        &&& 0 <= self.va_range.start <= self.va_range.end
+        // VA range fits in the 64-bit addressable space. `va_range.end` may
+        // equal `pow2(64)` for a kernel mapping at the top of the canonical
+        // high half; `va_range.start` is strictly less than `pow2(64)`
+        // because `start + page_size == end <= pow2(64)` and `page_size > 0`.
+        &&& self.va_range.end <= pow2(64)
+        // Per-config VA range bounds are enforced by `CursorView<C>::inv`
+        // via `vaddr_range_bounds_spec<C>`, not here — a single
+        // config-agnostic `Mapping::inv` cannot express them.
     }
 }
 

@@ -668,14 +668,12 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index(paddr)),
         has_safe_slot(paddr),
-        !MetaSlot::inc_ref_count_panic_cond(
-            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count,
-        ),
-        // The caller holds a reference, so ref_count > 0.
+        // The caller holds a reference, so rc > 0, and the slot must be live
+        // (not the UNUSED sentinel). Saturation is caught at runtime by
+        // `inc_ref_count`'s Arc-style abort.
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
-        // After increment, the ref_count must stay below the illegal range.
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1
-            < REF_COUNT_MAX,
+        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+            != REF_COUNT_UNUSED,
     ensures
         final(regions).inv(),
         final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
@@ -749,7 +747,7 @@ impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
         &&& perm.slots.contains_key(idx)
         &&& perm.slot_owners.contains_key(idx)
         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
-        &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1 < meta::REF_COUNT_MAX
+        &&& perm.slot_owners[idx].inner_perms.ref_count.value() != meta::REF_COUNT_UNUSED
         &&& has_safe_slot(meta_to_frame(self.ptr.addr()))
     }
 

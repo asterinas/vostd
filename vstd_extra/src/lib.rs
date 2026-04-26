@@ -23,6 +23,7 @@ pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
 pub mod ownership;
+pub mod panic;
 pub mod resource;
 
 #[macro_use]

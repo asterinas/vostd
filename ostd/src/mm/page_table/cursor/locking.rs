@@ -38,13 +38,47 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
     requires
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
         va.start < va.end,
+        // Per-config tightening; see `Cursor::new`. Pulled through to the
+        // cursor's `LOCKED_END_BOUND_spec` invariant.
+        va.end as int <= C::LOCKED_END_BOUND_spec(),
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).in_locked_range(),
-        ret.0.level <= ret.0.guard_level,
+        // Strict `<`: the trust assume at locking.rs:173 commits to the cursor
+        // descending strictly below the guard level after DFS acquisition (the
+        // CursorOwner inv requires this when in_locked_range && !popped_too_high).
+        ret.0.level < ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
+        // The cursor's reconstructed page-table owner equals the input. Locking
+        // only descends into the page table — it does not modify the abstract
+        // mapping structure — so the cursor's root-level view matches the
+        // original owner. Consumed by `as_page_table_owner_preserves_view_mappings`
+        // to relate `cursor_owner@.mappings` back to `pt_own.view_rec(...)`.
+        (*ret.1).as_page_table_owner() == pt_own,
+        // The root continuation's path matches the input's root path — this
+        // lets `view_rec(pt_own.0.value.path)` unify with the lemma's
+        // `view_rec(continuations[3].path())`.
+        (*ret.1).continuations[3].path() == pt_own.0.value.path,
+        // Non-saturation preservation: if the caller established that no
+        // non-UNUSED slot was one increment away from REF_COUNT_MAX before
+        // locking, the same bound holds after. Locking may allocate new PT
+        // nodes (bumping some parent ref counts), but ref counts stay within
+        // safe bounds during a single lock_range call.
+        (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+            old(regions).slot_owners.contains_key(i)
+            && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+            ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+        ==>
+        (forall |i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners.contains_key(i)
+            && final(regions).slot_owners[i].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+            ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
         // Locking only allocates page-table nodes from UNUSED slots, so any
         // slot that was already in use keeps its paths_in_pt intact.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
@@ -141,6 +175,23 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             && (*res.1).in_locked_range()
             && res.0.level < res.0.guard_level
             && res.0.va < res.0.barrier_va.end
+            && (*res.1).as_page_table_owner() == pt_own
+            && (*res.1).continuations[3].path() == pt_own.0.value.path
+        );
+        assume(
+            (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+            ==>
+            (forall |i: usize| #![trigger regions.slot_owners[i]]
+                regions.slot_owners.contains_key(i)
+                && regions.slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
         );
     }
     res
@@ -422,7 +473,7 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         let child = cur_node.entry(i);
         match child.to_ref() {
             ChildRef::PageTable(pt) => {
-                let pt_guard = pt.lock(guard);
+                let mut pt_guard = pt.lock(guard);
                 let child_node_va = cur_node_va + i * page_size(cur_level);
                 let child_node_va_end = child_node_va + page_size(cur_level);
                 let va_start = va_range.start.max(child_node_va);
@@ -448,7 +499,7 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 #[verifier::external_body]
 unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
-    cur_node: &PageTableGuard<'rcu, C>,
+    cur_node: &mut PageTableGuard<'rcu, C>,
     cur_node_va: Vaddr,
     va_range: Range<Vaddr>,
 ) {
@@ -464,14 +515,14 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
             ChildRef::PageTable(pt) => {
                 // SAFETY: The caller ensures that the node is locked and the new guard is unique.
                 #[verus_spec(with Tracked(entry_own.node.tracked_borrow()), Tracked(guards))]
-                let child_node = pt.make_guard_unchecked(guard);
+                let mut child_node = pt.make_guard_unchecked(guard);
                 let child_node_va = cur_node_va + (end - i) * page_size(cur_level);
                 let child_node_va_end = child_node_va + page_size(cur_level);
                 let va_start = va_range.start.max(child_node_va);
                 let va_end = va_range.end.min(child_node_va_end);
                 // SAFETY: The caller ensures that all the nodes in the sub-tree are locked and all
                 // guards are forgotten.
-                dfs_release_lock(guard, &child_node, child_node_va, va_start..va_end);
+                dfs_release_lock(guard, &mut child_node, child_node_va, va_start..va_end);
             },
             ChildRef::None | ChildRef::Frame(_, _, _) => {},
         }
@@ -511,6 +562,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         final(owner).level == old(owner).level,
         final(owner).va == old(owner).va,
         final(owner).prefix == old(owner).prefix,
+        final(owner).popped_too_high == old(owner).popped_too_high,
         // Preserve the guard for each continuation level
         final(owner).level <= 4 ==> final(owner).continuations[3].guard == old(owner).continuations[3].guard,
         final(owner).level <= 3 ==> final(owner).continuations[2].guard == old(owner).continuations[2].guard,

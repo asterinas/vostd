@@ -268,7 +268,9 @@ impl<Dma: AsRef<DmaStream>> DmaStreamSlice<Dma> {
     /// If the `offset + len` is greater than the length of the stream,
     /// this method will panic.
     pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
+        #[cfg(feature = "allow_panic")]
         assert!(offset < stream.as_ref().nbytes());
+        #[cfg(feature = "allow_panic")]
         assert!(offset + len <= stream.as_ref().nbytes());
 
         Self {

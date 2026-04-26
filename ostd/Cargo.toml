@@ -19,6 +19,7 @@ path = "src/lib.rs"
 verus = []
 verify = ["verus"]
 alloc = []
+allow_panic = []
 default = ["verify", "alloc"]
 
 [package.metadata.verus]

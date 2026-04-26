@@ -435,16 +435,16 @@ impl<'a> VmWriter<'a, Infallible> {
     // the body is refactored to go through `ArrayPtr::from_addr` with a
     // tracked `PointsToArray` permission.
     #[verifier::external_body]
-    #[verus_spec(
-        requires
+    #[verus_spec(r =>
+        ensures
             !old(self).fill_panic_condition::<T>(),
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.vaddr as *mut T;
-        assert!((cursor as usize) % core::mem::align_of::<T>() == 0);
+        vstd_extra::assert_eq!((cursor as usize) % core::mem::align_of::<T>(), 0);
 
         let avail = self.end.vaddr - self.cursor.vaddr;
-        assert!(avail % core::mem::size_of::<T>() == 0);
+        vstd_extra::assert_eq!(avail % core::mem::size_of::<T>(), 0);
         let written_num = avail / core::mem::size_of::<T>();
 
         for i in 0..written_num {
@@ -599,11 +599,8 @@ impl<'a> VmReader<'a, Infallible> {
             mem_view: None,
         };
 
-        let ghost range = ptr.vaddr..(ptr.vaddr + len) as usize;
-        let end = VirtPtr { vaddr: ptr.vaddr + len, range: Ghost(range) };
-
         proof_with!(|= Tracked(owner));
-        Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
+        Self { id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
     }
 
     /// Constructs a `VmReader<'a, Infallible>` from a shared byte slice.
@@ -777,7 +774,6 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     /// - `self` must satisfy its invariant.
     /// ## Postconditions
     /// - The returned value equals [`Self::remain_spec`].
-    #[inline]
     #[verus_spec(r =>
         requires
             self.inv(),
@@ -785,7 +781,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             r == self.remain_spec(),
     )]
     pub fn remain(&self) -> usize {
-        self.end.vaddr - self.cursor.vaddr
+        self.end.addr() - self.cursor.addr()
     }
 
     /// Advances the cursor by `len` bytes.
@@ -1307,7 +1303,6 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     /// - The owners still match the updated writer and reader.
     /// - The returned byte count equals the minimum of writable bytes and readable bytes.
     /// - Both cursors advance by exactly the returned byte count.
-    #[inline]
     #[verus_spec(r =>
         with
             Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,

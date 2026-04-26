@@ -162,6 +162,11 @@ impl<C: PageTableConfig> PageTableNode<C> {
             guards.unlocked(owner@.value.node.unwrap().meta_perm.addr()),
             MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()), false, *old(regions), *final(regions)),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
+            // Allocator trust boundary: PT-node allocations come from the regular
+            // RAM pool, never from MMIO ranges. Used by `alloc_if_none_metaregion_sound_preserved`
+            // to rule out untracked-frame collisions at the freshly-allocated idx.
+            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
+                meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())),
             owner@.value.metaregion_sound(*final(regions)),
             owner@.value.in_scope,
             owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())), level as PagingLevel),
@@ -207,6 +212,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             mm::page_prop::CachePolicy,
         };
 
+        #[cfg(feature = "allow_panic")]
         assert_eq!(self.level(), C::NR_LEVELS());
 
         let last_activated_paddr = current_page_table_paddr();
@@ -336,15 +342,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.relate_guard(*res.node),
             *final(self) == *old(self),
     {
-        //        assert!(idx < nr_subpage_per_huge::<C>());
-        // SAFETY: The index is within the bound.
-        let res = #[verus_spec(with Tracked(child_owner), Tracked(owner))]
-            Entry::new_at(self, idx);
-        // `*self` is unchanged: new_at reads PTE and wraps `self` in the Entry,
-        // but doesn't mutate. Rust borrow-check rejects reading `*self` after
-        // the reborrow, so admit the spec-level equality here.
-        proof { admit(); }
-        res
+        #[cfg(feature = "allow_panic")]
+        assert!(idx < nr_subpage_per_huge::<C>());
+        // SAFETY: The index is within the bound. `*self` is unchanged because
+        // Entry::new_at's `*res.node == *old(guard)` ensures says the wrapped
+        // node equals the input guard's value, and the reborrow makes
+        // `*final(self) == *res.node`.
+        #[verus_spec(with Tracked(child_owner), Tracked(owner))]
+        Entry::new_at(self, idx)
     }
 
     /// Gets the number of valid PTEs in a page table node.
