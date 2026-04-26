@@ -2819,18 +2819,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     assert(level > 1);
                 }
             }
-            // TODO: discharge `forall idx old.rc != UNUSED ==> final.rc != UNUSED` from the
-            // map_loop -> replace_cur_entry -> move_forward chain. The bottleneck is
-            // replace_cur_entry: it doesn't currently expose a per-slot ref_count
-            // preservation ensure (only paths_in_pt). Once added, this admit can go.
-            assert(forall|idx: usize| #![trigger regions.slot_owners[idx].inner_perms.ref_count.value()]
-                old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
-                regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED) by { admit() };
             Err(frag)
         } else {
-            assert(forall|idx: usize| #![trigger regions.slot_owners[idx].inner_perms.ref_count.value()]
-                old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
-                regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED) by { admit() };
             Ok(())
         }
     }
@@ -3423,6 +3413,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // `regions.slots` keys are monotonic across the entry replacement.
             forall|idx: usize| #![trigger final(regions).slots.contains_key(idx)]
                 old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
+            // ref_count is preserved per-slot across the whole replace_cur_entry call.
+            // The body only touches regions via `Entry::replace` (which preserves
+            // ref_count by spec); `dfs_mark_stray_and_unlock` doesn't take regions at
+            // all, so the StrayPageTable branch can't perturb refcounts either.
+            forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+                final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
             // When `res is None` (⇔ pre-replace cur_entry was absent), `Entry::replace`
             // fully preserves `regions.slots` (and `slot_owners`, but the latter is
             // `Map<usize, MetaSlotOwner>` where `MetaSlotOwner` is a tracked struct

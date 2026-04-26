@@ -310,6 +310,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // slots: monotonic (from_pte may add; into_pte doesn't remove for non-nodes).
             forall|k: usize| old(regions).slots.contains_key(k)
                 ==> #[trigger] final(regions).slots.contains_key(k),
+            // ref_count is preserved per-slot. `into_pte_regions_spec` and
+            // `from_pte_regions_spec` only ever rewrite `raw_count` (and the
+            // ghost `paths_in_pt` is touched by the surrounding body, never
+            // `inner_perms`); both use the `..old_slot` struct-update form
+            // so `inner_perms.ref_count` is preserved across the rewrite.
+            forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+                final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
                 &&& final(regions).slots == old(regions).slots
