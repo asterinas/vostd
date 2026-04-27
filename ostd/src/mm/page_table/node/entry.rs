@@ -627,6 +627,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// ## Postconditions
     /// - **Safety Invariants**: The node allocated in place of the split page satisfies the safety invariants.
     /// - **Safety**: All other nodes have their invariants preserved.
+    #[verifier::spinoff_prover]
     #[verus_spec(res =>
         with Tracked(owner) : Tracked<&mut OwnerSubtree<C>>,
             Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
@@ -959,26 +960,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 }
 
                 assert(child_owner.metaregion_sound(*regions)) by {
-                    if i == 0 {
-                        assert(i as int * page_size((level - 1) as PagingLevel) as int == 0)
-                            by (nonlinear_arith)
-                            requires
-                                i as int == 0;
-                        assert(small_pa == pa) by (nonlinear_arith)
-                            requires
-                                i as int == 0,
-                                i as int * page_size((level - 1) as PagingLevel) as int == 0,
-                                small_pa as int
-                                    == pa as int
-                                        + i as int
-                                            * page_size((level - 1) as PagingLevel) as int;
-                        assert(regions.slots.contains_key(small_idx));
-                    } else {
-                        let ghost big_j = crate::specs::mm::page_table::cursor::
-                            page_size_lemmas::lemma_split_sub_page_big_j(pa, level, i);
-                        assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
-                        assert(regions.slots.contains_key(small_idx));
-                    }
+                    assert(regions.slots.contains_key(small_idx));
                     assert(regions.slot_owners[small_idx].paths_in_pt.contains(child_owner.path));
                 }
 
