@@ -9,7 +9,7 @@ verus! {
 /// It is UNSOUND in general, each usage must be checked carefully.
 /// WE should immediately remove this function once we #[verus_spec] has a better support for name binding.
 #[verifier(external_body)]
-pub proof fn uninitialized<T>() -> (tracked res: T) {
+pub proof fn tracked_uninitialized<T>() -> (tracked res: T) {
     unimplemented!();
 }
 

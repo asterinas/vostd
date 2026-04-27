@@ -9,10 +9,6 @@ pub mod nonzero;
 pub mod ptr;
 pub mod smart_ptr;
 
-#[deprecated(
-    note = "If you can, do not use this module as it adds assumptions about the core of Rust's deref semantics."
-)]
-pub use deref::*;
 pub use ilog2::*;
 pub use nonnull::*;
 pub use nonzero::*;
