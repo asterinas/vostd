@@ -93,8 +93,49 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
             Self::Left(left) => {
                 let (left, Tracked(perm)) = left.into_raw();
                 proof! {
-                    assert(left.cast::<Self::Target>().view_ptr_mut().addr() % (1usize << Self::ALIGN_BITS) == 0) by {admit();}
-                ;
+                    let left_addr = left.cast::<Self::Target>().view_ptr_mut().addr();
+                    let l_align_bits = L::ALIGN_BITS;
+                    let align_bits = Self::ALIGN_BITS;
+                    let small = 1usize << align_bits;
+                    let extra_bits: u32 = (l_align_bits - align_bits) as u32;
+                    let scale = 1usize << extra_bits;
+                    assert((1usize << l_align_bits) == small * scale) by (bit_vector)
+                    requires
+                        small == 1usize << align_bits,
+                        scale == 1usize << extra_bits,
+                        extra_bits == l_align_bits - align_bits,
+                        align_bits < l_align_bits < usize::BITS,
+                    ;
+                    assert(small > 0) by (bit_vector)
+                    requires
+                        small == 1usize << align_bits,
+                        align_bits < usize::BITS,
+                    ;
+                    assert(scale > 0) by (bit_vector)
+                    requires
+                        scale == 1usize << extra_bits,
+                        extra_bits < usize::BITS,
+                    ;
+                    assert(left_addr % small == 0) by {
+                        let big = 1usize << l_align_bits;
+                        let q = left_addr / big;
+                        assert(big != 0) by (nonlinear_arith)
+                        requires
+                            big == small * scale,
+                            small > 0,
+                            scale > 0,
+                        ;
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(left_addr as int, big as int);
+                        assert(left_addr as int == q as int * big as int);
+                        assert(big == small * scale);
+                        assert(left_addr as int == (q as int * scale as int) * small as int) by (nonlinear_arith)
+                        requires
+                            left_addr as int == q as int * big as int,
+                            big == small * scale,
+                        ;
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, small as int);
+                        assert((left_addr as int % small as int) == 0);
+                    };
                 }
                 (left.cast() , Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
             },
@@ -109,8 +150,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                     let tag = 1usize << align_bits;
                     let addr = right.as_ptr().addr();
                     let tagged_addr = right_raw.addr();
-                    assert((tagged_addr & !tag == addr) && (tagged_addr != 0) 
-                    ) by (bit_vector)
+                    assert(tagged_addr & !tag == addr) by (bit_vector)
                     requires
                         tagged_addr == addr | tag,
                         tag == 1usize << align_bits,
@@ -119,7 +159,65 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                         addr % (1usize << r_align_bits) == 0,
                         addr != 0,
                     ;
-                    assert(tagged_addr % (1usize << align_bits) == 0) by {admit();};
+                    assert(tagged_addr != 0) by (bit_vector)
+                    requires
+                        tagged_addr == addr | tag,
+                        addr != 0,
+                    ;
+                    let extra_bits: u32 = (r_align_bits - align_bits) as u32;
+                    let scale = 1usize << extra_bits;
+                    assert(tagged_addr == addr + tag) by (bit_vector)
+                    requires
+                        tagged_addr == addr | tag,
+                        tag == 1usize << align_bits,
+                        1 <= r_align_bits < usize::BITS,
+                        align_bits < r_align_bits,
+                        addr % (1usize << r_align_bits) == 0,
+                        addr != 0,
+                    ;
+                    assert((1usize << r_align_bits) == tag * scale) by (bit_vector)
+                    requires
+                        tag == 1usize << align_bits,
+                        scale == 1usize << extra_bits,
+                        extra_bits == r_align_bits - align_bits,
+                        align_bits < r_align_bits < usize::BITS,
+                    ;
+                    assert(tag > 0) by (bit_vector)
+                    requires
+                        tag == 1usize << align_bits,
+                        align_bits < usize::BITS,
+                    ;
+                    assert(scale > 0) by (bit_vector)
+                    requires
+                        scale == 1usize << extra_bits,
+                        extra_bits < usize::BITS,
+                    ;
+                    assert(addr % tag == 0) by {
+                        let big = 1usize << r_align_bits;
+                        let q = addr / big;
+                        assert(big != 0) by (nonlinear_arith)
+                        requires
+                            big == tag * scale,
+                            tag > 0,
+                            scale > 0,
+                        ;
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(addr as int, big as int);
+                        assert(addr as int == q as int * big as int);
+                        assert(big == tag * scale);
+                        assert(addr as int == (q as int * scale as int) * tag as int) by (nonlinear_arith)
+                        requires
+                            addr as int == q as int * big as int,
+                            big == tag * scale,
+                        ;
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
+                        assert((addr as int % tag as int) == 0);
+                    }
+                    assert(tagged_addr % (1usize << align_bits) == 0) by {
+                        vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(addr as int, tag as int);
+                        assert((tagged_addr as int % tag as int) == ((addr + tag) as int % tag as int));
+                        assert(((addr + tag) as int % tag as int) == (addr as int % tag as int));
+                        assert((addr as int % tag as int) == 0);
+                    }
                 }
                 (
                     unsafe { NonNull::new_unchecked(right_raw) }.cast(),
