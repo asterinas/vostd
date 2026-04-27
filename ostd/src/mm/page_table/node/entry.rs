@@ -960,7 +960,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
                 assert(child_owner.metaregion_sound(*regions)) by {
                     if i == 0 {
-                        assert(i as int == 0);
                         assert(i as int * page_size((level - 1) as PagingLevel) as int == 0)
                             by (nonlinear_arith)
                             requires
@@ -973,19 +972,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                                     == pa as int
                                         + i as int
                                             * page_size((level - 1) as PagingLevel) as int;
-                        assert(small_idx == frame_to_index(pa));
                         assert(regions.slots.contains_key(small_idx));
-                        assert(regions.slot_owners[small_idx].inner_perms.ref_count.value()
-                            != REF_COUNT_UNUSED);
-                        assert(regions.slot_owners[small_idx].inner_perms.ref_count.value() > 0);
                     } else {
                         let ghost big_j = crate::specs::mm::page_table::cursor::
                             page_size_lemmas::lemma_split_sub_page_big_j(pa, level, i);
                         assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                         assert(regions.slots.contains_key(small_idx));
-                        assert(regions.slot_owners[small_idx].inner_perms.ref_count.value()
-                            != REF_COUNT_UNUSED);
-                        assert(regions.slot_owners[small_idx].inner_perms.ref_count.value() > 0);
                     }
                     assert(regions.slot_owners[small_idx].paths_in_pt.contains(child_owner.path));
                 }
