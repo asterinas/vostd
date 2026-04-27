@@ -159,14 +159,6 @@ impl<T> Inv for ArcPointsTo<T> {
     }
 }
 
-pub trait ArcAdditionalFns<T> {
-    spec fn ptr_spec(self) -> *const T;
-}
-
-impl<T> ArcAdditionalFns<T> for Arc<T> {
-    uninterp spec fn ptr_spec(self) -> *const T;
-}
-
 /// A wrapper around `Box::into_raw` that also returns the permission to access the memory.
 /// 
 /// Soundness: it is unsound to create a `ptr` method for `Box<T>` that returns the raw pointer without the permission. 
@@ -240,6 +232,9 @@ pub unsafe fn box_from_raw<T>(ptr: *mut T) -> Box<T>
     unsafe { Box::from_raw(ptr) }
 }
 
+/// A wrapper around `Arc::into_raw` that also returns the permission to access the memory.
+/// 
+/// Soundness: the soundness concern is similar to `box_into_raw`.
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // `Arc::into_raw` will not decrease the reference count, so the memory will keep valid until we convert back to Arc<T> and drop it.
 #[verifier::external_body]
@@ -247,7 +242,6 @@ pub unsafe fn box_from_raw<T>(ptr: *mut T) -> Box<T>
     with
         -> perm: Tracked<ArcPointsTo<T>>,
     ensures
-        ret == p.ptr_spec(),
         ret == perm@.ptr(),
         perm@.ptr().addr() != 0,
         perm@.is_init(),
@@ -272,7 +266,6 @@ pub fn arc_into_raw<T>(p: Arc<T>) -> *const T
         points_to.is_init(),
         points_to.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
     ensures
-        ret.ptr_spec() == ptr,
         *ret == points_to.value(),
 )]
 pub unsafe fn arc_from_raw<T>(ptr: *const T) -> Arc<T>

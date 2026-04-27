@@ -299,15 +299,6 @@ pub struct ArcRef<'a, T: 'static> {
 }
 
 impl<'a, T> ArcRef<'a, T> {
-    #[verifier::type_invariant]
-    spec fn type_inv(self) -> bool {
-        &&& self.ptr()@.addr != 0
-        &&& self.ptr()@.addr as int % vstd::layout::align_of::<T>() as int == 0
-    }
-
-    pub open spec fn ptr(self) -> *const T {
-        self.deref_as_arc_spec().ptr_spec()
-    }
 
     pub closed spec fn deref_as_arc_spec(&self) -> &Arc<T> {
         &self.inner@
@@ -431,7 +422,6 @@ pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
         perm@.inv(),
     ensures
         ret.ref_rel_perm(perm@),
-        ret.ptr() == perm@.ptr(),
 {
     unsafe {
         ArcRef { inner: ManuallyDrop::new(#[verus_spec(with perm)] arc_from_raw(raw.as_ptr())), _marker: PhantomData }
