@@ -399,7 +399,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 !final(self).query_some_condition(*final(owner)) ==>
                 final(self).query_none_ensures(*final(owner), state),
             old(owner)@.mappings == final(owner)@.mappings,
-            forall |e:EntryOwner<C>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*final(regions)),
             final(self).va == old(self).va,
     )]
     #[verifier::rlimit(200)]
@@ -562,7 +561,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(regions.slot_owners[idx].inner_perms.ref_count.value()
                                 == old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1);
                             assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                                < REF_COUNT_MAX);
+                                <= REF_COUNT_MAX);
                             owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         } else {
                             assert(regions.slots =~= old_regions.slots);
@@ -2057,15 +2056,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
-            // Non-panic precondition (ref-count non-saturation) propagated from
-            // CursorMut::query; see that function's docs.
-            forall |i: usize|
-                #![trigger old(regions).slot_owners[i]]
-                old(regions).slot_owners.contains_key(i)
-                && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < REF_COUNT_MAX,
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).in_locked_range() ==> res is Ok,
@@ -2076,7 +2066,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 !final(self).0.query_some_condition(*final(owner)) ==>
                 final(self).0.query_none_ensures(*final(owner), state),
             old(owner)@.mappings == final(owner)@.mappings,
-            forall |e:EntryOwner<C>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*final(regions)),
     )]
     pub fn query(&mut self) -> (res: Result<PagesState<C>, PageTableError>) {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]

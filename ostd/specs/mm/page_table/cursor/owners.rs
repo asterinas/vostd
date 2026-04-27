@@ -884,9 +884,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 new_regions.slot_owners[i] == old_regions.slot_owners[i],
             // slots map unchanged
             new_regions.slots == old_regions.slots,
-            // rc overflow guard: old rc is a normal shared count; rc+1 stays below REF_COUNT_MAX.
+            // rc overflow guard: old rc is a normal shared count; the bumped rc fits
+            // in the valid `[1, REF_COUNT_MAX]` range. The `<=` form (vs strict `<`)
+            // matches what callers actually have: post-`clone_item`, the new rc is
+            // bounded by the slot's `inv()` (which permits `rc == REF_COUNT_MAX`).
             0 < old_regions.slot_owners[idx].inner_perms.ref_count.value(),
-            old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX,
+            old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1 <= REF_COUNT_MAX,
         ensures
             new_regions.inv(),
             self.metaregion_sound(new_regions),
@@ -934,10 +937,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 property: prop,
             }]
     {
-        // TODO: bridge canonical cur_slot_range (built from cur_va, which
-        // is self.va.to_vaddr() = vaddr_of(path)) to view_rec's
-        // vaddr_of(path)-built Mapping.
-        admit();
         let path = new_subtree.value.path;
         let ps = page_size(level);
         let pt_level = INC_LEVELS - path.len();

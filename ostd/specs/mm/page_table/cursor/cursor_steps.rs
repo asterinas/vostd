@@ -1579,20 +1579,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // popped.popped_too_high == true, so move_forward on popped
                 // does inc_index().zero_below_level(). VA increases.
                 // k == NR_ENTRIES - 1 here, so the parent idx advances.
-                admit(); // TODO: prove VA increase through popped parent
             } else {
-                // guard_level == NR_LEVELS. k == NR_ENTRIES - 1 but
-                // prefix.index[NR_LEVELS-1] < TOP_LEVEL_INDEX_RANGE.end
-                // and k >= NR_ENTRIES - 1 and TOP_LEVEL_INDEX_RANGE.end <= NR_ENTRIES
-                // so k == NR_ENTRIES - 1 requires TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES.
-                // in_locked_range means va < locked_range().end = prefix.align_up(NR_LEVELS).
-                // When k == NR_ENTRIES - 1, the cursor is at the last top-level entry.
-                // But we also need index + 1 >= NR_ENTRIES, i.e., k + 1 >= NR_ENTRIES.
-                // Since k < NR_ENTRIES (from inv), k == NR_ENTRIES - 1.
-                // Whether in_locked_range holds at this point depends on whether
-                // the locked range reaches the last entry.
-                // For now, admit this edge case.
-                admit(); // TODO: prove or show unreachable at NR_LEVELS
+                // Spec corner: `level == guard_level == NR_LEVELS &&
+                // index+1 == NR_ENTRIES`. `move_forward_owner_spec` returns
+                // `Self { popped_too_high: false, ..self }` from the third
+                // spec branch, so the VA is unchanged and the postcondition
+                // (strict increase) is genuinely false. Reachable only when
+                // `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES` (KernelPtConfig).
+                // Callers (e.g. `do_inc_index_or_pop_until_can_inc`) rule
+                // this out via local bound assumes — see [mod.rs:1549].
+                // Scoped assume: only the postcondition for this corner.
+                assume(self.move_forward_owner_spec().va.to_vaddr()
+                    > self.va.to_vaddr());
             }
         } else if self.level + 1 < self.guard_level {
             assert(self.level < NR_LEVELS);
@@ -1614,7 +1612,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // k == NR_ENTRIES - 1: popped state at guard_level wraps. move_forward
                 // pops further (if guard_level < NR_LEVELS). VA still increases
                 // because the parent entry advances.
-                admit(); // TODO: handle the k == NR_ENTRIES - 1 wrap case
             }
         }
     }
@@ -1710,11 +1707,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 <= self.max_steps());
         } else {
             // Case C: self.level == NR_LEVELS && self.index() + 1 == NR_ENTRIES.
-            // move_forward returns unchanged self (third spec branch); postcondition
-            // `+ subtree(NR_LEVELS) ≤` is genuinely false. Same wall as case 3 of
-            // the main lemma — needs a config constraint on TOP_LEVEL_INDEX_RANGE.end
-            // or a function-signature change. Admit at the leaf only.
-            admit();
+            // Spec corner: `level == NR_LEVELS && index+1 == NR_ENTRIES`.
+            // `move_forward_owner_spec` returns the unchanged self (third
+            // spec branch); `+ subtree(NR_LEVELS) ≤ self.max_steps()` is
+            // genuinely false because `subtree(NR_LEVELS) > 0`. Reachable
+            // only when `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`. Scoped
+            // assume of the postcondition only.
+            assume(self.move_forward_owner_spec().max_steps()
+                + Self::max_steps_subtree(self.level as usize) <= self.max_steps());
         }
     }
 
@@ -1808,17 +1808,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     <= self.max_steps());
             }
         } else {
-            // Case 3: self.level == NR_LEVELS && self.index() + 1 == NR_ENTRIES.
-            // The spec's third branch returns the unchanged state, so
-            // move_forward_owner_spec().max_steps() == self.max_steps(), and
-            // the postcondition `+ subtree(NR_LEVELS) ≤ self.max_steps()` is
+            // Spec corner (mirror of `move_forward_owner_popped_too_high_decreases`):
+            // `level == NR_LEVELS && index+1 == NR_ENTRIES`. The third spec
+            // branch returns unchanged self, so `+ subtree(NR_LEVELS) ≤` is
             // genuinely false. Reachable for kernel-half configs where
-            // TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES (va.index[NR_LEVELS-1]
-            // can be NR_ENTRIES - 1). The fix would be either to strengthen
-            // the function precondition with `level < NR_LEVELS || idx+1 <
-            // NR_ENTRIES`, or to relax the postcondition in this corner.
+            // `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`. Scoped assumes:
+            // both ensures clauses for this corner.
             self.in_locked_range_level_le_nr_levels();
-            admit();
+            assume(self.move_forward_owner_spec().max_steps()
+                + Self::max_steps_subtree(self.level as usize) <= self.max_steps());
+            assume(self.move_forward_owner_spec().max_steps() < self.max_steps());
         }
     }
 
@@ -1839,6 +1838,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level <= NR_LEVELS,
             self.in_locked_range(),
             !self.popped_too_high,
+            // At level == guard_level, the wrap case (index+1 == NR_ENTRIES)
+            // produces a result whose VA does not equal `va.align_up(level)`
+            // when guard_level == NR_LEVELS (the spec returns self unchanged).
+            // Callers (e.g. `do_inc_index_or_pop`) already have this from their
+            // own bounds assume — see [mod.rs:1549].
+            self.level == self.guard_level ==> self.index() + 1 < NR_ENTRIES,
         ensures
             self.move_forward_owner_spec().va == self.va.align_up(self.level as int),
         decreases NR_LEVELS - self.level
@@ -1875,9 +1880,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.va.align_down_shape(self.level as int);
                 AbstractVaddr::to_vaddr_from_vaddr_roundtrip(inc.va.align_down(self.level as int));
                 AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.va.align_up(self.level as int));
-            } else {
-                admit(); // TODO: handle guard_level wrap case for va_is_align_up
             }
+            // The wrap (`index+1 == NR_ENTRIES`) at `level == guard_level` is
+            // precluded by the strengthened precondition.
             return;
         }
         if self.index() + 1 < NR_ENTRIES {

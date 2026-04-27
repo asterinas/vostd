@@ -742,14 +742,10 @@ impl KVirtArea {
             let va_range = range.start + map_offset..range.start + map_offset + len;
 
             proof {
-                // Bridge: FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR, so the allocator's
-                // tightened bound still satisfies axiom_kernel_range_valid's precondition.
                 assert(FRAME_METADATA_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
                 axiom_kernel_range_valid(va_range);
-                // Discharge cursor_mut's `LOCKED_END_BOUND_spec` precondition; see map_frames.
                 assert(va_range.end as int
                     <= <KernelPtConfig as PageTableConfig>::LOCKED_END_BOUND_spec());
-//                assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_new_success_conditions(&va_range));
             }
 
             let page_table = {

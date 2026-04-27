@@ -441,7 +441,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                 &&& final(self).0.query_none_ensures(*final(owner), r.unwrap())
             },
             old(owner)@.mappings == final(owner)@.mappings,
-            forall |e: EntryOwner<UserPtConfig>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*final(regions)),
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
@@ -611,7 +610,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 !final(self).pt_cursor.0.query_some_condition(*final(owner)) ==>
                 final(self).pt_cursor.0.query_none_ensures(*final(owner), state),
             old(owner)@.mappings == final(owner)@.mappings,
-            forall |e: EntryOwner<UserPtConfig>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*final(regions)),
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(

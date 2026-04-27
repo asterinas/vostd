@@ -264,7 +264,7 @@ impl Inv for MetaSlotOwner {
         &&& 0 < self.inner_perms.ref_count.value() <= REF_COUNT_MAX ==> {
             &&& self.inner_perms.vtable_ptr.is_init()
         }
-        &&& REF_COUNT_MAX <= self.inner_perms.ref_count.value() < REF_COUNT_UNIQUE ==> { false }
+        &&& REF_COUNT_MAX < self.inner_perms.ref_count.value() < REF_COUNT_UNIQUE ==> { false }
         &&& self.inner_perms.ref_count.value() == 0 ==> {
             &&& self.inner_perms.in_list.value() == 0
         }
@@ -294,7 +294,7 @@ impl Inv for MetaSlotModel {
             0 => {
                 &&& self.in_list == 0
             },
-            _ if self.ref_count < REF_COUNT_MAX => { &&& self.vtable_ptr.is_init() },
+            _ if self.ref_count <= REF_COUNT_MAX => { &&& self.vtable_ptr.is_init() },
             _ => { false },
         }
     }
@@ -314,7 +314,7 @@ impl View for MetaSlotOwner {
             REF_COUNT_UNUSED => MetaSlotStatus::UNUSED,
             REF_COUNT_UNIQUE => MetaSlotStatus::UNIQUE,
             0 => MetaSlotStatus::UNDER_CONSTRUCTION,
-            _ if ref_count < REF_COUNT_MAX => MetaSlotStatus::SHARED,
+            _ if ref_count <= REF_COUNT_MAX => MetaSlotStatus::SHARED,
             _ => MetaSlotStatus::OVERFLOW,
         };
         MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, self_addr, usage }

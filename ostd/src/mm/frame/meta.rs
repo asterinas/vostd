@@ -28,6 +28,7 @@ use vstd::cell::pcell_maybe_uninit;
 use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
+use vstd_extra::panic::panic_diverge;
 
 use core::{
     alloc::Layout,
@@ -619,7 +620,7 @@ impl MetaSlot {
             old(rc_perm).value() != REF_COUNT_UNUSED,
         ensures
             final(rc_perm).value() == old(rc_perm).value() + 1,
-            final(rc_perm).value() < REF_COUNT_MAX,
+            old(rc_perm).value() < REF_COUNT_MAX,
             final(rc_perm).id() == old(rc_perm).id(),
     {
         let last_ref_cnt = self.ref_count.fetch_add(Tracked(rc_perm), 1);
@@ -628,9 +629,7 @@ impl MetaSlot {
             // This follows the same principle as the `Arc::clone` implementation to prevent the
             // reference count from overflowing. See also
             // <https://doc.rust-lang.org/std/sync/struct.Arc.html#method.clone>.
-            #[cfg(feature = "allow_panic")]
-            crate::panic::abort();
-            vstd_extra::assert!(false);
+            panic_diverge();
         }
     }
 

@@ -905,11 +905,6 @@ impl<C: PageTableConfig> CursorView<C> {
                         && m.property == p.property;
                     self.split_if_mapped_huge_spec_refinement(new_size, p);
                     if !self.mappings.contains(p) {
-                        // TODO: chain the `as Paddr` equations through p.
-                        // In int arithmetic the substitution is immediate;
-                        // Verus needs an explicit no-overflow bridge to
-                        // strip the `as Paddr` casts. Defer.
-                        admit();
                         assert(qm.va_range.start <= m.va_range.start);
                         assert(m.va_range.end <= qm.va_range.end);
                         // Extract m.inv() and p.inv() via inv preservation of

@@ -466,8 +466,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(m),
     {
-        // TODO: bridge canonical `cur_va` to positional `vaddr_of(cur_path)`.
-        admit();
         let cur_va = self.cur_va();
 
         // m comes from some continuation level i
@@ -528,10 +526,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall |m: Mapping| new_self.view_mappings().contains(m) implies
             ((old_self.view_mappings().contains(m) && !old_cont.view_mappings().contains(m)) || new_cont.view_mappings().contains(m))
         by {
-            // TODO: downstream disjointness reasoning uses
-            // `vaddr(path)` positional bounds; needs lifting to `vaddr_of`
-            // after the Range<int> refactor.
-            admit();
             let i = choose|i: int| level - 1 <= i < NR_LEVELS
                 && #[trigger] new_self.continuations[i].view_mappings().contains(m);
             if i == level - 1 {
