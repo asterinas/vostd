@@ -208,7 +208,7 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
         // Notice the guard must be created before acquiring the lock.
         proof!{ use_type_invariant(self);}
         proof_decl!{
-            let tracked mut perm: PointsTo<T> = tracked_uninitialized();
+            let tracked perm: PointsTo<T>;
         }
         let inner_guard = G::guard();
         proof_with! {=> Tracked(perm)}

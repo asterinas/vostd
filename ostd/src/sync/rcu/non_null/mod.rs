@@ -200,7 +200,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     fn into_raw(self) -> (NonNull<Self::Target>, Tracked<Self::Permission>) {
         //let ptr = Box::into_raw(self);
         proof_decl! {
-            let tracked perm: (PointsTo<T>, Option<Dealloc>) = tracked_uninitialized();
+            let tracked perm: (PointsTo<T>, Option<Dealloc>);
         }
         proof_with!(=> Tracked(perm));
         let ptr = box_into_raw(self);
@@ -351,7 +351,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     #[verus_spec]
     fn into_raw(self) -> (NonNull<Self::Target>, Tracked<Self::Permission>) {
         proof_decl!{
-            let tracked perm: ArcPointsTo<T> = tracked_uninitialized();
+            let tracked perm: ArcPointsTo<T>;
         }
         // let ptr = Arc::into_raw(self).cast_mut();
         let ptr = (#[verus_spec(with => Tracked(perm))] arc_into_raw(self)).cast_mut();
