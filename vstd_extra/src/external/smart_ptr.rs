@@ -159,14 +159,6 @@ impl<T> Inv for ArcPointsTo<T> {
     }
 }
 
-pub trait BoxAdditionalFns<T> {
-    spec fn ptr_mut_spec(self) -> *mut T;
-}
-
-impl<T> BoxAdditionalFns<T> for Box<T> {
-    uninterp spec fn ptr_mut_spec(self) -> *mut T;
-}
-
 pub trait ArcAdditionalFns<T> {
     spec fn ptr_spec(self) -> *const T;
 }
@@ -175,6 +167,15 @@ impl<T> ArcAdditionalFns<T> for Arc<T> {
     uninterp spec fn ptr_spec(self) -> *const T;
 }
 
+/// A wrapper around `Box::into_raw` that also returns the permission to access the memory.
+/// 
+/// Soundness: it is unsound to create a `ptr` method for `Box<T>` that returns the raw pointer without the permission. 
+/// As Verus only compares the value of the `Box<T>` for equality, so the following code will be wrongly verified:
+/// ```rust
+/// let b1 = Box::new(1);
+/// let b2 = Box::new(1);
+/// assert(b1.ptr() == b2.ptr()); // this will be verified but is actually not true, as b1 and b2 are different allocations with different pointers.
+/// ```
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // The memory layout ensures that Box<T> has the following properties:
 //  1. The pointer is aligned.
@@ -187,7 +188,6 @@ impl<T> ArcAdditionalFns<T> for Arc<T> {
     with
         -> perm: Tracked<(PointsTo<T>, Option<Dealloc>)>, 
     ensures
-        ret == b.ptr_mut_spec(),
         ret == perm@.0.ptr(),
         perm@.0.ptr().addr() != 0,
         perm@.0.is_init(),
@@ -233,7 +233,6 @@ pub fn box_into_raw<T>(b: Box<T>) -> *mut T
             None => { &&& vstd::layout::size_of::<T>() == 0 },
         },
     ensures
-        ret.ptr_mut_spec() == ptr,
         *ret == points_to.value(),
     )]
 pub unsafe fn box_from_raw<T>(ptr: *mut T) -> Box<T>
