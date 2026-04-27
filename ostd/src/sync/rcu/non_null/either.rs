@@ -82,59 +82,58 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
                 .cast(),
         } */
-        
+       proof_decl!{
+           let ghost align_bits = Self::ALIGN_BITS;
+           let ghost l_align_bits = L::ALIGN_BITS;
+           let ghost r_align_bits = R::ALIGN_BITS;
+           let ghost tag = 1usize << align_bits;
+        }
         proof! {
             L::lemma_align_bits_range();
             R::lemma_align_bits_range();
             Self::lemma_align_bits_range();
             assume(Self::ALIGN_BITS == min(L::ALIGN_BITS, R::ALIGN_BITS) - 1);
+            assert(tag > 0) by (bit_vector)
+                requires
+                    tag == 1usize << align_bits,
+                    align_bits < usize::BITS,
+                ;
         }
         match self {
             Self::Left(left) => {
                 let (left, Tracked(perm)) = left.into_raw();
                 proof! {
                     let left_addr = left.cast::<Self::Target>().view_ptr_mut().addr();
-                    let l_align_bits = L::ALIGN_BITS;
-                    let align_bits = Self::ALIGN_BITS;
-                    let small = 1usize << align_bits;
                     let extra_bits: u32 = (l_align_bits - align_bits) as u32;
                     let scale = 1usize << extra_bits;
-                    assert((1usize << l_align_bits) == small * scale) by (bit_vector)
+                    assert((1usize << l_align_bits) == tag * scale) by (bit_vector)
                     requires
-                        small == 1usize << align_bits,
+                        tag == 1usize << align_bits,
                         scale == 1usize << extra_bits,
                         extra_bits == l_align_bits - align_bits,
                         align_bits < l_align_bits < usize::BITS,
-                    ;
-                    assert(small > 0) by (bit_vector)
-                    requires
-                        small == 1usize << align_bits,
-                        align_bits < usize::BITS,
                     ;
                     assert(scale > 0) by (bit_vector)
                     requires
                         scale == 1usize << extra_bits,
                         extra_bits < usize::BITS,
                     ;
-                    assert(left_addr % small == 0) by {
+                    assert(left_addr % tag == 0) by {
                         let big = 1usize << l_align_bits;
                         let q = left_addr / big;
                         assert(big != 0) by (nonlinear_arith)
                         requires
-                            big == small * scale,
-                            small > 0,
+                            big == tag * scale,
+                            tag > 0,
                             scale > 0,
                         ;
                         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(left_addr as int, big as int);
-                        assert(left_addr as int == q as int * big as int);
-                        assert(big == small * scale);
-                        assert(left_addr as int == (q as int * scale as int) * small as int) by (nonlinear_arith)
+                        assert(left_addr as int == (q as int * scale as int) * tag as int) by (nonlinear_arith)
                         requires
                             left_addr as int == q as int * big as int,
-                            big == small * scale,
+                            big == tag * scale,
                         ;
-                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, small as int);
-                        assert((left_addr as int % small as int) == 0);
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
                     };
                 }
                 (left.cast() , Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
@@ -145,8 +144,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                     ensures ret == addr | (1usize << Self::ALIGN_BITS)
                     {addr | (1usize << Self::ALIGN_BITS)});
                 proof! {
-                    let align_bits = Self::ALIGN_BITS;
-                    let r_align_bits = R::ALIGN_BITS;
                     let tag = 1usize << align_bits;
                     let addr = right.as_ptr().addr();
                     let tagged_addr = right_raw.addr();
@@ -182,11 +179,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                         extra_bits == r_align_bits - align_bits,
                         align_bits < r_align_bits < usize::BITS,
                     ;
-                    assert(tag > 0) by (bit_vector)
-                    requires
-                        tag == 1usize << align_bits,
-                        align_bits < usize::BITS,
-                    ;
+                    
                     assert(scale > 0) by (bit_vector)
                     requires
                         scale == 1usize << extra_bits,
