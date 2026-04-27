@@ -1,6 +1,6 @@
+use core::ops::Range;
 use vstd::pervasive::proof_from_false;
 use vstd::prelude::*;
-use core::ops::Range;
 
 use vstd_extra::ownership::*;
 
@@ -12,10 +12,10 @@ use crate::mm::vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace};
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR};
 use crate::specs::arch::mm::{current_page_table_paddr_spec, NR_LEVELS};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::{Guards, Mapping, OwnerSubtree, PageTableOwner, PageTableView};
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::cursor::CursorView;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
+use crate::specs::mm::page_table::{Guards, Mapping, OwnerSubtree, PageTableOwner, PageTableView};
 use crate::specs::mm::tlb::TlbModel;
 use crate::specs::mm::virt_mem_newer::{FrameContents, MemView};
 use crate::specs::task::InAtomicMode;
@@ -609,14 +609,10 @@ impl<'a> VmSpaceOwner<'a> {
             final(self).inv(),
             final(self).active == old(self).active,
             final(self).shared_reader == old(self).shared_reader,
-            owner.range.start < owner.range.end ==> final(self).readers == old(self).readers.push(owner),
+            owner.range@.start < owner.range@.end ==> final(self).readers == old(self).readers.push(owner),
     {
-        let tracked mv = match owner.mem_view {
-            Some(VmIoMemView::ReadView(mv)) => mv,
-            _ => { proof_from_false() },
-        };
-
-        if owner.range.start < owner.range.end {
+        if owner.range@.start < owner.range@.end {
+            // Return the memory view back to the vm space owner.
             self.readers.tracked_push(owner);
         }
     }

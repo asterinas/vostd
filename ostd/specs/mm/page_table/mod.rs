@@ -1314,7 +1314,7 @@ impl AbstractVaddr {
                 next_va.next_index_wrap_condition(level + 1);
                 self.wrapped_after_carry_equiv(level, level + 1);
                 next_va.next_index_preserves_lower_indices(level + 1, level);
-            } 
+            }
         } else {
             assert(self.index.contains_key(level - 1));
         }

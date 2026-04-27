@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Useful synchronization primitives.
+mod atomic_data;
 mod guard;
 mod mutex;
 mod once;
@@ -11,9 +12,10 @@ mod spin;
 mod wait;
 //pub(crate) use self::rcu::finish_grace_period;
 pub use self::{
+    atomic_data::*,
     guard::{GuardTransfer, LocalIrqDisabled, PreemptDisabled, SpinGuardian, /*WriteIrqDisabled*/},
     mutex::{Mutex, MutexGuard},
-    once::{OnceImpl, TrivialPred},
+    once::{Once, OnceImpl, TrivialPred},
     rcu::{non_null /*, Rcu, RcuDrop, RcuOption, RcuOptionReadGuard, RcuReadGuard*/},
     rwarc::{RoArc, RwArc},
     rwlock::{RwLock, RwLockReadGuard, RwLockUpgradeableGuard, RwLockWriteGuard},

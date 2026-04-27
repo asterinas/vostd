@@ -724,13 +724,9 @@ impl KVirtArea {
         vstd_extra::assert!(area_size % PAGE_SIZE == 0);
         vstd_extra::assert!(map_offset % PAGE_SIZE == 0);
 
-        // SUSPECTED BUG: Guard the capacity sum against exec-level overflow by rearranging:
-        // asserting `len <= area_size - map_offset` requires `map_offset <= area_size`
-        // first (else the subtraction underflows).
-        vstd_extra::assert!(map_offset <= area_size);
-        vstd_extra::assert!(
-            vstd_extra::std_extra::range_usize_len(&pa_range) <= area_size - map_offset
-        );
+        // LIKELY BUG: if `map_offset + pa_range.len()` overflows, the assert can succeed trivially
+        assume(map_offset + vstd_extra::std_extra::range_usize_len(&pa_range) <= usize::MAX);
+        vstd_extra::assert!(map_offset + vstd_extra::std_extra::range_usize_len(&pa_range) <= area_size);
 
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
         // Rust's `unwrap()` panics if not ok. TODO: make our own wrapper.

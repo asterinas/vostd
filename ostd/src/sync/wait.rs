@@ -124,8 +124,7 @@ impl WaitQueue {
     /// Wakes up one waiting thread, if there is one at the point of time when this method is
     /// called, returning whether such a thread was woken up.
     #[verifier::external_body]
-    pub fn wake_one(&self) -> (r: bool)
-    {
+    pub fn wake_one(&self) -> (r: bool) {
         // Fast path
         if self.is_empty() {
             return false;
@@ -153,8 +152,7 @@ impl WaitQueue {
 
     /// Wakes up all waiting threads, returning the number of threads that were woken up.
     #[verifier::external_body]
-    pub fn wake_all(&self) -> (r: usize)
-    {
+    pub fn wake_all(&self) -> (r: usize) {
         // Fast path
         if self.is_empty() {
             return 0;
@@ -192,8 +190,7 @@ impl WaitQueue {
     /// Enqueues the input [`Waker`] to the wait queue.
     #[doc(hidden)]
     #[verifier::external_body]
-    pub fn enqueue(&self, waker: Arc<Waker>)
-    {
+    pub fn enqueue(&self, waker: Arc<Waker>) {
         let mut wakers = self.wakers.lock();
         wakers.push_back(waker);
         atomic_with_ghost! {
@@ -326,13 +323,13 @@ impl Waiter {
         loop {
             if let Some(res) = cond() {
                 assert(cond.ensures((), Some(res)));
-                proof! { admit(); } // FIXME: https://github.com/verus-lang/verus/issues/2295
+                proof! { admit(); }  // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return Ok(res);
             };
             if let Err(e) = cancel_cond() {
                 // Close the waker and check again to avoid missing a wake event.
                 self.waker.close();
-                proof! { admit(); } // FIXME: https://github.com/verus-lang/verus/issues/2295
+                proof! { admit(); }  // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return cond().ok_or(e);
             }
             self.wait();

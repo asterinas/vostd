@@ -934,6 +934,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 property: prop,
             }]
     {
+        // TODO: bridge canonical cur_slot_range (built from cur_va, which
+        // is self.va.to_vaddr() = vaddr_of(path)) to view_rec's
+        // vaddr_of(path)-built Mapping.
+        admit();
         let path = new_subtree.value.path;
         let ps = page_size(level);
         let pt_level = INC_LEVELS - path.len();

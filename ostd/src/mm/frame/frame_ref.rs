@@ -88,6 +88,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     pub(in crate::mm) fn borrow_paddr(raw: Paddr) -> Self {
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             old(regions).inv_implies_correct_addr(raw);
         }
 

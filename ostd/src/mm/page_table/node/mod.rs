@@ -243,10 +243,17 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
 #[verus_verify]
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
-    pub open spec fn locks_preserved_except<'rcu>(addr: usize, guards0: Guards<'rcu, C>, guards1: Guards<'rcu, C>) -> bool {
-        &&& OwnerSubtree::implies(CursorOwner::node_unlocked(guards0), CursorOwner::node_unlocked_except(guards1, addr))
-        &&& forall |i: usize| guards0.lock_held(i) ==> guards1.lock_held(i)
-        &&& forall |i: usize| guards0.unlocked(i) && i != addr ==> guards1.unlocked(i)
+    pub open spec fn locks_preserved_except<'rcu>(
+        addr: usize,
+        guards0: Guards<'rcu, C>,
+        guards1: Guards<'rcu, C>,
+    ) -> bool {
+        &&& OwnerSubtree::implies(
+            CursorOwner::node_unlocked(guards0),
+            CursorOwner::node_unlocked_except(guards1, addr),
+        )
+        &&& forall|i: usize| guards0.lock_held(i) ==> guards1.lock_held(i)
+        &&& forall|i: usize| guards0.unlocked(i) && i != addr ==> guards1.unlocked(i)
     }
 
     /// Locks the page table node.
@@ -365,7 +372,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub fn nr_children(&self) -> (nr: u16)
         requires
-            // Node invariants: owner well-formedness and node-owner consistency
+    // Node invariants: owner well-formedness and node-owner consistency
+
             self.inner.inner@.invariants(*owner),
         returns
             owner.meta_own.nr_children.value(),

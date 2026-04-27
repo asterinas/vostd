@@ -8,8 +8,18 @@
 use vstd::prelude::*;
 
 use super::*;
-use crate::mm::io::{VmReader, VmWriter};
+use crate::mm::{
+    io::{VmIoOwner, VmReader, VmWriter},
+    kspace::{
+        paddr_to_vaddr_spec, KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR,
+        VMALLOC_BASE_VADDR,
+    },
+    paddr_to_vaddr,
+};
+use crate::specs::arch::kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties};
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::mm::virt_mem_newer::VirtPtr;
+use vstd_extra::ownership::OwnerOf;
 
 verus! {
 
@@ -37,12 +47,106 @@ pub type UFrame = Frame<MetaSlotStorage>;
 ///
 /// Untyped frames or segments can be safely read and written by the kernel or
 /// the user.
+///
+/// TODO: Perhaps we also need to define this?
 pub trait UntypedMem {
     /// Borrows a reader that can read the untyped memory.
     fn reader(&self) -> VmReader<'_>;
 
     /// Borrows a writer that can write the untyped memory.
     fn writer(&self) -> VmWriter<'_>;
+}
+
+#[verus_verify]
+impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
+    #[inline(always)]
+    #[verus_spec(r =>
+        with
+            -> owner: Tracked<VmIoOwner<'_>>,
+        requires
+            self.inv(),
+        ensures
+            r.inv(),
+            owner@.inv(),
+            r.wf(owner@),
+            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr_spec()),
+            r.remain_spec() == self.size_spec(),
+            owner@.is_kernel,
+    )]
+    pub fn reader(&self) -> VmReader<'_> {
+        proof_decl! {
+            let ghost id: nat;
+            let tracked owner: VmIoOwner<'_>;
+        }
+        proof {
+            lemma_max_paddr_range();
+        }
+
+        let vaddr = paddr_to_vaddr(self.start_paddr());
+        let len = self.size();
+        let ghost range = vaddr..(vaddr + len) as usize;
+        let ptr = VirtPtr { vaddr, range: Ghost(range) };
+        proof {
+            lemma_paddr_to_vaddr_properties(self.start_paddr_spec());
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+            assert(vaddr > 0);
+            assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
+            assert(ptr.inv());
+        }
+
+        let reader = unsafe {
+            #[verus_spec(with Ghost(id) => Tracked(owner))]
+            VmReader::from_kernel_space(ptr, len)
+        };
+
+        proof_with!(|= Tracked(owner));
+        reader
+    }
+
+    #[inline(always)]
+    #[verus_spec(r =>
+        with
+            -> owner: Tracked<VmIoOwner<'_>>,
+        requires
+            self.inv(),
+        ensures
+            r.inv(),
+            owner@.inv(),
+            r.wf(owner@),
+            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr_spec()),
+            r.avail_spec() == self.size_spec(),
+            owner@.is_kernel,
+            !owner@.is_fallible,
+    )]
+    pub fn writer(&self) -> VmWriter<'_> {
+        proof_decl! {
+            let ghost id: nat;
+            let tracked owner: VmIoOwner<'_>;
+        }
+        proof {
+            lemma_max_paddr_range();
+        }
+
+        let vaddr = paddr_to_vaddr(self.start_paddr());
+        let len = self.size();
+        let ghost range = vaddr..(vaddr + len) as usize;
+        let ptr = VirtPtr { vaddr, range: Ghost(range) };
+        proof {
+            lemma_paddr_to_vaddr_properties(self.start_paddr_spec());
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+            assert(vaddr > 0);
+            assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
+            assert(ptr.inv());
+        }
+
+        let writer = unsafe {
+            #[verus_spec(with Ghost(id), Tracked(false) => Tracked(owner))]
+            VmWriter::from_kernel_space(ptr, len)
+        };
+
+        proof_with!(|= Tracked(owner));
+        writer
+    }
 }
 
 } // verus!

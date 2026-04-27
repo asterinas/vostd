@@ -9,7 +9,9 @@ use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
-use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage, REF_COUNT_UNUSED};
+use super::meta_owners::{
+    MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage, REF_COUNT_UNUSED,
+};
 use super::*;
 use crate::mm::frame::meta::{
     mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},

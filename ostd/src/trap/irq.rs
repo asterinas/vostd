@@ -9,11 +9,11 @@ use core::{fmt::Debug, ops::Deref};
 
 use crate::{
     arch::{
-        irq::{self/* , IrqRemapping, IRQ_NUM_MAX, IRQ_NUM_MIN */},
+        irq::{self /* , IrqRemapping, IRQ_NUM_MAX, IRQ_NUM_MIN */},
         /* trap::TrapFrame, */
     },
     prelude::*,
-    sync::{GuardTransfer, RwLock, SpinLock, /* WriteIrqDisabled */},
+    sync::{GuardTransfer, RwLock, SpinLock /* WriteIrqDisabled */},
     // task::atomic_mode::InAtomicMode,
     // Error,
 };
@@ -195,6 +195,7 @@ pub(super) fn process_top_half(trap_frame: &TrapFrame, irq_num: usize) {
 
 // ####### IRQ Guards #######
 verus! {
+
 /// Disables all IRQs on the current CPU (i.e., locally).
 ///
 /// This function returns a guard object, which will automatically enable local IRQs again when
@@ -228,11 +229,14 @@ pub struct DisabledLocalIrqGuard {
     was_enabled: bool,
 }
 
-impl !Send for DisabledLocalIrqGuard {}
+impl !Send for DisabledLocalIrqGuard {
+
+}
 
 // SAFETY: The guard disables local IRQs, which meets the first
 // sufficient condition for atomic mode.
 /* unsafe impl InAtomicMode for DisabledLocalIrqGuard {} */
+
 impl DisabledLocalIrqGuard {
     #[verifier::external_body]
     fn new() -> Self {
@@ -252,7 +256,8 @@ impl GuardTransfer for DisabledLocalIrqGuard {
         Self { was_enabled }
     }
 }
-}
+
+} // verus!
 /*impl Drop for DisabledLocalIrqGuard {
     fn drop(&mut self) {
         if self.was_enabled {
@@ -260,7 +265,6 @@ impl GuardTransfer for DisabledLocalIrqGuard {
         }
     }
 } */
-
 #[cfg(ktest)]
 mod test {
     use super::*;

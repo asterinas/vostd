@@ -242,11 +242,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
         assert(self.view_mappings().contains(m));
         assert(m.inv());
-        // Bridge: `vaddr_of::<C>(path) <= cur_va() < vaddr_of::<C>(path) + ps`.
-        //   cur_va_in_subtree_range gives the bound in terms of
-        //   `vaddr(path) + va.leading_bits * 2^48`. The cursor invariant
-        //   pins `va.leading_bits == C::LEADING_BITS_spec()`, and
-        //   `lemma_vaddr_of_eq_int` rewrites the sum to `vaddr_of::<C>(path)`.
+
         self.cur_va_in_subtree_range();
         crate::specs::mm::page_table::owners::lemma_vaddr_of_eq_int::<C>(path);
         assert(m.va_range.start <= self@.cur_va < m.va_range.end);
@@ -296,27 +292,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(false);
             }
         };
-        // Use the sound `align_up_advances_general` to get align_up(level).to_vaddr()
-        // directly in the (nat_align_down + ps) form, which equals (vaddr_of(path) + ps).
         assert(nat_align_down(cur_va, ps_nat) + ps_nat == (vaddr_of::<C>(path) + ps) as nat);
         self.locked_range_page_aligned();
         self.va.to_vaddr_bounded();
-        // Discharge the overflow bound via va_plus_page_size_no_overflow.
-        // The lemma gives self.va.to_vaddr() + page_size(self.level) <= usize::MAX.
-        // Combined with nat_align_down(cur_va, ps) <= cur_va (from soundness),
-        // we get nat_align_down(cur_va, ps) + ps <= cur_va + ps <= usize::MAX.
         self.in_locked_range_level_le_guard_level();
         self.va_plus_page_size_no_overflow(self.level as PagingLevel);
         self.va.align_up_advances_general(self.level as int);
-        // self.va.align_up(level).to_vaddr() as nat == nat_align_down(cur_va, ps) + ps.
-        // Combined with nat_align_down == vaddr_of(path), get align_up.to_vaddr() == vaddr_of(path) + ps.
         assert(self.va.align_up(self.level as int).to_vaddr() as nat
             == (vaddr_of::<C>(path) + ps) as nat);
 
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(cur_va, ps_nat) as Vaddr);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip((vaddr_of::<C>(path) + ps) as Vaddr);
 
-        // Bridge to the reflect form: align_up(level).reflect(align_up(level).to_vaddr()).
         self.va.align_up(self.level as int).reflect_to_vaddr();
     }
 

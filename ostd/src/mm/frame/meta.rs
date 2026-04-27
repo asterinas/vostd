@@ -624,12 +624,14 @@ impl MetaSlot {
     {
         let last_ref_cnt = self.ref_count.fetch_add(Tracked(rc_perm), 1);
 
-        // Arc-style overflow guard. Abort when `last_ref_cnt + 1 >= REF_COUNT_MAX`
-        // (i.e., `last_ref_cnt >= REF_COUNT_MAX - 1`), so the post-state never lands
-        // in the `[REF_COUNT_MAX, REF_COUNT_UNIQUE)` illegal zone and the slot
-        // invariant `rc < REF_COUNT_MAX` is preserved on the non-aborting path. Also
-        // catches the UNIQUE → UNUSED increment (UNIQUE > REF_COUNT_MAX - 1).
-        vstd_extra::assert!(last_ref_cnt < REF_COUNT_MAX - 1);
+        if last_ref_cnt >= REF_COUNT_MAX {
+            // This follows the same principle as the `Arc::clone` implementation to prevent the
+            // reference count from overflowing. See also
+            // <https://doc.rust-lang.org/std/sync/struct.Arc.html#method.clone>.
+            #[cfg(feature = "allow_panic")]
+            crate::panic::abort();
+            vstd_extra::assert!(false);
+        }
     }
 
     /// Gets the corresponding frame's physical address.

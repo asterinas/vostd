@@ -25,7 +25,6 @@ use super::{
     guard::{GuardTransfer, SpinGuardian},
     PreemptDisabled,
 };
-//use crate::task::atomic_mode::AsAtomicModeGuard;
 
 verus! {
 
@@ -664,31 +663,52 @@ impl<T, G: SpinGuardian> RwLock<T, G> {
         self.val.get()
     }
 }*/
+
 /* the trait `core::fmt::Debug` is not implemented for `vstd::cell::pcell::PCell<T>`
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.val, f)
     }
 }*/
+
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
 #[verifier::external]
-unsafe impl<T: Send, G> Send for RwLock<T, G> {}
+unsafe impl<T: Send, G> Send for RwLock<T, G> {
+
+}
 
 #[verifier::external]
-unsafe impl<T: Send + Sync, G> Sync for RwLock<T, G> {}
+unsafe impl<T: Send + Sync, G> Sync for RwLock<T, G> {
 
-impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
-#[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {}
+}
 
-impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
-#[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {}
+impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {
 
-impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
+}
+
 #[verifier::external]
-unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {}
+unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {
+
+}
+
+impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {
+
+}
+
+#[verifier::external]
+unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {
+
+}
+
+impl<T  /*: ?Sized*/ , G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {
+
+}
+
+#[verifier::external]
+unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {
+
+}
 
 /// A guard that provides immutable data access.
 #[verifier::reject_recursive_types(T)]
@@ -733,14 +753,22 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     pub open spec fn view(self) -> T {
         self.value()
     }
+
+    /// Borrows the inner value in tracked mode.
+    #[verifier::external_body]
+    pub proof fn tracked_borrow(tracked &self) -> (tracked r: &'a T)
+        returns
+            self.view(),
+    {
+        unimplemented!()
+    }
 }
 
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
     type Target = T;
 
     #[verus_spec(returns self.view())]
-    fn deref(&self) -> &T
-    {
+    fn deref(&self) -> &T {
         proof!{
             use_type_invariant(self);
         }
@@ -750,6 +778,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
         self.inner.val.borrow(Tracked(self.v_token.borrow().borrow().0.borrow()))
     }
 }
+
 /* impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
     for RwLockReadGuard_<T, R, G>
 {
@@ -796,10 +825,11 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockReadGuard<'_,
         fmt::Debug::fmt(&**self, f)
     }
 }*/
+
 /// A guard that provides mutable data access.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-pub struct RwLockWriteGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
+pub struct RwLockWriteGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
     /// Ghost permission for verification
@@ -823,6 +853,15 @@ impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     pub open spec fn view(self) -> T {
         self.value()
     }
+
+    /// Borrows the inner value in tracked mode.
+    #[verifier::external_body]
+    pub proof fn tracked_borrow(tracked &self) -> (tracked r: &'a T)
+        returns
+            self.view(),
+    {
+        unimplemented!()
+    }
 }
 
 /*
@@ -836,8 +875,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
     type Target = T;
 
     #[verus_spec(returns self.view())]
-    fn deref(&self) -> &T
-    {
+    fn deref(&self) -> &T {
         proof!{
             use_type_invariant(self);
         }
@@ -911,21 +949,24 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
         };
     }
 }
+
 /*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }*/
+
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to `RwLockWriteGuard`.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-pub struct RwLockUpgradeableGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
+pub struct RwLockUpgradeableGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
     v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
 }
+
 /*
 impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockUpgradeableGuard<'_, T, G> {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
@@ -1087,8 +1128,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, 
     type Target = T;
 
     #[verus_spec(returns self.view())]
-    fn deref(&self) -> &T
-    {
+    fn deref(&self) -> &T {
         proof!{
             use_type_invariant(self);
         }

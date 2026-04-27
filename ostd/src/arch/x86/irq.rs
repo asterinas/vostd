@@ -94,7 +94,7 @@ pub(crate) fn is_local_enabled() -> bool {
 }
 
 // ####### Inter-Processor Interrupts (IPIs) #######
-/* 
+/*
 /// Hardware-specific, architecture-dependent CPU ID.
 ///
 /// This is the Local APIC ID in the x86_64 architecture.

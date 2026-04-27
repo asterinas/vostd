@@ -265,7 +265,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 && m.property == parent.property
         // New mappings are either from the old view or are sub-mappings of
         // old entries that straddled a boundary (refinement).
-        &&& forall |m: Mapping| new_view.mappings.contains(m)
+        &&& forall |m: Mapping| #[trigger] new_view.mappings.contains(m)
             ==> self.mappings.contains(m)
             || exists |parent: Mapping| #[trigger] self.mappings.contains(parent)
                 && parent.va_range.start <= m.va_range.start

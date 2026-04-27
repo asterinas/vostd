@@ -350,7 +350,7 @@ impl ProgramState {
 
     pub open spec fn mutual_exclusion(self) -> bool {
         forall|i: Tid, j: Tid|
-            #![auto]
+            #![trigger self.pc[i], self.pc[j]]
             (self.valid_tid(i) && self.valid_tid(j) && i != j) ==> !(self.pc[i] == Label::cs
                 && self.pc[j] == Label::cs)
     }

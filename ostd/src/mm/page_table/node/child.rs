@@ -2,9 +2,9 @@
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
 
+use crate::mm::frame::meta::has_safe_slot;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::frame::Frame;
-use crate::mm::frame::meta::has_safe_slot;
 use crate::mm::page_table::*;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
@@ -98,11 +98,15 @@ impl<C: PageTableConfig> Child<C> {
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => {
-                proof { owner.in_scope = false; }
+                proof {
+                    owner.in_scope = false;
+                }
                 C::E::new_page(paddr, level, prop)
             },
             Child::None => {
-                proof { owner.in_scope = false; }
+                proof {
+                    owner.in_scope = false;
+                }
                 C::E::new_absent()
             },
         }
@@ -147,6 +151,7 @@ impl<C: PageTableConfig> Child<C> {
         if !pte.is_last(level) {
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                 regions.inv_implies_correct_addr(paddr);
             }
 
@@ -163,7 +168,9 @@ impl<C: PageTableConfig> Child<C> {
 
                 entry_own.in_scope = true;
 
-                assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(*old(regions)).slot_owners);
+                assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(
+                    *old(regions),
+                ).slot_owners);
                 assert(regions.slots =~= entry_own.from_pte_regions_spec(*old(regions)).slots);
             }
 
@@ -228,6 +235,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         if !pte.is_last(level) {
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                 regions.inv_implies_correct_addr(paddr);
                 assert(entry_owner.metaregion_sound(*regions));
                 assert(entry_owner.meta_slot_paddr().unwrap() == paddr);
@@ -249,13 +257,18 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 let ghost entry_snap = *entry_owner;
                 assert(!old(regions).slots.contains_key(borrow_idx)) by {
                     if old(regions).slots.contains_key(borrow_idx) {
-                        EntryOwner::<C>::active_entry_not_in_free_pool(entry_snap, *old(regions), borrow_idx);
+                        EntryOwner::<C>::active_entry_not_in_free_pool(
+                            entry_snap,
+                            *old(regions),
+                            borrow_idx,
+                        );
                         // gives borrow_idx != borrow_idx — contradiction
                     }
                 };
                 // Since borrow_idx was not in old.slots, insert preserves all old keys.
-                assert forall |k: usize| old(regions).slots.contains_key(k)
-                    implies old(regions).slots[k] == #[trigger] regions.slots[k] by {
+                assert forall|k: usize| old(regions).slots.contains_key(k) implies old(
+                    regions,
+                ).slots[k] == #[trigger] regions.slots[k] by {
                     assert(k != borrow_idx);
                     // regions.slots == old.slots.insert(borrow_idx, _), and k != borrow_idx
                 };

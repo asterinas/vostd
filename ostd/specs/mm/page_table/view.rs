@@ -76,8 +76,9 @@ impl Mapping {
 /// The physical ranges not overlapping must be maintained by the page table implementation.
 impl PageTableView {
     pub open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping| #![auto] self.mappings has m ==> m.inv()
-        &&& forall|m: Mapping, n:Mapping| #![auto]
+        &&& forall|m: Mapping| #![trigger self.mappings.contains(m)] self.mappings has m ==> m.inv()
+        &&& forall|m: Mapping, n:Mapping|
+            #![trigger self.mappings.contains(m), self.mappings.contains(n)]
             self.mappings has m ==>
             self.mappings has n ==>
             m != n ==> {

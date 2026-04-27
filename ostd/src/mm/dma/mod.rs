@@ -1,18 +1,52 @@
 // SPDX-License-Identifier: MPL-2.0
-mod dma_coherent;
+// mod dma_coherent;
 mod dma_stream;
 #[cfg(ktest)]
 mod test;
 
 use alloc::collections::BTreeSet;
+use vstd::{predicate::Predicate as DataPredicate, prelude::*};
 
-pub use dma_coherent::DmaCoherent;
-pub use dma_stream::{DmaDirection, DmaStream, DmaStreamSlice};
-use inherit_methods_macro::inherit_methods;
-use spin::Once;
+use crate::sync::{
+    AtomicDataWithOwner, Once, PreemptDisabled, SpinLock, SpinLockGuard, TrivialPred,
+};
 
 use super::Paddr;
-use crate::{arch::iommu::has_dma_remapping, mm::PAGE_SIZE, sync::SpinLock};
+
+verus! {
+
+pub tracked struct DmaMappingSetOwner {}
+
+impl DataPredicate<SpinLock<BTreeSet<Paddr>, PreemptDisabled>> for DmaMappingSetOwner {
+    open spec fn predicate(&self, v: SpinLock<BTreeSet<Paddr>, PreemptDisabled>) -> bool {
+        v.wf()
+    }
+}
+
+/// Set of all physical addresses with dma mapping.
+exec static DMA_MAPPING_SET: Once<
+    SpinLock<BTreeSet<Paddr>, PreemptDisabled>,
+    DmaMappingSetOwner,
+    TrivialPred,
+>
+    ensures
+        DMA_MAPPING_SET.wf(),
+{
+    Once::new(Ghost(TrivialPred))
+}
+
+#[inline(always)]
+pub fn init() {
+    let lock = SpinLock::new(BTreeSet::new());
+
+    proof {
+        use_type_invariant(&lock);
+    }
+
+    let data = AtomicDataWithOwner::new(lock, Tracked(DmaMappingSetOwner {  }));
+
+    DMA_MAPPING_SET.init(data);
+}
 
 /// The device address.
 ///
@@ -40,6 +74,79 @@ pub trait HasDaddr {
     /// device address space.
     fn daddr(&self) -> Daddr;
 }
+
+#[verifier::inline]
+pub open spec fn is_valid_daddr(d: Daddr) -> bool {
+    true
+}
+
+/// Checks whether the physical addresses has dma mapping.
+/// Fail if they have been mapped, otherwise insert them.
+#[verus_spec(
+    requires
+        start_paddr + num_pages * crate::mm::PAGE_SIZE <= usize::MAX,
+)]
+fn check_and_insert_dma_mapping(start_paddr: Paddr, num_pages: usize) -> bool {
+    match DMA_MAPPING_SET.get() {
+        None => false,
+        Some(mapping_set) => {
+            let mut mapping_set = mapping_set.lock();
+            let mut i = 0;
+
+            #[verus_spec(
+                invariant
+                    i <= num_pages,
+                    start_paddr + num_pages * crate::mm::PAGE_SIZE <= usize::MAX,
+                decreases
+                    num_pages - i,
+            )]
+            while i < num_pages {
+                let paddr = start_paddr + (i * crate::mm::PAGE_SIZE);
+                if mapping_set.contains(&paddr) {
+                    return false;
+                }
+                i += 1;
+            }
+
+            i = 0;
+            #[verus_spec(
+                invariant
+                    i <= num_pages,
+                    start_paddr + num_pages * crate::mm::PAGE_SIZE <= usize::MAX,
+                decreases
+                    num_pages - i,
+            )]
+            while i < num_pages {
+                let paddr = start_paddr + (i * crate::mm::PAGE_SIZE);
+                // Failure: complex arguments to $mut parameters are currently unsupported
+                // mapping_set.insert(paddr);
+                i += 1;
+            }
+
+            true
+        },
+    }
+}
+
+#[verifier::external_body]
+pub fn dma_type() -> DmaType {
+    unimplemented!()
+}
+
+} // verus!
+/*
+use alloc::collections::BTreeSet;
+
+pub use dma_coherent::DmaCoherent;
+pub use dma_stream::{DmaDirection, DmaStream, DmaStreamSlice};
+use inherit_methods_macro::inherit_methods;
+use spin::Once;
+
+use super::Paddr;
+use crate::{arch::iommu::has_dma_remapping, mm::PAGE_SIZE, sync::SpinLock};
+
+
+
 
 #[inherit_methods(from = "(**self)")]
 impl<T: HasDaddr> HasDaddr for &T {
@@ -90,3 +197,4 @@ fn remove_dma_mapping(start_paddr: Paddr, num_pages: usize) {
         mapping_set.remove(&paddr);
     }
 }
+*/

@@ -20,10 +20,10 @@ use crate::mm::page_table::{page_size_spec, PageTableEntryTrait, PageTableGuard}
 
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::*;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
 };
+use crate::specs::mm::page_table::*;
 
 use core::ops::Deref;
 
@@ -113,9 +113,6 @@ pub axiom fn axiom_leading_bits_bounded<C: PageTableConfig>()
 /// `vaddr(path) < 2^48` for every valid path: each term in the positional
 /// sum is `i_k * 2^(12 + 9·k)` with `i_k < 512 = 2^9`, so the sum is
 /// strictly less than `2^48`.
-///
-/// Tightest case (all indices `= 511`):
-///   `(2^9 - 1) · (2^39 + 2^30 + 2^21 + 2^12) = 2^48 − 2^12 < 2^48`.
 #[verifier::rlimit(400)]
 pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     requires
