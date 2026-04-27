@@ -11,7 +11,8 @@ pub assume_specification<T>[ <[T]>::as_ptr ](s: &[T]) -> (r: *const T)
 
 pub uninterp spec fn as_ptr_spec<T>(s: &[T]) -> *const T;
 
-pub assume_specification<T>[ <[T]>::as_mut_ptr ](s: &mut [T]) -> *mut T;
+pub assume_specification<T>[ <[T]>::as_mut_ptr ](s: &mut [T]) -> *mut T
+;
 
 /// Length of a `Range<usize>`. Malformed ranges (`start > end`) are length 0,
 /// matching `ExactSizeIterator::len` for `Range<A: Step>` where `Step::steps_between`

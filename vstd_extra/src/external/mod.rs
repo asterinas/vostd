@@ -5,14 +5,14 @@
 pub mod deref;
 pub mod ilog2;
 pub mod nonnull;
+pub mod nonzero;
+pub mod ptr;
 pub mod smart_ptr;
 
-#[deprecated(
-    note = "If you can, do not use this module as it adds assumptions about the core of Rust's deref semantics."
-)]
-pub use deref::*;
 pub use ilog2::*;
 pub use nonnull::*;
+pub use nonzero::*;
+pub use ptr::*;
 pub use smart_ptr::*;
 
 use vstd::prelude::*;

@@ -86,6 +86,7 @@ pub proof fn lemma_page_size_multiple_of_page_size(level: PagingLevel)
 /// For any level in [1, NR_LEVELS+1], the page size is at least PAGE_SIZE.
 /// This follows from page_size(level) = PAGE_SIZE * pow2((ilog2 * (level-1)) as nat)
 /// with pow2(k) >= 1 for all k >= 0.
+#[verifier::spinoff_prover]
 pub proof fn lemma_page_size_ge_page_size(level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS + 1,
@@ -93,15 +94,6 @@ pub proof fn lemma_page_size_ge_page_size(level: PagingLevel)
         page_size(level) >= PAGE_SIZE,
 {
     lemma_page_size_spec_values();
-    // FIXME: why the following empty if-else is needed to make the proof go through?
-    // It seems that the proof fails without it, even though the lemma_page_size_spec_values()
-    // should already give us the needed information about page_size_spec(level).
-    if level == 1 {
-    } else if level == 2 {
-    } else if level == 3 {
-    } else if level == 4 {
-    } else {
-    }
 }
 
 /// `page_size` is monotone in the level: a higher level has a larger or equal page size.

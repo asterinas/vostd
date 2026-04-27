@@ -1,8 +1,11 @@
+#![deprecated(
+    note = "If you can, do not use this module as it adds assumptions about the core of Rust's deref semantics."
+)]
+
 use core::hint::spin_loop;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use vstd::prelude::*;
-
 // Assumptions about external functions
 
 verus! {

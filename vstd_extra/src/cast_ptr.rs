@@ -62,7 +62,7 @@ pub trait Repr<R: Sized>: Sized {
 
 /// Concrete representation of a pointer to an object of type T with representation type R
 /// The length of the array is not stored in the pointer
-pub struct ReprPtr<R, T: Repr<R>> { 
+pub struct ReprPtr<R, T: Repr<R>> {
     pub ptr: PPtr<R>,
     pub _T: PhantomData<T>,
 }
@@ -141,7 +141,8 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
 
     #[verifier::when_used_as_spec(addr_spec)]
     pub fn addr(self) -> (u: usize)
-        returns self.addr_spec(),
+        returns
+            self.addr_spec(),
     {
         self.ptr.addr()
     }
@@ -197,10 +198,8 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
     /// initialised and well-formed. Callers must preserve any invariants
     /// beyond that themselves.
     #[verifier::external_body]
-    pub exec fn borrow_mut<'a>(
-        self,
-        Tracked(perm): Tracked<&'a mut PointsTo<R, T>>,
-    ) -> (v: &'a mut T)
+    pub exec fn borrow_mut<'a>(self, Tracked(perm): Tracked<&'a mut PointsTo<R, T>>) -> (v:
+        &'a mut T)
         requires
             old(perm).pptr() == self,
             old(perm).is_init(),
@@ -225,10 +224,7 @@ pub tracked struct PointsTo<R, T: Repr<R>> {
 }
 
 impl<R, T: Repr<R>> PointsTo<R, T> {
-    pub open spec fn new_spec(
-        points_to: simple_pptr::PointsTo<R>,
-        inner_perms: T::Perm,
-    ) -> Self {
+    pub open spec fn new_spec(points_to: simple_pptr::PointsTo<R>, inner_perms: T::Perm) -> Self {
         Self { points_to, inner_perms, _T: PhantomData }
     }
 

@@ -4,10 +4,12 @@ use vstd::prelude::*;
 
 verus! {
 
-// Produces an arbitrary PointsTo permission for type T, this is sound because one can not use
-// such a permission to access memory.
+/// Produces an uninitialized tracked type.
+/// CAUTION: This is a workaround for the uninitialized value problem in attribut syntax.
+/// It is UNSOUND in general, each usage must be checked carefully.
+/// WE should immediately remove this function once we #[verus_spec] has a better support for name binding.
 #[verifier(external_body)]
-pub proof fn arbitrary_cell_pointsto<T>() -> (tracked res: vstd::cell::pcell::PointsTo<T>) {
+pub proof fn tracked_uninitialized<T>() -> (tracked res: T) {
     unimplemented!();
 }
 
