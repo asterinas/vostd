@@ -44,18 +44,10 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).in_locked_range(),
-        // Strict `<`: the trust assume at locking.rs:173 commits to the cursor
-        // descending strictly below the guard level after DFS acquisition (the
-        // CursorOwner inv requires this when in_locked_range && !popped_too_high).
-        ret.0.level < ret.0.guard_level,
+        ret.0.level == ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
-        // The cursor's reconstructed page-table owner equals the input. Locking
-        // only descends into the page table — it does not modify the abstract
-        // mapping structure — so the cursor's root-level view matches the
-        // original owner. Consumed by `as_page_table_owner_preserves_view_mappings`
-        // to relate `cursor_owner@.mappings` back to `pt_own.view_rec(...)`.
         (*ret.1).as_page_table_owner() == pt_own,
         // The root continuation's path matches the input's root path — this
         // lets `view_rec(pt_own.0.value.path)` unify with the lemma's
@@ -117,7 +109,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     #[verus_spec(with Tracked(&mut cursor_own), Tracked(regions), Tracked(guards))]
     let subtree_root = try_traverse_and_lock_subtree_root(pt, guard, va);
 
-    // Phase 6: `try_traverse_and_lock_subtree_root`'s postcondition now
+    // `try_traverse_and_lock_subtree_root`'s postcondition
     // unconditionally promises `r is Some` (the external_body implementation
     // is the post-retry form).
     let mut subtree_root = subtree_root.unwrap();
@@ -138,12 +130,6 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     let mut path = [None, None, None, None];
     path[guard_level as usize - 1] = Some(subtree_root);
 
-    // TODO: The cursor's `level` must be < guard_level for `CursorOwner::inv()`
-    // when `!popped_too_high && in_locked_range`. Currently set to guard_level,
-    // which is inconsistent. The DFS descent should populate `path` at each level
-    // and set cursor level to the leaf (level 1 or the lowest locked level).
-    // This requires `dfs_acquire_lock` to also build continuations + path entries,
-    // or a post-DFS descent step.
     let res = (Cursor::<'rcu, C, A> {
         path,
         rcu_guard: guard,
@@ -154,26 +140,14 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         _phantom: PhantomData,
     }, Tracked(cursor_own));
 
-    // Phase 6: locking trust boundary (cluster point).
-    //
-    // After `try_traverse_and_lock_subtree_root` + `dfs_acquire_lock`, the
-    // cursor's operational state reflects a fully locked range, but deriving
-    // the `Cursor::invariants` shape from their current postconditions would
-    // require modeling the full DFS lock acquisition against the ghost
-    // `Guards` state. That model does not exist yet, so the four shape facts
-    // below are consolidated into a single `assume` — one trust line instead
-    // of the previous four admits. Discharging this requires strengthening
-    // `dfs_acquire_lock`'s external_body postcondition to commit to the
-    // cursor's final locked state.
-    //
-    // The preservation of `paths_in_pt` and `item_not_mapped` for lock_range
-    // is handled separately, via `try_traverse_and_lock_subtree_root`'s
-    // postcondition, so it is not part of this trust line.
+    // TODO: the details of the locking mechanism being admitted here
+    // are superseded by the CortenMM version. They should be merged, first
+    // at the spec level, then the code.
     proof {
         assume(
             res.0.invariants(*res.1, *regions, *guards)
             && (*res.1).in_locked_range()
-            && res.0.level < res.0.guard_level
+            && res.0.level == res.0.guard_level
             && res.0.va < res.0.barrier_va.end
             && (*res.1).as_page_table_owner() == pt_own
             && (*res.1).continuations[3].path() == pt_own.0.value.path
