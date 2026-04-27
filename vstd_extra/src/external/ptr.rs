@@ -38,12 +38,12 @@ pub open spec fn ptr_mut_cast_spec<T: PointeeSized, U>(ptr: *mut T) -> *mut U {
 }
 
 #[inline(always)]
-pub open spec fn ptr_mut_cast_const_spec<T: PointeeSized>( ptr: *mut T) -> *const T {
+pub open spec fn ptr_mut_cast_const_spec<T: PointeeSized>(ptr: *mut T) -> *const T {
     ptr as *const T
 }
 
 #[inline(always)]
-pub open spec fn ptr_cast_mut_spec<T: PointeeSized>( ptr: *const T) -> *mut T {
+pub open spec fn ptr_cast_mut_spec<T: PointeeSized>(ptr: *const T) -> *mut T {
     ptr as *mut T
 }
 

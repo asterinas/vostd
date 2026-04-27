@@ -1,11 +1,12 @@
+use crate::external::nonzero::*;
 use core::marker::PointeeSized;
 use core::num::NonZero;
 use core::ptr::NonNull;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
-use crate::external::nonzero::*;
 
 verus! {
+
 #[verifier::external_type_specification]
 #[verifier::reject_recursive_types(T)]
 #[verifier::external_body]
@@ -25,11 +26,12 @@ pub trait NonNullAdditionalFns<T: PointeeSized> {
     /// Type invariant: the address of the pointer is non-null.
     proof fn lemma_addr_is_nonnull(self)
         ensures
-            self.view_ptr_mut()@.addr != 0,;
+            self.view_ptr_mut()@.addr != 0,
+    ;
 }
 
 impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
-    uninterp spec fn view_ptr_mut(self) -> *mut T; 
+    uninterp spec fn view_ptr_mut(self) -> *mut T;
 
     uninterp spec fn cast_spec<U>(self) -> NonNull<U>;
 
@@ -66,7 +68,7 @@ pub broadcast axiom fn axiom_view_ptr_mut_eq<T: PointeeSized>(a: NonNull<T>)
         nonnull_from_ptr_mut_spec(#[trigger] a.view_ptr_mut()) == a,
 ;
 
-/// The semantic of casting a `NonNull<T>` should be the same as casting the underlying raw pointer 
+/// The semantic of casting a `NonNull<T>` should be the same as casting the underlying raw pointer
 /// (including the address, metadata, and provenance).
 pub broadcast axiom fn axiom_cast_spec_eq<T: PointeeSized, U>(ptr: NonNull<T>)
     ensures
@@ -93,9 +95,8 @@ pub assume_specification<T: PointeeSized>[ NonNull::as_ptr ](ptr: NonNull<T>) ->
 ;
 
 #[verifier::when_used_as_spec(nonnull_cast_spec_wrapper)]
-pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](
-    ptr: NonNull<T>,
-) -> (ret: NonNull<U>)
+pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](ptr: NonNull<T>) -> (ret:
+    NonNull<U>)
     ensures
         ret.view_ptr_mut() == ptr.view_ptr_mut() as *mut U,
     returns
@@ -103,10 +104,9 @@ pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](
 ;
 
 /// FIXME: Better specification that captures the effect of the mapping function `f` on the pointer's address, instead of just saying the metadata and provenance are unchanged.
-pub assume_specification<T: PointeeSized, F: FnOnce(NonZero<usize>) -> NonZero<usize>> [ NonNull::<T>::map_addr ](
-    ptr: NonNull<T>,
-    f: F,
-) -> (ret: NonNull<T>)
+pub assume_specification<T: PointeeSized, F: FnOnce(NonZero<usize>) -> NonZero<usize>>[ NonNull::<
+    T,
+>::map_addr ](ptr: NonNull<T>, f: F) -> (ret: NonNull<T>)
     ensures
         ret.view_ptr_mut()@.metadata == ptr.view_ptr_mut()@.metadata,
         ret.view_ptr_mut()@.provenance == ptr.view_ptr_mut()@.provenance,

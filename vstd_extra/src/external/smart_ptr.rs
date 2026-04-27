@@ -160,8 +160,8 @@ impl<T> Inv for ArcPointsTo<T> {
 }
 
 /// A wrapper around `Box::into_raw` that also returns the permission to access the memory.
-/// 
-/// Soundness: it is unsound to create a `ptr` method for `Box<T>` that returns the raw pointer without the permission. 
+///
+/// Soundness: it is unsound to create a `ptr` method for `Box<T>` that returns the raw pointer without the permission.
 /// As Verus only compares the value of the `Box<T>` for equality, so the following code will be wrongly verified:
 /// ```rust
 /// let b1 = Box::new(1);
@@ -178,7 +178,7 @@ impl<T> Inv for ArcPointsTo<T> {
 #[verifier::external_body]
 #[verus_spec(ret =>
     with
-        -> perm: Tracked<(PointsTo<T>, Option<Dealloc>)>, 
+        -> perm: Tracked<(PointsTo<T>, Option<Dealloc>)>,
     ensures
         ret == perm@.0.ptr(),
         perm@.0.ptr().addr() != 0,
@@ -197,8 +197,7 @@ impl<T> Inv for ArcPointsTo<T> {
             None => { &&& vstd::layout::size_of::<T>() == 0 },
         }
 )]
-pub fn box_into_raw<T>(b: Box<T>) -> *mut T
-{
+pub fn box_into_raw<T>(b: Box<T>) -> *mut T {
     proof_with!(|= Tracked::assume_new());
     Box::into_raw(b)
 }
@@ -227,13 +226,12 @@ pub fn box_into_raw<T>(b: Box<T>) -> *mut T
     ensures
         *ret == points_to.value(),
     )]
-pub unsafe fn box_from_raw<T>(ptr: *mut T) -> Box<T>
-{
+pub unsafe fn box_from_raw<T>(ptr: *mut T) -> Box<T> {
     unsafe { Box::from_raw(ptr) }
 }
 
 /// A wrapper around `Arc::into_raw` that also returns the permission to access the memory.
-/// 
+///
 /// Soundness: the soundness concern is similar to `box_into_raw`.
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // `Arc::into_raw` will not decrease the reference count, so the memory will keep valid until we convert back to Arc<T> and drop it.
@@ -248,8 +246,7 @@ pub unsafe fn box_from_raw<T>(ptr: *mut T) -> Box<T>
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
         perm@.value() == *p,
 )]
-pub fn arc_into_raw<T>(p: Arc<T>) -> *const T
-{
+pub fn arc_into_raw<T>(p: Arc<T>) -> *const T {
     proof_with!(|= Tracked::assume_new());
     Arc::into_raw(p)
 }
@@ -268,8 +265,7 @@ pub fn arc_into_raw<T>(p: Arc<T>) -> *const T
     ensures
         *ret == points_to.value(),
 )]
-pub unsafe fn arc_from_raw<T>(ptr: *const T) -> Arc<T>
-{
+pub unsafe fn arc_from_raw<T>(ptr: *const T) -> Arc<T> {
     unsafe { Arc::from_raw(ptr) }
 }
 
