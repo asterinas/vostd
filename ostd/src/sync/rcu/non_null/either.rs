@@ -82,7 +82,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
                 .cast(),
         } */
-       proof_decl!{
+        proof_decl!{
            let ghost align_bits = Self::ALIGN_BITS;
            let ghost l_align_bits = L::ALIGN_BITS;
            let ghost r_align_bits = R::ALIGN_BITS;
