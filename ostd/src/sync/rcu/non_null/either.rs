@@ -145,8 +145,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 proof! {
                     let addr = right.addr_spec()@;
                     let tagged_addr = right_tagged.addr_spec()@;
-                    right.lemma_addr_is_nonnull();
-                    right_tagged.lemma_addr_view_eq_view_ptr_mut();
                     assert(tagged_addr & tag == tag) by (bit_vector)
                     requires
                         tagged_addr == addr | tag,
@@ -223,7 +221,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         }
         proof! {
             let ghost ptr_addr = ptr.view_ptr_mut()@.addr;
-            ptr.lemma_addr_is_nonnull();
             assert(tag > 0) by (bit_vector)
             requires
                 tag == 1usize << align_bits,
@@ -352,13 +349,11 @@ unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     // use core::num::NonZeroUsize;
     use vstd_extra::external::nonzero::NonZeroUsize;
     let removed_bits = ptr.addr_v().get() & bits;
-    // // SAFETY: The safety is upheld by the caller.
-    let result_ptr = ptr.map_addr_v(|addr| -> (ret: NonZeroUsize) 
+    let result_ptr = ptr
+        .map_addr_v(|addr| -> (ret: NonZeroUsize) 
         ensures ret@ == addr@ & !bits
+        // SAFETY: The safety is upheld by the caller.
         {unsafe { NonZeroUsize::new_unchecked(addr.get() & !bits) }});
-    proof!{
-        result_ptr.lemma_addr_view_eq_view_ptr_mut();
-    }
     (removed_bits, result_ptr)
 }
 

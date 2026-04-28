@@ -86,9 +86,9 @@ impl NonZeroUsize {
         self.inner.get()
     }
 
-    axiom fn lemma_nonzero_neq_zero(self)
+    broadcast axiom fn lemma_nonzero_neq_zero(self)
         ensures
-            self.view() != 0,
+            #[trigger] self.view() != 0,
     ;
 }
 
@@ -143,6 +143,7 @@ impl OrdSpecImpl for NonZeroUsize {
 }
 
 pub broadcast group group_nonzero_axioms {
+    NonZeroUsize::lemma_nonzero_neq_zero,
     NonZeroUsize::axiom_nonzero_usize_from_usize_view_eq,
     NonZeroUsize::axiom_view_nonzero_usize_from_usize_eq,
 }
