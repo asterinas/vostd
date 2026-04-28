@@ -1417,6 +1417,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn set_va_preserves_inv(self, new_va: AbstractVaddr)
         requires
             self.inv(),
+            self.in_locked_range(),
             !self.popped_too_high,
             self.level <= self.guard_level,
             new_va.inv(),
@@ -1457,7 +1458,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& r.continuations[3].inv()
             &&& r.continuations[3].level() == 4
             &&& r.continuations[3].entry_own.parent_level == 5
-            &&& r.va.index[3] == r.continuations[3].idx
+            &&& r.in_locked_range() ==> r.va.index[3] == r.continuations[3].idx
         });
 
         assert(r.level <= 3 ==> {
@@ -1465,7 +1466,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& r.continuations[2].inv()
             &&& r.continuations[2].level() == 3
             &&& r.continuations[2].entry_own.parent_level == 4
-            &&& r.va.index[2] == r.continuations[2].idx
+            &&& r.in_locked_range() ==> r.va.index[2] == r.continuations[2].idx
             &&& r.continuations[2].guard.inner.inner@.ptr.addr() !=
                 r.continuations[3].guard.inner.inner@.ptr.addr()
             &&& r.continuations[2].path() == r.continuations[3].path().push_tail(r.continuations[3].idx as usize)
@@ -1476,7 +1477,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& r.continuations[1].inv()
             &&& r.continuations[1].level() == 2
             &&& r.continuations[1].entry_own.parent_level == 3
-            &&& r.va.index[1] == r.continuations[1].idx
+            &&& r.in_locked_range() ==> r.va.index[1] == r.continuations[1].idx
             &&& r.continuations[1].guard.inner.inner@.ptr.addr() !=
                 r.continuations[2].guard.inner.inner@.ptr.addr()
             &&& r.continuations[1].guard.inner.inner@.ptr.addr() !=
@@ -1489,7 +1490,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& r.continuations[0].inv()
             &&& r.continuations[0].level() == 1
             &&& r.continuations[0].entry_own.parent_level == 2
-            &&& r.va.index[0] == r.continuations[0].idx
+            &&& r.in_locked_range() ==> r.va.index[0] == r.continuations[0].idx
             &&& r.continuations[0].guard.inner.inner@.ptr.addr() !=
                 r.continuations[1].guard.inner.inner@.ptr.addr()
             &&& r.continuations[0].guard.inner.inner@.ptr.addr() !=
@@ -1544,8 +1545,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else if self.level < NR_LEVELS {
             self.pop_level_owner_spec().0.move_forward_owner_spec()
         } else {
-            // Should never happen
+            // self.level == NR_LEVELS && self.index() + 1 == NR_ENTRIES.
+            // Advance to the next leading_bits-chunk via `next_index(NR_LEVELS)`.
             Self {
+                va: self.va.next_index(NR_LEVELS as int),
                 popped_too_high: false,
                 ..self
             }
@@ -1580,17 +1583,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // does inc_index().zero_below_level(). VA increases.
                 // k == NR_ENTRIES - 1 here, so the parent idx advances.
             } else {
-                // Spec corner: `level == guard_level == NR_LEVELS &&
-                // index+1 == NR_ENTRIES`. `move_forward_owner_spec` returns
-                // `Self { popped_too_high: false, ..self }` from the third
-                // spec branch, so the VA is unchanged and the postcondition
-                // (strict increase) is genuinely false. Reachable only when
-                // `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES` (KernelPtConfig).
-                // Callers (e.g. `do_inc_index_or_pop_until_can_inc`) rule
-                // this out via local bound assumes — see [mod.rs:1549].
-                // Scoped assume: only the postcondition for this corner.
-                assume(self.move_forward_owner_spec().va.to_vaddr()
-                    > self.va.to_vaddr());
+                // `level == guard_level == NR_LEVELS && index+1 == NR_ENTRIES`
+                // is unreachable: `cursor_top_idx_strict_lt_nr_entries` derives
+                // `self.index() + 1 < NR_ENTRIES` from cursor inv +
+                // LOCKED_END_BOUND, contradicting the outer `else` guard.
+                self.cursor_top_idx_strict_lt_nr_entries();
+                assert(false);
             }
         } else if self.level + 1 < self.guard_level {
             assert(self.level < NR_LEVELS);
@@ -1643,6 +1641,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level <= NR_LEVELS,
             self.in_locked_range(),
             self.popped_too_high,
+            self.continuations[NR_LEVELS - 1].idx + 1 < NR_ENTRIES,
         ensures
             self.move_forward_owner_spec().max_steps()
                 + Self::max_steps_subtree(self.level as usize) <= self.max_steps(),
@@ -1707,14 +1706,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 <= self.max_steps());
         } else {
             // Case C: self.level == NR_LEVELS && self.index() + 1 == NR_ENTRIES.
-            // Spec corner: `level == NR_LEVELS && index+1 == NR_ENTRIES`.
-            // `move_forward_owner_spec` returns the unchanged self (third
-            // spec branch); `+ subtree(NR_LEVELS) ≤ self.max_steps()` is
-            // genuinely false because `subtree(NR_LEVELS) > 0`. Reachable
-            // only when `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`. Scoped
-            // assume of the postcondition only.
-            assume(self.move_forward_owner_spec().max_steps()
-                + Self::max_steps_subtree(self.level as usize) <= self.max_steps());
+            // Excluded by the lemma's precondition.
+            assert(false);
         }
     }
 
@@ -1724,6 +1717,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level <= NR_LEVELS,
             self.in_locked_range(),
             !self.popped_too_high,
+            // See `move_forward_owner_popped_too_high_decreases` for the
+            // rationale: rules out the unreachable third-branch corner.
+            self.continuations[NR_LEVELS - 1].idx + 1 < NR_ENTRIES,
         ensures
             // "Decrease by ≥ subtree(self.level)" form: needed by `push_level`
             // and by the pop+recursion case to compensate for pop_level's
@@ -1808,16 +1804,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     <= self.max_steps());
             }
         } else {
-            // Spec corner (mirror of `move_forward_owner_popped_too_high_decreases`):
-            // `level == NR_LEVELS && index+1 == NR_ENTRIES`. The third spec
-            // branch returns unchanged self, so `+ subtree(NR_LEVELS) ≤` is
-            // genuinely false. Reachable for kernel-half configs where
-            // `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`. Scoped assumes:
-            // both ensures clauses for this corner.
             self.in_locked_range_level_le_nr_levels();
-            assume(self.move_forward_owner_spec().max_steps()
-                + Self::max_steps_subtree(self.level as usize) <= self.max_steps());
-            assume(self.move_forward_owner_spec().max_steps() < self.max_steps());
+            self.in_locked_range_level_le_guard_level();
+            self.cursor_top_idx_strict_lt_nr_entries();
+            assert(false);
         }
     }
 

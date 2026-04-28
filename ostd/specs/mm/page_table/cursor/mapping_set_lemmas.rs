@@ -153,10 +153,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_subtree_eq_filtered_mappings_path(self)
         requires
             self.inv(),
+            self.in_locked_range(),
         ensures ({
-            // Canonical form: the filter boundary includes `leading_bits * 2^48`
-            // so it matches the canonical `m.va_range.start` produced by
-            // `view_rec` via `vaddr_of::<C>`.
             let subtree_va = vaddr_of::<C>(self.cur_subtree().value.path) as int;
             let size = page_size(self.level) as int;
             PageTableOwner(self.cur_subtree())@.mappings ==
@@ -261,6 +259,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_subtree_eq_filtered_mappings(self)
         requires
             self.inv(),
+            self.in_locked_range(),
         ensures ({
             let start = nat_align_down(self@.cur_va as nat, page_size(self.level) as nat) as Vaddr;
             let size = page_size(self.level);
@@ -295,6 +294,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     proof fn cur_va_in_cont_child_range(self, lvl: int)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.level - 1 <= lvl < NR_LEVELS,
         ensures
             vaddr(self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as usize)) as int
@@ -348,6 +348,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     proof fn subtree_va_in_ancestor_range(self, lvl: int)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.level - 1 < lvl < NR_LEVELS,
         ensures ({
             let subtree_va = vaddr(self.cur_subtree().value.path);
@@ -394,6 +395,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn subtree_va_ranges_disjoint(self, j: int)
         requires
             self.inv(),
+            self.in_locked_range(),
             0 <= j < NR_ENTRIES,
             j != self.index(),
             self.continuations[self.level - 1].children[j] is Some,
@@ -427,6 +429,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn higher_level_children_disjoint(self, i: int, j: int)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.level - 1 < i < NR_LEVELS,
             0 <= j < NR_ENTRIES,
             j != self.continuations[i].idx,
@@ -461,6 +464,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn mapping_covering_cur_va_from_cur_subtree(self, m: Mapping)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.view_mappings().contains(m),
             m.va_range.start <= self.cur_va() < m.va_range.end,
         ensures
@@ -511,6 +515,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             old_self.inv(),
+            old_self.in_locked_range(),
             new_self.inv(),
             old_self.level == new_self.level,
             old_self.continuations[old_self.level - 1] == old_cont,

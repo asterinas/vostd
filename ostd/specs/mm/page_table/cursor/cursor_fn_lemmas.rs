@@ -43,6 +43,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             self.inv(),
+            self.in_locked_range(),
             self.metaregion_sound(regions),
             self.cur_entry_owner().is_frame(),
             other.cur_entry_owner().is_frame(),
@@ -175,7 +176,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn map_branch_none_no_new_mappings(self, owner0: Self)
         requires
             owner0.inv(),
+            owner0.in_locked_range(),
             self.inv(),
+            self.in_locked_range(),
             self.level == owner0.level,
             self.va == owner0.va,
             forall|i: int| self.level <= i < NR_LEVELS ==>

@@ -369,12 +369,12 @@ impl KVirtArea {
             self.query_some_condition(owner, addr) ==> self.query_some_ensures(owner, addr, r),
             !self.query_some_condition(owner, addr) ==> Self::query_none_ensures(r),
             // non-panic conditions
-            self.range.start <= addr <= self.range.end
+            self.range.start <= addr < self.range.end
     )]
     pub fn query<A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem>
     {
         use align_ext::AlignExt;
-        vstd_extra::assert!(self.start() <= addr && self.end() >= addr);
+        vstd_extra::assert!(self.start() <= addr && self.end() > addr);
 
         proof {
             vstd_extra::prelude::lemma_pow2_is_pow2_to64();
@@ -714,18 +714,20 @@ impl KVirtArea {
         map_offset: usize,
         pa_range: Range<Paddr>,
         prop: PageProperty,
-    ) -> Self
+    ) -> (res: Self)
         requires
             old(regions).inv(),
             owner.inv(),
+            map_offset + vstd_extra::std_extra::range_usize_len(&pa_range) <= usize::MAX,
+        ensures
+            final(regions).inv(),
+            res.inv(),
     {
         vstd_extra::assert!(pa_range.start % PAGE_SIZE == 0);
         vstd_extra::assert!(pa_range.end % PAGE_SIZE == 0);
         vstd_extra::assert!(area_size % PAGE_SIZE == 0);
         vstd_extra::assert!(map_offset % PAGE_SIZE == 0);
 
-        // LIKELY BUG: if `map_offset + pa_range.len()` overflows, the assert can succeed trivially
-        assume(map_offset + vstd_extra::std_extra::range_usize_len(&pa_range) <= usize::MAX);
         vstd_extra::assert!(map_offset + vstd_extra::std_extra::range_usize_len(&pa_range) <= area_size);
 
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
@@ -857,6 +859,7 @@ impl KVirtArea {
                     assert(!cursor.map_panic_conditions(item));
                     assert(cursor.item_wf(item, entry_owner));
                 }
+                
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
                 // `item_slot_in_regions` for the current `(pa, level)` follows from the
                 // loop invariant's per-PA slot facts, instantiated at the current `pa`.
@@ -873,22 +876,10 @@ impl KVirtArea {
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);
 
-                // Post-map: explicitly bridge the model-level facts to cursor.0.va.
                 proof {
                     cursor_owner.va.reflect_prop(cursor.0.va);
                 }
 
-                // Per-PA slot facts preserved across `cursor.map`:
-                //   - `regions.slots` is monotonic (map ensures).
-                //   - `ref_count` preserved for non-mapped indices (map ensures).
-                //   - For the mapped index itself: the loop's per-iteration pa
-                //     IS in pa_range, but RC could change. Verus derives
-                //     preservation for non-mapped via the new map ensures and
-                //     the mapped pa is allowed to differ — but the invariant
-                //     only requires `rc != UNUSED`, and the post-map RC for
-                //     mapped is set by the install (not UNUSED).
-
-                // Post-map: maintain the VA tracking invariant.
                 proof {
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
                     let level_raw = KernelPtConfig::item_into_raw_spec(item).1;
@@ -903,16 +894,10 @@ impl KVirtArea {
 
                     lemma_page_size_ge_page_size(level_raw);
 
-                    // Sound: align_up.to_vaddr() == nat_align_down(cur_va, size) + size
-                    // (always-advance form). For aligned cur_va, == cur_va + size.
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va.to_vaddr() as nat,
                         page_size(level_raw) as nat,
                     );
-                    // Overflow bound: `nat_align_down(va, ps) + ps <= va + ps <= usize::MAX`.
-                    // The `va + ps <= usize::MAX` bound was established pre-map via
-                    // `cursor_owner.va_plus_page_size_no_overflow(level)`, and nat_align_down
-                    // only decreases its argument.
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va.to_vaddr() as nat,
                         page_size(level_raw) as nat,

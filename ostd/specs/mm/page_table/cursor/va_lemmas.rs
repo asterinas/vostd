@@ -152,6 +152,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn inc_and_zero_increases_va(self)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.index() + 1 < NR_ENTRIES,
         ensures
             self.inc_index().zero_below_level().va.to_vaddr() > self.va.to_vaddr(),
@@ -313,6 +314,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_va_in_subtree_range(self)
         requires
             self.inv(),
+            self.in_locked_range(),
         ensures
             vaddr(self.cur_subtree().value.path) as int
                 + self.va.leading_bits * 0x1_0000_0000_0000int

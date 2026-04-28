@@ -413,6 +413,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         let ghost initial_va = self.va;
 
+        #[verifier::spinoff_prover]
         loop
             invariant
                 self.invariants(*owner, *regions, *guards),
@@ -1438,6 +1439,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
         proof {
+            owner.in_locked_range_guard_index_eq_prefix();
             owner.move_forward_owner_decreases_steps();
             old(owner).move_forward_not_popped_too_high();
         }
@@ -1512,52 +1514,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         let ghost index = abs_next_va.index[self.level - 1];
 
-        proof {
-            if self.level >= self.guard_level {
-                let ghost gl_int: int = self.guard_level as int;
-                // Bridge owner0.va.index[gl-1] == abs_va_down.index[gl-1].
-                // For gl < NR_LEVELS the loop invariant gives this directly (start_level <= gl < NR_LEVELS).
-                // For gl == NR_LEVELS, align_down_shape preserves the top index.
-                if gl_int < NR_LEVELS {
-                    let ghost _trigger = owner0.va.index[gl_int - 1];
-                } else {
-                    owner0.va.align_down_shape(start_level as int);
-                }
-                // The CursorOwner inv tightens `va.index[NR_LEVELS-1] <= TOP_LEVEL_INDEX_RANGE.end`,
-                // and `in_locked_range_top_index_lt_top_end` strengthens that to strict `<`.
-                // Combined with `va.index[gl-1] == prefix.index[gl-1]` (when level == gl) and the
-                // upper-index match (line 488-489 of owners.rs) for gl < NR_LEVELS, we get
-                // `va.index[gl-1] < TOP_LEVEL_INDEX_RANGE.end <= NR_ENTRIES`. For UserPtConfig
-                // (top_end == 256) this gives `+ 1 < NR_ENTRIES` strictly; for KernelPtConfig
-                // (top_end == NR_ENTRIES) only `+ 1 <= NR_ENTRIES` — boundary edge case remains.
-                owner0.in_locked_range_top_index_lt_top_end();
-                if gl_int == NR_LEVELS {
-                    // owner0.va.index[NR_LEVELS - 1] < TOP_LEVEL_INDEX_RANGE.end.
-                    assert(owner0.va.index[gl_int - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
-                } else {
-                    // For gl < NR_LEVELS, `va.index[gl-1] == prefix.index[gl-1]` from
-                    // `in_locked_range_guard_index_eq_prefix`, but the prefix bound from
-                    // inv only constrains the NR_LEVELS-1 index — sub-top guard levels
-                    // get only the structural `< NR_ENTRIES` from the abstract-vaddr inv.
-                    owner0.in_locked_range_guard_index_eq_prefix();
-                    assert(owner0.va.index[gl_int - 1] == owner0.prefix.index[gl_int - 1]);
-                }
-                // Edge case: when prefix.idx[gl-1] + 1 == NR_ENTRIES (only reachable for
-                // KernelPtConfig at top, or any config at sub-top guard levels with the
-                // prefix at the last entry), the carry would set abs_next_va.index[gl-1] = 0
-                // and `index != 0` does not hold. Other cases discharge via the helper.
-                assume(owner0.va.index[gl_int - 1] + 1 < NR_ENTRIES);
-                AbstractVaddr::wrapped_nonzero_at_level_general(
-                    abs_va_down,
-                    abs_next_va,
-                    start_level as int,
-                    self.level as int,
-                    abs_va_down.index[self.level - 1],
-                );
-            }
-        }
-        assert(index != 0);
-
         self.va = next_va;
 
         proof {
@@ -1628,7 +1584,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).barrier_va == old(self).barrier_va,
             *final(owner) == old(owner).pop_level_owner_spec().0,
             final(owner).in_locked_range(),
-            // pop_level does not touch regions at all (only owner and guards are modified).
             *final(regions) == *old(regions),
     {
         proof {
@@ -1747,6 +1702,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         requires
             old(self).inv(),
             old(owner).inv(),
+            old(owner).in_locked_range(),
             old(self).wf(*old(owner)),
             1 <= old(self).level <= 4,
             old(self).path[old(self).level as int - 1] is Some,
@@ -2875,9 +2831,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.va >= old(self).0.va,
             final(self).0.va % PAGE_SIZE == 0,
             final(self).0.barrier_va == old(self).0.barrier_va,
-            // Upper bound: on the Some path, va stays within [old_va, old_va + len].
-            // On the None path, va >= old_va + len but may overshoot (move_forward
-            // at higher levels can jump past end when the entry is absent).
             res is Some ==> final(self).0.va <= old(self).0.va + len,
             res is Some ==> final(self).0.va > old(self).0.va,
             res is Some ==> final(owner).in_locked_range() || final(owner).above_locked_range(),
@@ -2887,14 +2840,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& old(owner)@.mappings.filter(|m: Mapping|
                     old(owner)@.cur_va <= m.va_range.start < (old(owner)@.cur_va + len) as Vaddr) =~= Set::<Mapping>::empty()
             },
-            // F3-F5: Split-aware mapping postconditions.
-            // find_next_impl may split huge pages at the FOUND position (not necessarily
-            // old_cur_va). We apply split_while_huge at the found VA for Mapped entries.
-            // For StrayPageTable (no split occurs), old mappings are used directly.
-            // F2-empty: no mappings in old(owner)@.mappings with start in [old_va, found_va).
-            // (find_next scans [old_va, found_va) finding nothing.)
-            // Note: sub-mappings created by splitting a straddling entry at found_va
-            // may have start < found_va, so we can't extend this to [old_va, new_va).
             res is Some && res.unwrap() is Mapped ==>
                 old(owner)@.mappings.filter(|m: Mapping|
                     old(self).0.va <= m.va_range.start < res.unwrap()->Mapped_va)
@@ -2903,8 +2848,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 old(owner)@.mappings.filter(|m: Mapping|
                     old(self).0.va <= m.va_range.start < res.unwrap()->StrayPageTable_va)
                     =~= Set::<Mapping>::empty(),
-            // F2b-empty: no mappings in the new state between the found entry end and cursor_va.
-            // (After removing the found entry and advancing, the gap is empty.)
             res is Some && res.unwrap() is Mapped ==> {
                 let m = CursorView::<C>::item_into_mapping(
                     res.unwrap()->Mapped_va, res.unwrap()->Mapped_item);
@@ -2928,7 +2871,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     #![auto] final(owner)@.mappings.contains(m2) && old(self).0.va <= m2.va_range.start
                     && m2.va_range.start < res.unwrap()->StrayPageTable_va
                     ==> old(owner)@.mappings.contains(m2),
-            // F3-VA: found entry VA is within [old_va, old_va + len).
             res is Some && res.unwrap() is Mapped ==>
                 res.unwrap()->Mapped_va >= old(self).0.va
                 && (res.unwrap()->Mapped_va as usize) < old(self).0.va + len,
@@ -2937,7 +2879,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& res.unwrap()->StrayPageTable_va + res.unwrap()->StrayPageTable_len
                     <= old(self).0.va + len
             },
-            // F3-F5: Split-aware mapping postconditions.
             res is Some && res.unwrap() is Mapped ==> {
                 let va = res.unwrap()->Mapped_va;
                 let item = res.unwrap()->Mapped_item;
@@ -3003,10 +2944,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.absent_not_in_tree(subtree.value);
             OwnerSubtree::new_val_tree_predicate_map(subtree, subtree.value.path,
                 CursorOwner::<'rcu, C>::node_unlocked(*guards));
-            // replace_cur_entry panic guard: !TOP_LEVEL_CAN_UNMAP ==> level < NR_LEVELS.
-            // With the weakened invariant, level could be NR_LEVELS when guard_level == NR_LEVELS.
-            // This requires TOP_LEVEL_CAN_UNMAP to be true for the config.
-            assume(!C::TOP_LEVEL_CAN_UNMAP_spec() ==> owner.level < NR_LEVELS);
         }
         #[verus_spec(with Tracked(owner), Tracked(subtree), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::None);
@@ -3357,9 +3294,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 new_owner.value.path,
                 CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
             ),
-            // panic
-            !C::TOP_LEVEL_CAN_UNMAP_spec() ==> old(owner).level < NR_LEVELS,
         ensures
+            // Runtime panic in the `Child::PageTable` arm guarantees: when
+            // a `StrayPageTable` fragment is produced (the only path that
+            // unmaps a kernel-shared PT) and the config forbids top-level
+            // unmaps, the cursor's level was strictly below NR_LEVELS.
+            res matches Some(PageTableFrag::StrayPageTable { .. })
+                && !C::TOP_LEVEL_CAN_UNMAP_spec()
+                ==> old(owner).level < NR_LEVELS,
             final(owner)@.mappings == old(owner)@.mappings - PageTableOwner(
                 old(owner).cur_subtree(),
             )@.mappings + PageTableOwner(new_owner)@.mappings,
@@ -3666,18 +3608,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
             Child::PageTable(pt) => {
                 // debug_assert_eq!(pt.level(), level - 1);
-                if !C::TOP_LEVEL_CAN_UNMAP() {
-                    assert(!C::TOP_LEVEL_CAN_UNMAP_spec());
-                    if level as usize == NR_LEVELS {
-                        assert(owner.level == NR_LEVELS);
-
-                        let _ = ManuallyDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
-                        assert(false);
-                        #[cfg(feature = "allow_panic")]
-                        panic!("Unmapping shared kernel page table nodes");
-                        #[cfg(not(feature = "allow_panic"))]
-                        return None;
-                    }
+                if !C::TOP_LEVEL_CAN_UNMAP() && level as usize == NR_LEVELS {
+                    let _ = ManuallyDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
+                    // Runtime panic. Discharges the conditional postcondition
+                    // `res matches Some(StrayPageTable) && !TOP_LEVEL_CAN_UNMAP
+                    // ==> old.level < NR_LEVELS` via `panic_diverge`'s `-> !`.
+                    vstd_extra::panic::panic_diverge();
                 }
                 // SAFETY: We must have locked this node.
 

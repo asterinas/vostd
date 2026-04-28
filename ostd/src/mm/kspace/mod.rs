@@ -185,14 +185,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     // The kvirt allocator (the only source of kernel-PT cursor ranges) caps
     // `range.end` at FRAME_METADATA_BASE_VADDR — see `kvirt_alloc_range_bounds`.
-    // The +PAGE_SIZE margin accommodates `KVirtArea::query`, which constructs
-    // a one-page cursor `[start, start + PAGE_SIZE)` from `addr <= range.end`,
-    // so its `vaddr.end` can equal `FRAME_METADATA_BASE_VADDR + PAGE_SIZE` at
-    // the boundary. The bound still tightens `prefix.idx[NR_LEVELS - 1] + 1`
-    // strictly below `NR_ENTRIES`, which `move_forward` relies on to prove
-    // `index != 0` after a wrap-pop sequence at `guard_level`.
     open spec fn LOCKED_END_BOUND_spec() -> int {
-        FRAME_METADATA_BASE_VADDR as int + crate::specs::arch::mm::PAGE_SIZE as int
+        FRAME_METADATA_BASE_VADDR as int
     }
 
     type E = PageTableEntry;

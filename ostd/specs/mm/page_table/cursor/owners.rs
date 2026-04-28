@@ -472,6 +472,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // This is established at construction (when prefix == va, which itself starts
         // strictly in-range) and preserved by all cursor operations (none touch prefix).
         &&& self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end
+        // Top-of-address-space sentinel reservation: none of our `PtConfig`s actually use
+        // the very last index. The first half of the address space 
+        &&& self.prefix.index[NR_LEVELS - 1] + 1 < NR_ENTRIES
         // Locked range stays within the config's managed VA space. Established at
         // cursor construction (barrier_va == *va with is_valid_range_spec(va)) and
         // preserved by all cursor operations since they don't modify prefix/guard_level.
@@ -488,10 +491,17 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // Established at construction (new_spec initializes both va and
         // prefix with LEADING_BITS_spec()) and preserved by cursor ops.
         &&& self.prefix.leading_bits == C::LEADING_BITS_spec() as int
-        // The cursor's VA shares upper indices with the prefix as long as
-        // the cursor hasn't popped above guard_level.
-        &&& !self.popped_too_high ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
-            self.va.index[i] == self.prefix.index[i]
+        // The cursor's VA shares upper indices with the prefix when the
+        // cursor hasn't popped above guard_level AND is either in_locked_range
+        // OR strictly below guard_level. The wrap branch of
+        // `move_forward_owner_spec` (level == guard_level && idx+1 ==
+        // NR_ENTRIES) advances `va` past the prefix's chunk; that state has
+        // `level == guard_level` and `above_locked_range`, and is excluded
+        // from this clause.
+        &&& !self.popped_too_high && (self.in_locked_range() || self.level < self.guard_level)
+                ==>
+            forall|i: int| self.guard_level <= i < NR_LEVELS ==>
+                self.va.index[i] == self.prefix.index[i]
         &&& !self.popped_too_high && self.guard_level >= 1 && self.level < self.guard_level ==>
             self.va.index[self.guard_level - 1] == self.prefix.index[self.guard_level - 1]
         &&& self.level <= 4 ==> {
@@ -500,14 +510,18 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[3].level() == 4
             // Obviously there is no level 5 pt, but that would be the level of the parent of the root pt.
             &&& self.continuations[3].entry_own.parent_level == 5
-            &&& self.va.index[3] == self.continuations[3].idx
+            // `va.index[i] == cont[i].idx` is meaningful only while the
+            // cursor is in_locked_range. Above-locked-range cursors keep
+            // their continuations as-is (stale w.r.t. the wrapped va) and
+            // never read from them.
+            &&& self.in_locked_range() ==> self.va.index[3] == self.continuations[3].idx
         }
         &&& self.level <= 3 ==> {
             &&& self.continuations.contains_key(2)
             &&& self.continuations[2].inv()
             &&& self.continuations[2].level() == 3
             &&& self.continuations[2].entry_own.parent_level == 4
-            &&& self.va.index[2] == self.continuations[2].idx
+            &&& self.in_locked_range() ==> self.va.index[2] == self.continuations[2].idx
             &&& self.continuations[2].guard.inner.inner@.ptr.addr() !=
                 self.continuations[3].guard.inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
@@ -526,7 +540,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[1].inv()
             &&& self.continuations[1].level() == 2
             &&& self.continuations[1].entry_own.parent_level == 3
-            &&& self.va.index[1] == self.continuations[1].idx
+            &&& self.in_locked_range() ==> self.va.index[1] == self.continuations[1].idx
             &&& self.continuations[1].guard.inner.inner@.ptr.addr() !=
                 self.continuations[2].guard.inner.inner@.ptr.addr()
             &&& self.continuations[1].guard.inner.inner@.ptr.addr() !=
@@ -547,7 +561,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[0].inv()
             &&& self.continuations[0].level() == 1
             &&& self.continuations[0].entry_own.parent_level == 2
-            &&& self.va.index[0] == self.continuations[0].idx
+            &&& self.in_locked_range() ==> self.va.index[0] == self.continuations[0].idx
             &&& self.continuations[0].guard.inner.inner@.ptr.addr() !=
                 self.continuations[1].guard.inner.inner@.ptr.addr()
             &&& self.continuations[0].guard.inner.inner@.ptr.addr() !=
@@ -696,6 +710,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
             old(self).level <= old(self).guard_level,
+            old(self).in_locked_range(),
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
             old(self).level == NR_LEVELS ==>
                 (old(self).continuations[old(self).level - 1].idx + 1) <= C::TOP_LEVEL_INDEX_RANGE_spec().end,
@@ -921,6 +936,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             self.inv(),
+            self.in_locked_range(),
             level == self.level,
             new_subtree.inv(),
             new_subtree.value.is_frame(),
@@ -1336,6 +1352,39 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.in_locked_range() ==> !self.above_locked_range());
     }
 
+    /// At `level == guard_level == NR_LEVELS`, the cursor's index strictly
+    /// satisfies `idx + 1 < NR_ENTRIES`. This rules out the spec corner where
+    /// `move_forward_owner_spec` falls into its third branch (returning self
+    /// unchanged) — without this fact several `move_forward_*` lemmas have
+    /// genuinely-false postconditions.
+    ///
+    /// **UserPtConfig**: `TOP_LEVEL_INDEX_RANGE.end == 256 < NR_ENTRIES`, so
+    /// `in_locked_range_top_index_lt_top_end` already gives strict < NR_ENTRIES.
+    ///
+    /// **KernelPtConfig**: `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`, but
+    /// `LOCKED_END_BOUND_spec() == FRAME_METADATA_BASE_VADDR + PAGE_SIZE ==
+    /// 0xffff_fff0_0000_1000`. Combined with `leading_bits == 0xFFFF`, the
+    /// cursor inv `locked_range().end <= LOCKED_END_BOUND_spec()` forces
+    /// `prefix.index[NR_LEVELS - 1] + 1 <= 0x1fe < NR_ENTRIES`. The full
+    /// arithmetic chain through `align_up` is encapsulated in this lemma.
+    pub proof fn cursor_top_idx_strict_lt_nr_entries(self)
+        requires
+            self.inv(),
+            self.in_locked_range(),
+            !self.popped_too_high,
+            self.level == NR_LEVELS,
+            self.guard_level == NR_LEVELS,
+        ensures
+            self.continuations[self.level - 1].idx + 1 < NR_ENTRIES,
+    {
+        self.in_locked_range_top_index_lt_top_end();
+        self.in_locked_range_guard_index_eq_prefix();
+        let top_end = C::TOP_LEVEL_INDEX_RANGE_spec().end as int;
+        if top_end >= NR_ENTRIES as int {
+            assert(self.continuations[self.level - 1].idx + 1 < NR_ENTRIES);
+        }
+    }
+
     /// The node at `level+1` containing `va` fits within the locked range.
     #[verifier::rlimit(20000)]
     pub proof fn node_within_locked_range(self, level: PagingLevel)
@@ -1679,7 +1728,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// If the current entry is absent, `!self@.present()`.
     pub proof fn cur_entry_absent_not_present(self)
-        requires self.inv(), self.cur_entry_owner().is_absent(),
+        requires self.inv(), self.in_locked_range(), self.cur_entry_owner().is_absent(),
         ensures !self@.present(),
     {
         self.cur_subtree_inv();
@@ -1710,6 +1759,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_subtree_empty_not_present(self)
         requires
             self.inv(),
+            self.in_locked_range(),
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path) =~= set![],
         ensures !self@.present(),
     {
@@ -1737,6 +1787,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_entry_frame_present(self)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.cur_entry_owner().is_frame(),
         ensures
             self@.present(),
@@ -1796,9 +1847,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             entry_owner.metaregion_sound(regions))
         &&& self.path_metaregion_sound(regions)
     }
-
-    // not_in_tree, absent_not_in_tree, not_in_tree_from_not_mapped
-    // have been moved to tree_lemmas.rs.
 
     pub proof fn metaregion_preserved(self, other: Self, regions0: MetaRegionOwners, regions1: MetaRegionOwners)
         requires
