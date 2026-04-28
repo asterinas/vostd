@@ -21,11 +21,10 @@
 //! wrapper. The std `NonZero<usize>` therefore never appears in any spec or
 //! wrapper signature, which lets verification run with full lifetime checking
 //! enabled.
-
+use core::cmp::Ordering;
 use core::num::NonZero;
 use vstd::prelude::*;
 use vstd::std_specs::cmp::*;
-use core::cmp::Ordering;
 
 verus! {
 
@@ -45,7 +44,7 @@ impl NonZeroUsize {
     pub uninterp spec fn nonzero_usize_from_usize(n: usize) -> Self;
 
     pub broadcast axiom fn axiom_nonzero_usize_from_usize_view_eq(n: usize)
-        requires 
+        requires
             n != 0,
         ensures
             (#[trigger] Self::nonzero_usize_from_usize(n)).view() == n,
@@ -55,14 +54,14 @@ impl NonZeroUsize {
         ensures
             Self::nonzero_usize_from_usize(#[trigger] self.view()) == self,
     ;
-    
+
     #[verifier::external_body]
     pub const fn new(n: usize) -> (ret: Option<Self>)
-    ensures
-        match ret {
-            Some(nz) => nz.view() == n,
-            None => n == 0,
-        },
+        ensures
+            match ret {
+                Some(nz) => nz.view() == n,
+                None => n == 0,
+            },
     {
         if let Some(inner) = core::num::NonZeroUsize::new(n) {
             Some(NonZeroUsize { inner })
@@ -74,16 +73,16 @@ impl NonZeroUsize {
     #[verifier::external_body]
     #[verifier::when_used_as_spec(nonzero_usize_from_usize)]
     pub const unsafe fn new_unchecked(n: usize) -> (ret: Self)
-    ensures
-        ret.view() == n,
+        ensures
+            ret.view() == n,
     {
         NonZeroUsize { inner: core::num::NonZeroUsize::new_unchecked(n) }
     }
 
     #[verifier::external_body]
     pub const fn get(&self) -> (ret: usize)
-    ensures
-        ret == self.view(),
+        ensures
+            ret == self.view(),
     {
         self.inner.get()
     }
@@ -97,14 +96,16 @@ impl NonZeroUsize {
 impl Clone for NonZeroUsize {
     #[verifier::external_body]
     fn clone(&self) -> (ret: Self)
-    ensures
-        ret.view() == self.view(),
+        ensures
+            ret.view() == self.view(),
     {
         NonZeroUsize { inner: self.inner }
     }
 }
 
-impl Copy for NonZeroUsize {}
+impl Copy for NonZeroUsize {
+
+}
 
 impl PartialEqSpecImpl for NonZeroUsize {
     open spec fn obeys_eq_spec() -> bool {
@@ -114,7 +115,6 @@ impl PartialEqSpecImpl for NonZeroUsize {
     open spec fn eq_spec(&self, other: &Self) -> bool {
         self.view() == other.view()
     }
-
 }
 
 impl PartialOrdSpecImpl for NonZeroUsize {
@@ -148,4 +148,4 @@ pub broadcast group group_nonzero_axioms {
     NonZeroUsize::axiom_view_nonzero_usize_from_usize_eq,
 }
 
-}
+} // verus!
