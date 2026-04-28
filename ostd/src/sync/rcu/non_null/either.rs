@@ -74,14 +74,8 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         .expect("`L` and `R` alignments should be at least 2 to pack `Either` into one pointer");
 
     #[verus_spec]
+    #[verifier::spinoff_prover]
     fn into_raw(self) -> (ret: (NonNull<Self::Target>, Tracked<Self::Permission>)) {
-        /* match self {
-            Self::Left(left) => left.into_raw().cast(),
-            Self::Right(right) => right
-                .into_raw()
-                .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
-                .cast(),
-        } */
         proof_decl!{
            let ghost align_bits = Self::ALIGN_BITS;
            let ghost l_align_bits = L::ALIGN_BITS;
@@ -102,6 +96,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         }
         match self {
             Self::Left(left) => {
+                // left.into_raw().cast(),
                 let (left, Tracked(perm)) = left.into_raw();
                 proof! {
                     let left_addr = left.cast::<Self::Target>().view_ptr_mut().addr();
@@ -139,6 +134,10 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 (left.cast() , Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
             },
             Self::Right(right) => {
+                /* right
+                .into_raw()
+                .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
+                .cast(), */
                 let (right, Tracked(perm)) = right.into_raw();
                 let right_raw = right.as_ptr().map_addr(|addr| -> (ret: usize) 
                     ensures ret == addr | (1usize << Self::ALIGN_BITS)
@@ -213,22 +212,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         ptr: NonNull<Self::Target>,
         Tracked(perm): Tracked<Self::Permission>,
     ) -> Self {
-        // SAFETY: The caller ensures that the pointer comes from `Self::into_raw`, which
-        // guarantees that `real_ptr` is a non-null pointer.
-
-        /* 
-        let (is_right, real_ptr) = unsafe { remove_bits(ptr, 1 << Self::ALIGN_BITS) };
-
-        if is_right == 0 {
-            // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `L::into_raw`. Other
-            // safety requirements are upheld by the caller.
-            Either::Left(unsafe { L::from_raw(real_ptr.cast()) })
-        } else {
-            // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `R::into_raw`. Other
-            // safety requirements are upheld by the caller.
-            Either::Right(unsafe { R::from_raw(real_ptr.cast()) })
-        } 
-        */
         proof! {
             Self::lemma_align_bits_range();
         }
@@ -270,28 +253,21 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 },
             }
         }
+        
+        // SAFETY: The caller ensures that the pointer comes from `Self::into_raw`, which
+        // guarantees that `real_ptr` is a non-null pointer.
         let (is_right, real_ptr) = unsafe { remove_bits(ptr, 1 << Self::ALIGN_BITS) };
 
         if is_right == 0 {
-            proof_decl! {
-                let tracked left = match perm.perm {
-                    Sum::Left(left) => left,
-                    Sum::Right(right) => {
-                        proof_from_false()
-                    },
-                };
-            }
-            Either::Left(unsafe { L::from_raw(ptr.cast(), Tracked(left)) })
+            // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `L::into_raw`. Other
+            // safety requirements are upheld by the caller.
+            // Either::Left(unsafe { L::from_raw(real_ptr.cast()) })
+            Either::Left(unsafe { L::from_raw(real_ptr.cast(), Tracked(perm.perm.tracked_take_left())) })
         } else {
-            proof_decl! {
-                let tracked right = match perm.perm {
-                    Sum::Right(right) => right,
-                    Sum::Left(left) => {
-                        proof_from_false()
-                    },
-                };
-            }
-            Either::Right(unsafe { R::from_raw(real_ptr.cast(), Tracked(right)) })
+            // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `R::into_raw`. Other
+            // safety requirements are upheld by the caller.
+            // Either::Right(unsafe { R::from_raw(real_ptr.cast()) })
+            Either::Right(unsafe { R::from_raw(real_ptr.cast(), Tracked(perm.perm.tracked_take_right())) })
         }
     }
 
@@ -328,7 +304,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 &&& L::ptr_perm_match(ptr.cast(), left)
             },
             Sum::Right(right) => {
-                let untagged_ptr = ptr.view_ptr_mut().with_addr((ptr.view_ptr_mut().addr() & !tag) as usize);
+                let untagged_ptr = ptr.view_ptr_mut().with_addr((ptr.view_ptr_mut().addr() & !tag));
                 let right_nonnull = nonnull_from_ptr_mut_spec(untagged_ptr);
                 &&& ptr.view_ptr_mut().addr() & tag == tag
                 &&& (ptr.view_ptr_mut().addr() & !tag) != 0
@@ -373,15 +349,14 @@ const fn min(a: u32, b: u32) -> u32 {
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     // use core::num::NonZeroUsize;
     // let removed_bits = ptr.addr().get() & bits;
-    let raw = ptr.as_ptr();
-    let Tracked(exposed) = vstd::raw_ptr::expose_provenance(raw);
-    let addr = raw as usize;
-    let removed_bits = addr & bits;
     // let result_ptr = ptr.map_addr(|addr|
-    //     // SAFETY: The safety is upheld by the caller.
-    //     unsafe { NonZeroUsize::new_unchecked(addr.get() & !bits) });
-    let result_raw = vstd::raw_ptr::with_exposed_provenance(addr & !bits, Tracked(exposed));
-    let result_ptr = unsafe { NonNull::new_unchecked(result_raw) };
+    // // SAFETY: The safety is upheld by the caller.
+    // unsafe { NonZeroUsize::new_unchecked(addr.get() & !bits) });
+    // FIXME: Fix when Verus supports `NonZeroUsize`.
+    let raw = ptr.as_ptr();
+    let removed_bits = (raw as usize) & bits;
+    let raw_addr = raw.map_addr(|addr|->(ret:usize) ensures ret == addr & !bits { addr & !bits });
+    let result_ptr = unsafe { NonNull::new_unchecked(raw_addr) };
 
     (removed_bits, result_ptr)
 }
