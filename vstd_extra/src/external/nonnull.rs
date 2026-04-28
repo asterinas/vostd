@@ -1,4 +1,3 @@
-use crate::external::nonzero::*;
 use core::marker::PointeeSized;
 use core::num::NonZero;
 use core::ptr::NonNull;
