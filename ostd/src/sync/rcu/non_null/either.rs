@@ -234,8 +234,8 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         }
         proof_decl! {
             let ghost align_bits = Self::ALIGN_BITS;
+            let ghost tag = 1usize << Self::ALIGN_BITS;
         }
-        let tag = 1usize << Self::ALIGN_BITS;
         proof! {
             let ghost ptr_addr = ptr.view_ptr_mut()@.addr;
             ptr.lemma_addr_is_nonnull();
@@ -244,11 +244,8 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 tag == 1usize << align_bits,
                 align_bits < usize::BITS,
             ;
-            assert(ptr_addr != 0);
-            assert(Self::ptr_perm_match(ptr, perm));
             match &perm.perm {
                 Sum::Left(_) => {
-                    assert(ptr_addr & tag == 0);
                     assert((ptr_addr & tag) < ptr_addr) by (nonlinear_arith)
                     requires
                         ptr_addr & tag == 0,
@@ -265,8 +262,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                     ;
                 },
                 Sum::Right(_) => {
-                    assert(ptr_addr & tag == tag);
-                    assert((ptr_addr & !tag) != 0);
                     assert((ptr_addr & tag) < ptr_addr) by (bit_vector)
                     requires
                         ptr_addr & tag == tag,
@@ -275,51 +270,23 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 },
             }
         }
-        let (is_right, real_ptr) = unsafe { remove_bits(ptr, tag) };
+        let (is_right, real_ptr) = unsafe { remove_bits(ptr, 1 << Self::ALIGN_BITS) };
 
         if is_right == 0 {
-            proof! {
-                assert(is_right == 0);
-            }
             proof_decl! {
                 let tracked left = match perm.perm {
                     Sum::Left(left) => left,
                     Sum::Right(right) => {
-                        assert(is_right == 0);
-                        assert(Self::ptr_perm_match(ptr, EitherPointsTo { perm: Sum::Right(right) }));
-                        assert(ptr.view_ptr_mut().addr() & tag == tag);
-                        assert(is_right == (ptr.view_ptr_mut().addr() & tag));
-                        assert(is_right == tag);
-                        assert(tag == 0) by (nonlinear_arith)
-                        requires
-                            is_right == 0,
-                            is_right == tag,
-                        ;
-                        assert(false) by (nonlinear_arith)
-                        requires
-                            tag == 0,
-                            tag > 0,
-                        ;
                         proof_from_false()
                     },
                 };
             }
             Either::Left(unsafe { L::from_raw(ptr.cast(), Tracked(left)) })
         } else {
-            
-            proof! {
-                assert(is_right != 0);
-            }
             proof_decl! {
                 let tracked right = match perm.perm {
                     Sum::Right(right) => right,
                     Sum::Left(left) => {
-                        assert(is_right != 0);
-                        assert(Self::ptr_perm_match(ptr, EitherPointsTo { perm: Sum::Left(left) }));
-                        assert(ptr.view_ptr_mut().addr() & tag == 0);
-                        assert(is_right == (ptr.view_ptr_mut().addr() & tag));
-                        assert(is_right == 0);
-                        assert(false);
                         proof_from_false()
                     },
                 };
