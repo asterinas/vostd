@@ -158,7 +158,7 @@ pub open spec fn nonnull_with_addr_spec_wrapper<T: PointeeSized>(
 // To prevent circular dependency
 pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> where T: PointeeSized {
     spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
-    
+
     proof fn lemma_with_addr_properties(self, addr: NonZeroUsize)
         ensures
             self.with_addr_spec(addr).view_ptr_mut()@.metadata == self.view_ptr_mut()@.metadata,
