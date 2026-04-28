@@ -11,7 +11,6 @@ pub mod smart_ptr;
 
 pub use ilog2::*;
 pub use nonnull::*;
-pub use nonzero::*;
 pub use ptr::*;
 pub use smart_ptr::*;
 

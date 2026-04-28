@@ -1,5 +1,4 @@
-//! Specifications for `core::num::NonZero<T>` for the concrete element types
-//! we use (`usize`, `u8`).
+//! Specifications for `core::num::NonZero<usize>` using a wrapper type `NonZeroUsize`.
 //!
 //! ## Why wrappers instead of `assume_specification`
 //!
@@ -16,97 +15,137 @@
 //! Either path forces Verus into `--no-lifetime`, which is infectious across
 //! crate boundaries (any downstream `--import`er would also need it).
 //!
-//! Instead, we wrap the std `NonZero<T>` in our own `#[verifier::external_body]`
-//! newtypes (one per element type) and expose `new`/`get` as `external_body`
-//! exec functions whose Verus signatures only mention the wrapper. The std
-//! `NonZero<T>` therefore never appears in any spec or wrapper signature,
-//! which lets verification run with full lifetime checking enabled.
+//! Instead, we wrap the std `NonZero<usize>` in our own
+//! `#[verifier::external_body]` newtype and expose `new`/`get` as
+//! `external_body` exec functions whose Verus signatures only mention the
+//! wrapper. The std `NonZero<usize>` therefore never appears in any spec or
+//! wrapper signature, which lets verification run with full lifetime checking
+//! enabled.
 
 use core::num::NonZero;
 use vstd::prelude::*;
+use vstd::std_specs::cmp::*;
+use core::cmp::Ordering;
 
 verus! {
 
-// ---- NonZeroUsize ----
-
 #[verifier::external_body]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NonZeroUsize {
-    inner: NonZero<usize>,
+    pub inner: NonZero<usize>,
 }
 
-pub uninterp spec fn spec_nonzero_usize_view(nz: NonZeroUsize) -> usize;
+impl View for NonZeroUsize {
+    type V = usize;
 
-#[verifier::external_body]
-pub fn nonzero_usize_new(v: usize) -> (r: Option<NonZeroUsize>)
-    ensures
-        r.is_some() <==> v != 0,
-        r.is_some() ==> spec_nonzero_usize_view(r.unwrap()) == v,
-{
-    NonZero::<usize>::new(v).map(|inner| NonZeroUsize { inner })
+    uninterp spec fn view(&self) -> Self::V;
 }
 
-#[verifier::external_body]
-pub fn nonzero_usize_get(nz: NonZeroUsize) -> (r: usize)
-    ensures
-        r == spec_nonzero_usize_view(nz),
-        r != 0,
-{
-    nz.inner.get()
-}
-
-// ---- NonZeroU8 ----
-
-#[verifier::external_body]
-pub struct NonZeroU8 {
-    inner: NonZero<u8>,
-}
-
-pub uninterp spec fn spec_nonzero_u8_view(nz: NonZeroU8) -> u8;
-
-#[verifier::external_body]
-pub fn nonzero_u8_new(v: u8) -> (r: Option<NonZeroU8>)
-    ensures
-        r.is_some() <==> v != 0,
-        r.is_some() ==> spec_nonzero_u8_view(r.unwrap()) == v,
-{
-    NonZero::<u8>::new(v).map(|inner| NonZeroU8 { inner })
-}
-
-#[verifier::external_body]
-pub fn nonzero_u8_get(nz: NonZeroU8) -> (r: u8)
-    ensures
-        r == spec_nonzero_u8_view(nz),
-        r != 0,
-{
-    nz.inner.get()
-}
-
-} // verus!
-
-// Outside `verus!`, expose interop with the underlying std type for callers
-// that need to bridge with non-Verus exec code. These are plain Rust impls
-// (not part of the verifier surface), so they don't reintroduce the
-// `ZeroablePrimitive` bound into Verus.
 impl NonZeroUsize {
-    #[inline]
-    pub fn into_inner(self) -> NonZero<usize> {
-        self.inner
+    pub uninterp spec fn nonzero_usize_from_usize(n: usize) -> Self;
+
+    pub broadcast axiom fn axiom_nonzero_usize_from_usize_view_eq(n: usize)
+        requires 
+            n != 0,
+        ensures
+            (#[trigger] Self::nonzero_usize_from_usize(n)).view() == n,
+    ;
+
+    pub broadcast axiom fn axiom_view_nonzero_usize_from_usize_eq(self)
+        ensures
+            Self::nonzero_usize_from_usize(#[trigger] self.view()) == self,
+    ;
+    
+    #[verifier::external_body]
+    pub const fn new(n: usize) -> (ret: Option<Self>)
+    ensures
+        match ret {
+            Some(nz) => nz.view() == n,
+            None => n == 0,
+        },
+    {
+        if let Some(inner) = core::num::NonZeroUsize::new(n) {
+            Some(NonZeroUsize { inner })
+        } else {
+            None
+        }
     }
 
-    #[inline]
-    pub fn from_inner(inner: NonZero<usize>) -> Self {
-        Self { inner }
+    #[verifier::external_body]
+    #[verifier::when_used_as_spec(nonzero_usize_from_usize)]
+    pub const unsafe fn new_unchecked(n: usize) -> (ret: Self)
+    ensures
+        ret.view() == n,
+    {
+        NonZeroUsize { inner: core::num::NonZeroUsize::new_unchecked(n) }
+    }
+
+    #[verifier::external_body]
+    pub const fn get(&self) -> (ret: usize)
+    ensures
+        ret == self.view(),
+    {
+        self.inner.get()
+    }
+
+    axiom fn lemma_nonzero_neq_zero(self)
+        ensures
+            self.view() != 0,
+    ;
+}
+
+impl Clone for NonZeroUsize {
+    #[verifier::external_body]
+    fn clone(&self) -> (ret: Self)
+    ensures
+        ret.view() == self.view(),
+    {
+        NonZeroUsize { inner: self.inner }
     }
 }
 
-impl NonZeroU8 {
-    #[inline]
-    pub fn into_inner(self) -> NonZero<u8> {
-        self.inner
+impl Copy for NonZeroUsize {}
+
+impl PartialEqSpecImpl for NonZeroUsize {
+    open spec fn obeys_eq_spec() -> bool {
+        true
     }
 
-    #[inline]
-    pub fn from_inner(inner: NonZero<u8>) -> Self {
-        Self { inner }
+    open spec fn eq_spec(&self, other: &Self) -> bool {
+        self.view() == other.view()
     }
+
+}
+
+impl PartialOrdSpecImpl for NonZeroUsize {
+    open spec fn obeys_partial_cmp_spec() -> bool {
+        true
+    }
+
+    open spec fn partial_cmp_spec(&self, other: &Self) -> Option<Ordering> {
+        if self.view() < other.view() {
+            Some(Ordering::Less)
+        } else if self.view() > other.view() {
+            Some(Ordering::Greater)
+        } else {
+            Some(Ordering::Equal)
+        }
+    }
+}
+
+impl OrdSpecImpl for NonZeroUsize {
+    open spec fn obeys_cmp_spec() -> bool {
+        true
+    }
+
+    open spec fn cmp_spec(&self, other: &Self) -> Ordering {
+        vstd::std_specs::cmp::PartialOrdSpec::partial_cmp_spec(self, other)->Some_0
+    }
+}
+
+pub broadcast group group_nonzero_axioms {
+    NonZeroUsize::axiom_nonzero_usize_from_usize_view_eq,
+    NonZeroUsize::axiom_view_nonzero_usize_from_usize_eq,
+}
+
 }

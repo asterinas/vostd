@@ -3,14 +3,14 @@ use core::{marker::PhantomData, ptr::NonNull};
 
 use vstd::{bits, prelude::*};
 use vstd::raw_ptr::group_raw_ptr_axioms;
-use vstd_extra::{prelude::*, sum::Sum};
+use vstd_extra::{prelude::*, sum::Sum, external::nonzero::*};
 
 use super::NonNullPtr;
 use crate::util::Either;
 
 verus! {
 
-broadcast use {group_nonull_axioms, group_raw_ptr_axioms};
+broadcast use {group_nonull_axioms, group_raw_ptr_axioms, group_nonzero_axioms};
 
 pub tracked struct EitherPointsTo<L: PtrPointsToTrait, R: PtrPointsToTrait> {
     pub perm: Sum<L, R>,

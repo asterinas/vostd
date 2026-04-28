@@ -3,6 +3,8 @@ use core::num::NonZero;
 use core::ptr::NonNull;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
+use vstd::std_specs::cmp::*;
+use super::nonzero::NonZeroUsize;
 
 verus! {
 
@@ -27,6 +29,15 @@ pub trait NonNullAdditionalFns<T: PointeeSized> {
         ensures
             self.view_ptr_mut()@.addr != 0,
     ;
+
+    spec fn addr_spec(self) -> NonZeroUsize;
+
+    /// A wrapper of `NonNull::addr` in `std`, here we use our own `NonZeroUsize`
+    fn addr(self) -> (ret: NonZeroUsize)
+    ensures
+        ret == self.addr_spec(),
+        ret.view() == self.view_ptr_mut()@.addr,
+    ;   
 }
 
 impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
@@ -37,6 +48,23 @@ impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
     uninterp spec fn dangling_spec() -> NonNull<T>;
 
     axiom fn lemma_addr_is_nonnull(self);
+    
+    open spec fn addr_spec(self) -> NonZeroUsize
+    {
+        NonZeroUsize::nonzero_usize_from_usize(self.view_ptr_mut()@.addr)
+    }
+
+    #[verifier::external_body]
+    #[verifier::when_used_as_spec(nonnull_addr_spec_wrapper)]
+    fn addr(self) -> (ret: NonZeroUsize)
+    {
+        unimplemented!()
+    }
+}
+
+#[inline(always)]
+pub open spec fn nonnull_addr_spec_wrapper<T: PointeeSized>(ptr: NonNull<T>) -> NonZeroUsize {
+    ptr.addr_spec()
 }
 
 #[inline(always)]
@@ -102,15 +130,6 @@ pub assume_specification<T: PointeeSized, U>[ NonNull::<T>::cast::<U> ](ptr: Non
         ptr.cast_spec::<U>(),
 ;
 
-/// FIXME: Better specification that captures the effect of the mapping function `f` on the pointer's address, instead of just saying the metadata and provenance are unchanged.
-pub assume_specification<T: PointeeSized, F: FnOnce(NonZero<usize>) -> NonZero<usize>>[ NonNull::<
-    T,
->::map_addr ](ptr: NonNull<T>, f: F) -> (ret: NonNull<T>)
-    ensures
-        ret.view_ptr_mut()@.metadata == ptr.view_ptr_mut()@.metadata,
-        ret.view_ptr_mut()@.provenance == ptr.view_ptr_mut()@.provenance,
-;
-
 // Specification for NonNull::dangling(), uninterpreted because the ptr only has to satisfy the alignment requirement.
 // See https://doc.rust-lang.org/stable/std/ptr/struct.NonNull.html#method.dangling.
 pub uninterp spec fn nonnull_dangling_spec<T>() -> NonNull<T>;
@@ -124,10 +143,54 @@ pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
         nonnull_dangling_spec::<T>(),
 ;
 
+#[inline(always)]
+pub open spec fn nonnull_with_addr_spec_wrapper<T: PointeeSized>(ptr: NonNull<T>, addr: NonZeroUsize) -> NonNull<T> {
+    ptr.with_addr_spec(addr)
+}
+
+// To prevent circular dependency
+pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> 
+where T: PointeeSized
+{
+    spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
+
+    fn with_addr(self, addr: NonZeroUsize) -> (ret: NonNull<T>)
+    ensures
+        ret.view_ptr_mut()@.metadata == self.view_ptr_mut()@.metadata,
+        ret.view_ptr_mut()@.provenance == self.view_ptr_mut()@.provenance,
+        ret.view_ptr_mut()@.addr == addr.view(),
+    ;
+    
+    /// A wrapper of `NonNull::map_addr` in `std`, here we use our own `NonZeroUsize`
+    fn map_addr<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> (ret: NonNull<T>)
+    requires
+        f.requires((self.addr_spec(),)),
+    ensures
+        ret.view_ptr_mut()@.metadata == self.view_ptr_mut()@.metadata,
+        ret.view_ptr_mut()@.provenance == self.view_ptr_mut()@.provenance,
+        f.ensures((self.addr_spec(),), ret.addr_spec()),;
+}
+
+impl<T: PointeeSized> NonNullAdditionalFnsMore<T> for NonNull<T> {
+    #[verifier::external_body]
+    fn map_addr<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> (ret: NonNull<T>)
+    {
+        unimplemented!()
+    }
+
+    uninterp spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
+
+    #[verifier::external_body]
+    #[verifier::when_used_as_spec(nonnull_with_addr_spec_wrapper)]
+    fn with_addr(self, addr: NonZeroUsize) -> (ret: NonNull<T>)
+    {
+        unimplemented!()
+    }
+}
+
 pub broadcast group group_nonull_axioms {
     axiom_nonnull_from_ptr_mut_spec_eq,
     axiom_cast_spec_eq,
     axiom_view_ptr_mut_eq,
 }
-
 } // verus!
