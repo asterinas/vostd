@@ -22,7 +22,6 @@
 //! wrapper signature, which lets verification run with full lifetime checking
 //! enabled.
 use core::cmp::Ordering;
-use core::num::NonZero;
 use vstd::prelude::*;
 use vstd::std_specs::cmp::*;
 
@@ -31,7 +30,7 @@ verus! {
 #[verifier::external_body]
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NonZeroUsize {
-    pub inner: NonZero<usize>,
+    pub inner: core::num::NonZero<usize>,
 }
 
 impl View for NonZeroUsize {

@@ -32,11 +32,15 @@ pub trait NonNullAdditionalFns<T: PointeeSized> {
 
     spec fn addr_spec(self) -> NonZeroUsize;
 
-    /// A wrapper of `NonNull::addr` in `std`, here we use our own `NonZeroUsize`
-    fn addr(self) -> (ret: NonZeroUsize)
+    proof fn lemma_addr_view_eq_view_ptr_mut(self)
         ensures
-            ret == self.addr_spec(),
-            ret.view() == self.view_ptr_mut()@.addr,
+            self.addr_spec().view() == self.view_ptr_mut()@.addr,
+    ;
+
+    /// A wrapper of `NonNull::addr` in `std`, here we use our own `NonZeroUsize`
+    fn addr_v(self) -> NonZeroUsize
+        returns
+            self.addr_spec(),
     ;
 }
 
@@ -53,9 +57,11 @@ impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
         NonZeroUsize::nonzero_usize_from_usize(self.view_ptr_mut()@.addr)
     }
 
+    axiom fn lemma_addr_view_eq_view_ptr_mut(self);
+
     #[verifier::external_body]
     #[verifier::when_used_as_spec(nonnull_addr_spec_wrapper)]
-    fn addr(self) -> (ret: NonZeroUsize) {
+    fn addr_v(self) -> NonZeroUsize {
         unimplemented!()
     }
 }
@@ -153,7 +159,7 @@ pub open spec fn nonnull_with_addr_spec_wrapper<T: PointeeSized>(
 pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> where T: PointeeSized {
     spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
 
-    fn with_addr(self, addr: NonZeroUsize) -> (ret: NonNull<T>)
+    fn with_addr_v(self, addr: NonZeroUsize) -> (ret: NonNull<T>)
         ensures
             ret.view_ptr_mut()@.metadata == self.view_ptr_mut()@.metadata,
             ret.view_ptr_mut()@.provenance == self.view_ptr_mut()@.provenance,
@@ -161,7 +167,7 @@ pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> where T: PointeeS
     ;
 
     /// A wrapper of `NonNull::map_addr` in `std`, here we use our own `NonZeroUsize`
-    fn map_addr<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> (ret: NonNull<T>)
+    fn map_addr_v<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> (ret: NonNull<T>)
         requires
             f.requires((self.addr_spec(),)),
         ensures
@@ -173,7 +179,7 @@ pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> where T: PointeeS
 
 impl<T: PointeeSized> NonNullAdditionalFnsMore<T> for NonNull<T> {
     #[verifier::external_body]
-    fn map_addr<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> (ret: NonNull<T>) {
+    fn map_addr_v<F: FnOnce(NonZeroUsize) -> NonZeroUsize>(self, f: F) -> (ret: NonNull<T>) {
         unimplemented!()
     }
 
@@ -181,7 +187,7 @@ impl<T: PointeeSized> NonNullAdditionalFnsMore<T> for NonNull<T> {
 
     #[verifier::external_body]
     #[verifier::when_used_as_spec(nonnull_with_addr_spec_wrapper)]
-    fn with_addr(self, addr: NonZeroUsize) -> (ret: NonNull<T>) {
+    fn with_addr_v(self, addr: NonZeroUsize) -> (ret: NonNull<T>) {
         unimplemented!()
     }
 }

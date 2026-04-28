@@ -139,12 +139,14 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
                 .cast(), */
                 let (right, Tracked(perm)) = right.into_raw();
-                let right_raw = right.as_ptr().map_addr(|addr| -> (ret: usize) 
-                    ensures ret == addr | (1usize << Self::ALIGN_BITS)
-                    {addr | (1usize << Self::ALIGN_BITS)});
+                let right_raw = right.map_addr_v(|addr: NonZeroUsize| -> (ret: NonZeroUsize) 
+                    ensures ret@ == addr@ | (1usize << Self::ALIGN_BITS)
+                    {unsafe { NonZeroUsize::new_unchecked(addr.get() | (1usize << Self::ALIGN_BITS)) }});
                 proof! {
-                    let addr = right.as_ptr().addr();
-                    let tagged_addr = right_raw.addr();
+                    let addr = right.addr_spec()@;
+                    let tagged_addr = right_raw.addr_spec()@;
+                    right.lemma_addr_is_nonnull();
+                    right_raw.lemma_addr_view_eq_view_ptr_mut();
                     assert(tagged_addr & tag == tag) by (bit_vector)
                     requires
                         tagged_addr == addr | tag,
@@ -201,7 +203,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                     }
                 }
                 (
-                    unsafe { NonNull::new_unchecked(right_raw) }.cast(),
+                    right_raw.cast(),
                     Tracked(EitherPointsTo { perm: Sum::Right(perm) }),
                 )
             },
