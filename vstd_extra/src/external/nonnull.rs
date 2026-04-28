@@ -158,12 +158,17 @@ pub open spec fn nonnull_with_addr_spec_wrapper<T: PointeeSized>(
 // To prevent circular dependency
 pub trait NonNullAdditionalFnsMore<T>: NonNullAdditionalFns<T> where T: PointeeSized {
     spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
+    
+    proof fn lemma_with_addr_properties(self, addr: NonZeroUsize)
+        ensures
+            self.with_addr_spec(addr).view_ptr_mut()@.metadata == self.view_ptr_mut()@.metadata,
+            self.with_addr_spec(addr).view_ptr_mut()@.provenance == self.view_ptr_mut()@.provenance,
+            self.with_addr_spec(addr).view_ptr_mut()@.addr == addr.view(),
+    ;
 
     fn with_addr_v(self, addr: NonZeroUsize) -> (ret: NonNull<T>)
-        ensures
-            ret.view_ptr_mut()@.metadata == self.view_ptr_mut()@.metadata,
-            ret.view_ptr_mut()@.provenance == self.view_ptr_mut()@.provenance,
-            ret.view_ptr_mut()@.addr == addr.view(),
+        returns
+            self.with_addr_spec(addr),
     ;
 
     /// A wrapper of `NonNull::map_addr` in `std`, here we use our own `NonZeroUsize`
@@ -184,6 +189,8 @@ impl<T: PointeeSized> NonNullAdditionalFnsMore<T> for NonNull<T> {
     }
 
     uninterp spec fn with_addr_spec(self, addr: NonZeroUsize) -> NonNull<T>;
+
+    axiom fn lemma_with_addr_properties(self, addr: NonZeroUsize);
 
     #[verifier::external_body]
     #[verifier::when_used_as_spec(nonnull_with_addr_spec_wrapper)]
