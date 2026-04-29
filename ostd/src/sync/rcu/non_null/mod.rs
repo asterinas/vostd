@@ -15,6 +15,8 @@ use crate::prelude::*;
 
 verus! {
 
+broadcast use {group_nonull_axioms, group_raw_ptr_axioms};
+    
 /// A trait that abstracts non-null pointers.
 ///
 /// All common smart pointer types such as `Box<T>`,  `Arc<T>`, and `Weak<T>`
@@ -37,7 +39,8 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// The verification-only permission type that represents the ownership of the smart pointer.
     type Permission: PtrPointsToTrait<Ptr = Self, Target = Self::Target> + Inv;
 
-    // VERUS LIMITATION: Cannot use associated type with lifetime yet.
+    // VERUS LIMITATION: Verus does not support generic associated type with lifetime yet, 
+    // so we put all methods related to the Ref associated type in the `NonNullPtrRef` trait.
     /*/// A type that behaves just like a shared reference to the `NonNullPtr`.
     type Ref<'a>
     where
@@ -91,7 +94,6 @@ pub unsafe trait NonNullPtr: Sized + 'static {
             ret.rel_perm(perm@),
     ;
 
-    // VERUS LIMITATION: Cannot use associated type with lifetime yet, will implement it as a free function for each type.
     /*/// Obtains a shared reference to the original pointer.
     ///
     /// # Safety
@@ -99,7 +101,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// The original pointer must outlive the lifetime parameter `'a`, and during `'a`
     /// no mutable references to the pointer will exist.
     //unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a>;*/
-    // VERUS LIMITATION: Cannot use associated type with lifetime yet, will implement it as a free function for each type.
+
     /*/// Converts a shared reference to a raw pointer.
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target>;*/
 
@@ -116,13 +118,50 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     ;
 }
 
+/// The trait for the associated Ref type of NonNullPtr, which is separated from the NonNullPtr trait.
+/// FIXME: This is a workaround for the lack of GAT with lifetime in Verus. We can merge this trait back to NonNullPtr once GAT with lifetime is supported.
+pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
+    type Ref: 'a;
+
+    /// The verification-only permission type for the reference.
+    type RefPermission: Inv;
+
+    /// The RefPermission must be able to viewed the as the original Permission.
+    spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission;
+    
+    // A specification function that relates the Ref type and the RefPermission.
+    spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool;
+
+    proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission)
+        requires
+            perm.inv(),
+        ensures
+            Self::ref_perm_view_permission(perm).inv(),
+    ;
+
+    unsafe fn raw_as_ref(raw: NonNull<Self::Target>, perm: Tracked<Self::RefPermission>) -> (ret: Self::Ref)
+        requires
+            Self::ptr_perm_match(raw, Self::ref_perm_view_permission(perm@)),
+            perm@.inv(),
+        ensures
+            Self::ref_rel_perm(ret, perm@),
+    ;
+
+    fn ref_as_raw(ptr_ref: Self::Ref) -> ((ptr, perm): (NonNull<Self::Target>, Tracked<Self::RefPermission>))
+        ensures
+            Self::ref_rel_perm(ptr_ref, perm@),
+            Self::ptr_perm_match(ptr, Self::ref_perm_view_permission(perm@)),
+            perm@.inv(),
+    ;
+} 
+
 /// A type that represents `&'a Box<T>`.
 #[verus_verify]
 #[derive(Debug)]
 pub struct BoxRef<'a, T> {
     inner: *mut T,
     _marker: PhantomData<&'a T>,
-    v_perm: Tracked<&'a BoxPointsTo<T>>,
+    v_perm: Tracked<BoxPointsToRef<'a, T>>,
 }
 
 impl<'a, T> BoxRef<'a, T> {
@@ -130,7 +169,7 @@ impl<'a, T> BoxRef<'a, T> {
     spec fn type_inv(self) -> bool {
         &&& self.inner@.addr != 0
         &&& self.inner@.addr as int % vstd::layout::align_of::<T>() as int == 0
-        &&& self.v_perm@.ptr() == self.inner
+        &&& self.v_perm@@.ptr() == self.inner
         &&& self.v_perm@.inv()
     }
 
@@ -139,7 +178,7 @@ impl<'a, T> BoxRef<'a, T> {
     }
 
     pub closed spec fn value(self) -> T {
-        self.v_perm@.value()
+        self.v_perm@@.value()
     }
 
     pub closed spec fn ref_rel_perm(self, perm: BoxPointsTo<T>) -> bool {
@@ -168,19 +207,19 @@ impl<'a, T> BoxRef<'a, T> {
     /// Dereferences `self` to get a reference to `T` with the lifetime `'a`.
     #[verus_spec(ret => ensures *ret == self.value())]
     pub fn deref_target(&self) -> &'a T {
-        // [VERIFIED] SAFETY: The reference is created through `NonNullPtr::raw_as_ref`, hence
-        // the original owned pointer and target must outlive the lifetime parameter `'a`,
-        // and during `'a` no mutable references to the pointer will exist.
-        let Tracked(perm) = self.v_perm;
         proof!{
             use_type_invariant(self);
         }
+        // [VERIFIED] SAFETY: The reference is created through `NonNullPtr::raw_as_ref`, hence
+        // the original owned pointer and target must outlive the lifetime parameter `'a`,
+        // and during `'a` no mutable references to the pointer will exist.
         //unsafe { &*(self.inner) }
+        
+        // The function body of ptr_ref is exactly the same as `unsafe { &*(self.inner) }`
         vstd::raw_ptr::ptr_ref(
             self.inner,
-            Tracked(perm.tracked_borrow_points_to()),
-        )  // The function body of ptr_ref is exactly the same as `unsafe { &*(self.inner) }`
-
+            Tracked(self.v_perm.borrow().tracked_borrow_points_to()),
+        )
     }
 }
 
@@ -256,35 +295,59 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     axiom fn lemma_align_bits_range();
 }
 
-pub fn box_ref_as_raw<T: 'static>(ptr_ref: BoxRef<'_, T>) -> ((ptr,perm): (
-    NonNull<T>,
-    Tracked<&BoxPointsTo<T>>,
-))
-    ensures
-        ptr_ref.ref_rel_perm(*perm@),
-        Box::ptr_perm_match(ptr, *perm@),
-        perm@.ptr().addr() != 0,
-        perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        perm@.inv(),
-{
-    proof!{
-        use_type_invariant(&ptr_ref);
+unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Box<T> {
+    type Ref = BoxRef<'a, T>;
+    type RefPermission = BoxPointsToRef<'a, T>;
+
+    open spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission {
+        perm@
     }
-    // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
-    (unsafe { NonNull::new_unchecked(ptr_ref.inner) }, ptr_ref.v_perm)
+
+    open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
+        &&& r.value() == perm@.value()
+        &&& r.ptr() == perm@.ptr()
+    }
+
+    proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission){}
+
+    unsafe fn raw_as_ref(raw: NonNull<Self::Target>, perm: Tracked<Self::RefPermission>) -> Self::Ref {
+        BoxRef { inner: raw.as_ptr(), _marker: PhantomData, v_perm: perm }
+    }
+
+    fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
+        proof!{
+            use_type_invariant(&ptr_ref);
+        }
+        // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
+        (unsafe { NonNull::new_unchecked(ptr_ref.inner) }, ptr_ref.v_perm)
+    }
 }
 
-pub unsafe fn box_raw_as_ref<'a, T: 'static>(
-    raw: NonNull<T>,
-    perm: Tracked<&'a BoxPointsTo<T>>,
-) -> (ret: BoxRef<'a, T>)
-    requires
-        Box::ptr_perm_match(raw, *perm@),
-        perm@.inv(),
-    ensures
-        ret.ref_rel_perm(*perm@),
-{
-    BoxRef { inner: raw.as_ptr(), _marker: PhantomData, v_perm: perm }
+unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Arc<T> {
+    type Ref = ArcRef<'a, T>;
+    type RefPermission = ArcPointsTo<T>;
+
+    open spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission {
+        perm
+    }
+
+    open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
+        perm.view_target() == *r.deref_as_arc_spec()
+    }
+
+    proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission){}
+
+    unsafe fn raw_as_ref(raw: NonNull<Self::Target>, perm: Tracked<Self::RefPermission>) -> Self::Ref {
+        unsafe {
+            ArcRef { inner: ManuallyDrop::new(#[verus_spec(with perm)] arc_from_raw(raw.as_ptr())), _marker: PhantomData }
+        }
+    }
+
+    fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
+        // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
+        let (ptr, Tracked(perm)) = NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner));
+        (ptr, Tracked(perm))
+    }
 }
 
 /// A type that represents `&'a Arc<T>`.
@@ -371,21 +434,6 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         unsafe { #[verus_spec(with Tracked(perm))] arc_from_raw(ptr) }
     }
 
-    /*
-    unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
-        // SAFETY: The safety is upheld by the caller.
-        unsafe {
-            ArcRef {
-                inner: ManuallyDrop::new(Arc::from_raw(raw.as_ptr())),
-                _marker: PhantomData,
-            }
-        }
-    }
-
-    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target> {
-        NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
-    }*/
-
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool{
         ptr.view_ptr_mut() == perm.ptr()
     }
@@ -395,37 +443,6 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }
 
     axiom fn lemma_align_bits_range();
-}
-
-pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> ((ptr,perm): (
-    NonNull<T>,
-    Tracked<ArcPointsTo<T>>,
-))
-    ensures
-        Arc::ptr_perm_match(ptr, perm@),
-        perm@.ptr().addr() != 0,
-        perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        perm@.ptr() == ptr.view_ptr_mut(),
-        perm@.inv(),
-{
-    // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
-    let (ptr, Tracked(perm)) = NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner));
-    (ptr, Tracked(perm))
-}
-
-pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
-    raw: NonNull<T>,
-    perm: Tracked<ArcPointsTo<T>>,
-) -> (ret: ArcRef<'a, T>)
-    requires
-        Arc::ptr_perm_match(raw, perm@),
-        perm@.inv(),
-    ensures
-        ret.ref_rel_perm(perm@),
-{
-    unsafe {
-        ArcRef { inner: ManuallyDrop::new(#[verus_spec(with perm)] arc_from_raw(raw.as_ptr())), _marker: PhantomData }
-    }
 }
 
 } // verus!

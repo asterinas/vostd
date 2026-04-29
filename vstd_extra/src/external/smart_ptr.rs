@@ -269,4 +269,30 @@ pub unsafe fn arc_from_raw<T>(ptr: *const T) -> Arc<T> {
     unsafe { Arc::from_raw(ptr) }
 }
 
+/// A permission that is equivalent to `&BoxPointsTo<T>`.
+pub tracked struct BoxPointsToRef<'a, T>(pub &'a BoxPointsTo<T>);
+
+impl<'a, T> View for BoxPointsToRef<'a, T> {
+    type V = BoxPointsTo<T>;
+
+    open spec fn view(&self) -> BoxPointsTo<T> {
+        *self.0
+    }
+}
+
+impl<'a, T> Inv for BoxPointsToRef<'a, T> {
+    open spec fn inv(self) -> bool {
+        self@.inv()
+    }
+}
+
+impl<'a, T> BoxPointsToRef<'a, T> {
+    pub proof fn tracked_borrow_points_to(tracked &self) -> (tracked ret: &'a PointsTo<T>)
+        returns
+            self@.perm.points_to,
+    {
+        self.0.tracked_borrow_points_to()
+    }
+}
+
 } // verus!
