@@ -142,6 +142,10 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         s.slot_owners.tracked_insert(index, slot_own);
     }
 
+    // It is unsound to drop a `Frame` while raw paddrs to it remain
+    // outstanding (`raw_count > 0`), since those raw paddrs could be revived
+    // via `from_raw` after the slot has been torn down. Hence the drop is
+    // only permitted when `raw_count == 0`.
     open spec fn drop_requires(self, s: Self::State) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let slot_own = s.slot_owners[idx];
@@ -150,35 +154,28 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         &&& s.slots.contains_key(idx)
         &&& s.slots[idx].pptr() == self.ptr
         &&& s.slot_owners.contains_key(idx)
-        &&& slot_own.raw_count > 0
+        &&& slot_own.raw_count == 0
         &&& slot_own.inner_perms.ref_count.value() > 0
         &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
         // When this is the last reference (ref_count == 1), we need to be able to
         // call drop_last_in_place, which requires:
         &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
-            &&& slot_own.raw_count == 1
             &&& slot_own.inner_perms.storage.is_init()
             &&& slot_own.inner_perms.in_list.value() == 0
         }
     }
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
-        let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (
-        slot_own.raw_count - 1) as usize
+        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        &&& s1.slot_owners[idx].raw_count == 0
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+            i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
 
     proof fn drop_tracked(self, tracked s: &mut Self::State) {
-        let index = frame_to_index(meta_to_frame(self.ptr.addr()));
-        let tracked mut slot_own = s.slot_owners.tracked_remove(index);
-        slot_own.raw_count = (slot_own.raw_count - 1) as usize;
-        s.slot_owners.tracked_insert(index, slot_own);
     }
 }
 
@@ -803,10 +800,6 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
             assert(slot.ref_count.id() == slot_own.inner_perms.ref_count.id());
         }
         let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.inner_perms.ref_count), 1);
-
-        proof {
-            slot_own.raw_count = (slot_own.raw_count - 1) as usize;
-        }
 
         if last_ref_cnt == 1 {
             // A fence is needed here with the same reasons stated in the implementation of
