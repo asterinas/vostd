@@ -904,6 +904,48 @@ impl<'a> VmReader<'a, Infallible> {
     }
 }
 
+impl<'a> VmReader<'a, Fallible> {
+    /// Collects all the remaining bytes into a `Vec<u8>`.
+    ///
+    /// If the memory read failed, this method will return `Err`
+    /// and the current reader's cursor remains pointing to
+    /// the original starting position. The cursor rollback is verified —
+    /// `rewind_cursor` discharges the spec that ties `copied_len` to the
+    /// cursor advancement.
+    #[verifier::external_body]
+    pub fn collect(&mut self) -> Result<alloc::vec::Vec<u8>> {
+        let mut buf = alloc::vec![0u8; self.remain()];
+        let mut writer: VmWriter<'_, Infallible> = buf.as_mut_slice().into();
+        match self.read_fallible(&mut writer) {
+            Ok(_) => Ok(buf),
+            Err((err, copied_len)) => {
+                self.rewind_cursor(copied_len);
+                Err(err)
+            },
+        }
+    }
+
+    /// Rewinds the cursor by `n` bytes. Used to undo a partial read.
+    ///
+    /// The cursor advancement on `read_fallible`'s `Err` path equals
+    /// `copied_len`, so calling `rewind_cursor(copied_len)` deterministically
+    /// restores the cursor to its position before the failed read.
+    #[verus_spec(
+        requires
+            old(self).inv(),
+            n <= old(self).cursor.vaddr - old(self).cursor.range@.start,
+        ensures
+            final(self).inv(),
+            final(self).cursor.vaddr == old(self).cursor.vaddr - n,
+            final(self).cursor.range == old(self).cursor.range,
+            final(self).end == old(self).end,
+            final(self).id == old(self).id,
+    )]
+    fn rewind_cursor(&mut self, n: usize) {
+        self.cursor.vaddr = self.cursor.vaddr - n;
+    }
+}
+
 // Perhaps we can implement `tryfrom` instead.
 // This trait method should be discarded as we do not want to make VmWriter <N> ?
 #[verus_verify]
@@ -1258,6 +1300,18 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     #[verifier::when_used_as_spec(remain_spec)]
     pub fn remain(&self) -> usize {
         self.end.addr() - self.cursor.addr()
+    }
+
+    /// Returns the cursor pointer, which refers to the address of the next byte to read.
+    #[verifier::external_body]
+    pub fn cursor(&self) -> *const u8 {
+        self.cursor.vaddr as *const u8
+    }
+
+    /// Returns if it has remaining data to read.
+    #[verifier::external_body]
+    pub fn has_remain(&self) -> bool {
+        self.remain() > 0
     }
 
     /// Advances the cursor by `len` bytes.
@@ -1662,6 +1716,18 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
         self.end.vaddr - self.cursor.vaddr
     }
 
+    /// Returns the cursor pointer, which refers to the address of the next byte to write.
+    #[verifier::external_body]
+    pub fn cursor(&self) -> *mut u8 {
+        self.cursor.vaddr as *mut u8
+    }
+
+    /// Returns if it has available space to write.
+    #[verifier::external_body]
+    pub fn has_avail(&self) -> bool {
+        self.avail() > 0
+    }
+
     /// Advances the cursor by `len` bytes.
     ///
     /// # Verified Properties
@@ -1905,6 +1971,34 @@ macro_rules! impl_read_fallible {
         ::vstd::prelude::verus! {
         impl<'a> FallibleVmRead<$writer_fallibility> for VmReader<'a, $reader_fallibility> {
             #[verifier::external_body]
+            #[verus_spec(r =>
+                requires
+                    old(self).inv(),
+                    old(writer).inv(),
+                ensures
+                    final(self).end == old(self).end,
+                    final(self).id == old(self).id,
+                    final(self).cursor.range == old(self).cursor.range,
+                    final(writer).end == old(writer).end,
+                    final(writer).id == old(writer).id,
+                    final(writer).cursor.range == old(writer).cursor.range,
+                    final(self).inv(),
+                    final(writer).inv(),
+                    match r {
+                        Ok(n) => {
+                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+                            &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
+                            &&& n <= old(self).remain_spec()
+                            &&& n <= old(writer).avail_spec()
+                        },
+                        Err((_, copied_len)) => {
+                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + copied_len
+                            &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + copied_len
+                            &&& copied_len <= old(self).remain_spec()
+                            &&& copied_len <= old(writer).avail_spec()
+                        },
+                    }
+            )]
             fn read_fallible(
                 &mut self,
                 writer: &mut VmWriter<'_, $writer_fallibility>,
