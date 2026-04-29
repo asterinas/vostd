@@ -1108,6 +1108,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         return Some(cur_va);
                     }
                     let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
+                    let ghost cont_pre_split = continuation;
+                    let ghost parent_pre_split = continuation.entry_own.node.unwrap();
                     let tracked mut child_owner = continuation.take_child();
                     let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 
@@ -1153,7 +1155,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                         continuation.put_child(child_owner);
                         continuation.entry_own.node = Some(parent_owner);
-                        continuation.continuation_inv_holds_after_child_restore();
+                        continuation.continuation_inv_holds_after_child_restore(
+                            cont_pre_split, parent_pre_split);
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
 
                         owner0.max_steps_partial_inv(*owner, owner.level as usize);
@@ -2334,7 +2337,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             assert(cont_new.entry_own.inv());
                             assert(cont_new.level() == cont_pre_alloc.level());
                             assert(cont_new.tree_level == INC_LEVELS - cont_new.level() - 1);
-                            cont_new.continuation_inv_holds_after_child_restore();
+                            cont_new.continuation_inv_holds_after_child_restore(
+                                cont_pre_alloc, cont_pre_alloc.entry_own.node.unwrap());
                         };
                         owner.map_branch_none_inv_holds(owner_pre_none);
                     }
@@ -2373,6 +2377,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     let ghost level_before_frame = cur_level;
 
                     let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
+                    let ghost cont_pre_split = continuation;
+                    let ghost parent_pre_split = continuation.entry_own.node.unwrap();
                     let tracked mut child_owner = continuation.take_child();
                     let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 
@@ -2391,7 +2397,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         continuation.put_child(child_owner);
                         continuation.entry_own.node = Some(parent_owner);
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
-                        assert(owner.inv()) by { admit() };
+                        assert(owner.continuations[owner.level - 1].inv()) by {
+                            let cont_new = owner.continuations[owner.level - 1];
+                            cont_new.continuation_inv_holds_after_child_restore(
+                                cont_pre_split, parent_pre_split);
+                        };
+                        owner.map_branch_none_inv_holds(owner_before_frame);
                     }
 
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -2507,6 +2518,26 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            // ref_count is preserved exactly at non-mapped, non-UNUSED indices.
+            // map_loop preserves slot_owners fully at non-UNUSED slots, new_child
+            // only mutates the new mapped frame's slot, and replace_cur_entry
+            // preserves ref_count for all slots (per its own postcondition at
+            // [mod.rs:3380]). Lets callers re-derive `item_slot_in_regions`
+            // for unrelated paddrs.
+            forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+                idx != frame_to_index(C::item_into_raw(item).0) &&
+                old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
+                final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
+            // At the mapped index, ref_count > 0 is preserved (incremented if
+            // already > 0). Together with `slots.contains_key` monotonicity,
+            // gives `item_slot_in_regions(item, *final(regions))` post-map.
+            (C::tracked(item)
+                && old(regions).slot_owners[
+                    frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value() > 0)
+                ==>
+                final(regions).slot_owners[
+                    frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value() > 0,
             // `regions.slots` is monotonic — slot existence is preserved through map.
             forall|idx: usize| #![trigger final(regions).slots.contains_key(idx)]
                 old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
@@ -3224,7 +3255,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(owner.continuations[owner.level - 1].inv()) by {
                 let cont_new = owner.continuations[owner.level - 1];
                 assert(child_not_in_scope);
-                cont_new.continuation_inv_holds_after_child_restore();
+                cont_new.continuation_inv_holds_after_child_restore(
+                    cont0, cont0.entry_own.node.unwrap());
             };
             owner0.protect_preserves_cursor_inv_metaregion(*owner, *regions);
         }

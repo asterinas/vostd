@@ -647,6 +647,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(parent_owner).inv(),
             old(parent_owner).level == old(owner).value.parent_level,
             old(parent_owner).level < NR_LEVELS,
+            // Frame entries being split must have `metaregion_sound` for
+            // their slot — provides `regions.slots.contains_key(pa_idx)` and
+            // ref_count facts at the parent slot itself (j = 0 case in the
+            // split loop's invariant). Without this, those facts can't be
+            // re-established after alloc.
+            old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
+                old(owner).value.metaregion_sound(*old(regions)),
             // Sub-page validity for huge-page split: each 4KB sub-page slot must
             // exist; non-MMIO sub-pages must additionally have `rc != UNUSED`.
             // (MMIO sub-pages keep `usage == MMIO` and `rc == UNUSED`.)
@@ -722,6 +729,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& old(regions).slot_owners[frame_to_index(meta_to_frame(final(owner).value.node.unwrap().meta_perm.addr()))]
                     .inner_perms.ref_count.value() == REF_COUNT_UNUSED
             },
+            // Parent's other PTEs are preserved: only the entry at self.idx
+            // is overwritten (with the new PT pointer). Lets callers re-derive
+            // `inv_children_rel` for the unchanged children when restoring the
+            // parent NodeOwner into the cursor's continuation.
+            old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
+                forall|j: int| 0 <= j < NR_ENTRIES && j != old(self).idx as int ==>
+                    #[trigger] final(parent_owner).children_perm.value()[j]
+                        == old(parent_owner).children_perm.value()[j],
     )]
     pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A)
         -> (res: Option<PageTableGuard<'rcu, C>>) {
@@ -742,8 +757,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let tracked mut new_owner: OwnerSubtree<C>;
         }
 
+        // alloc takes the NEW NODE level (level - 1, one below the cursor's
+        // level which is `level`). Convention: alloc(M) produces node.level=M.
         #[verus_spec(with Tracked(parent_owner), Tracked(regions), Tracked(guards), Ghost(self.idx) => Tracked(new_owner))]
-        let new_page = PageTableNode::<C>::alloc(level);
+        let new_page = PageTableNode::<C>::alloc(level - 1);
 
         #[verus_spec(with Tracked(&new_owner.value.node.tracked_borrow().meta_perm.points_to))]
         let paddr = new_page.start_paddr();

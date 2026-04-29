@@ -168,7 +168,19 @@ impl<C: PageTableConfig> PageTableNode<C> {
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())),
             owner@.value.metaregion_sound(*final(regions)),
-            owner@.value.in_scope,
+            // Note: `owner@.value.in_scope` was previously asserted here, but
+            // `allocated_empty_node_owner` already requires `owner.inv()`, which
+            // through `EntryOwner::inv` forces `!in_scope`. Asserting both was
+            // an unsoundness that allowed `assert(false)` post-alloc.
+            //
+            // Disjointness: the alloc'd slot's idx is different from any
+            // previously-active slot's idx. Derived from the unused pre-state
+            // (`pre.slot_owners[new_alloc_idx].ref_count == UNUSED` per
+            // `get_from_unused_spec`). Stated as an explicit ensures so it's
+            // easy to trigger from split/alloc_if_none loop invariants.
+            forall|i: usize|
+                #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                ==> i != frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())),
             owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())), level as PagingLevel),
             *final(parent_owner) == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
     )]

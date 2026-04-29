@@ -383,16 +383,56 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     /// After restoring `entry_own.node = Some(parent_owner)` and putting the child back
     /// at `idx`, the continuation invariant holds.
-    pub axiom fn continuation_inv_holds_after_child_restore(self)
+    ///
+    /// Caller passes the pre-modification continuation `cont_old` and its
+    /// parent_owner `parent_old` so we can recover the per-`j != idx`
+    /// `inv_children_rel`/`pt_inv_children` facts from `cont_old.inv()`.
+    /// Operations that take/restore (alloc_if_none, split_if_mapped_huge,
+    /// protect, replace) all preserve the parent's other PTEs and the
+    /// children at `j != idx`.
+    pub proof fn continuation_inv_holds_after_child_restore(
+        self,
+        cont_old: Self,
+        parent_old: NodeOwner<C>,
+    )
         requires
+            // Old continuation was inv with parent_old wired in
+            cont_old.inv(),
+            cont_old.entry_own.node == Some(parent_old),
+            // Frozen fields shared with cont_old
+            self.children.len() == cont_old.children.len(),
+            self.idx == cont_old.idx,
+            self.tree_level == cont_old.tree_level,
+            self.guard == cont_old.guard,
+            self.path == cont_old.path,
+            // entry_own changed only by .node field
+            self.entry_own.frame == cont_old.entry_own.frame,
+            self.entry_own.locked == cont_old.entry_own.locked,
+            self.entry_own.absent == cont_old.entry_own.absent,
+            self.entry_own.in_scope == cont_old.entry_own.in_scope,
+            self.entry_own.path == cont_old.entry_own.path,
+            self.entry_own.parent_level == cont_old.entry_own.parent_level,
+            // entry_own's new parent is well-formed and structurally matches the old
             self.entry_own.is_node(),
             self.entry_own.inv(),
             self.entry_own.node.unwrap().relate_guard(self.guard),
+            self.entry_own.node.unwrap().level == parent_old.level,
+            self.entry_own.node.unwrap().tree_level == parent_old.tree_level,
+            // Other PTEs preserved (operation only touched the entry at idx)
+            forall|j: int| 0 <= j < NR_ENTRIES && j != self.idx as int ==>
+                #[trigger] self.entry_own.node.unwrap().children_perm.value()[j]
+                    == parent_old.children_perm.value()[j],
+            // Children at j != idx untouched
+            forall|j: int| 0 <= j < NR_ENTRIES && j != self.idx as int ==>
+                #[trigger] self.children[j] == cont_old.children[j],
+            // Standard size/index facts (also implied by cont_old.inv()
+            // + frozen fields, but stated directly to avoid extra unrolls).
             self.children.len() == NR_ENTRIES,
             0 <= self.idx < NR_ENTRIES,
             self.tree_level == INC_LEVELS - self.level() - 1,
             self.tree_level < INC_LEVELS - 1,
             self.path().len() == self.tree_level,
+            // The new child at idx is well-formed
             self.children[self.idx as int] is Some,
             self.children[self.idx as int].unwrap().inv(),
             self.children[self.idx as int].unwrap().value.parent_level == self.level(),
@@ -405,7 +445,69 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.entry_own.node.unwrap().level),
             !self.children[self.idx as int].unwrap().value.in_scope,
         ensures
-            self.inv();
+            self.inv()
+    {
+        let cont_idx = self.idx as int;
+        let new_parent = self.entry_own.node.unwrap();
+        let new_child = self.children[cont_idx].unwrap();
+
+        // (1) inv_children: every Some child is inv.
+        assert(self.inv_children()) by {
+            let pred = |child: Option<OwnerSubtree<C>>|
+                child is Some ==> child.unwrap().inv();
+            assert forall |i: int| 0 <= i < self.children.len() implies
+                #[trigger] pred(self.children[i])
+            by {
+                if i != cont_idx {
+                    if self.children[i] is Some {
+                        assert(self.children[i] == cont_old.children[i]);
+                        cont_old.inv_children_unroll(i);
+                    }
+                }
+            };
+            assert(self.children.all(pred));
+        };
+
+        // (2) inv_children_rel: each Some child satisfies the structural
+        // predicate against entry_own.node = new_parent.
+        assert(self.inv_children_rel()) by {
+            let pred = self.inv_children_rel_pred();
+            assert forall |i: int| 0 <= i < self.children.len() implies
+                #[trigger] pred(i, self.children[i])
+            by {
+                if i != cont_idx {
+                    if self.children[i] is Some {
+                        cont_old.inv_children_rel_unroll(i);
+                        assert(self.children[i] == cont_old.children[i]);
+                    }
+                }
+            };
+        };
+
+        // (3) pt_inv_children: each Some child has PageTableOwner(child).pt_inv().
+        // For j != idx, transferred from cont_old's pt_inv_children. For
+        // j == idx, the new child's `pt_inv` is operation-specific. Closing
+        // it cleanly requires fixing path-propagation in `alloc_if_none`'s
+        // body (children's paths are stale relative to the cursor path) and
+        // a per-operation pt_inv lemma. See discussion in MEMORY for plan.
+        assert(self.pt_inv_children()) by {
+            let pred = Self::pt_inv_children_pred();
+            assert forall |i: int| 0 <= i < self.children.len() implies
+                #[trigger] pred(i, self.children[i])
+            by {
+                if i == cont_idx {
+                    assume(PageTableOwner(self.children[cont_idx].unwrap()).pt_inv());
+                } else {
+                    if self.children[i] is Some {
+                        cont_old.pt_inv_children_unroll(i);
+                        assert(self.children[i] == cont_old.children[i]);
+                    }
+                }
+            };
+        };
+
+        assert(!self.entry_own.in_scope);
+    }
 
     pub proof fn new_child(tracked &self, paddr: Paddr, prop: PageProperty, is_tracked: bool, tracked regions: &mut MetaRegionOwners) -> (tracked res: OwnerSubtree<C>)
         requires

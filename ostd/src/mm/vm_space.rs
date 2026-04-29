@@ -1003,9 +1003,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     let frame = item.frame;
                     proof {
                         crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
-                        // TODO: chain CursorView::inv bound to
-                        // the fits_usize precondition.
-                        admit();
+                        // `wf_mapping_set(removed)` from the wf adjusted_base
+                        // via subset; `va_range.end <= 2^47` for every removed
+                        // mapping is a loop invariant. Together they give
+                        // |removed| < usize::MAX, so num_unmapped + 1 fits.
+                        crate::specs::mm::page_table::mapping_set_lemmas::lemma_wf_subset(
+                            adjusted_base, removed);
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(removed);
                     }
                     assert(num_unmapped < usize::MAX);

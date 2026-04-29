@@ -626,17 +626,34 @@ impl KVirtArea {
             #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
             let res = cursor.map(item);
 
-            // Per-frame `item_slot_in_regions` preservation: would follow from
-            // cursor.map's strengthened RC ensures + uniqueness of paddrs in
-            // `it.elements`. The latter isn't a tracked loop invariant, so we
-            // admit. (For the untracked sibling, the equivalent admit was
-            // closed because the invariant ranges over PAs in pa_range, not
-            // over a Vec of Frames.)
+            // `item_slot_in_regions` preservation for the remaining frames
+            // follows from cursor.map's strengthened ensures: ref_count is
+            // preserved at non-mapped non-UNUSED indices, and at the mapped
+            // index ref_count > 0 is preserved (covers duplicates). slots
+            // keys are monotonic across map.
             proof {
-                assert(forall |i: int| (it.pos as int + 1) <= i < it.elements.len() ==>
+                let cur_pa = KernelPtConfig::item_into_raw_spec(item).0;
+                let cur_pa_idx = frame_to_index_spec(cur_pa);
+                assert forall |i: int| (it.pos as int + 1) <= i < it.elements.len() implies
                     CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                        MappedItem::Tracked(#[trigger] it.elements[i], prop), *regions))
-                by { admit() }
+                        MappedItem::Tracked(#[trigger] it.elements[i], prop), *regions)
+                by {
+                    let item_i = MappedItem::Tracked(it.elements[i], prop);
+                    let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
+                    let idx_i = frame_to_index_spec(pa_i);
+                    KernelPtConfig::item_into_raw_spec_tracked_level(item_i);
+                    // Loop invariant gives item_slot_in_regions for item_i
+                    // against `regions_before_map`. cursor.map preserves
+                    // slots-monotonicity and the relevant ref_count fact at
+                    // either branch (idx_i != cur_pa_idx via direct equality,
+                    // idx_i == cur_pa_idx via mapped-idx > 0 preservation).
+                    assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
+                        item_i, regions_before_map));
+                    if idx_i != cur_pa_idx {
+                        assert(regions.slot_owners[idx_i].inner_perms.ref_count.value()
+                            == regions_before_map.slot_owners[idx_i].inner_perms.ref_count.value());
+                    }
+                };
             }
 
             proof {
