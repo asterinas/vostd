@@ -22,8 +22,10 @@
 //! wrapper signature, which lets verification run with full lifetime checking
 //! enabled.
 use core::cmp::Ordering;
+use core::ops::BitOr;
 use vstd::prelude::*;
 use vstd::std_specs::cmp::*;
+use vstd::std_specs::ops::BitOrSpecImpl;
 
 verus! {
 
@@ -74,6 +76,7 @@ impl NonZeroUsize {
     pub const unsafe fn new_unchecked(n: usize) -> (ret: Self)
         ensures
             ret.view() == n,
+            ret == Self::nonzero_usize_from_usize(n),
     {
         NonZeroUsize { inner: core::num::NonZeroUsize::new_unchecked(n) }
     }
@@ -146,6 +149,31 @@ pub broadcast group group_nonzero_axioms {
     NonZeroUsize::lemma_nonzero_neq_zero,
     NonZeroUsize::axiom_nonzero_usize_from_usize_view_eq,
     NonZeroUsize::axiom_view_nonzero_usize_from_usize_eq,
+}
+
+impl BitOrSpecImpl<usize> for NonZeroUsize {
+    open spec fn obeys_bitor_spec() -> bool {
+        true
+    }
+
+    open spec fn bitor_req(self, rhs: usize) -> bool {
+        true
+    }
+
+    open spec fn bitor_spec(self, rhs: usize) -> Self {
+        Self::nonzero_usize_from_usize(self.view() | rhs)
+    }
+}
+
+impl BitOr<usize> for NonZeroUsize {
+    type Output = Self;
+
+    fn bitor(self, rhs: usize) -> (ret: Self::Output)
+        ensures
+            ret.view() == self.view() | rhs,
+    {
+        unsafe { Self::new_unchecked(self.get() | rhs) }
+    }
 }
 
 } // verus!

@@ -141,7 +141,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 let (right, Tracked(perm)) = right.into_raw();
                 let right_tagged = right.map_addr_v(|addr: NonZeroUsize| -> (ret: NonZeroUsize) 
                     ensures ret@ == addr@ | (1usize << Self::ALIGN_BITS)
-                    {unsafe { NonZeroUsize::new_unchecked(addr.get() | (1usize << Self::ALIGN_BITS)) }});
+                    { addr | 1usize << Self::ALIGN_BITS } );
                 proof! {
                     let addr = right.addr_spec()@;
                     let tagged_addr = right_tagged.addr_spec()@;
