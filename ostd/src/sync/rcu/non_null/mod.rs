@@ -344,7 +344,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         = ArcRef<'a, T>
     where
         Self: 'a;*/
-    
+
     #[verifier::external_body]
     const ALIGN_BITS: u32 = core::mem::align_of::<T>().trailing_zeros();
 

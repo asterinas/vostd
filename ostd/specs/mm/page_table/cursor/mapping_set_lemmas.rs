@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use vstd::set::{axiom_set_intersect_finite};
+use vstd::set::axiom_set_intersect_finite;
 
 use vstd_extra::arithmetic::{
     lemma_nat_align_down_monotone, lemma_nat_align_down_within_block, nat_align_down,

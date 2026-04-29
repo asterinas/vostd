@@ -167,7 +167,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         slot.write_meta(metadata);
 
         // Re-sync slot_own with the updated inner_perms (now storage+vtable are init).
-        proof { slot_own.sync_inner(&inner_perms); }
+        proof {
+            slot_own.sync_inner(&inner_perms);
+        }
         let tracked meta_perm = MetaSlot::cast_perm::<M1>(slot_perm, inner_perms);
 
         let tracked mut new_owner = UniqueFrameOwner::<M1>::from_unused_owner(
@@ -372,6 +374,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             regions.slots.tracked_insert(idx, perm);
         }
     }
+
     /// Converts this frame into a raw physical address.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
@@ -463,7 +466,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         //        unsafe { &*self.ptr }
 
     }
-
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
@@ -537,8 +539,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             old(regions).slots.contains_key(owner.slot_index),
             old(regions).slot_owners.contains_key(owner.slot_index),
             old(regions).slots[owner.slot_index].pptr() == unique.ptr,
-            old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.id()
-                == old(regions).slots[owner.slot_index].value().ref_count.id(),
+            old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.id() == old(
+                regions,
+            ).slots[owner.slot_index].value().ref_count.id(),
         ensures
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
@@ -575,16 +578,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         requires
             frame.inv(),
             old(regions).inv(),
-            old(regions).slots.contains_key(
-                frame_to_index(meta_to_frame(frame.ptr.addr()))),
-            old(regions).slot_owners.contains_key(
-                frame_to_index(meta_to_frame(frame.ptr.addr()))),
-            old(regions).slots[frame_to_index(meta_to_frame(frame.ptr.addr()))].pptr()
-                == frame.ptr,
-            old(regions).slot_owners[frame_to_index(meta_to_frame(frame.ptr.addr()))]
-                .inner_perms.ref_count.id()
-                == old(regions).slots[frame_to_index(meta_to_frame(frame.ptr.addr()))]
-                    .value().ref_count.id(),
+            old(regions).slots.contains_key(frame_to_index(meta_to_frame(frame.ptr.addr()))),
+            old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(frame.ptr.addr()))),
+            old(regions).slots[frame_to_index(meta_to_frame(frame.ptr.addr()))].pptr() == frame.ptr,
+            old(regions).slot_owners[frame_to_index(
+                meta_to_frame(frame.ptr.addr()),
+            )].inner_perms.ref_count.id() == old(regions).slots[frame_to_index(
+                meta_to_frame(frame.ptr.addr()),
+            )].value().ref_count.id(),
         ensures
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
@@ -633,4 +634,5 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TryFrom<Frame<M>> for Un
         UniqueFrame::try_from_shared(frame)
     }
 }
+
 } // verus!

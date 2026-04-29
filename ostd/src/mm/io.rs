@@ -451,8 +451,10 @@ impl VmIoOwner<'_> {
             final(self).is_fallible == old(self).is_fallible,
             final(self).id == old(self).id,
             final(self).is_kernel == old(self).is_kernel,
-            old(self).mem_view matches Some(VmIoMemView::ReadView(_)) ==> final(self).mem_view matches Some(VmIoMemView::ReadView(_)),
-            old(self).mem_view matches Some(VmIoMemView::WriteView(_)) ==> final(self).mem_view matches Some(VmIoMemView::WriteView(_)),
+            old(self).mem_view matches Some(VmIoMemView::ReadView(_))
+                ==> final(self).mem_view matches Some(VmIoMemView::ReadView(_)),
+            old(self).mem_view matches Some(VmIoMemView::WriteView(_))
+                ==> final(self).mem_view matches Some(VmIoMemView::WriteView(_)),
             old(self).read_view_initialized() ==> final(self).read_view_initialized(),
     {
         arbitrary()
@@ -1125,7 +1127,6 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     //         r,
     //     ),
     ;
-
     // fn write_val<T: Pod>(&self, offset: usize, val: T, Tracked(owner): Tracked<&mut P>) -> (r:
     //     Result<()>)
     // requires
@@ -1143,7 +1144,6 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     //         r,
     //     ),
     // ;
-
     // fn write_slice<T: Pod, const N: usize>(
     //     &self,
     //     offset: usize,
@@ -1166,6 +1166,7 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     //             r,
     //         ),
     // ;
+
 }
 
 /// A trait that enables reading/writing data from/to a VM object using one non-tearing memory
@@ -1834,7 +1835,6 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
 }
 
 } // verus!
-
 impl<'a> From<&'a [u8]> for VmReader<'a, Infallible> {
     fn from(slice: &'a [u8]) -> Self {
         Self::from_slice(slice)
@@ -1893,7 +1893,7 @@ macro_rules! impl_read_fallible {
             }
         }
         } // verus!
-    };
+};
 }
 
 macro_rules! impl_write_fallible {
@@ -1909,7 +1909,7 @@ macro_rules! impl_write_fallible {
             }
         }
         } // verus!
-    };
+};
 }
 
 impl_read_fallible!(Fallible, Infallible);

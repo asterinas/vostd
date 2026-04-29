@@ -165,7 +165,8 @@ pub broadcast axiom fn size_of_meta_slot()
         #![trigger size_of::<MetaSlot>()]
         #![trigger align_of::<MetaSlot>()]
         size_of::<MetaSlot>() == 64,
-        align_of::<MetaSlot>() == 8;
+        align_of::<MetaSlot>() == 8,
+;
 
 #[inline(always)]
 #[verifier::allow_in_spec]
@@ -461,7 +462,9 @@ impl MetaSlot {
         let slot = get_slot(paddr)?;
 
         // get_slot doesn't modify regions
-        proof { assert(regions0 == *old(regions)); }
+        proof {
+            assert(regions0 == *old(regions));
+        }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
         let tracked mut slot_perm = regions.slots.tracked_remove(frame_to_index(paddr));
@@ -496,9 +499,15 @@ impl MetaSlot {
                 slot_perm.value().vtable_ptr == inner_perms.vtable_ptr.pptr(),
                 slot_perm.value().in_list.id() == inner_perms.in_list.id(),
                 // inner_perms fields preserved across loop iterations
-                inner_perms.storage == regions0.slot_owners[frame_to_index(paddr)].inner_perms.storage,
-                inner_perms.vtable_ptr == regions0.slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr,
-                inner_perms.in_list == regions0.slot_owners[frame_to_index(paddr)].inner_perms.in_list,
+                inner_perms.storage == regions0.slot_owners[frame_to_index(
+                    paddr,
+                )].inner_perms.storage,
+                inner_perms.vtable_ptr == regions0.slot_owners[frame_to_index(
+                    paddr,
+                )].inner_perms.vtable_ptr,
+                inner_perms.in_list == regions0.slot_owners[frame_to_index(
+                    paddr,
+                )].inner_perms.in_list,
                 // pre equals the original ref_count value
                 pre == regions0.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value(),
                 // regions0 equals old(regions)
@@ -535,7 +544,6 @@ impl MetaSlot {
                             assert(orig.inner_perms.vtable_ptr.is_init());
                             assert(inner_perms.vtable_ptr.is_init());
                         }
-
                         slot_own.sync_inner(&inner_perms);
                         assert(slot_own.inv());
                         assert(slot_perm.value().wf(slot_own));
@@ -548,15 +556,14 @@ impl MetaSlot {
                             assert(inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
                             assert(inner_perms.in_list == orig.inner_perms.in_list);
                         }
-
                         regions.slot_owners.tracked_insert(idx, slot_own);
                         regions.slots.tracked_insert(idx, slot_perm);
 
                         assert(regions.slot_owners.dom() =~= regions0.slot_owners.dom());
                         assert(regions.slots =~= regions0.slots);
 
-                        assert forall|i: usize| i != idx
-                            implies #[trigger] regions.slot_owners[i] == regions0.slot_owners[i] by {};
+                        assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i]
+                            == regions0.slot_owners[i] by {};
 
                         assert(regions.slot_owners[idx].inner_perms.ref_count.id()
                             == regions0.slot_owners[idx].inner_perms.ref_count.id());
@@ -568,8 +575,7 @@ impl MetaSlot {
                             == regions0.slot_owners[idx].inner_perms.in_list);
                         assert(regions.slot_owners[idx].self_addr
                             == regions0.slot_owners[idx].self_addr);
-                        assert(regions.slot_owners[idx].usage
-                            == regions0.slot_owners[idx].usage);
+                        assert(regions.slot_owners[idx].usage == regions0.slot_owners[idx].usage);
                         assert(regions.slot_owners[idx].raw_count
                             == regions0.slot_owners[idx].raw_count);
 

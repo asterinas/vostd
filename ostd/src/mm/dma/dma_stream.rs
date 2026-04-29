@@ -88,6 +88,39 @@ pub struct DmaStream<M: AnyUFrameMeta + ?Sized> {
     pub inner: RwArc<DmaStreanInnerAtomic<M>>,
 }
 
+/// A slice of streaming DMA mapping.
+pub struct DmaStreamSlice<Dma> {
+    pub stream: Dma,
+    pub offset: usize,
+    pub len: usize,
+}
+
+#[verus_verify]
+impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma> {
+    /// Constructs a `DmaStreamSlice` from the [`DmaStream`].
+    pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
+        Self { stream, offset, len }
+    }
+
+    /// Returns the underlying `DmaStream`.
+    #[verus_spec(returns self.stream)]
+    pub fn stream(&self) -> &DmaStream<M> {
+        self.stream.as_ref()
+    }
+
+    /// Returns the offset of the slice.
+    #[verus_spec(returns self.offset)]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    #[verus_spec(returns self.len)]
+    /// Returns the number of bytes.
+    pub fn nbytes(&self) -> usize {
+        self.len
+    }
+}
+
 /// The tracked owner for the inner part of a [`DmaStream`].
 ///
 /// This is a placeholder but for the completeness of the [`VmIo`] trait.
@@ -526,7 +559,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     //     let inner = self.read_inner();
     //     &inner.segment
     // }
-
     /// Returns the number of frames.
     #[inline(always)]
     #[verus_spec(r =>
@@ -903,7 +935,9 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             assert(len == old(writer).avail_spec());
             assert(writer.avail_spec() == 0);
             assert(writer.cursor.vaddr == old(writer).cursor.vaddr + old(writer).avail_spec());
-            assert(writer_own.range@.start == old(writer_own).range@.start + old(writer).avail_spec());
+            assert(writer_own.range@.start == old(writer_own).range@.start + old(
+                writer,
+            ).avail_spec());
             assert(*owner == *old(owner));
         }
 
@@ -961,7 +995,9 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             assert(len == old(reader).remain_spec());
             assert(reader.remain_spec() == 0);
             assert(reader.cursor.vaddr == old(reader).cursor.vaddr + old(reader).remain_spec());
-            assert(reader_own.range@.start == old(reader_own).range@.start + old(reader).remain_spec());
+            assert(reader_own.range@.start == old(reader_own).range@.start + old(
+                reader,
+            ).remain_spec());
             assert(*owner == *old(owner));
         }
 
