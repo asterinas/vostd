@@ -216,9 +216,9 @@ impl<'a, T> BoxRef<'a, T> {
         // [VERIFIED] SAFETY: The reference is created through `NonNullPtr::raw_as_ref`, hence
         // the original owned pointer and target must outlive the lifetime parameter `'a`,
         // and during `'a` no mutable references to the pointer will exist.
-        //unsafe { &*(self.inner) }
         
         // The function body of ptr_ref is exactly the same as `unsafe { &*(self.inner) }`
+        //unsafe { &*(self.inner) }
         vstd::raw_ptr::ptr_ref(
             self.inner,
             Tracked(self.v_perm.borrow().tracked_borrow_points_to()),
@@ -390,6 +390,7 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         // let ptr = Arc::into_raw(self).cast_mut();
         let ptr = (#[verus_spec(with => Tracked(perm))] arc_into_raw(self)).cast_mut();
         assume(ptr.addr() % (1usize << Self::ALIGN_BITS) == 0);
+        
         // [VERIFIED] SAFETY: The pointer representing an `Arc` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
     }
@@ -432,7 +433,10 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Arc<T> {
 
     unsafe fn raw_as_ref(raw: NonNull<Self::Target>, perm: Tracked<Self::RefPermission>) -> Self::Ref {
         unsafe {
-            ArcRef { inner: ManuallyDrop::new(#[verus_spec(with perm)] arc_from_raw(raw.as_ptr())), _marker: PhantomData }
+            ArcRef { 
+                inner: ManuallyDrop::new(#[verus_spec(with perm)] arc_from_raw(raw.as_ptr())), 
+                _marker: PhantomData 
+            }
         }
     }
 

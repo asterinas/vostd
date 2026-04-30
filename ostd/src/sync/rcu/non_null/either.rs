@@ -18,12 +18,13 @@ broadcast use {group_nonull_axioms, group_raw_ptr_axioms, group_nonzero_axioms};
 unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     type Target = PhantomData<Self>;
 
-    type Permission = Sum<L::Permission, R::Permission>;
-
     // type Ref<'a>
     //     = Either<L::Ref<'a>, R::Ref<'a>>
     // where
     //     Self: 'a;
+    
+    type Permission = Sum<L::Permission, R::Permission>;
+
     #[verifier::external_body]
     const ALIGN_BITS: u32 = min(L::ALIGN_BITS, R::ALIGN_BITS).checked_sub(1).expect(
         "`L` and `R` alignments should be at least 2 to pack `Either` into one pointer",
@@ -269,20 +270,17 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         }
         proof! {
             Self::lemma_align_bits_range();
-            match perm {
-                Sum::Left(ref left) => {
-                    assert((raw_addr & !tag) == raw_addr) by (bit_vector)
+            if perm is Left {
+                assert((raw_addr & !tag) == raw_addr) by (bit_vector)
                     requires
                         raw_addr & tag == 0,
                     ;
-                },
-                Sum::Right(ref right) => {
-                    assert((raw_addr & tag) < raw_addr) by (bit_vector)
-                    requires
-                        raw_addr & tag == tag,
-                        (raw_addr & !tag) != 0,
-                    ;
-                },
+            } else {
+                assert((raw_addr & tag) < raw_addr) by (bit_vector)
+                requires
+                    raw_addr & tag == tag,
+                    (raw_addr & !tag) != 0,
+                ;
             }
         }
         // SAFETY: The caller ensures that the pointer comes from `Self::into_raw`, which
@@ -290,19 +288,15 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         let (is_right, real_ptr) = unsafe { remove_bits(raw, 1 << Self::ALIGN_BITS) };
 
         if is_right == 0 {
-            proof! {
-                assert(perm is Left) by {
-                    match perm {
-                        Sum::Left(_) => {}
-                        Sum::Right(_) => {
-                            assert(tag != 0) by (bit_vector)
-                            requires
-                                tag == 1usize << align_bits,
-                                align_bits < usize::BITS,
-                            ;
-                        }
-                    }
-                };
+            proof!{
+                if perm is Right {
+                    assert(tag != 0) by (bit_vector)
+                    requires
+                        tag == 1usize << align_bits,
+                        align_bits < usize::BITS,
+                    ;
+                    assert(false);
+                }
             }
             // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `L::into_raw`. Other
             // safety requirements are upheld by the caller.
@@ -463,15 +457,14 @@ const fn min(a: u32, b: u32) -> u32 {
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     // use core::num::NonZeroUsize;
     use vstd_extra::external::nonzero::NonZeroUsize;
+    
     let removed_bits = ptr.addr_v().get() & bits;
     let result_ptr = ptr.map_addr_v(
         |addr| -> (ret: NonZeroUsize)
             ensures
-                ret@ == addr@
-                    & !bits
-                // SAFETY: The safety is upheld by the caller.
-                ,
+                ret@ == addr@ & !bits,
             {
+                // SAFETY: The safety is upheld by the caller.
                 unsafe { NonZeroUsize::new_unchecked(addr.get() & !bits) }
             },
     );
@@ -479,6 +472,7 @@ unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
 }
 
 } // verus!
+
 #[cfg(ktest)]
 mod test {
     use alloc::{boxed::Box, sync::Arc};
@@ -502,17 +496,10 @@ mod test {
         let ptr = NonNullPtr::into_raw(val);
         assert_eq!(ptr.addr().get() & 1, 0);
 
-        let ref_ = unsafe {
-            <Either16 as NonNullPtrRef>::raw_as_ref(
-                ptr,
-                Tracked(EitherPointsTo {
-                    perm: Sum::Left(ArcPointsTo::<u32>::new(123)),
-                }),
-            )
-        };
+        let ref_ = unsafe { <Either16 as NonNullPtr>::raw_as_ref(ptr) };
         assert!(matches!(ref_, Either::Left(ref r) if ***r == 123));
 
-        let (ptr2, Tracked(_)) = <Either16 as NonNullPtrRef>::ref_as_raw(ref_);
+        let ptr2 = <Either16 as NonNullPtr>::ref_as_raw(ref_);
         assert_eq!(ptr, ptr2);
 
         let val = unsafe { <Either16 as NonNullPtr>::from_raw(ptr) };
@@ -527,17 +514,10 @@ mod test {
         let ptr = NonNullPtr::into_raw(val);
         assert_eq!(ptr.addr().get() & 1, 1);
 
-        let ref_ = unsafe {
-            <Either16 as NonNullPtrRef>::raw_as_ref(
-                ptr,
-                Tracked(EitherPointsTo {
-                    perm: Sum::Right(BoxPointsToRef::new(456)),
-                }),
-            )
-        };
+        let ref_ = unsafe { <Either16 as NonNullPtr>::raw_as_ref(ptr) };
         assert!(matches!(ref_, Either::Right(ref r) if ***r == 456));
 
-        let (ptr2, Tracked(_)) = <Either16 as NonNullPtrRef>::ref_as_raw(ref_);
+        let ptr2 = <Either16 as NonNullPtr>::ref_as_raw(ref_);
         assert_eq!(ptr, ptr2);
 
         let val = unsafe { <Either16 as NonNullPtr>::from_raw(ptr) };
