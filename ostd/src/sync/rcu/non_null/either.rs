@@ -12,70 +12,13 @@ verus! {
 
 broadcast use {group_nonull_axioms, group_raw_ptr_axioms, group_nonzero_axioms};
 
-pub tracked struct EitherPointsTo<L: PtrPointsToTrait, R: PtrPointsToTrait> {
-    pub perm: Sum<L, R>,
-}
-
-pub tracked struct EitherPointsToRef<L: Inv, R: Inv> {
-    pub perm: Sum<L, R>,
-}
-
-impl<L: PtrPointsToTrait, R: PtrPointsToTrait> PtrPointsToTrait for EitherPointsTo<L, R>
-    where
-        L::Ptr: NonNullPtr,
-        R::Ptr: NonNullPtr,
-{
-    type Ptr = Either<L::Ptr, R::Ptr>;
-
-    type Target = PhantomData<Self::Ptr>;
-
-    open spec fn ptr(self) -> *mut Self::Target {
-        match self.perm {
-            Sum::Left(left) => left.ptr().cast(),
-            Sum::Right(right) => right.ptr().cast(),
-        }
-    }
-
-    open spec fn view_target(self) -> Self::Target {
-        PhantomData
-    }
-}
-
-impl<L: PtrPointsToTrait, R: PtrPointsToTrait> EitherPointsTo<L, R>
-where
-    L::Ptr: NonNullPtr,
-    R::Ptr: NonNullPtr,
-{
-    pub open spec fn addr(self) -> usize {
-        self.ptr().addr()
-    }
-}
-
-impl<L: PtrPointsToTrait + Inv, R: PtrPointsToTrait + Inv> Inv for EitherPointsTo<L, R> {
-    closed spec fn inv(self) -> bool {
-        match self.perm {
-            Sum::Left(left) => left.inv(),
-            Sum::Right(right) => right.inv(),
-        }
-    }
-}
-
-impl<L: Inv, R: Inv> Inv for EitherPointsToRef<L, R> {
-    closed spec fn inv(self) -> bool {
-        match self.perm {
-            Sum::Left(left) => left.inv(),
-            Sum::Right(right) => right.inv(),
-        }
-    }
-}
-
 // If both `L` and `R` have at least one alignment bit (i.e., their alignments are at least 2), we
 // can use the alignment bit to indicate whether a pointer is `L` or `R`, so it's possible to
 // implement `NonNullPtr` for `Either<L, R>`.
 unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     type Target = PhantomData<Self>;
 
-    type Permission = EitherPointsTo<L::Permission, R::Permission>;
+    type Permission = Sum<L::Permission, R::Permission>;
 
     // type Ref<'a>
     //     = Either<L::Ref<'a>, R::Ref<'a>>
@@ -143,7 +86,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                         align_bits < l_align_bits < usize::BITS,
                     ;
                 }
-                (left.cast() , Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
+                (left.cast() , Tracked(Sum::Left(perm)))
             },
             Self::Right(right) => {
                 /* right
@@ -217,7 +160,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 }
                 (
                     right_tagged.cast(),
-                    Tracked(EitherPointsTo { perm: Sum::Right(perm) }),
+                    Tracked(Sum::Right(perm)),
                 )
             },
         }
@@ -241,7 +184,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                 tag == 1usize << align_bits,
                 align_bits < usize::BITS,
             ;
-            match &perm.perm {
+            match perm {
                 Sum::Left(_) => {
                     assert((ptr_addr & tag) < ptr_addr) by (nonlinear_arith)
                     requires
@@ -276,18 +219,18 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
             // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `L::into_raw`. Other
             // safety requirements are upheld by the caller.
             // Either::Left(unsafe { L::from_raw(real_ptr.cast()) })
-            Either::Left(unsafe { L::from_raw(real_ptr.cast(), Tracked(perm.perm.tracked_take_left())) })
+            Either::Left(unsafe { L::from_raw(real_ptr.cast(), Tracked(perm.tracked_take_left())) })
         } else {
             // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `R::into_raw`. Other
             // safety requirements are upheld by the caller.
             // Either::Right(unsafe { R::from_raw(real_ptr.cast()) })
-            Either::Right(unsafe { R::from_raw(real_ptr.cast(), Tracked(perm.perm.tracked_take_right())) })
+            Either::Right(unsafe { R::from_raw(real_ptr.cast(), Tracked(perm.tracked_take_right())) })
         }
     }
 
     open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
         let tag = 1usize << Self::ALIGN_BITS;
-        match perm.perm {
+        match perm {
             Sum::Left(left) => {
                 &&& ptr.view_ptr_mut().addr() & tag == 0
                 &&& L::ptr_perm_match(ptr.cast(), left)
@@ -303,7 +246,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
-        match (self, perm.perm) {
+        match (self, perm) {
             (Either::Left(left), Sum::Left(left_perm)) => left.rel_perm(left_perm),
             (Either::Right(right), Sum::Right(right_perm)) => right.rel_perm(right_perm),
             _ => false,
@@ -323,15 +266,13 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
 unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> for Either<L, R> {
     type Ref = Either<L::Ref, R::Ref>;
     
-    type RefPermission = EitherPointsToRef<L::RefPermission, R::RefPermission>;
+    type RefPermission = Sum<L::RefPermission, R::RefPermission>;
 
     open spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission {
-        EitherPointsTo {
-            perm: match perm.perm {
+        match perm {
                 Sum::Left(left) => Sum::Left(L::ref_perm_view_permission(left)),
                 Sum::Right(right) => Sum::Right(R::ref_perm_view_permission(right)),
-            },
-        }
+            }
     }
 
     open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
@@ -339,7 +280,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
     }
 
     proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission) {
-        match perm.perm {
+        match perm {
             Sum::Left(left) => L::lemma_ref_perm_inv_impl_perm_inv(left),
             Sum::Right(right) => R::lemma_ref_perm_inv_impl_perm_inv(right),
         }
@@ -353,8 +294,8 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         }
         proof! {
             Self::lemma_align_bits_range();
-            match &perm.perm {
-                Sum::Left(left) => {
+            match perm {
+                Sum::Left(ref left) => {
                     assert(raw_addr & tag == 0);
                     assert((raw_addr & tag) < raw_addr) by (nonlinear_arith)
                     requires
@@ -371,7 +312,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                         raw_addr != 0,
                     ;
                 },
-                Sum::Right(right) => {
+                Sum::Right(ref right) => {
                     assert(raw_addr & tag == tag);
                     assert((raw_addr & tag) < raw_addr) by (bit_vector)
                     requires
@@ -388,8 +329,8 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
 
         if is_right == 0 {
             proof! {
-                assert(perm.perm is Left) by {
-                    match perm.perm {
+                assert(perm is Left) by {
+                    match perm {
                         Sum::Left(_) => {}
                         Sum::Right(_) => {
                             assert(raw_addr & tag == tag);
@@ -412,7 +353,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 assert(real_ptr.view_ptr_mut() == raw.view_ptr_mut()) by {
                     assert(is_right == raw_addr & tag);
                     assert(raw_addr & tag == 0) by {
-                        match perm.perm {
+                        match perm {
                             Sum::Left(_) => {}
                             Sum::Right(_) => proof_from_false(),
                         }
@@ -423,12 +364,12 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
             // safety requirements are upheld by the caller.
             // Either::Left(unsafe { L::raw_as_ref(real_ptr.cast()) })
             Either::Left(unsafe {
-                    L::raw_as_ref(real_ptr.cast(), Tracked(perm.perm.tracked_take_left()))
+                    L::raw_as_ref(real_ptr.cast(), Tracked(perm.tracked_take_left()))
                 })
         } else {
             proof! {
-                assert(perm.perm is Right) by {
-                    match perm.perm {
+                assert(perm is Right) by {
+                    match perm {
                         Sum::Left(_) => {
                             assert(raw_addr & tag == 0);
                             assert(is_right == raw_addr & tag);
@@ -447,7 +388,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
             // safety requirements are upheld by the caller.
             // Either::Right(unsafe { R::raw_as_ref(real_ptr.cast()) })
             Either::Right(unsafe {
-                R::raw_as_ref(real_ptr.cast(), Tracked(perm.perm.tracked_take_right()))
+                R::raw_as_ref(real_ptr.cast(), Tracked(perm.tracked_take_right()))
             })
         }
     }
@@ -476,10 +417,10 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                     ;
                     assert(Self::ptr_perm_match(
                         ptr.cast(),
-                        Self::ref_perm_view_permission(EitherPointsToRef { perm: Sum::Left(perm) }),
+                        Self::ref_perm_view_permission(Sum::Left(perm)),
                     ));
                 }
-                (ptr.cast(), Tracked(EitherPointsToRef { perm: Sum::Left(perm) }))
+                (ptr.cast(), Tracked(Sum::Left(perm)))
             },
             Either::Right(right) => {
                 /* R::ref_as_raw(right)
@@ -531,10 +472,10 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                     ;
                     assert(Self::ptr_perm_match(
                         tagged_ptr.cast(),
-                        Self::ref_perm_view_permission(EitherPointsToRef { perm: Sum::Right(perm) }),
+                        Self::ref_perm_view_permission(Sum::Right(perm)),
                     ));
                 }
-                (tagged_ptr.cast(), Tracked(EitherPointsToRef { perm: Sum::Right(perm) }))
+                (tagged_ptr.cast(), Tracked(Sum::Right(perm)))
             },
         }
     }

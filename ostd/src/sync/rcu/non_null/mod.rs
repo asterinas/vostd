@@ -43,7 +43,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
         Self: 'a;*/
         
     /// A verification-only permission type that represents the ownership of the memory managed by the pointer.
-    type Permission: PtrPointsToTrait<Ptr = Self, Target = Self::Target> + Inv;
+    type Permission: Inv;
 
     /// The power of two of the pointer alignment.
     const ALIGN_BITS: u32;
