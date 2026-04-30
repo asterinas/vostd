@@ -387,13 +387,28 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                 proof! {
                     let ghost ptr_addr = ptr.view_ptr_mut().addr();
                     L::lemma_ref_perm_inv_impl_perm_inv(perm);
+                    let extra_bits: u32 = (l_align_bits - align_bits) as u32;
+                    let scale = 1usize << extra_bits;
+                    vstd::bits::lemma_usize_pow2_no_overflow(extra_bits as nat);
+                    vstd::bits::lemma_usize_shl_is_mul(1, extra_bits as usize);
+                    vstd::arithmetic::power2::lemma_pow2_adds(align_bits as nat, extra_bits as nat);
+                    assert(ptr_addr % tag == 0) by {
+                        let big = 1usize << l_align_bits;
+                        let q = ptr_addr / big;
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ptr_addr as int, big as int);
+                        assert(ptr_addr as int == (q as int * scale as int) * tag as int) by (nonlinear_arith)
+                        requires
+                            ptr_addr as int == q as int * big as int,
+                            big == tag * scale,
+                        ;
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
+                    };
                     assert(ptr_addr & tag == 0) by (bit_vector)
                     requires
                         ptr_addr % (1usize << l_align_bits) == 0,
                         tag == 1usize << align_bits,
                         align_bits < l_align_bits < usize::BITS,
                     ;
-                    admit();
                 }
                 (ptr.cast(), Tracked(Sum::Left(perm)))
             },
@@ -436,7 +451,30 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                         tagged_addr & !tag == ptr_addr,
                         ptr_addr != 0,
                     ;
-                    admit();
+                    let extra_bits: u32 = (r_align_bits - align_bits) as u32;
+                    let scale = 1usize << extra_bits;
+                    vstd::bits::lemma_usize_pow2_no_overflow(extra_bits as nat);
+                    vstd::bits::lemma_usize_shl_is_mul(1, extra_bits as usize);
+                    vstd::arithmetic::power2::lemma_pow2_adds(align_bits as nat, extra_bits as nat);
+                    assert(tagged_addr == ptr_addr + tag) by (bit_vector)
+                    requires
+                        tagged_addr == ptr_addr | tag,
+                        ptr_addr & tag == 0,
+                    ;
+                    assert(ptr_addr % tag == 0) by {
+                        let big = 1usize << r_align_bits;
+                        let q = ptr_addr / big;
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ptr_addr as int, big as int);
+                        assert(ptr_addr as int == (q as int * scale as int) * tag as int) by (nonlinear_arith)
+                        requires
+                            ptr_addr as int == q as int * big as int,
+                            big == tag * scale,
+                        ;
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
+                    };
+                    assert(tagged_addr % tag == 0) by {
+                        vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(ptr_addr as int, tag as int);
+                    }
                 }
                 (tagged_ptr.cast(), Tracked(Sum::Right(perm)))
             },
