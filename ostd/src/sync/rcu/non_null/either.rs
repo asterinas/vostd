@@ -16,13 +16,8 @@ pub tracked struct EitherPointsTo<L: PtrPointsToTrait, R: PtrPointsToTrait> {
     pub perm: Sum<L, R>,
 }
 
-pub tracked struct EitherRefPointsTo<L: Inv, R: Inv> {
+pub tracked struct EitherPointsToRef<L: Inv, R: Inv> {
     pub perm: Sum<L, R>,
-}
-
-pub struct EitherRef<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> {
-    pub raw: NonNull<()>,
-    pub inner: Either<L::Ref, R::Ref>,
 }
 
 impl<L: PtrPointsToTrait, R: PtrPointsToTrait> PtrPointsToTrait for EitherPointsTo<L, R>
@@ -65,7 +60,7 @@ impl<L: PtrPointsToTrait + Inv, R: PtrPointsToTrait + Inv> Inv for EitherPointsT
     }
 }
 
-impl<L: Inv, R: Inv> Inv for EitherRefPointsTo<L, R> {
+impl<L: Inv, R: Inv> Inv for EitherPointsToRef<L, R> {
     closed spec fn inv(self) -> bool {
         match self.perm {
             Sum::Left(left) => left.inv(),
@@ -326,8 +321,9 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
 }
 
 unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> for Either<L, R> {
-    type Ref = EitherRef<'a, L, R>;
-    type RefPermission = EitherRefPointsTo<L::RefPermission, R::RefPermission>;
+    type Ref = Either<L::Ref, R::Ref>;
+    
+    type RefPermission = EitherPointsToRef<L::RefPermission, R::RefPermission>;
 
     open spec fn ref_perm_view_permission(perm: Self::RefPermission) -> Self::Permission {
         EitherPointsTo {
@@ -426,12 +422,9 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
             // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `L::into_raw`. Other
             // safety requirements are upheld by the caller.
             // Either::Left(unsafe { L::raw_as_ref(real_ptr.cast()) })
-            EitherRef {
-                raw: raw.cast(),
-                inner: Either::Left(unsafe {
+            Either::Left(unsafe {
                     L::raw_as_ref(real_ptr.cast(), Tracked(perm.perm.tracked_take_left()))
-                }),
-            }
+                })
         } else {
             proof! {
                 assert(perm.perm is Right) by {
@@ -453,18 +446,14 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
             // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `R::into_raw`. Other
             // safety requirements are upheld by the caller.
             // Either::Right(unsafe { R::raw_as_ref(real_ptr.cast()) })
-            EitherRef {
-                raw: raw.cast(),
-                inner: Either::Right(unsafe {
-                    R::raw_as_ref(real_ptr.cast(), Tracked(perm.perm.tracked_take_right()))
-                }),
-            }
+            Either::Right(unsafe {
+                R::raw_as_ref(real_ptr.cast(), Tracked(perm.perm.tracked_take_right()))
+            })
         }
     }
 
     fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
-        let raw = ptr_ref.raw;
-        match ptr_ref.inner {
+        match ptr_ref {
             Either::Left(left) => {
                 // L::ref_as_raw(left).cast()
                 let (ptr, Tracked(perm)) = L::ref_as_raw(left);
@@ -487,10 +476,10 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                     ;
                     assert(Self::ptr_perm_match(
                         ptr.cast(),
-                        Self::ref_perm_view_permission(EitherRefPointsTo { perm: Sum::Left(perm) }),
+                        Self::ref_perm_view_permission(EitherPointsToRef { perm: Sum::Left(perm) }),
                     ));
                 }
-                (ptr.cast(), Tracked(EitherRefPointsTo { perm: Sum::Left(perm) }))
+                (ptr.cast(), Tracked(EitherPointsToRef { perm: Sum::Left(perm) }))
             },
             Either::Right(right) => {
                 /* R::ref_as_raw(right)
@@ -542,10 +531,10 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                     ;
                     assert(Self::ptr_perm_match(
                         tagged_ptr.cast(),
-                        Self::ref_perm_view_permission(EitherRefPointsTo { perm: Sum::Right(perm) }),
+                        Self::ref_perm_view_permission(EitherPointsToRef { perm: Sum::Right(perm) }),
                     ));
                 }
-                (tagged_ptr.cast(), Tracked(EitherRefPointsTo { perm: Sum::Right(perm) }))
+                (tagged_ptr.cast(), Tracked(EitherPointsToRef { perm: Sum::Right(perm) }))
             },
         }
     }
