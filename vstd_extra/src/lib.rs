@@ -36,6 +36,5 @@ pub mod raw_ptr_extra;
 pub mod seq_extra;
 pub mod set_extra;
 pub mod state_machine;
-pub mod std_extra;
 pub mod sum;
 pub mod temporal_logic;

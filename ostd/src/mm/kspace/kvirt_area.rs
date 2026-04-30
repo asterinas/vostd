@@ -735,7 +735,7 @@ impl KVirtArea {
         requires
             old(regions).inv(),
             owner.inv(),
-            map_offset + vstd_extra::std_extra::range_usize_len(&pa_range) <= usize::MAX,
+            map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= usize::MAX,
         ensures
             final(regions).inv(),
             res.inv(),
@@ -745,7 +745,7 @@ impl KVirtArea {
         vstd_extra::assert!(area_size % PAGE_SIZE == 0);
         vstd_extra::assert!(map_offset % PAGE_SIZE == 0);
 
-        vstd_extra::assert!(map_offset + vstd_extra::std_extra::range_usize_len(&pa_range) <= area_size);
+        vstd_extra::assert!(map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= area_size);
 
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
         // Rust's `unwrap()` panics if not ok. TODO: make our own wrapper.
