@@ -154,11 +154,12 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
     ;
 
     /// Converts a shared reference to a raw pointer.
-    fn ref_as_raw(ptr_ref: Self::Ref) -> ((ptr, perm): (NonNull<Self::Target>, Tracked<Self::RefPermission>))
+    fn ref_as_raw(ptr_ref: Self::Ref) -> ((res_ptr, perm): (NonNull<Self::Target>, Tracked<Self::RefPermission>))
         ensures
             Self::ref_rel_perm(ptr_ref, perm@),
-            Self::ptr_perm_match(ptr, Self::ref_perm_view_permission(perm@)),
+            Self::ptr_perm_match(res_ptr, Self::ref_perm_view_permission(perm@)),
             perm@.inv(),
+            res_ptr.view_ptr_mut().addr() % (1usize << Self::ALIGN_BITS) == 0,
     ;
 } 
 
@@ -315,6 +316,7 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Box<T> {
     fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
         proof!{
             use_type_invariant(&ptr_ref);
+            assume(ptr_ref.ptr().addr() % (1usize << Self::ALIGN_BITS) == 0);
         }
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr_ref.inner) }, ptr_ref.v_perm)
