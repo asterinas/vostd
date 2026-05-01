@@ -21,7 +21,9 @@
 #![feature(unbounded_shifts)]
 #![expect(internal_features)]
 #![no_std]
-#![warn(missing_docs)]
+// Disable `missing_docs`: verification-only `inv`/`type_inv` items are
+// explained by proof context rather than API docs.
+// #![warn(missing_docs)]
 #![feature(proc_macro_hygiene)]
 #![allow(unused_parens)]
 #![allow(unused_braces)]
@@ -46,7 +48,6 @@ pub mod cpu;*/
 pub mod error;
 /*pub mod io;
 pub mod logger;*/
-#[allow(missing_docs)]
 pub mod mm;
 /*pub mod panic;
 pub mod prelude;
@@ -57,7 +58,6 @@ pub mod task;
 pub mod trap;
 // pub mod user;
 #[path = "../specs/lib.rs"]
-#[allow(missing_docs)]
 pub mod specs;
 pub mod util;
 
