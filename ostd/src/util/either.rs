@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 /// A type containing either a [`Left`] value `L` or a [`Right`] value `R`.
 ///
 /// [`Left`]: Self::Left
 /// [`Right`]: Self::Right
-use vstd::prelude::*;
-
 #[verus_verify]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Either<L, R> {
