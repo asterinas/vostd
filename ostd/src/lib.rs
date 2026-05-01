@@ -30,6 +30,9 @@
 #![allow(rustdoc::invalid_rust_codeblocks)]
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
+// Allow Verus-style specification names that mirror constants or proof-level
+// concepts rather than Rust's conventional function naming.
+#![allow(non_snake_case)]
 
 extern crate alloc;
 
