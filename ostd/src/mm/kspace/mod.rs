@@ -147,6 +147,7 @@ pub fn paddr_to_vaddr(pa: Paddr) -> usize
 ///
 /// It manages the kernel mapping of all address spaces by sharing the kernel part. And it
 /// is unlikely to be activated.
+#[allow(private_interfaces)]
 pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPred> =
     OnceImpl::new(Ghost(TrivialPred));
 

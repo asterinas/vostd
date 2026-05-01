@@ -164,6 +164,7 @@ impl<'a> VmSpace<'a> {
         requires
             old(regions).inv(),
     )]
+    #[allow(private_interfaces)]
     pub fn new() -> Self {
         proof_decl! {
             let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;

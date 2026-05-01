@@ -59,6 +59,7 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
 }
 
 /// Spec function: the entry owner correctly matches the frame and property for mapping.
+#[allow(private_interfaces)]
 pub open spec fn frame_entry_wf<T: AnyFrameMeta>(
     frame: Frame<T>,
     prop: PageProperty,
@@ -260,6 +261,7 @@ pub struct KVirtArea {
     pub range: Range<Vaddr>,
 }
 
+#[allow(private_interfaces)]
 pub tracked struct KVirtAreaOwner {
     pub pt_owner: PageTableOwner<KernelPtConfig>,
 }
@@ -267,6 +269,7 @@ pub tracked struct KVirtAreaOwner {
 impl KVirtAreaOwner {
     /// The [`CursorView`] at the page containing the given address, representing the kernel page
     /// table's abstract state for query purposes.
+    #[allow(private_interfaces)]
     pub closed spec fn cursor_view_at(self, addr: Vaddr) -> CursorView<KernelPtConfig> {
         CursorView {
             cur_va: nat_align_down(addr as nat, SPEC_PAGE_SIZE as nat) as Vaddr,
@@ -371,6 +374,7 @@ impl KVirtArea {
             // non-panic conditions
             self.range.start <= addr < self.range.end
     )]
+    #[allow(private_interfaces)]
     pub fn query<A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem>
     {
         use align_ext::AlignExt;
@@ -462,6 +466,7 @@ impl KVirtArea {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
     )]
+    #[allow(private_interfaces)]
     pub fn map_frames<'a, A: InAtomicMode + 'a>(
         area_size: usize,
         map_offset: usize,
@@ -726,6 +731,7 @@ impl KVirtArea {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
     )]
+    #[allow(private_interfaces)]
     pub unsafe fn map_untracked_frames<A: InAtomicMode + 'a, 'a>(
         area_size: usize,
         map_offset: usize,
