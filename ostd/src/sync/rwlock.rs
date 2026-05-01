@@ -416,7 +416,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// in which other readers or writers waiting simultaneously will
     /// obtain the lock.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn read(&self) -> RwLockReadGuard<T, G> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T, G> {
         loop {
             if let Some(readguard) = self.try_read() {
                 return readguard;
@@ -433,7 +433,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// in which other readers or writers waiting simultaneously will
     /// obtain the lock.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn write(&self) -> RwLockWriteGuard<T, G> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, T, G> {
         loop {
             if let Some(writeguard) = self.try_write() {
                 return writeguard;
@@ -454,7 +454,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// only one upreader can exist at any time to avoid deadlock in the
     /// upgrade method.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upread(&self) -> RwLockUpgradeableGuard<T, G> {
+    pub fn upread(&self) -> RwLockUpgradeableGuard<'_, T, G> {
         loop {
             if let Some(guard) = self.try_upread() {
                 return guard;
@@ -468,7 +468,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     ///
     /// This function will never spin-wait and will return immediately.
     #[verus_spec]
-    pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
+    pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T, G>> {
         proof_decl!{
             let tracked mut read_token: Option<Frac<ReadPerm<T>,MAX_READER_U64>> = None;
             let tracked mut retract_read_token: Option<Token<V_MAX_READ_RETRACT_FRACS>> = None;
@@ -528,7 +528,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     ///
     /// This function will never spin-wait and will return immediately.
     #[verus_spec]
-    pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
+    pub fn try_write(&self) -> Option<RwLockWriteGuard<'_, T, G>> {
         proof_decl!{
             let tracked mut guard_perm: Option<PointsTo<T>> = None;
             let tracked mut guard_token: Option<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>> = None;
@@ -586,7 +586,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire an upread lock.
     ///
     /// This function will never spin-wait and will return immediately.
-    pub fn try_upread(&self) -> Option<RwLockUpgradeableGuard<T, G>> {
+    pub fn try_upread(&self) -> Option<RwLockUpgradeableGuard<'_, T, G>> {
         proof_decl!{
             let tracked mut upgrade_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
