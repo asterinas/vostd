@@ -967,7 +967,7 @@ impl<C: PageTableConfig> CursorView<C> {
     {
         if !self.present() {
             // split_while_huge is a no-op; disjointness is by va-disjoint hypothesis.
-            assert forall |x: Mapping| other.contains(x)
+            assert forall |x: Mapping| #![trigger other.contains(x)] other.contains(x)
                 implies !self.split_while_huge(size).mappings.contains(x) by {
                 if self.mappings.contains(x) {
                     assert(Mapping::disjoint_vaddrs(x, x));
@@ -978,7 +978,7 @@ impl<C: PageTableConfig> CursorView<C> {
         }
         let m = self.query_mapping();
         if m.page_size <= size {
-            assert forall |x: Mapping| other.contains(x)
+            assert forall |x: Mapping| #![trigger other.contains(x)] other.contains(x)
                 implies !self.split_while_huge(size).mappings.contains(x) by {
                 if self.mappings.contains(x) {
                     assert(Mapping::disjoint_vaddrs(x, x));

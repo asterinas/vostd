@@ -1606,7 +1606,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.prefix.align_down_leading_bits(gl as int);
         let aligned = self.prefix.align_down(gl as int);
 
-        assert forall|i: int| 0 <= i < NR_LEVELS implies
+        assert forall|i: int| #![trigger aligned.index[i]] 0 <= i < NR_LEVELS implies
             aligned.index[i] == self.prefix.index[i] by {
             assert(self.prefix.index.contains_key(i));
             assert(aligned.index.contains_key(i));
