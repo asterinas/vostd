@@ -2933,7 +2933,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
     )]
     #[verifier::rlimit(1000)]
-    pub fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
+    pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         proof {
             owner.va.reflect_prop(self.0.va);
         }
@@ -3198,7 +3198,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.barrier_va == old(self).0.barrier_va,
     )]
-    pub fn protect_next(
+    pub unsafe fn protect_next(
         &mut self,
         len: usize,
         op: impl FnOnce(PageProperty) -> PageProperty,

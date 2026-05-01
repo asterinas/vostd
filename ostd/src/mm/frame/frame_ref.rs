@@ -85,7 +85,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             // Slots: from_raw inserts perm, ManuallyDrop::new preserves
             final(regions).slots == old(regions).slots.insert(frame_to_index(raw), perm.points_to),
     )]
-    pub(in crate::mm) fn borrow_paddr(raw: Paddr) -> Self {
+    pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
 
@@ -96,8 +96,10 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             let tracked debt: BorrowDebt;
         }
 
-        #[verus_spec(with Tracked(regions), Tracked(perm) => Tracked(debt))]
-        let frame = Frame::from_raw(raw);
+        let frame = unsafe {
+            proof_with!(Tracked(regions), Tracked(perm) => Tracked(debt));
+            Frame::from_raw(raw)
+        };
 
         proof {
             Frame::lemma_from_raw_manuallydrop_general(raw, frame, *old(regions), *regions, debt);

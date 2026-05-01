@@ -598,7 +598,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             debt@.frame_index == frame_to_index(paddr),
             debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
     )]
-    pub(in crate::mm) fn from_raw(paddr: Paddr) -> Self {
+    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);
         let ptr = PPtr::from_addr(vaddr);
 

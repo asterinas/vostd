@@ -573,8 +573,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(new_node_owner.value.meta_slot_paddr().unwrap() == paddr);
             }
 
-            #[verus_spec(with Tracked(regions), Tracked(&new_node_owner.value.node.tracked_borrow().meta_perm))]
-            let pt_ref = PageTableNodeRef::borrow_paddr(paddr);
+            let pt_ref = unsafe {
+                #[verus_spec(with Tracked(regions), Tracked(&new_node_owner.value.node.tracked_borrow().meta_perm))]
+                PageTableNodeRef::borrow_paddr(paddr)
+            };
 
             // Lock before writing the PTE, so no one else can operate on it.
             #[verus_spec(with Tracked(&new_node_owner.value.node.tracked_borrow()), Tracked(guards))]
@@ -771,8 +773,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             assert(new_owner.value.meta_slot_paddr().unwrap() == paddr);
         }
 
-        #[verus_spec(with Tracked(regions), Tracked(&new_owner.value.node.tracked_borrow().meta_perm))]
-        let pt_ref = PageTableNodeRef::borrow_paddr(paddr);
+        let pt_ref = unsafe {
+            #[verus_spec(with Tracked(regions), Tracked(&new_owner.value.node.tracked_borrow().meta_perm))]
+            PageTableNodeRef::borrow_paddr(paddr)
+        };
 
         // Lock before writing the PTE, so no one else can operate on it.
         #[verus_spec(with Tracked(&new_owner.value.node.tracked_borrow()), Tracked(guards))]
