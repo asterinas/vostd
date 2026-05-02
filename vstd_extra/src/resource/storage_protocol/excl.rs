@@ -1,7 +1,7 @@
 //! Exclusive storage protocol resource algebra.
-use vstd::resource::Loc;
 use vstd::prelude::*;
 use vstd::resource::storage_protocol::*;
+use vstd::resource::Loc;
 
 verus! {
 

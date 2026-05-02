@@ -8,9 +8,9 @@
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/frac.v>
 use vstd::arithmetic::*;
+use vstd::prelude::*;
 use vstd::resource::algebra::ResourceAlgebra;
 use vstd::resource::pcm::PCM;
-use vstd::prelude::*;
 
 verus! {
 

@@ -2,9 +2,9 @@ use std::f32::consts::E;
 
 use vstd::modes::tracked_swap;
 //！ Sum types for ghost resources.
-use vstd::resource::Loc;
 use vstd::prelude::*;
 use vstd::resource::storage_protocol::*;
+use vstd::resource::Loc;
 
 use crate::resource::storage_protocol::csum::*;
 use crate::sum::*;

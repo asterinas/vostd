@@ -1,9 +1,9 @@
 //！ Exclusive ghost resource.
 use vstd::modes::tracked_swap;
-use vstd::resource::Loc;
-use vstd::resource::pcm::Resource;
 use vstd::prelude::*;
+use vstd::resource::pcm::Resource;
 use vstd::resource::storage_protocol::StorageResource;
+use vstd::resource::Loc;
 
 use super::super::pcm::excl::*;
 use super::super::storage_protocol::excl::*;

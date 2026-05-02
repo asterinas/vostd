@@ -1,8 +1,8 @@
 //! Real-based fractional permissions storage protocol.
 use vstd::map::*;
-use vstd::resource::Loc;
 use vstd::prelude::*;
 use vstd::resource::storage_protocol::*;
+use vstd::resource::Loc;
 
 verus! {
 
