@@ -2,7 +2,8 @@
 //!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/agree.v>
-use vstd::pcm::PCM;
+use vstd::resource::algebra::ResourceAlgebra;
+use vstd::resource::pcm::PCM;
 use vstd::prelude::*;
 
 verus! {
@@ -19,14 +20,14 @@ pub ghost enum AgreeR<A> {
     AgreeInvalid,
 }
 
-impl<A: PartialEq> PCM for AgreeR<A> {
+impl<A: PartialEq> ResourceAlgebra for AgreeR<A> {
     open spec fn valid(self) -> bool {
         self !is AgreeInvalid
     }
 
     /// Composition: two agreeing values must be equal.
-    open spec fn op(self, other: Self) -> Self {
-        match (self, other) {
+    open spec fn op(a: Self, b: Self) -> Self {
+        match (a, b) {
             (AgreeR::Unit, x) => x,
             (x, AgreeR::Unit) => x,
             (AgreeR::Agree(a), AgreeR::Agree(b)) => {
@@ -40,11 +41,7 @@ impl<A: PartialEq> PCM for AgreeR<A> {
         }
     }
 
-    open spec fn unit() -> Self {
-        AgreeR::Unit
-    }
-
-    proof fn closed_under_incl(a: Self, b: Self) {
+    proof fn valid_op(a: Self, b: Self) {
     }
 
     proof fn commutative(a: Self, b: Self) {
@@ -52,8 +49,14 @@ impl<A: PartialEq> PCM for AgreeR<A> {
 
     proof fn associative(a: Self, b: Self, c: Self) {
     }
+}
 
-    proof fn op_unit(a: Self) {
+impl<A: PartialEq> PCM for AgreeR<A> {
+    open spec fn unit() -> Self {
+        AgreeR::Unit
+    }
+
+    proof fn op_unit(self) {
     }
 
     proof fn unit_valid() {

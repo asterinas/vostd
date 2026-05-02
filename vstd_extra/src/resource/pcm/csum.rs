@@ -2,7 +2,8 @@
 //!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/csum.v>
-use vstd::pcm::PCM;
+use vstd::resource::algebra::ResourceAlgebra;
+use vstd::resource::pcm::PCM;
 use vstd::prelude::*;
 
 verus! {
@@ -18,7 +19,7 @@ pub ghost enum CsumR<A, B> {
     CsumInvalid,
 }
 
-impl<A: PCM, B: PCM> PCM for CsumR<A, B> {
+impl<A: PCM, B: PCM> ResourceAlgebra for CsumR<A, B> {
     open spec fn valid(self) -> bool {
         match self {
             CsumR::Unit => true,
@@ -28,8 +29,8 @@ impl<A: PCM, B: PCM> PCM for CsumR<A, B> {
         }
     }
 
-    open spec fn op(self, other: Self) -> Self {
-        match (self, other) {
+    open spec fn op(a: Self, b: Self) -> Self {
+        match (a, b) {
             (CsumR::Unit, x) => x,
             (x, CsumR::Unit) => x,
             (CsumR::Cinl(a1), CsumR::Cinl(a2)) => CsumR::Cinl(A::op(a1, a2)),
@@ -38,18 +39,14 @@ impl<A: PCM, B: PCM> PCM for CsumR<A, B> {
         }
     }
 
-    open spec fn unit() -> Self {
-        CsumR::Unit
-    }
-
-    proof fn closed_under_incl(a: Self, b: Self) {
+    proof fn valid_op(a: Self, b: Self) {
         if Self::op(a, b).valid() {
             match (a, b) {
                 (CsumR::Cinl(a1), CsumR::Cinl(a2)) => {
-                    A::closed_under_incl(a1, a2);
+                    A::valid_op(a1, a2);
                 },
                 (CsumR::Cinr(b1), CsumR::Cinr(b2)) => {
-                    B::closed_under_incl(b1, b2);
+                    B::valid_op(b1, b2);
                 },
                 _ => {},
             }
@@ -79,8 +76,14 @@ impl<A: PCM, B: PCM> PCM for CsumR<A, B> {
             _ => {},
         }
     }
+}
 
-    proof fn op_unit(a: Self) {
+impl<A: PCM, B: PCM> PCM for CsumR<A, B> {
+    open spec fn unit() -> Self {
+        CsumR::Unit
+    }
+
+    proof fn op_unit(self) {
     }
 
     proof fn unit_valid() {

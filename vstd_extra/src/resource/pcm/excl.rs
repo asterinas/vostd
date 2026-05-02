@@ -2,7 +2,8 @@
 //!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/excl.v>
-use vstd::pcm::PCM;
+use vstd::resource::algebra::ResourceAlgebra;
+use vstd::resource::pcm::PCM;
 use vstd::prelude::*;
 
 verus! {
@@ -19,25 +20,21 @@ pub ghost enum ExclR<A> {
     ExclInvalid,
 }
 
-impl<A> PCM for ExclR<A> {
+impl<A> ResourceAlgebra for ExclR<A> {
     open spec fn valid(self) -> bool {
         self !is ExclInvalid
     }
 
     // Composition of two non-unit elements is always invalid.
-    open spec fn op(self, other: Self) -> Self {
-        match (self, other) {
+    open spec fn op(a: Self, b: Self) -> Self {
+        match (a, b) {
             (ExclR::Unit, x) => x,
             (x, ExclR::Unit) => x,
             _ => ExclR::ExclInvalid,
         }
     }
 
-    open spec fn unit() -> Self {
-        ExclR::Unit
-    }
-
-    proof fn closed_under_incl(a: Self, b: Self) {
+    proof fn valid_op(a: Self, b: Self) {
     }
 
     proof fn commutative(a: Self, b: Self) {
@@ -45,8 +42,14 @@ impl<A> PCM for ExclR<A> {
 
     proof fn associative(a: Self, b: Self, c: Self) {
     }
+}
 
-    proof fn op_unit(a: Self) {
+impl<A> PCM for ExclR<A> {
+    open spec fn unit() -> Self {
+        ExclR::Unit
+    }
+
+    proof fn op_unit(self) {
     }
 
     proof fn unit_valid() {

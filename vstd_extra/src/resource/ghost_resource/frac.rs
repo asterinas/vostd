@@ -1,8 +1,8 @@
 //! Real-based fractional ghost resource.
 use vstd::map::*;
-use vstd::pcm::Loc;
+use vstd::resource::Loc;
 use vstd::prelude::*;
-use vstd::storage_protocol::*;
+use vstd::resource::storage_protocol::*;
 
 use crate::resource::storage_protocol::frac::*;
 

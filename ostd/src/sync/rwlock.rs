@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*, CellId};
-use vstd::pcm::Loc;
 use vstd::prelude::*;
-use vstd::tokens::frac::{self, Empty, Frac, FracGhost};
+use vstd::resource::Loc;
 use vstd_extra::resource::ghost_resource::{csum::*, excl::*, tokens::*};
 use vstd_extra::sum::*;
 use vstd_extra::{prelude::*, resource};

@@ -11,6 +11,23 @@ use crate::util::Either;
 verus! {
 
 broadcast use {group_nonull_axioms, group_raw_ptr_axioms, group_nonzero_axioms};
+
+proof fn lemma_aligned_addr_clears_tag_bit(addr: usize, tag: usize, align_bits: u32, ptr_align_bits: u32)
+    requires
+        addr % (1usize << ptr_align_bits) == 0,
+        tag == 1usize << align_bits,
+        align_bits < ptr_align_bits < usize::BITS,
+    ensures
+        addr & tag == 0,
+{
+    assert(addr & tag == 0) by (bit_vector)
+    requires
+        addr % (1usize << ptr_align_bits) == 0,
+        tag == 1usize << align_bits,
+        align_bits < ptr_align_bits < usize::BITS,
+    ;
+}
+
 // If both `L` and `R` have at least one alignment bit (i.e., their alignments are at least 2), we
 // can use the alignment bit to indicate whether a pointer is `L` or `R`, so it's possible to
 // implement `NonNullPtr` for `Either<L, R>`.
@@ -130,12 +147,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                         ;
                         vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
                     }
-                    assert(addr & tag == 0) by (bit_vector)
-                    requires
-                        addr % (1usize << r_align_bits) == 0,
-                        tag == 1usize << align_bits,
-                        align_bits + 1 <= r_align_bits < usize::BITS,
-                    ;
+                    lemma_aligned_addr_clears_tag_bit(addr, tag, align_bits, r_align_bits);
                     assert(tagged_addr & !tag == addr) by (bit_vector)
                     requires
                         tagged_addr == addr | tag,

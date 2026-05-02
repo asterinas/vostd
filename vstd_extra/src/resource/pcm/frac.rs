@@ -8,7 +8,8 @@
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/frac.v>
 use vstd::arithmetic::*;
-use vstd::pcm::PCM;
+use vstd::resource::algebra::ResourceAlgebra;
+use vstd::resource::pcm::PCM;
 use vstd::prelude::*;
 
 verus! {
@@ -21,7 +22,7 @@ pub ghost enum FracR<T> {
     Invalid,
 }
 
-impl<T: PartialEq> PCM for FracR<T> {
+impl<T: PartialEq> ResourceAlgebra for FracR<T> {
     open spec fn valid(self) -> bool {
         match self {
             FracR::Unit => true,
@@ -31,8 +32,8 @@ impl<T: PartialEq> PCM for FracR<T> {
     }
 
     /// Two Frac combine iff they agree on the value and the sum of fractions does not exceed 1.0. This follows the original Iris design.
-    open spec fn op(self, other: Self) -> Self {
-        match (self, other) {
+    open spec fn op(a: Self, b: Self) -> Self {
+        match (a, b) {
             (FracR::Unit, x) => x,
             (x, FracR::Unit) => x,
             (FracR::Frac(q1, a1), FracR::Frac(q2, a2)) => {
@@ -46,11 +47,7 @@ impl<T: PartialEq> PCM for FracR<T> {
         }
     }
 
-    open spec fn unit() -> Self {
-        FracR::Unit
-    }
-
-    proof fn closed_under_incl(a: Self, b: Self) {
+    proof fn valid_op(a: Self, b: Self) {
     }
 
     proof fn commutative(a: Self, b: Self) {
@@ -58,8 +55,14 @@ impl<T: PartialEq> PCM for FracR<T> {
 
     proof fn associative(a: Self, b: Self, c: Self) {
     }
+}
 
-    proof fn op_unit(a: Self) {
+impl<T: PartialEq> PCM for FracR<T> {
+    open spec fn unit() -> Self {
+        FracR::Unit
+    }
+
+    proof fn op_unit(self) {
     }
 
     proof fn unit_valid() {

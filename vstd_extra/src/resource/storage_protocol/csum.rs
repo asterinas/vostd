@@ -3,11 +3,11 @@ use core::panic;
 
 use crate::sum::*;
 use vstd::math::add;
-use vstd::pcm::Loc;
+use vstd::resource::Loc;
 use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 use vstd::prelude::*;
-use vstd::storage_protocol::*;
+use vstd::resource::storage_protocol::*;
 
 verus! {
 
