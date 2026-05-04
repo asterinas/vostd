@@ -89,12 +89,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                         ;
                         vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
                     };
-                    assert(left_addr & tag == 0) by (bit_vector)
-                    requires
-                        left_addr % (1usize << l_align_bits) == 0,
-                        tag == 1usize << align_bits,
-                        align_bits < l_align_bits < usize::BITS,
-                    ;
+                    lemma_aligned_addr_clears_tag_bit(left_addr, tag, align_bits, l_align_bits);
                 }
                 (left.cast(), Tracked(Sum::Left(perm)))
             },
