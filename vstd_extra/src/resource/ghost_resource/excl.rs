@@ -1,12 +1,10 @@
 //！ Exclusive ghost resource.
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
-use vstd::resource::pcm::Resource;
-use vstd::resource::storage_protocol::StorageResource;
+use vstd::resource::algebra::Resource;
+use vstd::resource::algebra::ResourceAlgebra;
+use vstd::resource::exclusive::ExclusiveRA;
 use vstd::resource::Loc;
-
-use super::super::pcm::excl::*;
-use super::super::storage_protocol::excl::*;
 
 verus! {
 
@@ -14,7 +12,7 @@ pub type UniqueToken = ExclusiveGhost<()>;
 
 /// `ExclusiveGhost` is a token that always provides exclusive access to a ghost value of type `T`.
 /// No two `ExclusiveGhost` tokens can have the same id.
-pub tracked struct ExclusiveGhost<T>(Resource<ExclR<T>>);
+pub tracked struct ExclusiveGhost<T>(Resource<ExclusiveRA<T>>);
 
 impl<T> ExclusiveGhost<T> {
     /// Returns the unique identifier.
@@ -22,14 +20,14 @@ impl<T> ExclusiveGhost<T> {
         self.0.loc()
     }
 
-    /// Returns the underlying `ExclR<T>` PCM element.
-    pub closed spec fn pcm(self) -> ExclR<T> {
+    /// Returns the underlying upstream exclusive resource-algebra element.
+    pub closed spec fn pcm(self) -> ExclusiveRA<T> {
         self.0.value()
     }
 
     /// Returns the ghost value of type `T`.
     pub open spec fn value(self) -> T {
-        self.pcm().value()
+        self.pcm()->Exclusive_0
     }
 
     /// Returns the ghost value of type `T`, an alias of `Self::value()`.
@@ -39,7 +37,7 @@ impl<T> ExclusiveGhost<T> {
 
     /// Type invariant: the PCM element must be `Excl`.
     pub open spec fn wf(self) -> bool {
-        self.pcm() is Excl
+        self.pcm() is Exclusive
     }
 
     #[verifier::type_invariant]
@@ -47,8 +45,8 @@ impl<T> ExclusiveGhost<T> {
         self.wf()
     }
 
-    spec fn type_inv_inner(r: ExclR<T>) -> bool {
-        r is Excl
+    spec fn type_inv_inner(r: ExclusiveRA<T>) -> bool {
+        r is Exclusive
     }
 
     /// Allocates a new `ExclusiveGhost` with the given value。
@@ -57,7 +55,7 @@ impl<T> ExclusiveGhost<T> {
             res.view() == value,
             res.wf(),
     {
-        Self(Resource::<ExclR<T>>::alloc(ExclR::Excl(value)))
+        Self(Resource::<ExclusiveRA<T>>::alloc(ExclusiveRA::Exclusive(value)))
     }
 
     /// Updates the ghost value and returns the old value.
@@ -71,21 +69,29 @@ impl<T> ExclusiveGhost<T> {
         Self::update_helper(&mut self.0, value)
     }
 
-    proof fn update_helper(tracked r: &mut Resource<ExclR<T>>, value: T) -> (res: T)
+    proof fn update_helper(tracked r: &mut Resource<ExclusiveRA<T>>, value: T) -> (res: T)
         requires
             Self::type_inv_inner(old(r).value()),
-            old(r).value() is Excl,
+            old(r).value() is Exclusive,
         ensures
             Self::type_inv_inner(final(r).value()),
-            final(r).value() is Excl,
+            final(r).value() is Exclusive,
             final(r).loc() == old(r).loc(),
-            res == old(r).value().value(),
-            final(r).value().value() == value,
+            res == old(r).value()->Exclusive_0,
+            final(r).value()->Exclusive_0 == value,
     {
-        let ghost res = r.value().value();
-        let tracked mut tmp = Resource::<ExclR<T>>::alloc(ExclR::Unit);
+        let ghost res = r.value()->Exclusive_0;
+        let tracked mut tmp = Resource::<ExclusiveRA<T>>::alloc(
+            ExclusiveRA::Exclusive(arbitrary()),
+        );
         tracked_swap(r, &mut tmp);
-        let tracked mut r1 = tmp.update(ExclR::Excl(value));
+        assert forall|frame: ExclusiveRA<T>|
+            #![trigger ExclusiveRA::<T>::op(tmp.value(), frame).valid()]
+            ExclusiveRA::<T>::op(tmp.value(), frame).valid() implies ExclusiveRA::<T>::op(
+            ExclusiveRA::Exclusive(value),
+            frame,
+        ).valid() by {}
+        let tracked mut r1 = tmp.update(ExclusiveRA::Exclusive(value));
         tracked_swap(r, &mut r1);
         res
     }
@@ -100,7 +106,7 @@ impl<T> ExclusiveGhost<T> {
         use_type_invariant(&*self);
         use_type_invariant(other);
         if self.id() == other.id() {
-            self.0.validate_2(&other.0);
+            self.0.validate_2(&other.0.as_ref());
         }
     }
 
@@ -110,173 +116,6 @@ impl<T> ExclusiveGhost<T> {
             self.wf(),
     {
         use_type_invariant(self);
-    }
-}
-
-/// `Exclusive` is a token that stores a tracked object of type `T` and ensures its exclusive ownership.
-/// No two `Exclusive` tokens can have the same id.
-/// The owned tracked object can be borrowed, updated, taken out and put back.
-pub tracked struct Exclusive<T> {
-    tracked r: StorageResource<(), T, ExclP<T>>,
-}
-
-impl<T> Exclusive<T> {
-    /// Returns the unique identifier.
-    pub closed spec fn id(self) -> Loc {
-        self.r.loc()
-    }
-
-    /// Returns the underlying `ExclP<T>` protocol monoid.
-    pub closed spec fn protocol_monoid(self) -> ExclP<T> {
-        self.r.value()
-    }
-
-    /// Returns the owned resource.
-    pub open spec fn resource(self) -> T {
-        self.protocol_monoid().value()
-    }
-
-    /// Type invariant.
-    pub open spec fn wf(self) -> bool {
-        self.protocol_monoid() is Excl
-    }
-
-    /// Wether the token stores a resource.
-    pub open spec fn has_resource(self) -> bool {
-        self.protocol_monoid()->Excl_0 is Some
-    }
-
-    /// Wether the token does not store any resource.
-    pub open spec fn has_no_resource(self) -> bool {
-        self.protocol_monoid()->Excl_0 is None
-    }
-
-    #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
-        self.wf()
-    }
-
-    closed spec fn type_inv_inner(r: ExclP<T>) -> bool {
-        r is Excl
-    }
-
-    /// The existence of two `Exclusive` tokens ensures that they do not have the same id.
-    pub proof fn validate_with_other(tracked &mut self, tracked other: &Self)
-        ensures
-            *old(self) == *final(self),
-            final(self).wf(),
-            final(self).id() != other.id(),
-    {
-        use_type_invariant(&*self);
-        use_type_invariant(other);
-        if self.id() == other.id() {
-            self.r.validate_with_shared(&other.r);
-        }
-    }
-
-    /// Borrows the owned resource.
-    pub proof fn tracked_borrow(tracked &self) -> (tracked res: &T)
-        requires
-            self.has_resource(),
-        ensures
-            *res == self.resource(),
-    {
-        use_type_invariant(&*self);
-        StorageResource::guard(&self.r, map![() => self.resource()]).tracked_borrow(())
-    }
-
-    /// Takes out the owned resource.
-    pub proof fn take_resource(tracked &mut self) -> (tracked res: T)
-        requires
-            old(self).has_resource(),
-        ensures
-            final(self).has_no_resource(),
-            res == old(self).resource(),
-            final(self).wf(),
-    {
-        use_type_invariant(&*self);
-        Self::take_resource_helper(&mut self.r)
-    }
-
-    proof fn take_resource_helper(tracked r: &mut StorageResource<(), T, ExclP<T>>) -> (tracked res:
-        T)
-        requires
-            Self::type_inv_inner(old(r).value()),
-            old(r).value()->Excl_0 is Some,
-        ensures
-            Self::type_inv_inner(final(r).value()),
-            final(r).value()->Excl_0 is None,
-            final(r).loc() == old(r).loc(),
-            res == old(r).value()->Excl_0->Some_0,
-    {
-        let tracked mut tmp = StorageResource::<(), T, ExclP<T>>::alloc(
-            ExclP::Unit,
-            Map::tracked_empty(),
-        );
-        tracked_swap(r, &mut tmp);
-        let tracked (mut r1, mut r2) = tmp.withdraw(
-            ExclP::Excl(None),
-            map![()=> tmp.value().value()],
-        );
-        tracked_swap(r, &mut r1);
-        r2.tracked_remove(())
-    }
-
-    /// Puts back the owned resource.
-    pub proof fn put_resource(tracked &mut self, tracked value: T)
-        requires
-            old(self).has_no_resource(),
-        ensures
-            final(self).has_resource(),
-            final(self).resource() == value,
-            final(self).wf(),
-    {
-        use_type_invariant(&*self);
-        Self::put_resource_helper(&mut self.r, value)
-    }
-
-    proof fn put_resource_helper(tracked r: &mut StorageResource<(), T, ExclP<T>>, tracked value: T)
-        requires
-            Self::type_inv_inner(old(r).value()),
-            old(r).value()->Excl_0 is None,
-        ensures
-            Self::type_inv_inner(final(r).value()),
-            final(r).value()->Excl_0 is Some,
-            final(r).loc() == old(r).loc(),
-            final(r).value()->Excl_0->Some_0 == value,
-    {
-        let ghost g = value;
-        let tracked mut tmp = StorageResource::<(), T, ExclP<T>>::alloc(
-            ExclP::Unit,
-            Map::tracked_empty(),
-        );
-        tracked_swap(r, &mut tmp);
-        let tracked mut m = Map::tracked_empty();
-        m.tracked_insert((), value);
-        tmp.value().lemma_deposits(g);
-        let tracked mut r1 = tmp.deposit(m, ExclP::Excl(Some(g)));
-        tracked_swap(r, &mut r1);
-    }
-
-    /// Updates the owned resource and returns the old resource if it exists.
-    pub proof fn update(tracked &mut self, tracked value: T) -> (tracked res: Option<T>)
-        ensures
-            final(self).has_resource(),
-            final(self).resource() == value,
-            res == if old(self).has_resource() {
-                Some(old(self).resource())
-            } else {
-                None
-            },
-            final(self).wf(),
-    {
-        use_type_invariant(&*self);
-        let tracked mut res = None;
-        if self.has_resource() {
-            res = Some(self.take_resource());
-        }
-        self.put_resource(value);
-        res
     }
 }
 
