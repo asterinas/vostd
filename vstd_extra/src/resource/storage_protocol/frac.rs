@@ -10,31 +10,31 @@ broadcast use group_map_axioms;
 
 /// The fractional protocol monoid.
 #[verifier::ext_equal]
-pub ghost enum FracP<T> {
+pub ghost enum FractionSP<T> {
     Unit,
     Frac(real, T),
     Invalid,
 }
 
-impl<T> Protocol<(), T> for FracP<T> {
+impl<T> Protocol<(), T> for FractionSP<T> {
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
-            (FracP::Unit, x) => x,
-            (x, FracP::Unit) => x,
-            (FracP::Frac(q1, v1), FracP::Frac(q2, v2)) => {
+            (FractionSP::Unit, x) => x,
+            (x, FractionSP::Unit) => x,
+            (FractionSP::Frac(q1, v1), FractionSP::Frac(q2, v2)) => {
                 if v1 == v2 && 0.0real < q1 && 0.0real < q2 && q1 + q2 <= 1.0real {
-                    FracP::Frac(q1 + q2, v1)
+                    FractionSP::Frac(q1 + q2, v1)
                 } else {
-                    FracP::Invalid
+                    FractionSP::Invalid
                 }
             },
-            _ => FracP::Invalid,
+            _ => FractionSP::Invalid,
         }
     }
 
     open spec fn rel(self, s: Map<(), T>) -> bool {
         match self {
-            FracP::Frac(q, v) => {
+            FractionSP::Frac(q, v) => {
                 &&& s.contains_key(())
                 &&& s[()] == v
                 &&& q == 1.0real
@@ -44,7 +44,7 @@ impl<T> Protocol<(), T> for FracP<T> {
     }
 
     open spec fn unit() -> Self {
-        FracP::Unit
+        FractionSP::Unit
     }
 
     proof fn commutative(a: Self, b: Self) {
@@ -57,20 +57,20 @@ impl<T> Protocol<(), T> for FracP<T> {
     }
 }
 
-impl<T> FracP<T> {
+impl<T> FractionSP<T> {
     pub open spec fn frac(self) -> real {
         match self {
-            FracP::Frac(q, _) => q,
+            FractionSP::Frac(q, _) => q,
             _ => 0.0real,
         }
     }
 
     pub open spec fn new(v: T) -> Self {
-        FracP::Frac(1.0real, v)
+        FractionSP::Frac(1.0real, v)
     }
 
     pub open spec fn construct_frac(q: real, v: T) -> Self {
-        FracP::Frac(q, v)
+        FractionSP::Frac(q, v)
     }
 
     pub open spec fn value(self) -> T
@@ -78,7 +78,7 @@ impl<T> FracP<T> {
             self is Frac,
     {
         match self {
-            FracP::Frac(_, v) => v,
+            FractionSP::Frac(_, v) => v,
             _ => arbitrary(),
         }
     }

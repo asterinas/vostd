@@ -16,7 +16,7 @@ verus! {
 use vstd::map::*;
 
 pub tracked struct FracStorage<T> {
-    tracked r: Tracked<Option<StorageResource<(), T, FracP<T>>>>,
+    tracked r: Tracked<Option<StorageResource<(), T, FractionSP<T>>>>,
 }
 
 impl<T> FracStorage<T> {
@@ -27,7 +27,7 @@ impl<T> FracStorage<T> {
         &&& 0.0real < self.frac() && self.frac() <= 1.0real
     }
 
-    pub closed spec fn storage_resource(self) -> StorageResource<(), T, FracP<T>> {
+    pub closed spec fn storage_resource(self) -> StorageResource<(), T, FractionSP<T>> {
         self.r@->Some_0
     }
 
@@ -35,7 +35,7 @@ impl<T> FracStorage<T> {
         self.storage_resource().loc()
     }
 
-    pub closed spec fn protocol_monoid(self) -> FracP<T> {
+    pub closed spec fn protocol_monoid(self) -> FractionSP<T> {
         self.storage_resource().value()
     }
 
@@ -58,7 +58,7 @@ impl<T> FracStorage<T> {
     {
         let tracked mut m = Map::<(), T>::tracked_empty();
         m.tracked_insert((), v);
-        let tracked resource = StorageResource::alloc(FracP::new(v), m);
+        let tracked resource = StorageResource::alloc(FractionSP::new(v), m);
         FracStorage { r: Tracked(Some(resource)) }
     }
 
@@ -77,7 +77,7 @@ impl<T> FracStorage<T> {
 
     /// Avoid breaking the type invariant.
     proof fn split_helper(
-        tracked r: &mut Tracked<Option<StorageResource<(), T, FracP<T>>>>,
+        tracked r: &mut Tracked<Option<StorageResource<(), T, FractionSP<T>>>>,
     ) -> (tracked res: Self)
         requires
             old(r)@ is Some,
@@ -98,7 +98,7 @@ impl<T> FracStorage<T> {
         let tracked mut storage_resource = r.borrow_mut().tracked_take();
         let frac = storage_resource.value().frac();
         let half_frac = frac / 2.0real;
-        let m = FracP::construct_frac(half_frac, storage_resource.value().value());
+        let m = FractionSP::construct_frac(half_frac, storage_resource.value().value());
         let tracked (resource_1, resource_2) = storage_resource.split(m, m);
         **r = Some(resource_1);
         FracStorage { r: Tracked(Some(resource_2)) }
