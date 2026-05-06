@@ -1,9 +1,9 @@
 //! Exclusive storage protocol resource algebra.
-use vstd::prelude::*;
-use vstd::resource::storage_protocol::*;
-use vstd::resource::exclusive::ExclusiveRA;
-use vstd::resource::Loc;
 use vstd::modes::tracked_swap;
+use vstd::prelude::*;
+use vstd::resource::exclusive::ExclusiveRA;
+use vstd::resource::storage_protocol::*;
+use vstd::resource::Loc;
 
 verus! {
 
@@ -67,8 +67,9 @@ impl<A> ExclusiveSP<A> {
             #![auto]
             Self::rel(Self::op(self, q), s) implies exists|s1: Map<(), A>|
             #![auto]
-            Self::rel(Self::op(ExclusiveSP::Exclusive(Some(value)), q), s1) && s.dom().disjoint(m.dom())
-                && &&s.union_prefer_right(m) == s1 by {
+            Self::rel(Self::op(ExclusiveSP::Exclusive(Some(value)), q), s1) && s.dom().disjoint(
+                m.dom(),
+            ) && &&s.union_prefer_right(m) == s1 by {
             assert(s == Map::<(), A>::empty());
             assert(Self::rel(Self::op(ExclusiveSP::Exclusive(Some(value)), q), m));
             assert(s.dom().disjoint(m.dom()));
@@ -162,8 +163,9 @@ impl<T> Exclusive<T> {
         Self::take_resource_helper(&mut self.r)
     }
 
-    proof fn take_resource_helper(tracked r: &mut StorageResource<(), T, ExclusiveSP<T>>) -> (tracked res:
-        T)
+    proof fn take_resource_helper(
+        tracked r: &mut StorageResource<(), T, ExclusiveSP<T>>,
+    ) -> (tracked res: T)
         requires
             Self::type_inv_inner(old(r).value()),
             old(r).value()->Exclusive_0 is Some,
@@ -199,7 +201,10 @@ impl<T> Exclusive<T> {
         Self::put_resource_helper(&mut self.r, value)
     }
 
-    proof fn put_resource_helper(tracked r: &mut StorageResource<(), T, ExclusiveSP<T>>, tracked value: T)
+    proof fn put_resource_helper(
+        tracked r: &mut StorageResource<(), T, ExclusiveSP<T>>,
+        tracked value: T,
+    )
         requires
             Self::type_inv_inner(old(r).value()),
             old(r).value()->Exclusive_0 is None,

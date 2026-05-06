@@ -1,11 +1,11 @@
 use std::borrow::Borrow;
 
+use crate::resource::ghost_resource::count::*;
 use crate::sum::*;
 use vstd::map::*;
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
 use vstd::resource::Loc;
-use crate::resource::ghost_resource::count::*;
 
 verus! {
 
