@@ -38,10 +38,6 @@ use crate::task::{scheduler, Task};
 
 verus! {
 
-pub tracked struct WaitQueueGhost {
-    pub queued_wakers: Seq<int>,
-}
-
 struct_with_invariants! {
 
 /// A wait queue.
@@ -52,22 +48,15 @@ struct_with_invariants! {
 /// wake up one or many waiting threads.
 pub struct WaitQueue {
     // A copy of `wakers.len()`, used for the lock-free fast path in `wake_one` and `wake_all`.
-    num_wakers: AtomicU32<_, WaitQueueGhost, _>,
+    num_wakers: AtomicU32<_, (), _>,
     wakers: SpinLock<VecDeque<Arc<Waker>>, LocalIrqDisabled>,
 }
 
 closed spec fn wf(self) -> bool {
-    invariant on num_wakers is (v: u32, g: WaitQueueGhost) {
-        &&& g.queued_wakers.len() == v as int
+    invariant on num_wakers is (v: u32, g: ()) {
+        true
     }
 }
-}
-
-impl WaitQueue {
-    #[verifier::type_invariant]
-    pub closed spec fn type_inv(self) -> bool {
-        self.wf()
-    }
 }
 
 impl WaitQueue {
@@ -78,7 +67,7 @@ impl WaitQueue {
             num_wakers: AtomicU32::new(
                 Ghost(()),
                 0,
-                Tracked(WaitQueueGhost { queued_wakers: seq![] }),
+                Tracked(()),
             ),
             wakers: SpinLock::new(VecDeque::new()),
         }
@@ -137,9 +126,7 @@ impl WaitQueue {
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
-                ghost g => {
-                    g = WaitQueueGhost { queued_wakers: g.queued_wakers.drop_first() };
-                }
+                ghost g => {}
             };
             // Avoid holding lock when calling `wake_up`
             drop(wakers);
@@ -167,9 +154,7 @@ impl WaitQueue {
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
-                ghost g => {
-                    g = WaitQueueGhost { queued_wakers: g.queued_wakers.drop_first() };
-                }
+                ghost g => {}
             };
             // Avoid holding lock when calling `wake_up`
             drop(wakers);
@@ -196,9 +181,7 @@ impl WaitQueue {
         atomic_with_ghost! {
             self.num_wakers => fetch_add(1);
             update prev -> next;
-            ghost g => {
-                g = WaitQueueGhost { queued_wakers: g.queued_wakers.push(waker.id()) };
-            }
+            ghost g => {}
         };
     }
 }

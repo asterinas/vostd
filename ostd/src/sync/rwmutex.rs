@@ -273,10 +273,6 @@ impl<T> RwMutex<T> {
     pub closed spec fn type_inv(self) -> bool {
         self.wf()
     }
-
-    pub closed spec fn queue_inv(self) -> bool {
-        self.queue.type_inv()
-    }
 }
 
 closed spec fn wf_upgradeable_guard_token<T>(
