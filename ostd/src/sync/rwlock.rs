@@ -897,7 +897,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> 
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.inner.val.get() }
-        pcell_borrow_mut(&self.inner.val, &mut self.v_perm)
+        self.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
     }
 }
 

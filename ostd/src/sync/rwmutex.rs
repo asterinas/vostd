@@ -3,7 +3,6 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*, CellId};
 use vstd::prelude::*;
 use vstd::resource::Loc;
-use vstd_extra::auxiliary::pcell_borrow_mut;
 use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
 use vstd_extra::sum::*;
 
@@ -853,7 +852,7 @@ impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.inner.val.get() }
-        pcell_borrow_mut(&self.inner.val, &mut self.v_perm)
+        self.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
     }
 }
 

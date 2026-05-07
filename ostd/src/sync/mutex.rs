@@ -252,7 +252,7 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.mutex.val.get() }
-        pcell_borrow_mut(&self.mutex.val, &mut self.v_perm)
+        self.mutex.val.borrow_mut(Tracked(&mut *self.v_perm))
     }
 } 
 

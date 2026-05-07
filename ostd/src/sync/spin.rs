@@ -437,7 +437,7 @@ impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
             use_type_invariant(&*self);
         }
         // unsafe { &mut *self.lock.inner.val.get() }
-        pcell_borrow_mut(&self.lock.inner.val, &mut self.v_perm)
+        self.lock.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
     }
 }
 }
