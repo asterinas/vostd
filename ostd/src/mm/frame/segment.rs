@@ -13,8 +13,9 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
-use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
+use super::{AnyFrameMeta, GetFrameError, MetaSlot};
 use crate::mm::{paddr_to_vaddr, Paddr, PagingLevel, Vaddr};
+use vstd::simple_pptr;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -96,8 +97,12 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
 pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     /// The physical-address range of the segment that this owner corresponds to.
     pub ghost range: Range<Paddr>,
-    /// The permissions for all frames in the segment, which must be well-formed and valid.
-    pub perms: Seq<MetaPerm<M>>,
+    /// The slot-pointer permissions for all frames in the segment.
+    /// Inner permissions for each slot live exclusively in
+    /// `regions.slot_owners[idx].inner_perms`; this `Seq` carries only the
+    /// `simple_pptr::PointsTo<MetaSlot>` per frame.
+    pub perms: Seq<simple_pptr::PointsTo<MetaSlot>>,
+    pub _marker: core::marker::PhantomData<M>,
 }
 
 impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
@@ -131,9 +136,13 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
                 &&& self.perms[i].addr() == meta_addr(
                     frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
                 )
-                &&& self.perms[i].addr() % PAGE_SIZE == 0
+                // Meta slots are 64-byte aligned, not page-aligned.
+                // (Pre-WIP this was `% PAGE_SIZE == 0`, which is unsatisfiable for
+                // any segment whose start_paddr isn't 256KB-aligned and silently
+                // made bodies with `owner.inv()` in their precondition verify
+                // vacuously — independently of the inner_perms duplication issue.)
+                &&& self.perms[i].addr() % super::meta::mapping::META_SLOT_SIZE == 0
                 &&& self.perms[i].addr() < MAX_PADDR
-                &&& self.perms[i].wf(&self.perms[i].inner_perms)
                 &&& self.perms[i].is_init()
             }
     }
@@ -151,25 +160,9 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     /// - the slot's perm is *not* in `regions.slots` (it lives in `self.perms`),
     /// - distinct frames in the segment map to distinct slot indices.
     ///
-    /// # Caveat: vacuous bodies
-    ///
-    /// The `self.perms[i].points_to.value().wf(regions.slot_owners[idx])`
-    /// clause forces id-equality between `self.perms[i].inner_perms` (a tracked
-    /// permission held by the `SegmentOwner`) and `regions.slot_owners[idx].inner_perms`
-    /// (a tracked permission held by `MetaRegionOwners`). Verus's resource
-    /// logic detects two simultaneously-tracked permissions with the same id
-    /// as a duplication, deriving `False` once a body operation (e.g.,
-    /// `owner.perms.tracked_remove(0)`) exposes both. The consequence is that
-    /// any function with `relate_regions` in its precondition will have a body
-    /// that verifies *vacuously* on non-empty segments — soundly but trivially.
-    /// The model needs a separate refinement (the perm should "move" from
-    /// `regions.slot_owners[idx].inner_perms` to `self.perms[i].inner_perms`
-    /// rather than coexist with matching ids) before the bodies become
-    /// non-vacuously sound.
-    ///
-    /// This is intended to be an invariant preserved by every operation that
-    /// transforms a `SegmentOwner` together with `MetaRegionOwners` — analogous
-    /// to [`UniqueFrameOwner::global_inv`] but spanning all frames in a segment.
+    /// This is an invariant preserved by every operation that transforms a
+    /// `SegmentOwner` together with `MetaRegionOwners` — analogous to
+    /// [`UniqueFrameOwner::global_inv`] but spanning all frames in a segment.
     pub open spec fn relate_regions(self, regions: MetaRegionOwners) -> bool {
         &&& forall|i: int|
             #![trigger self.perms[i]]
@@ -182,7 +175,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     != super::meta::REF_COUNT_UNUSED
-                &&& self.perms[i].points_to.value().wf(regions.slot_owners[idx])
+                &&& self.perms[i].value().wf(regions.slot_owners[idx])
             }
         &&& forall|i: int, j: int|
             #![trigger self.perms[i], self.perms[j]]
@@ -579,6 +572,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 (range.start / PAGE_SIZE) as int,
                 (range.end / PAGE_SIZE) as int,
             ),
+            _marker: core::marker::PhantomData,
         };
         &&& res.inv()
         &&& res.wf(&sub_owner)
@@ -662,7 +656,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
-            let tracked mut perms = Seq::<MetaPerm<M>>::tracked_empty();
+            let tracked mut perms = Seq::<simple_pptr::PointsTo<MetaSlot>>::tracked_empty();
         }
         // Construct a segment early to recycle previously forgotten frames if
         // the subsequent operations fails in the middle.
@@ -711,7 +705,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     #![trigger perms[j]]
                     0 <= j < perms.len() as int ==> {
                         &&& perms[j].addr() == frame_to_meta(addrs[j])
-                        &&& perms[j].wf(&perms[j].inner_perms)
                         &&& perms[j].is_init()
                     },
                 regions.inv(),
@@ -753,7 +746,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         proof {
             broadcast use vstd_extra::seq_extra::lemma_seq_to_set_map_contains;
 
-            owner = Some(SegmentOwner { range, perms });
+            owner = Some(SegmentOwner { range, perms, _marker: core::marker::PhantomData });
 
             assert forall|addr: usize|
                 #![trigger frame_to_index_spec(addr)]
@@ -814,8 +807,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
         let tracked mut perms = owner.perms;
         let tracked rest = seq_tracked_split_at(&mut perms, idx as int);
-        let tracked frame_perms1 = SegmentOwner { range: res.0.range, perms };
-        let tracked frame_perms2 = SegmentOwner { range: res.1.range, perms: rest };
+        let tracked frame_perms1 = SegmentOwner { range: res.0.range, perms, _marker: core::marker::PhantomData };
+        let tracked frame_perms2 = SegmentOwner { range: res.1.range, perms: rest, _marker: core::marker::PhantomData };
 
         proof_with!(|= (Tracked(frame_perms1), Tracked(frame_perms2)));
         res
@@ -1046,10 +1039,9 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
             }
 
             let ghost cur_idx = frame_idx(k);
-            let tracked perm = owner.perms.tracked_remove(0);
+            let tracked slot_perm = owner.perms.tracked_remove(0);
 
-            // perm == old_owner.perms[k] (from shift invariant)
-            let tracked slot_perm = perm.points_to;
+            // slot_perm == old_owner.perms[k] (from shift invariant)
 
             proof {
                 assert(self.drop_requires((old_regions, old_owner)));
@@ -1077,6 +1069,14 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
 
             let slot = ptr.borrow(Tracked(&slot_perm));
             let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.inner_perms.ref_count), 1);
+
+            // The segment held one forgotten reference per frame
+            // (`relate_regions` => `raw_count == 1`). With this iteration
+            // consuming that forgotten reference, the bookkeeping decrement
+            // must happen before any potential `drop_last_in_place`.
+            proof {
+                slot_own.raw_count = (slot_own.raw_count - 1) as usize;
+            }
 
             if last_ref_cnt == 1 {
                 super::acquire_fence();

@@ -223,7 +223,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>
-            -> perm: Tracked<Option<PointsTo<MetaSlot, Metadata<M>>>>
+            -> perm: Tracked<Option<vstd::simple_pptr::PointsTo<MetaSlot>>>
         requires
             old(regions).inv(),
             old(regions).slots.contains_key(frame_to_index(paddr)),
@@ -488,8 +488,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
 
         // SAFETY: Both the lifetime and the type matches `self`.
-        unsafe { 
-            #[verus_spec(with Tracked(regions), Tracked(perm))]
+        unsafe {
+            #[verus_spec(with Tracked(regions), Tracked(&perm.points_to))]
             FrameRef::borrow_paddr(#[verus_spec(with Tracked(&perm.points_to))] self.start_paddr())
         }
     }
@@ -587,17 +587,17 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&MetaPerm<M>>,
+            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
             -> debt: Tracked<BorrowDebt>,
         requires
             Self::from_raw_requires_safety(*old(regions), paddr),
             old(regions).slot_owners[frame_to_index(paddr)].raw_count <= 1,
-            perm.points_to.is_init(),
-            perm.points_to.addr() == frame_to_meta(paddr),
-            perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(paddr)]),
+            perm.is_init(),
+            perm.addr() == frame_to_meta(paddr),
+            perm.value().wf(old(regions).slot_owners[frame_to_index(paddr)]),
         ensures
             Self::from_raw_ensures(*old(regions), *final(regions), paddr, r),
-            final(regions).slots == old(regions).slots.insert(frame_to_index(paddr), perm.points_to),
+            final(regions).slots == old(regions).slots.insert(frame_to_index(paddr), *perm),
             debt@.frame_index == frame_to_index(paddr),
             debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
     )]
@@ -610,7 +610,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
 
         proof {
             let index = frame_to_index(paddr);
-            regions.sync_perm::<M>(index, perm);
+            regions.sync_slot_perm(index, perm);
 
             let tracked mut slot_own = regions.slot_owners.tracked_remove(index);
             slot_own.raw_count = 0usize;

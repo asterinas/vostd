@@ -159,7 +159,7 @@ impl<C: PageTableConfig> Child<C> {
                 let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
             }
 
-            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm) => Tracked(from_raw_debt))]
+            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm.points_to) => Tracked(from_raw_debt))]
             let node = PageTableNode::from_raw(paddr);
 
             proof {
@@ -241,7 +241,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 assert(entry_owner.meta_slot_paddr().unwrap() == paddr);
             }
 
-            #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]
+            #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm.points_to))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
 
             proof {

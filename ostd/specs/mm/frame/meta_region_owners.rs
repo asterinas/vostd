@@ -206,6 +206,32 @@ impl MetaRegionOwners {
             final(self).slots == old(self).slots.remove(index),
             final(self).slot_owners == old(self).slot_owners;
 
+    /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
+    /// Used by `Frame::from_raw` after the migration to typed slot perms — the perm being
+    /// returned to `regions.slots` has no `inner_perms` baggage; the inner-perms live in
+    /// `slot_owners[index].inner_perms`.
+    pub axiom fn sync_slot_perm(
+        tracked &mut self,
+        index: usize,
+        perm: &simple_pptr::PointsTo<MetaSlot>,
+    )
+        ensures
+            final(self).slots == old(self).slots.insert(index, *perm),
+            final(self).slot_owners == old(self).slot_owners;
+
+    /// Take a copy of `slots[index]` out for use by `Frame::into_raw` (which transfers
+    /// the slot-pointer permission to its forgetter). The slot is removed from `slots`.
+    pub axiom fn copy_slot_perm(
+        tracked &mut self,
+        index: usize,
+    ) -> (tracked perm: simple_pptr::PointsTo<MetaSlot>)
+        requires
+            old(self).slots.contains_key(index),
+        ensures
+            perm == old(self).slots[index],
+            final(self).slots == old(self).slots.remove(index),
+            final(self).slot_owners == old(self).slot_owners;
+
     /// Inserting a valid frame slot permission into `slots` preserves `inv()`.
     ///
     /// This captures the invariant that `slot_owners[idx].self_addr == meta_addr(idx)` is

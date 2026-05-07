@@ -73,13 +73,12 @@ impl MetaSlot {
         metadata: M,
         as_unique: bool,
         ptr: PPtr<MetaSlot>,
-        perm: PointsTo<MetaSlot, Metadata<M>>,
+        perm: simple_pptr::PointsTo<MetaSlot>,
     ) -> bool {
         &&& ptr.addr() == frame_to_meta(paddr)
         &&& perm.addr() == frame_to_meta(paddr)
         &&& perm.is_init()
-        &&& perm.wf(&perm.inner_perms)
-        &&& MetaSlot::get_from_unused_inner_perms_spec(as_unique, perm.inner_perms)
+        &&& perm.pptr() == ptr
     }
 
     pub open spec fn inc_ref_count_panic_cond(rc_perm: PermissionU64) -> bool {
