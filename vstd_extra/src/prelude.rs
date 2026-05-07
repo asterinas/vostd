@@ -8,8 +8,6 @@ pub use super::bit_mapping::*;
 
 pub use super::external::*;
 
-pub use super::extern_const::*;
-
 pub use super::function_properties::*;
 
 pub use super::ghost_tree::*;

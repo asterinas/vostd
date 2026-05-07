@@ -19,7 +19,6 @@ pub mod auxiliary;
 pub mod bit_mapping;
 pub mod cast_ptr;
 pub mod drop_tracking;
-pub mod extern_const;
 pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
