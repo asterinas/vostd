@@ -61,7 +61,6 @@ closed spec fn wf(self) -> bool {
 
 impl WaitQueue {
     /// Creates a new, empty wait queue.
-    #[verifier::external_body]
     pub const fn new() -> Self {
         WaitQueue {
             num_wakers: AtomicU32::new(
