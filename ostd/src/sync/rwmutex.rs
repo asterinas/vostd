@@ -845,6 +845,7 @@ impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
     #[verus_spec(ret =>
         ensures
             final(self).view() == *final(ret),
+            old(self).view() == *ret,
     )]
     fn deref_mut(&mut self) -> (ret: &mut Self::Target) 
     {
