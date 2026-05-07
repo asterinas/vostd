@@ -3,7 +3,8 @@ use vstd::atomic_ghost::*;
 use vstd::prelude::*;
 
 use alloc::{collections::VecDeque, sync::Arc};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::intrinsics::atomic_cxchg;
+use core::sync::atomic::{/*AtomicBool,*/ Ordering};
 
 use super::{LocalIrqDisabled, SpinLock};
 use crate::task::{scheduler, Task};
@@ -216,9 +217,24 @@ impl Waiter {
 ///
 /// A waker can be created by calling [`Waiter::new_pair`]. This method creates an `Arc<Waker>` that can
 /// be used across different threads.
+struct_with_invariants! {
 pub struct Waker {
-    has_woken: AtomicBool,
+    has_woken: AtomicBool<_, (), _>, // It should attach a task-related token once we start to verify the scheduler, using () as a placeholder for now.
     task: Arc<Task>,
+}
+
+closed spec fn wf(self) -> bool {
+    invariant on has_woken is (v: bool, g: ()) {
+        true
+    }
+}
+}
+
+impl Waker {
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
 }
 
 #[verus_verify]
@@ -234,7 +250,7 @@ impl Waiter {
         }
         let waker = Arc::new(
             Waker {
-                has_woken: AtomicBool::new(false),
+                has_woken: AtomicBool::new(Ghost(()),false,Tracked(())),
                 // task: Task::current().unwrap().cloned(),
                 task: Arc::new(Task {  }),
             },
@@ -339,27 +355,34 @@ impl Waker {
     /// handle the latter case properly to avoid missing the wake event.
     #[verifier::external_body]
     pub fn wake_up(&self) -> bool {
-        if self.has_woken.swap(true, Ordering::Release) {
+        /*if self.has_woken.swap(true, Ordering::Release) {
             return false;
         }
         scheduler::unpark_target(self.task.clone());
 
-        true
+        true*/
+        unimplemented!()
     }
 
     #[track_caller]
     #[verifier::external_body]
     fn do_wait(&self) {
-        while !self.has_woken.swap(false, Ordering::Acquire) {
+        /*while !self.has_woken.swap(false, Ordering::Acquire) {
             scheduler::park_current(|| self.has_woken.load(Ordering::Acquire));
-        }
+        }*/
+        unimplemented!()
     }
 
-    #[verifier::external_body]
     fn close(&self) {
         // This must use `Ordering::Acquire`, although we do not care about the return value. See
         // the memory order explanation at the top of the file for details.
-        let _ = self.has_woken.swap(true, Ordering::Acquire);
+        //let _ = self.has_woken.swap(true, Ordering::Acquire);
+        proof!{ use_type_invariant(self);}
+        let _ = atomic_with_ghost!{ 
+            self.has_woken => swap(true);
+            update prev -> next;
+            ghost g => {}
+        };
     }
 }
 
