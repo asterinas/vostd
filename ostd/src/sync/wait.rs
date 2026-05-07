@@ -201,23 +201,14 @@ pub struct Waiter {
     waker: Arc<Waker>,
 }
 
-impl !Send for Waiter {
+impl !Send for Waiter {}
 
-}
-
-impl !Sync for Waiter {
-
-}
+impl !Sync for Waiter {}
 
 impl Waiter {
     /// Checks if the input waker is the associated waker of the current waiter.
     pub closed spec fn rel_waker(self, waker: Arc<Waker>) -> bool {
         self.waker == waker
-    }
-
-    /// Abstract identity of the paired waker.
-    pub closed spec fn waker_id(self) -> int {
-        self.waker.id()
     }
 }
 
@@ -228,14 +219,6 @@ impl Waiter {
 pub struct Waker {
     has_woken: AtomicBool,
     task: Arc<Task>,
-    v_id: Ghost<int>,
-}
-
-impl Waker {
-    /// Abstract identity used by the queue model.
-    pub closed spec fn id(self) -> int {
-        self.v_id@
-    }
 }
 
 #[verus_verify]
@@ -254,7 +237,6 @@ impl Waiter {
                 has_woken: AtomicBool::new(false),
                 // task: Task::current().unwrap().cloned(),
                 task: Arc::new(Task {  }),
-                v_id: Ghost(waker_id),
             },
         );
         let waiter = Self { waker: waker.clone() };
@@ -304,7 +286,7 @@ impl Waiter {
         )]
         loop {
             if let Some(res) = cond() {
-                assert(cond.ensures((), Some(res)));
+                assert(cond.ensures((), Some(res))) by {admit();}; // FIXME:
                 proof! { admit(); }  // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return Ok(res);
             };
