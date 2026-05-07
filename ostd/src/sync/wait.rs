@@ -187,7 +187,6 @@ impl WaitQueue {
 }
 
 impl Default for WaitQueue {
-    #[verifier::external_body]
     fn default() -> Self {
         Self::new()
     }
