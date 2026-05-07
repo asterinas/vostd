@@ -16,6 +16,7 @@ use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, m
 use super::{AnyFrameMeta, GetFrameError, MetaSlot};
 use crate::mm::{paddr_to_vaddr, Paddr, PagingLevel, Vaddr};
 use vstd::simple_pptr;
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -136,13 +137,18 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
                 &&& self.perms[i].addr() == meta_addr(
                     frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
                 )
-                // Meta slots are 64-byte aligned, not page-aligned.
-                // (Pre-WIP this was `% PAGE_SIZE == 0`, which is unsatisfiable for
-                // any segment whose start_paddr isn't 256KB-aligned and silently
-                // made bodies with `owner.inv()` in their precondition verify
-                // vacuously — independently of the inner_perms duplication issue.)
+                // Meta slots are 64-byte aligned in the kernel-virtual
+                // FRAME_METADATA_RANGE, *not* in the physical address space:
+                //   - `% PAGE_SIZE == 0` was unsatisfiable (slots are 64-byte
+                //     aligned, not 4 KiB).
+                //   - `addr() < MAX_PADDR` was unsatisfiable (meta_addr is in the
+                //     kernel-virtual range ~0xffff_fff0_xxxx_xxxx, while
+                //     MAX_PADDR is 0x8000_0000 = 2 GiB).
+                // Both clauses (pre-WIP) silently made bodies with `owner.inv()`
+                // in their precondition verify vacuously — independently of
+                // the inner_perms duplication this migration targeted.
                 &&& self.perms[i].addr() % super::meta::mapping::META_SLOT_SIZE == 0
-                &&& self.perms[i].addr() < MAX_PADDR
+                &&& self.perms[i].addr() < FRAME_METADATA_RANGE.end
                 &&& self.perms[i].is_init()
             }
     }
@@ -173,8 +179,13 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners[idx].raw_count == 1
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                // Segment frames are shared (never UNIQUE) — exclude both
+                // sentinels. (Pre-WIP, the looser `!= REF_COUNT_UNUSED` left
+                // the post-fetch_sub state in the forbidden zone
+                // [REF_COUNT_MAX, REF_COUNT_UNIQUE), which `slot_own.inv()`
+                // explicitly rejects. The vacuous-bodies regime hid this.)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                    != super::meta::REF_COUNT_UNUSED
+                    <= super::meta::REF_COUNT_MAX
                 &&& self.perms[i].value().wf(regions.slot_owners[idx])
             }
         &&& forall|i: int, j: int|
@@ -182,6 +193,30 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
             0 <= i < j < self.perms.len() as int ==>
                 frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
                     != frame_to_index((self.range.start + j * PAGE_SIZE) as usize)
+    }
+
+    /// Manually instantiates the [`relate_regions`] forall at a specific index.
+    /// Use this to extract per-frame facts (slot_owner present, raw_count == 1,
+    /// ref_count > 0, perm.value().wf, etc.) without fighting trigger inference.
+    pub proof fn relate_regions_at(self, regions: MetaRegionOwners, i: int)
+        requires
+            self.relate_regions(regions),
+            0 <= i < self.perms.len() as int,
+        ensures
+            ({
+                let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
+                &&& regions.slot_owners.contains_key(idx)
+                &&& !regions.slots.contains_key(idx)
+                &&& regions.slot_owners[idx].raw_count == 1
+                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                    <= super::meta::REF_COUNT_MAX
+                &&& self.perms[i].value().wf(regions.slot_owners[idx])
+            }),
+    {
+        // Trigger `#[trigger] self.perms[i]` of the forall.
+        let _ = self.perms[i];
     }
 }
 
@@ -966,6 +1001,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             proof {
                 // raw_count was 1 (segment was forgotten via into_raw), so discharge trivially.
                 from_raw_debt.discharge_bookkeeping();
+                // Advance the owner's ghost range so its perms[i] still
+                // corresponds to slot index (range.start + i * PAGE_SIZE) /
+                // PAGE_SIZE — required by `relate_regions`.
+                owner.range = ((self.range.start + PAGE_SIZE) as usize)..self.range.end;
             }
 
             self.range.start = self.range.start + PAGE_SIZE;
@@ -974,6 +1013,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             None
         }
     }
+}
+
+/// Helper spec: the slot index of the j-th frame in a segment whose physical
+/// range starts at `range_start`. Unlike a let-bound ghost closure (which Verus
+/// treats opaquely under SMT), a `spec fn` is auto-unfolded so equalities
+/// between `frame_idx_at(...)` and `frame_to_index(...)` are derivable.
+#[verifier::inline]
+pub open spec fn frame_idx_at(range_start: usize, j: int) -> usize {
+    frame_to_index((range_start + j * PAGE_SIZE) as usize)
 }
 
 impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
@@ -990,8 +1038,10 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
         let ghost old_regions = regions;
         let ghost old_owner = owner;
 
-        // Helper spec: the frame index for the j-th frame in the segment
-        let ghost frame_idx = |j: int| -> usize { frame_to_index((self.range.start + j * PAGE_SIZE) as usize) };
+        // Use the inlined `frame_idx_at(self.range.start, j)` everywhere — see
+        // its definition above for why a spec fn is needed instead of a closure.
+        let ghost frame_idx = |j: int| -> usize { frame_idx_at(self.range.start, j) };
+
 
         loop
             invariant
@@ -1011,25 +1061,16 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
                     0 <= j < (n - k) ==>
                         owner.perms[j] == old_owner.perms[j + k],
                 // Unprocessed frames' slot_owners are present and unchanged
-                forall|j: int| #![trigger old_owner.perms[j]]
-                    k <= j < n ==> {
-                        &&& regions.slot_owners.contains_key(frame_idx(j))
-                        &&& regions.slot_owners[frame_idx(j)] == old_regions.slot_owners[frame_idx(j)]
-                    },
-                // Slots not belonging to any frame in the segment are unchanged
-                forall|si: usize| #![trigger regions.slot_owners[si]]
-                    (forall|j: int| #![trigger old_owner.perms[j]]
-                        0 <= j < n ==> si != frame_idx(j))
-                    ==> regions.slot_owners[si] == old_regions.slot_owners[si],
-                // slots map: processed frames' PointsTo re-inserted, rest unchanged
-                forall|si: usize| #![trigger regions.slots[si]]
-                    (forall|j: int| #![trigger old_owner.perms[j]]
-                        0 <= j < k ==> si != frame_idx(j))
-                    ==> regions.slots.contains_key(si) == old_regions.slots.contains_key(si),
+                forall|j: int|
+                    #![trigger frame_idx_at(self.range.start, j)]
+                    k <= j < n ==>
+                        regions.slot_owners.contains_key(frame_idx_at(self.range.start, j))
+                        && regions.slot_owners[frame_idx_at(self.range.start, j)] == old_regions.slot_owners[frame_idx_at(self.range.start, j)],
+                regions.slot_owners.dom() =~= old_regions.slot_owners.dom(),
                 // Distinct indices (from drop_requires, propagated)
                 forall|i: int, j: int|
                     #![trigger old_owner.perms[i], old_owner.perms[j]]
-                    0 <= i < j < n ==> frame_idx(i) != frame_idx(j),
+                    0 <= i < j < n ==> frame_idx_at(self.range.start, i) != frame_idx_at(self.range.start, j),
                 // Original drop_requires still holds (old_regions/old_owner are immutable ghosts)
                 self.drop_requires((old_regions, old_owner)),
             decreases n - k,
@@ -1038,16 +1079,13 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
                 break;
             }
 
-            let ghost cur_idx = frame_idx(k);
+            let ghost cur_idx = frame_idx_at(self.range.start, k);
+            // Snapshot regions for the end-of-body invariant proof: we need to
+            // bridge "post-mod regions[idx_j] for idx_j != cur_idx unchanged from
+            // regions_pre" with "regions_pre[idx_j] equals old_regions[idx_j]
+            // (per pre-iteration LOI)".
+            let ghost regions_pre = regions;
             let tracked slot_perm = owner.perms.tracked_remove(0);
-
-            // slot_perm == old_owner.perms[k] (from shift invariant)
-
-            proof {
-                assert(self.drop_requires((old_regions, old_owner)));
-                let ghost idx_k = frame_to_index((self.range.start + k * PAGE_SIZE) as usize);
-                assert(idx_k == cur_idx);
-            }
 
             let ghost pre_slot_own = regions.slot_owners[cur_idx];
             let tracked mut slot_own = regions.slot_owners.tracked_remove(cur_idx);
@@ -1056,6 +1094,13 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
             let ptr = vstd::simple_pptr::PPtr::<super::MetaSlot>::from_addr(meta_vaddr);
 
             proof {
+                assert(slot_perm == old_owner.perms[k as int]);
+                assert(slot_own == old_regions.slot_owners[cur_idx]);
+                assert(self.range == old_owner.range);  // from Segment::wf in drop_requires
+
+                // Extract the relate_regions clause at i=k.
+                old_owner.relate_regions_at(old_regions, k as int);
+
                 assert(slot_perm.is_init());
                 assert(slot_perm.value().wf(slot_own));
                 assert(slot_perm.value().ref_count.id() == slot_own.inner_perms.ref_count.id());
@@ -1084,6 +1129,11 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
                 proof {
                     assert(slot_own.inner_perms.ref_count.value() == 0u64);
                     assert(slot_own.raw_count == 0);
+                    // Pull `storage.is_init()` and `in_list.value() == 0` from
+                    // drop_requires's per-i clause at i=k. The trigger is
+                    // `owner.perms[i]` evaluated on the OLD owner.
+                    assert(slot_perm == old_owner.perms[k as int]);
+                    let _trigger = old_owner.perms[k as int];
                     assert(slot_own.inner_perms.storage.is_init());
                     assert(slot_own.inner_perms.in_list.value() == 0u64);
                     assert(slot_own.inv());
@@ -1092,6 +1142,21 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
 
                 #[verus_spec(with Tracked(&mut slot_own))]
                 slot.drop_last_in_place();
+            } else {
+                proof {
+                    // Else branch: last_ref_cnt > 1, so new ref_count = last_ref_cnt - 1 > 0.
+                    // Need slot_own.inv(); specifically vtable_ptr.is_init().
+                    // Pre-fetch_sub the regions invariant guaranteed slot_own.inv()
+                    // (and ref_count > 0 implies vtable_ptr.is_init()), so threading
+                    // through preserves it.
+                    assert(last_ref_cnt > 1);
+                    assert(slot_own.inner_perms.ref_count.value() == last_ref_cnt - 1);
+                    // last_ref_cnt was bounded above (CAS would have caught REF_COUNT_MAX
+                    // and REF_COUNT_UNIQUE branches), so 1 < last_ref_cnt < REF_COUNT_UNIQUE.
+                    // We just need vtable_ptr.is_init(), preserved from pre-fetch_sub state.
+                    assert(slot_own.inner_perms.vtable_ptr.is_init());
+                    assert(slot_own.inv());
+                }
             }
 
             proof {
@@ -1142,22 +1207,29 @@ impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
             proof {
                 k = k + 1;
 
-                assert forall|j: int| #![trigger old_owner.perms[j]]
+                // Domain preserved: tracked_remove + tracked_insert at cur_idx is dom-neutral.
+                assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());
+
+                // Pre-mention old_owner.perms terms so that Verus's outer
+                // trigger machinery has them available for instantiating the
+                // loop invariant's forall at body end.
+                let ghost _outer_a = old_owner.perms[k as int];
+                let ghost _outer_b = old_owner.perms[(k - 1) as int];
+
+                assert forall|j: int|
+                    #![trigger frame_idx_at(self.range.start, j)]
                     k <= j < n implies
-                        regions.slot_owners[frame_idx(j)] == old_regions.slot_owners[frame_idx(j)]
+                        regions.slot_owners.contains_key(frame_idx_at(self.range.start, j))
+                        && regions.slot_owners[frame_idx_at(self.range.start, j)] == old_regions.slot_owners[frame_idx_at(self.range.start, j)]
                 by {
                     let ghost _a = old_owner.perms[j];
                     let ghost _b = old_owner.perms[(k - 1) as int];
-                    assert(frame_idx(j) != frame_idx(k - 1));
-                };
-
-                assert forall|si: usize| #![trigger regions.slot_owners[si]]
-                    (forall|j: int| #![trigger old_owner.perms[j]]
-                        0 <= j < n ==> si != frame_idx(j))
-                    implies regions.slot_owners[si] == old_regions.slot_owners[si]
-                by {
-                    let ghost _trigger = old_owner.perms[(k - 1) as int];
-                    assert(si != frame_idx(k - 1));
+                    let ghost idx_j = frame_idx_at(self.range.start, j);
+                    assert(idx_j != cur_idx);
+                    assert(regions_pre.slot_owners.contains_key(idx_j));
+                    assert(regions_pre.slot_owners[idx_j] == old_regions.slot_owners[idx_j]);
+                    assert(regions.slot_owners[idx_j] == regions_pre.slot_owners[idx_j]);
+                    assert(regions.slot_owners.contains_key(idx_j));
                 };
             }
         }
