@@ -105,7 +105,7 @@ impl<T> ExclusiveGhost<T> {
         use_type_invariant(&*self);
         use_type_invariant(other);
         if self.id() == other.id() {
-            self.0.validate_2(&other.0.as_ref());
+            self.0.validate_2(&other.0);
         }
     }
 
