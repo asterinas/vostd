@@ -226,9 +226,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             let tracked mut perm_opt: Option<simple_pptr::PointsTo<MetaSlot>>;
         }
 
-        // Runtime range checks — the corresponding `from_unused_ensures`
-        // clauses pin down the `Err` cases for misaligned or out-of-bound
-        // inputs.
         if range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0 {
             return {
                 proof_with!(|= Tracked(owner));
@@ -241,8 +238,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 Err(GetFrameError::OutOfBound)
             };
         }
-        // Reject empty ranges via diverging assert. The postcondition can then
-        // claim non-emptiness — it follows from termination.
         vstd_extra::assert!(range.start < range.end);
         // Construct a segment early to recycle previously forgotten frames if
         // the subsequent operations fails in the middle.
@@ -261,9 +256,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 i as int == perms.len(),
                 range.start % PAGE_SIZE == 0,
                 range.end % PAGE_SIZE == 0,
-                // Carry the bound past the if-check so the early-return
-                // `Err(e)` exit can discharge the `range.end > MAX_PADDR ==>
-                // Err(OutOfBound)` postcondition vacuously.
                 range.end <= MAX_PADDR,
                 range.start <= range.start + i * PAGE_SIZE <= range.end,
                 range.end == range.start + addr_len * PAGE_SIZE,
@@ -549,6 +541,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
         let start = self.range.start + range.start;
         let end = self.range.start + range.end;
+        vstd_extra::assert!(start <= end && end <= self.range.end);
 
         vstd_extra::assert!(start <= end && end <= self.range.end);
 
@@ -643,20 +636,33 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         Self { range: start..end, _marker: core::marker::PhantomData }
     }
 
-    /// Gets the next frame in the segment (raw), if any.
-    ///
-    /// Since the segments here must be "non-active" where
-    /// there is no extra Verus-tracked permission [`SegmentOwner`]
-    /// associated with it; [`Segment`] becomes a kind of "zombie"
-    /// container through which we can only iterate the frames and
-    /// get the frame out of the `regions` instead.
-    ///
-    /// # Note
-    ///
-    /// We chose to make `next` the member function of [`Segment`] rather than a trait method
-    /// because the current Verus standard library has limited support for [`core::iter::Iterator`]
-    /// and associated types, and we want to avoid the complexity of defining a custom iterator trait
-    /// and implementing it for `Segment`.
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta> From<Frame<M>> for Segment<M> {
+    /// Converts a single [`Frame`] into a one-page [`Segment`] by forgetting
+    /// the frame and recording its paddr range. Symmetric to vostd's
+    /// `From<Frame<M>> for Segment<M>`.
+    //
+    // Trusted at the trait boundary: the `From::from` signature can't thread
+    // `Tracked` metadata to bump the frame's `raw_count` via the verified
+    // `vstd_extra::drop_tracking::ManuallyDrop`, so we use `core::mem`'s
+    // version. Same trust pattern as the `Iterator` impl.
+    #[verifier::external_body]
+    fn from(frame: Frame<M>) -> Self {
+        let pa = frame.start_paddr();
+        let _ = core::mem::ManuallyDrop::new(frame);
+        Self {
+            range: pa..(pa + PAGE_SIZE),
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> {
+    type Item = Frame<M>;
+
+    /// Gets the next frame in the segment.
     ///
     /// # Verified Properties
     /// ## Preconditions

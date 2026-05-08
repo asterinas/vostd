@@ -308,7 +308,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         } else {
             // SAFETY: The node must be alive for at least `'rcu` since the
             // address is read from the page table node.
-            let node_ref = PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr);
+            let node_ref = unsafe { PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr) };
             node_ref.lock(guard)
         };
 
@@ -372,7 +372,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     } else {
         // SAFETY: The node must be alive for at least `'rcu` since the
         // address is read from the page table node.
-        let node_ref = PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr);
+        let node_ref = unsafe { PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr) };
         node_ref.lock(guard)
     };
 

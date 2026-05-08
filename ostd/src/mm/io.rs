@@ -629,6 +629,22 @@ impl<'a> VmWriter<'a, Infallible> {
         VmWriter { id: self.id, cursor: self.cursor, end: self.end, phantom: PhantomData }
     }
 
+    /// Writes a value of `Pod` type to the kernel-space buffer.
+    ///
+    /// If the length of the `Pod` type exceeds `self.avail()`, this method
+    /// will return `Err(InvalidArgs)`. Kernel-space writes don't fault, so
+    /// no rollback is needed — see [`VmWriter<Fallible>::write_val`] for the
+    /// user-space variant with cursor rewind.
+    #[verifier::external_body]
+    pub fn write_val<T: Pod>(&mut self, val: &mut T) -> Result<()> {
+        if self.avail() < core::mem::size_of::<T>() {
+            return Err(Error::InvalidArgs);
+        }
+        let mut reader = VmReader::from_pod(val)?;
+        self.write(&mut reader);
+        Ok(())
+    }
+
     /// Constructs a `VmWriter<'a, Infallible>` from a mutable byte slice.
     #[verifier::external_body]
     pub fn from_slice_mut(slice: &'a mut [u8]) -> Self {
@@ -904,6 +920,48 @@ impl<'a> VmReader<'a, Infallible> {
     }
 }
 
+impl<'a> VmReader<'a, Fallible> {
+    /// Collects all the remaining bytes into a `Vec<u8>`.
+    ///
+    /// If the memory read failed, this method will return `Err`
+    /// and the current reader's cursor remains pointing to
+    /// the original starting position. The cursor rollback is verified —
+    /// `rewind_cursor` discharges the spec that ties `copied_len` to the
+    /// cursor advancement.
+    #[verifier::external_body]
+    pub fn collect(&mut self) -> Result<alloc::vec::Vec<u8>> {
+        let mut buf = alloc::vec![0u8; self.remain()];
+        let mut writer: VmWriter<'_, Infallible> = buf.as_mut_slice().into();
+        match self.read_fallible(&mut writer) {
+            Ok(_) => Ok(buf),
+            Err((err, copied_len)) => {
+                self.rewind_cursor(copied_len);
+                Err(err)
+            },
+        }
+    }
+
+    /// Rewinds the cursor by `n` bytes. Used to undo a partial read.
+    ///
+    /// The cursor advancement on `read_fallible`'s `Err` path equals
+    /// `copied_len`, so calling `rewind_cursor(copied_len)` deterministically
+    /// restores the cursor to its position before the failed read.
+    #[verus_spec(
+        requires
+            old(self).inv(),
+            n <= old(self).cursor.vaddr - old(self).cursor.range@.start,
+        ensures
+            final(self).inv(),
+            final(self).cursor.vaddr == old(self).cursor.vaddr - n,
+            final(self).cursor.range == old(self).cursor.range,
+            final(self).end == old(self).end,
+            final(self).id == old(self).id,
+    )]
+    fn rewind_cursor(&mut self, n: usize) {
+        self.cursor.vaddr = self.cursor.vaddr - n;
+    }
+}
+
 // Perhaps we can implement `tryfrom` instead.
 // This trait method should be discarded as we do not want to make VmWriter <N> ?
 #[verus_verify]
@@ -1164,6 +1222,150 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     //         r,
     //     ),
     ;
+
+    /// Reads a specified number of bytes at a specified offset into a given buffer.
+    ///
+    /// This default impl wraps `buf` in a [`VmWriter`] and delegates to
+    /// [`Self::read`]. Mirrors vostd's `read_bytes` default.
+    #[verifier::external_body]
+    fn read_bytes(
+        &self,
+        offset: usize,
+        buf: &mut [u8],
+        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> Result<()> {
+        let mut writer = VmWriter::from(buf);
+        self.read(offset, &mut writer, Tracked(writer_own), Tracked(owner))
+    }
+
+    /// Reads a value of a specified type at a specified offset.
+    ///
+    /// Mirrors vostd's `read_val` default.
+    #[verifier::external_body]
+    fn read_val<T: Pod>(
+        &self,
+        offset: usize,
+        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> Result<T> {
+        let mut val = T::new_uninit();
+        self.read_bytes(offset, val.as_bytes_mut(), Tracked(writer_own), Tracked(owner))?;
+        Ok(val)
+    }
+
+    /// Reads a slice of a specified type at a specified offset.
+    ///
+    /// Mirrors vostd's `read_slice` default.
+    #[verifier::external_body]
+    fn read_slice<T: Pod>(
+        &self,
+        offset: usize,
+        slice: &mut [T],
+        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> Result<()> {
+        let len_in_bytes = core::mem::size_of_val(slice);
+        let ptr = slice as *mut [T] as *mut u8;
+        // SAFETY: the slice can be transmuted to a writable byte slice since
+        // the elements are all Plain-Old-Data (Pod) types.
+        let buf = unsafe { core::slice::from_raw_parts_mut(ptr, len_in_bytes) };
+        self.read_bytes(offset, buf, Tracked(writer_own), Tracked(owner))
+    }
+
+    /// Writes a specified number of bytes from a given buffer at a specified offset.
+    ///
+    /// This default impl wraps `buf` in a [`VmReader`] and delegates to
+    /// [`Self::write`]. Mirrors vostd's `write_bytes` default.
+    #[verifier::external_body]
+    fn write_bytes(
+        &self,
+        offset: usize,
+        buf: &[u8],
+        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> Result<()> {
+        let mut reader = VmReader::from(buf);
+        self.write(offset, &mut reader, Tracked(reader_own), Tracked(owner))
+    }
+
+    /// Writes a value of a specified type at a specified offset.
+    ///
+    /// Mirrors vostd's `write_val` default.
+    #[verifier::external_body]
+    fn write_val<T: Pod>(
+        &self,
+        offset: usize,
+        new_val: &T,
+        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> Result<()> {
+        self.write_bytes(offset, new_val.as_bytes_ref(), Tracked(reader_own), Tracked(owner))?;
+        Ok(())
+    }
+
+    /// Writes a slice of a specified type at a specified offset.
+    ///
+    /// Mirrors vostd's `write_slice` default.
+    #[verifier::external_body]
+    fn write_slice<T: Pod>(
+        &self,
+        offset: usize,
+        slice: &[T],
+        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> Result<()> {
+        let len_in_bytes = core::mem::size_of_val(slice);
+        let ptr = slice as *const [T] as *const u8;
+        // SAFETY: the slice can be transmuted to a readable byte slice since
+        // the elements are all Plain-Old-Data (Pod) types.
+        let buf = unsafe { core::slice::from_raw_parts(ptr, len_in_bytes) };
+        self.write_bytes(offset, buf, Tracked(reader_own), Tracked(owner))
+    }
+
+    /// Writes a sequence of values given by an iterator (`iter`) from the
+    /// specified offset (`offset`).
+    ///
+    /// Stops on iterator exhaustion or write error. Returns `Ok(nr_written)`
+    /// if at least one value was written; only the first-call error path
+    /// surfaces as `Err`.
+    ///
+    /// `align` rounds the offset and item size up: `0`/`1` means no padding,
+    /// otherwise must be a power of two.
+    ///
+    /// Mirrors vostd's `write_vals` default.
+    #[verifier::external_body]
+    fn write_vals<'a, T: Pod + 'a, I: Iterator<Item = &'a T>>(
+        &self,
+        offset: usize,
+        iter: I,
+        align: usize,
+        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> Result<usize> {
+        use ::align_ext::AlignExt;
+        let mut nr_written = 0;
+        let (mut offset, item_size) = if (align >> 1) == 0 {
+            (offset, core::mem::size_of::<T>())
+        } else {
+            (offset.align_up(align), core::mem::size_of::<T>().align_up(align))
+        };
+        for item in iter {
+            match self.write_val(offset, item, Tracked(reader_own), Tracked(owner)) {
+                Ok(_) => {
+                    offset += item_size;
+                    nr_written += 1;
+                },
+                Err(e) => {
+                    if nr_written > 0 {
+                        return Ok(nr_written);
+                    }
+                    return Err(e);
+                },
+            }
+        }
+        Ok(nr_written)
+    }
 
     // fn write_val<T: Pod>(&self, offset: usize, val: T, Tracked(owner): Tracked<&mut P>) -> (r:
     //     Result<()>)
@@ -1511,10 +1713,10 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     /// - The reader and its owner must satisfy their invariants.
     /// - The owner must match this reader and carry a read memory view.
     /// - The readable range must translate to initialized bytes in the read view.
-    /// - The current cursor must satisfy the alignment requirements of `T`.
     /// ## Postconditions
     /// - The reader and owner still satisfy their invariants.
-    /// - On success, the cursor advances by `size_of::<T>()`.
+    /// - On success, the cursor advances by `size_of::<T>()` and the cursor was
+    ///   aligned to `align_of::<T>()` (the runtime `assert!` would otherwise diverge).
     /// - On error, the reader state is unchanged.
     #[verus_spec(r =>
         with
@@ -1524,7 +1726,6 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             old(owner).inv(),
             old(self).wf(*old(owner)),
             old(owner).mem_view matches Some(VmIoMemView::ReadView(_)),
-            old(self).cursor.vaddr % core::mem::align_of::<T>() == 0,
             old(owner).mem_view matches Some(VmIoMemView::ReadView(mem_src)) ==> {
                 forall|i: usize|
                     #![trigger mem_src.addr_transl(i)]
@@ -1540,6 +1741,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             final(self).wf(*final(owner)),
             match r {
                 Ok(_) => {
+                    &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
                     &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
@@ -1552,6 +1754,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
         if core::mem::size_of::<T>() > self.remain() {
             return Err(Error::InvalidArgs);
         }
+        vstd_extra::assert_eq!(self.cursor.vaddr % core::mem::align_of::<T>(), 0);
         // SAFETY: We have checked that the number of bytes remaining is at least the size of `T`
         // and that the cursor is properly aligned with respect to the type `T`. All other safety
         // requirements are the same as for `Self::read`.
@@ -1662,6 +1865,18 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
         self.end.vaddr - self.cursor.vaddr
     }
 
+    /// Returns the cursor pointer, which refers to the address of the next byte to write.
+    #[verifier::external_body]
+    pub fn cursor(&self) -> *mut u8 {
+        self.cursor.vaddr as *mut u8
+    }
+
+    /// Returns if it has available space to write.
+    #[verifier::external_body]
+    pub fn has_avail(&self) -> bool {
+        self.avail() > 0
+    }
+
     /// Advances the cursor by `len` bytes.
     ///
     /// # Verified Properties
@@ -1689,6 +1904,26 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     )]
     pub fn advance(&mut self, len: usize) {
         self.cursor.vaddr = self.cursor.vaddr + len;
+    }
+
+    /// Rewinds the cursor by `n` bytes. Used to undo a partial write.
+    ///
+    /// The cursor advancement on `write_fallible`'s `Err` path equals
+    /// `copied_len`, so calling `rewind_cursor(copied_len)` deterministically
+    /// restores the cursor to its position before the failed write.
+    #[verus_spec(
+        requires
+            old(self).inv(),
+            n <= old(self).cursor.vaddr - old(self).cursor.range@.start,
+        ensures
+            final(self).inv(),
+            final(self).cursor.vaddr == old(self).cursor.vaddr - n,
+            final(self).cursor.range == old(self).cursor.range,
+            final(self).end == old(self).end,
+            final(self).id == old(self).id,
+    )]
+    fn rewind_cursor(&mut self, n: usize) {
+        self.cursor.vaddr = self.cursor.vaddr - n;
     }
 
     /// Writes data into `self` by reading from the provided `reader`.
@@ -1752,59 +1987,6 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
         reader.read(self)
     }
 
-    /// Writes a value of `Pod` type.
-    ///
-    /// If the length of the `Pod` type exceeds `self.avail()`,
-    /// this method will return `Err`.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - The writer and its owner must satisfy their invariants.
-    /// - The owner must match this writer and carry a memory view.
-    /// ## Postconditions
-    /// - The writer and owner still satisfy their invariants.
-    /// - The owner parameters tracked by [`VmIoOwner::params_eq`] are preserved.
-    /// - On success, the cursor advances by `size_of::<T>()`.
-    /// - On error, the writer state is unchanged.
-    #[verifier::external_body]
-    #[verus_spec(r =>
-        with
-            Ghost(id): Ghost<nat>,
-            Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
-            Tracked(memview_r): Tracked<&MemView>,
-        requires
-            old(self).inv(),
-            old(owner_w).inv(),
-            old(self).wf(*old(owner_w)),
-            old(owner_w).mem_view is Some,
-        ensures
-            final(self).inv(),
-            final(owner_w).inv(),
-            final(self).wf(*final(owner_w)),
-            match r {
-                Ok(_) => {
-                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
-                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
-                },
-                Err(_) => {
-                    *old(self) == *final(self)
-                },
-            }
-    )]
-    pub fn write_val<T: Pod>(&mut self, val: &mut T) -> Result<()> {
-        if self.avail() < core::mem::size_of::<T>() {
-            return Err(Error::InvalidArgs);
-        }
-        proof_with!(Ghost(id) => Tracked(owner_r));
-        let mut reader = VmReader::from_pod(val)?;
-
-        let tracked mut owner_r = owner_r.tracked_unwrap();
-
-        proof_with!(Tracked(owner_w), Tracked(&mut owner_r));
-        self.write(&mut reader);
-
-        Ok(())
-    }
 
     #[verifier::external_body]
     #[verus_spec(
@@ -1870,6 +2052,37 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     }
 }
 
+impl<'a> VmWriter<'a, Fallible> {
+    /// Writes a value of `Pod` type to user space.
+    ///
+    /// If the underlying memory access faults during the write, the cursor
+    /// is rolled back to its starting position before returning `Err`. The
+    /// rollback math is verified by [`Self::rewind_cursor`].
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// - On success, the cursor advances by `size_of::<T>()`.
+    /// - On error, the cursor is at its original position (writer state preserved).
+    #[verifier::external_body]
+    pub fn write_val<T: Pod>(&mut self, val: &mut T) -> Result<()> {
+        if self.avail() < core::mem::size_of::<T>() {
+            return Err(Error::InvalidArgs);
+        }
+        let mut reader = VmReader::from_pod(val)?;
+        // On partial write, restore the cursor to its position before the
+        // failed `write_fallible`. Mirrors vostd's `.map_err(|(err, n)| {
+        // self.cursor = self.cursor.sub(n); err })` pattern, with the
+        // rollback math verified by `rewind_cursor`.
+        match self.write_fallible(&mut reader) {
+            Ok(_) => Ok(()),
+            Err((err, copied_len)) => {
+                self.rewind_cursor(copied_len);
+                Err(err)
+            },
+        }
+    }
+}
+
 } // verus!
 
 impl<'a> From<&'a [u8]> for VmReader<'a, Infallible> {
@@ -1905,6 +2118,34 @@ macro_rules! impl_read_fallible {
         ::vstd::prelude::verus! {
         impl<'a> FallibleVmRead<$writer_fallibility> for VmReader<'a, $reader_fallibility> {
             #[verifier::external_body]
+            #[verus_spec(r =>
+                requires
+                    old(self).inv(),
+                    old(writer).inv(),
+                ensures
+                    final(self).end == old(self).end,
+                    final(self).id == old(self).id,
+                    final(self).cursor.range == old(self).cursor.range,
+                    final(writer).end == old(writer).end,
+                    final(writer).id == old(writer).id,
+                    final(writer).cursor.range == old(writer).cursor.range,
+                    final(self).inv(),
+                    final(writer).inv(),
+                    match r {
+                        Ok(n) => {
+                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+                            &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + n
+                            &&& n <= old(self).remain_spec()
+                            &&& n <= old(writer).avail_spec()
+                        },
+                        Err((_, copied_len)) => {
+                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + copied_len
+                            &&& final(writer).cursor.vaddr == old(writer).cursor.vaddr + copied_len
+                            &&& copied_len <= old(self).remain_spec()
+                            &&& copied_len <= old(writer).avail_spec()
+                        },
+                    }
+            )]
             fn read_fallible(
                 &mut self,
                 writer: &mut VmWriter<'_, $writer_fallibility>,
@@ -1938,6 +2179,34 @@ macro_rules! impl_write_fallible {
         ::vstd::prelude::verus! {
         impl<'a> FallibleVmWrite<$reader_fallibility> for VmWriter<'a, $writer_fallibility> {
             #[verifier::external_body]
+            #[verus_spec(r =>
+                requires
+                    old(self).inv(),
+                    old(reader).inv(),
+                ensures
+                    final(self).end == old(self).end,
+                    final(self).id == old(self).id,
+                    final(self).cursor.range == old(self).cursor.range,
+                    final(reader).end == old(reader).end,
+                    final(reader).id == old(reader).id,
+                    final(reader).cursor.range == old(reader).cursor.range,
+                    final(self).inv(),
+                    final(reader).inv(),
+                    match r {
+                        Ok(n) => {
+                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + n
+                            &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + n
+                            &&& n <= old(self).avail_spec()
+                            &&& n <= old(reader).remain_spec()
+                        },
+                        Err((_, copied_len)) => {
+                            &&& final(self).cursor.vaddr == old(self).cursor.vaddr + copied_len
+                            &&& final(reader).cursor.vaddr == old(reader).cursor.vaddr + copied_len
+                            &&& copied_len <= old(self).avail_spec()
+                            &&& copied_len <= old(reader).remain_spec()
+                        },
+                    }
+            )]
             fn write_fallible(
                 &mut self,
                 reader: &mut VmReader<'_, $reader_fallibility>,

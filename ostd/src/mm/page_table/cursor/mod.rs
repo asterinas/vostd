@@ -2933,7 +2933,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
     )]
     #[verifier::rlimit(1000)]
-    pub fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
+    pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         proof {
             owner.va.reflect_prop(self.0.va);
         }
@@ -3189,7 +3189,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // may descend to any frame in the range. For UserPtConfig
             // (`tracked == true` always) this is trivial; for KernelPtConfig it
             // reduces to "op preserves AVAIL1".
-            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) ==>
                     C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
@@ -3198,7 +3198,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.barrier_va == old(self).0.barrier_va,
     )]
-    pub fn protect_next(
+    pub unsafe fn protect_next(
         &mut self,
         len: usize,
         op: impl FnOnce(PageProperty) -> PageProperty,

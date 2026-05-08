@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*, CellId};
-use vstd::pcm::Loc;
 use vstd::prelude::*;
-use vstd::tokens::frac::{self, Empty, Frac, FracGhost};
-use vstd_extra::resource::ghost_resource::{csum::*, excl::*, tokens::*};
+use vstd::resource::Loc;
+use vstd_extra::resource::ghost_resource::{count::*, csum::*,  excl::*, tokens::*};
 use vstd_extra::sum::*;
 use vstd_extra::{prelude::*, resource};
 
@@ -44,10 +43,10 @@ exec const V_MAX_READ_RETRACT_FRACS: u64
 }
 
 /// The token reserved in the lock when the write permission is given out.
-type NoPerm<T> = Empty<PointsTo<T>>;
+type NoPerm<T> = EmptyCount<PointsTo<T>>;
 
 /// Half of the permission for read access, one for `RwLockUpgradeableGuard` and the other for all `RwLockReadGuard`s.
-type HalfPerm<T> = Frac<PointsTo<T>>;
+type HalfPerm<T> = Count<PointsTo<T>>;
 
 /// The permission for read access can be further split into `MAX_READER` pieces.
 type ReadPerm<T> = (HalfPerm<T>, OneLeftKnowledge<HalfPerm<T>, NoPerm<T>, 3>);
@@ -71,8 +70,8 @@ tracked struct RwPerms<T> {
     /// Tracks the number of live `RwLockReadGuard`s. If it is `Left`, it stores the remaining read permissions.
     /// If it is `Right`, it stores an empty token indicating the permission has been given out.
     read_guard_token: Sum<
-        FracResource<ReadPerm<T>, MAX_READER_U64>,
-        Empty<ReadPerm<T>, MAX_READER_U64>,
+        CountResource<ReadPerm<T>, MAX_READER_U64>,
+        EmptyCount<ReadPerm<T>, MAX_READER_U64>,
     >,
 }
 
@@ -370,7 +369,7 @@ impl<T, G> RwLock<T, G> {
         proof {
             lemma_consts_properties();
         }
-        let tracked mut frac_perm = Frac::<PointsTo<T>>::new(perm);
+        let tracked mut frac_perm = Count::<PointsTo<T>>::new(perm);
         let tracked read_half_cell_perm = frac_perm.split(1int);
         let ghost frac_id = frac_perm.id();
         let tracked mut core_token = SumResource::alloc_left(frac_perm);
@@ -378,7 +377,7 @@ impl<T, G> RwLock<T, G> {
         let tracked upread_retract_token = UniqueToken::alloc(());
         let tracked upreader_guard_token = core_token.split_one_left_owner();
         let tracked left_token = core_token.split_one_left_knowledge();
-        let tracked read_guard_token = FracResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
+        let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
             (read_half_cell_perm, left_token),
         );
         let ghost v_id = RwId {
@@ -416,7 +415,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// in which other readers or writers waiting simultaneously will
     /// obtain the lock.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn read(&self) -> RwLockReadGuard<T, G> {
+    pub fn read(&self) -> RwLockReadGuard<'_, T, G> {
         loop {
             if let Some(readguard) = self.try_read() {
                 return readguard;
@@ -433,7 +432,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// in which other readers or writers waiting simultaneously will
     /// obtain the lock.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn write(&self) -> RwLockWriteGuard<T, G> {
+    pub fn write(&self) -> RwLockWriteGuard<'_, T, G> {
         loop {
             if let Some(writeguard) = self.try_write() {
                 return writeguard;
@@ -454,7 +453,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// only one upreader can exist at any time to avoid deadlock in the
     /// upgrade method.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upread(&self) -> RwLockUpgradeableGuard<T, G> {
+    pub fn upread(&self) -> RwLockUpgradeableGuard<'_, T, G> {
         loop {
             if let Some(guard) = self.try_upread() {
                 return guard;
@@ -468,9 +467,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     ///
     /// This function will never spin-wait and will return immediately.
     #[verus_spec]
-    pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
+    pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T, G>> {
         proof_decl!{
-            let tracked mut read_token: Option<Frac<ReadPerm<T>,MAX_READER_U64>> = None;
+            let tracked mut read_token: Option<Count<ReadPerm<T>,MAX_READER_U64>> = None;
             let tracked mut retract_read_token: Option<Token<V_MAX_READ_RETRACT_FRACS>> = None;
         }
         proof!{
@@ -528,7 +527,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     ///
     /// This function will never spin-wait and will return immediately.
     #[verus_spec]
-    pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
+    pub fn try_write(&self) -> Option<RwLockWriteGuard<'_, T, G>> {
         proof_decl!{
             let tracked mut guard_perm: Option<PointsTo<T>> = None;
             let tracked mut guard_token: Option<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>> = None;
@@ -586,7 +585,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire an upread lock.
     ///
     /// This function will never spin-wait and will return immediately.
-    pub fn try_upread(&self) -> Option<RwLockUpgradeableGuard<T, G>> {
+    pub fn try_upread(&self) -> Option<RwLockUpgradeableGuard<'_, T, G>> {
         proof_decl!{
             let tracked mut upgrade_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
@@ -719,7 +718,7 @@ unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> 
 pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
-    v_token: Tracked<Frac<ReadPerm<T>, MAX_READER_U64>>,
+    v_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
 }
 
 /*
@@ -891,6 +890,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> 
     #[verus_spec(ret =>
         ensures
             final(self).view() == *final(ret),
+            old(self).view() == *ret,
     )]
     fn deref_mut(&mut self) -> &mut Self::Target 
     {
@@ -898,7 +898,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> 
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.inner.val.get() }
-        pcell_borrow_mut(&self.inner.val, &mut self.v_perm)
+        self.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
     }
 }
 
@@ -940,7 +940,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
                 g.upreader_guard_token = Some(upreader_guard_token);
                 let tracked left_token = g.core_token.split_one_left_knowledge();
                 let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
-                let tracked read_guard_token = FracResource::alloc_from_empty(
+                let tracked read_guard_token = CountResource::alloc_from_empty(
                     read_guard_empty,
                     (read_half_cell_perm, left_token),
                 );

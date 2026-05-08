@@ -164,6 +164,7 @@ impl<'a> VmSpace<'a> {
         requires
             old(regions).inv(),
     )]
+    #[allow(private_interfaces)]
     pub fn new() -> Self {
         proof_decl! {
             let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;
@@ -908,7 +909,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 // Per-config VA bound: every removed mapping fits within the
                 // user VA space. Sourced from `axiom_view_in_vaddr_range` on
                 // the cursor view prior to removal.
-                forall |m: Mapping| removed.contains(m) ==>
+                forall |m: Mapping| #[trigger] removed.contains(m) ==>
                     m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
                 // Nothing in [start_va, end_va) with start < cursor_va remains,
                 // unless it is a sub-mapping of a boundary-straddling entry.
@@ -1120,7 +1121,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     sv.lemma_split_while_huge_preserves_inv(mm.page_size);
                 }
 
-                assert forall |m: Mapping| removed.contains(m)
+                assert forall |m: Mapping| #[trigger] removed.contains(m)
                     implies m.va_range.end <= 0x0000_8000_0000_0000_usize as int by {
                     if !old_removed.contains(m) {
                         if is_mapped {
@@ -1423,7 +1424,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             forall |p: PageProperty| op.requires((p,)),
             // POTENTIALLY UNSOUND PATCH: trackedness preservation. For UserPtConfig
             // this is trivially true (tracked is constant). See `Entry::protect`.
-            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
                 op.ensures((p_in,), p_out) ==>
                     UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_out))
                     == UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_in)),

@@ -66,13 +66,13 @@ make
 or
 
 ```
-cargo dv verify --targets ostd -- -V new-mut-ref
+cargo dv verify --targets ostd
 ```
 
 The `ostd` crate relies on a verified library: `vstd_extra`. To compile and verify the library independently, run:
 
 ```
-cargo dv compile --targets vstd_extra -- -V new-mut-ref
+cargo dv compile --targets vstd_extra
 ```
 
 #### Clean Build Artifacts

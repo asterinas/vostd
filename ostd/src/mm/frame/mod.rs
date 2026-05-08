@@ -142,6 +142,10 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         s.slot_owners.tracked_insert(index, slot_own);
     }
 
+    // It is unsound to drop a `Frame` while raw paddrs to it remain
+    // outstanding (`raw_count > 0`), since those raw paddrs could be revived
+    // via `from_raw` after the slot has been torn down. Hence the drop is
+    // only permitted when `raw_count == 0`.
     open spec fn drop_requires(self, s: Self::State) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let slot_own = s.slot_owners[idx];
@@ -150,8 +154,6 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         &&& s.slots.contains_key(idx)
         &&& s.slots[idx].pptr() == self.ptr
         &&& s.slot_owners.contains_key(idx)
-        // No outstanding raw/forgotten references: the caller is the last
-        // live holder, so dropping ⇒ teardown is safe when `ref_count` hits 1.
         &&& slot_own.raw_count == 0
         &&& slot_own.inner_perms.ref_count.value() > 0
         &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
@@ -176,8 +178,7 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+            i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
@@ -605,7 +606,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             debt@.frame_index == frame_to_index(paddr),
             debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
     )]
-    pub(in crate::mm) fn from_raw(paddr: Paddr) -> Self {
+    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);
         let ptr = PPtr::from_addr(vaddr);
 

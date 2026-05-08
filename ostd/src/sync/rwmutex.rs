@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*, CellId};
-use vstd::pcm::Loc;
 use vstd::prelude::*;
-use vstd::tokens::frac::{Empty, Frac};
-use vstd_extra::auxiliary::pcell_borrow_mut;
-use vstd_extra::resource::ghost_resource::{csum::*, excl::*, tokens::*};
+use vstd::resource::Loc;
+use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
 use vstd_extra::sum::*;
 
 use core::{
@@ -36,9 +34,9 @@ exec const V_MAX_READ_RETRACT_FRACS: u64
     (MAX_READER_MASK + 1) as u64
 }
 
-type NoPerm<T> = Empty<PointsTo<T>>;
+type NoPerm<T> = EmptyCount<PointsTo<T>>;
 
-type HalfPerm<T> = Frac<PointsTo<T>>;
+type HalfPerm<T> = Count<PointsTo<T>>;
 
 type ReadPerm<T> = (HalfPerm<T>, OneLeftKnowledge<HalfPerm<T>, NoPerm<T>, 3>);
 
@@ -48,8 +46,8 @@ tracked struct RwPerms<T> {
     upread_retract_token: Option<UniqueToken>,
     upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
     read_guard_token: Sum<
-        FracResource<ReadPerm<T>, MAX_READER_U64>,
-        Empty<ReadPerm<T>, MAX_READER_U64>,
+        CountResource<ReadPerm<T>, MAX_READER_U64>,
+        EmptyCount<ReadPerm<T>, MAX_READER_U64>,
     >,
 }
 
@@ -275,10 +273,6 @@ impl<T> RwMutex<T> {
     pub closed spec fn type_inv(self) -> bool {
         self.wf()
     }
-
-    pub closed spec fn queue_inv(self) -> bool {
-        self.queue.type_inv()
-    }
 }
 
 closed spec fn wf_upgradeable_guard_token<T>(
@@ -304,7 +298,7 @@ impl<T> RwMutex<T> {
         proof {
             lemma_consts_properties();
         }
-        let tracked mut frac_perm = Frac::<PointsTo<T>>::new(perm);
+        let tracked mut frac_perm = Count::<PointsTo<T>>::new(perm);
         let tracked read_half_cell_perm = frac_perm.split(1int);
         let ghost frac_id = frac_perm.id();
         let tracked mut core_token = SumResource::alloc_left(frac_perm);
@@ -312,7 +306,7 @@ impl<T> RwMutex<T> {
         let tracked upread_retract_token = UniqueToken::alloc(());
         let tracked upreader_guard_token = core_token.split_one_left_owner();
         let tracked left_token = core_token.split_one_left_knowledge();
-        let tracked read_guard_token = FracResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
+        let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
             (read_half_cell_perm, left_token),
         );
         let ghost v_id = RwId {
@@ -385,7 +379,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
     #[verus_spec]
     pub fn try_read(&self) -> Option<RwMutexReadGuard<'_, T>> {
         proof_decl! {
-            let tracked mut read_token: Option<Frac<ReadPerm<T>, MAX_READER_U64>> = None;
+            let tracked mut read_token: Option<Count<ReadPerm<T>, MAX_READER_U64>> = None;
             let tracked mut retract_read_token: Option<Token<V_MAX_READ_RETRACT_FRACS>> = None;
         }
         proof! {
@@ -595,7 +589,7 @@ unsafe impl<T:   /*: ?Sized +*/ Sync> Sync for RwMutexUpgradeableGuard<'_, T> {
 #[must_use]
 pub struct RwMutexReadGuard<'a, T  /*: ?Sized*/ > {
     inner: &'a RwMutex<T>,
-    v_token: Tracked<Frac<ReadPerm<T>, MAX_READER_U64>>,
+    v_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
 }
 
 impl<'a, T> RwMutexReadGuard<'a, T> {
@@ -754,7 +748,7 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
                     upgrade_guard_token = Some(g.core_token.split_one_left_owner());
                     let tracked left_token = g.core_token.split_one_left_knowledge();
                     let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
-                    let tracked read_guard_token = FracResource::alloc_from_empty(
+                    let tracked read_guard_token = CountResource::alloc_from_empty(
                         read_guard_empty,
                         (read_half_cell_perm, left_token),
                     );
@@ -827,7 +821,7 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
                 g.upreader_guard_token = Some(upreader_guard_token);
                 let tracked left_token = g.core_token.split_one_left_knowledge();
                 let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
-                let tracked read_guard_token = FracResource::alloc_from_empty(
+                let tracked read_guard_token = CountResource::alloc_from_empty(
                     read_guard_empty,
                     (read_half_cell_perm, left_token),
                 );
@@ -847,6 +841,7 @@ impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
     #[verus_spec(ret =>
         ensures
             final(self).view() == *final(ret),
+            old(self).view() == *ret,
     )]
     fn deref_mut(&mut self) -> (ret: &mut Self::Target) 
     {
@@ -854,7 +849,7 @@ impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.inner.val.get() }
-        pcell_borrow_mut(&self.inner.val, &mut self.v_perm)
+        self.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
     }
 }
 

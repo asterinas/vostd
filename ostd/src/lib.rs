@@ -3,31 +3,31 @@
 #![feature(alloc_error_handler)]
 #![feature(allocator_api)]
 #![feature(btree_cursors)]
-#![feature(const_ptr_sub_ptr)]
 #![feature(const_trait_impl)]
 #![feature(core_intrinsics)]
 #![feature(coroutines)]
 #![feature(fn_traits)]
 #![feature(iter_advance_by)]
 #![feature(iter_from_coroutine)]
-#![feature(let_chains)]
 #![feature(linkage)]
 #![feature(min_specialization)]
 //#![feature(negative_impls)]
 #![feature(ptr_metadata)]
-#![feature(ptr_sub_ptr)]
 #![feature(sync_unsafe_cell)]
-#![feature(trait_upcasting)]
-#![feature(unbounded_shifts)]
 #![expect(internal_features)]
 #![no_std]
-#![warn(missing_docs)]
+// Disable `missing_docs`: verification-only `inv`/`type_inv` items are
+// explained by proof context rather than API docs.
+// #![warn(missing_docs)]
 #![feature(proc_macro_hygiene)]
 #![allow(unused_parens)]
 #![allow(unused_braces)]
 #![allow(rustdoc::invalid_rust_codeblocks)]
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
+// Allow Verus-style specification names that mirror constants or proof-level
+// concepts rather than Rust's conventional function naming.
+#![allow(non_snake_case)]
 
 extern crate alloc;
 
@@ -46,7 +46,6 @@ pub mod cpu;*/
 pub mod error;
 /*pub mod io;
 pub mod logger;*/
-#[allow(missing_docs)]
 pub mod mm;
 /*pub mod panic;
 pub mod prelude;
@@ -57,7 +56,6 @@ pub mod task;
 pub mod trap;
 // pub mod user;
 #[path = "../specs/lib.rs"]
-#[allow(missing_docs)]
 pub mod specs;
 pub mod util;
 
