@@ -162,7 +162,7 @@ impl<C: PageTableConfig> Child<C> {
             let node = unsafe {
                 proof_with!(
                     Tracked(regions),
-                    Tracked(&entry_own.node.tracked_borrow().meta_perm) => Tracked(from_raw_debt)
+                    Tracked(&entry_own.node.tracked_borrow().meta_perm.points_to) => Tracked(from_raw_debt)
                 );
                 PageTableNode::from_raw(paddr)
             };
@@ -247,7 +247,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             }
 
             let node = unsafe {
-                #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]
+                #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm.points_to))]
                 PageTableNodeRef::borrow_paddr(paddr)
             };
 

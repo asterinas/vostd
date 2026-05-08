@@ -171,11 +171,11 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
     }
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         &&& s1.inv()
         // `raw_count` is left untouched; only `ref_count` (and possibly
         // storage/vtable for the last-ref teardown) changes.
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count
-            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count
+        &&& s1.slot_owners[idx].raw_count == s0.slot_owners[idx].raw_count
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
             i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]

@@ -636,33 +636,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         Self { range: start..end, _marker: core::marker::PhantomData }
     }
 
-}
-
-#[verus_verify]
-impl<M: AnyFrameMeta> From<Frame<M>> for Segment<M> {
-    /// Converts a single [`Frame`] into a one-page [`Segment`] by forgetting
-    /// the frame and recording its paddr range. Symmetric to vostd's
-    /// `From<Frame<M>> for Segment<M>`.
-    //
-    // Trusted at the trait boundary: the `From::from` signature can't thread
-    // `Tracked` metadata to bump the frame's `raw_count` via the verified
-    // `vstd_extra::drop_tracking::ManuallyDrop`, so we use `core::mem`'s
-    // version. Same trust pattern as the `Iterator` impl.
-    #[verifier::external_body]
-    fn from(frame: Frame<M>) -> Self {
-        let pa = frame.start_paddr();
-        let _ = core::mem::ManuallyDrop::new(frame);
-        Self {
-            range: pa..(pa + PAGE_SIZE),
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> {
-    type Item = Frame<M>;
-
     /// Gets the next frame in the segment.
+    ///
+    /// This is the verified counterpart of [`Iterator::next`] for `Segment<M>`.
+    /// The trait method is `external_body` because Verus's `core::iter::Iterator`
+    /// support can't thread `Tracked` metadata through the trait method's
+    /// fixed signature.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -721,6 +700,50 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> 
                 owner.range = ((self.range.start + PAGE_SIZE) as usize)..self.range.end;
             }
 
+            self.range.start = self.range.start + PAGE_SIZE;
+            Some(frame)
+        } else {
+            None
+        }
+    }
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta> From<Frame<M>> for Segment<M> {
+    /// Converts a single [`Frame`] into a one-page [`Segment`] by forgetting
+    /// the frame and recording its paddr range. Symmetric to vostd's
+    /// `From<Frame<M>> for Segment<M>`.
+    //
+    // Trusted at the trait boundary: the `From::from` signature can't thread
+    // `Tracked` metadata to bump the frame's `raw_count` via the verified
+    // `vstd_extra::drop_tracking::ManuallyDrop`, so we use `core::mem`'s
+    // version. Same trust pattern as the `Iterator` impl.
+    #[verifier::external_body]
+    fn from(frame: Frame<M>) -> Self {
+        let pa = frame.start_paddr();
+        let _ = core::mem::ManuallyDrop::new(frame);
+        Self {
+            range: pa..(pa + PAGE_SIZE),
+            _marker: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> {
+    type Item = Frame<M>;
+
+    /// Gets the next frame in the segment.
+    //
+    // Verus's `core::iter::Iterator` support doesn't allow threading `Tracked`
+    // metadata through the trait method's fixed signature, so the verified
+    // `next` lives as an inherent method on `Segment<M>` and the trait body
+    // is trusted at the trait boundary.
+    #[verifier::external_body]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.range.start < self.range.end {
+            // SAFETY: each frame in the range was a forgotten handle when
+            // creating the `Segment` object.
+            let frame = unsafe { Frame::<M>::from_raw(self.range.start) };
             self.range.start = self.range.start + PAGE_SIZE;
             Some(frame)
         } else {
