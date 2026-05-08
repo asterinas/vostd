@@ -31,11 +31,11 @@ pub trait TrackDrop {
 }
 
 pub trait Drop: TrackDrop {
-    fn drop(self, Tracked(s): Tracked<Self::State>) -> (res: Tracked<Self::State>)
+    fn drop(self, Tracked(s): Tracked<&mut Self::State>)
         requires
-            self.drop_requires(s),
+            self.drop_requires(*old(s)),
         ensures
-            self.drop_ensures(s, res@),
+            self.drop_ensures(*old(s), *final(s)),
     ;
 }
 
@@ -58,11 +58,11 @@ impl<T: TrackDrop> ManuallyDrop<T> {
 }
 
 impl<T: Drop> ManuallyDrop<T> {
-    pub fn drop(self, Tracked(s): Tracked<T::State>) -> (res: Tracked<T::State>)
+    pub fn drop(self, Tracked(s): Tracked<&mut T::State>)
         requires
-            self.0.drop_requires(s),
+            self.0.drop_requires(*old(s)),
         ensures
-            self.0.drop_ensures(s, res@),
+            self.0.drop_ensures(*old(s), *final(s)),
     {
         self.0.drop(Tracked(s))
     }

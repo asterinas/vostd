@@ -1310,11 +1310,23 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
-    fn drop(self, Tracked(s): Tracked<Self::State>) -> (res: Tracked<Self::State>)
+    fn drop(self, Tracked(s): Tracked<&mut Self::State>)
     {
-        let tracked (list_own, mut regions) = s;
+        // Pull the tuple components out from behind the `&mut`. We can't
+        // move directly (E0507) and `cursor_front_mut` requires owned
+        // `LinkedListOwner`. `tracked_take` swaps `s.0` with a fresh-empty
+        // `LinkedListOwner`; we'll restore `*s` at the end of the body.
+        // `MetaRegionOwners` can't be similarly emptied (its `inv()` requires
+        // all valid slot indices), so we re-borrow `&mut s.1` for it.
+        proof_decl! {
+            let tracked mut list_own: LinkedListOwner<M>;
+        }
+        proof {
+            list_own = LinkedListOwner::<M>::tracked_take(&mut s.0);
+        }
+        let tracked regions: &mut MetaRegionOwners = &mut s.1;
         let ghost original_list = list_own.list;
-        let ghost original_regions = regions;
+        let ghost original_regions = *regions;
         let ghost n = original_list.len();
         let mut this = self;
 
@@ -1384,7 +1396,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 }
             }
 
-            #[verus_spec(with Tracked(&mut regions), Tracked(&mut cursor_own))]
+            #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own))]
             let entry = cursor.take_current();
 
             if let Some(current) = entry {
@@ -1400,7 +1412,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 }
 
                 // Drop the frame, returning its slot to regions
-                #[verus_spec(with Tracked(frame_own), Tracked(&mut regions))]
+                #[verus_spec(with Tracked(frame_own), Tracked(regions))]
                 frame.drop();
 
                 proof {
@@ -1430,7 +1442,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
             }
         }
 
-        Tracked((cursor_own.list_own, regions))
+        // `s.1` is already updated in place via the re-borrow `regions`;
+        // restore `s.0` to the cursor's final (empty) `list_own`.
+        proof {
+            let tracked mut final_list_own = cursor_own.list_own;
+            vstd::modes::tracked_swap(&mut s.0, &mut final_list_own);
+            // `final_list_own` now holds the placeholder put in by
+            // `tracked_take` at function entry — empty list/perms, so we can
+            // discard it via the destroy axiom below.
+            final_list_own.tracked_destroy_empty();
+        }
     }
 }
 

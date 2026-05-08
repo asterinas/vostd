@@ -355,6 +355,37 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> InvView for LinkedListOwner<M> {
     }
 }
 
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
+    /// Take ownership of `*owner` by swapping it with a fresh empty
+    /// `LinkedListOwner`. The resulting "leftover" `*owner` has an empty
+    /// `list` and `perms`, so its `inv()` holds vacuously and it claims no
+    /// external permissions. Used by drop-style call sites that need to feed
+    /// an owned `LinkedListOwner` to a downstream API while themselves only
+    /// having a `&mut` to it.
+    #[verifier::external_body]
+    pub proof fn tracked_take(tracked owner: &mut Self) -> (tracked res: Self)
+        ensures
+            res == *old(owner),
+            final(owner).list =~= Seq::<LinkOwner>::empty(),
+            final(owner).perms =~= Map::<int, vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>>>::empty(),
+            final(owner).inv(),
+    {
+        unimplemented!()
+    }
+
+    /// Discard a logically-empty `LinkedListOwner`. Sound because such an
+    /// owner has an empty `perms` map (no external tracked permissions) and
+    /// an empty `list`, so consuming it leaks nothing.
+    #[verifier::external_body]
+    pub proof fn tracked_destroy_empty(tracked self)
+        requires
+            self.list =~= Seq::<LinkOwner>::empty(),
+            self.perms =~= Map::<int, vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>>>::empty(),
+    {
+        unimplemented!()
+    }
+}
+
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for LinkedList<M> {
     type Owner = LinkedListOwner<M>;
 
