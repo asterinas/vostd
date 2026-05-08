@@ -361,171 +361,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         self.range.end - self.range.start
     }
 
-    /// The wrapper for the postcondition for [`Self::from_unused`]:
-    ///
-    /// - if the result is `Ok`, then the returned segment must satisfy the invariant with the owner;
-    /// - the returned segment must have the same physical address range as the input;
-    /// - the returned owner must be `Some` if the result is `Ok`, and the owner must satisfy the invariant;
-    /// - if the input range is misaligned, the result is `Err(NotAligned)`;
-    /// - if the input range exceeds `MAX_PADDR`, the result is `Err(OutOfBound)`;
-    /// - if the input is aligned and within `MAX_PADDR` and the function terminated,
-    ///   then `range.start < range.end` (the runtime `assert!` would otherwise diverge).
-    pub open spec fn from_unused_ensures(
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-        owner: Option<SegmentOwner<M>>,
-        range: Range<Paddr>,
-        metadata_fn: impl Fn(Paddr) -> (Paddr, M),
-        r: Result<Self, GetFrameError>,
-    ) -> bool {
-        &&& (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0)
-            ==> r == Err::<Self, _>(GetFrameError::NotAligned)
-        &&& (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end > MAX_PADDR)
-            ==> r == Err::<Self, _>(GetFrameError::OutOfBound)
-        &&& (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end <= MAX_PADDR)
-            ==> range.start < range.end
-        &&& r matches Ok(r) ==> {
-            &&& new_regions.inv()
-            &&& r.range.start == range.start
-            &&& r.range.end == range.end
-            // Non-emptiness — follows from the diverging `assert!` at the top
-            // of the body; lets callers discharge `wf` ⇒ `perms.len() > 0`.
-            &&& r.range.start < r.range.end
-            &&& owner matches Some(owner) && {
-                &&& r.inv()
-                &&& r.wf(&owner)
-                &&& forall|i: int|
-                    #![trigger owner.perms[i]]
-                    0 <= i < owner.perms.len() as int ==> {
-                        &&& owner.perms[i].addr() == meta_addr(
-                            frame_to_index_spec((range.start + i * PAGE_SIZE) as usize),
-                        )
-                    }
-                &&& forall|paddr: Paddr|
-                    #![trigger frame_to_index_spec(paddr)]
-                    (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                        ==> !new_regions.slots.contains_key(frame_to_index_spec(paddr))
-            }
-        }
-    }
-
-    /// The wrapper for the postcondition for [`Self::split`]:
-    ///
-    /// - the resulting segments must satisfy the invariant with the corresponding owners;
-    /// - the resulting segments must be the same as the result of [`Self::split_spec`];
-    /// - the permissions in the original owner must be split into the resulting owners;
-    /// - both halves continue to relate correctly to `regions` (which is unchanged).
-    pub open spec fn split_ensures(
-        self,
-        offset: usize,
-        lhs: Self,
-        rhs: Self,
-        ori_owner: SegmentOwner<M>,
-        lhs_owner: SegmentOwner<M>,
-        rhs_owner: SegmentOwner<M>,
-        regions: MetaRegionOwners,
-    ) -> bool {
-        &&& lhs.inv()
-        &&& lhs.wf(&lhs_owner)
-        &&& rhs.inv()
-        &&& rhs.wf(&rhs_owner)
-        &&& (lhs, rhs) == self.split_spec(offset)
-        &&& ori_owner.perms =~= (lhs_owner.perms + rhs_owner.perms)
-        &&& lhs_owner.relate_regions(regions)
-        &&& rhs_owner.relate_regions(regions)
-    }
-
-    /// The wrapper for the postcondition for [`Self::into_raw`]:
-    ///
-    /// - the returned physical address range must be the same as the segment's range;
-    /// - the meta region is unchanged (so the relation with the returned owner is preserved).
-    pub open spec fn into_raw_ensures(
-        self,
-        old_regions: MetaRegionOwners,
-        regions: MetaRegionOwners,
-        r: Range<Paddr>,
-    ) -> bool {
-        &&& r == self.range
-        &&& regions.inv()
-        &&& regions =~= old_regions
-    }
-
-    /// The wrapper for the postcondition for [`Self::from_raw`]:
-    ///
-    /// - the returned segment satisfies its invariant and is well-formed with `owner`;
-    /// - the returned segment has the same physical address range as the input;
-    /// - the meta region is unchanged (so the relation with `owner` is preserved).
-    pub open spec fn from_raw_ensures(
-        self,
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-        owner: SegmentOwner<M>,
-        range: Range<Paddr>,
-    ) -> bool {
-        &&& self.range == range
-        &&& self.inv()
-        &&& self.wf(&owner)
-        &&& new_regions.inv()
-        &&& new_regions =~= old_regions
-    }
-
-
-    /// The wrapper for the postcondition for slicing a segment with a given range:
-    ///
-    /// - the resulting slice's range matches the slicing range;
-    /// - `new_regions` preserves invariants and key domains (per-frame state
-    ///   detail — e.g. that `sub_owner.relate_regions(new_regions)` would hold
-    ///   for a hypothetical sub-owner — is *not* exposed because the loop
-    ///   that bumps each frame's ref-count would require a much heavier proof
-    ///   to thread that through; mirrors `Segment::clone_ensures`).
-    ///
-    /// See also [`vstd::seq::Seq::subrange`].
-    pub open spec fn slice_ensures(
-        self,
-        owner: SegmentOwner<M>,
-        range: Range<Paddr>,
-        res: Self,
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-    ) -> bool {
-        &&& res.inv()
-        &&& res.range.start == self.range.start + range.start
-        &&& res.range.end == self.range.start + range.end
-        // In-bounds — follows from the diverging `assert!` in the body.
-        &&& res.range.end <= self.range.end
-        &&& new_regions.inv()
-        &&& new_regions.slots =~= old_regions.slots
-        &&& new_regions.slot_owners.dom() =~= old_regions.slot_owners.dom()
-    }
-
-    /// The wrapper for the postcondition for iterating to the next frame:
-    ///
-    /// - if the result is [`None`], then the segment has been exhausted;
-    /// - if the result is [`Some`], then the segment is advanced by one frame and
-    ///   the returned frame is the next frame, with its slot restored to `regions`;
-    /// - the new owner continues to relate correctly to the new regions.
-    pub open spec fn next_ensures(
-        old_self: Self,
-        new_self: Self,
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-        new_owner: SegmentOwner<M>,
-        res: Option<Frame<M>>,
-    ) -> bool {
-        &&& new_regions.inv()
-        &&& new_self.inv()
-        &&& new_owner.relate_regions(new_regions)
-        &&& match res {
-            None => { &&& new_self.range.start == old_self.range.end },
-            Some(f) => {
-                &&& new_self.range.start == old_self.range.start + PAGE_SIZE
-                &&& f.paddr() == old_self.range.start
-                &&& new_regions.slots.contains_key(frame_to_index(f.paddr()))
-                &&& new_regions.slot_owners[frame_to_index(f.paddr())].raw_count == 0
-            },
-        }
-    }
-
     /// Creates a new [`Segment`] from unused frames.
     ///
     /// The caller must provide a closure to initialize metadata for all the frames.
@@ -543,9 +378,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///   must be unused and not dropped in the owner ([`MetaRegionOwners`]).
     ///
     /// Range constraints (alignment, `range.end <= MAX_PADDR`, non-emptiness) are runtime-checked
-    /// in the body — see [`Self::from_unused_ensures`] for the corresponding postconditions.
+    /// in the body — see the postconditions below for the corresponding error variants.
     /// ## Postconditions
-    /// See [`Self::from_unused_ensures`].
+    /// - if the result is `Ok`, the returned segment satisfies its invariant with the owner,
+    ///   has the same physical address range as the input, and the owner is `Some`;
+    /// - if the input range is misaligned, the result is `Err(NotAligned)`;
+    /// - if the input range exceeds `MAX_PADDR`, the result is `Err(OutOfBound)`;
+    /// - if the input is aligned and within `MAX_PADDR` and the function terminated,
+    ///   then `range.start < range.end` (the runtime `assert!` would otherwise diverge).
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -566,7 +406,33 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     &&& old(regions).slot_owners[frame_to_index(paddr_out)].inner_perms.in_list.points_to(0)
                 },
         ensures
-            Self::from_unused_ensures(*old(regions), *final(regions), owner@, range, metadata_fn, r),
+            (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0)
+                ==> r == Err::<Self, _>(GetFrameError::NotAligned),
+            (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end > MAX_PADDR)
+                ==> r == Err::<Self, _>(GetFrameError::OutOfBound),
+            (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end <= MAX_PADDR)
+                ==> range.start < range.end,
+            r matches Ok(r) ==> {
+                &&& final(regions).inv()
+                &&& r.range.start == range.start
+                &&& r.range.end == range.end
+                &&& r.range.start < r.range.end
+                &&& owner@ matches Some(owner) && {
+                    &&& r.inv()
+                    &&& r.wf(&owner)
+                    &&& forall|i: int|
+                        #![trigger owner.perms[i]]
+                        0 <= i < owner.perms.len() as int ==> {
+                            &&& owner.perms[i].addr() == meta_addr(
+                                frame_to_index_spec((range.start + i * PAGE_SIZE) as usize),
+                            )
+                        }
+                    &&& forall|paddr: Paddr|
+                        #![trigger frame_to_index_spec(paddr)]
+                        (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
+                            ==> !final(regions).slots.contains_key(frame_to_index_spec(paddr))
+                }
+            },
     )]
     pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
         Result<Self, GetFrameError>) {
@@ -718,7 +584,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// - the meta region must be valid and the owner must relate to it.
     ///
     /// ## Postconditions
-    /// See [`Self::split_ensures`].
+    /// - the resulting segments satisfy their invariants with the corresponding owners;
+    /// - they match [`Self::split_spec`];
+    /// - the original owner's permissions are split between the two new owners;
+    /// - both halves continue to relate correctly to `regions` (which is unchanged).
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<SegmentOwner<M>>,
@@ -733,16 +602,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             owner.relate_regions(*old(regions)),
         ensures
             *final(regions) =~= *old(regions),
-            Self::split_ensures(
-                self,
-                offset,
-                r.0,
-                r.1,
-                owner,
-                frame_perms.0@,
-                frame_perms.1@,
-                *final(regions),
-            ),
+            r.0.inv(),
+            r.0.wf(&frame_perms.0@),
+            r.1.inv(),
+            r.1.wf(&frame_perms.1@),
+            (r.0, r.1) == self.split_spec(offset),
+            owner.perms =~= (frame_perms.0@.perms + frame_perms.1@.perms),
+            frame_perms.0@.relate_regions(*final(regions)),
+            frame_perms.1@.relate_regions(*final(regions)),
     )]
     pub fn split(self, offset: usize) -> (Self, Self) {
         vstd_extra::assert!(offset % PAGE_SIZE == 0);
@@ -785,6 +652,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// - the segment must satisfy the invariant with the owner;
     /// - the meta region in `regions` must satisfy the invariant;
     /// - the owner must relate correctly to `regions`.
+    ///
+    /// ## Postconditions
+    /// - the returned physical address range matches the segment's range;
+    /// - the meta region is unchanged (preserving the relation with the returned owner).
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -797,7 +668,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             owner.inv(),
             owner.relate_regions(*old(regions)),
         ensures
-            Self::into_raw_ensures(self, *old(regions), *final(regions), r),
+            r == self.range,
+            final(regions).inv(),
+            *final(regions) =~= *old(regions),
             frame_perms@ == owner,
     )]
     pub(crate) fn into_raw(self) -> Range<Paddr> {
@@ -822,7 +695,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// directly advertise `r.inv()` and `r.wf(&owner)` for the caller.
     ///
     /// ## Postconditions
-    /// See [`Self::from_raw_ensures`].
+    /// - the returned segment satisfies its invariant and is well-formed with `owner`;
+    /// - the returned segment has the same physical address range as the input;
+    /// - the meta region is unchanged (preserving the relation with `owner`).
     ///
     /// # Safety
     ///
@@ -838,7 +713,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             (Segment::<M> { range, _marker: core::marker::PhantomData }).wf(&owner),
             owner.relate_regions(*old(regions)),
         ensures
-            Self::from_raw_ensures(r, *old(regions), *final(regions), owner, range),
+            r.range == range,
+            r.inv(),
+            r.wf(&owner),
+            final(regions).inv(),
+            *final(regions) =~= *old(regions),
     )]
     pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
         Self { range, _marker: core::marker::PhantomData }
@@ -851,7 +730,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///
     /// # Verified Properties
     /// ## Postconditions
-    /// See [`Self::slice_ensures`].
+    /// - the resulting slice's range matches the slicing range and is in-bounds
+    ///   (the in-bounds check follows from the diverging `assert!` in the body);
+    /// - `regions` preserves invariants and key domains. Per-frame state — e.g.
+    ///   that a hypothetical `sub_owner.relate_regions(regions)` would hold —
+    ///   is *not* exposed; threading that through the per-frame ref-count bump
+    ///   loop would require a much heavier proof. Mirrors [`Segment::clone`].
+    ///
+    /// See also [`vstd::seq::Seq::subrange`].
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&SegmentOwner<M>>,
@@ -863,7 +749,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             old(regions).inv(),
             owner.relate_regions(*old(regions)),
         ensures
-            Self::slice_ensures(*self, *owner, *range, r, *old(regions), *final(regions)),
+            r.inv(),
+            r.range.start == self.range.start + range.start,
+            r.range.end == self.range.start + range.end,
+            r.range.end <= self.range.end,
+            final(regions).inv(),
+            final(regions).slots =~= old(regions).slots,
+            final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
     )]
     pub fn slice(&self, range: &Range<usize>) -> Self {
         vstd_extra::assert!(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0);
@@ -994,7 +886,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// consequences of `owner.relate_regions(regions)` instantiated at `i = 0`.
     ///
     /// ## Postconditions
-    /// See [`Self::next_ensures`].
+    /// - if the result is [`None`], then the segment has been exhausted;
+    /// - if the result is [`Some`], then the segment is advanced by one frame and
+    ///   the returned frame is the next frame, with its slot restored to `regions`;
+    /// - the new owner continues to relate correctly to the new regions.
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1006,14 +901,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             old(regions).inv(),
             old(owner).relate_regions(*old(regions)),
         ensures
-            Self::next_ensures(
-                *old(self),
-                *final(self),
-                *old(regions),
-                *final(regions),
-                *final(owner),
-                res,
-            ),
+            final(regions).inv(),
+            final(self).inv(),
+            final(owner).relate_regions(*final(regions)),
+            match res {
+                None => final(self).range.start == old(self).range.end,
+                Some(f) => {
+                    &&& final(self).range.start == old(self).range.start + PAGE_SIZE
+                    &&& f.paddr() == old(self).range.start
+                    &&& final(regions).slots.contains_key(frame_to_index(f.paddr()))
+                    &&& final(regions).slot_owners[frame_to_index(f.paddr())].raw_count == 0
+                },
+            },
     )]
     pub fn next(&mut self) -> Option<Frame<M>> {
         if self.range.start < self.range.end {
@@ -1029,11 +928,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             };
 
             proof {
-                // raw_count was 1 (segment was forgotten via into_raw), so discharge trivially.
                 from_raw_debt.discharge_bookkeeping();
-                // Advance the owner's ghost range so its perms[i] still
-                // corresponds to slot index (range.start + i * PAGE_SIZE) /
-                // PAGE_SIZE — required by `relate_regions`.
                 owner.range = ((self.range.start + PAGE_SIZE) as usize)..self.range.end;
             }
 
