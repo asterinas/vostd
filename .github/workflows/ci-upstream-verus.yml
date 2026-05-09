@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  statuses: write
 
 jobs:
   verify-upstream-verus:
@@ -24,6 +25,36 @@ jobs:
       CARGO_TERM_COLOR: always
 
     steps:
+      - name: Get PR head commit
+        id: pr
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const pull_number = context.payload.issue.number;
+            const { data: pull } = await github.rest.pulls.get({ owner, repo, pull_number });
+
+            core.setOutput('head_sha', pull.head.sha);
+
+      - name: Mark upstream Verus verification as pending
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: '${{ steps.pr.outputs.head_sha }}',
+              state: 'pending',
+              context: 'ci/upstream-verus',
+              description: 'Upstream Verus verification is running',
+              target_url: runUrl,
+            });
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -40,3 +71,25 @@ jobs:
 
       - name: Verify ostd with upstream verus
         run: make
+
+      - name: Report upstream Verus verification status
+        if: always() && github.event_name == 'issue_comment'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const state = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+            const description = state === 'success'
+              ? 'Upstream Verus verification passed'
+              : 'Upstream Verus verification failed';
+
+            await github.rest.repos.createCommitStatus({
+              owner,
+              repo,
+              sha: '${{ steps.pr.outputs.head_sha }}',
+              state,
+              context: 'ci/upstream-verus',
+              description,
+              target_url: runUrl,
+            });
