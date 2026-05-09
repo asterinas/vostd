@@ -847,6 +847,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // inc_index doesn't change children, so pt_inv_children transfers.
         assert(cont.children == old(self).continuations[self.level - 1].children);
         assert(cont.pt_inv_children());
+        assert(self.va.inv()) by {
+            assert(0 <= self.va.offset < PAGE_SIZE);
+            assert(self.va.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert forall|i: int|
+                0 <= i < NR_LEVELS
+            implies
+                self.va.index.contains_key(i) && 0 <= self.va.index[i] < NR_ENTRIES
+            by {
+                assert(self.va.index.contains_key(i));
+            };
+            assert(0 <= self.va.leading_bits < 0x1_0000int);
+        };
+        assert(self.inv());
     }
 
     pub proof fn inv_continuation(self, i: int)
