@@ -592,7 +592,7 @@ impl KVirtArea {
 
             let tracked mut entry_owner = entry_owners.tracked_remove(cur_mapped_pa);
 
-            // Now Verus knows: dynframe == frame_as_dynframe(vec::into_iter_elts(it.snapshot@)[it.index()])
+            // Now Verus knows: dynframe == frame_as_dynframe(it.seq()[it.index()])
             let item = MappedItem::Tracked(frame, prop);
             // For a tracked frame, item_into_raw gives level 1 (4KB page), and
             // frame_entry_wf requires `entry_owner.parent_level == level`, so:
