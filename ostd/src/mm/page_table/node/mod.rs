@@ -158,6 +158,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(regions).inv(),
             final(parent_owner).inv(),
             allocated_empty_node_owner(owner@, level),
+            allocated_empty_node_grandchildren_none(owner@),
             res.ptr.addr() == owner@.value.node.unwrap().meta_perm.addr(),
             guards.unlocked(owner@.value.node.unwrap().meta_perm.addr()),
             MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()), false, *old(regions), *final(regions)),

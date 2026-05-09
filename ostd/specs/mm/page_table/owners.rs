@@ -390,6 +390,95 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(owner: OwnerSubt
             == C::E::new_absent_spec()
 }
 
+/// Grandchildren of a freshly-allocated PT node are all `None`. The absent
+/// children come from `OwnerSubtree::new_val_tracked` (see
+/// `vstd_extra::ghost_tree`), which initializes `children = Seq::new(N, |_| None)`.
+/// Kept as a separate predicate (rather than folded into
+/// `allocated_empty_node_owner`) to avoid SMT trigger pressure at every
+/// `allocated_empty_node_owner` reference; threaded through
+/// `PageTableNode::alloc` and `alloc_if_none` only where it's actually needed.
+pub open spec fn allocated_empty_node_grandchildren_none<C: PageTableConfig>(
+    owner: OwnerSubtree<C>,
+) -> bool {
+    forall|i: int, j: int|
+        0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES ==>
+            #[trigger] owner.children[i].unwrap().children[j] is None
+}
+
+/// Recursive worker for `rebase_freshly_allocated_children`. Rebases
+/// `owner.children[i..NR_ENTRIES]` and leaves `owner.children[0..i]`
+/// untouched. Verus disallows `while` in proof code, so the loop is
+/// expressed as tail recursion on `i`.
+pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
+    tracked owner: &mut OwnerSubtree<C>,
+    new_path: TreePath<NR_ENTRIES>,
+    i: usize,
+)
+    requires
+        i <= NR_ENTRIES,
+        old(owner).children.len() == NR_ENTRIES,
+        new_path.inv(),
+        forall|j: int| i <= j < NR_ENTRIES ==>
+            (#[trigger] old(owner).children[j]) is Some,
+    ensures
+        final(owner).value == old(owner).value,
+        final(owner).level == old(owner).level,
+        final(owner).children.len() == NR_ENTRIES,
+        forall|j: int| 0 <= j < i ==>
+            (#[trigger] final(owner).children[j]) == old(owner).children[j],
+        forall|j: int| i <= j < NR_ENTRIES ==> {
+            let c_old = old(owner).children[j].unwrap();
+            let c_new = (#[trigger] final(owner).children[j]).unwrap();
+            &&& final(owner).children[j] is Some
+            &&& c_new.value == EntryOwner { path: new_path.push_tail(j as usize), ..c_old.value }
+            &&& c_new.level == c_old.level
+            &&& c_new.children == c_old.children
+        },
+    decreases NR_ENTRIES - i as int,
+{
+    if i < NR_ENTRIES {
+        let tracked mut child_opt = owner.children.tracked_remove(i as int);
+        let tracked mut child = child_opt.tracked_unwrap();
+        child.value.set_path_axiom(new_path.push_tail(i));
+        owner.children.tracked_insert(i as int, Some(child));
+        rebase_freshly_allocated_children_at(owner, new_path, (i + 1) as usize);
+    }
+}
+
+/// Rebases the children of a freshly-allocated PT node onto a new path.
+///
+/// `PageTableNode::alloc` produces an `allocated_empty_node_owner` whose
+/// `value.path == empty`, so its children's paths are `empty.push_tail(i)
+/// == [i]`. When `alloc_if_none` plugs that subtree into the cursor at a
+/// non-empty path, it rewrites the parent's path but leaves children with
+/// stale `[i]` paths. This helper walks the children seq and rewrites each
+/// child's `value.path` to `new_path.push_tail(i)`, producing a subtree
+/// whose `pt_edge_at(_, i)` clauses can be discharged.
+pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
+    tracked owner: &mut OwnerSubtree<C>,
+    new_path: TreePath<NR_ENTRIES>,
+)
+    requires
+        old(owner).children.len() == NR_ENTRIES,
+        new_path.inv(),
+        forall|i: int| 0 <= i < NR_ENTRIES ==>
+            (#[trigger] old(owner).children[i]) is Some,
+    ensures
+        final(owner).value == old(owner).value,
+        final(owner).level == old(owner).level,
+        final(owner).children.len() == NR_ENTRIES,
+        forall|i: int| 0 <= i < NR_ENTRIES ==> {
+            let c_old = old(owner).children[i].unwrap();
+            let c_new = (#[trigger] final(owner).children[i]).unwrap();
+            &&& final(owner).children[i] is Some
+            &&& c_new.value == EntryOwner { path: new_path.push_tail(i as usize), ..c_old.value }
+            &&& c_new.level == c_old.level
+            &&& c_new.children == c_old.children
+        },
+{
+    rebase_freshly_allocated_children_at(owner, new_path, 0);
+}
+
 pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
@@ -464,6 +553,76 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         if depth == 0 {
             assert(self.0.level >= INC_LEVELS);
         }
+    }
+
+    /// `pt_inv_at_depth(depth)` for a non-node subtree whose grandchildren are
+    /// all `None`. Used by `allocated_empty_node_pt_inv` for the absent
+    /// children of a freshly-allocated PT node.
+    pub proof fn non_node_pt_inv_at_depth(self, depth: nat)
+        requires
+            !self.0.value.is_node(),
+            forall|j: int| 0 <= j < NR_ENTRIES ==> #[trigger] self.0.children[j] is None,
+        ensures
+            self.pt_inv_at_depth(depth),
+        decreases depth,
+    {
+        if depth == 0 {
+        } else {
+        }
+    }
+
+    /// `pt_inv` for a freshly-allocated PT node after `alloc_if_none`'s rebase.
+    ///
+    /// Discharges the long-standing `assume` that blocked closing
+    /// `continuation_inv_holds_after_child_restore`: combines the per-edge
+    /// facts threaded through `alloc_if_none`'s ensures (paths rebased,
+    /// `match_pte`, `parent_level`) with `allocated_empty_node_grandchildren_none`
+    /// to drive `pt_inv_at_depth` to its non-node base case at every absent
+    /// child.
+    pub proof fn allocated_empty_node_pt_inv(owner: OwnerSubtree<C>)
+        requires
+            owner.inv(),
+            owner.value.is_node(),
+            owner.children.len() == NR_ENTRIES,
+            forall|i: int| 0 <= i < NR_ENTRIES ==> {
+                let c = #[trigger] owner.children[i];
+                &&& c is Some
+                &&& c.unwrap().value.is_absent()
+                &&& c.unwrap().value.path.len() == owner.value.node.unwrap().tree_level + 1
+                &&& c.unwrap().value.match_pte(
+                        owner.value.node.unwrap().children_perm.value()[i],
+                        owner.value.node.unwrap().level)
+                &&& c.unwrap().value.path == owner.value.path.push_tail(i as usize)
+                &&& c.unwrap().value.parent_level == owner.value.node.unwrap().level
+            },
+            allocated_empty_node_grandchildren_none(owner),
+        ensures
+            PageTableOwner(owner).pt_inv()
+    {
+        let depth = (INC_LEVELS - owner.level) as nat;
+        // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
+        assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::la_inv(owner.value, owner.level));
+        // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
+        // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
+        assert forall|i: int| 0 <= i < NR_ENTRIES implies
+            #[trigger] Self::pt_edge_at(owner, i)
+            && PageTableOwner(owner.children[i].unwrap())
+                   .pt_inv_at_depth((depth - 1) as nat)
+        by {
+            let child = owner.children[i].unwrap();
+            // pt_edge_at follows from the per-edge facts in the precondition.
+            assert(Self::pt_edge_at(owner, i));
+            // owner.inv() ⇒ child.inv() (Node::inv recurses since
+            // INC_LEVELS - owner.level > 1) ⇒ child.value.inv() ⇒ inv_base
+            // ⇒ (node is Some ⇒ !absent), so is_absent ⇒ !is_node.
+            assert(child.inv());
+            assert(child.value.inv());
+            assert(child.value.inv_base());
+            assert(!child.value.is_node());
+            // Each child is non-node with all grandchildren None — the
+            // non-node branch of pt_inv_at_depth fires.
+            PageTableOwner(child).non_node_pt_inv_at_depth((depth - 1) as nat);
+        };
     }
 
 

@@ -103,6 +103,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub axiom fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> tracked Self
         returns Self::new_absent_spec(path, parent_level);
 
+    /// Rewrites the `path` field of a tracked `EntryOwner` in place. Used by
+    /// `rebase_freshly_allocated_children` to propagate the cursor path down
+    /// to a freshly-allocated PT node's children, whose paths come from
+    /// `PageTableNode::alloc` rooted at the empty path.
+    pub axiom fn set_path_axiom(tracked &mut self, path: TreePath<NR_ENTRIES>)
+        ensures
+            *final(self) == (EntryOwner { path, ..*old(self) });
+
     pub axiom fn new_frame(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty, is_tracked: bool) -> tracked Self
         returns Self::new_frame_spec(paddr, path, parent_level, prop, is_tracked);
 

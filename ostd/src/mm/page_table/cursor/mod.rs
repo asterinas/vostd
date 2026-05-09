@@ -2337,6 +2337,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             assert(cont_new.entry_own.inv());
                             assert(cont_new.level() == cont_pre_alloc.level());
                             assert(cont_new.tree_level == INC_LEVELS - cont_new.level() - 1);
+                            // pt_inv for the freshly-allocated child: closed by
+                            // combining alloc_if_none's path-rebased ensures with
+                            // `allocated_empty_node_grandchildren_none`.
+                            PageTableOwner::<C>::allocated_empty_node_pt_inv(
+                                cont_new.children[cont_new.idx as int].unwrap());
                             cont_new.continuation_inv_holds_after_child_restore(
                                 cont_pre_alloc, cont_pre_alloc.entry_own.node.unwrap());
                         };
