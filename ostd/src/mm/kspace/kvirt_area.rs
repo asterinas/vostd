@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Kernel virtual memory allocation
 use vstd::prelude::*;
-use vstd::std_specs::vec;
 
 use vstd_extra::arithmetic::nat_align_down;
 use vstd_extra::ownership::{InvView, ModelOf, OwnerOf};
@@ -538,20 +537,20 @@ impl KVirtArea {
                 cursor.0.invariants(cursor_owner, *regions, *guards),
                 // For each remaining frame, the map contains a wf owner at its paddr.
                 // Duplicates among remaining frames are fine — one key, one owner.
-                forall |i: int| it.index() <= i < vec::into_iter_elts(it.snapshot@).len() ==> {
+                forall |i: int| it.index() <= i < it.seq().len() ==> {
                     let pa = #[trigger] crate::mm::frame::meta::mapping::meta_to_frame(
-                        vec::into_iter_elts(it.snapshot@)[i].ptr.addr());
+                        it.seq()[i].ptr.addr());
                     &&& entry_owners.contains_key(pa)
                     &&& entry_owners[pa].inv()
-                    &&& frame_entry_wf(vec::into_iter_elts(it.snapshot@)[i], prop, entry_owners[pa])
+                    &&& frame_entry_wf(it.seq()[i], prop, entry_owners[pa])
                 },
                 // Slot facts for each remaining frame are preserved across iterations.
                 // (Initially established by the function precondition; preserved by
                 // `cursor.map`'s effect on unrelated slots — see the focused assume in
                 // the loop body.)
-                forall |i: int| it.index() <= i < vec::into_iter_elts(it.snapshot@).len() ==>
+                forall |i: int| it.index() <= i < it.seq().len() ==>
                     CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                        MappedItem::Tracked(#[trigger] vec::into_iter_elts(it.snapshot@)[i], prop), *regions),
+                        MappedItem::Tracked(#[trigger] it.seq()[i], prop), *regions),
         {
             // Capacity fit check: if the cursor has advanced past its barrier
             // (i.e., too many frames for the allocated area), panic. This
@@ -566,7 +565,7 @@ impl KVirtArea {
             }
 
             let ghost cur_pa_from_wf: usize = KernelPtConfig::item_into_raw_spec(
-                MappedItem::Tracked(frame_as_dynframe(vec::into_iter_elts(it.snapshot@).index(it.index() as int)), prop)).0;
+                MappedItem::Tracked(frame_as_dynframe(it.seq().index(it.index() as int)), prop)).0;
             let ghost pre_remove_owners: Map<Paddr, EntryOwner<KernelPtConfig>> = *entry_owners;
             // Save path/parent_level so we can rebuild a fresh owner after `cursor.map`
             // consumes this one, and reinsert into the map for potential reuse by
@@ -640,11 +639,11 @@ impl KVirtArea {
             proof {
                 let cur_pa = KernelPtConfig::item_into_raw_spec(item).0;
                 let cur_pa_idx = frame_to_index_spec(cur_pa);
-                assert forall |i: int| (it.index() as int + 1) <= i < vec::into_iter_elts(it.snapshot@).len() implies
+                assert forall |i: int| (it.index() as int + 1) <= i < it.seq().len() implies
                     CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                        MappedItem::Tracked(#[trigger] vec::into_iter_elts(it.snapshot@)[i], prop), *regions)
+                        MappedItem::Tracked(#[trigger] it.seq()[i], prop), *regions)
                 by {
-                    let item_i = MappedItem::Tracked(vec::into_iter_elts(it.snapshot@)[i], prop);
+                    let item_i = MappedItem::Tracked(it.seq()[i], prop);
                     let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
                     let idx_i = frame_to_index_spec(pa_i);
                     KernelPtConfig::item_into_raw_spec_tracked_level(item_i);
@@ -798,23 +797,23 @@ impl KVirtArea {
                 invariant
                     cursor.0.invariants(cursor_owner, *regions, *guards),
                     // Level bounds / alignment from `collect_largest_pages` postconditions.
-                    forall |i: int| 0 <= i < vec::into_iter_elts(it.snapshot@).len() ==>
-                        (#[trigger] vec::into_iter_elts(it.snapshot@)[i]).0 % PAGE_SIZE == 0,
-                    forall |i: int| 0 <= i < vec::into_iter_elts(it.snapshot@).len() ==>
-                        1 <= (#[trigger] vec::into_iter_elts(it.snapshot@)[i]).1 <= NR_LEVELS,
-                    forall |i: int| 0 <= i < vec::into_iter_elts(it.snapshot@).len() ==>
-                        (#[trigger] vec::into_iter_elts(it.snapshot@)[i]).1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
-                    forall |i: int| 0 <= i < vec::into_iter_elts(it.snapshot@).len() ==>
-                        (va_range.start as nat + #[trigger] sum_page_sizes_spec(vec::into_iter_elts(it.snapshot@), 0, i))
-                            % page_size(vec::into_iter_elts(it.snapshot@)[i].1) as nat == 0,
-                    forall |i: int| #![auto] 0 <= i < vec::into_iter_elts(it.snapshot@).len() ==>
-                        vec::into_iter_elts(it.snapshot@)[i].0 as nat
-                            == pa_range.start as nat + sum_page_sizes_spec(vec::into_iter_elts(it.snapshot@), 0, i),
-                    sum_page_sizes_spec(vec::into_iter_elts(it.snapshot@), 0, vec::into_iter_elts(it.snapshot@).len() as int) == len as nat,
+                    forall |i: int| 0 <= i < it.seq().len() ==>
+                        (#[trigger] it.seq()[i]).0 % PAGE_SIZE == 0,
+                    forall |i: int| 0 <= i < it.seq().len() ==>
+                        1 <= (#[trigger] it.seq()[i]).1 <= NR_LEVELS,
+                    forall |i: int| 0 <= i < it.seq().len() ==>
+                        (#[trigger] it.seq()[i]).1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+                    forall |i: int| 0 <= i < it.seq().len() ==>
+                        (va_range.start as nat + #[trigger] sum_page_sizes_spec(it.seq(), 0, i))
+                            % page_size(it.seq()[i].1) as nat == 0,
+                    forall |i: int| #![auto] 0 <= i < it.seq().len() ==>
+                        it.seq()[i].0 as nat
+                            == pa_range.start as nat + sum_page_sizes_spec(it.seq(), 0, i),
+                    sum_page_sizes_spec(it.seq(), 0, it.seq().len() as int) == len as nat,
                     // VA tracking: cursor has advanced past sum of processed pages.
                     cursor.0.va as nat
                         == va_range.start as nat
-                            + sum_page_sizes_spec(vec::into_iter_elts(it.snapshot@), 0, it.index() as int),
+                            + sum_page_sizes_spec(it.seq(), 0, it.index() as int),
                     cursor.0.barrier_va.end == va_range.start + len,
                     // `pa_range.end == pa_range.start + len` so pa + page_size(level) stays bounded.
                     pa_range.end as nat == pa_range.start as nat + len as nat,
@@ -835,8 +834,8 @@ impl KVirtArea {
                 let pos: Ghost<int> = Ghost(it.index() as int);
 
                 proof {
-                    sum_page_sizes_extend_right(vec::into_iter_elts(it.snapshot@), 0, pos@);
-                    sum_page_sizes_mono(vec::into_iter_elts(it.snapshot@), 0, pos@ + 1, vec::into_iter_elts(it.snapshot@).len() as int);
+                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
+                    sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
@@ -863,9 +862,9 @@ impl KVirtArea {
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
 
                     // pa_range.end == pa_range.start + len (in nat) — from loop invariant.
-                    sum_page_sizes_extend_right(vec::into_iter_elts(it.snapshot@), 0, pos@);
+                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
                     sum_page_sizes_mono(
-                        vec::into_iter_elts(it.snapshot@), 0, pos@ + 1, vec::into_iter_elts(it.snapshot@).len() as int);
+                        it.seq(), 0, pos@ + 1, it.seq().len() as int);
                 }
 
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
@@ -934,17 +933,10 @@ impl KVirtArea {
                     );
                     old_cursor_owner_va.align_up_advances_general(level_raw as int);
                     
-                    sum_page_sizes_extend_right(vec::into_iter_elts(it.snapshot@), 0, pos@);
+                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
                     
-                    let pa_next_nat = pa_range.start as nat + sum_page_sizes_spec(vec::into_iter_elts(it.snapshot@), 0, pos@ + 1);
+                    let pa_next_nat = pa_range.start as nat + sum_page_sizes_spec(it.seq(), 0, pos@ + 1);
                     assert(pa_next_nat == pa as nat + page_size(level) as nat);
-
-                    if pos@ + 1 < vec::into_iter_elts(it.snapshot@).len() as int {
-                        let next_level = vec::into_iter_elts(it.snapshot@)[pos@ + 1].1;
-                        sum_page_sizes_extend_right(vec::into_iter_elts(it.snapshot@), 0, pos@ + 1);
-                        sum_page_sizes_mono(vec::into_iter_elts(it.snapshot@), 0, pos@ + 2, vec::into_iter_elts(it.snapshot@).len() as int);
-                        lemma_page_size_ge_page_size(next_level);
-                    }
                 }
             }
         }
