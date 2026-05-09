@@ -5,6 +5,7 @@ pub mod page_table;
 pub mod pod;
 pub mod tlb;
 pub mod virt_mem_newer;
+pub mod vm_space_embedding;
 
 use vstd::prelude::*;
 
