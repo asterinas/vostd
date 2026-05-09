@@ -156,7 +156,7 @@ impl<T> PointsTowithDealloc<T> {
         PointsTowithDealloc { points_to, dealloc: None }
     }
 
-    pub proof fn into_raw(tracked self) -> (tracked (ret,dealloc): (PointsToRaw, Option<Dealloc>))
+    pub proof fn into_raw(tracked self) -> (tracked (ret, dealloc): (PointsToRaw, Option<Dealloc>))
         requires
             self.inv(),
             self.is_uninit(),
