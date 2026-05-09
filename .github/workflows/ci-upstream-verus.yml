@@ -39,8 +39,10 @@ jobs:
 
       - name: Mark upstream Verus verification as pending
         if: github.event_name == 'issue_comment'
+        continue-on-error: true
         uses: actions/github-script@v8
         with:
+          retries: 3
           script: |
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
@@ -74,8 +76,10 @@ jobs:
 
       - name: Report upstream Verus verification status
         if: always() && github.event_name == 'issue_comment'
+        continue-on-error: true
         uses: actions/github-script@v8
         with:
+          retries: 3
           script: |
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
