@@ -58,10 +58,10 @@ pub enum VmIoKind {
 }
 
 /// Per-VmIo entry in the store.
-pub tracked struct VmIoEntry<'a> {
+pub tracked struct VmIoEntry {
     pub vm_space: VmSpaceId,
     pub kind: VmIoKind,
-    pub owner: VmIoOwner<'a>,
+    pub owner: VmIoOwner,
 }
 
 /// Whether a cursor is a read-only [`Cursor`] or a mutable [`CursorMut`].
@@ -90,14 +90,14 @@ pub tracked struct CursorEntry<'rcu> {
 ///
 /// Stage 2 tracks `regions`, `vm_spaces`, and `cursors`. Later stages add
 /// `vm_ios`.
-pub tracked struct VmStore<'a, 'rcu> {
+pub tracked struct VmStore<'rcu> {
     pub regions: MetaRegionOwners,
-    pub vm_spaces: Map<VmSpaceId, VmSpaceOwner<'a>>,
+    pub vm_spaces: Map<VmSpaceId, VmSpaceOwner>,
     pub cursors: Map<CursorId, CursorEntry<'rcu>>,
-    pub vm_ios: Map<VmIoId, VmIoEntry<'a>>,
+    pub vm_ios: Map<VmIoId, VmIoEntry>,
 }
 
-impl<'a, 'rcu> VmStore<'a, 'rcu> {
+impl<'a, 'rcu> VmStore<'rcu> {
     /// The store's top-level invariant. Aggregates the per-component
     /// invariants of every owner the store holds, plus cross-store
     /// consistency (every cursor and every VmIo refers to a live VmSpace).
@@ -179,7 +179,7 @@ pub enum Op {
 /// invariant. Stage 1 axiomatizes only this; later stages may strengthen
 /// to capture the new owner's `page_table_owner` content.
 pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners)
-    -> (tracked res: VmSpaceOwner<'a>)
+    -> (tracked res: VmSpaceOwner)
     requires
         old(regions).inv(),
     ensures
@@ -198,7 +198,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners)
 /// would fail in exec); it never *under*-approximates, which is what
 /// matters for soundness of inductive invariant preservation.
 pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
-    tracked vm_space: &VmSpaceOwner<'a>,
+    tracked vm_space: &VmSpaceOwner,
     va: Range<Vaddr>,
 ) -> (tracked res: Option<CursorOwner<'rcu, UserPtConfig>>)
     requires
@@ -211,7 +211,7 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
 ///
 /// Same shape as [`vm_space_cursor_embedded`].
 pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
-    tracked vm_space: &VmSpaceOwner<'a>,
+    tracked vm_space: &VmSpaceOwner,
     va: Range<Vaddr>,
 ) -> (tracked res: Option<CursorOwner<'rcu, UserPtConfig>>)
     requires
@@ -309,10 +309,10 @@ pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
 /// range or the active page table doesn't match this VmSpace; that
 /// failure is modeled by returning `None`.
 pub axiom fn vm_space_reader_embedded<'a>(
-    tracked vm_space: &VmSpaceOwner<'a>,
+    tracked vm_space: &VmSpaceOwner,
     vaddr: Vaddr,
     len: usize,
-) -> (tracked res: Option<VmIoOwner<'a>>)
+) -> (tracked res: Option<VmIoOwner>)
     requires
         vm_space.inv(),
     ensures
@@ -321,10 +321,10 @@ pub axiom fn vm_space_reader_embedded<'a>(
 
 /// Mirror of [`crate::mm::vm_space::VmSpace::writer`].
 pub axiom fn vm_space_writer_embedded<'a>(
-    tracked vm_space: &VmSpaceOwner<'a>,
+    tracked vm_space: &VmSpaceOwner,
     vaddr: Vaddr,
     len: usize,
-) -> (tracked res: Option<VmIoOwner<'a>>)
+) -> (tracked res: Option<VmIoOwner>)
     requires
         vm_space.inv(),
     ensures
@@ -336,7 +336,7 @@ pub axiom fn vm_space_writer_embedded<'a>(
 // =============================================================================
 
 /// One-step soundness theorem.
-pub proof fn step<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>, op: Op)
+pub proof fn step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
     requires
         old(s).inv(),
     ensures
@@ -379,7 +379,7 @@ pub enum CursorMutRegionsMethod {
 
 /// Picks an id not currently in `m.dom()`. Since the key type is `int`, an
 /// unused id always exists.
-pub open spec fn fresh_vm_space_id<'a>(m: Map<VmSpaceId, VmSpaceOwner<'a>>) -> VmSpaceId {
+pub open spec fn fresh_vm_space_id<'a>(m: Map<VmSpaceId, VmSpaceOwner>) -> VmSpaceId {
     choose|id: VmSpaceId| !m.dom().contains(id)
 }
 
@@ -391,7 +391,7 @@ pub open spec fn fresh_cursor_id<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>) -> C
 /// Witnesses that [`fresh_vm_space_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
 pub axiom fn axiom_fresh_vm_space_id_not_in_dom<'a>(
-    m: Map<VmSpaceId, VmSpaceOwner<'a>>,
+    m: Map<VmSpaceId, VmSpaceOwner>,
 )
     ensures
         !m.dom().contains(fresh_vm_space_id(m)),
@@ -424,13 +424,13 @@ pub axiom fn axiom_cursor_entry_new<'rcu>(
 ;
 
 /// Picks a [`VmIoId`] not currently in `m.dom()`.
-pub open spec fn fresh_vm_io_id<'a>(m: Map<VmIoId, VmIoEntry<'a>>) -> VmIoId {
+pub open spec fn fresh_vm_io_id<'a>(m: Map<VmIoId, VmIoEntry>) -> VmIoId {
     choose|id: VmIoId| !m.dom().contains(id)
 }
 
 /// Witnesses that [`fresh_vm_io_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
-pub axiom fn axiom_fresh_vm_io_id_not_in_dom<'a>(m: Map<VmIoId, VmIoEntry<'a>>)
+pub axiom fn axiom_fresh_vm_io_id_not_in_dom<'a>(m: Map<VmIoId, VmIoEntry>)
     ensures
         !m.dom().contains(fresh_vm_io_id(m)),
 ;
@@ -439,15 +439,15 @@ pub axiom fn axiom_fresh_vm_io_id_not_in_dom<'a>(m: Map<VmIoId, VmIoEntry<'a>>)
 pub axiom fn axiom_vm_io_entry_new<'a>(
     vm_space: VmSpaceId,
     kind: VmIoKind,
-    tracked owner: VmIoOwner<'a>,
-) -> (tracked res: VmIoEntry<'a>)
+    tracked owner: VmIoOwner,
+) -> (tracked res: VmIoEntry)
     ensures
         res.vm_space == vm_space,
         res.kind == kind,
         res.owner == owner,
 ;
 
-proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>)
+proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
     requires
         old(s).inv(),
     ensures
@@ -488,7 +488,7 @@ proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>)
     };
 }
 
-proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>, vs: VmSpaceId)
+proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId)
     requires
         old(s).inv(),
     ensures
@@ -533,7 +533,7 @@ proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>, vs: VmS
 }
 
 proof fn open_cursor_step<'a, 'rcu>(
-    tracked s: &mut VmStore<'a, 'rcu>,
+    tracked s: &mut VmStore<'rcu>,
     vs: VmSpaceId,
     va: Range<Vaddr>,
     kind: CursorKind,
@@ -584,7 +584,7 @@ proof fn open_cursor_step<'a, 'rcu>(
     }
 }
 
-proof fn drop_cursor_step<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>, c: CursorId)
+proof fn drop_cursor_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
     requires
         old(s).inv(),
     ensures
@@ -614,7 +614,7 @@ proof fn drop_cursor_step<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>, c: Cursor
 }
 
 proof fn cursor_method_step<'a, 'rcu>(
-    tracked s: &mut VmStore<'a, 'rcu>,
+    tracked s: &mut VmStore<'rcu>,
     c: CursorId,
     method: CursorMethod,
 )
@@ -662,7 +662,7 @@ proof fn cursor_method_step<'a, 'rcu>(
 }
 
 proof fn cursor_mut_regions_step<'a, 'rcu>(
-    tracked s: &mut VmStore<'a, 'rcu>,
+    tracked s: &mut VmStore<'rcu>,
     c: CursorId,
     method: CursorMutRegionsMethod,
 )
@@ -715,7 +715,7 @@ proof fn cursor_mut_regions_step<'a, 'rcu>(
 }
 
 proof fn map_step<'a, 'rcu>(
-    tracked s: &mut VmStore<'a, 'rcu>,
+    tracked s: &mut VmStore<'rcu>,
     c: CursorId,
     frame: UFrame,
     prop: PageProperty,
@@ -764,7 +764,7 @@ proof fn map_step<'a, 'rcu>(
 }
 
 proof fn new_vm_io_step<'a, 'rcu>(
-    tracked s: &mut VmStore<'a, 'rcu>,
+    tracked s: &mut VmStore<'rcu>,
     vs: VmSpaceId,
     vaddr: Vaddr,
     len: usize,
@@ -832,7 +832,7 @@ proof fn new_vm_io_step<'a, 'rcu>(
 /// The specific ids passed (`0`) need not match any actual id allocated
 /// during the chain; per-op steps that find no matching id are no-ops,
 /// which still preserve `inv()`.
-pub proof fn smoke_test<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>)
+pub proof fn smoke_test<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
     requires
         old(s).inv(),
     ensures
@@ -848,7 +848,7 @@ pub proof fn smoke_test<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>)
     step(s, Op::DropVmSpace { vs: 0int });
 }
 
-proof fn drop_vm_io_step<'a, 'rcu>(tracked s: &mut VmStore<'a, 'rcu>, vio: VmIoId)
+proof fn drop_vm_io_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId)
     requires
         old(s).inv(),
     ensures

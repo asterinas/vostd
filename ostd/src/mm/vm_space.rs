@@ -40,7 +40,7 @@ use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
 
 use crate::{
     mm::{
-        io::{VmIoOwner, VmReader, VmWriter},
+        io::{Fallible, VmIoOwner, VmReader, VmWriter},
         page_prop::PageProperty,
         Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
     },
@@ -299,8 +299,8 @@ impl<'a> VmSpace<'a> {
     #[inline]
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&'a mut VmSpaceOwner<'a>>,
-                -> reader_owner: Tracked<Option<VmIoOwner<'a>>>,
+            Tracked(owner): Tracked<&'a mut VmSpaceOwner>,
+                -> reader_owner: Tracked<Option<VmIoOwner>>,
         requires
             old(owner).inv(),
         ensures
@@ -311,7 +311,7 @@ impl<'a> VmSpace<'a> {
                 &&& reader_owner@.unwrap().mem_view is None
             }
     )]
-    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a>> {
+    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             proof_with!(|= Tracked(None));
             Err(Error::AccessDenied)
@@ -321,7 +321,7 @@ impl<'a> VmSpace<'a> {
         } else {
             let ghost id = owner.new_vm_io_id();
             proof_decl! {
-                let tracked mut vm_reader_owner: VmIoOwner<'a>;
+                let tracked mut vm_reader_owner: VmIoOwner;
             }
 
             // SAFETY: The memory range is in user space, as checked above.
@@ -353,8 +353,8 @@ impl<'a> VmSpace<'a> {
     #[inline]
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&mut VmSpaceOwner<'a>>,
-                -> writer_owner: Tracked<Option<VmIoOwner<'a>>>,
+            Tracked(owner): Tracked<&mut VmSpaceOwner>,
+                -> writer_owner: Tracked<Option<VmIoOwner>>,
         requires
             old(owner).inv(),
         ensures
@@ -365,7 +365,7 @@ impl<'a> VmSpace<'a> {
                 &&& writer_owner@.unwrap().mem_view is None
             }
     )]
-    pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a>> {
+    pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             proof_with!(|= Tracked(None));
             Err(Error::AccessDenied)
@@ -375,7 +375,7 @@ impl<'a> VmSpace<'a> {
         } else {
             let ghost id = owner.new_vm_io_id();
             proof_decl! {
-                let tracked mut vm_writer_owner: VmIoOwner<'a>;
+                let tracked mut vm_writer_owner: VmIoOwner;
             }
 
             // SAFETY: The memory range is in user space, as checked above.
