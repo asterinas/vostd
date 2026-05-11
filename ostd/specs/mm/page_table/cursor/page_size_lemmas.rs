@@ -216,6 +216,14 @@ pub proof fn lemma_page_size_divides(l1: PagingLevel, l2: PagingLevel)
         page_size_spec(l2) % page_size_spec(l1) == 0,
 {
     lemma_page_size_spec_values();
+    // Enumerate pairs to keep SMT context narrow.
+    if l1 == 1 {
+    } else if l1 == 2 {
+    } else if l1 == 3 {
+    } else if l1 == 4 {
+    } else {
+        assert(l1 == 5);
+    }
 }
 
 /// For any valid physical address `pa < MAX_PADDR` and page level, pa + page_size(level)

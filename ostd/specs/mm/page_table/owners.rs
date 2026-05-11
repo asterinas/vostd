@@ -129,14 +129,73 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     if path.len() == 0 {
         assert(rec_vaddr(path, 0) == 0);
     } else if path.len() == 1 {
-        // TODO: the `by (compute)` simplification for `vaddr_make::<NR_LEVELS>(...)
-        // == 0x80_0000_0000 * i` doesn't fire at module-level proof-fn scope the
-        // way it does inside `impl AbstractVaddr` blocks in `mod.rs`. Keeping
-        // the `vaddr(path) < 2^48` bound as an admit for the non-trivial cases
-        // until the compute context is resolved.
-        admit();
+        let i0 = path.index(0);
+        assert(0 <= i0 < NR_ENTRIES);
+        assert(rec_vaddr(path, 1) == 0);
+        assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(0x80_0000_0000usize * i0 < 0x1_0000_0000_0000int) by (nonlinear_arith)
+            requires i0 < 512;
+    } else if path.len() == 2 {
+        let i0 = path.index(0);
+        let i1 = path.index(1);
+        assert(0 <= i0 < NR_ENTRIES);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(rec_vaddr(path, 2) == 0);
+        assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0)
+            + vaddr_make::<NR_LEVELS>(1, i1)) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 < 0x1_0000_0000_0000int)
+            by (nonlinear_arith)
+            requires i0 < 512, i1 < 512;
+    } else if path.len() == 3 {
+        let i0 = path.index(0);
+        let i1 = path.index(1);
+        let i2 = path.index(2);
+        assert(0 <= i0 < NR_ENTRIES);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(0 <= i2 < NR_ENTRIES);
+        assert(rec_vaddr(path, 3) == 0);
+        assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
+        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1)
+            + vaddr_make::<NR_LEVELS>(2, i2)) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0)
+            + vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(2, i2)) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
+        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2
+            < 0x1_0000_0000_0000int) by (nonlinear_arith)
+            requires i0 < 512, i1 < 512, i2 < 512;
     } else {
-        admit();
+        assert(path.len() == 4);
+        let i0 = path.index(0);
+        let i1 = path.index(1);
+        let i2 = path.index(2);
+        let i3 = path.index(3);
+        assert(0 <= i0 < NR_ENTRIES);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(0 <= i2 < NR_ENTRIES);
+        assert(0 <= i3 < NR_ENTRIES);
+        assert(rec_vaddr(path, 4) == 0);
+        assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3) as usize);
+        assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2)
+            + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
+        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1)
+            + vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0)
+            + vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(2, i2)
+            + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(3, i3) == 0x1000usize * i3) by (compute);
+        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1
+            + 0x20_0000usize * i2 + 0x1000usize * i3 < 0x1_0000_0000_0000int)
+            by (nonlinear_arith)
+            requires i0 < 512, i1 < 512, i2 < 512, i3 < 512;
     }
 }
 
@@ -292,14 +351,20 @@ pub const INC_LEVELS: usize = NR_LEVELS + 1;
 ///                        tree level 4 ==> path length 4 ==> frame mapped by level 1 table
 pub type OwnerSubtree<C> = Node<EntryOwner<C>, NR_ENTRIES, INC_LEVELS>;
 
-/// Specifies that `owner` is the ghost owner of a newly allocated empty page table node at the given level.
+/// Specifies that `owner` is the ghost owner of a newly allocated empty page table node.
 /// Captures the structural post-conditions of `PageTableNode::alloc`.
+///
+/// The `level` parameter is the **NODE level** (i.e., the PT level of the
+/// freshly-allocated PT itself). The entry-side `parent_level` is one above
+/// (`level + 1`). This convention is internally consistent with `NodeOwner::inv`
+/// (which requires `1 <= level <= NR_LEVELS`) for any `level` in `[1, NR_LEVELS-1]`,
+/// unlike the prior convention where `alloc(1)` was unsatisfiable.
 pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(owner: OwnerSubtree<C>, level: PagingLevel) -> bool {
     &&& owner.inv()
     &&& owner.value.is_node()
     &&& owner.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty())
-    &&& owner.value.parent_level == level
-    &&& owner.value.node.unwrap().level == level - 1
+    &&& owner.value.parent_level == (level + 1) as PagingLevel
+    &&& owner.value.node.unwrap().level == level
     &&& owner.value.node.unwrap().inv()
     &&& !owner.value.node.unwrap().children_perm.value().all(|child: C::E| child.is_present())
     &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==> {
@@ -316,6 +381,13 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(owner: OwnerSubt
         )
     &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==>
         owner.children[i].unwrap().value.parent_level == owner.value.node.unwrap().level
+    // The freshly-allocated PT node is zero-filled, so every PTE in
+    // `children_perm` is the absent PTE. (Stronger than the existing
+    // "not all are present" clause; needed by `split_if_mapped_huge`'s
+    // loop invariant which inspects each slot's PTE.)
+    &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
+        #[trigger] owner.value.node.unwrap().children_perm.value()[j]
+            == C::E::new_absent_spec()
 }
 
 pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
@@ -393,6 +465,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(self.0.level >= INC_LEVELS);
         }
     }
+
+
 
 
 /// For a top-level (root) page table, entries at indices outside of

@@ -83,12 +83,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     // (unwrap of None path entry). Doing so requires tweaking the cursor invariant's
     // treatment of locks so that `pop_level` can express the panic as a precondition violation.
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
-        ||| self.inner.va >= self.inner.barrier_va.end
+        ||| self.0.va >= self.0.barrier_va.end
         ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
-        ||| C::item_into_raw(item).1 >= self.inner.guard_level
+        ||| C::item_into_raw(item).1 >= self.0.guard_level
         ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw(item).1 >= NR_LEVELS)
-        ||| self.inner.va % page_size(C::item_into_raw(item).1) != 0
-        ||| self.inner.va + page_size(C::item_into_raw(item).1) > self.inner.barrier_va.end
+        ||| self.0.va % page_size(C::item_into_raw(item).1) != 0
+        ||| self.0.va + page_size(C::item_into_raw(item).1) > self.0.barrier_va.end
     }
 
     // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
@@ -110,16 +110,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let idx = frame_to_index(pa);
         &&& regions.slots.contains_key(idx)
         &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-        &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
-        // Allocator invariant for huge frames (level > 1): all 4KB sub-page slots are valid.
-        // Established by huge-frame allocator postcondition.
+        // Tracked items hold a refcount; untracked (MMIO) don't.
+        &&& C::tracked(item) ==>
+            regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+        // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
         &&& level > 1 ==> {
             forall |j: usize| #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
                 0 < j < page_size(level) / PAGE_SIZE ==> {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                 &&& regions.slots.contains_key(sub_idx)
-                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                &&& C::tracked(item) ==>
+                    regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                &&& C::tracked(item) ==>
+                    regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
             }
         }
     }

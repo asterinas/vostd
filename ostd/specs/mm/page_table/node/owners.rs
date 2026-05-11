@@ -16,7 +16,7 @@ use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::owners::INC_LEVELS;
-use crate::specs::mm::page_table::GuardPerm;
+use crate::mm::page_table::PageTableGuard;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::Repr;
@@ -155,11 +155,9 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
 
-    pub open spec fn relate_guard_perm(self, guard_perm: GuardPerm<'rcu, C>) -> bool {
-        &&& guard_perm.is_init()
-        &&& guard_perm.value().inner.inner@.ptr.addr() == self.meta_perm.addr()
-        &&& guard_perm.value().inner.inner@.ptr.addr() == self.meta_perm.points_to.addr()
-        &&& guard_perm.value().inner.inner@.wf(self)
+    pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
+        &&& guard.inner.inner@.ptr.addr() == self.meta_perm.points_to.addr()
+        &&& guard.inner.inner@.wf(self)
         &&& self.meta_perm.is_init()
         &&& self.meta_perm.wf(&self.meta_perm.inner_perms)
     }

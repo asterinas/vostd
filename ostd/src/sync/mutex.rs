@@ -76,7 +76,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
 
     /// Tries to acquire the mutex immediately.
     #[verus_spec]
-    pub fn try_lock(&self) -> Option<MutexGuard<T>> {
+    pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
         // Cannot be reduced to `then_some`, or the possible dropping of the temporary
         // guard will cause an unexpected unlock.
         // SAFETY: The lock is successfully acquired when creating the guard.
@@ -248,6 +248,7 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
     #[verus_spec(ret =>
         ensures
             final(self).view() == *final(ret),
+            old(self).view() == *ret,
     )]
     fn deref_mut(&mut self) -> &mut Self::Target
     {
@@ -255,7 +256,7 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.mutex.val.get() }
-        pcell_borrow_mut(&self.mutex.val, &mut self.v_perm)
+        self.mutex.val.borrow_mut(Tracked(&mut *self.v_perm))
     }
 }
 

@@ -142,6 +142,10 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         s.slot_owners.tracked_insert(index, slot_own);
     }
 
+    // It is unsound to drop a `Frame` while raw paddrs to it remain
+    // outstanding (`raw_count > 0`), since those raw paddrs could be revived
+    // via `from_raw` after the slot has been torn down. Hence the drop is
+    // only permitted when `raw_count == 0`.
     open spec fn drop_requires(self, s: Self::State) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let slot_own = s.slot_owners[idx];
@@ -150,36 +154,29 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         &&& s.slots.contains_key(idx)
         &&& s.slots[idx].pptr() == self.ptr
         &&& s.slot_owners.contains_key(idx)
-        &&& slot_own.raw_count > 0
+        &&& slot_own.raw_count == 0
         &&& slot_own.inner_perms.ref_count.value() > 0
         &&& slot_own.inner_perms.ref_count.value()
             != REF_COUNT_UNUSED
         // When this is the last reference (ref_count == 1), we need to be able to
         // call drop_last_in_place, which requires:
         &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
-            &&& slot_own.raw_count == 1
             &&& slot_own.inner_perms.storage.is_init()
             &&& slot_own.inner_perms.in_list.value() == 0
         }
     }
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
-        let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (
-        slot_own.raw_count - 1) as usize
+        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        &&& s1.slot_owners[idx].raw_count == 0
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+            i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
 
     proof fn drop_tracked(self, tracked s: &mut Self::State) {
-        let index = frame_to_index(meta_to_frame(self.ptr.addr()));
-        let tracked mut slot_own = s.slot_owners.tracked_remove(index);
-        slot_own.raw_count = (slot_own.raw_count - 1) as usize;
-        s.slot_owners.tracked_insert(index, slot_own);
     }
 }
 
@@ -610,7 +607,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             debt@.frame_index == frame_to_index(paddr),
             debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
     )]
-    pub(in crate::mm) fn from_raw(paddr: Paddr) -> Self {
+    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);
         let ptr = PPtr::from_addr(vaddr);
 
@@ -677,14 +674,12 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index(paddr)),
         has_safe_slot(paddr),
-        !MetaSlot::inc_ref_count_panic_cond(
-            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count,
-        ),
-        // The caller holds a reference, so ref_count > 0.
+        // The caller holds a reference, so rc > 0, and the slot must be live
+        // (not the UNUSED sentinel). Saturation is caught at runtime by
+        // `inc_ref_count`'s Arc-style abort.
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
-        // After increment, the ref_count must stay below the illegal range.
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1
-            < REF_COUNT_MAX,
+        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+            != REF_COUNT_UNUSED,
     ensures
         final(regions).inv(),
         final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
@@ -767,7 +762,7 @@ impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
         &&& perm.slots.contains_key(idx)
         &&& perm.slot_owners.contains_key(idx)
         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
-        &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1 < meta::REF_COUNT_MAX
+        &&& perm.slot_owners[idx].inner_perms.ref_count.value() != meta::REF_COUNT_UNUSED
         &&& has_safe_slot(meta_to_frame(self.ptr.addr()))
     }
 
@@ -830,10 +825,6 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
             Tracked(&mut slot_own.inner_perms.ref_count),
             1,
         );
-
-        proof {
-            slot_own.raw_count = (slot_own.raw_count - 1) as usize;
-        }
 
         if last_ref_cnt == 1 {
             // A fence is needed here with the same reasons stated in the implementation of

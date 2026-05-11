@@ -88,9 +88,9 @@ pub broadcast proof fn lemma_vaddr_to_paddr_properties(va: Vaddr)
 
 pub proof fn lemma_max_paddr_range()
     ensures
-        MAX_PADDR <= VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
+        MAX_PADDR < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
 {
-    assert(MAX_PADDR <= VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR) by (compute_only);
+    assert(MAX_PADDR < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR) by (compute_only);
 }
 
 pub proof fn lemma_mod_0_add(a: int, b: int, m: int)

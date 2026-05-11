@@ -111,6 +111,10 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             new_regions.slots.contains_key(i) == old_regions.slots.contains_key(i)
         &&& r.ptr.addr() == frame_to_meta(paddr)
         &&& r.paddr() == paddr
+        // Structural invariant of the constructed Frame: ptr is META_SLOT_SIZE-aligned
+        // and within FRAME_METADATA_RANGE. Provable from `r.ptr.addr() == frame_to_meta(paddr)`
+        // (above) plus the existing `lemma_frame_to_meta_soundness`.
+        &&& r.inv()
     }
 
 

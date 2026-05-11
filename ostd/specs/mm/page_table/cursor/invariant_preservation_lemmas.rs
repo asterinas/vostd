@@ -13,7 +13,9 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_table::*;
+use crate::specs::arch::mm::PAGE_SIZE;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS};
+use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
@@ -190,6 +192,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 if entry.meta_slot_paddr() is Some {
                     let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
                     if eidx != changed_idx {
+                        // Discharge the sub-page precondition: for a huge frame whose
+                        // sub_idx == changed_idx, either the sub-slot is MMIO
+                        // (no rc constraint) or the inner_perms at changed_idx are
+                        // preserved (this lemma only changes paths_in_pt), so the
+                        // r0 facts (from frame_sub_pages_valid) carry to r1.
+                        assert(entry.is_frame() && entry.parent_level > 1 ==> {
+                            let pa = entry.frame.unwrap().mapped_pa;
+                            let nr_pages = page_size(entry.parent_level) / PAGE_SIZE;
+                            forall |j: usize| 0 < j < nr_pages ==> {
+                                let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
+                                sub_idx != changed_idx
+                                || regions1.slot_owners[sub_idx].usage
+                                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
+                                || (
+                                    regions1.slots.contains_key(sub_idx)
+                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                                )
+                            }
+                        });
                         entry.metaregion_sound_one_slot_changed(
                             regions0, regions1, changed_idx);
                     } else {
@@ -213,6 +235,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         by {
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
+                // Same sub-page bridge as above (continuations branch).
+                assert(cont_entry.is_frame() && cont_entry.parent_level > 1 ==> {
+                    let pa = cont_entry.frame.unwrap().mapped_pa;
+                    let nr_pages = page_size(cont_entry.parent_level) / PAGE_SIZE;
+                    forall |j: usize| 0 < j < nr_pages ==> {
+                        let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
+                        sub_idx != changed_idx
+                        || regions1.slot_owners[sub_idx].usage
+                                == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
+                        || (
+                            regions1.slots.contains_key(sub_idx)
+                            && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                            && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                        )
+                    }
+                });
                 cont_entry.metaregion_sound_one_slot_changed(
                     regions0, regions1, changed_idx);
             }

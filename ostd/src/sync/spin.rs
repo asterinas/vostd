@@ -430,6 +430,7 @@ impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
     #[verus_spec(ret =>
         ensures
             final(self).view() == *final(ret),
+            old(self).view() == *ret,
     )]
     fn deref_mut(&mut self) -> &mut Self::Target
     {
@@ -437,7 +438,7 @@ impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
             use_type_invariant(&*self);
         }
         // unsafe { &mut *self.lock.inner.val.get() }
-        pcell_borrow_mut(&self.lock.inner.val, &mut self.v_perm)
+        self.lock.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
     }
 }
 }

@@ -36,8 +36,6 @@ verus! {
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
-    // ─── Theme 7: PTE & entry modification invariant preservation ────────
-
     pub proof fn protect_preserves_cursor_inv_metaregion(
         self,
         other: Self,
@@ -45,6 +43,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             self.inv(),
+            self.in_locked_range(),
             self.metaregion_sound(regions),
             self.cur_entry_owner().is_frame(),
             other.cur_entry_owner().is_frame(),
@@ -68,8 +67,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].idx == self.continuations[self.level - 1].idx,
             other.continuations[self.level - 1].entry_own.parent_level
                 == self.continuations[self.level - 1].entry_own.parent_level,
-            other.continuations[self.level - 1].guard_perm.value().inner.inner@.ptr.addr()
-                == self.continuations[self.level - 1].guard_perm.value().inner.inner@.ptr.addr(),
+            other.continuations[self.level - 1].guard.inner.inner@.ptr.addr()
+                == self.continuations[self.level - 1].guard.inner.inner@.ptr.addr(),
             other.continuations[self.level - 1].path()
                 == self.continuations[self.level - 1].path(),
             other.continuations.dom() =~= self.continuations.dom(),
@@ -153,8 +152,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[self.level - 1].entry_own.parent_level
                 == owner0.continuations[owner0.level - 1].entry_own.parent_level,
             // Guard address preserved (from parent_perms_preserved).
-            self.continuations[self.level - 1].guard_perm.value().inner.inner@.ptr.addr()
-                == owner0.continuations[owner0.level - 1].guard_perm.value().inner.inner@.ptr.addr(),
+            self.continuations[self.level - 1].guard.inner.inner@.ptr.addr()
+                == owner0.continuations[owner0.level - 1].guard.inner.inner@.ptr.addr(),
             self.continuations[self.level - 1].path()
                 == owner0.continuations[owner0.level - 1].path(),
             self.va.index[self.level - 1] == self.continuations[self.level - 1].idx,
@@ -177,7 +176,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn map_branch_none_no_new_mappings(self, owner0: Self)
         requires
             owner0.inv(),
+            owner0.in_locked_range(),
             self.inv(),
+            self.in_locked_range(),
             self.level == owner0.level,
             self.va == owner0.va,
             forall|i: int| self.level <= i < NR_LEVELS ==>
@@ -349,10 +350,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let pv = self.prefix.to_vaddr() as nat;
             let ps = page_size(self.guard_level as PagingLevel) as nat;
             self.prefix.align_down_concrete(self.guard_level as int);
-            self.prefix.align_up_concrete(self.guard_level as int);
-            self.prefix.align_diff(self.guard_level as int);
+            self.prefix_aligned_to_guard_level();
+            self.prefix_plus_ps_no_overflow();
+            self.prefix.aligned_align_up_advances(self.guard_level as int);
             AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(pv, ps) as Vaddr);
-            AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_up(pv, ps) as Vaddr);
         }
     }
 }

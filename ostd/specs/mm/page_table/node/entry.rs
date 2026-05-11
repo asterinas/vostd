@@ -12,7 +12,7 @@ use crate::specs::mm::page_table::*;
 
 verus! {
 
-impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
+impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub open spec fn invariants(self, owner: EntryOwner<C>, regions: MetaRegionOwners) -> bool {
         &&& owner.inv()
         &&& regions.inv()
@@ -20,14 +20,11 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
         &&& owner.metaregion_sound(regions)
     }
 
-    pub open spec fn node_matching(self, owner: EntryOwner<C>, parent_owner: NodeOwner<C>, guard_perm: GuardPerm<'rcu, C>) -> bool {
+    pub open spec fn node_matching(self, owner: EntryOwner<C>, parent_owner: NodeOwner<C>, guard: PageTableGuard<'rcu, C>) -> bool {
         &&& parent_owner.level == owner.parent_level
         &&& parent_owner.inv()
-        &&& guard_perm.addr() == self.node.addr()
-        &&& guard_perm.is_init()
-        &&& guard_perm.value().inner.inner@.ptr.addr() == parent_owner.meta_perm.addr()
-        &&& guard_perm.value().inner.inner@.ptr.addr() == parent_owner.meta_perm.points_to.addr()
-        &&& guard_perm.value().inner.inner@.wf(parent_owner)
+        &&& guard.inner.inner@.ptr.addr() == parent_owner.meta_perm.points_to.addr()
+        &&& guard.inner.inner@.wf(parent_owner)
         &&& parent_owner.meta_perm.is_init()
         &&& parent_owner.meta_perm.wf(&parent_owner.meta_perm.inner_perms)
         &&& owner.match_pte(parent_owner.children_perm.value()[self.idx as int], owner.parent_level)
@@ -106,10 +103,16 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
             regions0.slots.contains_key(frame_to_index(new_child.meta_slot_paddr().unwrap())),
             regions0.slot_owners[frame_to_index(new_child.meta_slot_paddr().unwrap())]
                 .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+            // Allocator-pool / MMIO disjointness: the freshly-allocated node's
+            // paddr is non-MMIO. Rules out an MMIO-frame entry sitting at the
+            // same idx as the new node (delivered by `PageTableNode::alloc`).
+            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
+                new_child.meta_slot_paddr().unwrap()),
             Self::metaregion_sound_neq_preserved(old_child, new_child, regions0, regions1),
         ensures
             Self::metaregion_sound_preserved(regions0, regions1),
     {
+        broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
         let new_idx = frame_to_index(new_child.meta_slot_paddr().unwrap());
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
@@ -122,6 +125,11 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
             if entry.meta_slot_paddr() is Some && entry.is_node() {
                 EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions0, new_idx);
             }
+            // Frame entries colliding at new_idx are ruled out: either the
+            // slot's `usage != MMIO` (then `metaregion_sound` requires
+            // `rc != UNUSED`, contradicting the precondition), or the slot's
+            // `usage == MMIO` (then by axiom the paddr is MMIO, contradicting
+            // the allocator's non-MMIO guarantee).
         };
     }
 
@@ -150,12 +158,8 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
     pub open spec fn parent_perms_preserved(self,
         parent_owner0: NodeOwner<C>,
-        parent_owner1: NodeOwner<C>,
-        guard_perm0: GuardPerm<'rcu, C>,
-        guard_perm1: GuardPerm<'rcu, C>)
+        parent_owner1: NodeOwner<C>)
     -> bool {
-        &&& guard_perm0.addr() == guard_perm1.addr()
-        &&& guard_perm0.value().inner.inner@.ptr.addr() == guard_perm1.value().inner.inner@.ptr.addr()
         &&& forall|i: int| 0 <= i < NR_ENTRIES ==> i != self.idx ==>
             parent_owner0.children_perm.value()[i] == parent_owner1.children_perm.value()[i]
         // meta_perm is unchanged: only children_perm and meta_own are modified by entry operations.

@@ -18,7 +18,6 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
-use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::owners::*;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Mapping;
@@ -209,8 +208,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if self.level == 1 {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
             self.va.align_down_concrete(1);
-            self.va.align_up_concrete(1);
-            self.va.align_diff(1);
+            // cur_va is PAGE_SIZE-aligned and cur_va < end, so cur_va + PAGE_SIZE <= end <= usize::MAX.
+            assert(self.va.to_vaddr() + page_size(1 as PagingLevel) <= usize::MAX);
+            self.va.aligned_align_up_advances(1);
+            // align_up(1).to_vaddr() == self.va.to_vaddr() + PAGE_SIZE.
         }
     }
 

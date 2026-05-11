@@ -62,7 +62,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         assert(frame.paddr() == raw);
         assert(regions0.slot_owners.dom() =~= regions1.slot_owners.dom());
 
-        assert forall |regions2: MetaRegionOwners|
+        assert forall |regions2: MetaRegionOwners| #![trigger regions2.inv()]
             <Self as TrackDrop>::constructor_ensures(frame, regions1, regions2)
         implies
             regions2.slot_owners[idx].raw_count == 1

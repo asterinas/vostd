@@ -4,7 +4,6 @@ use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ord
 
 use vstd::prelude::*;
 
-use vstd::simple_pptr::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::{
@@ -33,23 +32,22 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
 
 #[verus_spec(ret =>
     with Tracked(pt_own): Tracked<PageTableOwner<C>>,
-        Tracked(guard_perm): Tracked<vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>,
+        Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     requires
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
+        va.start < va.end,
+        // Per-config tightening; see `Cursor::new`. Pulled through to the
+        // cursor's `LOCKED_END_BOUND_spec` invariant.
+        va.end as int <= C::LOCKED_END_BOUND_spec(),
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).in_locked_range(),
-        ret.0.level < ret.0.guard_level,
+        ret.0.level == ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
-        // The cursor's reconstructed page-table owner equals the input. Locking
-        // only descends into the page table — it does not modify the abstract
-        // mapping structure — so the cursor's root-level view matches the
-        // original owner. Consumed by `as_page_table_owner_preserves_view_mappings`
-        // to relate `cursor_owner@.mappings` back to `pt_own.view_rec(...)`.
         (*ret.1).as_page_table_owner() == pt_own,
         // The root continuation's path matches the input's root path — this
         // lets `view_rec(pt_own.0.value.path)` unify with the lemma's
@@ -90,13 +88,10 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
+
     let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS as int - 1];
 
-    let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::new(
-        pt_own.0,
-        start_idx as usize,
-        guard_perm,
-    );
+    let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::new(pt_own.0, start_idx as usize, root_guard);
 
     // The re-try loop of finding the sub-tree root.
     //
@@ -114,76 +109,64 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     #[verus_spec(with Tracked(&mut cursor_own), Tracked(regions), Tracked(guards))]
     let subtree_root = try_traverse_and_lock_subtree_root(pt, guard, va);
 
-    // Phase 6: `try_traverse_and_lock_subtree_root`'s postcondition now
+    // `try_traverse_and_lock_subtree_root`'s postcondition
     // unconditionally promises `r is Some` (the external_body implementation
     // is the post-retry form).
-    let subtree_root = subtree_root.unwrap();
+    let mut subtree_root = subtree_root.unwrap();
 
     // Once we have locked the sub-tree that is not stray, we won't read any
     // stray nodes in the following traversal since we must lock before reading.
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
-    let subtree_guard = subtree_root.borrow(Tracked(&cont.guard_perm));
     #[verus_spec(with Tracked(&cont.entry_own.node.tracked_borrow().meta_perm))]
-    let guard_level = subtree_guard.level();
+    let guard_level = subtree_root.level();
     proof {
         cursor_own.guard_level = guard_level;
     }
     let cur_node_va = va.start.align_down(page_size(guard_level + 1));
 
-    #[verus_spec(with Tracked(cont.entry_own), Tracked(&cont.guard_perm))]
-    dfs_acquire_lock(guard, subtree_root, cur_node_va, va.clone());
+    #[verus_spec(with Tracked(cont.entry_own), Tracked(&cont.guard), Tracked(guards), Tracked(regions))]
+    dfs_acquire_lock(guard, &mut subtree_root, cur_node_va, va.clone());
 
     let mut path = [None, None, None, None];
     path[guard_level as usize - 1] = Some(subtree_root);
 
-    let res = (
-        Cursor::<'rcu, C, A> {
-            path,
-            rcu_guard: guard,
-            level: guard_level,
-            guard_level,
-            va: va.start,
-            barrier_va: va.clone(),
-            _phantom: PhantomData,
-        },
-        Tracked(cursor_own),
-    );
+    let res = (Cursor::<'rcu, C, A> {
+        path,
+        rcu_guard: guard,
+        level: guard_level,
+        guard_level,
+        va: va.start,
+        barrier_va: va.clone(),
+        _phantom: PhantomData,
+    }, Tracked(cursor_own));
 
-    // Phase 6: locking trust boundary (cluster point).
-    //
-    // After `try_traverse_and_lock_subtree_root` + `dfs_acquire_lock`, the
-    // cursor's operational state reflects a fully locked range, but deriving
-    // the `Cursor::invariants` shape from their current postconditions would
-    // require modeling the full DFS lock acquisition against the ghost
-    // `Guards` state. That model does not exist yet, so the four shape facts
-    // below are consolidated into a single `assume` — one trust line instead
-    // of the previous four admits. Discharging this requires strengthening
-    // `dfs_acquire_lock`'s external_body postcondition to commit to the
-    // cursor's final locked state.
-    //
-    // The preservation of `paths_in_pt` and `item_not_mapped` for lock_range
-    // is handled separately, via `try_traverse_and_lock_subtree_root`'s
-    // postcondition, so it is not part of this trust line.
+    // TODO: the details of the locking mechanism being admitted here
+    // are superseded by the CortenMM version. They should be merged, first
+    // at the spec level, then the code.
     proof {
-        assume(res.0.invariants(*res.1, *regions, *guards) && (*res.1).in_locked_range()
-            && res.0.level < res.0.guard_level && res.0.va < res.0.barrier_va.end && (
-        *res.1).as_page_table_owner() == pt_own && (*res.1).continuations[3].path()
-            == pt_own.0.value.path);
-        assume((forall|i: usize|
-            #![trigger old(regions).slot_owners[i]]
-            old(regions).slot_owners.contains_key(i) && old(
-                regions,
-            ).slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED ==> old(
-                regions,
-            ).slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX) ==> (forall|i: usize|
-            #![trigger regions.slot_owners[i]]
-            regions.slot_owners.contains_key(i)
+        assume(
+            res.0.invariants(*res.1, *regions, *guards)
+            && (*res.1).in_locked_range()
+            && res.0.level == res.0.guard_level
+            && res.0.va < res.0.barrier_va.end
+            && (*res.1).as_page_table_owner() == pt_own
+            && (*res.1).continuations[3].path() == pt_own.0.value.path
+        );
+        assume(
+            (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+            ==>
+            (forall |i: usize| #![trigger regions.slot_owners[i]]
+                regions.slot_owners.contains_key(i)
                 && regions.slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                 ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX));
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+        );
     }
     res
 }
@@ -239,8 +222,21 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& 1 <= final(cursor_own).level <= NR_LEVELS
             &&& final(cursor_own).continuations.dom().contains(final(cursor_own).level - 1)
             &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].inv()
-            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard_perm.pptr() == r.unwrap()
+            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard == r.unwrap()
         },
+        // The subtree root's entry_own is a valid node with matching guard.
+        {
+            let cont = final(cursor_own).continuations[(final(cursor_own).level - 1) as int];
+            &&& cont.entry_own.is_node()
+            &&& cont.entry_own.inv()
+            &&& cont.entry_own.node.unwrap().relate_guard(cont.guard)
+        },
+        // The subtree root is lock_held in guards.
+        final(guards).lock_held(
+            final(cursor_own).continuations[(final(cursor_own).level - 1) as int]
+                .entry_own.node.unwrap().meta_perm.addr()),
+        // regions invariant preserved
+        final(regions).inv(),
         // Locking only allocates fresh page-table nodes from UNUSED slots;
         // it does not mutate any slot that was already in use.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
@@ -262,13 +258,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     pt: &PageTable<C>,
     guard: &'rcu A,
     va: &Range<Vaddr>,
-) -> Option<PPtr<PageTableGuard<'rcu, C>>> {
-    let mut cur_node_guard: Option<PPtr<PageTableGuard<C>>> = None;
-    let tracked mut cur_cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
-    let tracked mut guard_perm: Tracked<GuardPerm<'rcu, C>> = Tracked(cur_cont.guard_perm);
-    proof {
-        cursor_own.continuations.tracked_insert(cursor_own.level - 1, cur_cont);
-    }
+) -> Option<PageTableGuard<'rcu, C>> {
+
+    let mut cur_node_guard: Option<PageTableGuard<'rcu, C>> = None;
 
     let mut cur_pt_addr = pt.root.start_paddr();
 
@@ -297,17 +289,12 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             cur_pt_addr = cur_pte.paddr();
             cur_node_guard = None;
             proof {
-                let ghost next_idx = pte_index::<C>(
-                    va.start,
-                    (end - cur_level) as PagingLevel,
-                ) as usize;
+                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
                 proof_decl! {
-                    let tracked mut new_guard_perm: GuardPerm<'rcu, C>;
+                    let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(
-                    cursor_own.level - 1,
-                );
-                let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard_perm));
+                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
@@ -321,19 +308,17 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         } else {
             // SAFETY: The node must be alive for at least `'rcu` since the
             // address is read from the page table node.
-            let node_ref = PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr);
+            let node_ref = unsafe { PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr) };
             node_ref.lock(guard)
         };
 
-        let mut guard_val = pt_guard.take(Tracked(&mut guard_perm));
         let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
         let tracked node_owner = cont.entry_own.node.tracked_take();
         #[verus_spec(with Tracked(&node_owner.meta_perm))]
-        let stray = guard_val.stray_mut();
+        let stray = pt_guard.stray_mut();
         let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
 
         proof {
-            pt_guard.put(Tracked(&mut guard_perm), guard_val);
             cont.entry_own.node = Some(node_owner);
             cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
         }
@@ -341,24 +326,18 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         if is_stray {
             return None;
         }
-        let mut cur_entry = PageTableGuard::<'rcu, C>::entry(pt_guard, start_idx);
+        let mut cur_entry = pt_guard.entry(start_idx);
         if cur_entry.is_none() {
             let allocated_guard = cur_entry.alloc_if_none(guard).unwrap();
-            let guard_val = allocated_guard.borrow(Tracked(&guard_perm));
-            cur_pt_addr = guard_val.start_paddr();
+            cur_pt_addr = allocated_guard.start_paddr();
             cur_node_guard = Some(allocated_guard);
             proof {
-                let ghost next_idx = pte_index::<C>(
-                    va.start,
-                    (end - cur_level) as PagingLevel,
-                ) as usize;
+                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
                 proof_decl! {
-                    let tracked mut new_guard_perm: GuardPerm<'rcu, C>;
+                    let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(
-                    cursor_own.level - 1,
-                );
-                let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard_perm));
+                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
@@ -373,17 +352,12 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             cur_pt_addr = pt.start_paddr();
             cur_node_guard = None;
             proof {
-                let ghost next_idx = pte_index::<C>(
-                    va.start,
-                    (end - cur_level) as PagingLevel,
-                ) as usize;
+                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
                 proof_decl! {
-                    let tracked mut new_guard_perm: GuardPerm<'rcu, C>;
+                    let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(
-                    cursor_own.level - 1,
-                );
-                let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard_perm));
+                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
@@ -398,19 +372,17 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     } else {
         // SAFETY: The node must be alive for at least `'rcu` since the
         // address is read from the page table node.
-        let node_ref = PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr);
+        let node_ref = unsafe { PageTableNodeRef::<'rcu, C>::borrow_paddr(cur_pt_addr) };
         node_ref.lock(guard)
     };
 
-    let mut guard_val = pt_guard.take(Tracked(&mut guard_perm));
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let tracked node_owner = cont.entry_own.node.tracked_take();
     #[verus_spec(with Tracked(&node_owner.meta_perm))]
-    let stray = guard_val.stray_mut();
+    let stray = pt_guard.stray_mut();
     let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
 
     proof {
-        pt_guard.put(Tracked(&mut guard_perm), guard_val);
         cont.entry_own.node = Some(node_owner);
         cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
     }
@@ -418,6 +390,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     if is_stray {
         return None;
     }
+
     Some(pt_guard)
 }
 
@@ -429,24 +402,49 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 /// The function will forget all the [`PageTableGuard`] objects in the sub-tree.
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
-        Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
+        Tracked(guard_ref): Tracked<&PageTableGuard<'rcu, C>>,
+        Tracked(guards): Tracked<&mut Guards<'rcu, C>>,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>
+    requires
+        entry_own.is_node(),
+        entry_own.inv(),
+        entry_own.node.unwrap().relate_guard(*cur_node),
+        old(guards).lock_held(entry_own.node.unwrap().meta_perm.addr()),
+        cur_node_va <= va_range.start,
+        va_range.start < va_range.end,
+        old(regions).inv(),
+    ensures
+        // The root node is still lock_held (not ManuallyDrop'd by this fn).
+        final(guards).lock_held(entry_own.node.unwrap().meta_perm.addr()),
+        // All other locks are preserved: addresses not in this subtree are unchanged.
+        forall |addr: usize|
+            addr != entry_own.node.unwrap().meta_perm.addr()
+            && old(guards).guards.contains_key(addr) ==>
+            #[trigger] final(guards).guards[addr] == old(guards).guards[addr]
+            && final(guards).guards.contains_key(addr),
+        // Addresses not in old guards don't appear in final guards
+        // (acquire + ManuallyDrop is a no-op on the guards map for child addrs).
+        forall |addr: usize|
+            !old(guards).guards.contains_key(addr) ==>
+            !#[trigger] final(guards).guards.contains_key(addr),
+        // regions preserved
+        final(regions).inv(),
+        final(regions).slot_owners =~= old(regions).slot_owners,
 )]
 #[verifier::external_body]
 fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &A,
-    cur_node: PPtr<PageTableGuard<'rcu, C>>,
+    cur_node: &mut PageTableGuard<'rcu, C>,
     cur_node_va: Vaddr,
     va_range: Range<Vaddr>,
 ) {
-    //    debug_assert!(!*cur_node.stray_mut());
-    let cur_guard = cur_node.borrow(Tracked(guard_perm));
-    let cur_level = cur_guard.level();
+    let cur_level = cur_node.level();
     if cur_level == 1 {
         return ;
     }
     let idx_range = dfs_get_idx_range::<C>(cur_level, cur_node_va, &va_range);
     for i in idx_range {
-        let child = PageTableGuard::<'rcu, C>::entry(cur_node, i);
+        let child = cur_node.entry(i);
         match child.to_ref() {
             ChildRef::PageTable(pt) => {
                 let mut pt_guard = pt.lock(guard);
@@ -454,7 +452,7 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
                 let child_node_va_end = child_node_va + page_size(cur_level);
                 let va_start = va_range.start.max(child_node_va);
                 let va_end = va_range.end.min(child_node_va_end);
-                dfs_acquire_lock(guard, pt_guard, child_node_va, va_start..va_end);
+                dfs_acquire_lock(guard, &mut pt_guard, child_node_va, va_start..va_end);
                 let _ = ManuallyDrop::new(pt_guard);
             },
             ChildRef::None | ChildRef::Frame(_, _, _) => {},
@@ -470,40 +468,35 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// and all guards are forgotten.
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
-        Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>,
         Tracked(guards): Tracked<&mut Guards<'rcu, C>>
 )]
 #[verifier::external_body]
 unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
-    cur_node: PPtr<PageTableGuard<'rcu, C>>,
+    cur_node: &mut PageTableGuard<'rcu, C>,
     cur_node_va: Vaddr,
     va_range: Range<Vaddr>,
 ) {
-    let cur_guard = cur_node.borrow(Tracked(guard_perm));
-    let cur_level = cur_guard.level();
+    let cur_level = cur_node.level();
     if cur_level == 1 {
         return ;
     }
     let idx_range = dfs_get_idx_range::<C>(cur_level, cur_node_va, &va_range);
     let end = idx_range.end;
     for i in idx_range {
-        let child = PageTableGuard::<'rcu, C>::entry(cur_node, end - i);
+        let child = cur_node.entry(end - i);
         match child.to_ref() {
             ChildRef::PageTable(pt) => {
                 // SAFETY: The caller ensures that the node is locked and the new guard is unique.
-                proof_decl! {
-                    let tracked mut guard_perm: Tracked<GuardPerm<'rcu, C>>;
-                }
-                #[verus_spec(with Tracked(entry_own.node.tracked_borrow()), Tracked(guards) => Tracked(guard_perm))]
-                let child_node = pt.make_guard_unchecked(guard);
+                #[verus_spec(with Tracked(entry_own.node.tracked_borrow()), Tracked(guards))]
+                let mut child_node = pt.make_guard_unchecked(guard);
                 let child_node_va = cur_node_va + (end - i) * page_size(cur_level);
                 let child_node_va_end = child_node_va + page_size(cur_level);
                 let va_start = va_range.start.max(child_node_va);
                 let va_end = va_range.end.min(child_node_va_end);
                 // SAFETY: The caller ensures that all the nodes in the sub-tree are locked and all
                 // guards are forgotten.
-                dfs_release_lock(guard, child_node, child_node_va, va_start..va_end);
+                dfs_release_lock(guard, &mut child_node, child_node_va, va_start..va_end);
             },
             ChildRef::None | ChildRef::Frame(_, _, _) => {},
         }
@@ -543,11 +536,12 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         final(owner).level == old(owner).level,
         final(owner).va == old(owner).va,
         final(owner).prefix == old(owner).prefix,
-        // Preserve the guard_perm for each continuation level
-        final(owner).level <= 4 ==> final(owner).continuations[3].guard_perm == old(owner).continuations[3].guard_perm,
-        final(owner).level <= 3 ==> final(owner).continuations[2].guard_perm == old(owner).continuations[2].guard_perm,
-        final(owner).level <= 2 ==> final(owner).continuations[1].guard_perm == old(owner).continuations[1].guard_perm,
-        final(owner).level == 1 ==> final(owner).continuations[0].guard_perm == old(owner).continuations[0].guard_perm,
+        final(owner).popped_too_high == old(owner).popped_too_high,
+        // Preserve the guard for each continuation level
+        final(owner).level <= 4 ==> final(owner).continuations[3].guard == old(owner).continuations[3].guard,
+        final(owner).level <= 3 ==> final(owner).continuations[2].guard == old(owner).continuations[2].guard,
+        final(owner).level <= 2 ==> final(owner).continuations[1].guard == old(owner).continuations[1].guard,
+        final(owner).level == 1 ==> final(owner).continuations[0].guard == old(owner).continuations[0].guard,
         final(owner).continuations[final(owner).level - 1].children[final(owner).continuations[final(owner).level - 1].idx as int].unwrap().value.is_absent(),
         // entry_own at current level is preserved
         final(owner).continuations[final(owner).level - 1].entry_own == old(owner).continuations[old(owner).level - 1].entry_own,
@@ -569,7 +563,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 #[verifier::external_body]
 pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
     rcu_guard: &A,
-    sub_tree: PPtr<PageTableGuard<'a, C>>,
+    sub_tree: &PageTableGuard<'a, C>,
 ) -> usize {
     unimplemented!();
     /*
@@ -609,19 +603,153 @@ pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
     num_frames*/
 }
 
-#[verifier::external_body]
+/// Spec-level ceiling division: `ceil(x / d)` for non-negative `x` and positive `d`.
+pub open spec fn ceil_div(x: int, d: int) -> int
+    recommends d > 0, x >= 0
+{
+    (x + d - 1) / d
+}
+
+pub open spec fn idx_range_spec(
+    cur_node_level: PagingLevel,
+    cur_node_va: Vaddr,
+    va_start: Vaddr,
+    va_end: Vaddr,
+) -> (usize, usize) {
+    let ps = page_size(cur_node_level) as int;
+    let start_idx = ((va_start - cur_node_va) as int) / ps;
+    let end_idx = ceil_div((va_end - cur_node_va) as int, ps);
+    (start_idx as usize, end_idx as usize)
+}
+
+#[verus_spec(ret =>
+    requires
+        1 <= cur_node_level <= NR_LEVELS,
+        cur_node_va <= va_range.start,
+        va_range.start < va_range.end,
+        va_range.end <= cur_node_va + page_size((cur_node_level + 1) as PagingLevel),
+        cur_node_va % page_size((cur_node_level + 1) as PagingLevel) == 0,
+        va_range.start % page_size(cur_node_level) == 0,
+    ensures
+        ret.start == idx_range_spec(cur_node_level, cur_node_va, va_range.start, va_range.end).0,
+        ret.end == idx_range_spec(cur_node_level, cur_node_va, va_range.start, va_range.end).1,
+        ret.start < ret.end,
+        ret.end <= NR_ENTRIES,
+)]
 fn dfs_get_idx_range<C: PagingConstsTrait>(
     cur_node_level: PagingLevel,
     cur_node_va: Vaddr,
     va_range: &Range<Vaddr>,
 ) -> Range<usize> {
-    //    debug_assert!(va_range.start >= cur_node_va);
-    //    debug_assert!(va_range.end <= cur_node_va.saturating_add(page_size(cur_node_level + 1)));
-    let start_idx = (va_range.start - cur_node_va) / page_size(cur_node_level);
-    let end_idx = (va_range.end - cur_node_va).div_ceil(page_size(cur_node_level));
+    let ps = page_size(cur_node_level);
+    let diff = va_range.end - cur_node_va;
 
-    //    debug_assert!(start_idx < end_idx);
-    //    debug_assert!(end_idx <= nr_subpage_per_huge::<C>());
+    proof {
+        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
+        use vstd::arithmetic::div_mod::*;
+        lemma_page_size_ge_page_size(cur_node_level);
+        lemma_page_size_spec_values();
+        lemma_nr_entries_times_sub_page_size((cur_node_level + 1) as PagingLevel);
+
+        // diff + ps - 1 fits in usize: both <= page_size(5) = 2^48
+        assert(diff as int + ps as int - 1 < usize::MAX as int);
+    }
+
+    let start_idx = (va_range.start - cur_node_va) / ps;
+    let end_idx = (diff + ps - 1) / ps;
+
+    proof {
+        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
+        use vstd::arithmetic::div_mod::*;
+
+        let ai = ps as int;
+        let xi = diff as int;
+        let si = (va_range.start - cur_node_va) as int;
+
+        // -- start_idx < end_idx --
+        // si < xi (non-empty range), si % ai == 0 (both endpoints aligned).
+        // So si/ai < (xi + ai - 1)/ai.
+        //
+        // Proof: si + ai <= xi + ai - 1 + 1 = xi + ai, but more precisely:
+        //   si < xi ==> si <= xi - 1 (integers)
+        //   ==> si + ai - 1 <= xi - 1 + ai - 1 < xi + ai - 1
+        //   ==> (si + ai - 1)/ai <= (xi + ai - 1)/ai  (since si % ai == 0, si/ai = (si+ai-1)/ai)
+        //
+        // Actually the simplest route: si/ai * ai = si < xi <= end_idx * ai.
+        assert(start_idx < end_idx) by {
+            // si = start_idx * ai (exact division since si % ai == 0)
+            lemma_page_size_divides(cur_node_level, (cur_node_level + 1) as PagingLevel);
+            // Prove si % ai == 0: va_range.start and cur_node_va are both multiples of ps.
+            // cur_node_va % ps == 0: cur_node_va % page_size(level+1) == 0 and ps | page_size(level+1).
+            let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
+            assert(psu % ai == 0);
+            assert(cur_node_va as int % ai == 0) by {
+                // cur_node_va % psu == 0, psu % ai == 0
+                // ==> cur_node_va is a multiple of ai
+                lemma_fundamental_div_mod(cur_node_va as int, psu);
+                lemma_fundamental_div_mod(psu, ai);
+                let k = cur_node_va as int / psu;
+                let m = psu / ai;
+                // lemma gives: cur_node_va == psu * k + (cur_node_va % psu)
+                //              psu == ai * m + (psu % ai)
+                assert(cur_node_va as int == psu * k + cur_node_va as int % psu);
+                assert(psu == ai * m + psu % ai);
+                assert(cur_node_va as int == (m * k) * ai) by(nonlinear_arith)
+                    requires
+                        cur_node_va as int == psu * k + 0,
+                        psu == ai * m + 0,
+                        cur_node_va as int % psu == 0,
+                        psu % ai == 0;
+                lemma_mod_multiples_basic(m * k, ai);
+            };
+            assert(si % ai == 0) by {
+                // va_range.start = si + cur_node_va, both multiples of ai
+                // si % ai + cur_node_va % ai == va_range.start % ai (mod ai)
+                assert(si + cur_node_va as int == va_range.start as int);
+                lemma_mod_adds(si, cur_node_va as int, ai);
+                // gives: si%ai + 0 == 0 + ai * ((si%ai + 0)/ai)
+                // so si%ai == ai * (si%ai / ai)
+                // since 0 <= si%ai < ai, si%ai / ai == 0, so si%ai == 0
+            };
+
+            // start_idx * ai = si (exact division since si % ai == 0)
+            lemma_fundamental_div_mod(si, ai);
+            // si == ai * (si / ai) + (si % ai) == ai * start_idx + 0
+            vstd::arithmetic::mul::lemma_mul_is_commutative(ai, si / ai);
+
+            // end_idx * ai >= xi: ceil_div(xi, ai) * ai >= xi
+            lemma_fundamental_div_mod(xi + ai - 1, ai);
+            let qi = (xi + ai - 1) / ai;
+            let ri = (xi + ai - 1) % ai;
+            // xi + ai - 1 == ai * qi + ri
+            assert(xi + ai - 1 == ai * qi + ri);
+            vstd::arithmetic::mul::lemma_mul_is_commutative(ai, qi);
+            assert(qi * ai >= xi) by(nonlinear_arith)
+                requires xi + ai - 1 == qi * ai + ri, 0 <= ri < ai, ai > 0;
+
+            assert(start_idx as int * ai < end_idx as int * ai) by(nonlinear_arith)
+                requires
+                    start_idx as int * ai == si,
+                    end_idx as int * ai >= xi,
+                    si < xi;
+            vstd::arithmetic::mul::lemma_mul_strict_inequality_converse(
+                start_idx as int, end_idx as int, ai);
+        };
+
+        // -- end_idx <= NR_ENTRIES --
+        // diff <= page_size(level+1) = NR_ENTRIES * ps
+        // So ceil_div(diff, ps) <= NR_ENTRIES.
+        let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
+        assert(psu == NR_ENTRIES as int * ai);
+        assert(xi <= psu);
+        // (psu + ai - 1) / ai == NR_ENTRIES (since psu = NR_ENTRIES * ai)
+        assert(psu + ai - 1 == NR_ENTRIES as int * ai + (ai - 1)) by(nonlinear_arith)
+            requires psu == NR_ENTRIES as int * ai;
+        lemma_fundamental_div_mod_converse(psu + ai - 1, ai, NR_ENTRIES as int, ai - 1);
+        // So (psu + ai - 1) / ai == NR_ENTRIES
+        // xi + ai - 1 <= psu + ai - 1, so end_idx = (xi+ai-1)/ai <= (psu+ai-1)/ai = NR_ENTRIES
+        lemma_div_is_ordered(xi + ai - 1, psu + ai - 1, ai);
+    }
 
     start_idx..end_idx
 }

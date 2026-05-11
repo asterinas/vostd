@@ -14,11 +14,11 @@ use vstd_extra::ownership::*;
 use super::*;
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::AnyFrameMeta;
-use crate::mm::PagingLevel;
+use crate::mm::{Paddr, PagingLevel};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
-use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
+use crate::specs::mm::frame::mapping::{meta_addr, meta_to_frame, META_SLOT_SIZE};
 
 verus! {
 
@@ -55,6 +55,11 @@ pub enum PageUsage {
     Meta,
     /// The page stores the kernel such as kernel code, data, etc.
     Kernel,
+    /// The page maps memory-mapped I/O (MMIO). Untracked: no refcount, slot
+    /// stays in the free pool, but distinguishable from `Unused` so the
+    /// kernel allocator never collides with an MMIO mapping.
+    #[allow(dead_code)]
+    MMIO,
 }
 
 impl PageUsage {
@@ -66,6 +71,7 @@ impl PageUsage {
             PageUsage::PageTable => 64,
             PageUsage::Meta => 65,
             PageUsage::Kernel => 66,
+            PageUsage::MMIO => 67,
         }
     }
 
@@ -87,6 +93,39 @@ impl PageUsage {
         }
     }
 }
+
+/// Whether `pa` falls in an MMIO physical-address range. Uninterpreted at the
+/// spec level — concrete arch- and machine-specific MMIO range layouts are
+/// outside the verification surface, but the kernel allocator (which picks
+/// slots with `PageUsage::Unused`) is guaranteed disjoint from MMIO mappings.
+pub uninterp spec fn is_mmio_paddr(pa: Paddr) -> bool;
+
+/// Connects a slot's `PageUsage::MMIO` discriminant to its paddr's range
+/// membership. Used to derive disjointness between MMIO mappings and the
+/// regular allocator pool: a slot can be `MMIO` iff its paddr is in MMIO
+/// range, so a slot with `usage != MMIO` (e.g. `Unused`) cannot share an idx
+/// with any MMIO mapping.
+pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
+    ensures
+        (#[trigger] slot.usage == PageUsage::MMIO)
+            <==> is_mmio_paddr(meta_to_frame(slot.self_addr));
+
+/// MMIO ranges are aligned to (and closed under) huge-page granularities:
+/// every sub-paddr within a huge frame inherits the huge frame's MMIO-ness.
+/// This is a hardware-layout convention — MMIO BARs are mapped at huge-page
+/// boundaries, and the verified `split_if_mapped_huge` relies on it to
+/// transfer MMIO-ness from a huge frame to its 4KB sub-pages. Non-broadcast:
+/// callers invoke this explicitly with the relevant `page_size`.
+pub axiom fn axiom_mmio_paddr_huge_page_closed(
+    pa: crate::mm::Paddr,
+    page_size: usize,
+    offset: usize,
+)
+    requires
+        pa % page_size == 0,
+        offset < page_size,
+    ensures
+        is_mmio_paddr((pa + offset) as crate::mm::Paddr) == is_mmio_paddr(pa);
 
 pub const REF_COUNT_UNUSED: u64 = u64::MAX;
 
@@ -225,7 +264,7 @@ impl Inv for MetaSlotOwner {
         &&& 0 < self.inner_perms.ref_count.value() <= REF_COUNT_MAX ==> {
             &&& self.inner_perms.vtable_ptr.is_init()
         }
-        &&& REF_COUNT_MAX <= self.inner_perms.ref_count.value() < REF_COUNT_UNIQUE ==> { false }
+        &&& REF_COUNT_MAX < self.inner_perms.ref_count.value() < REF_COUNT_UNIQUE ==> { false }
         &&& self.inner_perms.ref_count.value() == 0 ==> {
             &&& self.inner_perms.in_list.value() == 0
         }
@@ -255,7 +294,7 @@ impl Inv for MetaSlotModel {
             0 => {
                 &&& self.in_list == 0
             },
-            _ if self.ref_count < REF_COUNT_MAX => { &&& self.vtable_ptr.is_init() },
+            _ if self.ref_count <= REF_COUNT_MAX => { &&& self.vtable_ptr.is_init() },
             _ => { false },
         }
     }
@@ -275,7 +314,7 @@ impl View for MetaSlotOwner {
             REF_COUNT_UNUSED => MetaSlotStatus::UNUSED,
             REF_COUNT_UNIQUE => MetaSlotStatus::UNIQUE,
             0 => MetaSlotStatus::UNDER_CONSTRUCTION,
-            _ if ref_count < REF_COUNT_MAX => MetaSlotStatus::SHARED,
+            _ if ref_count <= REF_COUNT_MAX => MetaSlotStatus::SHARED,
             _ => MetaSlotStatus::OVERFLOW,
         };
         MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, self_addr, usage }

@@ -62,12 +62,26 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             let left = self.take_child_spec().1;
             assert(left.view_mappings().contains(m));
             if self.view_mappings_take_child_spec().contains(m) {
-                // TODO: update the sibling-paths-disjoint reasoning to work
-                // with the canonical vaddr_of form now used by view_rec.
-                // The positional sibling_paths_disjoint::<C> still holds, but
-                // the shift by LEADING_BITS preserves disjointness — just
-                // needs an explicit lift through the +LEADING_BITS*2^48 term.
-                admit();
+                assert(PageTableOwner(self.children[self.idx as int].unwrap())
+                    .view_rec(self.path().push_tail(self.idx as usize)).contains(m));
+                let i = choose|i: int|
+                    0 <= i < left.children.len() && #[trigger] left.children[i] is Some &&
+                    PageTableOwner(left.children[i].unwrap())
+                        .view_rec(left.path().push_tail(i as usize)).contains(m);
+                assert(i != self.idx);
+                assert(PageTableOwner(left.children[i as int].unwrap())
+                    .view_rec(left.path().push_tail(i as usize)).contains(m));
+
+                PageTableOwner(self.children[self.idx as int].unwrap())
+                    .view_rec_vaddr_range(self.path().push_tail(self.idx as usize), m);
+                PageTableOwner(left.children[i as int].unwrap())
+                    .view_rec_vaddr_range(left.path().push_tail(i as usize), m);
+
+                let size = page_size((INC_LEVELS - self.path().len() - 1) as PagingLevel);
+                // Positional disjointness; shift both sides by LEADING_BITS * 2^48.
+                sibling_paths_disjoint::<C>(self.path(), self.idx, i as usize, size);
+                lemma_vaddr_of_eq_int::<C>(self.path().push_tail(self.idx as usize));
+                lemma_vaddr_of_eq_int::<C>(self.path().push_tail(i as usize));
             }
         };
     }
@@ -139,10 +153,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_subtree_eq_filtered_mappings_path(self)
         requires
             self.inv(),
+            self.in_locked_range(),
         ensures ({
-            // Canonical form: the filter boundary includes `leading_bits * 2^48`
-            // so it matches the canonical `m.va_range.start` produced by
-            // `view_rec` via `vaddr_of::<C>`.
             let subtree_va = vaddr_of::<C>(self.cur_subtree().value.path) as int;
             let size = page_size(self.level) as int;
             PageTableOwner(self.cur_subtree())@.mappings ==
@@ -247,6 +259,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_subtree_eq_filtered_mappings(self)
         requires
             self.inv(),
+            self.in_locked_range(),
         ensures ({
             let start = nat_align_down(self@.cur_va as nat, page_size(self.level) as nat) as Vaddr;
             let size = page_size(self.level);
@@ -254,15 +267,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self@.mappings.filter(|m: Mapping| start <= m.va_range.start < start + size)
         }),
     {
-        // TODO: bridge the positional `cur_subtree_eq_filtered_mappings_path`
-        // form to the canonical `nat_align_down(cur_va, ps)` form. Holds
-        // because `m.va_range.start` is canonical (from view_rec using
-        // vaddr_of) and `nat_align_down(cur_va, ps) == vaddr(cur_path) +
-        // leading_bits * 2^48` — the shift cancels in the filter.
-        admit();
+        // Bridge: `nat_align_down(cur_va, ps) as Vaddr == vaddr_of::<C>(cur_path)`.
+        //   _path version filters on `vaddr_of(cur_path)` (canonical).
+        //   to_path_vaddr_concrete + cursor inv + lemma_vaddr_of_eq_int
+        //   identify the two boundaries.
         self.cur_subtree_eq_filtered_mappings_path();
         self.cur_va_in_cont_child_range(self.level - 1);
         self.va.to_path_vaddr_concrete(self.level as int - 1);
+        let cur_path = self.cur_subtree().value.path;
+        let ps = page_size(self.level);
+        lemma_vaddr_of_eq_int::<C>(cur_path);
+        // Bridge nat_align_down's nat→usize cast (no wrap since
+        // nat_align_down(x, _) <= x <= usize::MAX).
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(
+            self@.cur_va as nat, ps as nat);
+        let nad = nat_align_down(self@.cur_va as nat, ps as nat);
+        assert(nad <= self@.cur_va as nat);
+        assert(nad <= usize::MAX);
+        assert((nad as Vaddr) as int == nad as int);
+        assert((nad as Vaddr) as int == vaddr_of::<C>(cur_path) as int);
     }
 
     /// The cursor's VA falls within the canonical VA range of any ancestor
@@ -271,6 +294,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     proof fn cur_va_in_cont_child_range(self, lvl: int)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.level - 1 <= lvl < NR_LEVELS,
         ensures
             vaddr(self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as usize)) as int
@@ -324,6 +348,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     proof fn subtree_va_in_ancestor_range(self, lvl: int)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.level - 1 < lvl < NR_LEVELS,
         ensures ({
             let subtree_va = vaddr(self.cur_subtree().value.path);
@@ -370,6 +395,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn subtree_va_ranges_disjoint(self, j: int)
         requires
             self.inv(),
+            self.in_locked_range(),
             0 <= j < NR_ENTRIES,
             j != self.index(),
             self.continuations[self.level - 1].children[j] is Some,
@@ -403,6 +429,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn higher_level_children_disjoint(self, i: int, j: int)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.level - 1 < i < NR_LEVELS,
             0 <= j < NR_ENTRIES,
             j != self.continuations[i].idx,
@@ -437,13 +464,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn mapping_covering_cur_va_from_cur_subtree(self, m: Mapping)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.view_mappings().contains(m),
             m.va_range.start <= self.cur_va() < m.va_range.end,
         ensures
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(m),
     {
-        // TODO: bridge canonical `cur_va` to positional `vaddr_of(cur_path)`.
-        admit();
         let cur_va = self.cur_va();
 
         // m comes from some continuation level i
@@ -461,6 +487,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let child_j = cont_i.children[j].unwrap();
         let path_j = cont_i.path().push_tail(j as usize);
         PageTableOwner(child_j).view_rec_vaddr_range(path_j, m);
+        // Bridge view_rec_vaddr_range's canonical bounds to the
+        // disjointness lemmas (also canonical after the refactor).
+        lemma_vaddr_of_eq_int::<C>(path_j);
 
         if i == self.level - 1 {
             if j as usize != self.index() {
@@ -478,6 +507,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// Combined replace: swap the lowest continuation, relating old and new mapping sets.
     /// Avoids the Map::remove phantom key issue by requiring both old and new to have inv().
+    #[verifier::rlimit(60)]
     pub proof fn view_mappings_replace_lowest(
         old_self: Self, new_self: Self,
         old_cont: CursorContinuation<'rcu, C>,
@@ -485,6 +515,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             old_self.inv(),
+            old_self.in_locked_range(),
             new_self.inv(),
             old_self.level == new_self.level,
             old_self.continuations[old_self.level - 1] == old_cont,
@@ -500,10 +531,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall |m: Mapping| new_self.view_mappings().contains(m) implies
             ((old_self.view_mappings().contains(m) && !old_cont.view_mappings().contains(m)) || new_cont.view_mappings().contains(m))
         by {
-            // TODO: downstream disjointness reasoning uses
-            // `vaddr(path)` positional bounds; needs lifting to `vaddr_of`
-            // after the Range<int> refactor.
-            admit();
             let i = choose|i: int| level - 1 <= i < NR_LEVELS
                 && #[trigger] new_self.continuations[i].view_mappings().contains(m);
             if i == level - 1 {
@@ -558,6 +585,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                         let sib_size = page_size((INC_LEVELS - cont_i.path().len() - 1) as PagingLevel);
                         sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx, j as usize, sib_size);
+                        // Lift positional disjointness to canonical.
+                        lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(cont_i.idx as usize));
+                        lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(j as usize));
 
                         old_cont.as_subtree_inv();
                         PageTableOwner(old_cont.as_subtree()).view_rec_vaddr_range(old_cont.path(), m);

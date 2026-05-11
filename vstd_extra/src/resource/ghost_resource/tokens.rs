@@ -1,23 +1,26 @@
 use std::borrow::Borrow;
 
-//！ A wrapper around `vstd::tokens::FracGhost` that stores and dispatches fractional access.
+use crate::resource::ghost_resource::count::*;
 use crate::sum::*;
-use vstd::pcm::Loc;
+use vstd::map::*;
+use vstd::modes::tracked_swap;
 use vstd::prelude::*;
-use vstd::tokens::frac::{Empty, Frac, FracGhost};
+use vstd::resource::Loc;
 
 verus! {
 
-/// A struct that stores and dispatches `FracGhost<T>`.
-/// Unlike `FracGhost`, it provides an `empty` state.
+broadcast use {vstd::map::group_map_axioms, vstd::set::group_set_axioms};
+
+/// A struct that stores and dispatches `CountGhost<T>`.
+/// Unlike `CountGhost`, it provides an `empty` state.
 /// It also remembers the value even it is empty.
-pub tracked struct FracGhostResource<T, const TOTAL: u64> {
-    tracked r: Option<FracGhost<T, TOTAL>>,
+pub tracked struct CountGhostResource<T, const TOTAL: u64> {
+    tracked r: Option<CountGhost<T, TOTAL>>,
     ghost snapshot: T,
     ghost id: Loc,
 }
 
-impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
+impl<T, const TOTAL: u64> CountGhostResource<T, TOTAL> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& TOTAL > 0
@@ -34,32 +37,32 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         &&& 0 <= self.frac() <= TOTAL
     }
 
-    /// Whether this `FracGhostResource` is empty, i.e., has no fraction.
+    /// Whether this `CountGhostResource` is empty, i.e., has no fraction.
     pub open spec fn is_empty(self) -> bool {
         self.frac() == 0
     }
 
-    /// Whether the fraction stored in this `FracGhostResource` is less than `TOTAL`.
+    /// Whether the fraction stored in this `CountGhostResource` is less than `TOTAL`.
     pub open spec fn not_empty(self) -> bool {
         !self.is_empty()
     }
 
-    /// Whether this `FracGhostResource` has the full fraction, i.e., `TOTAL`.
+    /// Whether this `CountGhostResource` has the full fraction, i.e., `TOTAL`.
     pub open spec fn is_full(self) -> bool {
         self.frac() == TOTAL
     }
 
-    /// Returns the `FracGhost<T,TOTAL>` stored in this `FracGhostResource`.
-    pub closed spec fn storage(self) -> FracGhost<T, TOTAL> {
+    /// Returns the `CountGhost<T,TOTAL>` stored in this `CountGhostResource`.
+    pub closed spec fn storage(self) -> CountGhost<T, TOTAL> {
         self.r->Some_0
     }
 
-    /// Returns the value of type `T` stored in this `FracGhostResource`.
+    /// Returns the value of type `T` stored in this `CountGhostResource`.
     pub closed spec fn view(self) -> T {
         self.snapshot
     }
 
-    /// The fractions stored in this `FracGhostResource`.
+    /// The fractions stored in this `CountGhostResource`.
     pub closed spec fn frac(self) -> int {
         if self.r is None {
             0int
@@ -73,7 +76,7 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         self.id
     }
 
-    /// Create an arbitrary `FracGhostResource`. Useful as a placeholder.
+    /// Create an arbitrary `CountGhostResource`. Useful as a placeholder.
     pub proof fn arbitrary() -> (tracked res: Self)
         requires
             TOTAL > 0,
@@ -81,7 +84,7 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         Self { r: None, snapshot: arbitrary(), id: arbitrary() }
     }
 
-    /// Allocates a new `FracGhostResource` with the full fraction and the given value.
+    /// Allocates a new `CountGhostResource` with the full fraction and the given value.
     pub proof fn alloc(value: T) -> (tracked res: Self)
         requires
             TOTAL > 0,
@@ -91,12 +94,12 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
             res@ == value,
             res.wf(),
     {
-        let tracked r = FracGhost::new(value);
+        let tracked r = CountGhost::new(value);
         Self { r: Some(r), snapshot: value, id: r.id() }
     }
 
-    /// Splits a `FracGhost` with fraction 1.
-    pub proof fn split_one(tracked &mut self) -> (tracked res: FracGhost<T, TOTAL>)
+    /// Splits a `CountGhost` with fraction 1.
+    pub proof fn split_one(tracked &mut self) -> (tracked res: CountGhost<T, TOTAL>)
         requires
             old(self).not_empty(),
         ensures
@@ -121,8 +124,8 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         }
     }
 
-    /// Splits a `FracGhost` with the given fraction.
-    pub proof fn split(tracked &mut self, n: int) -> (tracked res: FracGhost<T, TOTAL>)
+    /// Splits a `CountGhost` with the given fraction.
+    pub proof fn split(tracked &mut self, n: int) -> (tracked res: CountGhost<T, TOTAL>)
         requires
             1 <= n <= old(self).frac(),
         ensures
@@ -147,8 +150,8 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         }
     }
 
-    /// Combines a `FracGhost`.
-    pub proof fn combine(tracked &mut self, tracked other: FracGhost<T, TOTAL>)
+    /// Combines a `CountGhost`.
+    pub proof fn combine(tracked &mut self, tracked other: CountGhost<T, TOTAL>)
         requires
             old(self).id() == other.id(),
             other@ == old(self)@,
@@ -173,7 +176,7 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         }
     }
 
-    /// `FracGhostResource` satisfies the type invariant.
+    /// `CountGhostResource` satisfies the type invariant.
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
@@ -197,7 +200,7 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         }
     }
 
-    /// Updates the value stored in this `FracGhostResource`.
+    /// Updates the value stored in this `CountGhostResource`.
     /// The fraction must be full before the update.
     pub proof fn update(tracked &mut self, value: T)
         requires
@@ -216,18 +219,18 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
     }
 }
 
-pub type TokenResource<const TOTAL: u64> = FracGhostResource<(), TOTAL>;
+pub type TokenResource<const TOTAL: u64> = CountGhostResource<(), TOTAL>;
 
-pub type Token<const TOTAL: u64> = FracGhost<(), TOTAL>;
+pub type Token<const TOTAL: u64> = CountGhost<(), TOTAL>;
 
 /// A struct that stores and dispatches `Frac<T>`.
 /// Unlike `Frac`, it provides an `empty` state.
-pub tracked struct FracResource<T, const TOTAL: u64> {
-    tracked r: Option<Frac<T, TOTAL>>,
+pub tracked struct CountResource<T, const TOTAL: u64> {
+    tracked r: Option<Count<T, TOTAL>>,
     ghost id: Loc,
 }
 
-impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
+impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         &&& TOTAL > 0
@@ -238,8 +241,8 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         }
     }
 
-    /// Returns the `Frac<T,TOTAL>` stored in this `FracResource`.
-    pub closed spec fn storage(self) -> Frac<T, TOTAL> {
+    /// Returns the `Count<T,TOTAL>` stored in this `CountResource`.
+    pub closed spec fn storage(self) -> Count<T, TOTAL> {
         self.r->Some_0
     }
 
@@ -250,33 +253,33 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         &&& self.type_inv()
     }
 
-    /// Whether this `FracResource` is empty, i.e., has no fraction.
+    /// Whether this `CountResource` is empty, i.e., has no fraction.
     pub open spec fn is_empty(self) -> bool {
         self.frac() == 0
     }
 
-    /// Whether the fraction stored in this `FracResource` is less than `TOTAL`.
+    /// Whether the fraction stored in this `CountResource` is less than `TOTAL`.
     pub open spec fn not_empty(self) -> bool {
         !self.is_empty()
     }
 
-    /// Whether this `FracResource` has the full fraction, i.e., `TOTAL`.
+    /// Whether this `CountResource` has the full fraction, i.e., `TOTAL`.
     pub open spec fn is_full(self) -> bool {
         self.frac() == TOTAL
     }
 
-    /// Returns the value of type `T` stored in this `FracResource`.
+    /// Returns the value of type `T` stored in this `CountResource`.
     pub closed spec fn resource(self) -> T {
         self.storage().resource()
     }
 
-    /// Returns the value of type `T` stored in this `FracResource`. It is an alias of `Self::resource`.
+    /// Returns the value of type `T` stored in this `CountResource`. It is an alias of `Self::resource`.
     #[verifier::inline]
     pub open spec fn view(self) -> T {
         self.resource()
     }
 
-    /// The fractions stored in this `FracResource`.
+    /// The fractions stored in this `CountResource`.
     pub closed spec fn frac(self) -> int {
         if self.r is None {
             0int
@@ -290,7 +293,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         self.id
     }
 
-    /// Create an arbitrary `FracResource`. Useful as a placeholder.
+    /// Create an arbitrary `CountResource`. Useful as a placeholder.
     pub proof fn arbitrary() -> (tracked res: Self)
         requires
             TOTAL > 0,
@@ -298,7 +301,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         Self { r: None, id: arbitrary() }
     }
 
-    /// Allocates a new `FracResource` with the given tracked object.
+    /// Allocates a new `CountResource` with the given tracked object.
     pub proof fn alloc(tracked value: T) -> (tracked res: Self)
         requires
             TOTAL > 0,
@@ -308,13 +311,15 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
             res@ == value,
             res.wf(),
     {
-        let tracked r = Frac::new(value);
+        let tracked r = Count::new(value);
         Self { r: Some(r), id: r.id() }
     }
 
-    /// Allocates a new `FracResource` from an `Empty<T,TOTAL>` with the given tracked object.
-    pub proof fn alloc_from_empty(tracked empty: Empty<T, TOTAL>, tracked value: T) -> (tracked res:
-        Self)
+    /// Allocates a new `CountResource` from an `EmptyCount<T,TOTAL>` with the given tracked object.
+    pub proof fn alloc_from_empty(
+        tracked empty: EmptyCount<T, TOTAL>,
+        tracked value: T,
+    ) -> (tracked res: Self)
         requires
             TOTAL > 0,
         ensures
@@ -327,8 +332,8 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         Self { r: Some(r), id: r.id() }
     }
 
-    /// Splits a `Frac` with fraction 1.
-    pub proof fn split_one(tracked &mut self) -> (tracked res: Frac<T, TOTAL>)
+    /// Splits a `Count` with fraction 1.
+    pub proof fn split_one(tracked &mut self) -> (tracked res: Count<T, TOTAL>)
         requires
             old(self).not_empty(),
         ensures
@@ -353,8 +358,8 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         }
     }
 
-    /// Splits a `Frac` with the given fraction.
-    pub proof fn split(tracked &mut self, n: int) -> (tracked res: Frac<T, TOTAL>)
+    /// Splits a `Count` with the given fraction.
+    pub proof fn split(tracked &mut self, n: int) -> (tracked res: Count<T, TOTAL>)
         requires
             1 <= n <= old(self).frac(),
         ensures
@@ -379,8 +384,8 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         }
     }
 
-    /// Combines a `Frac`.
-    pub proof fn combine(tracked &mut self, tracked other: Frac<T, TOTAL>)
+    /// Combines a `Count`.
+    pub proof fn combine(tracked &mut self, tracked other: Count<T, TOTAL>)
         requires
             old(self).id() == other.id(),
         ensures
@@ -406,7 +411,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         }
     }
 
-    /// `FracResource` satisfies the type invariant.
+    /// `CountResource` satisfies the type invariant.
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
@@ -430,7 +435,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         }
     }
 
-    pub proof fn validate_with_frac(tracked &self, tracked frac: &Frac<T, TOTAL>)
+    pub proof fn validate_with_frac(tracked &self, tracked frac: &Count<T, TOTAL>)
         requires
             self.id() == frac.id(),
             self.frac() > 0,
@@ -442,7 +447,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
     }
 
     /// Consumes the token and takes out the resource.
-    pub proof fn take_resource(tracked self) -> (tracked (res, empty): (T, Empty<T, TOTAL>))
+    pub proof fn take_resource(tracked self) -> (tracked (res, empty): (T, EmptyCount<T, TOTAL>))
         requires
             self.is_full(),
         ensures
@@ -454,7 +459,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         r.take_resource()
     }
 
-    /// Updates the resource stored in this `FracResource` and retunrs the old resource if it exists.
+    /// Updates the resource stored in this `CountResource` and retunrs the old resource if it exists.
     /// The fraction must be full before the update.
     pub proof fn update(tracked &mut self, tracked value: T) -> (tracked res: T)
         requires

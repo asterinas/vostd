@@ -169,7 +169,10 @@ pub trait PagingConstsTrait: Debug + Sync {
     spec fn VA_SIGN_EXT_spec() -> bool;
 
     #[verifier::when_used_as_spec(VA_SIGN_EXT_spec)]
-    fn VA_SIGN_EXT() -> bool;
+    fn VA_SIGN_EXT() -> (res: bool)
+        ensures
+            res == Self::VA_SIGN_EXT_spec(),
+    ;
 }
 
 #[verifier::inline]

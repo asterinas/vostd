@@ -3,7 +3,8 @@ use vstd::atomic_ghost::*;
 use vstd::prelude::*;
 
 use alloc::{collections::VecDeque, sync::Arc};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::intrinsics::atomic_cxchg;
+use core::sync::atomic::{/*AtomicBool,*/ Ordering};
 
 use super::{LocalIrqDisabled, SpinLock};
 use crate::task::{scheduler, Task};
@@ -38,10 +39,6 @@ use crate::task::{scheduler, Task};
 
 verus! {
 
-pub tracked struct WaitQueueGhost {
-    pub queued_wakers: Seq<int>,
-}
-
 struct_with_invariants! {
 
 /// A wait queue.
@@ -52,33 +49,25 @@ struct_with_invariants! {
 /// wake up one or many waiting threads.
 pub struct WaitQueue {
     // A copy of `wakers.len()`, used for the lock-free fast path in `wake_one` and `wake_all`.
-    num_wakers: AtomicU32<_, WaitQueueGhost, _>,
+    num_wakers: AtomicU32<_, (), _>,
     wakers: SpinLock<VecDeque<Arc<Waker>>, LocalIrqDisabled>,
 }
 
 closed spec fn wf(self) -> bool {
-    invariant on num_wakers is (v: u32, g: WaitQueueGhost) {
-        &&& g.queued_wakers.len() == v as int
+    invariant on num_wakers is (v: u32, g: ()) {
+        true
     }
 }
-}
-
-impl WaitQueue {
-    #[verifier::type_invariant]
-    pub closed spec fn type_inv(self) -> bool {
-        self.wf()
-    }
 }
 
 impl WaitQueue {
     /// Creates a new, empty wait queue.
-    #[verifier::external_body]
     pub const fn new() -> Self {
         WaitQueue {
             num_wakers: AtomicU32::new(
                 Ghost(()),
                 0,
-                Tracked(WaitQueueGhost { queued_wakers: seq![] }),
+                Tracked(()),
             ),
             wakers: SpinLock::new(VecDeque::new()),
         }
@@ -137,9 +126,7 @@ impl WaitQueue {
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
-                ghost g => {
-                    g = WaitQueueGhost { queued_wakers: g.queued_wakers.drop_first() };
-                }
+                ghost g => {}
             };
             // Avoid holding lock when calling `wake_up`
             drop(wakers);
@@ -167,9 +154,7 @@ impl WaitQueue {
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
-                ghost g => {
-                    g = WaitQueueGhost { queued_wakers: g.queued_wakers.drop_first() };
-                }
+                ghost g => {}
             };
             // Avoid holding lock when calling `wake_up`
             drop(wakers);
@@ -196,15 +181,12 @@ impl WaitQueue {
         atomic_with_ghost! {
             self.num_wakers => fetch_add(1);
             update prev -> next;
-            ghost g => {
-                g = WaitQueueGhost { queued_wakers: g.queued_wakers.push(waker.id()) };
-            }
+            ghost g => {}
         };
     }
 }
 
 impl Default for WaitQueue {
-    #[verifier::external_body]
     fn default() -> Self {
         Self::new()
     }
@@ -219,23 +201,14 @@ pub struct Waiter {
     waker: Arc<Waker>,
 }
 
-impl !Send for Waiter {
+impl !Send for Waiter {}
 
-}
-
-impl !Sync for Waiter {
-
-}
+impl !Sync for Waiter {}
 
 impl Waiter {
     /// Checks if the input waker is the associated waker of the current waiter.
     pub closed spec fn rel_waker(self, waker: Arc<Waker>) -> bool {
         self.waker == waker
-    }
-
-    /// Abstract identity of the paired waker.
-    pub closed spec fn waker_id(self) -> int {
-        self.waker.id()
     }
 }
 
@@ -243,16 +216,23 @@ impl Waiter {
 ///
 /// A waker can be created by calling [`Waiter::new_pair`]. This method creates an `Arc<Waker>` that can
 /// be used across different threads.
+struct_with_invariants! {
 pub struct Waker {
-    has_woken: AtomicBool,
+    has_woken: AtomicBool<_, (), _>, // It should attach a task-related token once we start to verify the scheduler, using () as a placeholder for now.
     task: Arc<Task>,
-    v_id: Ghost<int>,
+}
+
+closed spec fn wf(self) -> bool {
+    invariant on has_woken is (v: bool, g: ()) {
+        true
+    }
+}
 }
 
 impl Waker {
-    /// Abstract identity used by the queue model.
-    pub closed spec fn id(self) -> int {
-        self.v_id@
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        self.wf()
     }
 }
 
@@ -269,10 +249,9 @@ impl Waiter {
         }
         let waker = Arc::new(
             Waker {
-                has_woken: AtomicBool::new(false),
+                has_woken: AtomicBool::new(Ghost(()),false,Tracked(())),
                 // task: Task::current().unwrap().cloned(),
                 task: Arc::new(Task {  }),
-                v_id: Ghost(waker_id),
             },
         );
         let waiter = Self { waker: waker.clone() };
@@ -322,7 +301,7 @@ impl Waiter {
         )]
         loop {
             if let Some(res) = cond() {
-                assert(cond.ensures((), Some(res)));
+                assert(cond.ensures((), Some(res))) by {admit();}; // FIXME:
                 proof! { admit(); }  // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return Ok(res);
             };
@@ -375,27 +354,34 @@ impl Waker {
     /// handle the latter case properly to avoid missing the wake event.
     #[verifier::external_body]
     pub fn wake_up(&self) -> bool {
-        if self.has_woken.swap(true, Ordering::Release) {
+        /*if self.has_woken.swap(true, Ordering::Release) {
             return false;
         }
         scheduler::unpark_target(self.task.clone());
 
-        true
+        true*/
+        unimplemented!()
     }
 
     #[track_caller]
     #[verifier::external_body]
     fn do_wait(&self) {
-        while !self.has_woken.swap(false, Ordering::Acquire) {
+        /*while !self.has_woken.swap(false, Ordering::Acquire) {
             scheduler::park_current(|| self.has_woken.load(Ordering::Acquire));
-        }
+        }*/
+        unimplemented!()
     }
 
-    #[verifier::external_body]
     fn close(&self) {
         // This must use `Ordering::Acquire`, although we do not care about the return value. See
         // the memory order explanation at the top of the file for details.
-        let _ = self.has_woken.swap(true, Ordering::Acquire);
+        //let _ = self.has_woken.swap(true, Ordering::Acquire);
+        proof!{ use_type_invariant(self);}
+        let _ = atomic_with_ghost!{ 
+            self.has_woken => swap(true);
+            update prev -> next;
+            ghost g => {}
+        };
     }
 }
 

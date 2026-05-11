@@ -129,8 +129,14 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
+    /// Post-map cursor position: always advance by `size` from the aligned base.
+    /// Matches `cursor.map` exec semantics (always calls `move_forward`, advancing by
+    /// `page_size(level)` regardless of alignment).
+    ///
+    /// Do NOT substitute `vstd_extra::arithmetic::nat_align_up` here — that function
+    /// leaves already-aligned inputs unchanged, which would mismatch exec.
     pub open spec fn align_up_spec(self, size: usize) -> Vaddr {
-        nat_align_up(self.cur_va as nat, size as nat) as Vaddr
+        (nat_align_down(self.cur_va as nat, size as nat) + size as nat) as Vaddr
     }
 
     pub open spec fn split_index(m: Mapping, new_size: usize, n: usize) -> Mapping {

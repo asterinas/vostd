@@ -28,9 +28,6 @@ use crate::prelude::Inv;
 use crate::specs::arch::mm::MAX_PADDR;
 use crate::specs::mm::page_table::Mapping;
 
-#[path = "virt_mem_example.rs"]
-mod virt_mem_example;
-
 verus! {
 
 /// Specification-level virtual pointer with an associated half-open range.
@@ -556,6 +553,8 @@ impl VirtPtr {
             0 < self.vaddr + n < usize::MAX,
             self.range@.start <= self.vaddr + n < self.range@.end,
             old(mem).addr_transl((self.vaddr + n) as usize) is Some,
+        ensures
+            *final(mem) == self.write_offset_spec(*old(mem), n, x),
     {
         let mut tmp = self.clone();
         tmp.add(n);
@@ -599,11 +598,9 @@ impl VirtPtr {
         ensures
             *final(mem_dst) == Self::copy_offset_spec(*src, *dst, *mem_src, *old(mem_dst), n),
             final(mem_dst).mappings == old(mem_dst).mappings,
-            final(mem_dst).memory.dom() == old(mem_dst).memory.dom(),
-
+            old(mem_dst).memory.dom().subset_of(final(mem_dst).memory.dom()),
     {
         let x = src.read_offset(Tracked(mem_src), n);
-        proof { admit() };
         dst.write_offset(Tracked(mem_dst), n, x)
     }
 
@@ -671,7 +668,8 @@ impl VirtPtr {
         ensures
             *final(mem_dst) == Self::memcpy_spec(*src, *dst, *mem_src, *old(mem_dst), n),
             final(mem_dst).mappings == old(mem_dst).mappings,
-            final(mem_dst).memory.dom() == old(mem_dst).memory.dom(),
+            // dom() can only grow (writes may insert new pa keys).
+            old(mem_dst).memory.dom().subset_of(final(mem_dst).memory.dom()),
             forall|i: usize|
                 #![trigger final(mem_dst).addr_transl(i)]
                 dst.vaddr <= i < dst.vaddr + n ==> {
@@ -765,6 +763,12 @@ impl VirtPtr {
         };
 
         (left, right)
+    }
+
+    pub fn addr(&self) -> Vaddr
+        returns self.vaddr
+    {
+        self.vaddr
     }
 }
 
@@ -965,10 +969,23 @@ impl GlobalMemView {
     pub proof fn lemma_va_mapping_unique(self, va: usize)
         requires
             self.inv(),
+            // Some mapping must cover `va` for the filter to be non-empty.
+            self.addr_transl(va) is Some,
         ensures
             self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).is_singleton(),
     {
-        admit()
+        let f = self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
+        // addr_transl is Some iff the filter is non-empty.
+        assert(f.len() > 0);
+        // Pairwise disjointness on tlb_mappings (from inv) plus both
+        // mappings covering va forces equality.
+        assert forall|m: Mapping, n: Mapping| f.contains(m) && f.contains(n) implies m == n by {
+            assert(self.tlb_mappings.contains(m));
+            assert(self.tlb_mappings.contains(n));
+            assert(m.va_range.start <= va < m.va_range.end);
+            assert(n.va_range.start <= va < n.va_range.end);
+            // If m != n, pairwise disjointness gives va-disjoint, contradicting va ∈ both.
+        };
     }
 }
 

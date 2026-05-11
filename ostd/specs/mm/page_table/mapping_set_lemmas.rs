@@ -132,12 +132,13 @@ pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)
     ensures
         s.len() < usize::MAX,
 {
-    // TODO: Verus requires an explicit bridge between
-    // `m.va_range.end <= 0x0000_8000_0000_0000_usize as int`
-    // (precondition) and
-    // `0 <= m.va_range.start && m.va_range.end <= 0x0000_8000_0000_0000_usize as int`
-    // (lemma requirement). The `0 <=` side should follow from Mapping::inv.
-    admit();
+    // `0 <= m.va_range.start` follows from `wf_mapping_set(s)` ⇒ `m.inv()`,
+    // which has `0 <= m.va_range.start`.
+    assert forall|m: Mapping| #[trigger] s.contains(m) implies
+        0 <= m.va_range.start
+        && m.va_range.end <= 0x0000_8000_0000_0000_usize as int by {
+        assert(m.inv());
+    };
     lemma_mapping_set_cardinality_bound(s, 0x0000_8000_0000_0000_usize);
     assert(0x0000_8000_0000_0000_usize / PAGE_SIZE < usize::MAX) by (compute_only);
 }

@@ -720,8 +720,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         cursor_owner: CursorOwner<'a, UserPtConfig>,
     ) -> bool {
         &&& cursor_owner.in_locked_range()
-        &&& self.pt_cursor.inner.level < self.pt_cursor.inner.guard_level
-        &&& self.pt_cursor.inner.va < self.pt_cursor.inner.barrier_va.end
+        &&& self.pt_cursor.0.level < self.pt_cursor.0.guard_level
+        &&& self.pt_cursor.0.va < self.pt_cursor.0.barrier_va.end
     }
 
     pub open spec fn item_wf(
@@ -738,11 +738,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& entry_owner.frame.unwrap().prop == prop
         &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
         &&& 1 <= level <= NR_LEVELS
-        &&& level < self.pt_cursor.inner.guard_level
+        &&& level < self.pt_cursor.0.guard_level
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
-        &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
+        &&& self.pt_cursor.0.va + page_size(level) <= self.pt_cursor.0.barrier_va.end
         &&& entry_owner.inv()
-        &&& self.pt_cursor.inner.va % page_size(level) == 0
+        &&& self.pt_cursor.0.va % page_size(level) == 0
         &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(item, regions)
     }
 

@@ -159,8 +159,13 @@ impl<C: PageTableConfig> Child<C> {
                 let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
             }
 
-            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm) => Tracked(from_raw_debt))]
-            let node = PageTableNode::from_raw(paddr);
+            let node = unsafe {
+                proof_with!(
+                    Tracked(regions),
+                    Tracked(&entry_own.node.tracked_borrow().meta_perm) => Tracked(from_raw_debt)
+                );
+                PageTableNode::from_raw(paddr)
+            };
 
             proof {
                 // raw_count was 1 (node was in a PTE via into_raw), so discharge trivially.
@@ -241,8 +246,10 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 assert(entry_owner.meta_slot_paddr().unwrap() == paddr);
             }
 
-            #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]
-            let node = PageTableNodeRef::borrow_paddr(paddr);
+            let node = unsafe {
+                #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]
+                PageTableNodeRef::borrow_paddr(paddr)
+            };
 
             proof {
                 // borrow_paddr postcondition gives raw_count == 1 and field-by-field preservation.

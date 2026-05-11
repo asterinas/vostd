@@ -1,8 +1,8 @@
 //! Product of a PCM and a storage-protocol resource algebra.
 use core::marker::PhantomData;
-use vstd::pcm::PCM;
 use vstd::prelude::*;
-use vstd::storage_protocol::*;
+use vstd::resource::pcm::PCM;
+use vstd::resource::storage_protocol::*;
 
 verus! {
 
@@ -17,7 +17,7 @@ pub ghost struct HybridProduct<P: PCM, S: Protocol<K, V>, K, V> {
 impl<P, S, K, V> Protocol<K, V> for HybridProduct<P, S, K, V> where P: PCM, S: Protocol<K, V> {
     open spec fn op(self, other: Self) -> Self {
         HybridProduct {
-            pcm: self.pcm.op(other.pcm),
+            pcm: P::op(self.pcm, other.pcm),
             protocol: self.protocol.op(other.protocol),
             _phantom: PhantomData,
         }

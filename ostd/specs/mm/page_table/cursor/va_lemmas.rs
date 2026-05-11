@@ -152,6 +152,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn inc_and_zero_increases_va(self)
         requires
             self.inv(),
+            self.in_locked_range(),
             self.index() + 1 < NR_ENTRIES,
         ensures
             self.inc_index().zero_below_level().va.to_vaddr() > self.va.to_vaddr(),
@@ -209,6 +210,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_va_range_reflects_view(self)
         requires
             self.inv(),
+            self.in_locked_range(),
+            !self.popped_too_high,
             self.cur_entry_owner().is_frame(),
         ensures
             self.cur_va_range().start.reflect(self@.query_range().start as Vaddr),
@@ -240,12 +243,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
         assert(self.view_mappings().contains(m));
         assert(m.inv());
-        // `vaddr_of::<C>(path) <= cur_va < vaddr_of::<C>(path) + ps` —
-        // bridges the cursor's canonical `cur_va` to the path-derived
-        // `vaddr_of`. Holds by cur_va == self.va.to_vaddr() and the
-        // alignment + subtree-range invariants; admit pending extraction
-        // of the bridging lemma.
-        admit();
+
+        self.cur_va_in_subtree_range();
+        crate::specs::mm::page_table::owners::lemma_vaddr_of_eq_int::<C>(path);
         assert(m.va_range.start <= self@.cur_va < m.va_range.end);
 
         let filtered = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
@@ -266,8 +266,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cur_va = self.va.to_vaddr() as nat;
         let ps_nat = ps as nat;
         self.va.align_down_concrete(self.level as int);
-        self.va.align_up_concrete(self.level as int);
-        self.va.align_diff(self.level as int);
         lemma_page_size_ge_page_size(self.level as PagingLevel);
         vstd_extra::arithmetic::lemma_nat_align_down_sound(cur_va, ps_nat);
 
@@ -295,10 +293,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(false);
             }
         };
-        assert(nat_align_up(cur_va, ps_nat) == (vaddr_of::<C>(path) + ps) as nat);
+        assert(nat_align_down(cur_va, ps_nat) + ps_nat == (vaddr_of::<C>(path) + ps) as nat);
+        self.locked_range_page_aligned();
+        self.va.to_vaddr_bounded();
+        self.in_locked_range_level_le_guard_level();
+        self.va_plus_page_size_no_overflow(self.level as PagingLevel);
+        self.va.align_up_advances_general(self.level as int);
+        assert(self.va.align_up(self.level as int).to_vaddr() as nat
+            == (vaddr_of::<C>(path) + ps) as nat);
 
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(cur_va, ps_nat) as Vaddr);
-        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_up(cur_va, ps_nat) as Vaddr);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip((vaddr_of::<C>(path) + ps) as Vaddr);
+
+        self.va.align_up(self.level as int).reflect_to_vaddr();
     }
 
     /// The current virtual address falls within the VA range of the
@@ -307,6 +314,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_va_in_subtree_range(self)
         requires
             self.inv(),
+            self.in_locked_range(),
         ensures
             vaddr(self.cur_subtree().value.path) as int
                 + self.va.leading_bits * 0x1_0000_0000_0000int
