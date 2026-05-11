@@ -711,9 +711,8 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         ).slot_owners[frame_to_index(paddr)].usage,
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
-            i != frame_to_index(paddr) ==> (#[trigger]
-                final(regions).slot_owners[i] == old(regions).slot_owners[i],
-            ),
+            i != frame_to_index(paddr) ==> 
+                #[trigger] final(regions).slot_owners[i] == old(regions).slot_owners[i],
         final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
 {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));

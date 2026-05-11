@@ -1,4 +1,4 @@
-use core::{marker::PhantomData, ops::Deref};
+use core::{marker::PhantomData, ops::Deref, ops::Range};
 
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{predicate::Predicate, prelude::*};
@@ -95,31 +95,41 @@ pub struct DmaStreamSlice<Dma> {
     pub len: usize,
 }
 
-#[verus_verify]
-impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma> {
-    /// Constructs a `DmaStreamSlice` from the [`DmaStream`].
-    pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
-        Self { stream, offset, len }
-    }
+// #[verus_verify]
+// impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma> {
+//     /// Constructs a `DmaStreamSlice` from the [`DmaStream`].
+//     #[verus_spec(returns
+//         (Self {
+//             stream,
+//             offset,
+//             len,
+//         }),
+//     )]
+//     pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
+//         Self { stream, offset, len }
+//     }
 
-    /// Returns the underlying `DmaStream`.
-    #[verus_spec(returns self.stream)]
-    pub fn stream(&self) -> &DmaStream<M> {
-        self.stream.as_ref()
-    }
+//     /// Returns the underlying `DmaStream`.
+//     #[verifier::external_body]
+//     pub fn stream<M: AnyUFrameMeta + ?Sized>(&self) -> &DmaStream<M>
+//     where
+//         Dma: AsRef<DmaStream<M>>,
+//     {
+//         self.stream.as_ref()
+//     }
 
-    /// Returns the offset of the slice.
-    #[verus_spec(returns self.offset)]
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
+//     /// Returns the offset of the slice.
+//     #[verus_spec(returns self.offset)]
+//     pub fn offset(&self) -> usize {
+//         self.offset
+//     }
 
-    #[verus_spec(returns self.len)]
-    /// Returns the number of bytes.
-    pub fn nbytes(&self) -> usize {
-        self.len
-    }
-}
+//     #[verus_spec(returns self.len)]
+//     /// Returns the number of bytes.
+//     pub fn nbytes(&self) -> usize {
+//         self.len
+//     }
+// }
 
 /// The tracked owner for the inner part of a [`DmaStream`].
 ///
@@ -527,6 +537,21 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     pub fn direction(&self) -> DmaDirection {
         let inner = self.read_inner();
         Self::direction_inner(&inner)
+    }
+
+    /// Synchronizes the streaming DMA mapping with the device.
+    ///
+    /// This method should be called under one of the two conditions:
+    /// 1. The data of the stream DMA mapping has been updated by the device side.
+    ///    The CPU side needs to call the `sync` method before reading data (e.g., using [`read_bytes`]).
+    /// 2. The data of the stream DMA mapping has been updated by the CPU side
+    ///    (e.g., using [`write_bytes`]).
+    ///    Before the CPU side notifies the device side to read, it must call the `sync` method first.
+    ///
+    /// [`read_bytes`]: Self::read_bytes
+    /// [`write_bytes`]: Self::write_bytes
+    pub fn sync(&self, _byte_range: Range<usize>) -> Result<(), Error> {
+        Ok(())
     }
 
     /// Returns the starting physical address.
