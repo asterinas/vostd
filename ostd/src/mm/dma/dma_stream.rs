@@ -169,6 +169,186 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
     {
         self.stream.as_ref().daddr() + self.offset
     }
+
+    /// Returns a reader to read data from the slice.
+    #[inline]
+    #[verus_spec(r =>
+        with
+            -> reader_perm: Tracked<Option<VmIoOwner<'a>>>,
+        requires
+            self.inv(),
+        ensures
+            self.inv(),
+            r is Ok ==> {
+                &&& r.unwrap().inv()
+                &&& r.unwrap().remain_spec() == self.len
+                &&& reader_perm@ is Some
+                &&& reader_perm@.unwrap().inv()
+                &&& reader_perm@.unwrap().is_kernel
+                &&& reader_perm@.unwrap().has_read_view()
+                &&& r.unwrap().wf(reader_perm@.unwrap())
+            },
+    )]
+    pub fn reader<'a>(&'a self) -> Result<VmReader<'a>, Error>
+    where
+        M: OwnerOf,
+    {
+        let inner = self.stream.as_ref().read_inner();
+
+        if matches!(inner.direction, DmaDirection::ToDevice) {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else {
+            match self.offset.checked_add(self.len) {
+                None => {
+                    proof_with!(|= Tracked(None));
+                    Err(Error::InvalidArgs)
+                },
+                Some(end) if end > inner.segment.size() => {
+                    proof_with!(|= Tracked(None));
+                    Err(Error::InvalidArgs)
+                },
+                Some(_) => {
+                    proof_decl! {
+                        let ghost id: nat;
+                        let tracked mut reader_perm: VmIoOwner<'a>;
+                    }
+                    proof {
+                        lemma_max_paddr_range();
+                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr_spec());
+                    }
+
+                    let base_vaddr = paddr_to_vaddr(inner.segment.start_paddr());
+                    match base_vaddr.checked_add(self.offset) {
+                        None => {
+                            proof_with!(|= Tracked(None));
+                            Err(Error::InvalidArgs)
+                        },
+                        Some(vaddr) => match vaddr.checked_add(self.len) {
+                            None => {
+                                proof_with!(|= Tracked(None));
+                                Err(Error::InvalidArgs)
+                            },
+                            Some(end_vaddr) => {
+                                let ghost range = vaddr..end_vaddr as usize;
+                                let ptr = VirtPtr { vaddr, range: Ghost(range) };
+                                proof {
+                                    assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+                                    assert(vaddr > 0);
+                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
+                                    assert(ptr.inv());
+                                }
+
+                                let reader = unsafe {
+                                    proof_with!(Ghost(id) => Tracked(reader_perm));
+                                    VmReader::from_kernel_space(ptr, self.len)
+                                };
+                                proof {
+                                    let tracked inner_perm = inner.tracked_borrow();
+                                    let tracked owner = inner_perm.permission.borrow();
+                                    let tracked mem_view =
+                                        owner.segment_owner.borrow_kernel_mem_view(inner@.data.segment);
+                                    reader_perm.mem_view = Some(VmIoMemView::ReadView(mem_view));
+                                }
+                                proof_with!(|= Tracked(Some(reader_perm)));
+                                Ok(reader)
+                            },
+                        },
+                    }
+                },
+            }
+        }
+    }
+
+    /// Returns a writer to write data into the slice.
+    #[inline]
+    #[verus_spec(r =>
+        with
+            -> writer_perm: Tracked<Option<VmIoOwner<'a>>>,
+        requires
+            self.inv(),
+        ensures
+            self.inv(),
+            r is Ok ==> {
+                &&& r.unwrap().inv()
+                &&& r.unwrap().avail_spec() == self.len
+                &&& writer_perm@ is Some
+                &&& writer_perm@.unwrap().inv()
+                &&& writer_perm@.unwrap().is_kernel
+                &&& writer_perm@.unwrap().has_write_view()
+                &&& r.unwrap().wf(writer_perm@.unwrap())
+            },
+    )]
+    pub fn writer<'a>(&'a self) -> Result<VmWriter<'a>, Error>
+    where
+        M: OwnerOf,
+    {
+        let inner = self.stream.as_ref().read_inner();
+
+        if matches!(inner.direction, DmaDirection::FromDevice) {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else {
+            match self.offset.checked_add(self.len) {
+                None => {
+                    proof_with!(|= Tracked(None));
+                    Err(Error::InvalidArgs)
+                },
+                Some(end) if end > inner.segment.size() => {
+                    proof_with!(|= Tracked(None));
+                    Err(Error::InvalidArgs)
+                },
+                Some(_) => {
+                    proof_decl! {
+                        let ghost id: nat;
+                        let tracked mut writer_perm: VmIoOwner<'a>;
+                    }
+                    proof {
+                        lemma_max_paddr_range();
+                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr_spec());
+                    }
+
+                    let base_vaddr = paddr_to_vaddr(inner.segment.start_paddr());
+                    match base_vaddr.checked_add(self.offset) {
+                        None => {
+                            proof_with!(|= Tracked(None));
+                            Err(Error::InvalidArgs)
+                        },
+                        Some(vaddr) => match vaddr.checked_add(self.len) {
+                            None => {
+                                proof_with!(|= Tracked(None));
+                                Err(Error::InvalidArgs)
+                            },
+                            Some(end_vaddr) => {
+                                let ghost range = vaddr..end_vaddr as usize;
+                                let ptr = VirtPtr { vaddr, range: Ghost(range) };
+                                proof {
+                                    assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+                                    assert(vaddr > 0);
+                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
+                                    assert(ptr.inv());
+                                }
+
+                                let writer = unsafe {
+                                    proof_with!(Ghost(id), Tracked(false) => Tracked(writer_perm));
+                                    VmWriter::from_kernel_space(ptr, self.len)
+                                };
+                                proof {
+                                    let tracked inner_perm = inner.tracked_borrow();
+                                    let tracked owner = inner_perm.permission.borrow();
+                                    let tracked mem_view =
+                                        owner.segment_owner.produce_kernel_mem_view(inner@.data.segment);
+                                    writer_perm.mem_view = Some(VmIoMemView::WriteView(mem_view));
+                                }
+                                proof_with!(|= Tracked(Some(writer_perm)));
+                                Ok(writer)
+                            },
+                        },
+                    }
+                },
+            }
+        }
+    }
 }
 
 /// The tracked owner for the inner part of a [`DmaStream`].
