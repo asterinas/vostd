@@ -33,6 +33,7 @@ use crate::specs::task::InAtomicMode;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
+use vstd_extra::{assert, assert_eq};
 
 use crate::mm::kspace::KERNEL_PAGE_TABLE;
 use crate::mm::tlb::*;
@@ -856,12 +857,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             cursor_owner.view_preserves_inv();
         }
 
-        vstd_extra::assert_eq!(len % PAGE_SIZE, 0);
+        assert_eq!(len % PAGE_SIZE, 0);
 
         //*** KNOWN BUG: `self.virt_addr() + len` could overflow. For now, assume that it doesn't. ***
         assume(self.pt_cursor.0.va + len <= usize::MAX);
 
-        vstd_extra::assert!(self.virt_addr() + len <= self.pt_cursor.0.barrier_va.end);
+        assert!(self.virt_addr() + len <= self.pt_cursor.0.barrier_va.end);
 
         assert(!self.pt_cursor.0.find_next_panic_condition(len));
         assert(!old(self).pt_cursor.0.find_next_panic_condition(len));

@@ -48,6 +48,7 @@ use vstd::simple_pptr::*;
 use vstd::std_specs::convert::TryFromSpecImpl;
 use vstd_extra::array_ptr::ArrayPtr;
 use vstd_extra::array_ptr::PointsToArray;
+use vstd_extra::assert;
 use vstd_extra::ownership::Inv;
 
 use crate::error::*;
@@ -698,10 +699,10 @@ impl<'a> VmWriter<'a, Infallible> {
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.vaddr as *mut T;
-        vstd_extra::assert!((cursor as usize) % core::mem::align_of::<T>() == 0);
+        assert!((cursor as usize) % core::mem::align_of::<T>() == 0);
 
         let avail = self.avail();
-        vstd_extra::assert!(avail % core::mem::size_of::<T>() == 0);
+        assert!(avail % core::mem::size_of::<T>() == 0);
         let written_num = avail / core::mem::size_of::<T>();
 
         for i in 0..written_num {
@@ -832,7 +833,7 @@ impl<'a> VmWriter<'a, Infallible> {
         }
 
         let cursor = self.cursor.cast::<T>();
-        vstd_extra::assert!(cursor.is_aligned());
+        assert!(cursor.is_aligned());
 
         // NOTE: vostd has `const { assert!(pod_once_impls::is_non_tearing::<T>()) };` here, but
         // verus doesn't yet support const block expressions. The non-tearing guarantee for our
@@ -1300,7 +1301,7 @@ impl<'a> VmReader<'a, Infallible> {
         }
 
         let cursor = self.cursor.cast::<T>();
-        vstd_extra::assert!(cursor.is_aligned());
+        assert!(cursor.is_aligned());
 
         // NOTE: vostd has `const { assert!(pod_once_impls::is_non_tearing::<T>()) };` here, but
         // verus doesn't yet support const block expressions. The non-tearing guarantee for our
@@ -2062,7 +2063,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             r.id == old(self).id,
     )]
     pub fn skip(&mut self, nbytes: usize) -> &mut Self {
-        vstd_extra::assert!(nbytes <= self.remain());
+        assert!(nbytes <= self.remain());
         self.cursor = self.cursor.wrapping_add(nbytes);
         self
     }
@@ -2178,7 +2179,7 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
             r.id == old(self).id,
     )]
     pub fn skip(&mut self, nbytes: usize) -> &mut Self {
-        vstd_extra::assert!(nbytes <= self.avail());
+        assert!(nbytes <= self.avail());
         self.cursor = self.cursor.wrapping_add(nbytes);
         self
     }

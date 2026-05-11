@@ -3,6 +3,7 @@
 use vstd::prelude::*;
 
 use vstd_extra::arithmetic::nat_align_down;
+use vstd_extra::assert;
 use vstd_extra::ownership::{InvView, ModelOf, OwnerOf};
 use vstd_extra::prelude::Inv;
 
@@ -378,7 +379,7 @@ impl KVirtArea {
     pub fn query<A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem>
     {
         use align_ext::AlignExt;
-        vstd_extra::assert!(self.start() <= addr && self.end() > addr);
+        assert!(self.start() <= addr && self.end() > addr);
 
         proof {
             vstd_extra::prelude::lemma_pow2_is_pow2_to64();
@@ -493,11 +494,11 @@ impl KVirtArea {
                 CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
                     MappedItem::Tracked(#[trigger] frames[i], prop), *old(regions)),
     {
-        vstd_extra::assert!(area_size % PAGE_SIZE == 0);
-        vstd_extra::assert!(map_offset % PAGE_SIZE == 0);
+        assert!(area_size % PAGE_SIZE == 0);
+        assert!(map_offset % PAGE_SIZE == 0);
 
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
-        vstd_extra::assert!(range_res.is_ok());
+        assert!(range_res.is_ok());
         let range = range_res.unwrap();
 
         proof {
@@ -529,7 +530,7 @@ impl KVirtArea {
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         let cursor_res = page_table.cursor_mut(preempt_guard, &cursor_range);
 
-        vstd_extra::assert!(cursor_res.is_ok());
+        assert!(cursor_res.is_ok());
         let (mut cursor, Tracked(cursor_owner)) = cursor_res.unwrap();
 
         for frame in it: frames.into_iter()
@@ -555,7 +556,7 @@ impl KVirtArea {
             // Capacity fit check: if the cursor has advanced past its barrier
             // (i.e., too many frames for the allocated area), panic. This
             // lets Verus derive `in_locked_range` for the cursor.map call below.
-            vstd_extra::assert!(cursor.0.va < cursor.0.barrier_va.end);
+            assert!(cursor.0.va < cursor.0.barrier_va.end);
 
             let ghost cur_mapped_pa: usize =
                 crate::mm::frame::meta::mapping::meta_to_frame(frame.ptr.addr());
@@ -746,16 +747,16 @@ impl KVirtArea {
             final(regions).inv(),
             res.inv(),
     {
-        vstd_extra::assert!(pa_range.start % PAGE_SIZE == 0);
-        vstd_extra::assert!(pa_range.end % PAGE_SIZE == 0);
-        vstd_extra::assert!(area_size % PAGE_SIZE == 0);
-        vstd_extra::assert!(map_offset % PAGE_SIZE == 0);
+        assert!(pa_range.start % PAGE_SIZE == 0);
+        assert!(pa_range.end % PAGE_SIZE == 0);
+        assert!(area_size % PAGE_SIZE == 0);
+        assert!(map_offset % PAGE_SIZE == 0);
 
-        vstd_extra::assert!(map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= area_size);
+        assert!(map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= area_size);
 
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
         // Rust's `unwrap()` panics if not ok. TODO: make our own wrapper.
-        vstd_extra::assert!(range_res.is_ok());
+        assert!(range_res.is_ok());
         let range = range_res.unwrap();
 
         proof {
@@ -787,7 +788,7 @@ impl KVirtArea {
             #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
             let cursor_res = page_table.cursor_mut(preempt_guard, &va_range);
 
-            vstd_extra::assert!(cursor_res.is_ok());
+            assert!(cursor_res.is_ok());
 
             let (mut cursor, Tracked(cursor_owner)) = cursor_res.unwrap();
 

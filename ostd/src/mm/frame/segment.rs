@@ -8,6 +8,7 @@ use core::{fmt::Debug, ops::Range};
 use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
 use crate::mm::page_table::RCClone;
 
+use vstd_extra::assert;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
@@ -238,7 +239,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 Err(GetFrameError::OutOfBound)
             };
         }
-        vstd_extra::assert!(range.start < range.end);
+        assert!(range.start < range.end);
         // Construct a segment early to recycle previously forgotten frames if
         // the subsequent operations fails in the middle.
         let mut segment = Self {
@@ -387,8 +388,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             frame_perms.1@.relate_regions(*final(regions)),
     )]
     pub fn split(self, offset: usize) -> (Self, Self) {
-        vstd_extra::assert!(offset % PAGE_SIZE == 0);
-        vstd_extra::assert!(0 < offset && offset < self.size());
+        assert!(offset % PAGE_SIZE == 0);
+        assert!(0 < offset && offset < self.size());
 
         let old = ManuallyDrop::new(self, Tracked(regions));
         let at = old.range.start + offset;
@@ -533,7 +534,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
     )]
     pub fn slice(&self, range: &Range<usize>) -> Self {
-        vstd_extra::assert!(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0);
+        assert!(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0);
 
         // KNOWN BUG: potential overflows
         assume(self.range.start + range.start <= usize::MAX);
@@ -541,9 +542,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
         let start = self.range.start + range.start;
         let end = self.range.start + range.end;
-        vstd_extra::assert!(start <= end && end <= self.range.end);
+        assert!(start <= end && end <= self.range.end);
 
-        vstd_extra::assert!(start <= end && end <= self.range.end);
+        assert!(start <= end && end <= self.range.end);
 
         let mut i: usize = 0;
         let addr_len = (end - start) / PAGE_SIZE;

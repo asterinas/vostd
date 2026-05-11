@@ -768,13 +768,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<Vaddr>
     {
-        vstd_extra::assert_eq!(len % PAGE_SIZE, 0);
+        assert_eq!(len % PAGE_SIZE, 0);
 
         //*** KNOWN BUG: `self.va + len` could overflow. For now assume that it doesn't. ***
         assume(self.va + len <= usize::MAX);
         let end = self.va + len;
 
-        vstd_extra::assert!(end <= self.barrier_va.end);
+        assert!(end <= self.barrier_va.end);
 
         assert(!self.find_next_panic_condition(len));
         assert(!old(self).find_next_panic_condition(len));
@@ -1255,7 +1255,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError>
     {
-        vstd_extra::assert_eq!(va % PAGE_SIZE, 0);
+        assert_eq!(va % PAGE_SIZE, 0);
         assert(!self.jump_panic_condition(va));
         assert(!old(self).jump_panic_condition(va));
         if !self.barrier_va.contains(&va) {
@@ -2555,15 +2555,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
-        vstd_extra::assert!(self.0.va < self.0.barrier_va.end);
+        assert!(self.0.va < self.0.barrier_va.end);
         let (pa, level, prop) = C::item_into_raw(item);
-        vstd_extra::assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
-        vstd_extra::assert!(level < self.0.guard_level);
+        assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
+        assert!(level < self.0.guard_level);
         if !C::TOP_LEVEL_CAN_UNMAP() {
-            vstd_extra::assert!(level < NR_LEVELS as u8);
+            assert!(level < NR_LEVELS as u8);
         }
         let size = page_size(level);
-        vstd_extra::assert_eq!(self.0.va % size, 0);
+        assert_eq!(self.0.va % size, 0);
 
         // `self.0.va + size <= usize::MAX` from the cursor invariant: since
         // `owner.in_locked_range()` and `1 <= level <= guard_level`, there is
@@ -2574,7 +2574,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.va_plus_page_size_no_overflow(level);
         }
         let end = self.0.va + size;
-        vstd_extra::assert!(end <= self.0.barrier_va.end);
+        assert!(end <= self.0.barrier_va.end);
 
         assert(!self.map_panic_conditions(item));
         assert(!old(self).map_panic_conditions(item));
