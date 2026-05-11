@@ -698,8 +698,8 @@ impl<'a> VmWriter<'a, Infallible> {
             !old(self).fill_panic_condition::<T>(),
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
-        let cursor = self.cursor.vaddr as *mut T;
-        assert!((cursor as usize) % core::mem::align_of::<T>() == 0);
+        let cursor = self.cursor.cast::<T>();
+        assert!(cursor.is_aligned());
 
         let avail = self.avail();
         assert!(avail % core::mem::size_of::<T>() == 0);
@@ -860,7 +860,7 @@ impl<'a> VmWriter<'a, Infallible> {
                     assert(owner.range@.end == self.end.vaddr);
                 }
         }
-        self.cursor.write_once::<T>(Tracked(&mut mem_dst), *new_val);
+        self.cursor.write_volatile::<T>(Tracked(&mut mem_dst), *new_val);
 
         self.cursor = self.cursor.wrapping_add(len);
 
@@ -1324,7 +1324,7 @@ impl<'a> VmReader<'a, Infallible> {
                 ).unwrap().1 as int] is Init
             } by {}
         }
-        let v = self.cursor.read_once::<T>(Tracked(mem_src));
+        let v = self.cursor.read_volatile::<T>(Tracked(mem_src));
 
         self.cursor = self.cursor.wrapping_add(len);
 

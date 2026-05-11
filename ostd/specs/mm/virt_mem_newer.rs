@@ -473,7 +473,7 @@ impl VirtPtr {
     /// - This function is trusted because the underlying volatile typed read relies on raw-pointer
     ///   operations that Verus does not yet model directly.
     #[verifier::external_body]
-    pub fn read_once<T: PodOnce>(self, Tracked(mem): Tracked<&MemView>) -> T
+    pub fn read_volatile<T: PodOnce>(self, Tracked(mem): Tracked<&MemView>) -> T
         requires
             self.inv(),
             core::mem::size_of::<T>() <= self.range@.end - self.vaddr,
@@ -508,7 +508,7 @@ impl VirtPtr {
     /// - This function is trusted because the underlying volatile typed write relies on raw-pointer
     ///   operations that Verus does not yet model directly.
     #[verifier::external_body]
-    pub fn write_once<T: PodOnce>(self, Tracked(mem): Tracked<&mut MemView>, val: T)
+    pub fn write_volatile<T: PodOnce>(self, Tracked(mem): Tracked<&mut MemView>, val: T)
         requires
             self.inv(),
             core::mem::size_of::<T>() <= self.range@.end - self.vaddr,
