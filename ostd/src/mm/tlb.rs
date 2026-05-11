@@ -295,13 +295,13 @@ impl OpsStack {
             //            self.page_keeper.push(frame);
         }
         if self.need_flush_all {
-            return ;
+            return;
         }
         let op = op.optimize_for_large_range();
         if op == TlbFlushOp::All || self.size >= FLUSH_ALL_OPS_THRESHOLD {
             self.need_flush_all = true;
             self.size = 0;
-            return ;
+            return;
         }
         self.ops[self.size] = Some(op);
         self.size += 1;
@@ -311,12 +311,12 @@ impl OpsStack {
     fn push_from(&mut self, other: &OpsStack) {
         //        self.page_keeper.extend(other.page_keeper.iter().cloned());
         if self.need_flush_all {
-            return ;
+            return;
         }
         if other.need_flush_all || self.size + other.size >= FLUSH_ALL_OPS_THRESHOLD {
             self.need_flush_all = true;
             self.size = 0;
-            return ;
+            return;
         }
         for i in 0..other.size {
             self.ops[self.size] = other.ops[i].clone();

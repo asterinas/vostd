@@ -291,12 +291,15 @@ mod dma_stream_slice {
             .unwrap();
         let dma_stream =
             DmaStream::map(segment.into(), DmaDirection::Bidirectional, false).unwrap();
-        let dma_stream_slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, PAGE_SIZE);
+        let dma_stream_slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, PAGE_SIZE).unwrap();
 
         assert_eq!(dma_stream_slice.offset(), PAGE_SIZE);
         assert_eq!(dma_stream_slice.nbytes(), PAGE_SIZE);
         assert_eq!(dma_stream_slice.paddr(), dma_stream.paddr() + PAGE_SIZE);
-        assert_eq!(dma_stream_slice.daddr(), dma_stream.daddr() + PAGE_SIZE);
+        assert_eq!(
+            dma_stream_slice.daddr().unwrap(),
+            dma_stream.daddr() + PAGE_SIZE
+        );
 
         let dma_stream_slice_clone = dma_stream_slice.clone();
         assert_eq!(dma_stream_slice_clone.offset(), dma_stream_slice.offset());
@@ -312,7 +315,7 @@ mod dma_stream_slice {
             .unwrap();
         let dma_stream =
             DmaStream::map(segment.into(), DmaDirection::Bidirectional, false).unwrap();
-        let dma_stream_slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, PAGE_SIZE);
+        let dma_stream_slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, PAGE_SIZE).unwrap();
 
         let buf_write = vec![1u8; PAGE_SIZE];
         dma_stream_slice.write_bytes(0, &buf_write).unwrap();
@@ -329,7 +332,7 @@ mod dma_stream_slice {
             .unwrap();
         let dma_stream =
             DmaStream::map(segment.into(), DmaDirection::Bidirectional, false).unwrap();
-        let dma_stream_slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, PAGE_SIZE);
+        let dma_stream_slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, PAGE_SIZE).unwrap();
 
         let buf_write = vec![1u8; PAGE_SIZE];
         let mut writer = dma_stream_slice.writer().unwrap();
@@ -342,25 +345,29 @@ mod dma_stream_slice {
     }
 
     #[ktest]
-    #[should_panic]
     fn invalid_offset() {
         let segment = FrameAllocOptions::new()
             .alloc_segment_with(2, |_| ())
             .unwrap();
         let dma_stream =
             DmaStream::map(segment.into(), DmaDirection::Bidirectional, false).unwrap();
-        let _dma_stream_slice = DmaStreamSlice::new(&dma_stream, 3 * PAGE_SIZE, PAGE_SIZE);
+        assert!(matches!(
+            DmaStreamSlice::new(&dma_stream, 3 * PAGE_SIZE, PAGE_SIZE),
+            Err(Error::InvalidArgs)
+        ));
     }
 
     #[ktest]
-    #[should_panic]
     fn invalid_len() {
         let segment = FrameAllocOptions::new()
             .alloc_segment_with(2, |_| ())
             .unwrap();
         let dma_stream =
             DmaStream::map(segment.into(), DmaDirection::Bidirectional, false).unwrap();
-        let _dma_stream_slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, 2 * PAGE_SIZE);
+        assert!(matches!(
+            DmaStreamSlice::new(&dma_stream, PAGE_SIZE, 2 * PAGE_SIZE),
+            Err(Error::InvalidArgs)
+        ));
     }
 
     #[ktest]
@@ -370,7 +377,7 @@ mod dma_stream_slice {
             .unwrap();
         let dma_stream =
             DmaStream::map(segment.into(), DmaDirection::Bidirectional, false).unwrap();
-        let slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, 2 * PAGE_SIZE);
+        let slice = DmaStreamSlice::new(&dma_stream, PAGE_SIZE, 2 * PAGE_SIZE).unwrap();
 
         // Test partial operations within slice
         let pattern = vec![0xCCu8; PAGE_SIZE / 2];

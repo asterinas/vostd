@@ -18,8 +18,8 @@ use vstd_extra::arithmetic::*;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
-use crate::mm::page_table::{page_size, page_size_spec};
 use crate::mm::page_table::PageTableConfig;
+use crate::mm::page_table::{page_size, page_size_spec};
 use crate::mm::{PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 

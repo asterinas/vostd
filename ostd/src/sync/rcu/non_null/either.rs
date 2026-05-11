@@ -12,7 +12,12 @@ verus! {
 
 broadcast use {group_nonull_axioms, group_raw_ptr_axioms, group_nonzero_axioms};
 
-proof fn lemma_aligned_addr_clears_tag_bit(addr: usize, tag: usize, align_bits: u32, ptr_align_bits: u32)
+proof fn lemma_aligned_addr_clears_tag_bit(
+    addr: usize,
+    tag: usize,
+    align_bits: u32,
+    ptr_align_bits: u32,
+)
     requires
         addr % (1usize << ptr_align_bits) == 0,
         tag == 1usize << align_bits,
@@ -21,17 +26,16 @@ proof fn lemma_aligned_addr_clears_tag_bit(addr: usize, tag: usize, align_bits: 
         addr & tag == 0,
 {
     assert(addr & tag == 0) by (bit_vector)
-    requires
-        addr % (1usize << ptr_align_bits) == 0,
-        tag == 1usize << align_bits,
-        align_bits < ptr_align_bits < usize::BITS,
+        requires
+            addr % (1usize << ptr_align_bits) == 0,
+            tag == 1usize << align_bits,
+            align_bits < ptr_align_bits < usize::BITS,
     ;
 }
 
 // If both `L` and `R` have at least one alignment bit (i.e., their alignments are at least 2), we
 // can use the alignment bit to indicate whether a pointer is `L` or `R`, so it's possible to
 // implement `NonNullPtr` for `Either<L, R>`.
-
 unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     type Target = PhantomData<Self>;
 
@@ -39,7 +43,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     //     = Either<L::Ref<'a>, R::Ref<'a>>
     // where
     //     Self: 'a;
-    
     type Permission = Sum<L::Permission, R::Permission>;
 
     #[verifier::external_body]
@@ -464,7 +467,7 @@ const fn min(a: u32, b: u32) -> u32 {
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     // use core::num::NonZeroUsize;
     use vstd_extra::external::nonzero::NonZeroUsize;
-    
+
     let removed_bits = ptr.addr_v().get() & bits;
     let result_ptr = ptr.map_addr_v(
         |addr| -> (ret: NonZeroUsize)
@@ -479,7 +482,6 @@ unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
 }
 
 } // verus!
-
 #[cfg(ktest)]
 mod test {
     use alloc::{boxed::Box, sync::Arc};

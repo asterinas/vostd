@@ -64,11 +64,7 @@ impl WaitQueue {
     /// Creates a new, empty wait queue.
     pub const fn new() -> Self {
         WaitQueue {
-            num_wakers: AtomicU32::new(
-                Ghost(()),
-                0,
-                Tracked(()),
-            ),
+            num_wakers: AtomicU32::new(Ghost(()), 0, Tracked(())),
             wakers: SpinLock::new(VecDeque::new()),
         }
     }
@@ -149,7 +145,7 @@ impl WaitQueue {
         loop {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
-                break ;
+                break;
             };
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
@@ -201,9 +197,13 @@ pub struct Waiter {
     waker: Arc<Waker>,
 }
 
-impl !Send for Waiter {}
+impl !Send for Waiter {
 
-impl !Sync for Waiter {}
+}
+
+impl !Sync for Waiter {
+
+}
 
 impl Waiter {
     /// Checks if the input waker is the associated waker of the current waiter.
@@ -249,7 +249,7 @@ impl Waiter {
         }
         let waker = Arc::new(
             Waker {
-                has_woken: AtomicBool::new(Ghost(()),false,Tracked(())),
+                has_woken: AtomicBool::new(Ghost(()), false, Tracked(())),
                 // task: Task::current().unwrap().cloned(),
                 task: Arc::new(Task {  }),
             },
@@ -301,7 +301,9 @@ impl Waiter {
         )]
         loop {
             if let Some(res) = cond() {
-                assert(cond.ensures((), Some(res))) by {admit();}; // FIXME:
+                assert(cond.ensures((), Some(res))) by {
+                    admit();
+                };  // FIXME:
                 proof! { admit(); }  // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return Ok(res);
             };
@@ -377,7 +379,8 @@ impl Waker {
         // the memory order explanation at the top of the file for details.
         //let _ = self.has_woken.swap(true, Ordering::Acquire);
         proof!{ use_type_invariant(self);}
-        let _ = atomic_with_ghost!{ 
+        let _ =
+            atomic_with_ghost!{
             self.has_woken => swap(true);
             update prev -> next;
             ghost g => {}

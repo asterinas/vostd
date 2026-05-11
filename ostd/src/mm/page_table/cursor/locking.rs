@@ -88,10 +88,13 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
-
     let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS as int - 1];
 
-    let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::new(pt_own.0, start_idx as usize, root_guard);
+    let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::new(
+        pt_own.0,
+        start_idx as usize,
+        root_guard,
+    );
 
     // The re-try loop of finding the sub-tree root.
     //
@@ -130,43 +133,42 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     let mut path = [None, None, None, None];
     path[guard_level as usize - 1] = Some(subtree_root);
 
-    let res = (Cursor::<'rcu, C, A> {
-        path,
-        rcu_guard: guard,
-        level: guard_level,
-        guard_level,
-        va: va.start,
-        barrier_va: va.clone(),
-        _phantom: PhantomData,
-    }, Tracked(cursor_own));
+    let res = (
+        Cursor::<'rcu, C, A> {
+            path,
+            rcu_guard: guard,
+            level: guard_level,
+            guard_level,
+            va: va.start,
+            barrier_va: va.clone(),
+            _phantom: PhantomData,
+        },
+        Tracked(cursor_own),
+    );
 
     // TODO: the details of the locking mechanism being admitted here
     // are superseded by the CortenMM version. They should be merged, first
     // at the spec level, then the code.
     proof {
-        assume(
-            res.0.invariants(*res.1, *regions, *guards)
-            && (*res.1).in_locked_range()
-            && res.0.level == res.0.guard_level
-            && res.0.va < res.0.barrier_va.end
-            && (*res.1).as_page_table_owner() == pt_own
-            && (*res.1).continuations[3].path() == pt_own.0.value.path
-        );
-        assume(
-            (forall |i: usize| #![trigger old(regions).slot_owners[i]]
-                old(regions).slot_owners.contains_key(i)
-                && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
-            ==>
-            (forall |i: usize| #![trigger regions.slot_owners[i]]
-                regions.slot_owners.contains_key(i)
+        assume(res.0.invariants(*res.1, *regions, *guards) && (*res.1).in_locked_range()
+            && res.0.level == res.0.guard_level && res.0.va < res.0.barrier_va.end && (
+        *res.1).as_page_table_owner() == pt_own && (*res.1).continuations[3].path()
+            == pt_own.0.value.path);
+        assume((forall|i: usize|
+            #![trigger old(regions).slot_owners[i]]
+            old(regions).slot_owners.contains_key(i) && old(
+                regions,
+            ).slot_owners[i].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED ==> old(
+                regions,
+            ).slot_owners[i].inner_perms.ref_count.value() + 1
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX) ==> (forall|i: usize|
+            #![trigger regions.slot_owners[i]]
+            regions.slot_owners.contains_key(i)
                 && regions.slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                 ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
-        );
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX));
     }
     res
 }
@@ -259,7 +261,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> Option<PageTableGuard<'rcu, C>> {
-
     let mut cur_node_guard: Option<PageTableGuard<'rcu, C>> = None;
 
     let mut cur_pt_addr = pt.root.start_paddr();
@@ -272,7 +273,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             (end - cur_level + 1) > 1 && start_idx == end_idx
         };
         if !level_too_high {
-            break ;
+            break;
         }
         let cur_pt_ptr = ArrayPtr::<C::E, NR_ENTRIES>::from_addr(paddr_to_vaddr(cur_pt_addr));
         // SAFETY:
@@ -284,22 +285,27 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
         if cur_pte.is_present() {
             if cur_pte.is_last(end - cur_level + 1) {
-                break ;
+                break;
             }
             cur_pt_addr = cur_pte.paddr();
             cur_node_guard = None;
             proof {
-                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
+                let ghost next_idx = pte_index::<C>(
+                    va.start,
+                    (end - cur_level) as PagingLevel,
+                ) as usize;
                 proof_decl! {
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked mut cont = cursor_own.continuations.tracked_remove(
+                    cursor_own.level - 1,
+                );
                 let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
             }
-            continue ;
+            continue;
         }
         // In case the child is absent, we should lock and allocate a new page table node.
 
@@ -332,11 +338,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             cur_pt_addr = allocated_guard.start_paddr();
             cur_node_guard = Some(allocated_guard);
             proof {
-                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
+                let ghost next_idx = pte_index::<C>(
+                    va.start,
+                    (end - cur_level) as PagingLevel,
+                ) as usize;
                 proof_decl! {
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked mut cont = cursor_own.continuations.tracked_remove(
+                    cursor_own.level - 1,
+                );
                 let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
@@ -352,18 +363,23 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             cur_pt_addr = pt.start_paddr();
             cur_node_guard = None;
             proof {
-                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
+                let ghost next_idx = pte_index::<C>(
+                    va.start,
+                    (end - cur_level) as PagingLevel,
+                ) as usize;
                 proof_decl! {
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked mut cont = cursor_own.continuations.tracked_remove(
+                    cursor_own.level - 1,
+                );
                 let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
             }
         } else {
-            break ;
+            break;
         }
     }
 
@@ -390,7 +406,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     if is_stray {
         return None;
     }
-
     Some(pt_guard)
 }
 
@@ -440,7 +455,7 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 ) {
     let cur_level = cur_node.level();
     if cur_level == 1 {
-        return ;
+        return;
     }
     let idx_range = dfs_get_idx_range::<C>(cur_level, cur_node_va, &va_range);
     for i in idx_range {
@@ -479,7 +494,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 ) {
     let cur_level = cur_node.level();
     if cur_level == 1 {
-        return ;
+        return;
     }
     let idx_range = dfs_get_idx_range::<C>(cur_level, cur_node_va, &va_range);
     let end = idx_range.end;
@@ -605,7 +620,9 @@ pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
 
 /// Spec-level ceiling division: `ceil(x / d)` for non-negative `x` and positive `d`.
 pub open spec fn ceil_div(x: int, d: int) -> int
-    recommends d > 0, x >= 0
+    recommends
+        d > 0,
+        x >= 0,
 {
     (x + d - 1) / d
 }
@@ -694,12 +711,13 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
                 //              psu == ai * m + (psu % ai)
                 assert(cur_node_va as int == psu * k + cur_node_va as int % psu);
                 assert(psu == ai * m + psu % ai);
-                assert(cur_node_va as int == (m * k) * ai) by(nonlinear_arith)
+                assert(cur_node_va as int == (m * k) * ai) by (nonlinear_arith)
                     requires
                         cur_node_va as int == psu * k + 0,
                         psu == ai * m + 0,
                         cur_node_va as int % psu == 0,
-                        psu % ai == 0;
+                        psu % ai == 0,
+                ;
                 lemma_mod_multiples_basic(m * k, ai);
             };
             assert(si % ai == 0) by {
@@ -724,16 +742,24 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
             // xi + ai - 1 == ai * qi + ri
             assert(xi + ai - 1 == ai * qi + ri);
             vstd::arithmetic::mul::lemma_mul_is_commutative(ai, qi);
-            assert(qi * ai >= xi) by(nonlinear_arith)
-                requires xi + ai - 1 == qi * ai + ri, 0 <= ri < ai, ai > 0;
+            assert(qi * ai >= xi) by (nonlinear_arith)
+                requires
+                    xi + ai - 1 == qi * ai + ri,
+                    0 <= ri < ai,
+                    ai > 0,
+            ;
 
-            assert(start_idx as int * ai < end_idx as int * ai) by(nonlinear_arith)
+            assert(start_idx as int * ai < end_idx as int * ai) by (nonlinear_arith)
                 requires
                     start_idx as int * ai == si,
                     end_idx as int * ai >= xi,
-                    si < xi;
+                    si < xi,
+            ;
             vstd::arithmetic::mul::lemma_mul_strict_inequality_converse(
-                start_idx as int, end_idx as int, ai);
+                start_idx as int,
+                end_idx as int,
+                ai,
+            );
         };
 
         // -- end_idx <= NR_ENTRIES --
@@ -743,8 +769,10 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         assert(psu == NR_ENTRIES as int * ai);
         assert(xi <= psu);
         // (psu + ai - 1) / ai == NR_ENTRIES (since psu = NR_ENTRIES * ai)
-        assert(psu + ai - 1 == NR_ENTRIES as int * ai + (ai - 1)) by(nonlinear_arith)
-            requires psu == NR_ENTRIES as int * ai;
+        assert(psu + ai - 1 == NR_ENTRIES as int * ai + (ai - 1)) by (nonlinear_arith)
+            requires
+                psu == NR_ENTRIES as int * ai,
+        ;
         lemma_fundamental_div_mod_converse(psu + ai - 1, ai, NR_ENTRIES as int, ai - 1);
         // So (psu + ai - 1) / ai == NR_ENTRIES
         // xi + ai - 1 <= psu + ai - 1, so end_idx = (xi+ai-1)/ai <= (psu+ai-1)/ai = NR_ENTRIES

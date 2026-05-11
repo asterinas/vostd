@@ -288,7 +288,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where 'a: 'rcu {
+    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
+        'a: 'rcu,
+     {
         unimplemented!()
     }
 
@@ -311,7 +313,10 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<
+        'rcu,
+        C,
+    > where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
 
         proof {

@@ -70,8 +70,9 @@ impl<C: PageTableConfig> Child<C> {
             final(owner).pte_invariants(res, *final(regions)),
             *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
             *final(owner) == old(owner).into_pte_owner_spec(),
-            old(owner).node is Some ==>
-                res == C::E::new_pt_spec(meta_to_frame(old(owner).node.unwrap().meta_perm.addr())),
+            old(owner).node is Some ==> res == C::E::new_pt_spec(
+                meta_to_frame(old(owner).node.unwrap().meta_perm.addr()),
+            ),
     {
         proof {
             C::E::new_properties();
@@ -229,8 +230,13 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         ensures
             res.invariants(*entry_owner, *final(regions)),
             final(regions).slot_owners =~= old(regions).slot_owners,
-            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
-            forall |k: usize| old(regions).slots.contains_key(k) ==> old(regions).slots[k] == #[trigger] final(regions).slots[k],
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
+                    k,
+                ),
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
+                    == #[trigger] final(regions).slots[k],
     {
         if !pte.is_present() {
             return ChildRef::None;

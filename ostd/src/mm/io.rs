@@ -664,8 +664,7 @@ impl<'a> VmWriter<'a, Infallible> {
     /// for `T`, or the available space isn't a multiple of `size_of::<T>()`.
     pub open spec fn fill_panic_condition<T>(self) -> bool {
         ||| self.cursor.vaddr as int % core::mem::align_of::<T>() as int != 0
-        ||| (self.end.vaddr - self.cursor.vaddr) as int
-            % core::mem::size_of::<T>() as int != 0
+        ||| (self.end.vaddr - self.cursor.vaddr) as int % core::mem::size_of::<T>() as int != 0
     }
 
     /// Fills the available space by repeatedly writing the same `Pod` value.
@@ -1368,7 +1367,6 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
         }
         Ok(nr_written)
     }
-
     // fn write_val<T: Pod>(&self, offset: usize, val: T, Tracked(owner): Tracked<&mut P>) -> (r:
     //     Result<()>)
     // requires
@@ -2000,7 +1998,6 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
         proof_with!(Tracked(owner_r), Tracked(owner_w));
         reader.read(self)
     }
-
 
     #[verifier::external_body]
     #[verus_spec(

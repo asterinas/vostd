@@ -2,7 +2,6 @@
 //! This module provides accessors to the page table entries in a node.
 use vstd::prelude::*;
 
-
 use vstd_extra::cast_ptr;
 use vstd_extra::drop_tracking::ManuallyDrop;
 use vstd_extra::ghost_tree::*;
@@ -76,7 +75,11 @@ pub struct Entry<'a, 'rcu, C: PageTableConfig> {
 }
 
 impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
-    pub open spec fn new_spec(pte: C::E, idx: usize, node: &'a mut PageTableGuard<'rcu, C>) -> Self {
+    pub open spec fn new_spec(
+        pte: C::E,
+        idx: usize,
+        node: &'a mut PageTableGuard<'rcu, C>,
+    ) -> Self {
         Self { pte, idx, node }
     }
 
@@ -142,8 +145,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         ensures
             res.invariants(*owner, *final(regions)),
             final(regions).slot_owners =~= old(regions).slot_owners,
-            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
-            forall |k: usize| old(regions).slots.contains_key(k) ==> old(regions).slots[k] == #[trigger] final(regions).slots[k],
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
+                    k,
+                ),
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
+                    == #[trigger] final(regions).slots[k],
             final(regions).inv(),
     {
         #[verus_spec(with Tracked(&parent_owner.meta_perm))]
@@ -203,9 +211,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // accounting." A clean fix is to track tracked-ness separately from `prop`,
             // or to reformulate `axiom_frame_is_tracked_matches_item` so it doesn't
             // depend on `prop`.
-            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
-                op.ensures((p_in,), p_out) ==>
-                    C::tracked(C::item_from_raw_spec(pa, level, p_out))
+            forall|pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+                #![auto]
+                op.ensures((p_in,), p_out) ==> C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
         ensures
             final(owner).inv(),
@@ -219,12 +227,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(owner).parent_level == old(owner).parent_level,
             final(owner).in_scope == old(owner).in_scope,
             final(self).idx == old(self).idx,
-            old(self).pte.is_present() ==> op.ensures((old(owner).frame.unwrap().prop,), final(owner).frame.unwrap().prop),
+            old(self).pte.is_present() ==> op.ensures(
+                (old(owner).frame.unwrap().prop,),
+                final(owner).frame.unwrap().prop,
+            ),
     {
         let ghost pte0 = self.pte;
 
         if !self.pte.is_present() {
-            return ;
+            return;
         }
         let prop = self.pte.prop();
         let new_prop = op(prop);
@@ -294,40 +305,57 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(self).idx == old(self).idx,
             *final(owner) == old(owner).from_pte_owner_spec(),
             *final(new_owner) == old(new_owner).into_pte_owner_spec(),
-            Self::metaregion_sound_neq_preserved(*old(owner), *final(new_owner), *old(regions), *final(regions)),
-            !final(new_owner).is_node() ==>
-                Self::metaregion_sound_neq_old_preserved(*old(owner), *old(regions), *final(regions)),
-            (!old(owner).is_node() && !final(new_owner).is_node()) ==>
-                Self::metaregion_sound_preserved(*old(regions), *final(regions)),
-            final(new_owner).is_node() && !final(new_owner).is_absent() ==>
-                PageTableOwner::<C>::path_tracked_pred(*final(regions))(*final(new_owner), final(new_owner).path),
+            Self::metaregion_sound_neq_preserved(
+                *old(owner),
+                *final(new_owner),
+                *old(regions),
+                *final(regions),
+            ),
+            !final(new_owner).is_node() ==> Self::metaregion_sound_neq_old_preserved(
+                *old(owner),
+                *old(regions),
+                *final(regions),
+            ),
+            (!old(owner).is_node() && !final(new_owner).is_node())
+                ==> Self::metaregion_sound_preserved(*old(regions), *final(regions)),
+            final(new_owner).is_node() && !final(new_owner).is_absent() ==> PageTableOwner::<
+                C,
+            >::path_tracked_pred(*final(regions))(*final(new_owner), final(new_owner).path),
             final(self).parent_perms_preserved(*old(parent_owner), *final(parent_owner)),
             // paths_in_pt changes when new owner is a node; preserved otherwise.
-            forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
-                (!final(new_owner).is_node() || final(new_owner).is_absent()
-                    || idx != frame_to_index(final(new_owner).meta_slot_paddr().unwrap()))
-                    ==> final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
+            forall|idx: usize|
+                #![trigger final(regions).slot_owners[idx].paths_in_pt]
+                (!final(new_owner).is_node() || final(new_owner).is_absent() || idx
+                    != frame_to_index(final(new_owner).meta_slot_paddr().unwrap()))
+                    ==> final(regions).slot_owners[idx].paths_in_pt == old(
+                    regions,
+                ).slot_owners[idx].paths_in_pt,
             // slots: monotonic (from_pte may add; into_pte doesn't remove for non-nodes).
-            forall|k: usize| old(regions).slots.contains_key(k)
-                ==> #[trigger] final(regions).slots.contains_key(k),
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
+                    k,
+                ),
             // ref_count is preserved per-slot. `into_pte_regions_spec` and
             // `from_pte_regions_spec` only ever rewrite `raw_count` (and the
             // ghost `paths_in_pt` is touched by the surrounding body, never
             // `inner_perms`); both use the `..old_slot` struct-update form
             // so `inner_perms.ref_count` is preserved across the rewrite.
-            forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
-                final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
+            forall|idx: usize|
+                #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+                final(regions).slot_owners[idx].inner_perms.ref_count.value() == old(
+                    regions,
+                ).slot_owners[idx].inner_perms.ref_count.value(),
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
                 &&& final(regions).slots == old(regions).slots
-                &&& forall|i: usize| #![trigger final(regions).slot_owners[i]]
+                &&& forall|i: usize|
+                    #![trigger final(regions).slot_owners[i]]
                     final(regions).slot_owners[i] == old(regions).slot_owners[i]
             },
             // When old child is absent and new child is not a node: slots values unchanged.
-            (old(owner).is_absent() && !final(new_owner).is_node()) ==>
-                forall|k: usize| old(regions).slots.contains_key(k)
-                    ==> old(regions).slots[k] == #[trigger] final(regions).slots[k],
+            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: usize|
+                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
+                    == #[trigger] final(regions).slots[k],
             Self::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
     {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
@@ -339,11 +367,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             match &new_child {
                 Child::PageTable(node) => {
                     assert!(node.level() == guard_level - 1);
-                }
+                },
                 Child::Frame(_, level, _) => {
                     assert!(*level == guard_level);
-                }
-                Child::None => {}
+                },
+                Child::None => {},
             }
         }
 
@@ -358,7 +386,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         let ghost regions_after_from = *regions;
 
-        assert(new_owner.is_node() ==> regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap())));
+        assert(new_owner.is_node() ==> regions.slots.contains_key(
+            frame_to_index(new_owner.meta_slot_paddr().unwrap()),
+        ));
 
         if old_child.is_none() && !new_child.is_none() {
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
@@ -417,7 +447,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             owner.in_scope = true;
         }
 
-        assert(Self::metaregion_sound_neq_preserved(*old(owner), *new_owner, *old(regions), *regions));
+        assert(Self::metaregion_sound_neq_preserved(
+            *old(owner),
+            *new_owner,
+            *old(regions),
+            *regions,
+        ));
 
         proof {
             // When both old and new are not nodes:
@@ -435,6 +470,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // Sub-page validity for new_owner (if a huge frame): preserved because
             // replace only modifies slots/paths_in_pt at new_owner's own slot, not
             // at sub-page slots (which have different indices for j > 0).
+
             if new_owner.is_frame() && new_owner.parent_level > 1 {
                 assert(new_owner.frame_sub_pages_valid(*regions));
             }
@@ -530,8 +566,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i) && i != final(owner).value.node.unwrap().meta_perm.addr() ==> final(guards).unlocked(i),
     )]
-    pub(in crate::mm) fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A)
-    -> (res: Option<PageTableGuard<'rcu, C>>) {
+    pub(in crate::mm) fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+        PageTableGuard<'rcu, C>,
+    >) {
         let entry_is_present = self.pte.is_present();
 
         #[verus_spec(with Tracked(&parent_owner.meta_perm))]
@@ -550,7 +587,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let new_page = PageTableNode::<C>::alloc(level - 1);
 
             proof {
-                let pte = C::E::new_pt_spec(meta_to_frame(new_node_owner.value.node.unwrap().meta_perm.addr()));
+                let pte = C::E::new_pt_spec(
+                    meta_to_frame(new_node_owner.value.node.unwrap().meta_perm.addr()),
+                );
                 old(parent_owner).set_children_perm_axiom(self.idx, pte);
                 C::E::new_properties();
                 assert(!pte.is_last_spec(level as PagingLevel));
@@ -569,6 +608,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(new_node_owner.value.pte_invariants(self.pte, *regions));
                 assert(new_node_owner.value.match_pte(self.pte, new_node_owner.value.parent_level));
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                 assert(new_node_owner.value.metaregion_sound(*regions));
                 assert(new_node_owner.value.meta_slot_paddr().unwrap() == paddr);
             }
@@ -604,8 +644,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value.path = old_path;
                 owner.children = new_node_owner.children;
                 // From allocated_empty_node_owner: all children are absent.
-                assert(forall|i: int| 0 <= i < NR_ENTRIES ==>
-                    (#[trigger] owner.children[i]) is Some && owner.children[i].unwrap().value.is_absent());
+                assert(forall|i: int|
+                    0 <= i < NR_ENTRIES ==> (#[trigger] owner.children[i]) is Some
+                        && owner.children[i].unwrap().value.is_absent());
 
                 let new_paddr = owner.value.meta_slot_paddr().unwrap();
                 assert(old(regions).slots.contains_key(frame_to_index(new_paddr)));
@@ -740,8 +781,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     #[trigger] final(parent_owner).children_perm.value()[j]
                         == old(parent_owner).children_perm.value()[j],
     )]
-    pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A)
-        -> (res: Option<PageTableGuard<'rcu, C>>) {
+    pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res:
+        Option<PageTableGuard<'rcu, C>>) {
         #[verus_spec(with Tracked(&parent_owner.meta_perm))]
         let level = self.node.level();
 
@@ -769,6 +810,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             assert(new_owner.value.metaregion_sound(*regions));
             assert(new_owner.value.meta_slot_paddr().unwrap() == paddr);
         }
@@ -811,38 +853,49 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     #![auto]
                     0 <= j < NR_ENTRIES ==> {
                         &&& new_owner.children[j] is Some
-                        &&& new_owner.children[j].unwrap().value.match_pte(new_owner.value.node.unwrap().children_perm.value()[j], new_owner.value.node.unwrap().level)
-                        &&& new_owner.children[j].unwrap().value.parent_level == new_owner.value.node.unwrap().level
+                        &&& new_owner.children[j].unwrap().value.match_pte(
+                            new_owner.value.node.unwrap().children_perm.value()[j],
+                            new_owner.value.node.unwrap().level,
+                        )
+                        &&& new_owner.children[j].unwrap().value.parent_level
+                            == new_owner.value.node.unwrap().level
                         &&& new_owner.children[j].unwrap().value.inv()
-                        &&& new_owner.children[j].unwrap().value.path == new_owner_path.push_tail(j as usize)
+                        &&& new_owner.children[j].unwrap().value.path == new_owner_path.push_tail(
+                            j as usize,
+                        )
                     },
-                forall|j: int| #![auto] i <= j < NR_ENTRIES ==> {
-                    &&& new_owner.children[j].unwrap().value.is_absent()
-                    &&& !new_owner.children[j].unwrap().value.in_scope
-                    &&& new_owner.value.node.unwrap().children_perm.value()[j] == C::E::new_absent_spec()
-                },
+                forall|j: int|
+                    #![auto]
+                    i <= j < NR_ENTRIES ==> {
+                        &&& new_owner.children[j].unwrap().value.is_absent()
+                        &&& !new_owner.children[j].unwrap().value.in_scope
+                        &&& new_owner.value.node.unwrap().children_perm.value()[j]
+                            == C::E::new_absent_spec()
+                    },
                 // Children [0, i) have been replaced with frames.
-                forall|j: int| #![auto] 0 <= j < i ==> {
-                    new_owner.children[j].unwrap().value.is_frame()
-                },
+                forall|j: int|
+                    #![auto]
+                    0 <= j < i ==> { new_owner.children[j].unwrap().value.is_frame() },
                 // Sub-page slots (4KB-grained, j > 0): slots.contains_key is unconditional;
                 // rc constraints apply only to non-MMIO sub-pages (MMIO sub-pages keep
                 // `usage == MMIO` and `rc == UNUSED`).
-                forall |j: usize| #![trigger frame_to_index(
+                forall|j: usize|
+                    #![trigger frame_to_index(
                     (pa + j * PAGE_SIZE) as usize)]
                     0 < j < page_size(level) / PAGE_SIZE ==> {
-                    let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                    &&& regions.slots.contains_key(sub_idx)
-                    &&& regions.slot_owners[sub_idx].usage
+                        let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                        &&& regions.slots.contains_key(sub_idx)
+                        &&& regions.slot_owners[sub_idx].usage
                             != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
-                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                    }
-                },
+                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                != REF_COUNT_UNUSED
+                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                        }
+                    },
                 // j = 0: the huge frame's own slot.
                 regions.slots.contains_key(frame_to_index(pa)),
                 regions.slot_owners[frame_to_index(pa)].usage
-                        != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                    != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                         != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0
@@ -888,7 +941,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value.path.push_tail(i as usize),
                 (level - 1) as PagingLevel,
                 prop,
-                /* is_tracked */ owner.value.frame.unwrap().is_tracked,
+                /* is_tracked */
+                owner.value.frame.unwrap().is_tracked,
             );
 
             #[verus_spec(with Tracked(&new_owner_node), Tracked(&new_owner.children.tracked_borrow(i as int).tracked_borrow().value))]
@@ -899,7 +953,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let ghost child_before_remove = new_owner.child(i as usize).unwrap();
                 assert(child_before_remove.inv());
             }
-            let tracked mut new_owner_child = new_owner.children.tracked_remove(i as int).tracked_unwrap();
+            let tracked mut new_owner_child = new_owner.children.tracked_remove(
+                i as int,
+            ).tracked_unwrap();
 
             proof {
                 assert(new_owner_child.value.match_pte(
@@ -909,13 +965,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
                 let idx = frame_to_index(small_pa);
                 assert(idx == frame_to_index(
-                    (pa + i * page_size((level - 1) as PagingLevel)) as usize));
+                    (pa + i * page_size((level - 1) as PagingLevel)) as usize,
+                ));
                 if i != 0 {
-                    let ghost big_j = crate::specs::mm::page_table::cursor::
-                        page_size_lemmas::lemma_split_sub_page_big_j(pa, level, i);
+                    let ghost big_j =
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
+                    pa, level, i);
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                 }
-
                 assert(entry.node_matching(new_owner_child.value, new_owner_node, *entry.node)) by {
                     let pte = new_owner_node.children_perm.value()[i as int];
                     assert(pte == C::E::new_absent_spec());
@@ -929,47 +986,67 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
                 if level - 1 > 1 {
                     let nr_subpages = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::
-                        lemma_page_size_div_mul_eq((level - 1) as PagingLevel);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::
-                        lemma_page_size_div_mul_eq(level);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::
-                        lemma_nr_entries_times_sub_page_size(level);
-                    assert forall |j_prime: usize|
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
+                    (level - 1) as PagingLevel);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
+                    level);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
+                    level);
+                    assert forall|j_prime: usize|
                         #![trigger frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize)]
                         0 < j_prime < nr_subpages implies {
                         let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].usage
-                                != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
-                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                != REF_COUNT_UNUSED
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                         }
                     } by {
-                        let sub_pages_per_subframe = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
-                        let big_j_int: int = i as int * sub_pages_per_subframe as int + j_prime as int;
+                        let sub_pages_per_subframe = page_size((level - 1) as PagingLevel)
+                            / PAGE_SIZE;
+                        let big_j_int: int = i as int * sub_pages_per_subframe as int
+                            + j_prime as int;
                         vstd::arithmetic::mul::lemma_mul_nonnegative(
-                            i as int, sub_pages_per_subframe as int);
+                            i as int,
+                            sub_pages_per_subframe as int,
+                        );
                         vstd::arithmetic::mul::lemma_mul_inequality(
-                            (i + 1) as int, NR_ENTRIES as int, sub_pages_per_subframe as int);
+                            (i + 1) as int,
+                            NR_ENTRIES as int,
+                            sub_pages_per_subframe as int,
+                        );
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                            sub_pages_per_subframe as int, i as int, 1int);
+                            sub_pages_per_subframe as int,
+                            i as int,
+                            1int,
+                        );
                         vstd::arithmetic::mul::lemma_mul_is_associative(
-                            NR_ENTRIES as int, sub_pages_per_subframe as int, PAGE_SIZE as int);
+                            NR_ENTRIES as int,
+                            sub_pages_per_subframe as int,
+                            PAGE_SIZE as int,
+                        );
                         vstd::arithmetic::div_mod::lemma_div_by_multiple(
-                            NR_ENTRIES as int * sub_pages_per_subframe as int, PAGE_SIZE as int);
+                            NR_ENTRIES as int * sub_pages_per_subframe as int,
+                            PAGE_SIZE as int,
+                        );
                         let big_j: usize = big_j_int as usize;
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
                             PAGE_SIZE as int,
                             i as int * sub_pages_per_subframe as int,
-                            j_prime as int);
+                            j_prime as int,
+                        );
                         vstd::arithmetic::mul::lemma_mul_is_associative(
-                            i as int, sub_pages_per_subframe as int, PAGE_SIZE as int);
-                        assert((small_pa + j_prime * PAGE_SIZE) as usize == (pa + big_j * PAGE_SIZE) as usize);
+                            i as int,
+                            sub_pages_per_subframe as int,
+                            PAGE_SIZE as int,
+                        );
+                        assert((small_pa + j_prime * PAGE_SIZE) as usize == (pa + big_j
+                            * PAGE_SIZE) as usize);
                     }
                     assert(child_owner.frame_sub_pages_valid(*regions));
                 }
-
                 let small_idx = frame_to_index(small_pa);
 
                 // Instantiate the loop invariant's sub-page forall (or the j=0
@@ -980,16 +1057,19 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     // small_pa == pa + 0 * page_size(level-1) == pa.
                     assert(i as int * page_size((level - 1) as PagingLevel) as int == 0) by {
                         vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
-                            page_size((level - 1) as PagingLevel) as int);
+                            page_size((level - 1) as PagingLevel) as int,
+                        );
                     }
                     assert(small_pa == pa);
                 } else {
-                    let ghost big_j = crate::specs::mm::page_table::cursor::
-                        page_size_lemmas::lemma_split_sub_page_big_j(pa, level, i);
+                    let ghost big_j =
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
+                    pa, level, i);
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                     // Trigger the sub-page forall at j = big_j.
                     assert(regions.slots.contains_key(
-                        frame_to_index((pa + big_j * PAGE_SIZE) as usize)));
+                        frame_to_index((pa + big_j * PAGE_SIZE) as usize),
+                    ));
                 }
                 assert(regions.slots.contains_key(small_idx));
 
@@ -1009,30 +1089,31 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 if (level - 1) > 1 {
                     assert(child_owner.frame_sub_pages_valid(*regions));
                 }
-
                 let ghost target_idx = frame_to_index(small_pa);
                 assert(target_idx == small_idx);
                 if i != 0 {
-                    let ghost big_j = crate::specs::mm::page_table::cursor::
-                        page_size_lemmas::lemma_split_sub_page_big_j(pa, level, i);
+                    let ghost big_j =
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
+                    pa, level, i);
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                     assert(target_idx == frame_to_index((pa + big_j * PAGE_SIZE) as usize));
                     assert(regions.slots.contains_key(target_idx));
                     assert(regions.slot_owners[target_idx].usage
-                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                        != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
                         &&& regions.slot_owners[target_idx].inner_perms.ref_count.value()
                             != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                         &&& regions.slot_owners[target_idx].inner_perms.ref_count.value() > 0
                     });
                 } else {
-                    assert(0 * page_size((level - 1) as PagingLevel) == 0)
-                        by (nonlinear_arith);
+                    assert(0 * page_size((level - 1) as PagingLevel) == 0) by (nonlinear_arith);
                     assert(small_pa as int == pa as int);
                     assert(target_idx == frame_to_index(pa));
                 }
                 assert(child_owner.metaregion_sound(*regions));
-                assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop)
-                    .invariants(child_owner, *regions));
+                assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop).invariants(
+                    child_owner,
+                    *regions,
+                ));
             }
 
             #[verus_spec(with Tracked(regions),

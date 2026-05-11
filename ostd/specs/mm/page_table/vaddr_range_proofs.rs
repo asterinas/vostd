@@ -6,8 +6,8 @@
 //! alongside `largest_pages` (which has an `impl Iterator` return type).
 //! Same workaround pattern as the older `vaddr_range_bv_lemmas`.
 
-use vstd::prelude::*;
 use vstd::arithmetic::power2::{lemma_pow2_adds, lemma_pow2_pos, pow2};
+use vstd::prelude::*;
 
 use crate::mm::page_table::{
     axiom_top_level_index_range_bounds, pte_index_bit_offset_spec, PageTableConfig,

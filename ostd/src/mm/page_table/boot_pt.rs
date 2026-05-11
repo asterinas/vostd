@@ -194,7 +194,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
                 #[cfg(feature = "allow_panic")]
                 { panic!("mapping an already mapped huge page in the boot page table") }
                 #[cfg(not(feature = "allow_panic"))]
-                { return  }
+                { return }
             } else {
                 pte.paddr() / C::BASE_PAGE_SIZE()
             };
@@ -208,7 +208,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
             #[cfg(feature = "allow_panic")]
             panic!("mapping an already mapped page in the boot page table");
             #[cfg(not(feature = "allow_panic"))]
-            return ;
+             return;
         }
         unsafe { pte_ptr.write(E::new_page(to * C::BASE_PAGE_SIZE(), 1, prop)) };
     }
@@ -244,7 +244,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
                 #[cfg(feature = "allow_panic")]
                 { panic!("protecting an unmapped page in the boot page table") }
                 #[cfg(not(feature = "allow_panic"))]
-                { return  }
+                { return }
             } else if pte.is_last(level) {
                 // Split the huge page.
                 let child_pte = self.alloc_child();
@@ -273,7 +273,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
             #[cfg(feature = "allow_panic")]
             panic!("protecting an unmapped page in the boot page table");
             #[cfg(not(feature = "allow_panic"))]
-            return ;
+             return;
         }
         let mut prop = pte.prop();
         op(&mut prop);

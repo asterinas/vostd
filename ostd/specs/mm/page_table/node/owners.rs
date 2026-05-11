@@ -7,6 +7,7 @@ use vstd::simple_pptr::*;
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR};
 use crate::mm::paddr_to_vaddr;
+use crate::mm::page_table::PageTableGuard;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -16,7 +17,6 @@ use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::owners::INC_LEVELS;
-use crate::mm::page_table::PageTableGuard;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::Repr;

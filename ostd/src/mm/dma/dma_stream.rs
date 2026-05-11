@@ -4,6 +4,7 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 use vstd::{predicate::Predicate, prelude::*};
 use vstd_extra::array_ptr::{ArrayPtr, PointsToArray};
 use vstd_extra::ownership::{Inv, OwnerOf};
+use vstd_extra::external::AsRefSpec;
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::{
@@ -89,47 +90,86 @@ pub struct DmaStream<M: AnyUFrameMeta + ?Sized> {
 }
 
 /// A slice of streaming DMA mapping.
-pub struct DmaStreamSlice<Dma> {
+pub struct DmaStreamSlice<Dma, M: AnyUFrameMeta + ?Sized> {
     pub stream: Dma,
     pub offset: usize,
     pub len: usize,
+    pub _marker: PhantomData<M>,
 }
 
-// #[verus_verify]
-// impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma> {
-//     /// Constructs a `DmaStreamSlice` from the [`DmaStream`].
-//     #[verus_spec(returns
-//         (Self {
-//             stream,
-//             offset,
-//             len,
-//         }),
-//     )]
-//     pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
-//         Self { stream, offset, len }
-//     }
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> Inv for DmaStreamSlice<
+    Dma,
+    M,
+> {
+    #[verifier::inline]
+    open spec fn inv(self) -> bool {
+        &&& self.len != 0
+        &&& self.stream.as_ref_spec().inner.wf()
+    }
+}
 
-//     /// Returns the underlying `DmaStream`.
-//     #[verifier::external_body]
-//     pub fn stream<M: AnyUFrameMeta + ?Sized>(&self) -> &DmaStream<M>
-//     where
-//         Dma: AsRef<DmaStream<M>>,
-//     {
-//         self.stream.as_ref()
-//     }
+#[verus_verify]
+impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M> {
+    /// Constructs a `DmaStreamSlice` from the [`DmaStream`].
+    #[verus_spec(returns
+        (Self {
+            stream,
+            offset,
+            len,
+            _marker: PhantomData,
+        }),
+    )]
+    #[inline]
+    pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
+        Self { stream, offset, len, _marker: PhantomData }
+    }
 
-//     /// Returns the offset of the slice.
-//     #[verus_spec(returns self.offset)]
-//     pub fn offset(&self) -> usize {
-//         self.offset
-//     }
+    /// Returns the underlying `DmaStream`.
+    #[verus_spec(returns self.stream.as_ref_spec())]
+    #[inline]
+    pub fn stream(&self) -> &DmaStream<M> {
+        self.stream.as_ref()
+    }
 
-//     #[verus_spec(returns self.len)]
-//     /// Returns the number of bytes.
-//     pub fn nbytes(&self) -> usize {
-//         self.len
-//     }
-// }
+    /// Returns the offset of the slice.
+    #[verus_spec(returns self.offset)]
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Returns the number of bytes.
+    #[verus_spec(returns self.len)]
+    #[inline]
+    pub fn nbytes(&self) -> usize {
+        self.len
+    }
+
+    /// Synchronizes the streaming DMA mapping with the device for the slice.
+    #[verifier::external_body]
+    #[inline]
+    pub fn sync(&self) -> Result<(), Error>
+    where
+        M: OwnerOf,
+    {
+        self.stream.as_ref().sync(self.offset..self.offset + self.len)
+    }
+
+    #[verus_spec(
+        requires
+            self.inv(),
+        returns
+            /* */
+    )]
+    #[verifier::external_body]
+    #[inline]
+    pub fn daddr(&self) -> Daddr
+    where
+        M: OwnerOf,
+    {
+        self.stream.as_ref().daddr() + self.offset
+    }
+}
 
 /// The tracked owner for the inner part of a [`DmaStream`].
 ///
@@ -145,10 +185,6 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStream<M> {
     open spec fn inv(self) -> bool {
         true
     }
-}
-
-impl<M: AnyUFrameMeta + ?Sized> DmaStream<M> {
-
 }
 
 /// The inner part of a [`DmaStream`].
@@ -1038,6 +1074,108 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         Tracked(_owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
         Err(Error::AccessDenied)
+    }
+}
+
+impl<M: AnyUFrameMeta + ?Sized + Send + Sync, Dma: Send + Sync> VmIo<()> for DmaStreamSlice<
+    Dma,
+    M,
+> {
+    closed spec fn obeys_vmio_spec() -> bool {
+        true
+    }
+
+    closed spec fn obeys_vmio_read_spec() -> bool {
+        false
+    }
+
+    closed spec fn obeys_vmio_write_spec() -> bool {
+        false
+    }
+
+    open spec fn read_spec(
+        self,
+        offset: usize,
+        old_writer: VmWriter<'_>,
+        new_writer: VmWriter<'_>,
+        old_writer_own: VmIoOwner<'_>,
+        new_writer_own: VmIoOwner<'_>,
+        old_owner: (),
+        new_owner: (),
+        r: core::result::Result<(), Error>,
+    ) -> bool {
+        true
+    }
+
+    open spec fn write_spec(
+        self,
+        offset: usize,
+        old_reader: VmReader<'_>,
+        new_reader: VmReader<'_>,
+        old_writer_own: VmIoOwner<'_>,
+        new_writer_own: VmIoOwner<'_>,
+        old_owner: (),
+        new_owner: (),
+        r: core::result::Result<(), Error>,
+    ) -> bool {
+        true
+    }
+
+    fn read(
+        &self,
+        offset: usize,
+        writer: &mut VmWriter<'_>,
+        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut ()>,
+    ) -> (r: core::result::Result<(), Error>)
+        ensures
+            Self::obeys_vmio_read_spec() ==> Self::read_spec(
+                *self,
+                offset,
+                *old(writer),
+                *final(writer),
+                *old(writer_own),
+                *final(writer_own),
+                *old(owner),
+                *final(owner),
+                r,
+            ),
+    {
+        Err(Error::InvalidArgs)
+    }
+
+    fn write(
+        &self,
+        offset: usize,
+        reader: &mut VmReader,
+        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut ()>,
+    ) -> (r: core::result::Result<(), Error>)
+        ensures
+            Self::obeys_vmio_write_spec() ==> Self::write_spec(
+                *self,
+                offset,
+                *old(reader),
+                *final(reader),
+                *old(writer_own),
+                *final(writer_own),
+                *old(owner),
+                *final(owner),
+                r,
+            ),
+    {
+        Err(Error::InvalidArgs)
+    }
+
+    fn read_byte<const N: usize>(
+        &self,
+        offset: usize,
+        bytes: ArrayPtr<u8, N>,
+        Tracked(bytes_owner): Tracked<&mut PointsToArray<u8, N>>,
+        Tracked(owner): Tracked<&mut ()>,
+    ) -> (r: core::result::Result<(), Error>)
+    {
+        Err(Error::InvalidArgs)
     }
 }
 

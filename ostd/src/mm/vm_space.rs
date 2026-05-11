@@ -781,7 +781,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let Err(frag) = (
         #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.map(item)) else {
-            return ;  // No mapping exists at the current address.
+            return;  // No mapping exists at the current address.
         };
 
         match frag {
@@ -957,7 +957,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 cursor_owner.view_preserves_inv();
                 // Per-config VA bound on prev_mappings — needed for
                 // preserving the `removed`-end-bound loop invariant.
-                crate::specs::mm::page_table::cursor::owners::axiom_view_in_vaddr_range::<UserPtConfig>(cursor_owner);
+                crate::specs::mm::page_table::cursor::owners::axiom_view_in_vaddr_range::<
+                    UserPtConfig,
+                >(cursor_owner);
                 crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
             }
 
@@ -990,7 +992,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         }
                     };
                 }
-                break ;
+                break;
             };
 
             let ghost old_adjusted = adjusted_base;
@@ -1012,8 +1014,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         // mapping is a loop invariant. Together they give
                         // |removed| < usize::MAX, so num_unmapped + 1 fits.
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_wf_subset(
-                            adjusted_base, removed);
-                        crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(removed);
+                            adjusted_base,
+                            removed,
+                        );
+                        crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(
+                        removed);
                     }
                     assert(num_unmapped < usize::MAX);
                     num_unmapped += 1;
@@ -1144,30 +1149,29 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 // Mapped-case setup: establish split_while_huge properties once.
                 if is_mapped {
                     assert(sv.cur_va < 0x0000_8000_0000_0000usize);
-                    assert forall|m: Mapping, x: Mapping|
-                        #[trigger] prev_mappings.contains(m)
-                            && #[trigger] old_removed.contains(x) implies
-                        Mapping::disjoint_vaddrs(m, x) by {
+                    assert forall|m: Mapping, x: Mapping| #[trigger]
+                        prev_mappings.contains(m) && #[trigger] old_removed.contains(
+                            x,
+                        ) implies Mapping::disjoint_vaddrs(m, x) by {
                         assert(old_adjusted.contains(m));
                         assert(old_adjusted.contains(x));
                     };
                     sv.split_while_huge_disjoint(mm.page_size, old_removed);
                     sv.lemma_split_while_huge_preserves_inv(mm.page_size);
                 }
-
-                assert forall |m: Mapping| #[trigger] removed.contains(m)
-                    implies m.va_range.end <= 0x0000_8000_0000_0000_usize as int by {
+                assert forall|m: Mapping| #[trigger] removed.contains(m) implies m.va_range.end
+                    <= 0x0000_8000_0000_0000_usize as int by {
                     if !old_removed.contains(m) {
                         if is_mapped {
                             assert(m == mm);
                             sv.split_while_huge_refinement(mm.page_size, mm);
                             if !prev_mappings.contains(mm) {
-                                let parent = choose |p: Mapping|
-                                    #[trigger] prev_mappings.contains(p)
-                                    && p.va_range.start <= mm.va_range.start
-                                    && mm.va_range.end <= p.va_range.end
-                                    && mm.pa_range.start == (p.pa_range.start + (mm.va_range.start - p.va_range.start)) as Paddr
-                                    && mm.property == p.property;
+                                let parent = choose|p: Mapping| #[trigger]
+                                    prev_mappings.contains(p) && p.va_range.start
+                                        <= mm.va_range.start && mm.va_range.end <= p.va_range.end
+                                        && mm.pa_range.start == (p.pa_range.start + (
+                                    mm.va_range.start - p.va_range.start)) as Paddr && mm.property
+                                        == p.property;
                             }
                         } else {
                             assert(prev_mappings.contains(m));
@@ -1262,7 +1266,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 PageTableFrag::StrayPageTable { va: frag_va, .. } => {
                                     if m.va_range.start >= frag_va {
                                         assert(cursor_owner@.mappings.filter(
-                                            |m2: Mapping| frag_va <= m2.va_range.start < self.pt_cursor.0.va
+                                            |m2: Mapping|
+                                                frag_va <= m2.va_range.start < self.pt_cursor.0.va,
                                         ).contains(m));
                                     } else {
                                         assert(prev_mappings.filter(
@@ -1273,7 +1278,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 PageTableFrag::Mapped { va: frag_va, .. } => {
                                     if m.va_range.start >= (frag_va as usize) {
                                         assert(cursor_owner@.mappings.filter(
-                                            |m2: Mapping| (frag_va as usize) <= m2.va_range.start < self.pt_cursor.0.va
+                                            |m2: Mapping|
+                                                (frag_va as usize) <= m2.va_range.start
+                                                    < self.pt_cursor.0.va,
                                         ).contains(m));
                                     } else {
                                         assert(prev_mappings.filter(
@@ -1606,10 +1613,10 @@ unsafe impl PageTableConfig for UserPtConfig {
     proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
         // Derive `frame.inv()` from the structural-shape axiom + soundness lemmas.
+
         Self::item_from_raw_spec_frame_ptr(pa, level, prop);
         let item = Self::item_from_raw_spec(pa, level, prop);
-        assert(item.frame.ptr.addr()
-            == crate::mm::frame::meta::mapping::frame_to_meta(pa));
+        assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
         // frame.inv() unfolds to `addr % META_SLOT_SIZE == 0` and addr in
         // FRAME_METADATA_RANGE. Both follow from `lemma_frame_to_meta_soundness`.
         assert(item.frame.inv());
@@ -1636,8 +1643,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         assert(item.frame.clone_ensures(old_regions, new_regions, res.frame));
         assert(new_regions.slot_owners[frame_idx].inner_perms.ref_count.value()
             == old_regions.slot_owners[frame_idx].inner_perms.ref_count.value() + 1);
-        assert(forall|i: usize| i != frame_idx
-            ==> #[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]);
+        assert(forall|i: usize|
+            i != frame_idx ==> #[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]);
     }
 
     proof fn clone_requires_concrete(
@@ -1674,7 +1681,8 @@ impl UserPtConfig {
             crate::mm::frame::meta::has_safe_slot(pa),
         ensures
             UserPtConfig::item_from_raw_spec(pa, level, prop).frame.ptr.addr()
-                == crate::mm::frame::meta::mapping::frame_to_meta(pa);
+                == crate::mm::frame::meta::mapping::frame_to_meta(pa),
+    ;
 }
 
 } // verus!

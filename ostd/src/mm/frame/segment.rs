@@ -71,9 +71,12 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.slot_owners.contains_key(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value() != super::meta::REF_COUNT_UNUSED
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                    != super::meta::REF_COUNT_UNUSED
                 &&& regions.slot_owners[idx].raw_count == 1
-                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].self_addr == meta_addr(
+                    idx,
+                )
                 // The perm's PointsTo matches the slot
                 &&& owner.perms[i].points_to.is_init()
                 &&& owner.perms[i].points_to.value().wf(
@@ -374,8 +377,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         metadata_fn: impl Fn(Paddr) -> (Paddr, M),
         r: Result<Self, GetFrameError>,
     ) -> bool {
-        &&& (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0)
-            ==> r == Err::<Self, _>(GetFrameError::NotAligned)
+        &&& (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0) ==> r == Err::<Self, _>(
+            GetFrameError::NotAligned,
+        )
         &&& (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end > MAX_PADDR)
             ==> r == Err::<Self, _>(GetFrameError::OutOfBound)
         &&& (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end <= MAX_PADDR)
@@ -515,8 +519,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& regions.inv()
         &&& forall|pa: Paddr|
             #![trigger frame_to_index(pa)]
-            (self.range.start + range.start <= pa < self.range.start + range.end
-                && pa % PAGE_SIZE == 0) ==> {
+            (self.range.start + range.start <= pa < self.range.start + range.end && pa % PAGE_SIZE
+                == 0) ==> {
                 let idx = frame_to_index(pa);
                 &&& regions.slots.contains_key(idx)
                 &&& has_safe_slot(pa)
@@ -524,7 +528,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() + 1
                     < super::meta::REF_COUNT_MAX
                 &&& !MetaSlot::inc_ref_count_panic_cond(
-                    regions.slot_owners[idx].inner_perms.ref_count)
+                    regions.slot_owners[idx].inner_perms.ref_count,
+                )
             }
     }
 
@@ -910,7 +915,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value() + 1
                             < super::meta::REF_COUNT_MAX
                         &&& !MetaSlot::inc_ref_count_panic_cond(
-                            regions.slot_owners[idx].inner_perms.ref_count)
+                            regions.slot_owners[idx].inner_perms.ref_count,
+                        )
                     },
             decreases end - paddr,
         {
@@ -925,7 +931,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
         Self { range: start..end, _marker: core::marker::PhantomData }
     }
-
 }
 
 #[verus_verify]
@@ -942,10 +947,7 @@ impl<M: AnyFrameMeta> From<Frame<M>> for Segment<M> {
     fn from(frame: Frame<M>) -> Self {
         let pa = frame.start_paddr();
         let _ = core::mem::ManuallyDrop::new(frame);
-        Self {
-            range: pa..(pa + PAGE_SIZE),
-            _marker: core::marker::PhantomData,
-        }
+        Self { range: pa..(pa + PAGE_SIZE), _marker: core::marker::PhantomData }
     }
 }
 
@@ -995,8 +997,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Drop for Segment<M> {
     // drop_ensures) is the verified surface; the body is trusted at the
     // contract boundary, same trust posture as the original `?Sized` impl.
     #[verifier::external_body]
-    fn drop(self, Tracked(s): Tracked<(MetaRegionOwners, SegmentOwner<M>)>) -> (res: Tracked<(MetaRegionOwners, SegmentOwner<M>)>)
-    {
+    fn drop(self, Tracked(s): Tracked<(MetaRegionOwners, SegmentOwner<M>)>) -> (res: Tracked<
+        (MetaRegionOwners, SegmentOwner<M>),
+    >) {
         let tracked (mut regions, mut owner) = s;
         let mut paddr = self.range.start;
 
@@ -1079,7 +1082,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             decreases self.range.end - paddr,
         {
             if paddr >= self.range.end {
-                break ;
+                break;
             }
             proof {
                 assert(paddr + PAGE_SIZE <= self.range.end);

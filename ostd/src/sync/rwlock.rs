@@ -3,7 +3,7 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*, CellId};
 use vstd::prelude::*;
 use vstd::resource::Loc;
-use vstd_extra::resource::ghost_resource::{count::*, csum::*,  excl::*, tokens::*};
+use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
 use vstd_extra::sum::*;
 use vstd_extra::{prelude::*, resource};
 
