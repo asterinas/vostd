@@ -561,24 +561,25 @@ impl VirtPtr {
         VirtPtr { vaddr: (self.vaddr - n) as usize, range: self.range }
     }
 
-    /// Rewinds the pointer by `n` bytes.
+    /// Returns a new pointer whose address is `self.vaddr` rewound by `n` bytes.
     ///
-    /// This operation only updates the cursor; it does not perform memory access.
+    /// Mirrors the shape of [`<*const T>::sub`] / [`<*mut T>::sub`] in the raw-pointer
+    /// API: takes `self` by value and returns the new pointer.
     ///
     /// # Verified Properties
     ///
     /// ## Preconditions
-    /// - `n <= old(self).vaddr` (no underflow).
+    /// - `n <= self.vaddr` (no underflow).
     ///
     /// ## Postconditions
-    /// - `*self == old(self).sub_spec(n)`.
-    pub fn sub(&mut self, n: usize)
+    /// - `res == self.sub_spec(n)`.
+    pub fn sub(self, n: usize) -> (res: Self)
         requires
-            n <= old(self).vaddr,
-        ensures
-            *final(self) == old(self).sub_spec(n),
+            n <= self.vaddr,
+        returns
+            self.sub_spec(n),
     {
-        self.vaddr = self.vaddr - n
+        VirtPtr { vaddr: self.vaddr - n, range: self.range }
     }
 
     pub open spec fn wrapping_add_spec(self, n: usize) -> Self {
@@ -591,6 +592,20 @@ impl VirtPtr {
         returns self.wrapping_add_spec(n),
     {
         VirtPtr { vaddr: self.vaddr.wrapping_add(n), range: self.range }
+    }
+
+    /// Reinterprets `self.vaddr` as a typed raw pointer to `T`.
+    ///
+    /// This is purely a type cast; no memory access is performed and no
+    /// alignment is checked. The returned pointer carries no provenance — it
+    /// is suitable for runtime checks (e.g., `is_aligned`) and for unsafe
+    /// volatile reads/writes whose preconditions are independently verified.
+    #[verifier::external_body]
+    pub fn cast<T>(self) -> (res: *mut T)
+        ensures
+            res as usize == self.vaddr,
+    {
+        self.vaddr as *mut T
     }
 
     pub open spec fn read_offset_spec(self, mem: MemView, n: usize) -> u8 {

@@ -22,9 +22,11 @@ pub trait Pod: Copy + Sized {
         unsafe { MaybeUninit::uninit().assume_init() }
     }
 
-    /// As a slice of bytes.
+    /// As a slice of bytes via an [`ArrayPtr`] (with a tracked permission).
+    ///
+    /// This is the verus-flavored variant; the raw `&[u8]` view is [`Self::as_bytes`].
     #[verifier::external_body]
-    fn as_bytes<const N: usize>(&self) -> (slice: (
+    fn as_array_ptr_bytes<const N: usize>(&self) -> (slice: (
         ArrayPtr<u8, N>,
         Tracked<&array_ptr::PointsTo<u8, N>>,
     ))
@@ -52,7 +54,7 @@ pub trait Pod: Copy + Sized {
 
     /// As an immutable slice of bytes.
     #[verifier::external_body]
-    fn as_bytes_ref(&self) -> (r: &[u8])
+    fn as_bytes(&self) -> (r: &[u8])
         ensures
             r.len() == core::mem::size_of::<Self>(),
     {
@@ -77,3 +79,16 @@ pub trait PodOnce: Pod {
 }
 
 } // verus!
+
+macro_rules! impl_pod_for_primitive {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl Pod for $ty {}
+        )*
+    };
+}
+
+impl_pod_for_primitive!(
+    u8, u16, u32, u64, u128, usize,
+    i8, i16, i32, i64, i128, isize,
+);
