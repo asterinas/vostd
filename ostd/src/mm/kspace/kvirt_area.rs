@@ -537,20 +537,20 @@ impl KVirtArea {
                 cursor.0.invariants(cursor_owner, *regions, *guards),
                 // For each remaining frame, the map contains a wf owner at its paddr.
                 // Duplicates among remaining frames are fine — one key, one owner.
-                forall |i: int| it.pos <= i < it.elements.len() ==> {
+                forall |i: int| it.index() <= i < it.seq().len() ==> {
                     let pa = #[trigger] crate::mm::frame::meta::mapping::meta_to_frame(
-                        it.elements[i].ptr.addr());
+                        it.seq()[i].ptr.addr());
                     &&& entry_owners.contains_key(pa)
                     &&& entry_owners[pa].inv()
-                    &&& frame_entry_wf(it.elements[i], prop, entry_owners[pa])
+                    &&& frame_entry_wf(it.seq()[i], prop, entry_owners[pa])
                 },
                 // Slot facts for each remaining frame are preserved across iterations.
                 // (Initially established by the function precondition; preserved by
                 // `cursor.map`'s effect on unrelated slots — see the focused assume in
                 // the loop body.)
-                forall |i: int| it.pos <= i < it.elements.len() ==>
+                forall |i: int| it.index() <= i < it.seq().len() ==>
                     CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                        MappedItem::Tracked(#[trigger] it.elements[i], prop), *regions),
+                        MappedItem::Tracked(#[trigger] it.seq()[i], prop), *regions),
         {
             // Capacity fit check: if the cursor has advanced past its barrier
             // (i.e., too many frames for the allocated area), panic. This
@@ -565,7 +565,7 @@ impl KVirtArea {
             }
 
             let ghost cur_pa_from_wf: usize = KernelPtConfig::item_into_raw_spec(
-                MappedItem::Tracked(frame_as_dynframe(it.elements.index(it.pos as int)), prop)).0;
+                MappedItem::Tracked(frame_as_dynframe(it.seq().index(it.index() as int)), prop)).0;
             let ghost pre_remove_owners: Map<Paddr, EntryOwner<KernelPtConfig>> = *entry_owners;
             // Save path/parent_level so we can rebuild a fresh owner after `cursor.map`
             // consumes this one, and reinsert into the map for potential reuse by
@@ -592,7 +592,7 @@ impl KVirtArea {
 
             let tracked mut entry_owner = entry_owners.tracked_remove(cur_mapped_pa);
 
-            // Now Verus knows: dynframe == frame_as_dynframe(it.elements[it.pos])
+            // Now Verus knows: dynframe == frame_as_dynframe(it.seq()[it.index()])
             let item = MappedItem::Tracked(frame, prop);
             // For a tracked frame, item_into_raw gives level 1 (4KB page), and
             // frame_entry_wf requires `entry_owner.parent_level == level`, so:
@@ -625,7 +625,7 @@ impl KVirtArea {
             // SAFETY: The constructor of the `KVirtArea` has already ensured
             // that this mapping does not affect kernel's memory safety.
             // `item_slot_in_regions` for the current item is delivered by the
-            // loop invariant (instantiated at i = it.pos), itself established by
+            // loop invariant (instantiated at i = it.index()), itself established by
             // the function precondition.
             assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
             #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
@@ -639,11 +639,11 @@ impl KVirtArea {
             proof {
                 let cur_pa = KernelPtConfig::item_into_raw_spec(item).0;
                 let cur_pa_idx = frame_to_index_spec(cur_pa);
-                assert forall |i: int| (it.pos as int + 1) <= i < it.elements.len() implies
+                assert forall |i: int| (it.index() as int + 1) <= i < it.seq().len() implies
                     CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                        MappedItem::Tracked(#[trigger] it.elements[i], prop), *regions)
+                        MappedItem::Tracked(#[trigger] it.seq()[i], prop), *regions)
                 by {
-                    let item_i = MappedItem::Tracked(it.elements[i], prop);
+                    let item_i = MappedItem::Tracked(it.seq()[i], prop);
                     let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
                     let idx_i = frame_to_index_spec(pa_i);
                     KernelPtConfig::item_into_raw_spec_tracked_level(item_i);
@@ -797,23 +797,23 @@ impl KVirtArea {
                 invariant
                     cursor.0.invariants(cursor_owner, *regions, *guards),
                     // Level bounds / alignment from `collect_largest_pages` postconditions.
-                    forall |i: int| 0 <= i < it.elements.len() ==>
-                        (#[trigger] it.elements[i]).0 % PAGE_SIZE == 0,
-                    forall |i: int| 0 <= i < it.elements.len() ==>
-                        1 <= (#[trigger] it.elements[i]).1 <= NR_LEVELS,
-                    forall |i: int| 0 <= i < it.elements.len() ==>
-                        (#[trigger] it.elements[i]).1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
-                    forall |i: int| 0 <= i < it.elements.len() ==>
-                        (va_range.start as nat + #[trigger] sum_page_sizes_spec(it.elements, 0, i))
-                            % page_size(it.elements[i].1) as nat == 0,
-                    forall |i: int| #![auto] 0 <= i < it.elements.len() ==>
-                        it.elements[i].0 as nat
-                            == pa_range.start as nat + sum_page_sizes_spec(it.elements, 0, i),
-                    sum_page_sizes_spec(it.elements, 0, it.elements.len() as int) == len as nat,
+                    forall |i: int| 0 <= i < it.seq().len() ==>
+                        (#[trigger] it.seq()[i]).0 % PAGE_SIZE == 0,
+                    forall |i: int| 0 <= i < it.seq().len() ==>
+                        1 <= (#[trigger] it.seq()[i]).1 <= NR_LEVELS,
+                    forall |i: int| 0 <= i < it.seq().len() ==>
+                        (#[trigger] it.seq()[i]).1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+                    forall |i: int| 0 <= i < it.seq().len() ==>
+                        (va_range.start as nat + #[trigger] sum_page_sizes_spec(it.seq(), 0, i))
+                            % page_size(it.seq()[i].1) as nat == 0,
+                    forall |i: int| #![auto] 0 <= i < it.seq().len() ==>
+                        it.seq()[i].0 as nat
+                            == pa_range.start as nat + sum_page_sizes_spec(it.seq(), 0, i),
+                    sum_page_sizes_spec(it.seq(), 0, it.seq().len() as int) == len as nat,
                     // VA tracking: cursor has advanced past sum of processed pages.
                     cursor.0.va as nat
                         == va_range.start as nat
-                            + sum_page_sizes_spec(it.elements, 0, it.pos as int),
+                            + sum_page_sizes_spec(it.seq(), 0, it.index() as int),
                     cursor.0.barrier_va.end == va_range.start + len,
                     // `pa_range.end == pa_range.start + len` so pa + page_size(level) stays bounded.
                     pa_range.end as nat == pa_range.start as nat + len as nat,
@@ -831,11 +831,11 @@ impl KVirtArea {
                                 != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                         },
             {
-                let pos: Ghost<int> = Ghost(it.pos as int);
+                let pos: Ghost<int> = Ghost(it.index() as int);
 
                 proof {
-                    sum_page_sizes_extend_right(it.elements, 0, pos@);
-                    sum_page_sizes_mono(it.elements, 0, pos@ + 1, it.elements.len() as int);
+                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
+                    sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
@@ -862,9 +862,9 @@ impl KVirtArea {
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
 
                     // pa_range.end == pa_range.start + len (in nat) — from loop invariant.
-                    sum_page_sizes_extend_right(it.elements, 0, pos@);
+                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
                     sum_page_sizes_mono(
-                        it.elements, 0, pos@ + 1, it.elements.len() as int);
+                        it.seq(), 0, pos@ + 1, it.seq().len() as int);
                 }
 
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
@@ -933,17 +933,10 @@ impl KVirtArea {
                     );
                     old_cursor_owner_va.align_up_advances_general(level_raw as int);
                     
-                    sum_page_sizes_extend_right(it.elements, 0, pos@);
+                    sum_page_sizes_extend_right(it.seq(), 0, pos@);
                     
-                    let pa_next_nat = pa_range.start as nat + sum_page_sizes_spec(it.elements, 0, pos@ + 1);
+                    let pa_next_nat = pa_range.start as nat + sum_page_sizes_spec(it.seq(), 0, pos@ + 1);
                     assert(pa_next_nat == pa as nat + page_size(level) as nat);
-
-                    if pos@ + 1 < it.elements.len() as int {
-                        let next_level = it.elements[pos@ + 1].1;
-                        sum_page_sizes_extend_right(it.elements, 0, pos@ + 1);
-                        sum_page_sizes_mono(it.elements, 0, pos@ + 2, it.elements.len() as int);
-                        lemma_page_size_ge_page_size(next_level);
-                    }
                 }
             }
         }

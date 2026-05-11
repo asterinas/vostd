@@ -210,7 +210,8 @@ pub exec fn ptr_mut_fill<V, const N: usize>(
     ensures
         final(perm).ptr() == ptr,
         final(perm).is_init_all(),
-        forall|i: int| 0 <= i < N ==> final(perm).opt_value()[i] == raw_ptr::MemContents::Init(value),
+        forall|i: int|
+            0 <= i < N ==> final(perm).opt_value()[i] == raw_ptr::MemContents::Init(value),
     opens_invariants none
     no_unwind
 {
@@ -236,7 +237,8 @@ pub exec fn ptr_mut_write_at<V, const N: usize>(
     ensures
         final(perm).ptr() == ptr,
         final(perm).is_init(index as int),
-        forall|i: int| 0 <= i < N && i != index ==> final(perm).opt_value()[i] == old(perm).opt_value()[i],
+        forall|i: int|
+            0 <= i < N && i != index ==> final(perm).opt_value()[i] == old(perm).opt_value()[i],
         final(perm).opt_value()[index as int] == raw_ptr::MemContents::Init(value),
     opens_invariants none
     no_unwind
@@ -261,7 +263,8 @@ pub exec fn ptr_mut_read_at<V, const N: usize>(
     ensures
         final(perm).ptr() == ptr,
         final(perm).is_uninit(index as int),
-        forall|i: int| 0 <= i < N && i != index ==> final(perm).opt_value()[i] == old(perm).opt_value()[i],
+        forall|i: int|
+            0 <= i < N && i != index ==> final(perm).opt_value()[i] == old(perm).opt_value()[i],
         res == old(perm).opt_value()[index as int].value(),
     opens_invariants none
     no_unwind
@@ -574,7 +577,8 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             final(perm).wf(),
             final(perm).is_pptr(*self),
             final(perm).is_init_all(),
-            forall|i: int| 0 <= i < N ==> final(perm).opt_value()[i] == raw_ptr::MemContents::Init(value),
+            forall|i: int|
+                0 <= i < N ==> final(perm).opt_value()[i] == raw_ptr::MemContents::Init(value),
     {
         let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
 
@@ -582,7 +586,9 @@ impl<V, const N: usize> ArrayPtr<V, N> {
         ptr_mut_fill(ptr, Tracked(&mut perm.points_to), value);
     }
 
-    pub exec fn new(dft: V) -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>)) where V: Copy
+    pub exec fn new(dft: V) -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>)) where
+        V: Copy,
+
         requires
             layout::size_of::<[V; N]>() > 0,
         ensures
@@ -608,7 +614,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             perm.is_uninit_all(),
     {
         if core::mem::size_of::<[V; N]>() == 0 {
-            return ;
+            return;
         }
         assert(core::mem::size_of::<[V; N]>() > 0);
         let ptr: *mut u8 = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
@@ -649,7 +655,9 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             final(perm).is_pptr(*self),
             final(perm).is_init(self.index as int),
             forall|i: int|
-                0 <= i < N && i != self.index ==> final(perm).opt_value()[i] == old(perm).opt_value()[i],
+                0 <= i < N && i != self.index ==> final(perm).opt_value()[i] == old(
+                    perm,
+                ).opt_value()[i],
             final(perm).opt_value()[self.index as int] == raw_ptr::MemContents::Init(value),
     {
         let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
@@ -676,7 +684,9 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             final(perm).is_pptr(*self),
             final(perm).is_uninit(self.index as int),
             forall|i: int|
-                0 <= i < N && i != self.index ==> final(perm).opt_value()[i] == old(perm).opt_value()[i],
+                0 <= i < N && i != self.index ==> final(perm).opt_value()[i] == old(
+                    perm,
+                ).opt_value()[i],
             res == old(perm).opt_value()[self.index as int].value(),
     {
         let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));

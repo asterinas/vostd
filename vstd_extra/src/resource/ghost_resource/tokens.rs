@@ -316,8 +316,10 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
     }
 
     /// Allocates a new `CountResource` from an `EmptyCount<T,TOTAL>` with the given tracked object.
-    pub proof fn alloc_from_empty(tracked empty: EmptyCount<T, TOTAL>, tracked value: T) -> (tracked res:
-        Self)
+    pub proof fn alloc_from_empty(
+        tracked empty: EmptyCount<T, TOTAL>,
+        tracked value: T,
+    ) -> (tracked res: Self)
         requires
             TOTAL > 0,
         ensures
