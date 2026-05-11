@@ -413,7 +413,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// terminates, those facts are recovered as postconditions — see
     /// [`Self::split_ensures`].
     pub open spec fn split_requires(self, owner: SegmentOwner<M>, offset: usize) -> bool {
-        self.inv_with(&owner)
+        &&& self.inv_with(&owner)
+        &&& offset % PAGE_SIZE == 0
+        &&& 0 < offset < self.size()
     }
 
     /// The wrapper for the postcondition for [`Self::split`]:
@@ -788,9 +790,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             Self::split_ensures(self, offset, r.0, r.1, owner, frame_perms.0@, frame_perms.1@),
     )]
     pub fn split(self, offset: usize) -> (Self, Self) {
-        vstd_extra::assert!(offset % PAGE_SIZE == 0);
-        vstd_extra::assert!(0 < offset && offset < self.size());
-
         let at = self.range.start + offset;
         let idx = offset / PAGE_SIZE;
         let res = (
