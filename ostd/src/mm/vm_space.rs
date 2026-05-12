@@ -147,6 +147,20 @@ type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
 impl<'a> VmSpace<'a> {
+    #[inline]
+    #[verus_spec(r =>
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards_k): Tracked<&mut Guards<'static, KernelPtConfig>>,
+            Tracked(guards_u): Tracked<&mut Guards<'static, UserPtConfig>>,
+        requires
+            old(regions).inv(),
+    )]
+    #[allow(private_interfaces)]
+    pub fn default() -> Self {
+        proof_with!(Tracked(regions), Tracked(guards_k), Tracked(guards_u));
+        Self::new()
+    }
+
     /// Creates a new VM address space.
     ///
     /// This allocates a new user page table by duplicating the kernel page
