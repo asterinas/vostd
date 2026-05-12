@@ -444,6 +444,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.entry_own.node.unwrap().children_perm.value()[self.idx as int],
                 self.entry_own.node.unwrap().level),
             !self.children[self.idx as int].unwrap().value.in_scope,
+            // The new child satisfies the PT-specific tree invariant. This is
+            // operation-specific (alloc_if_none/protect/split_if_mapped_huge/
+            // replace each establish it differently) so it's lifted to a
+            // precondition rather than discharged here.
+            PageTableOwner(self.children[self.idx as int].unwrap()).pt_inv(),
         ensures
             self.inv()
     {
@@ -486,17 +491,15 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
         // (3) pt_inv_children: each Some child has PageTableOwner(child).pt_inv().
         // For j != idx, transferred from cont_old's pt_inv_children. For
-        // j == idx, the new child's `pt_inv` is operation-specific. Closing
-        // it cleanly requires fixing path-propagation in `alloc_if_none`'s
-        // body (children's paths are stale relative to the cursor path) and
-        // a per-operation pt_inv lemma. See discussion in MEMORY for plan.
+        // j == idx, supplied by the caller as a precondition since `pt_inv`
+        // is operation-specific.
         assert(self.pt_inv_children()) by {
             let pred = Self::pt_inv_children_pred();
             assert forall |i: int| 0 <= i < self.children.len() implies
                 #[trigger] pred(i, self.children[i])
             by {
                 if i == cont_idx {
-                    assume(PageTableOwner(self.children[cont_idx].unwrap()).pt_inv());
+                    assert(PageTableOwner(self.children[cont_idx].unwrap()).pt_inv());
                 } else {
                     if self.children[i] is Some {
                         cont_old.pt_inv_children_unroll(i);
@@ -1619,7 +1622,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.prefix.align_down_leading_bits(gl as int);
         let aligned = self.prefix.align_down(gl as int);
 
-        assert forall|i: int| #![trigger aligned.index[i]] 0 <= i < NR_LEVELS implies
+        assert forall|i: int| 0 <= i < NR_LEVELS implies
             aligned.index[i] == self.prefix.index[i] by {
             assert(self.prefix.index.contains_key(i));
             assert(aligned.index.contains_key(i));
@@ -2290,10 +2293,7 @@ impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
         // (2) Finite: tree collapse + view_rec_finite.
         self.view_mappings_finite();
         // (3) Per-mapping `Mapping::inv()`: page_size ∈ {4K,2M,1G}, PA/VA
-        //     alignment, PA/VA size equal page_size, and PA bound. Proved
-        //     by `view_mapping_inv`, which internally `assume`s two narrow
-        //     arithmetic facts about `vaddr(path)` (alignment modulo
-        //     page_size and no-overflow).
+        //     alignment, PA/VA size equal page_size, and PA bound.
         self.view_mapping_inv();
         // (4) Config-aware VA bound: every mapping's VA range is contained
         //     in `C::VADDR_RANGE_spec()`. Discharged by a per-config axiom

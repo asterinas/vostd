@@ -9,7 +9,7 @@ use vstd::prelude::*;
 
 use super::*;
 use crate::mm::{
-    io::{VmIoOwner, VmReader, VmWriter},
+    io::{Infallible, VmIoOwner, VmReader, VmWriter},
     kspace::{
         paddr_to_vaddr_spec, KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR,
         VMALLOC_BASE_VADDR,
@@ -51,10 +51,10 @@ pub type UFrame = Frame<MetaSlotStorage>;
 /// TODO: Perhaps we also need to define this?
 pub trait UntypedMem {
     /// Borrows a reader that can read the untyped memory.
-    fn reader(&self) -> VmReader<'_>;
+    fn reader(&self) -> VmReader<'_, Infallible>;
 
     /// Borrows a writer that can write the untyped memory.
-    fn writer(&self) -> VmWriter<'_>;
+    fn writer(&self) -> VmWriter<'_, Infallible>;
 }
 
 #[verus_verify]
@@ -62,7 +62,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> owner: Tracked<VmIoOwner<'_>>,
+            -> owner: Tracked<VmIoOwner>,
         requires
             self.inv(),
         ensures
@@ -73,10 +73,10 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             r.remain_spec() == self.size_spec(),
             owner@.is_kernel,
     )]
-    pub fn reader(&self) -> VmReader<'_> {
+    pub fn reader(&self) -> VmReader<'_, Infallible> {
         proof_decl! {
             let ghost id: nat;
-            let tracked owner: VmIoOwner<'_>;
+            let tracked owner: VmIoOwner;
         }
         proof {
             lemma_max_paddr_range();
@@ -106,7 +106,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> owner: Tracked<VmIoOwner<'_>>,
+            -> owner: Tracked<VmIoOwner>,
         requires
             self.inv(),
         ensures
@@ -118,10 +118,10 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             owner@.is_kernel,
             !owner@.is_fallible,
     )]
-    pub fn writer(&self) -> VmWriter<'_> {
+    pub fn writer(&self) -> VmWriter<'_, Infallible> {
         proof_decl! {
             let ghost id: nat;
-            let tracked owner: VmIoOwner<'_>;
+            let tracked owner: VmIoOwner;
         }
         proof {
             lemma_max_paddr_range();

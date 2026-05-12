@@ -5,7 +5,6 @@
 //! adds spec/proof impls for the exec reader/writer types.
 use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
-use vstd::std_specs::convert::FromSpecImpl;
 use vstd_extra::ownership::Inv;
 
 use crate::mm::io::{Infallible, VmIoMemView, VmIoOwner, VmReader, VmWriter};
@@ -19,7 +18,7 @@ impl<Fallibility> VmWriter<'_, Fallibility> {
     }
 
     /// Relates a concrete writer to its ghost owner.
-    pub open spec fn wf(self, owner: VmIoOwner<'_>) -> bool {
+    pub open spec fn wf(self, owner: VmIoOwner) -> bool {
         &&& owner.inv()
         &&& owner.range@.start == self.cursor.vaddr
         &&& owner.range@.end == self.end.vaddr
@@ -49,7 +48,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     }
 
     /// Relates a concrete reader to its ghost owner.
-    pub open spec fn wf(self, owner: VmIoOwner<'_>) -> bool {
+    pub open spec fn wf(self, owner: VmIoOwner) -> bool {
         &&& owner.inv()
         &&& owner.range@.start == self.cursor.vaddr
         &&& owner.range@.end == self.end.vaddr
@@ -72,24 +71,5 @@ impl<Fallibility> Inv for VmReader<'_, Fallibility> {
     }
 }
 
-impl<'a> FromSpecImpl<&'a [u8]> for VmReader<'a, Infallible> {
-    open spec fn obeys_from_spec() -> bool {
-        false
-    }
-
-    open spec fn from_spec(_slice: &'a [u8]) -> Self {
-        arbitrary()
-    }
-}
-
-impl<'a> FromSpecImpl<&'a mut [u8]> for VmWriter<'a, Infallible> {
-    open spec fn obeys_from_spec() -> bool {
-        false
-    }
-
-    open spec fn from_spec(_slice: &'a mut [u8]) -> Self {
-        arbitrary()
-    }
-}
 
 } // verus!

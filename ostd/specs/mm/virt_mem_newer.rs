@@ -27,6 +27,7 @@ use crate::mm::{Paddr, Vaddr};
 use crate::prelude::Inv;
 use crate::specs::arch::mm::MAX_PADDR;
 use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::pod::PodOnce;
 
 verus! {
 
@@ -211,7 +212,7 @@ impl MemView {
     /// ## Postconditions
     /// - `r == self.borrow_at_spec(vaddr, len)`.
     #[verifier::external_body]
-    pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: &MemView)
+    pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: MemView)
         ensures
             r == self.borrow_at_spec(vaddr, len),
     {
@@ -400,10 +401,9 @@ impl VirtPtr {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }
 
-    /// Whether the pointer has a non-null address and consistent bounds.
+    /// Whether the pointer has consistent bounds.
     pub open spec fn is_defined(self) -> bool {
-        &&& self.vaddr != 0
-        &&& self.range@.start <= self.vaddr <= self.range@.end
+        self.range@.start <= self.vaddr <= self.range@.end
     }
 
     /// Whether dereferencing the current pointer position is allowed.
@@ -459,6 +459,73 @@ impl VirtPtr {
         unimplemented!()
     }
 
+    /// Reads a [`PodOnce`] value using one volatile memory load from a verified memory view.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `self.inv()`.
+    /// - The readable range `[self.vaddr, self.vaddr + size_of::<T>())` must fit in `self.range@`.
+    /// - `self.vaddr` must satisfy the alignment requirement of `T`.
+    /// - Every byte in that range must translate in `mem` and be initialized.
+    ///
+    /// ## Safety
+    /// - This function is trusted because the underlying volatile typed read relies on raw-pointer
+    ///   operations that Verus does not yet model directly.
+    #[verifier::external_body]
+    pub fn read_volatile<T: PodOnce>(self, Tracked(mem): Tracked<&MemView>) -> T
+        requires
+            self.inv(),
+            core::mem::size_of::<T>() <= self.range@.end - self.vaddr,
+            self.vaddr % core::mem::align_of::<T>() == 0,
+            forall|i: usize|
+                #![trigger mem.addr_transl(i)]
+                self.vaddr <= i < self.vaddr + core::mem::size_of::<T>() ==> {
+                    &&& mem.addr_transl(i) is Some
+                    &&& mem.memory.contains_key(mem.addr_transl(i).unwrap().0)
+                    &&& mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(i).unwrap().1 as int] is Init
+                },
+    {
+        let pnt = self.vaddr as *const T;
+        unsafe { pnt.read_volatile() }
+    }
+
+    /// Writes a [`PodOnce`] value using one volatile memory store to a verified memory view.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `self.inv()`.
+    /// - The writable range `[self.vaddr, self.vaddr + size_of::<T>())` must fit in `self.range@`.
+    /// - `self.vaddr` must satisfy the alignment requirement of `T`.
+    /// - Every byte in that range must translate in `mem`.
+    ///
+    /// ## Postconditions
+    /// - `mem.mappings` is unchanged.
+    /// - `mem.memory.dom()` can only grow.
+    ///
+    /// ## Safety
+    /// - This function is trusted because the underlying volatile typed write relies on raw-pointer
+    ///   operations that Verus does not yet model directly.
+    #[verifier::external_body]
+    pub fn write_volatile<T: PodOnce>(self, Tracked(mem): Tracked<&mut MemView>, val: T)
+        requires
+            self.inv(),
+            core::mem::size_of::<T>() <= self.range@.end - self.vaddr,
+            self.vaddr % core::mem::align_of::<T>() == 0,
+            forall|i: usize|
+                #![trigger old(mem).addr_transl(i)]
+                self.vaddr <= i < self.vaddr + core::mem::size_of::<T>() ==> {
+                    &&& old(mem).addr_transl(i) is Some
+                },
+        ensures
+            final(mem).mappings == old(mem).mappings,
+            old(mem).memory.dom().subset_of(final(mem).memory.dom()),
+    {
+        let pnt = self.vaddr as *mut T;
+        unsafe { pnt.write_volatile(val) }
+    }
+
     pub open spec fn add_spec(self, n: usize) -> Self {
         VirtPtr { vaddr: (self.vaddr + n) as usize, range: self.range }
     }
@@ -490,6 +557,31 @@ impl VirtPtr {
         self.vaddr = self.vaddr + n
     }
 
+    pub open spec fn sub_spec(self, n: usize) -> Self {
+        VirtPtr { vaddr: (self.vaddr - n) as usize, range: self.range }
+    }
+
+    /// Returns a new pointer whose address is `self.vaddr` rewound by `n` bytes.
+    ///
+    /// Mirrors the shape of [`<*const T>::sub`] / [`<*mut T>::sub`] in the raw-pointer
+    /// API: takes `self` by value and returns the new pointer.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `n <= self.vaddr` (no underflow).
+    ///
+    /// ## Postconditions
+    /// - `res == self.sub_spec(n)`.
+    pub fn sub(self, n: usize) -> (res: Self)
+        requires
+            n <= self.vaddr,
+        returns
+            self.sub_spec(n),
+    {
+        VirtPtr { vaddr: self.vaddr - n, range: self.range }
+    }
+
     pub open spec fn wrapping_add_spec(self, n: usize) -> Self {
         VirtPtr { vaddr: self.vaddr.wrapping_add(n), range: self.range }
     }
@@ -500,6 +592,20 @@ impl VirtPtr {
         returns self.wrapping_add_spec(n),
     {
         VirtPtr { vaddr: self.vaddr.wrapping_add(n), range: self.range }
+    }
+
+    /// Reinterprets `self.vaddr` as a typed raw pointer to `T`.
+    ///
+    /// This is purely a type cast; no memory access is performed and no
+    /// alignment is checked. The returned pointer carries no provenance — it
+    /// is suitable for runtime checks (e.g., `is_aligned`) and for unsafe
+    /// volatile reads/writes whose preconditions are independently verified.
+    #[verifier::external_body]
+    pub fn cast<T>(self) -> (res: *mut T)
+        ensures
+            res as usize == self.vaddr,
+    {
+        self.vaddr as *mut T
     }
 
     pub open spec fn read_offset_spec(self, mem: MemView, n: usize) -> u8 {
@@ -514,7 +620,7 @@ impl VirtPtr {
     /// # Verified Properties
     ///
     /// ## Preconditions
-    /// - `0 < self.vaddr + n < usize::MAX`.
+    /// - `self.vaddr + n < usize::MAX`.
     /// - `self.range@.start <= self.vaddr + n < self.range@.end`.
     /// - `mem.addr_transl((self.vaddr + n) as usize) is Some`.
     /// - Target byte at offset is initialized.
@@ -523,7 +629,7 @@ impl VirtPtr {
     /// - Returns `self.read_offset_spec(*mem, n)`.
     pub fn read_offset(&self, Tracked(mem): Tracked<&MemView>, n: usize) -> u8
         requires
-            0 < self.vaddr + n < usize::MAX,
+            self.vaddr + n < usize::MAX,
             self.range@.start <= self.vaddr + n < self.range@.end,
             mem.addr_transl((self.vaddr + n) as usize) is Some,
             mem.memory[mem.addr_transl((self.vaddr + n) as usize).unwrap().0].contents[mem.addr_transl((self.vaddr + n) as usize).unwrap().1 as int] is Init,
@@ -550,7 +656,7 @@ impl VirtPtr {
     pub fn write_offset(&self, Tracked(mem): Tracked<&mut MemView>, n: usize, x: u8)
         requires
             self.inv(),
-            0 < self.vaddr + n < usize::MAX,
+            self.vaddr + n < usize::MAX,
             self.range@.start <= self.vaddr + n < self.range@.end,
             old(mem).addr_transl((self.vaddr + n) as usize) is Some,
         ensures
@@ -586,8 +692,8 @@ impl VirtPtr {
         requires
             src.inv(),
             dst.inv(),
-            0 < src.vaddr + n < usize::MAX,
-            0 < dst.vaddr + n < usize::MAX,
+            src.vaddr + n < usize::MAX,
+            dst.vaddr + n < usize::MAX,
             src.range@.start <= src.vaddr + n < src.range@.end,
             mem_src.addr_transl((src.vaddr + n) as usize) is Some,
             mem_src.memory.contains_key(mem_src.addr_transl((src.vaddr + n) as usize).unwrap().0),
@@ -628,7 +734,7 @@ impl VirtPtr {
     ///
     /// ## Preconditions
     /// - `src.inv()` and `dst.inv()`.
-    /// - Source and destination ranges are non-overlapping.
+    /// - Source and destination slices `[vaddr, vaddr + n)` are non-overlapping.
     /// - Source slice `[src.vaddr, src.vaddr + n)` is in-range and initialized in `mem_src`.
     /// - Destination slice `[dst.vaddr, dst.vaddr + n)` is in-range and mapped in `old(mem_dst)`.
     ///
@@ -647,9 +753,7 @@ impl VirtPtr {
         requires
             src.inv(),
             dst.inv(),
-            src.vaddr > 0,
-            dst.vaddr > 0,
-            src.range@.end <= dst.range@.start || dst.range@.end <= src.range@.start,
+            src.vaddr + n <= dst.vaddr || dst.vaddr + n <= src.vaddr,
             src.range@.start <= src.vaddr,
             src.vaddr + n <= src.range@.end,
             forall|i: usize|
@@ -704,13 +808,12 @@ impl VirtPtr {
     /// # Verified Properties
     ///
     /// ## Preconditions
-    /// - `vaddr != 0`.
-    /// - `0 < len <= usize::MAX - vaddr`.
+    /// - `len <= usize::MAX - vaddr`.
     ///
     /// ## Postconditions
-    /// - `r.is_valid()`.
     /// - `r.range@.start == vaddr`.
     /// - `r.range@.end == (vaddr + len) as usize`.
+    /// - When `len > 0`, the result is valid for dereferencing.
     pub fn from_vaddr(vaddr: usize, len: usize) -> (r: Self)
         requires
             len <= usize::MAX - vaddr,
@@ -719,7 +822,7 @@ impl VirtPtr {
             r.vaddr == vaddr,
             r.range@.start == vaddr,
             r.range@.end == (vaddr + len) as usize,
-            vaddr != 0 && len > 0 ==> r.is_valid(),
+            len > 0 ==> r.is_valid(),
     {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }

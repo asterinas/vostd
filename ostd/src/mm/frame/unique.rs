@@ -68,9 +68,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             proof_with!(|= Tracked(None));
             Err(err)
         } else {
-            let (ptr, Tracked(perm)) = from_unused.unwrap();
+            let (ptr, Tracked(slot_perm)) = from_unused.unwrap();
+            let idx = frame_to_index(paddr);
+            // Bridge: `get_from_unused` now returns a `simple_pptr::PointsTo<MetaSlot>`
+            // (Phase 1 of the inner_perms migration), but `UniqueFrameOwner.meta_perm`
+            // remains a typed `cast_ptr::PointsTo<MetaSlot, Metadata<M>>` (Option 3).
+            // We cast back to typed here, threading slot_owner.inner_perms through
+            // the unsound take/sync pair retained for unique/linked-list/page-table.
             proof_decl! {
-                let tracked owner = UniqueFrameOwner::<M>::from_unused_owner(regions, paddr, perm);
+                let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+                let tracked inner_perms_taken = slot_own.take_inner_perms();
+                let tracked typed_perm = MetaSlot::cast_perm::<M>(slot_perm, inner_perms_taken);
+                slot_own.sync_inner(&typed_perm.inner_perms);
+                regions.slot_owners.tracked_insert(idx, slot_own);
+                let tracked owner = UniqueFrameOwner::<M>::from_unused_owner(regions, paddr, typed_perm);
             }
             proof_with!(|= Tracked(Some(owner)));
             Ok(Self { ptr, _marker: PhantomData })

@@ -543,6 +543,27 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // All children of the newly allocated node are absent (empty PT node).
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
                     #[trigger] final(owner).children[i] is Some && final(owner).children[i].unwrap().value.is_absent()
+                // Children's paths are rebased onto the cursor path. Required by
+                // `pt_edge_at` for the freshly-allocated node, since the bare
+                // `allocated_empty_node_owner` from `PageTableNode::alloc` uses
+                // an empty parent path and `alloc_if_none` rewrites that path to
+                // the cursor path; without rebasing the children, their paths
+                // would be `[i]` rather than `cursor_path.push_tail(i)`.
+                &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
+                    (#[trigger] final(owner).children[i]).unwrap().value.path
+                        == final(owner).value.path.push_tail(i as usize)
+                // Grandchildren are all None (carried through from
+                // `PageTableNode::alloc`'s `allocated_empty_node_grandchildren_none`
+                // ensures; the rebase only touches paths).
+                &&& crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*final(owner))
+                // Other child fields preserved from `allocated_empty_node_owner`.
+                &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
+                    (#[trigger] final(owner).children[i]).unwrap().value.parent_level
+                        == final(owner).value.node.unwrap().level
+                &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
+                    (#[trigger] final(owner).children[i]).unwrap().value.match_pte(
+                        final(owner).value.node.unwrap().children_perm.value()[i],
+                        final(owner).children[i].unwrap().value.parent_level)
                 // slot_owners unchanged for all indices except the new PT node's index.
                 &&& forall|i: usize| i != frame_to_index(final(owner).value.meta_slot_paddr().unwrap()) ==>
                     (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i]
@@ -614,7 +635,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
 
             let pt_ref = unsafe {
-                #[verus_spec(with Tracked(regions), Tracked(&new_node_owner.value.node.tracked_borrow().meta_perm))]
+                #[verus_spec(with Tracked(regions), Tracked(&new_node_owner.value.node.tracked_borrow().meta_perm.points_to))]
                 PageTableNodeRef::borrow_paddr(paddr)
             };
 
@@ -643,6 +664,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value.parent_level = level as PagingLevel;
                 owner.value.path = old_path;
                 owner.children = new_node_owner.children;
+                // Rebase children's paths from `[i]` (rooted at empty) onto
+                // the cursor path `old_path` so `pt_edge_at`'s
+                // `child.path == parent.path.push_tail(i)` holds.
+                crate::specs::mm::page_table::rebase_freshly_allocated_children(
+                    owner, old_path);
                 // From allocated_empty_node_owner: all children are absent.
                 assert(forall|i: int|
                     0 <= i < NR_ENTRIES ==> (#[trigger] owner.children[i]) is Some
@@ -816,7 +842,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
 
         let pt_ref = unsafe {
-            #[verus_spec(with Tracked(regions), Tracked(&new_owner.value.node.tracked_borrow().meta_perm))]
+            #[verus_spec(with Tracked(regions), Tracked(&new_owner.value.node.tracked_borrow().meta_perm.points_to))]
             PageTableNodeRef::borrow_paddr(paddr)
         };
 

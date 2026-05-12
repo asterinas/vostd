@@ -53,15 +53,15 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&MetaPerm<M>>
+            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
         requires
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
             old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,
             old(regions).slot_owners[frame_to_index(raw)].inner_perms.ref_count.value()
                 != crate::mm::frame::meta::REF_COUNT_UNUSED,
-            perm.points_to.is_init(),
-            perm.points_to.addr() == frame_to_meta(raw),
-            perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(raw)]),
+            perm.is_init(),
+            perm.addr() == frame_to_meta(raw),
+            perm.value().wf(old(regions).slot_owners[frame_to_index(raw)]),
         ensures
             final(regions).inv(),
             r.inner.0.ptr.addr() == frame_to_meta(raw),
@@ -83,7 +83,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
                     == old(regions).slot_owners[i],
             final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
             // Slots: from_raw inserts perm, ManuallyDrop::new preserves
-            final(regions).slots == old(regions).slots.insert(frame_to_index(raw), perm.points_to),
+            final(regions).slots == old(regions).slots.insert(frame_to_index(raw), *perm),
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {

@@ -26,9 +26,9 @@ verus! {
 /// [`VmReader`] or [`VmWriter`]. We also require a valid `vmspace_owner`
 /// must be present in this struct to ensure that the reader/writer is
 /// not created out of thin air.
-pub tracked struct VmIoPermission<'a> {
-    pub vmio_owner: VmIoOwner<'a>,
-    pub vmspace_owner: VmSpaceOwner<'a>,
+pub tracked struct VmIoPermission {
+    pub vmio_owner: VmIoOwner,
+    pub vmspace_owner: VmSpaceOwner,
 }
 
 /// A tracked struct for reasoning about verification-only properties of a [`VmSpace`].
@@ -67,15 +67,15 @@ pub tracked struct VmIoPermission<'a> {
 ///   is considered disposed but re-usable as long as it is properly activated again before use.
 /// 4. **Removal**: If we know for sure that the reader/writer will never be used again, we can remove it from the
 ///    active list via [`Self::remove_reader`] and [`Self::remove_writer`].
-pub tracked struct VmSpaceOwner<'a> {
+pub tracked struct VmSpaceOwner {
     /// The owner of the page table of this VM space.
     pub page_table_owner: OwnerSubtree<UserPtConfig>,
     /// Whether this VM space is currently active.
     pub active: bool,
     /// Active readers for this VM space.
-    pub readers: Seq<VmIoOwner<'a>>,
+    pub readers: Seq<VmIoOwner>,
     /// Active writers for this VM space.
-    pub writers: Seq<VmIoOwner<'a>>,
+    pub writers: Seq<VmIoOwner>,
     /// The "actual" memory view of this VM space where some
     /// of the mappings may be  transferred to the writers.
     pub mem_view: Option<MemView>,
@@ -85,7 +85,7 @@ pub tracked struct VmSpaceOwner<'a> {
     pub shared_reader: bool,
 }
 
-impl<'a> Inv for VmSpaceOwner<'a> {
+impl<'a> Inv for VmSpaceOwner {
     /// Defines the invariant for `VmSpaceOwner`.
     ///
     /// This specification ensures the consistency of the VM space, particularly
@@ -147,7 +147,7 @@ impl<'a> Inv for VmSpaceOwner<'a> {
     }
 }
 
-impl<'a> VmSpaceOwner<'a> {
+impl<'a> VmSpaceOwner {
     /// This specification function ensures that the `mem_view` (remaining view),
     /// `mv_range` (total view), and the views held by active readers and writers
     /// maintain a consistent global state.
@@ -330,12 +330,12 @@ impl<'a> VmSpaceOwner<'a> {
             reader.inv(),
         ensures
             reader.wf(*final(owner_r)),
-            final(owner_r).mem_view == Some(VmIoMemView::ReadView(&old(self).mem_view@.unwrap().borrow_at_spec(
+            final(owner_r).mem_view == Some(VmIoMemView::ReadView(old(self).mem_view@.unwrap().borrow_at_spec(
                 old(owner_r).range.start,
                 (old(owner_r).range.end - old(owner_r).range.start) as usize,
             ))),
     )]
-    pub proof fn activate_reader(tracked &'a mut self, reader: &'a VmReader<'a>, tracked owner_r: &'a mut VmIoOwner<'a>) {
+    pub proof fn activate_reader(tracked &'a mut self, reader: &'a VmReader<'a>, tracked owner_r: &'a mut VmIoOwner) {
             let tracked mv = match self.mem_view {
                 Some(ref mv) => mv,
                 _ => { proof_from_false() },
@@ -411,7 +411,7 @@ impl<'a> VmSpaceOwner<'a> {
                 (old(owner_w).range.end - old(owner_w).range.start) as usize,
             ).0)),
     )]
-    pub proof fn activate_writer(tracked &mut self, writer: &'a VmWriter<'a>, tracked owner_w: &'a mut VmIoOwner<'a>) {
+    pub proof fn activate_writer(tracked &mut self, writer: &'a VmWriter<'a>, tracked owner_w: &'a mut VmIoOwner) {
             let tracked mut mv = self.mem_view.tracked_take();
             let ghost old_mv = mv;
             let tracked (lhs, rhs) = mv.split(
@@ -584,7 +584,7 @@ impl<'a> VmSpaceOwner<'a> {
     ///
     /// 1. The reader has been created and we immediately move the ownership into us.
     /// 2. The reader has finished the reading and need to return the ownership back.
-    pub proof fn dispose_reader(tracked &mut self, tracked owner: VmIoOwner<'a>)
+    pub proof fn dispose_reader(tracked &mut self, tracked owner: VmIoOwner)
         requires
             owner.inv(),
             old(self).inv(),
@@ -623,7 +623,7 @@ impl<'a> VmSpaceOwner<'a> {
     /// who finishes the writing operation can let us reclaim the permission.
     ///
     /// The deletion of the writer is through another API [`VmSpaceOwner::remove_writer`].
-    pub proof fn dispose_writer(tracked &mut self, tracked owner: VmIoOwner<'a>)
+    pub proof fn dispose_writer(tracked &mut self, tracked owner: VmIoOwner)
         requires
             old(self).inv(),
             old(self).active,
@@ -680,7 +680,7 @@ impl<'a> VmSpace<'a> {
 
     pub open spec fn writer_requires(
         &self,
-        vm_owner: VmSpaceOwner<'a>,
+        vm_owner: VmSpaceOwner,
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
