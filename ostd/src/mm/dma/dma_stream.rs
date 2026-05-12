@@ -186,7 +186,10 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 &&& reader_perm@.unwrap().inv()
                 &&& reader_perm@.unwrap().is_kernel
                 &&& reader_perm@.unwrap().has_read_view()
+                &&& reader_perm@.unwrap().read_view_initialized()
                 &&& r.unwrap().wf(reader_perm@.unwrap())
+                &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
+                &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
     )]
     pub fn reader<'a>(&'a self) -> Result<VmReader<'a>, Error>
@@ -277,6 +280,8 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 &&& writer_perm@.unwrap().is_kernel
                 &&& writer_perm@.unwrap().has_write_view()
                 &&& r.unwrap().wf(writer_perm@.unwrap())
+                &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
+                &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
     )]
     pub fn writer<'a>(&'a self) -> Result<VmWriter<'a>, Error>
@@ -400,6 +405,8 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         requires
             segment.inv(),
             segment.inv_with(&segment_owner),
+        ensures
+            r matches Ok(r) ==> r.inner.wf(),
     )]
     pub fn map(segment: Segment<M>, direction: DmaDirection, is_cache_coherent: bool) -> Result<
         Self,
@@ -445,12 +452,12 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             segment_owner,  /* vm_space_owner */
         };
 
-        let inner = AtomicDataWithOwner::new(
+        let inner = RwArc::new(AtomicDataWithOwner::new(
             DmaStreamInner { segment, start_daddr, is_cache_coherent, direction },
             Tracked(inner_owner),
-        );
+        ));
 
-        let stream = DmaStream { inner: RwArc::new(inner) };
+        let stream = DmaStream { inner };
 
         Ok(stream)
     }
@@ -1161,9 +1168,21 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         proof {
             reader_own.advance(offset);
 
+            assert(reader.inv());
+            assert(writer.inv());
+            assert(reader_own.inv());
+            assert(writer_own.inv());
+            assert((*writer_own).inv());
+            assert(reader.wf(reader_own));
+            assert(writer.wf(*writer_own));
+            assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
+            assert((*writer_own).mem_view matches Some(VmIoMemView::WriteView(_)));
+            assert(reader_own.mem_view matches Some(VmIoMemView::ReadView(_)));
+            assert(reader_own.read_view_initialized());
             assert(reader.remain_spec() >= len);
             assert(KERNEL_BASE_VADDR > 0) by (compute_only);
             assert(reader.cursor.vaddr > 0);
+            assert(writer.cursor.vaddr > 0);
             assert(writer.cursor.range@.start >= reader.cursor.range@.end
                 || reader.cursor.range@.start >= writer.cursor.range@.end);
         }
@@ -1257,20 +1276,62 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
     }
 }
 
-impl<M: AnyUFrameMeta + ?Sized + Send + Sync, Dma: Send + Sync> VmIo<()> for DmaStreamSlice<
-    Dma,
-    M,
-> {
+impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf, Dma: AsRef<DmaStream<M>> + Send + Sync>
+    VmIo<()> for DmaStreamSlice<Dma, M>
+{
     closed spec fn obeys_vmio_spec() -> bool {
         true
     }
 
+    closed spec fn obeys_vmio_read_requires() -> bool {
+        true
+    }
+
+    closed spec fn obeys_vmio_write_requires() -> bool {
+        true
+    }
+
     closed spec fn obeys_vmio_read_spec() -> bool {
-        false
+        true
     }
 
     closed spec fn obeys_vmio_write_spec() -> bool {
-        false
+        true
+    }
+
+    open spec fn read_requires(
+        self,
+        offset: usize,
+        writer: VmWriter<'_>,
+        writer_own: VmIoOwner<'_>,
+        owner: (),
+    ) -> bool {
+        &&& self.inv()
+        &&& writer.inv()
+        &&& writer_own.inv()
+        &&& writer.wf(writer_own)
+        &&& writer_own.mem_view matches Some(VmIoMemView::WriteView(_))
+        &&& writer.cursor.vaddr > 0
+        &&& (writer.cursor.range@.end <= KERNEL_BASE_VADDR || KERNEL_END_VADDR
+            <= writer.cursor.range@.start)
+    }
+
+    open spec fn write_requires(
+        self,
+        offset: usize,
+        reader: VmReader<'_>,
+        reader_own: VmIoOwner<'_>,
+        owner: (),
+    ) -> bool {
+        &&& self.inv()
+        &&& reader.inv()
+        &&& reader_own.inv()
+        &&& reader.wf(reader_own)
+        &&& reader_own.mem_view matches Some(VmIoMemView::ReadView(_))
+        &&& reader_own.read_view_initialized()
+        &&& reader.cursor.vaddr > 0
+        &&& (reader.cursor.range@.end <= KERNEL_BASE_VADDR || KERNEL_END_VADDR
+            <= reader.cursor.range@.start)
     }
 
     open spec fn read_spec(
@@ -1284,7 +1345,23 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync, Dma: Send + Sync> VmIo<()> for Dma
         new_owner: (),
         r: core::result::Result<(), Error>,
     ) -> bool {
-        true
+        &&& self.inv()
+        &&& new_owner == old_owner
+        &&& new_writer.inv()
+        &&& new_writer_own.inv()
+        &&& new_writer.wf(new_writer_own)
+        &&& match r {
+            Ok(_) => {
+                &&& new_writer.avail_spec() == 0
+                &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
+                &&& new_writer_own.range@.start == old_writer_own.range@.start
+                    + old_writer.avail_spec()
+            },
+            Err(_) => {
+                &&& new_writer == old_writer
+                &&& new_writer_own == old_writer_own
+            },
+        }
     }
 
     open spec fn write_spec(
@@ -1298,9 +1375,26 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync, Dma: Send + Sync> VmIo<()> for Dma
         new_owner: (),
         r: core::result::Result<(), Error>,
     ) -> bool {
-        true
+        &&& self.inv()
+        &&& new_owner == old_owner
+        &&& new_reader.inv()
+        &&& new_writer_own.inv()
+        &&& new_reader.wf(new_writer_own)
+        &&& match r {
+            Ok(_) => {
+                &&& new_reader.remain_spec() == 0
+                &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
+                &&& new_writer_own.range@.start == old_writer_own.range@.start
+                    + old_reader.remain_spec()
+            },
+            Err(_) => {
+                &&& new_reader == old_reader
+                &&& new_writer_own == old_writer_own
+            },
+        }
     }
 
+    #[verus_spec()]
     fn read(
         &self,
         offset: usize,
@@ -1308,27 +1402,77 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync, Dma: Send + Sync> VmIo<()> for Dma
         Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
         Tracked(owner): Tracked<&mut ()>,
     ) -> (r: core::result::Result<(), Error>)
-        ensures
-            Self::obeys_vmio_read_spec() ==> Self::read_spec(
-                *self,
-                offset,
-                *old(writer),
-                *final(writer),
-                *old(writer_own),
-                *final(writer_own),
-                *old(owner),
-                *final(owner),
-                r,
-            ),
     {
-        Err(Error::InvalidArgs)
+        proof_decl! {
+            let tracked reader_own_opt;
+        }
+        let mut reader = match {
+            #[verus_spec(with => Tracked(reader_own_opt))]
+            self.reader()
+        } {
+            Ok(reader) => reader,
+            Err(err) => {
+                return Err(err);
+            },
+        };
+        let tracked mut reader_own = reader_own_opt.tracked_unwrap();
+
+        let Some(remain) = reader.remain().checked_sub(offset) else {
+            return Err(Error::InvalidArgs);
+        };
+        let len = writer.avail();
+        if remain < len {
+            return Err(Error::InvalidArgs);
+        }
+        if len == 0 {
+            proof {
+                assert(writer.avail_spec() == 0);
+            }
+            return Ok(());
+        }
+        reader.advance(offset);
+        proof {
+            reader_own.advance(offset);
+
+            assert(reader.inv());
+            assert(writer.inv());
+            assert(reader_own.inv());
+            assert(writer_own.inv());
+            assert(reader.wf(reader_own));
+            assert(writer.wf(*writer_own));
+            assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
+            assert(reader_own.read_view_initialized());
+            assert(reader.remain_spec() >= len);
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+            assert(reader.cursor.vaddr > 0);
+            assert(writer.cursor.vaddr > 0);
+            assert(writer.cursor.range@.start >= reader.cursor.range@.end
+                || reader.cursor.range@.start >= writer.cursor.range@.end);
+        }
+
+        proof_with!(Tracked(&mut reader_own), Tracked(&mut *writer_own));
+        let copied = reader.read(writer);
+
+        proof {
+            assert(copied == len);
+            assert(len == old(writer).avail_spec());
+            assert(writer.avail_spec() == 0);
+            assert(writer.cursor.vaddr == old(writer).cursor.vaddr + old(writer).avail_spec());
+            assert(writer_own.range@.start == old(writer_own).range@.start + old(
+                writer,
+            ).avail_spec());
+            assert(*owner == *old(owner));
+        }
+
+        Ok(())
     }
 
+    #[verus_spec()]
     fn write(
         &self,
         offset: usize,
         reader: &mut VmReader,
-        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
         Tracked(owner): Tracked<&mut ()>,
     ) -> (r: core::result::Result<(), Error>)
         ensures
@@ -1337,14 +1481,66 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync, Dma: Send + Sync> VmIo<()> for Dma
                 offset,
                 *old(reader),
                 *final(reader),
-                *old(writer_own),
-                *final(writer_own),
+                *old(reader_own),
+                *final(reader_own),
                 *old(owner),
                 *final(owner),
                 r,
             ),
     {
-        Err(Error::InvalidArgs)
+        proof_decl! {
+            let tracked writer_own_opt;
+        }
+        let mut writer = match {
+            #[verus_spec(with => Tracked(writer_own_opt))]
+            self.writer()
+        } {
+            Ok(writer) => writer,
+            Err(err) => {
+                return Err(err);
+            },
+        };
+        let tracked mut slice_writer_own = writer_own_opt.tracked_unwrap();
+
+        let Some(avail) = writer.avail().checked_sub(offset) else {
+            return Err(Error::InvalidArgs);
+        };
+        let len = reader.remain();
+        if avail < len {
+            return Err(Error::InvalidArgs);
+        }
+        if len == 0 {
+            proof {
+                assert(reader.remain_spec() == 0);
+            }
+            return Ok(());
+        }
+        writer.advance(offset);
+        proof {
+            slice_writer_own.advance(offset);
+
+            assert(writer.avail_spec() >= len);
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+            assert(writer.cursor.vaddr > 0);
+            assert(writer.cursor.range@.start >= reader.cursor.range@.end
+                || reader.cursor.range@.start >= writer.cursor.range@.end);
+        }
+        let copied = {
+            #[verus_spec(with Tracked(&mut slice_writer_own), Tracked(&mut *reader_own))]
+            writer.write(reader)
+        };
+        proof {
+            assert(copied == len);
+            assert(len == old(reader).remain_spec());
+            assert(reader.remain_spec() == 0);
+            assert(reader.cursor.vaddr == old(reader).cursor.vaddr + old(reader).remain_spec());
+            assert(reader_own.range@.start == old(reader_own).range@.start + old(
+                reader,
+            ).remain_spec());
+            assert(*owner == *old(owner));
+        }
+
+        Ok(())
     }
 
     fn read_byte<const N: usize>(

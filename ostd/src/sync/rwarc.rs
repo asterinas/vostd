@@ -57,7 +57,10 @@ impl<T> RwArc<T> {
 
 impl<T> RwArc<T> {
     /// Creates a new `RwArc<T>`.
-    pub fn new(data: T) -> Self {
+    pub fn new(data: T) -> (r: Self)
+        ensures
+            r.wf(),
+    {
         //let inner = Inner { data: RwLock::new(data), num_rw: AtomicUsize::new(1) };
         let data = RwLock::new(data);
         let inner = Inner { data, num_rw: AtomicUsize::new(Ghost(data), 1, Tracked(1int)) };
