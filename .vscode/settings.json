@@ -34,4 +34,9 @@
     },
     "verus-analyzer.procMacro.attributes.enable": false,
     "verus-analyzer.procMacro.enable": false,
+    "verus-analyzer.cargo.cfgs": [
+        "debug_assertions",
+        "miri",
+        "verus_keep_ghost"
+    ],
 }

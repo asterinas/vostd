@@ -1,5 +1,3 @@
-use std::f32::consts::E;
-
 use vstd::modes::tracked_swap;
 //！ Sum types for ghost resources.
 use vstd::prelude::*;

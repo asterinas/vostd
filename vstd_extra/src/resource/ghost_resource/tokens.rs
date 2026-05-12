@@ -1,5 +1,3 @@
-use std::borrow::Borrow;
-
 use crate::resource::ghost_resource::count::*;
 use crate::sum::*;
 use vstd::map::*;

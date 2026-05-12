@@ -1,6 +1,5 @@
 use vstd::prelude::*;
 
-use vstd::layout;
 use vstd::raw_ptr::MemContents;
 use vstd::set;
 use vstd::set_lib;
@@ -8,7 +7,6 @@ use vstd::simple_pptr::{self, PPtr};
 use vstd::std_specs::convert::{FromSpec, FromSpecImpl};
 
 use core::marker::PhantomData;
-use core::ops::Deref;
 
 verus! {
 

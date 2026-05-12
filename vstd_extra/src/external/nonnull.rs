@@ -1,6 +1,5 @@
 use super::nonzero::NonZeroUsize;
 use core::marker::PointeeSized;
-use core::num::NonZero;
 use core::ptr::NonNull;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;

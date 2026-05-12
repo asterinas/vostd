@@ -1,7 +1,5 @@
 use vstd::prelude::*;
 
-use vstd::simple_pptr::*;
-
 use crate::panic::*;
 
 #[macro_export]
