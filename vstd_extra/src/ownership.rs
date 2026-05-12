@@ -1,9 +1,4 @@
-use vstd::atomic::*;
-use vstd::cell;
 use vstd::prelude::*;
-
-use core::marker::PhantomData;
-use core::ops::Range;
 
 verus! {
 

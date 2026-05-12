@@ -1,4 +1,3 @@
-use core::ops::Range;
 use vstd::prelude::*;
 
 verus! {

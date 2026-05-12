@@ -1,9 +1,6 @@
 //! Sum-type storage protocol.
-use core::panic;
-
 use crate::sum::*;
 use vstd::math::add;
-use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 use vstd::prelude::*;
 use vstd::resource::storage_protocol::*;

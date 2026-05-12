@@ -1,6 +1,6 @@
 use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::mul::*;
-use vstd::{pervasive::trigger, prelude::*};
+use vstd::prelude::*;
 
 verus! {
 
