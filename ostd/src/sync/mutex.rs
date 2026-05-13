@@ -75,7 +75,10 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     }
 
     /// Tries to acquire the mutex immediately.
-    #[verus_spec]
+    #[verus_spec(ret =>
+        ensures
+            ret is Some ==> ret->0.rel_mutex(*self),
+    )]
     pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
         // Cannot be reduced to `then_some`, or the possible dropping of the temporary
         // guard will cause an unexpected unlock.
@@ -84,11 +87,13 @@ impl<T  /* : ?Sized */ > Mutex<T> {
             let tracked mut locked_state: Option<PointsTo<T>> = None;
         }
         {#[verus_spec(with => Tracked(locked_state))] self.acquire_lock()}.then(
-            || requires
-                locked_state is Some,
-                locked_state -> Some_0.id() == self.cell_id(),
-                {unsafe { proof_with!{Tracked(locked_state.tracked_unwrap())};
-                            MutexGuard::new(self) }})
+            || -> (ret: MutexGuard<T>) 
+                requires
+                    locked_state is Some,
+                    locked_state -> Some_0.id() == self.cell_id(),
+                ensures
+                    ret.rel_mutex(*self),
+                {unsafe { proof_with!{Tracked(locked_state.tracked_unwrap())}; MutexGuard::new(self) }})
     }
 
     /* /// Returns a mutable reference to the underlying data.
@@ -197,8 +202,13 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     pub open spec fn view(self) -> T {
         self.value()
     }
+
+    pub closed spec fn rel_mutex(self, mutex: Mutex<T>) -> bool {
+        *self.mutex == mutex
+    }
 }
 
+#[verus_verify]
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     /// # Safety
     ///
@@ -209,23 +219,12 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
             Tracked(perm): Tracked<PointsTo<T>>,
         requires
             perm.id() == mutex.cell_id(),
+        ensures
+            ret.rel_mutex(*mutex),
     )]
     unsafe fn new(mutex: &'a Mutex<T>) -> (r: MutexGuard<'a, T>)
     {
         MutexGuard { mutex, v_perm: Tracked(perm) }
-    }
-
-    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
-    /// `Drop` is incomplete for now.
-    #[verus_spec]
-    pub fn drop(self) {
-        proof! {
-            use_type_invariant(&self);
-            use_type_invariant(&*self.mutex);
-        }
-        proof_with!{self.v_perm}
-        self.mutex.release_lock();
-        self.mutex.queue.wake_one();
     }
 }
 
@@ -262,12 +261,20 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
 
 /* impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
     fn drop(&mut self)
-        opens_invariants none
-        no_unwind
     {
-        self.mutex.unlock(Tracked(perm));
+        self.mutex.unlock();
     }
 } */
+
+impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
+    #[verus_spec]
+    pub fn drop(self) {
+        proof!{use_type_invariant(&self);}
+        proof_with!(self.v_perm);
+        self.mutex.unlock();
+    }   
+}
 
 /* impl<T: /* ?Sized + */ fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
     #[verifier::external_body]
@@ -278,9 +285,16 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
 
 impl<T  /* : ?Sized */ > !Send for MutexGuard<'_, T> {}
 
-// unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
+#[verifier::external]
+unsafe impl<T: /*?Sized +*/ Sync> Sync for MutexGuard<'_, T> {}
+
+#[verus_verify]
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     /// Returns the [`Mutex`] associated with this guard.
+    #[verus_spec(ret =>
+        ensures
+            guard.rel_mutex(*ret),
+    )]
     pub fn get_lock(guard: &MutexGuard<'a, T>) -> &'a Mutex<T> {
         guard.mutex
     }

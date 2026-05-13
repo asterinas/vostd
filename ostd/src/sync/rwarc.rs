@@ -146,6 +146,19 @@ impl<T> Drop for RwArc<T> {
     }
 }*/
 
+impl<T> RwArc<T> {
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
+    pub fn drop(self) {
+        atomic_with_ghost! {
+            self.0.num_rw => fetch_sub(1);
+            ghost g => {
+                assume(g > 0);
+                g = g - 1;
+            }
+    };
+}
+}
+
 impl<T: Clone> RwArc<T> {
     /// Returns the contained value by cloning it.
     pub fn get_cloned(&self) -> T {

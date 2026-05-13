@@ -1684,7 +1684,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         // debug_assert_eq!(self.level, child_pt.level());
 
         // let old = self.path.get(self.level as usize - 1);
-        self.path.set(self.level as usize - 1, Some(child_pt));
+        self.path[self.level as usize - 1] = Some(child_pt);
 
         proof {
             owner.in_locked_range_level_le_guard_level();
