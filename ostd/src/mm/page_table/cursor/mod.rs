@@ -1683,7 +1683,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         self.level = self.level - 1;
         // debug_assert_eq!(self.level, child_pt.level());
 
-        // let old = self.path.get(self.level as usize - 1);
+        // let old = self.path[self.level as usize - 1].replace(child_pt);
         self.path[self.level as usize - 1] = Some(child_pt);
 
         proof {
