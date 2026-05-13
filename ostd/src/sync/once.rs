@@ -86,7 +86,7 @@ pub closed spec fn wf(&self) -> bool {
                 &&& v == INITED
                 &&& points_to.id() == cell.id()
                 &&& points_to.value() is Some
-                &&& f@.inv(points_to.value()->Some_0)
+                &&& f@.inv(points_to.value()->0)
             }
         }
     }

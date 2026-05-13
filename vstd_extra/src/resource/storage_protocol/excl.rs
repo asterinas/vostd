@@ -173,7 +173,7 @@ impl<T> Exclusive<T> {
             Self::type_inv_inner(final(r).value()),
             final(r).value()->Exclusive_0 is None,
             final(r).loc() == old(r).loc(),
-            res == old(r).value()->Exclusive_0->Some_0,
+            res == old(r).value()->Exclusive_0->0,
     {
         let tracked mut tmp = StorageResource::<(), T, ExclusiveSP<T>>::alloc(
             ExclusiveSP::Unit,
@@ -212,7 +212,7 @@ impl<T> Exclusive<T> {
             Self::type_inv_inner(final(r).value()),
             final(r).value()->Exclusive_0 is Some,
             final(r).loc() == old(r).loc(),
-            final(r).value()->Exclusive_0->Some_0 == value,
+            final(r).value()->Exclusive_0->0 == value,
     {
         let ghost g = value;
         let tracked mut tmp = StorageResource::<(), T, ExclusiveSP<T>>::alloc(

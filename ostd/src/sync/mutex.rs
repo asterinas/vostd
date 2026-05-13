@@ -34,7 +34,7 @@ closed spec fn wf(self) -> bool {
     invariant on lock with (val) is (v: bool, g: Option<PointsTo<T>>) {
         let active_guard = g is None;
         &&& v <==> active_guard
-        &&& g is Some ==> g->Some_0.id() == val.id()
+        &&& g is Some ==> g->0.id() == val.id()
     }
 }
 }
@@ -118,7 +118,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         with
             -> locked_state: Tracked<Option<PointsTo<T>>>,
         ensures
-            ret ==> locked_state@ is Some && locked_state@->Some_0.id() == self.cell_id(),
+            ret ==> locked_state@ is Some && locked_state@->0.id() == self.cell_id(),
             !ret ==> locked_state@ is None,
     )]
     fn acquire_lock(&self) -> bool {

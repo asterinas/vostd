@@ -141,7 +141,7 @@ impl OrdSpecImpl for NonZeroUsize {
     }
 
     open spec fn cmp_spec(&self, other: &Self) -> Ordering {
-        vstd::std_specs::cmp::PartialOrdSpec::partial_cmp_spec(self, other)->Some_0
+        vstd::std_specs::cmp::PartialOrdSpec::partial_cmp_spec(self, other)->0
     }
 }
 

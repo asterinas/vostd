@@ -197,12 +197,12 @@ closed spec fn wf(self) -> bool {
         &&& g.read_retract_token.wf()
         &&& g.read_retract_token.id() == v_id@.read_retract_token_id
         &&& g.upread_retract_token is Some ==> {
-            let token = g.upread_retract_token->Some_0;
+            let token = g.upread_retract_token->0;
             &&& token.wf()
             &&& token.id() == v_id@.upread_retract_token_id
         }
         &&& g.upreader_guard_token is Some ==> {
-            let token = g.upreader_guard_token->Some_0;
+            let token = g.upreader_guard_token->0;
             wf_upgradeable_guard_token(v_id@.core_token_id, v_id@.frac_id, val.id(), token)
         }
         &&& match g.read_guard_token {

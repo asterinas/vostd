@@ -117,7 +117,7 @@ impl MemView {
     ///
     /// Equivalent to resolving via [`Self::addr_transl`] and reading from [`Self::memory`].
     pub open spec fn read(self, va: usize) -> raw_ptr::MemContents<u8> {
-        let (pa, off) = self.addr_transl(va)->Some_0;
+        let (pa, off) = self.addr_transl(va)->0;
         self.memory[pa].contents[off as int]
     }
 
@@ -125,7 +125,7 @@ impl MemView {
     ///
     /// Returns a new [`MemView`] with one byte updated, preserving all mappings.
     pub open spec fn write(self, va: usize, x: u8) -> Self {
-        let (pa, off) = self.addr_transl(va)->Some_0;
+        let (pa, off) = self.addr_transl(va)->0;
         MemView {
             memory: self.memory.insert(pa, FrameContents {
                 contents: self.memory[pa].contents.update(off as int, raw_ptr::MemContents::Init(x)),
@@ -137,8 +137,8 @@ impl MemView {
 
     /// Whether two virtual addresses denote equal byte contents in this view.
     pub open spec fn eq_at(self, va1: usize, va2: usize) -> bool {
-        let (pa1, off1) = self.addr_transl(va1)->Some_0;
-        let (pa2, off2) = self.addr_transl(va2)->Some_0;
+        let (pa1, off1) = self.addr_transl(va1)->0;
+        let (pa2, off2) = self.addr_transl(va2)->0;
         self.memory[pa1].contents[off1 as int] == self.memory[pa2].contents[off2 as int]
     }
 

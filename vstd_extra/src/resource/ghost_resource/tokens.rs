@@ -24,8 +24,8 @@ impl<T, const TOTAL: u64> CountGhostResource<T, TOTAL> {
         &&& TOTAL > 0
         &&& 0 <= self.frac() <= TOTAL
         &&& self.r is Some ==> {
-            &&& self.id == self.r->Some_0.id()
-            &&& self.view() == self.r->Some_0@
+            &&& self.id == self.r->0.id()
+            &&& self.view() == self.r->0@
         }
     }
 
@@ -52,7 +52,7 @@ impl<T, const TOTAL: u64> CountGhostResource<T, TOTAL> {
 
     /// Returns the `CountGhost<T,TOTAL>` stored in this `CountGhostResource`.
     pub closed spec fn storage(self) -> CountGhost<T, TOTAL> {
-        self.r->Some_0
+        self.r->0
     }
 
     /// Returns the value of type `T` stored in this `CountGhostResource`.
@@ -241,7 +241,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
 
     /// Returns the `Count<T,TOTAL>` stored in this `CountResource`.
     pub closed spec fn storage(self) -> Count<T, TOTAL> {
-        self.r->Some_0
+        self.r->0
     }
 
     /// Type invariant.

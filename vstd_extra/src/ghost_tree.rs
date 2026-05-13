@@ -403,7 +403,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             &&& f(self.value, path)
             &&& forall|i: int|
                 0 <= i < self.children.len() ==> (#[trigger] self.children[i]) is Some
-                    ==> self.children[i]->Some_0.tree_predicate_map(path.push_tail(i as usize), f)
+                    ==> self.children[i]->0.tree_predicate_map(path.push_tail(i as usize), f)
         } else {
             &&& f(self.value, path)
         }
@@ -422,7 +422,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.children[i] is Some,
             self.tree_predicate_map(path, f),
         ensures
-            self.children[i]->Some_0.tree_predicate_map(path.push_tail(i as usize), f),
+            self.children[i]->0.tree_predicate_map(path.push_tail(i as usize), f),
     {
     }
 
@@ -450,13 +450,13 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     {
         if self.level < L - 1 {
             assert forall|i: int|
-                #![trigger self.children[i]->Some_0]
+                #![trigger self.children[i]->0]
                 0 <= i < self.children.len()
-                    && self.children[i] is Some implies self.children[i]->Some_0.tree_predicate_map(
+                    && self.children[i] is Some implies self.children[i]->0.tree_predicate_map(
                 path.push_tail(i as usize),
                 g,
             ) by {
-                self.children[i]->Some_0.map_implies(path.push_tail(i as usize), f, g);
+                self.children[i]->0.map_implies(path.push_tail(i as usize), f, g);
             }
         }
     }
@@ -515,13 +515,13 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     {
         if self.level < L - 1 {
             assert forall|i: int|
-                #![trigger self.children[i]->Some_0]
+                #![trigger self.children[i]->0]
                 0 <= i < self.children.len()
-                    && self.children[i] is Some implies self.children[i]->Some_0.tree_predicate_map(
+                    && self.children[i] is Some implies self.children[i]->0.tree_predicate_map(
                 path.push_tail(i as usize),
                 g,
             ) by {
-                self.children[i]->Some_0.map_implies_and(path.push_tail(i as usize), f1, f2, g);
+                self.children[i]->0.map_implies_and(path.push_tail(i as usize), f1, f2, g);
             }
         }
     }
@@ -716,9 +716,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             ) is None,
             self.level < L - 1 && self.children[key as int] is Some ==> #[trigger] self.child(
                 key,
-            ) is Some && self.child(key)->Some_0.level == self.level + 1 && self.child(
+            ) is Some && self.child(key)->0.level == self.level + 1 && self.child(
                 key,
-            )->Some_0.inv(),
+            )->0.inv(),
     {
     }
 
@@ -729,8 +729,8 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.child(key) is Some,
         ensures
             self.level < L - 1,
-            self.child(key)->Some_0.level == self.level + 1,
-            self.child(key)->Some_0.inv(),
+            self.child(key)->0.level == self.level + 1,
+            self.child(key)->0.inv(),
     {
         self.child_property(key);
         self.child_property_cases(key);
@@ -790,7 +790,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             forall|i: int|
                 0 <= i < N ==> #[trigger] self.children[i] is Some ==> value.rel_children(
                     i,
-                    Some(self.children[i]->Some_0.value),
+                    Some(self.children[i]->0.value),
                 ),
             forall|i: int|
                 0 <= i < N ==> #[trigger] self.children[i] is None ==> value.rel_children(i, None),
@@ -811,7 +811,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
                 None => n.value.rel_children(i, None),
             } by {
                 if n.children[i] is Some {
-                    let child = n.children[i]->Some_0;
+                    let child = n.children[i]->0;
                 }
             }
         }
@@ -894,7 +894,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.child(path.index(0)) is Some ==> #[trigger] self.recursive_insert(path, node)
                 == self.insert(
                 path.index(0),
-                self.child(path.index(0))->Some_0.recursive_insert(path.pop_head().1, node),
+                self.child(path.index(0))->0.recursive_insert(path.pop_head().1, node),
             ),
             self.child(path.index(0)) is None ==> #[trigger] self.recursive_insert(path, node)
                 == self.insert(
@@ -932,7 +932,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
-                let c = self.child(hd)->Some_0;
+                let c = self.child(hd)->0;
                 self.child_some_properties(hd);
                 assert(self.insert(hd, c.recursive_insert(tl, node)).level == self.level);
             } else {
@@ -969,7 +969,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
-                let c = self.child(hd)->Some_0;
+                let c = self.child(hd)->0;
                 self.child_some_properties(hd);
                 c.lemma_recursive_insert_preserves_value(tl, node);
                 let updated_child = c.recursive_insert(tl, node);
@@ -991,7 +991,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             node.level == self.level + path.len() as nat,
             self.recursive_seek(path.pop_tail().1) is Some ==> self.recursive_seek(
                 path.pop_tail().1,
-            )->Some_0.value.rel_children(path.pop_tail().0 as int, Some(node.value)),
+            )->0.value.rel_children(path.pop_tail().0 as int, Some(node.value)),
             self.recursive_seek(path.pop_tail().1) is None ==> T::default(
                 (node.level - 1) as nat,
             ).rel_children(path.pop_tail().0 as int, Some(node.value)),
@@ -1012,7 +1012,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
-                let c = self.child(hd)->Some_0;
+                let c = self.child(hd)->0;
                 self.child_some_properties(hd);
                 assert(path.pop_tail().1.pop_head().1 == path.pop_head().1.pop_tail().1);
                 c.lemma_recursive_insert_preserves_inv(tl, node);
@@ -1153,14 +1153,14 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     pub proof fn lemma_recursive_seek_trace_next(self, path: TreePath<N>, idx: usize)
         requires
             self.recursive_seek(path) is Some,
-            self.recursive_seek(path)->Some_0.children[idx as int] is Some,
+            self.recursive_seek(path)->0.children[idx as int] is Some,
             self.inv(),
             path.inv(),
             path.len() < L - self.level,
             0 <= idx < N,
         ensures
             self.recursive_trace(path.push_tail(idx)).len() == path.len() + 2,
-            self.recursive_seek(path)->Some_0.children[idx as int]->Some_0.value
+            self.recursive_seek(path)->0.children[idx as int]->0.value
                 == self.recursive_trace(path.push_tail(idx))[path.len() as int + 1],
         decreases path.len(),
     {
@@ -1169,7 +1169,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         if path.len() == 0 {
             assert(self.recursive_trace(path2) =~= seq![
                 self.value,
-                self.children[idx as int]->Some_0.value,
+                self.children[idx as int]->0.value,
             ]) by { reveal_with_fuel(Node::recursive_trace, 2) }
         } else {
             let (hd1, tl1) = path.pop_head();
@@ -1234,7 +1234,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
-                let c = self.child(hd)->Some_0;
+                let c = self.child(hd)->0;
                 assert(self.recursive_visit(path) =~= seq![c].add(c.recursive_visit(tl)));
                 c.lemma_recursive_visited_node_inv(tl);
             }
@@ -1261,7 +1261,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
-                let c = self.child(hd)->Some_0;
+                let c = self.child(hd)->0;
                 assert(self.recursive_visit(path) =~= seq![c].add(c.recursive_visit(tl)));
                 c.lemma_recursive_visited_node_levels(tl);
             }
@@ -1276,7 +1276,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             !path.is_empty(),
             self.recursive_visit(path).len() > 0,
         ensures
-            self.recursive_visit(path).index(0) == self.child(path.index(0))->Some_0,
+            self.recursive_visit(path).index(0) == self.child(path.index(0))->0,
     {
         if path.len() == 0 {
         } else if path.len() == 1 {
@@ -1297,8 +1297,8 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.recursive_visit(path).len() > 0,
         ensures
             #[trigger] self.recursive_visit(path) == seq![
-                self.child(path.pop_head().0)->Some_0,
-            ].add(self.child(path.pop_head().0)->Some_0.recursive_visit(path.pop_head().1)),
+                self.child(path.pop_head().0)->0,
+            ].add(self.child(path.pop_head().0)->0.recursive_visit(path.pop_head().1)),
     {
         if path.len() == 1 {
             let (hd, tl) = path.pop_head();
@@ -1307,7 +1307,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let c = self.child(hd);
             if c is None {
             } else {
-                let c = c->Some_0;
+                let c = c->0;
             }
         } else {
             let (hd, tl) = path.pop_head();
@@ -1317,7 +1317,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let c = self.child(hd);
             if c is None {
             } else {
-                let c = c->Some_0;
+                let c = c->0;
                 self.lemma_recursive_visit_head(path);
             }
         }
@@ -1331,7 +1331,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             path.len() == 1,
         ensures
             self.child(path.index(0)) is Some ==> #[trigger] self.recursive_visit(path) =~= seq![
-                self.child(path.index(0))->Some_0,
+                self.child(path.index(0))->0,
             ],
             self.child(path.index(0)) is None ==> #[trigger] self.recursive_visit(path) =~= seq![],
     {
@@ -1394,10 +1394,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.inv(),
             self.child(key) is Some,
         ensures
-            #[trigger] self.on_subtree(self.child(key)->Some_0),
+            #[trigger] self.on_subtree(self.child(key)->0),
     {
         let path = TreePath::<N>::new(seq![key]);
-        let c = self.child(key)->Some_0;
+        let c = self.child(key)->0;
         assert(path.inv());
     }
 
@@ -1437,7 +1437,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             if self.child(hd) is None {
                 self
             } else {
-                let child = self.child(hd)->Some_0;
+                let child = self.child(hd)->0;
                 let updated_child = child.recursive_remove(tl);
                 self.insert(hd, updated_child)
             }
@@ -1460,7 +1460,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
-                let c = self.child(hd)->Some_0;
+                let c = self.child(hd)->0;
                 self.child_some_properties(hd);
                 c.lemma_recursive_remove_preserves_level(tl);
             }
@@ -1483,7 +1483,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
-                let c = self.child(hd)->Some_0;
+                let c = self.child(hd)->0;
                 self.child_some_properties(hd);
                 c.lemma_recursive_remove_preserves_value(tl);
             }
@@ -1498,9 +1498,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             path.len() > 0 ==> self.recursive_seek(path.pop_tail().1) is Some
                 ==> self.recursive_seek(
                 path.pop_tail().1,
-            )->Some_0.children[path.pop_tail().0 as int] is None || self.recursive_seek(
+            )->0.children[path.pop_tail().0 as int] is None || self.recursive_seek(
                 path.pop_tail().1,
-            )->Some_0.value.rel_children(path.pop_tail().0 as int, None),
+            )->0.value.rel_children(path.pop_tail().0 as int, None),
         ensures
             #[trigger] self.recursive_remove(path).inv(),
         decreases path.len(),
@@ -1514,7 +1514,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
-                let c = self.child(hd)->Some_0;
+                let c = self.child(hd)->0;
                 self.child_some_properties(hd);
                 assert(path.pop_tail().1.pop_head().1 == path.pop_head().1.pop_tail().1);
                 c.lemma_recursive_remove_preserves_inv(tl);
@@ -1706,14 +1706,14 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
     pub proof fn lemma_seek_trace_next(self, path: TreePath<N>, idx: usize)
         requires
             self.seek(path) is Some,
-            self.seek(path)->Some_0.children[idx as int] is Some,
+            self.seek(path)->0.children[idx as int] is Some,
             self.inv(),
             path.inv(),
             path.len() < L,
             0 <= idx < N,
         ensures
             self.trace(path.push_tail(idx)).len() == path.len() + 2,
-            self.seek(path)->Some_0.children[idx as int]->Some_0.value == self.trace(
+            self.seek(path)->0.children[idx as int]->0.value == self.trace(
                 path.push_tail(idx),
             )[path.len() as int + 1],
     {
@@ -1729,7 +1729,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
             node.level == path.len() as nat,
             self.seek(path.pop_tail().1) is Some ==> self.seek(
                 path.pop_tail().1,
-            )->Some_0.value.rel_children(path.index(path.len() - 1) as int, Some(node.value)),
+            )->0.value.rel_children(path.index(path.len() - 1) as int, Some(node.value)),
             self.seek(path.pop_tail().1) is None ==> T::default(
                 (path.len() - 1) as nat,
             ).rel_children(path.index(path.len() - 1) as int, Some(node.value)),
@@ -1748,9 +1748,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
             path.len() < L,
             path.len() > 0 ==> self.seek(path.pop_tail().1) is Some ==> self.seek(
                 path.pop_tail().1,
-            )->Some_0.children[path.pop_tail().0 as int] is None || self.seek(
+            )->0.children[path.pop_tail().0 as int] is None || self.seek(
                 path.pop_tail().1,
-            )->Some_0.value.rel_children(path.index(path.len() - 1) as int, None),
+            )->0.value.rel_children(path.index(path.len() - 1) as int, None),
         ensures
             #[trigger] self.remove(path).inv(),
     {

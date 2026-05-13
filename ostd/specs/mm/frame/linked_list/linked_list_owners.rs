@@ -46,8 +46,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
                 &&& M::wf(link.slot, perm.storage)
                 &&& (link.next is Some) == (perm.next_ptr is Some)
                 &&& (link.prev is Some) == (perm.prev_ptr is Some)
-                &&& link.next is Some ==> link.next->Some_0 == perm.next_ptr->Some_0.addr()
-                &&& link.prev is Some ==> link.prev->Some_0 == perm.prev_ptr->Some_0.addr()
+                &&& link.next is Some ==> link.next->0 == perm.next_ptr->0.addr()
+                &&& link.prev is Some ==> link.prev->0 == perm.prev_ptr->0.addr()
             },
             _ => false,
         }

@@ -39,4 +39,12 @@
         "miri",
         "verus_keep_ghost"
     ],
+    "verus-analyzer.check.overrideCommand": [
+        "cargo",
+        "dv",
+        "verify",
+        "--targets",
+        "ostd",
+    ],
+    "verus-analyzer.checkOnSave": false,
 }
