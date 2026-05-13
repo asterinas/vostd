@@ -149,6 +149,9 @@ impl<T> Drop for RwArc<T> {
 impl<T> RwArc<T> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     pub fn drop(self) {
+        proof!{
+            use_type_invariant(&self);
+        }
         atomic_with_ghost! {
             self.0.num_rw => fetch_sub(1);
             ghost g => {
