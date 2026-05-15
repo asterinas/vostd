@@ -1106,6 +1106,8 @@ impl PageTable<KernelPtConfig> {
             kernel_owner.metaregion_sound(*old(regions)),
             // The kernel root is not currently locked.
             old(guards_k).unlocked(kernel_owner.0.value.node.unwrap().meta_perm.addr()),
+        ensures
+            final(regions).inv(),
     )]
     pub(in crate::mm) fn create_user_page_table<G: InAtomicMode + 'static>(
         &'static self,

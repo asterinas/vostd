@@ -4,6 +4,7 @@
 //! They are subject to change if `vstd` covers more cases in the future.
 pub mod deref;
 pub mod ilog2;
+pub mod int_specs;
 pub mod nonnull;
 pub mod nonzero;
 pub mod ptr;
@@ -12,6 +13,7 @@ pub mod slice;
 pub mod smart_ptr;
 
 pub use ilog2::*;
+pub use int_specs::*;
 pub use nonnull::*;
 pub use ptr::*;
 pub use range::*;

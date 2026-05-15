@@ -2,7 +2,6 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{predicate::Predicate, prelude::*};
-use vstd_extra::array_ptr::{ArrayPtr, PointsToArray};
 use vstd_extra::ownership::{Inv, OwnerOf};
 use vstd_extra::external::AsRefSpec;
 
@@ -12,7 +11,7 @@ use crate::{
     mm::{
         dma::{dma_type, Daddr, DmaType},
         frame::{segment::SegmentOwner, untyped::AnyUFrameMeta, AnyFrameMeta, Segment},
-        io::{VmIo, VmIoMemView, VmIoOwner, VmReader, VmWriter},
+        io::{VmIo, VmReader, VmWriter},
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr, Paddr,
     },
@@ -21,7 +20,8 @@ use crate::{
             kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
             PAGE_SIZE,
         },
-        mm::virt_mem_newer::{MemView, VirtPtr},
+        mm::io::{VmIoMemView, VmIoOwner},
+        mm::virt_mem::{MemView, VirtPtr},
     },
     sync::{AtomicDataWithOwner, PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
 };
@@ -1264,16 +1264,6 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         Ok(())
     }
 
-    #[verifier::external_body]
-    fn read_byte<const N: usize>(
-        &self,
-        offset: usize,
-        bytes: ArrayPtr<u8, N>,
-        Tracked(_bytes_owner): Tracked<&mut PointsToArray<u8, N>>,
-        Tracked(_owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
-    ) -> core::result::Result<(), Error> {
-        Err(Error::AccessDenied)
-    }
 }
 
 impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf, Dma: AsRef<DmaStream<M>> + Send + Sync>

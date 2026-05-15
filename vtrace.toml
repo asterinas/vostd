@@ -1,0 +1,116 @@
+# vtrace.toml — project configuration for VTrace (§5)
+# Commit this file at the workspace root to avoid repeating flags in CI.
+# CLI flags override these values. See docs/vtrace-cli.md for reference.
+
+[paths]
+# Root of the original (pre-transcription) Rust source tree.
+original = "../vostd/ostd/src/mm"
+# Root of the Verus-annotated transcribed source tree.
+transcribed = "../certik-vostd/ostd/src/mm"
+# Path to the SQLite store (created automatically if absent).
+db = ".vtrace/vtrace.db"
+
+[parser]
+# Glob patterns to exclude from parsing.
+exclude_patterns = ["**/generated/**", "**/target/**"]
+# Whether to follow symbolic links when walking the tree.
+follow_symlinks = false
+# Files larger than this size (bytes) are skipped with a warning.
+max_file_bytes = 4_194_304 # 4 MiB
+
+[comparator]
+# If false, a pure parameter rename generates a SignatureChanged diff.
+ignore_param_names = false
+# Strip /// doc comments before comparison (reduces noise).
+ignore_doc_comments = true
+# Alpha-rename local let bindings to positional names before comparing.
+normalize_bindings = true
+# If true, ignore `Type::CONST` vs `Type::CONST()` shim-only differences.
+ignore_const_getter_shim_diff = true
+# Minimum severity to include in output: "Info", "Warning", or "Error".
+min_severity = "Info"
+
+# Macro normalization rules: each maps a macro name to a normalization shape.
+# Shapes: "FieldAssign" (update_field pattern), "FieldAccess" (borrow_field pattern).
+[[comparator.macro_rules]]
+name = "update_field"
+shape = "FieldAssign"
+enabled = true
+
+[[comparator.macro_rules]]
+name = "borrow_field"
+shape = "FieldAccess"
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Type equivalences
+# ---------------------------------------------------------------------------
+# Each rule declares two type patterns that should be treated as the same
+# type during signature comparison. Use `$T`, `$U`, `$V` as template
+# variables that match any type subtree. Patterns are applied in both
+# directions and nested anywhere in a type expression.
+#
+# Example 1 (featured): a Rust reference is equivalent to a Verus PPtr.
+# `fn f(x: &mut Foo)` matches `fn f(x: PPtr<Foo>)`; both get canonicalized to
+# the same form before the signature token comparison, so this no longer
+# shows up as a SignatureChanged diff.
+[[comparator.type_equivalences]]
+left = "&mut $T"
+right = "PPtr<$T>"
+enabled = true
+
+[[comparator.type_equivalences]]
+left = "*const u8"
+right = "VirtPtr"
+enabled = true
+
+# More examples you can enable or adapt:
+#
+# [[comparator.type_equivalences]]
+# left = "&mut $T"
+# right = "PPtr<$T>"
+# enabled = false
+#
+# [[comparator.type_equivalences]]
+# left = "Option<$T>"
+# right = "OptionPPtr<$T>"
+# enabled = false
+
+# ---------------------------------------------------------------------------
+# Expression / block equivalences (recursive)
+# ---------------------------------------------------------------------------
+# Like type_equivalences, but for expressions and statement blocks. Two forms:
+#
+# 1. Expression rule — both sides parse as a single Rust expression.
+#    Metavariables `$x`, `$y`, ... bind individual sub-expressions and are
+#    recursively compared after the outer shape matches. Example:
+#
+#    [[comparator.expr_equivalences]]
+#    left  = "Some($x).unwrap()"
+#    right = "$x"
+#
+# 2. Block rule — both sides describe a sequence of statements (no
+#    surrounding braces; the loader adds them). A trailing `$name...`
+#    captures the rest of the enclosing block as a statement sequence.
+#    Use this for idiom-level rewrites where one statement consumes an
+#    arbitrary tail.
+#
+# Featured example: early-return ↔ if-else canonicalization. Original
+# code may use an early return; transcription may have inlined the tail
+# into an else branch. With this rule, both forms canonicalize to the
+# if-else shape before structural comparison, but `$cond`, `$ret`, and
+# the statements in `$rest...` are still compared recursively.
+[[comparator.expr_equivalences]]
+left  = "if $cond { return $ret; } $rest..."
+right = "if $cond { $ret } else { $rest... }"
+enabled = true
+
+[server]
+# IP address the web server binds to.
+bind = "127.0.0.1"
+# Port the web server listens on.
+port = 8080
+
+[identity]
+# Set this per developer to avoid passing --user on every triage command.
+default_reviewer = ""
