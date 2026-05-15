@@ -22,7 +22,7 @@ use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::segment::{frame_idx_at, SegmentOwner};
-use crate::specs::mm::virt_mem_newer::MemView;
+use crate::specs::mm::virt_mem::MemView;
 use vstd_extra::drop_tracking::*;
 
 verus! {

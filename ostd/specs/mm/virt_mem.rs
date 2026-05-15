@@ -27,7 +27,7 @@ use crate::mm::{Paddr, Vaddr};
 use crate::prelude::Inv;
 use crate::specs::arch::mm::MAX_PADDR;
 use crate::specs::mm::page_table::Mapping;
-use crate::specs::mm::pod::PodOnce;
+use crate::specs::mm::pod::{pod_bytes, Pod, PodOnce};
 
 verus! {
 
@@ -132,6 +132,84 @@ impl MemView {
                 ..self.memory[pa]
             }),
             ..self
+        }
+    }
+
+    /// Spec for writing `bytes.len()` bytes starting at `va`.
+    ///
+    /// `bytes[0]` is written to `va`, `bytes[1]` to `va + 1`, etc.
+    pub open spec fn write_bytes(self, va: usize, bytes: Seq<u8>) -> Self
+        decreases bytes.len(),
+    {
+        if bytes.len() == 0 {
+            self
+        } else {
+            self.write(va, bytes[0]).write_bytes((va + 1) as usize, bytes.drop_first())
+        }
+    }
+
+    /// Spec for reading `len` bytes starting at `va`.
+    ///
+    /// The byte at `va + i` is `self.read(va + i).value()`. Callers should only
+    /// rely on the result when every byte in the range is initialized; otherwise
+    /// the returned sequence contains arbitrary values where memory is `Uninit`.
+    pub open spec fn read_bytes(self, va: usize, len: usize) -> Seq<u8>
+        decreases len,
+    {
+        if len == 0 {
+            Seq::empty()
+        } else {
+            seq![self.read(va).value()].add(
+                self.read_bytes((va + 1) as usize, (len - 1) as usize),
+            )
+        }
+    }
+
+    /// Lemma: [`Self::write_bytes`] preserves [`Self::mappings`].
+    pub proof fn lemma_write_bytes_mappings(self, va: usize, bytes: Seq<u8>)
+        ensures
+            self.write_bytes(va, bytes).mappings == self.mappings,
+        decreases bytes.len(),
+    {
+        if bytes.len() > 0 {
+            self.write(va, bytes[0]).lemma_write_bytes_mappings(
+                (va + 1) as usize,
+                bytes.drop_first(),
+            );
+        }
+    }
+
+    /// Lemma: [`Self::write_bytes`] preserves [`Self::addr_transl`] at every address.
+    pub proof fn lemma_write_bytes_addr_transl(
+        self,
+        va: usize,
+        bytes: Seq<u8>,
+        query: usize,
+    )
+        ensures
+            self.write_bytes(va, bytes).addr_transl(query) == self.addr_transl(query),
+        decreases bytes.len(),
+    {
+        if bytes.len() > 0 {
+            self.write(va, bytes[0]).lemma_write_bytes_addr_transl(
+                (va + 1) as usize,
+                bytes.drop_first(),
+                query,
+            );
+        }
+    }
+
+    /// Lemma: [`Self::write_bytes`] only grows [`Self::memory`]'s domain.
+    pub proof fn lemma_write_bytes_memory_dom_grows(self, va: usize, bytes: Seq<u8>)
+        ensures
+            self.memory.dom().subset_of(self.write_bytes(va, bytes).memory.dom()),
+        decreases bytes.len(),
+    {
+        if bytes.len() > 0 {
+            self.write(va, bytes[0]).lemma_write_bytes_memory_dom_grows(
+                (va + 1) as usize,
+                bytes.drop_first(),
+            );
         }
     }
 
@@ -473,7 +551,7 @@ impl VirtPtr {
     /// - This function is trusted because the underlying volatile typed read relies on raw-pointer
     ///   operations that Verus does not yet model directly.
     #[verifier::external_body]
-    pub fn read_volatile<T: PodOnce>(self, Tracked(mem): Tracked<&MemView>) -> T
+    pub fn read_volatile<T: PodOnce>(self, Tracked(mem): Tracked<&MemView>) -> (val: T)
         requires
             self.inv(),
             core::mem::size_of::<T>() <= self.range@.end - self.vaddr,
@@ -485,12 +563,19 @@ impl VirtPtr {
                     &&& mem.memory.contains_key(mem.addr_transl(i).unwrap().0)
                     &&& mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(i).unwrap().1 as int] is Init
                 },
+        ensures
+            pod_bytes(val) == mem.read_bytes(self.vaddr, core::mem::size_of::<T>()),
     {
         let pnt = self.vaddr as *const T;
         unsafe { pnt.read_volatile() }
     }
 
-    /// Writes a [`PodOnce`] value using one volatile memory store to a verified memory view.
+    /// Writes a [`Pod`] value of size `size_of::<T>()` bytes using a volatile memory store
+    /// to a verified memory view.
+    ///
+    /// For `T: PodOnce` the underlying store is non-tearing (single instruction). For
+    /// arbitrary `T: Pod` the store may tear across multiple instructions but completes
+    /// before this function returns.
     ///
     /// # Verified Properties
     ///
@@ -501,14 +586,17 @@ impl VirtPtr {
     /// - Every byte in that range must translate in `mem`.
     ///
     /// ## Postconditions
-    /// - `mem.mappings` is unchanged.
-    /// - `mem.memory.dom()` can only grow.
+    /// - The final memory equals `old(mem).write_bytes(self.vaddr, pod_bytes(val))`.
+    /// - `mem.mappings` is unchanged (derivable from `write_bytes`, but stated
+    ///   directly for caller convenience).
+    /// - `mem.memory.dom()` can only grow (same).
+    /// - `addr_transl` is preserved for every virtual address (same).
     ///
     /// ## Safety
     /// - This function is trusted because the underlying volatile typed write relies on raw-pointer
     ///   operations that Verus does not yet model directly.
     #[verifier::external_body]
-    pub fn write_volatile<T: PodOnce>(self, Tracked(mem): Tracked<&mut MemView>, val: T)
+    pub fn write_volatile<T: Pod>(self, Tracked(mem): Tracked<&mut MemView>, val: T)
         requires
             self.inv(),
             core::mem::size_of::<T>() <= self.range@.end - self.vaddr,
@@ -519,8 +607,12 @@ impl VirtPtr {
                     &&& old(mem).addr_transl(i) is Some
                 },
         ensures
+            *final(mem) == old(mem).write_bytes(self.vaddr, pod_bytes(val)),
             final(mem).mappings == old(mem).mappings,
             old(mem).memory.dom().subset_of(final(mem).memory.dom()),
+            forall|va: usize|
+                #![trigger final(mem).addr_transl(va)]
+                old(mem).addr_transl(va) == final(mem).addr_transl(va),
     {
         let pnt = self.vaddr as *mut T;
         unsafe { pnt.write_volatile(val) }
@@ -724,17 +816,15 @@ impl VirtPtr {
 
     /// Copies `n` bytes from `src` to `dst` in the given memory view.
     ///
-    /// The source and destination must *not* overlap.
-    /// `copy_nonoverlapping` is semantically equivalent to C’s `memcpy`,
-    /// but with the source and destination arguments swapped.
-    ///
-    /// `mem` points to `src`'s owned memory regions.
+    /// `mem_src` and `mem_dst` are independent tracked memory views — the verifier
+    /// enforces this by virtue of the `&MemView` / `&mut MemView` ownership pattern,
+    /// so no vaddr-level non-overlap precondition is needed. (`mem_src` is never
+    /// mutated during the copy; each byte is read from its original state.)
     ///
     /// # Verified Properties
     ///
     /// ## Preconditions
     /// - `src.inv()` and `dst.inv()`.
-    /// - Source and destination slices `[vaddr, vaddr + n)` are non-overlapping.
     /// - Source slice `[src.vaddr, src.vaddr + n)` is in-range and initialized in `mem_src`.
     /// - Destination slice `[dst.vaddr, dst.vaddr + n)` is in-range and mapped in `old(mem_dst)`.
     ///
@@ -753,7 +843,6 @@ impl VirtPtr {
         requires
             src.inv(),
             dst.inv(),
-            src.vaddr + n <= dst.vaddr || dst.vaddr + n <= src.vaddr,
             src.range@.start <= src.vaddr,
             src.vaddr + n <= src.range@.end,
             forall|i: usize|

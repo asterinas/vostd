@@ -1,0 +1,213 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>alloc_if_none — VTrace</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="../main.css"><link rel="icon" type="image/png" href="../favicon.png"><style>
+.static-html-export {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  min-height: 100vh;
+}
+.static-nav {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  align-items: baseline;
+}
+.static-nav__brand {
+  font-weight: var(--weight-semibold);
+  margin-right: var(--space-4);
+  font-size: var(--text-lg);
+  color: var(--color-primary);
+}
+.static-nav a { color: var(--color-text-2); text-decoration: none; }
+.static-nav a:hover { color: var(--color-text); }
+.static-main {
+  padding: var(--space-5);
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+}
+.static-main h1, .static-main h2, .static-main h3 { color: var(--color-text); }
+.static-main code, .static-main pre { font-family: var(--font-mono); }
+.static-file-section {
+  margin: var(--space-6) 0 var(--space-3);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+.static-file-section h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-2);
+}
+.static-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 90px 130px;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  align-items: baseline;
+}
+.static-diff-row + .static-diff-row { border-top: 1px solid var(--color-border); }
+.static-diff-row a { color: var(--color-text); text-decoration: none; }
+.static-diff-row a:hover { color: var(--color-primary); }
+.static-diff-row code { font-size: var(--text-sm); }
+.static-diff-meta {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 var(--space-4);
+}
+.static-diff-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.static-diff-pair pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}
+.static-diff-pair h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+}
+.static-unified {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  white-space: pre;
+  color: var(--color-text);
+}
+.static-unified .added   { background: oklch(from var(--color-success) l c h / 0.18); }
+.static-unified .removed { background: oklch(from var(--color-error)   l c h / 0.20); }
+.static-unified .hunk    { color: var(--color-primary); }
+.static-change-list { list-style: none; padding: 0; }
+.static-change-list li {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+}
+.static-change-list li:first-child { border-top: none; }
+.static-change-kind { font-weight: var(--weight-semibold); margin-right: var(--space-2); }
+.static-change-span { color: var(--color-muted); font-size: var(--text-sm); }
+.static-info-table { border-collapse: collapse; width: 100%; }
+.static-info-table th, .static-info-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.static-info-table th {
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+.static-toc { columns: 2; gap: var(--space-8); margin: var(--space-3) 0; }
+.static-toc a { color: var(--color-text-2); text-decoration: none; }
+.static-toc a:hover { color: var(--color-text); }
+.static-file-counts {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.static-file-counts__untriaged {
+  font-weight: var(--weight-semibold);
+  color: var(--color-warning, var(--color-text));
+}
+.static-file-counts__untriaged--zero {
+  font-weight: var(--weight-normal);
+  color: var(--color-muted);
+}
+.static-file-counts__sep,
+.static-file-counts__total { color: var(--color-text-2); }
+.static-file-counts__total-label { color: var(--color-muted); }
+</style></head><body class="static-html-export"><nav class="static-nav"><a class="static-nav__brand" href="../index.html">VTrace</a><a href="../index.html">Diffs</a><a href="../equivalences.html">Equivalences</a><a href="../links.html">Links</a></nav><main class="static-main"><header><h1><code>alloc_if_none</code></h1><p class="static-diff-meta"><code>ostd::mm::page_table::node::entry</code> · <span class="badge badge--error">error</span> <span class="badge badge--neutral">unreviewed</span> · <small>0dffe67b-9153-4430-963a-5b3c7b809202</small></p><p><a href="../index.html">← Back to diffs</a></p></header><h2>Original ↔ Transcribed</h2><div class="static-diff-pair"><div><h3>Original</h3><pre><code>pub(in crate::mm::page_table) fn alloc_if_none(
+    &amp;mut self,
+    guard: &amp;'rcu dyn InAtomicMode,
+) -&gt; Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; {
+    if !(self.is_none() &amp;&amp; self.node.level() &gt; 1) {
+        return None;
+    }
+    let level = self.node.level();
+    let new_page = RcuDrop::new(PageTableNode::&lt;C&gt;::alloc(level - 1));
+    let paddr = new_page.start_paddr();
+    let pt_ref = unsafe { PageTableNodeRef::borrow_paddr(paddr) };
+    let pt_lock_guard = pt_ref.lock(guard);
+    self.pte = Child::PageTable(new_page).into_pte();
+    unsafe { self.node.write_pte(self.idx, self.pte) };
+    *self.node.nr_children_mut() += 1;
+    Some(pt_lock_guard)
+}
+</code></pre></div><div><h3>Transcribed</h3><pre><code>pub(in crate::mm) fn alloc_if_none&lt;A: InAtomicMode&gt;(
+    &amp;mut self,
+    guard: &amp;'rcu A,
+) -&gt; Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; {
+    let entry_is_present = self.pte.is_present();
+    let level = self.node.level();
+    if entry_is_present || level &lt;= 1 {
+        None
+    } else {
+        let new_page = PageTableNode::&lt;C&gt;::alloc(level - 1);
+        let paddr = new_page.start_paddr();
+        let new_pte = Child::PageTable(new_page).into_pte();
+        self.pte = new_pte;
+        let pt_ref = unsafe { PageTableNodeRef::borrow_paddr(paddr) };
+        let mut pt_lock_guard = pt_ref.lock(guard);
+        self.node.write_pte(self.idx, self.pte);
+        let nr_children = self.node.nr_children_mut();
+        let _tmp = nr_children.read(Tracked(&amp;parent_owner.meta_own.nr_children));
+        nr_children.write(Tracked(&amp;mut parent_owner.meta_own.nr_children), _tmp + 1);
+        Some(pt_lock_guard)
+    }
+}
+</code></pre></div></div><h2>Unified Diff</h2><div class="static-unified">--- original
++++ transcribed
+<span class="hunk">@@ -1,17 +1,22 @@</span>
+<span class="removed">-pub(in crate::mm::page_table) fn alloc_if_none(</span>
+<span class="added">+pub(in crate::mm) fn alloc_if_none&lt;A: InAtomicMode&gt;(</span>
+     &amp;mut self,
+<span class="removed">-    guard: &amp;'rcu dyn InAtomicMode,</span>
+<span class="added">+    guard: &amp;'rcu A,</span>
+ ) -&gt; Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; {
+<span class="removed">-    if !(self.is_none() &amp;&amp; self.node.level() &gt; 1) {</span>
+<span class="removed">-        return None;</span>
+<span class="removed">-    }</span>
+<span class="added">+    let entry_is_present = self.pte.is_present();</span>
+     let level = self.node.level();
+<span class="removed">-    let new_page = RcuDrop::new(PageTableNode::&lt;C&gt;::alloc(level - 1));</span>
+<span class="removed">-    let paddr = new_page.start_paddr();</span>
+<span class="removed">-    let pt_ref = unsafe { PageTableNodeRef::borrow_paddr(paddr) };</span>
+<span class="removed">-    let pt_lock_guard = pt_ref.lock(guard);</span>
+<span class="removed">-    self.pte = Child::PageTable(new_page).into_pte();</span>
+<span class="removed">-    unsafe { self.node.write_pte(self.idx, self.pte) };</span>
+<span class="removed">-    *self.node.nr_children_mut() += 1;</span>
+<span class="removed">-    Some(pt_lock_guard)</span>
+<span class="added">+    if entry_is_present || level &lt;= 1 {</span>
+<span class="added">+        None</span>
+<span class="added">+    } else {</span>
+<span class="added">+        let new_page = PageTableNode::&lt;C&gt;::alloc(level - 1);</span>
+<span class="added">+        let paddr = new_page.start_paddr();</span>
+<span class="added">+        let new_pte = Child::PageTable(new_page).into_pte();</span>
+<span class="added">+        self.pte = new_pte;</span>
+<span class="added">+        let pt_ref = unsafe { PageTableNodeRef::borrow_paddr(paddr) };</span>
+<span class="added">+        let mut pt_lock_guard = pt_ref.lock(guard);</span>
+<span class="added">+        self.node.write_pte(self.idx, self.pte);</span>
+<span class="added">+        let nr_children = self.node.nr_children_mut();</span>
+<span class="added">+        let _tmp = nr_children.read(Tracked(&amp;parent_owner.meta_own.nr_children));</span>
+<span class="added">+        nr_children.write(Tracked(&amp;mut parent_owner.meta_own.nr_children), _tmp + 1);</span>
+<span class="added">+        Some(pt_lock_guard)</span>
+<span class="added">+    }</span>
+ }
+</div><h2>AST Changes</h2><ul class="static-change-list"><li><span class="static-change-kind">SignatureChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 1–1 → trans 1–1</span><div>Function signature changed</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 5–7 → trans 5–5</span><div>Changed `if !(self.is_none() &amp;&amp; self.node.level() &gt; 1) {` to `let entry_is_present = self.pte.is_present();`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 9–16 → trans 7–21</span><div>Changed `let new_page = RcuDrop::new(PageTableNode::&lt;C&gt;::alloc(level - 1));` to `if entry_is_present || level &lt;= 1 {`</div></li></ul></main></body></html>

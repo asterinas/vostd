@@ -1,0 +1,202 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>unmap — VTrace</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="../main.css"><link rel="icon" type="image/png" href="../favicon.png"><style>
+.static-html-export {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  min-height: 100vh;
+}
+.static-nav {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  align-items: baseline;
+}
+.static-nav__brand {
+  font-weight: var(--weight-semibold);
+  margin-right: var(--space-4);
+  font-size: var(--text-lg);
+  color: var(--color-primary);
+}
+.static-nav a { color: var(--color-text-2); text-decoration: none; }
+.static-nav a:hover { color: var(--color-text); }
+.static-main {
+  padding: var(--space-5);
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+}
+.static-main h1, .static-main h2, .static-main h3 { color: var(--color-text); }
+.static-main code, .static-main pre { font-family: var(--font-mono); }
+.static-file-section {
+  margin: var(--space-6) 0 var(--space-3);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+.static-file-section h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-2);
+}
+.static-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 90px 130px;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  align-items: baseline;
+}
+.static-diff-row + .static-diff-row { border-top: 1px solid var(--color-border); }
+.static-diff-row a { color: var(--color-text); text-decoration: none; }
+.static-diff-row a:hover { color: var(--color-primary); }
+.static-diff-row code { font-size: var(--text-sm); }
+.static-diff-meta {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 var(--space-4);
+}
+.static-diff-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.static-diff-pair pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}
+.static-diff-pair h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+}
+.static-unified {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  white-space: pre;
+  color: var(--color-text);
+}
+.static-unified .added   { background: oklch(from var(--color-success) l c h / 0.18); }
+.static-unified .removed { background: oklch(from var(--color-error)   l c h / 0.20); }
+.static-unified .hunk    { color: var(--color-primary); }
+.static-change-list { list-style: none; padding: 0; }
+.static-change-list li {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+}
+.static-change-list li:first-child { border-top: none; }
+.static-change-kind { font-weight: var(--weight-semibold); margin-right: var(--space-2); }
+.static-change-span { color: var(--color-muted); font-size: var(--text-sm); }
+.static-info-table { border-collapse: collapse; width: 100%; }
+.static-info-table th, .static-info-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.static-info-table th {
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+.static-toc { columns: 2; gap: var(--space-8); margin: var(--space-3) 0; }
+.static-toc a { color: var(--color-text-2); text-decoration: none; }
+.static-toc a:hover { color: var(--color-text); }
+.static-file-counts {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.static-file-counts__untriaged {
+  font-weight: var(--weight-semibold);
+  color: var(--color-warning, var(--color-text));
+}
+.static-file-counts__untriaged--zero {
+  font-weight: var(--weight-normal);
+  color: var(--color-muted);
+}
+.static-file-counts__sep,
+.static-file-counts__total { color: var(--color-text-2); }
+.static-file-counts__total-label { color: var(--color-muted); }
+</style></head><body class="static-html-export"><nav class="static-nav"><a class="static-nav__brand" href="../index.html">VTrace</a><a href="../index.html">Diffs</a><a href="../equivalences.html">Equivalences</a><a href="../links.html">Links</a></nav><main class="static-main"><header><h1><code>unmap</code></h1><p class="static-diff-meta"><code>ostd::mm::vm_space</code> · <span class="badge badge--error">error</span> <span class="badge badge--neutral">unreviewed</span> · <small>f6a44e63-36ab-46f2-981b-3cfbb50c1050</small></p><p><a href="../index.html">← Back to diffs</a></p></header><h2>Original ↔ Transcribed</h2><div class="static-diff-pair"><div><h3>Original</h3><pre><code>pub fn unmap(&amp;mut self, len: usize) -&gt; usize {
+    let end_va = self.virt_addr() + len;
+    let mut num_unmapped: usize = 0;
+    loop {
+        let Some(frag) = (unsafe { self.pt_cursor.take_next(end_va - self.virt_addr()) })
+        else {
+            break;
+        };
+        match frag {
+            PageTableFrag::Mapped { va, item, .. } =&gt; {
+                let (frame, _) = item;
+                num_unmapped += 1;
+                self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
+            }
+            PageTableFrag::StrayPageTable { pt, va, len, num_frames } =&gt; {
+                num_unmapped += num_frames;
+                self.flusher.issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
+            }
+        }
+    }
+    self.flusher.dispatch_tlb_flush();
+    num_unmapped
+}
+</code></pre></div><div><h3>Transcribed</h3><pre><code>pub fn unmap(&amp;mut self, len: usize) -&gt; usize {
+    assert_eq!(len % PAGE_SIZE, 0);
+    assert!(self.virt_addr() + len &lt;= self.pt_cursor.0.barrier_va.end);
+    let end_va = self.virt_addr() + len;
+    let mut num_unmapped: usize = 0;
+    loop {
+        let Some(frag) = (unsafe { self.pt_cursor.take_next(end_va - self.virt_addr()) })
+        else {
+            break;
+        };
+        match frag {
+            PageTableFrag::Mapped { va, item, .. } =&gt; {
+                let frame = item.frame;
+                num_unmapped += 1;
+                self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
+            }
+            PageTableFrag::StrayPageTable { pt, va, len, num_frames } =&gt; {
+                num_unmapped += num_frames;
+                self.flusher.issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
+            }
+        }
+    }
+    self.flusher.dispatch_tlb_flush();
+    num_unmapped
+}
+</code></pre></div></div><h2>Unified Diff</h2><div class="static-unified">--- original
++++ transcribed
+<span class="hunk">@@ -1,4 +1,6 @@</span>
+ pub fn unmap(&amp;mut self, len: usize) -&gt; usize {
+<span class="added">+    assert_eq!(len % PAGE_SIZE, 0);</span>
+<span class="added">+    assert!(self.virt_addr() + len &lt;= self.pt_cursor.0.barrier_va.end);</span>
+     let end_va = self.virt_addr() + len;
+     let mut num_unmapped: usize = 0;
+     loop {
+<span class="hunk">@@ -8,7 +10,7 @@</span>
+         };
+         match frag {
+             PageTableFrag::Mapped { va, item, .. } =&gt; {
+<span class="removed">-                let (frame, _) = item;</span>
+<span class="added">+                let frame = item.frame;</span>
+                 num_unmapped += 1;
+                 self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
+             }
+</div><h2>AST Changes</h2><ul class="static-change-list"><li><span class="static-change-kind">StatementAdded</span><span class="badge badge--warning">warning</span> <span class="static-change-span">trans 2–3</span><div>Added `assert_eq!(len % PAGE_SIZE, 0);`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 11–11 → trans 13–13</span><div>Changed `let (frame, _) = item;` to `let frame = item.frame;`</div></li></ul></main></body></html>

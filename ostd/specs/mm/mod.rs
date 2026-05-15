@@ -4,8 +4,8 @@ pub mod io;
 pub mod page_table;
 pub mod pod;
 pub mod tlb;
-pub mod virt_mem_newer;
-pub mod vm_space_embedding;
+pub mod virt_mem;
+pub mod embedding;
 
 use vstd::prelude::*;
 
@@ -16,7 +16,7 @@ use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{Guards, Mapping, PageTableOwner, PageTableView, INC_LEVELS};
 use crate::specs::mm::tlb::TlbModel;
-use crate::specs::mm::virt_mem_newer::FrameContents;
+use crate::specs::mm::virt_mem::FrameContents;
 
 verus! {
 

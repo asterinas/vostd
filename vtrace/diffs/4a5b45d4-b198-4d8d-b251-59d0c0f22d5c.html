@@ -1,0 +1,232 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>map — VTrace</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="../main.css"><link rel="icon" type="image/png" href="../favicon.png"><style>
+.static-html-export {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  min-height: 100vh;
+}
+.static-nav {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  align-items: baseline;
+}
+.static-nav__brand {
+  font-weight: var(--weight-semibold);
+  margin-right: var(--space-4);
+  font-size: var(--text-lg);
+  color: var(--color-primary);
+}
+.static-nav a { color: var(--color-text-2); text-decoration: none; }
+.static-nav a:hover { color: var(--color-text); }
+.static-main {
+  padding: var(--space-5);
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+}
+.static-main h1, .static-main h2, .static-main h3 { color: var(--color-text); }
+.static-main code, .static-main pre { font-family: var(--font-mono); }
+.static-file-section {
+  margin: var(--space-6) 0 var(--space-3);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+.static-file-section h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-2);
+}
+.static-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 90px 130px;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  align-items: baseline;
+}
+.static-diff-row + .static-diff-row { border-top: 1px solid var(--color-border); }
+.static-diff-row a { color: var(--color-text); text-decoration: none; }
+.static-diff-row a:hover { color: var(--color-primary); }
+.static-diff-row code { font-size: var(--text-sm); }
+.static-diff-meta {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 var(--space-4);
+}
+.static-diff-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.static-diff-pair pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}
+.static-diff-pair h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+}
+.static-unified {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  white-space: pre;
+  color: var(--color-text);
+}
+.static-unified .added   { background: oklch(from var(--color-success) l c h / 0.18); }
+.static-unified .removed { background: oklch(from var(--color-error)   l c h / 0.20); }
+.static-unified .hunk    { color: var(--color-primary); }
+.static-change-list { list-style: none; padding: 0; }
+.static-change-list li {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+}
+.static-change-list li:first-child { border-top: none; }
+.static-change-kind { font-weight: var(--weight-semibold); margin-right: var(--space-2); }
+.static-change-span { color: var(--color-muted); font-size: var(--text-sm); }
+.static-info-table { border-collapse: collapse; width: 100%; }
+.static-info-table th, .static-info-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.static-info-table th {
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+.static-toc { columns: 2; gap: var(--space-8); margin: var(--space-3) 0; }
+.static-toc a { color: var(--color-text-2); text-decoration: none; }
+.static-toc a:hover { color: var(--color-text); }
+.static-file-counts {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.static-file-counts__untriaged {
+  font-weight: var(--weight-semibold);
+  color: var(--color-warning, var(--color-text));
+}
+.static-file-counts__untriaged--zero {
+  font-weight: var(--weight-normal);
+  color: var(--color-muted);
+}
+.static-file-counts__sep,
+.static-file-counts__total { color: var(--color-text-2); }
+.static-file-counts__total-label { color: var(--color-muted); }
+</style></head><body class="static-html-export"><nav class="static-nav"><a class="static-nav__brand" href="../index.html">VTrace</a><a href="../index.html">Diffs</a><a href="../equivalences.html">Equivalences</a><a href="../links.html">Links</a></nav><main class="static-main"><header><h1><code>map</code></h1><p class="static-diff-meta"><code>ostd::mm::page_table::cursor</code> · <span class="badge badge--error">error</span> <span class="badge badge--neutral">unreviewed</span> · <small>4a5b45d4-b198-4d8d-b251-59d0c0f22d5c</small></p><p><a href="../index.html">← Back to diffs</a></p></header><h2>Original ↔ Transcribed</h2><div class="static-diff-pair"><div><h3>Original</h3><pre><code>pub unsafe fn map(&amp;mut self, item: C::Item) -&gt; Result&lt;(), PageTableFrag&lt;C&gt;&gt; {
+    assert!(self.0.va &lt; self.0.barrier_va.end);
+    let (pa, level, prop) = C::item_into_raw(item);
+    assert!(level &lt;= C::HIGHEST_TRANSLATION_LEVEL);
+    let size = page_size::&lt;C&gt;(level);
+    assert_eq!(self.0.va % size, 0);
+    let end = self.0.va + size;
+    assert!(end &lt;= self.0.barrier_va.end);
+    let rcu_guard = self.0.rcu_guard;
+    while self.0.level != level {
+        if self.0.level &lt; level {
+            self.0.pop_level();
+            continue;
+        }
+        let mut cur_entry = self.0.cur_entry();
+        match cur_entry.to_ref() {
+            ChildRef::PageTable(pt) =&gt; {
+                let pt_guard = unsafe { pt.make_guard_unchecked(rcu_guard) };
+                self.0.push_level(pt_guard);
+            }
+            ChildRef::None =&gt; {
+                let child_guard = cur_entry.alloc_if_none(rcu_guard).unwrap();
+                self.0.push_level(child_guard);
+            }
+            ChildRef::Frame(_, _, _) =&gt; {
+                let split_child = cur_entry.split_if_mapped_huge(rcu_guard).unwrap();
+                self.0.push_level(split_child);
+            }
+        }
+    }
+    let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
+    self.0.move_forward();
+    if let Some(frag) = frag { Err(frag) } else { Ok(()) }
+}
+</code></pre></div><div><h3>Transcribed</h3><pre><code>pub fn map(&amp;mut self, item: C::Item) -&gt; Result&lt;(), PageTableFrag&lt;C&gt;&gt; {
+    assert!(self.0.va &lt; self.0.barrier_va.end);
+    let (pa, level, prop) = C::item_into_raw(item);
+    assert!(level &lt;= C::HIGHEST_TRANSLATION_LEVEL());
+    assert!(level &lt; self.0.guard_level);
+    if !C::TOP_LEVEL_CAN_UNMAP() {
+        assert!(level &lt; NR_LEVELS as u8);
+    }
+    let size = page_size(level);
+    assert_eq!(self.0.va % size, 0);
+    let end = self.0.va + size;
+    assert!(end &lt;= self.0.barrier_va.end);
+    let rcu_guard = self.0.rcu_guard;
+    self.map_loop(level, rcu_guard);
+    let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
+    self.0.move_forward();
+    if let Some(frag) = frag { Err(frag) } else { Ok(()) }
+}
+</code></pre></div></div><h2>Unified Diff</h2><div class="static-unified">--- original
++++ transcribed
+<span class="hunk">@@ -1,33 +1,17 @@</span>
+<span class="removed">-pub unsafe fn map(&amp;mut self, item: C::Item) -&gt; Result&lt;(), PageTableFrag&lt;C&gt;&gt; {</span>
+<span class="added">+pub fn map(&amp;mut self, item: C::Item) -&gt; Result&lt;(), PageTableFrag&lt;C&gt;&gt; {</span>
+     assert!(self.0.va &lt; self.0.barrier_va.end);
+     let (pa, level, prop) = C::item_into_raw(item);
+<span class="removed">-    assert!(level &lt;= C::HIGHEST_TRANSLATION_LEVEL);</span>
+<span class="removed">-    let size = page_size::&lt;C&gt;(level);</span>
+<span class="added">+    assert!(level &lt;= C::HIGHEST_TRANSLATION_LEVEL());</span>
+<span class="added">+    assert!(level &lt; self.0.guard_level);</span>
+<span class="added">+    if !C::TOP_LEVEL_CAN_UNMAP() {</span>
+<span class="added">+        assert!(level &lt; NR_LEVELS as u8);</span>
+<span class="added">+    }</span>
+<span class="added">+    let size = page_size(level);</span>
+     assert_eq!(self.0.va % size, 0);
+     let end = self.0.va + size;
+     assert!(end &lt;= self.0.barrier_va.end);
+     let rcu_guard = self.0.rcu_guard;
+<span class="removed">-    while self.0.level != level {</span>
+<span class="removed">-        if self.0.level &lt; level {</span>
+<span class="removed">-            self.0.pop_level();</span>
+<span class="removed">-            continue;</span>
+<span class="removed">-        }</span>
+<span class="removed">-        let mut cur_entry = self.0.cur_entry();</span>
+<span class="removed">-        match cur_entry.to_ref() {</span>
+<span class="removed">-            ChildRef::PageTable(pt) =&gt; {</span>
+<span class="removed">-                let pt_guard = unsafe { pt.make_guard_unchecked(rcu_guard) };</span>
+<span class="removed">-                self.0.push_level(pt_guard);</span>
+<span class="removed">-            }</span>
+<span class="removed">-            ChildRef::None =&gt; {</span>
+<span class="removed">-                let child_guard = cur_entry.alloc_if_none(rcu_guard).unwrap();</span>
+<span class="removed">-                self.0.push_level(child_guard);</span>
+<span class="removed">-            }</span>
+<span class="removed">-            ChildRef::Frame(_, _, _) =&gt; {</span>
+<span class="removed">-                let split_child = cur_entry.split_if_mapped_huge(rcu_guard).unwrap();</span>
+<span class="removed">-                self.0.push_level(split_child);</span>
+<span class="removed">-            }</span>
+<span class="removed">-        }</span>
+<span class="removed">-    }</span>
+<span class="added">+    self.map_loop(level, rcu_guard);</span>
+     let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
+     self.0.move_forward();
+     if let Some(frag) = frag { Err(frag) } else { Ok(()) }
+</div><h2>AST Changes</h2><ul class="static-change-list"><li><span class="static-change-kind">SignatureChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 1–1 → trans 1–1</span><div>Function signature changed</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--info">info</span> <span class="static-change-span">orig 4–5 → trans 4–9</span><div>Changed `assert!(level &lt;= C::HIGHEST_TRANSLATION_LEVEL);` to `assert!(level &lt;= C::HIGHEST_TRANSLATION_LEVEL());`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 10–30 → trans 14–14</span><div>Changed `while self.0.level != level {` to `self.map_loop(level, rcu_guard);`</div></li></ul></main></body></html>

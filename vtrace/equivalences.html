@@ -1,0 +1,136 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Equivalences — VTrace</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="main.css"><link rel="icon" type="image/png" href="favicon.png"><style>
+.static-html-export {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  min-height: 100vh;
+}
+.static-nav {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  align-items: baseline;
+}
+.static-nav__brand {
+  font-weight: var(--weight-semibold);
+  margin-right: var(--space-4);
+  font-size: var(--text-lg);
+  color: var(--color-primary);
+}
+.static-nav a { color: var(--color-text-2); text-decoration: none; }
+.static-nav a:hover { color: var(--color-text); }
+.static-main {
+  padding: var(--space-5);
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+}
+.static-main h1, .static-main h2, .static-main h3 { color: var(--color-text); }
+.static-main code, .static-main pre { font-family: var(--font-mono); }
+.static-file-section {
+  margin: var(--space-6) 0 var(--space-3);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+.static-file-section h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-2);
+}
+.static-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 90px 130px;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  align-items: baseline;
+}
+.static-diff-row + .static-diff-row { border-top: 1px solid var(--color-border); }
+.static-diff-row a { color: var(--color-text); text-decoration: none; }
+.static-diff-row a:hover { color: var(--color-primary); }
+.static-diff-row code { font-size: var(--text-sm); }
+.static-diff-meta {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 var(--space-4);
+}
+.static-diff-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.static-diff-pair pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}
+.static-diff-pair h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+}
+.static-unified {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  white-space: pre;
+  color: var(--color-text);
+}
+.static-unified .added   { background: oklch(from var(--color-success) l c h / 0.18); }
+.static-unified .removed { background: oklch(from var(--color-error)   l c h / 0.20); }
+.static-unified .hunk    { color: var(--color-primary); }
+.static-change-list { list-style: none; padding: 0; }
+.static-change-list li {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+}
+.static-change-list li:first-child { border-top: none; }
+.static-change-kind { font-weight: var(--weight-semibold); margin-right: var(--space-2); }
+.static-change-span { color: var(--color-muted); font-size: var(--text-sm); }
+.static-info-table { border-collapse: collapse; width: 100%; }
+.static-info-table th, .static-info-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.static-info-table th {
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+.static-toc { columns: 2; gap: var(--space-8); margin: var(--space-3) 0; }
+.static-toc a { color: var(--color-text-2); text-decoration: none; }
+.static-toc a:hover { color: var(--color-text); }
+.static-file-counts {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.static-file-counts__untriaged {
+  font-weight: var(--weight-semibold);
+  color: var(--color-warning, var(--color-text));
+}
+.static-file-counts__untriaged--zero {
+  font-weight: var(--weight-normal);
+  color: var(--color-muted);
+}
+.static-file-counts__sep,
+.static-file-counts__total { color: var(--color-text-2); }
+.static-file-counts__total-label { color: var(--color-muted); }
+</style></head><body class="static-html-export"><nav class="static-nav"><a class="static-nav__brand" href="index.html">VTrace</a><a href="index.html">Diffs</a><a href="equivalences.html">Equivalences</a><a href="links.html">Links</a></nav><main class="static-main"><h1>Equivalences</h1><p class="static-diff-meta">Normalization rules applied before AST comparison. Configured in <code>vtrace.toml</code>.</p><table class="static-info-table"><thead><tr><th>Name</th><th>Kind</th><th>Status</th><th>Description</th></tr></thead><tbody><tr><td>Compound Assignment</td><td>builtin</td><td>enabled</td><td><code>x = x + y ↔ x += y</code></td></tr><tr><td>Tail Binding Elimination</td><td>builtin</td><td>enabled</td><td><code>let x = expr; x ↔ expr</code></td></tr><tr><td>Turbofish Elision</td><td>builtin</td><td>enabled</td><td><code>A::&lt;_&gt;() ↔ A::()</code></td></tr><tr><td>Atomic Ordering Stripping</td><td>builtin</td><td>enabled</td><td><code>Strips Acquire/Release/SeqCst ordering args</code></td></tr><tr><td>Debug Assertion Stripping</td><td>builtin</td><td>enabled</td><td><code>Removes debug_assert!/debug_assert_eq!/debug_assert_ne! (keeps assert!)</code></td></tr><tr><td>Alpha-Rename Bindings</td><td>builtin</td><td>enabled</td><td><code>Renames local let bindings to positional names</code></td></tr><tr><td>Doc Comment Stripping</td><td>builtin</td><td>enabled</td><td><code>Strips /// doc comments before comparison</code></td></tr><tr><td>update_field</td><td>macro_rule</td><td>enabled</td><td><code>update_field!(ptr =&gt; field &lt;- val; ...) ↔ ptr.field = val</code></td></tr><tr><td>borrow_field</td><td>macro_rule</td><td>enabled</td><td><code>borrow_field!(ptr =&gt; field, ...) ↔ ptr.field</code></td></tr><tr><td>&amp;mut $T / PPtr&lt;$T&gt;</td><td>type_equivalence</td><td>enabled</td><td><code>&amp;mut $T ↔ PPtr&lt;$T&gt;</code></td></tr><tr><td>*const u8 / VirtPtr</td><td>type_equivalence</td><td>enabled</td><td><code>*const u8 ↔ VirtPtr</code></td></tr><tr><td>if $cond { return $ret; } $rest... / if $cond { $ret } else { $rest... }</td><td>expr_equivalence</td><td>enabled</td><td><code>if $cond { return $ret; } $rest... ↔ if $cond { $ret } else { $rest... }</code></td></tr></tbody></table></main></body></html>

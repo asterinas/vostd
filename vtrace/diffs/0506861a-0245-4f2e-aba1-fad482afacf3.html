@@ -1,0 +1,260 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>from_unused — VTrace</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="../main.css"><link rel="icon" type="image/png" href="../favicon.png"><style>
+.static-html-export {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  min-height: 100vh;
+}
+.static-nav {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  align-items: baseline;
+}
+.static-nav__brand {
+  font-weight: var(--weight-semibold);
+  margin-right: var(--space-4);
+  font-size: var(--text-lg);
+  color: var(--color-primary);
+}
+.static-nav a { color: var(--color-text-2); text-decoration: none; }
+.static-nav a:hover { color: var(--color-text); }
+.static-main {
+  padding: var(--space-5);
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+}
+.static-main h1, .static-main h2, .static-main h3 { color: var(--color-text); }
+.static-main code, .static-main pre { font-family: var(--font-mono); }
+.static-file-section {
+  margin: var(--space-6) 0 var(--space-3);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+.static-file-section h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-2);
+}
+.static-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 90px 130px;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  align-items: baseline;
+}
+.static-diff-row + .static-diff-row { border-top: 1px solid var(--color-border); }
+.static-diff-row a { color: var(--color-text); text-decoration: none; }
+.static-diff-row a:hover { color: var(--color-primary); }
+.static-diff-row code { font-size: var(--text-sm); }
+.static-diff-meta {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 var(--space-4);
+}
+.static-diff-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.static-diff-pair pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}
+.static-diff-pair h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+}
+.static-unified {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  white-space: pre;
+  color: var(--color-text);
+}
+.static-unified .added   { background: oklch(from var(--color-success) l c h / 0.18); }
+.static-unified .removed { background: oklch(from var(--color-error)   l c h / 0.20); }
+.static-unified .hunk    { color: var(--color-primary); }
+.static-change-list { list-style: none; padding: 0; }
+.static-change-list li {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+}
+.static-change-list li:first-child { border-top: none; }
+.static-change-kind { font-weight: var(--weight-semibold); margin-right: var(--space-2); }
+.static-change-span { color: var(--color-muted); font-size: var(--text-sm); }
+.static-info-table { border-collapse: collapse; width: 100%; }
+.static-info-table th, .static-info-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.static-info-table th {
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+.static-toc { columns: 2; gap: var(--space-8); margin: var(--space-3) 0; }
+.static-toc a { color: var(--color-text-2); text-decoration: none; }
+.static-toc a:hover { color: var(--color-text); }
+.static-file-counts {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.static-file-counts__untriaged {
+  font-weight: var(--weight-semibold);
+  color: var(--color-warning, var(--color-text));
+}
+.static-file-counts__untriaged--zero {
+  font-weight: var(--weight-normal);
+  color: var(--color-muted);
+}
+.static-file-counts__sep,
+.static-file-counts__total { color: var(--color-text-2); }
+.static-file-counts__total-label { color: var(--color-muted); }
+</style></head><body class="static-html-export"><nav class="static-nav"><a class="static-nav__brand" href="../index.html">VTrace</a><a href="../index.html">Diffs</a><a href="../equivalences.html">Equivalences</a><a href="../links.html">Links</a></nav><main class="static-main"><header><h1><code>from_unused</code></h1><p class="static-diff-meta"><code>ostd::mm::frame::segment</code> · <span class="badge badge--error">error</span> <span class="badge badge--neutral">identical</span> · <small>0506861a-0245-4f2e-aba1-fad482afacf3</small></p><p><a href="../index.html">← Back to diffs</a></p></header><h2>Original ↔ Transcribed</h2><div class="static-diff-pair"><div><h3>Original</h3><pre><code>pub fn from_unused&lt;F&gt;(
+    range: Range&lt;Paddr&gt;,
+    mut metadata_fn: F,
+) -&gt; Result&lt;Self, GetFrameError&gt;
+where
+    F: FnMut(Paddr) -&gt; M,
+{
+    if range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0 {
+        return Err(GetFrameError::NotAligned);
+    }
+    if range.end &gt; super::max_paddr() {
+        return Err(GetFrameError::OutOfBound);
+    }
+    assert!(range.start &lt; range.end);
+    let mut segment = Self {
+        range: range.start..range.start,
+        _marker: core::marker::PhantomData,
+    };
+    for paddr in range.step_by(PAGE_SIZE) {
+        let frame = Frame::&lt;M&gt;::from_unused(paddr, metadata_fn(paddr))?;
+        let _ = ManuallyDrop::new(frame);
+        segment.range.end = paddr + PAGE_SIZE;
+    }
+    Ok(segment)
+}
+</code></pre></div><div><h3>Transcribed</h3><pre><code>pub fn from_unused(
+    range: Range&lt;Paddr&gt;,
+    metadata_fn: impl Fn(Paddr) -&gt; (Paddr, M),
+) -&gt; Result&lt;Self, GetFrameError&gt; {
+    if range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0 {
+        return {
+            proof_with!(|= Tracked(owner));
+            Err(GetFrameError::NotAligned)
+        };
+    }
+    if range.end &gt; MAX_PADDR {
+        return {
+            proof_with!(|= Tracked(owner));
+            Err(GetFrameError::OutOfBound)
+        };
+    }
+    assert!(range.start &lt; range.end);
+    let mut segment = Self {
+        range: range.start..range.start,
+        _marker: core::marker::PhantomData,
+    };
+    let mut i = 0;
+    let addr_len = (range.end - range.start) / PAGE_SIZE;
+    while i &lt; addr_len {
+        let paddr_in = range.start + i * PAGE_SIZE;
+        let (paddr, meta) = metadata_fn(paddr_in);
+        let res = Frame::&lt;M&gt;::from_unused(paddr, meta);
+        let frame = match res {
+            Ok(f) =&gt; f,
+            Err(e) =&gt; {
+                return {
+                    proof_with!(|= Tracked(owner));
+                    Err(e)
+                };
+            }
+        };
+        let _ = ManuallyDrop::new(frame, Tracked(regions));
+        segment.range.end = paddr + PAGE_SIZE;
+        i += 1;
+    }
+    Ok(segment)
+}
+</code></pre></div></div><h2>Unified Diff</h2><div class="static-unified">--- original
++++ transcribed
+<span class="hunk">@@ -1,25 +1,42 @@</span>
+<span class="removed">-pub fn from_unused&lt;F&gt;(</span>
+<span class="added">+pub fn from_unused(</span>
+     range: Range&lt;Paddr&gt;,
+<span class="removed">-    mut metadata_fn: F,</span>
+<span class="removed">-) -&gt; Result&lt;Self, GetFrameError&gt;</span>
+<span class="removed">-where</span>
+<span class="removed">-    F: FnMut(Paddr) -&gt; M,</span>
+<span class="removed">-{</span>
+<span class="added">+    metadata_fn: impl Fn(Paddr) -&gt; (Paddr, M),</span>
+<span class="added">+) -&gt; Result&lt;Self, GetFrameError&gt; {</span>
+     if range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0 {
+<span class="removed">-        return Err(GetFrameError::NotAligned);</span>
+<span class="added">+        return {</span>
+<span class="added">+            proof_with!(|= Tracked(owner));</span>
+<span class="added">+            Err(GetFrameError::NotAligned)</span>
+<span class="added">+        };</span>
+     }
+<span class="removed">-    if range.end &gt; super::max_paddr() {</span>
+<span class="removed">-        return Err(GetFrameError::OutOfBound);</span>
+<span class="added">+    if range.end &gt; MAX_PADDR {</span>
+<span class="added">+        return {</span>
+<span class="added">+            proof_with!(|= Tracked(owner));</span>
+<span class="added">+            Err(GetFrameError::OutOfBound)</span>
+<span class="added">+        };</span>
+     }
+     assert!(range.start &lt; range.end);
+     let mut segment = Self {
+         range: range.start..range.start,
+         _marker: core::marker::PhantomData,
+     };
+<span class="removed">-    for paddr in range.step_by(PAGE_SIZE) {</span>
+<span class="removed">-        let frame = Frame::&lt;M&gt;::from_unused(paddr, metadata_fn(paddr))?;</span>
+<span class="removed">-        let _ = ManuallyDrop::new(frame);</span>
+<span class="added">+    let mut i = 0;</span>
+<span class="added">+    let addr_len = (range.end - range.start) / PAGE_SIZE;</span>
+<span class="added">+    while i &lt; addr_len {</span>
+<span class="added">+        let paddr_in = range.start + i * PAGE_SIZE;</span>
+<span class="added">+        let (paddr, meta) = metadata_fn(paddr_in);</span>
+<span class="added">+        let res = Frame::&lt;M&gt;::from_unused(paddr, meta);</span>
+<span class="added">+        let frame = match res {</span>
+<span class="added">+            Ok(f) =&gt; f,</span>
+<span class="added">+            Err(e) =&gt; {</span>
+<span class="added">+                return {</span>
+<span class="added">+                    proof_with!(|= Tracked(owner));</span>
+<span class="added">+                    Err(e)</span>
+<span class="added">+                };</span>
+<span class="added">+            }</span>
+<span class="added">+        };</span>
+<span class="added">+        let _ = ManuallyDrop::new(frame, Tracked(regions));</span>
+         segment.range.end = paddr + PAGE_SIZE;
+<span class="added">+        i += 1;</span>
+     }
+     Ok(segment)
+ }
+</div><h2>AST Changes</h2><ul class="static-change-list"><li><span class="static-change-kind">SignatureChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 1–1 → trans 1–1</span><div>Function signature changed</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 9–9 → trans 6–9</span><div>Changed `return Err(GetFrameError::NotAligned);` to `return {`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 11–12 → trans 11–15</span><div>Changed `if range.end &gt; super::max_paddr() {` to `if range.end &gt; MAX_PADDR {`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 19–21 → trans 22–37</span><div>Changed `for paddr in range.step_by(PAGE_SIZE) {` to `let mut i = 0;`</div></li><li><span class="static-change-kind">StatementAdded</span><span class="badge badge--warning">warning</span> <span class="static-change-span">trans 39–39</span><div>Added `i += 1;`</div></li></ul></main></body></html>

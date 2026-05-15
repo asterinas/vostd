@@ -14,7 +14,7 @@ use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::virt_mem_newer::MemView;
+use crate::specs::mm::virt_mem::MemView;
 
 verus! {
 

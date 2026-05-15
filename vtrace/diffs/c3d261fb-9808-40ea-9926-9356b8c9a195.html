@@ -1,0 +1,376 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>try_traverse_and_lock_subtree_root — VTrace</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap"><link rel="stylesheet" href="../main.css"><link rel="icon" type="image/png" href="../favicon.png"><style>
+.static-html-export {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin: 0;
+  min-height: 100vh;
+}
+.static-nav {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  align-items: baseline;
+}
+.static-nav__brand {
+  font-weight: var(--weight-semibold);
+  margin-right: var(--space-4);
+  font-size: var(--text-lg);
+  color: var(--color-primary);
+}
+.static-nav a { color: var(--color-text-2); text-decoration: none; }
+.static-nav a:hover { color: var(--color-text); }
+.static-main {
+  padding: var(--space-5);
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+}
+.static-main h1, .static-main h2, .static-main h3 { color: var(--color-text); }
+.static-main code, .static-main pre { font-family: var(--font-mono); }
+.static-file-section {
+  margin: var(--space-6) 0 var(--space-3);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+.static-file-section h2 {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-2);
+}
+.static-diff-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 90px 130px;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+  align-items: baseline;
+}
+.static-diff-row + .static-diff-row { border-top: 1px solid var(--color-border); }
+.static-diff-row a { color: var(--color-text); text-decoration: none; }
+.static-diff-row a:hover { color: var(--color-primary); }
+.static-diff-row code { font-size: var(--text-sm); }
+.static-diff-meta {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 var(--space-4);
+}
+.static-diff-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+.static-diff-pair pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+}
+.static-diff-pair h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+}
+.static-unified {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  white-space: pre;
+  color: var(--color-text);
+}
+.static-unified .added   { background: oklch(from var(--color-success) l c h / 0.18); }
+.static-unified .removed { background: oklch(from var(--color-error)   l c h / 0.20); }
+.static-unified .hunk    { color: var(--color-primary); }
+.static-change-list { list-style: none; padding: 0; }
+.static-change-list li {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+}
+.static-change-list li:first-child { border-top: none; }
+.static-change-kind { font-weight: var(--weight-semibold); margin-right: var(--space-2); }
+.static-change-span { color: var(--color-muted); font-size: var(--text-sm); }
+.static-info-table { border-collapse: collapse; width: 100%; }
+.static-info-table th, .static-info-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+.static-info-table th {
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-sm);
+}
+.static-toc { columns: 2; gap: var(--space-8); margin: var(--space-3) 0; }
+.static-toc a { color: var(--color-text-2); text-decoration: none; }
+.static-toc a:hover { color: var(--color-text); }
+.static-file-counts {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-normal);
+  margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.static-file-counts__untriaged {
+  font-weight: var(--weight-semibold);
+  color: var(--color-warning, var(--color-text));
+}
+.static-file-counts__untriaged--zero {
+  font-weight: var(--weight-normal);
+  color: var(--color-muted);
+}
+.static-file-counts__sep,
+.static-file-counts__total { color: var(--color-text-2); }
+.static-file-counts__total-label { color: var(--color-muted); }
+</style></head><body class="static-html-export"><nav class="static-nav"><a class="static-nav__brand" href="../index.html">VTrace</a><a href="../index.html">Diffs</a><a href="../equivalences.html">Equivalences</a><a href="../links.html">Links</a></nav><main class="static-main"><header><h1><code>try_traverse_and_lock_subtree_root</code></h1><p class="static-diff-meta"><code>ostd::mm::page_table::cursor::locking</code> · <span class="badge badge--error">error</span> <span class="badge badge--neutral">unreviewed</span> · <small>c3d261fb-9808-40ea-9926-9356b8c9a195</small></p><p><a href="../index.html">← Back to diffs</a></p></header><h2>Original ↔ Transcribed</h2><div class="static-diff-pair"><div><h3>Original</h3><pre><code>fn try_traverse_and_lock_subtree_root&lt;'rcu, C: PageTableConfig&gt;(
+    pt: &amp;PageTable&lt;C&gt;,
+    guard: &amp;'rcu dyn InAtomicMode,
+    va: &amp;Range&lt;Vaddr&gt;,
+) -&gt; Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; {
+    let mut cur_node_guard: Option&lt;PageTableGuard&lt;C&gt;&gt; = None;
+    let mut cur_pt_addr = pt.root.start_paddr();
+    for cur_level in (1..=C::NR_LEVELS).rev() {
+        let start_idx = pte_index::&lt;C&gt;(va.start, cur_level);
+        let level_too_high = {
+            let end_idx = pte_index::&lt;C&gt;(va.end - 1, cur_level);
+            cur_level &gt; 1 &amp;&amp; start_idx == end_idx
+        };
+        if !level_too_high {
+            break;
+        }
+        let cur_pt_ptr = paddr_to_vaddr(cur_pt_addr) as *mut C::E;
+        let cur_pte = unsafe { load_pte(cur_pt_ptr.add(start_idx), Ordering::Acquire) };
+        if cur_pte.is_present() {
+            if cur_pte.is_last(cur_level) {
+                break;
+            }
+            cur_pt_addr = cur_pte.paddr();
+            cur_node_guard = None;
+            continue;
+        }
+        let mut pt_guard = cur_node_guard
+            .take()
+            .unwrap_or_else(|| {
+                let node_ref = unsafe {
+                    PageTableNodeRef::&lt;'rcu, C&gt;::borrow_paddr(cur_pt_addr)
+                };
+                node_ref.lock(guard)
+            });
+        if *pt_guard.stray_mut() {
+            return None;
+        }
+        let mut cur_entry = pt_guard.entry(start_idx);
+        if cur_entry.is_none() {
+            let allocated_guard = cur_entry.alloc_if_none(guard).unwrap();
+            cur_pt_addr = allocated_guard.start_paddr();
+            cur_node_guard = Some(allocated_guard);
+        } else if cur_entry.is_node() {
+            let ChildRef::PageTable(pt) = cur_entry.to_ref() else {
+                unreachable!();
+            };
+            cur_pt_addr = pt.start_paddr();
+            cur_node_guard = None;
+        } else {
+            break;
+        }
+    }
+    let mut pt_guard = cur_node_guard
+        .unwrap_or_else(|| {
+            let node_ref = unsafe {
+                PageTableNodeRef::&lt;'rcu, C&gt;::borrow_paddr(cur_pt_addr)
+            };
+            node_ref.lock(guard)
+        });
+    if *pt_guard.stray_mut() {
+        return None;
+    }
+    Some(pt_guard)
+}
+</code></pre></div><div><h3>Transcribed</h3><pre><code>fn try_traverse_and_lock_subtree_root&lt;'rcu, C: PageTableConfig, A: InAtomicMode&gt;(
+    pt: &amp;PageTable&lt;C&gt;,
+    guard: &amp;'rcu A,
+    va: &amp;Range&lt;Vaddr&gt;,
+) -&gt; Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; {
+    let mut cur_node_guard: Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; = None;
+    let mut cur_pt_addr = pt.root.start_paddr();
+    let end = C::NR_LEVELS();
+    for cur_level in 0..end {
+        let start_idx = pte_index::&lt;C&gt;(va.start, end - cur_level + 1);
+        let level_too_high = {
+            let end_idx = pte_index::&lt;C&gt;(va.end - 1, end - cur_level + 1);
+            (end - cur_level + 1) &gt; 1 &amp;&amp; start_idx == end_idx
+        };
+        if !level_too_high {
+            break;
+        }
+        let cur_pt_ptr = ArrayPtr::&lt;
+            C::E,
+            NR_ENTRIES,
+        &gt;::from_addr(paddr_to_vaddr(cur_pt_addr));
+        let cur_pte = load_pte(cur_pt_ptr.add(start_idx), Ordering::Acquire);
+        if cur_pte.is_present() {
+            if cur_pte.is_last(end - cur_level + 1) {
+                break;
+            }
+            cur_pt_addr = cur_pte.paddr();
+            cur_node_guard = None;
+            continue;
+        }
+        let mut pt_guard = if let Some(pt_guard) = cur_node_guard.take() {
+            pt_guard
+        } else {
+            let node_ref = unsafe {
+                PageTableNodeRef::&lt;'rcu, C&gt;::borrow_paddr(cur_pt_addr)
+            };
+            node_ref.lock(guard)
+        };
+        let stray = pt_guard.stray_mut();
+        let is_stray = *(stray.borrow(Tracked(&amp;node_owner.meta_own.stray)));
+        if is_stray {
+            return None;
+        }
+        let mut cur_entry = pt_guard.entry(start_idx);
+        if cur_entry.is_none() {
+            let allocated_guard = cur_entry.alloc_if_none(guard).unwrap();
+            cur_pt_addr = allocated_guard.start_paddr();
+            cur_node_guard = Some(allocated_guard);
+        } else if cur_entry.is_node() {
+            let opt_pt = match cur_entry.to_ref() {
+                ChildRef::PageTable(pt) =&gt; Some(pt),
+                _ =&gt; None,
+            };
+            let pt = opt_pt.unwrap();
+            cur_pt_addr = pt.start_paddr();
+            cur_node_guard = None;
+        } else {
+            break;
+        }
+    }
+    let mut pt_guard = if let Some(pt_guard) = cur_node_guard {
+        pt_guard
+    } else {
+        let node_ref = unsafe { PageTableNodeRef::&lt;'rcu, C&gt;::borrow_paddr(cur_pt_addr) };
+        node_ref.lock(guard)
+    };
+    let stray = pt_guard.stray_mut();
+    let is_stray = *(stray.borrow(Tracked(&amp;node_owner.meta_own.stray)));
+    if is_stray {
+        return None;
+    }
+    Some(pt_guard)
+}
+</code></pre></div></div><h2>Unified Diff</h2><div class="static-unified">--- original
++++ transcribed
+<span class="hunk">@@ -1,38 +1,44 @@</span>
+<span class="removed">-fn try_traverse_and_lock_subtree_root&lt;'rcu, C: PageTableConfig&gt;(</span>
+<span class="added">+fn try_traverse_and_lock_subtree_root&lt;'rcu, C: PageTableConfig, A: InAtomicMode&gt;(</span>
+     pt: &amp;PageTable&lt;C&gt;,
+<span class="removed">-    guard: &amp;'rcu dyn InAtomicMode,</span>
+<span class="added">+    guard: &amp;'rcu A,</span>
+     va: &amp;Range&lt;Vaddr&gt;,
+ ) -&gt; Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; {
+<span class="removed">-    let mut cur_node_guard: Option&lt;PageTableGuard&lt;C&gt;&gt; = None;</span>
+<span class="added">+    let mut cur_node_guard: Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; = None;</span>
+     let mut cur_pt_addr = pt.root.start_paddr();
+<span class="removed">-    for cur_level in (1..=C::NR_LEVELS).rev() {</span>
+<span class="removed">-        let start_idx = pte_index::&lt;C&gt;(va.start, cur_level);</span>
+<span class="added">+    let end = C::NR_LEVELS();</span>
+<span class="added">+    for cur_level in 0..end {</span>
+<span class="added">+        let start_idx = pte_index::&lt;C&gt;(va.start, end - cur_level + 1);</span>
+         let level_too_high = {
+<span class="removed">-            let end_idx = pte_index::&lt;C&gt;(va.end - 1, cur_level);</span>
+<span class="removed">-            cur_level &gt; 1 &amp;&amp; start_idx == end_idx</span>
+<span class="added">+            let end_idx = pte_index::&lt;C&gt;(va.end - 1, end - cur_level + 1);</span>
+<span class="added">+            (end - cur_level + 1) &gt; 1 &amp;&amp; start_idx == end_idx</span>
+         };
+         if !level_too_high {
+             break;
+         }
+<span class="removed">-        let cur_pt_ptr = paddr_to_vaddr(cur_pt_addr) as *mut C::E;</span>
+<span class="removed">-        let cur_pte = unsafe { load_pte(cur_pt_ptr.add(start_idx), Ordering::Acquire) };</span>
+<span class="added">+        let cur_pt_ptr = ArrayPtr::&lt;</span>
+<span class="added">+            C::E,</span>
+<span class="added">+            NR_ENTRIES,</span>
+<span class="added">+        &gt;::from_addr(paddr_to_vaddr(cur_pt_addr));</span>
+<span class="added">+        let cur_pte = load_pte(cur_pt_ptr.add(start_idx), Ordering::Acquire);</span>
+         if cur_pte.is_present() {
+<span class="removed">-            if cur_pte.is_last(cur_level) {</span>
+<span class="added">+            if cur_pte.is_last(end - cur_level + 1) {</span>
+                 break;
+             }
+             cur_pt_addr = cur_pte.paddr();
+             cur_node_guard = None;
+             continue;
+         }
+<span class="removed">-        let mut pt_guard = cur_node_guard</span>
+<span class="removed">-            .take()</span>
+<span class="removed">-            .unwrap_or_else(|| {</span>
+<span class="removed">-                let node_ref = unsafe {</span>
+<span class="removed">-                    PageTableNodeRef::&lt;'rcu, C&gt;::borrow_paddr(cur_pt_addr)</span>
+<span class="removed">-                };</span>
+<span class="removed">-                node_ref.lock(guard)</span>
+<span class="removed">-            });</span>
+<span class="removed">-        if *pt_guard.stray_mut() {</span>
+<span class="added">+        let mut pt_guard = if let Some(pt_guard) = cur_node_guard.take() {</span>
+<span class="added">+            pt_guard</span>
+<span class="added">+        } else {</span>
+<span class="added">+            let node_ref = unsafe {</span>
+<span class="added">+                PageTableNodeRef::&lt;'rcu, C&gt;::borrow_paddr(cur_pt_addr)</span>
+<span class="added">+            };</span>
+<span class="added">+            node_ref.lock(guard)</span>
+<span class="added">+        };</span>
+<span class="added">+        let stray = pt_guard.stray_mut();</span>
+<span class="added">+        let is_stray = *(stray.borrow(Tracked(&amp;node_owner.meta_own.stray)));</span>
+<span class="added">+        if is_stray {</span>
+             return None;
+         }
+         let mut cur_entry = pt_guard.entry(start_idx);
+<span class="hunk">@@ -41,23 +47,26 @@</span>
+             cur_pt_addr = allocated_guard.start_paddr();
+             cur_node_guard = Some(allocated_guard);
+         } else if cur_entry.is_node() {
+<span class="removed">-            let ChildRef::PageTable(pt) = cur_entry.to_ref() else {</span>
+<span class="removed">-                unreachable!();</span>
+<span class="added">+            let opt_pt = match cur_entry.to_ref() {</span>
+<span class="added">+                ChildRef::PageTable(pt) =&gt; Some(pt),</span>
+<span class="added">+                _ =&gt; None,</span>
+             };
+<span class="added">+            let pt = opt_pt.unwrap();</span>
+             cur_pt_addr = pt.start_paddr();
+             cur_node_guard = None;
+         } else {
+             break;
+         }
+     }
+<span class="removed">-    let mut pt_guard = cur_node_guard</span>
+<span class="removed">-        .unwrap_or_else(|| {</span>
+<span class="removed">-            let node_ref = unsafe {</span>
+<span class="removed">-                PageTableNodeRef::&lt;'rcu, C&gt;::borrow_paddr(cur_pt_addr)</span>
+<span class="removed">-            };</span>
+<span class="removed">-            node_ref.lock(guard)</span>
+<span class="removed">-        });</span>
+<span class="removed">-    if *pt_guard.stray_mut() {</span>
+<span class="added">+    let mut pt_guard = if let Some(pt_guard) = cur_node_guard {</span>
+<span class="added">+        pt_guard</span>
+<span class="added">+    } else {</span>
+<span class="added">+        let node_ref = unsafe { PageTableNodeRef::&lt;'rcu, C&gt;::borrow_paddr(cur_pt_addr) };</span>
+<span class="added">+        node_ref.lock(guard)</span>
+<span class="added">+    };</span>
+<span class="added">+    let stray = pt_guard.stray_mut();</span>
+<span class="added">+    let is_stray = *(stray.borrow(Tracked(&amp;node_owner.meta_own.stray)));</span>
+<span class="added">+    if is_stray {</span>
+         return None;
+     }
+     Some(pt_guard)
+</div><h2>AST Changes</h2><ul class="static-change-list"><li><span class="static-change-kind">SignatureChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 1–1 → trans 1–1</span><div>Function signature changed</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 6–6 → trans 6–6</span><div>Changed `let mut cur_node_guard: Option&lt;PageTableGuard&lt;C&gt;&gt; = None;` to `let mut cur_node_guard: Option&lt;PageTableGuard&lt;'rcu, C&gt;&gt; = None;`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 8–9 → trans 8–10</span><div>Changed `for cur_level in (1..=C::NR_LEVELS).rev() {` to `let end = C::NR_LEVELS();`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 11–12 → trans 12–13</span><div>Changed `let end_idx = pte_index::&lt;C&gt;(va.end - 1, cur_level);` to `let end_idx = pte_index::&lt;C&gt;(va.end - 1, end - cur_level + 1);`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 17–18 → trans 18–22</span><div>Changed `let cur_pt_ptr = paddr_to_vaddr(cur_pt_addr) as *mut C::E;` to `let cur_pt_ptr = ArrayPtr::&lt;`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 20–20 → trans 24–24</span><div>Changed `if cur_pte.is_last(cur_level) {` to `if cur_pte.is_last(end - cur_level + 1) {`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 27–35 → trans 31–41</span><div>Changed `let mut pt_guard = cur_node_guard` to `let mut pt_guard = if let Some(pt_guard) = cur_node_guard.take() {`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 44–45 → trans 50–52</span><div>Changed `let ChildRef::PageTable(pt) = cur_entry.to_ref() else {` to `let opt_pt = match cur_entry.to_ref() {`</div></li><li><span class="static-change-kind">StatementAdded</span><span class="badge badge--warning">warning</span> <span class="static-change-span">trans 54–54</span><div>Added `let pt = opt_pt.unwrap();`</div></li><li><span class="static-change-kind">StatementChanged</span><span class="badge badge--error">error</span> <span class="static-change-span">orig 53–60 → trans 61–69</span><div>Changed `let mut pt_guard = cur_node_guard` to `let mut pt_guard = if let Some(pt_guard) = cur_node_guard {`</div></li></ul></main></body></html>
