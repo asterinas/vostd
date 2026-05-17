@@ -188,8 +188,14 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
 /// Mirror of [`crate::mm::vm_space::Cursor::jump`] /
 /// [`crate::mm::vm_space::CursorMut::jump`].
 ///
-/// Exec requires `invariants(owner, regions, guards)` AND
-/// `owner.in_locked_range()`.
+/// Exec requires `invariants(owner, regions, guards)` (which includes
+/// `!owner.popped_too_high`). It does **not** require
+/// `owner.in_locked_range()`: the exec `requires` was relaxed. A drifted
+/// cursor that cannot be repositioned within the target node aborts the
+/// program (a sound `panic_diverge`, mirroring the real `pop_level`
+/// `unwrap` panic), so an out-of-range cursor is a safety non-issue —
+/// `in_locked_range` now only governs the success postcondition, and
+/// this axiom soundly models the returning path.
 pub axiom fn cursor_jump_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
@@ -203,7 +209,6 @@ pub axiom fn cursor_jump_embedded<'rcu>(
         old(owner).nodes_locked(*old(guards)),
         old(owner).metaregion_sound(*old(regions)),
         !old(owner).popped_too_high,
-        old(owner).in_locked_range(),
     ensures
         final(owner).inv(),
         final(regions).inv(),
@@ -387,9 +392,10 @@ pub(super) proof fn drop_cursor_step<'rcu>(tracked _entry: CursorEntry<'rcu>) {
 /// (and thread `regions` / `guards`): query, find_next, jump,
 /// protect_next.
 ///
-/// `Jump` additionally requires `owner.in_locked_range()` per its exec
-/// precondition. `Query` does NOT — exec `query` handles an
-/// out-of-range cursor with a graceful `Err`.
+/// None of these require `owner.in_locked_range()`. Exec `query`
+/// handles an out-of-range cursor with a graceful `Err`; exec `jump`'s
+/// `in_locked_range` precondition was relaxed (a drifted cursor that
+/// cannot be repositioned aborts via a sound `panic_diverge`).
 pub(super) proof fn cursor_method_step<'rcu>(
     tracked entry: &mut CursorEntry<'rcu>,
     tracked regions: &mut MetaRegionOwners,
@@ -399,10 +405,6 @@ pub(super) proof fn cursor_method_step<'rcu>(
         old(entry).inv(),
         old(regions).inv(),
         old(entry).owner.metaregion_sound(*old(regions)),
-        match method {
-            CursorMethod::Jump(_) => old(entry).owner.in_locked_range(),
-            _ => true,
-        },
     ensures
         final(entry).vm_space == old(entry).vm_space,
         final(entry).kind == old(entry).kind,

@@ -315,11 +315,11 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         // by a graceful `Err` (exec `requires` relaxed accordingly).
         Op::Query { c } => s.cursors.dom().contains(c),
         Op::FindNext { c, len: _ } => s.cursors.dom().contains(c),
-        // exec `Cursor::jump` / `CursorMut::jump` requires
-        // `owner.in_locked_range()`.
-        Op::Jump { c, va: _ } =>
-            s.cursors.dom().contains(c)
-            && s.cursors[c].owner.in_locked_range(),
+        // exec `Cursor::jump` / `CursorMut::jump` does NOT require
+        // `owner.in_locked_range()` — the exec `requires` was relaxed; a
+        // drifted cursor that cannot be repositioned aborts via a sound
+        // `panic_diverge` (mirroring the real `pop_level` `unwrap` panic).
+        Op::Jump { c, va: _ } => s.cursors.dom().contains(c),
         Op::VirtAddr { c } => s.cursors.dom().contains(c),
         // exec `CursorMut::map` requires `owner.in_locked_range()` (and
         // `tlb_model.inv()` from `VmStore::inv`, plus MODEL GAP `item_wf`).
@@ -717,10 +717,6 @@ proof fn step_cursor_method<'rcu>(
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
-        match method {
-            cursor::CursorMethod::Jump(_) => old(s).cursors[c].owner.in_locked_range(),
-            _ => true,
-        },
     ensures final(s).inv()
 {
     let tracked mut entry = s.extract_cursor(c);
