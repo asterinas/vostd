@@ -314,6 +314,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
             node: None,
             frame: None,
             locked: None,
+            borrowed: None,
             absent: true,
         }
     }

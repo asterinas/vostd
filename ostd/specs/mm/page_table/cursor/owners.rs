@@ -564,7 +564,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.in_locked_range() || self.above_locked_range()
         // The cursor is allowed to pop out of the guard range only when it reaches the end of the locked range.
         // This allows the user to reason solely about the current vaddr and not keep track of the cursor's level.
-        &&& self.popped_too_high ==> self.level >= self.guard_level && self.in_locked_range()
+        &&& self.popped_too_high ==> self.level >= self.guard_level
         &&& !self.popped_too_high ==> self.level <= self.guard_level || self.above_locked_range()
         &&& self.continuations[self.level - 1].all_some()
         &&& forall|i: int| self.level <= i < NR_LEVELS ==> {
@@ -787,9 +787,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     // map_children_implies moved to tree_lemmas.rs.
 
     pub open spec fn nodes_locked(self, guards: Guards<'rcu, C>) -> bool {
+        // Only the subtree rooted at `guard_level` and its descendants down to
+        // `level` are actually locked (see `locking.rs`). The ghost
+        // `continuations` chain extends above `guard_level` to the root, but
+        // those ancestor nodes are NOT lock-held, so the upper bound is
+        // `guard_level`, not `NR_LEVELS`.
         forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==> {
+            self.level - 1 <= i < self.guard_level ==> {
                 self.continuations[i].node_locked(guards)
             }
     }
@@ -1640,6 +1645,93 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         aligned.reflect_prop(nat_align_down(self.prefix.to_vaddr() as nat, ps) as Vaddr);
     }
 
+    /// At `guard_level == NR_LEVELS`, the level-`(NR_LEVELS+1)` node
+    /// (size `page_size(NR_LEVELS+1) == 2^48`, the whole positional
+    /// space) covers the entire locked range: with `prefix.offset == 0`
+    /// and every `prefix.index[i] == 0` (`i < guard_level == NR_LEVELS`),
+    /// `prefix.to_vaddr() == leading_bits * 2^48`, and
+    /// `locked_range == [lb*2^48, lb*2^48 + page_size(NR_LEVELS))`, which
+    /// sits inside `[lb*2^48, (lb+1)*2^48)`. Since `self.va` shares
+    /// `leading_bits` with `prefix` (`inv`), `nat_align_down(self.va,
+    /// 2^48) == lb*2^48 == locked_range().start`. Hence `jump`'s in-node
+    /// check provably succeeds at the top — *no `in_locked_range`
+    /// needed*, so a drifted cursor never reaches `pop_level` at
+    /// `level == NR_LEVELS`.
+    pub proof fn in_node_holds_at_top(self, self_va: Vaddr, va: Vaddr, node_size: usize)
+        requires
+            self.inv(),
+            self.va.reflect(self_va),
+            self.guard_level == NR_LEVELS,
+            node_size == page_size_spec((NR_LEVELS + 1) as PagingLevel),
+            self.locked_range().start <= va < self.locked_range().end,
+        ensures
+            nat_align_down(self_va as nat, node_size as nat) <= va as nat,
+            (va as nat) - nat_align_down(self_va as nat, node_size as nat)
+                < node_size as nat,
+    {
+        let gl = self.guard_level;
+        let lb = self.prefix.leading_bits;
+        let big = 0x1_0000_0000_0000int;  // 2^48 == page_size(NR_LEVELS+1)
+        let ps_nr = page_size(NR_LEVELS as PagingLevel) as int;
+
+        crate::specs::mm::page_table::cursor::page_size_lemmas
+            ::lemma_page_size_spec_values();
+        // node_size == page_size_spec(5) == 2^48; page_size(NR_LEVELS) == 2^39 < 2^48.
+
+        // ---- prefix.to_vaddr() == lb * 2^48 -------------------------------
+        // offset == 0 and every positional index is 0 (i < gl == NR_LEVELS).
+        assert forall|i: int| 0 <= i < NR_LEVELS implies self.prefix.index[i] == 0 by {
+            assert(self.prefix.index.contains_key(i));
+        };
+        self.prefix.to_vaddr_indices_drop_zero_range(0, NR_LEVELS as int);
+        assert(self.prefix.to_vaddr_indices(NR_LEVELS as int) == 0);
+        assert(self.prefix.to_vaddr() as int == lb * big);
+
+        // ---- locked_range().start == prefix.to_vaddr(); end == start + ps_nr
+        self.prefix_aligned_to_guard_level();
+        self.prefix_plus_ps_no_overflow();
+        self.prefix.aligned_align_up_advances(gl as int);
+        // align_down(gl) == prefix (already aligned: offset 0, indices 0).
+        self.prefix.align_down_shape(gl as int);
+        self.prefix.align_down_leading_bits(gl as int);
+        let aligned = self.prefix.align_down(gl as int);
+        assert forall|i: int| 0 <= i < NR_LEVELS implies
+            aligned.index[i] == self.prefix.index[i] by {
+            assert(self.prefix.index.contains_key(i));
+            assert(aligned.index.contains_key(i));
+        };
+        assert(aligned.index =~= self.prefix.index);
+        assert(aligned == self.prefix);
+        assert(self.locked_range().start as int == lb * big);
+        assert(self.locked_range().end as int == lb * big + ps_nr);
+
+        // ---- nat_align_down(self_va, 2^48) == lb * 2^48 -------------------
+        self.va.reflect_prop(self_va);          // self.va.to_vaddr() == self_va
+        self.va.to_vaddr_bounded();             // 0 <= P_v < 2^48
+        assert(self.va.leading_bits == lb);     // inv: va.lb == prefix.lb
+        let pv = (self.va.offset + self.va.to_vaddr_indices(0)) as int;
+        assert(0 <= pv < big);
+        assert(self_va as int == pv + lb * big);
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, big as nat);
+        assert(0 <= lb < 0x1_0000int);
+        assert(nat_align_down(self_va as nat, big as nat) == (lb * big) as nat) by (nonlinear_arith)
+            requires
+                self_va as nat == (pv + lb * big) as nat,
+                0 <= pv < big,
+                0 <= lb < 0x1_0000int,
+                big == 0x1_0000_0000_0000int,
+                nat_align_down(self_va as nat, big as nat) <= self_va as nat,
+                nat_align_down(self_va as nat, big as nat) % (big as nat) == 0,
+                (self_va as nat) - nat_align_down(self_va as nat, big as nat) < big as nat,
+                forall|n: nat| n <= self_va as nat && #[trigger] (n % (big as nat)) == 0
+                    ==> n <= nat_align_down(self_va as nat, big as nat);
+
+        // ---- combine -----------------------------------------------------
+        // node_start == lb*2^48 == locked_range().start <= va,
+        // va < end == node_start + ps_nr <= node_start + 2^48 == node_start + node_size.
+        assert(ps_nr < big);
+    }
+
     /// `prefix.to_vaddr() + page_size(guard_level) <= usize::MAX`.
     ///
     /// Follows from the cursor invariant: prefix's lower indices and offset are zero,
@@ -2325,8 +2417,23 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
     open spec fn inv(self) -> bool {
-        &&& 1 <= self.level <= NR_LEVELS
-        &&& self.level <= self.guard_level <= NR_LEVELS
+        // `level <= NR_LEVELS + 1` (not `<= NR_LEVELS`), mirroring the
+        // `guard_level + 1` slack below: it admits the transient "popped
+        // past the root" state without constraining anything (the
+        // weakening is zero-blast-radius). A drifted lock-from-root
+        // cursor that ascends past the root would, on the next
+        // `pop_level`, read `self.path[NR_LEVELS]` — out of bounds, a
+        // real Rust panic — which `jump` models as a sound divergence.
+        &&& 1 <= self.level <= NR_LEVELS + 1
+        // `level <= guard_level + 1` (not `<= guard_level`) admits the
+        // transient "popped one above the guard" state: `pop_level` at
+        // `level == guard_level` legitimately yields `level == guard_level
+        // + 1` (real Rust does not panic there — the guard-node lock slot
+        // is still `Some`). The next `pop_level` on such a cursor reads a
+        // `None` path slot (`level > guard_level`, by `wf`) and diverges,
+        // so the state never propagates further.
+        &&& self.level <= self.guard_level + 1
+        &&& self.guard_level <= NR_LEVELS
 //        &&& forall|i: int| 0 <= i < self.guard_level - self.level ==> self.path[i] is Some
         &&& self.va >= self.barrier_va.start
         &&& self.va % PAGE_SIZE == 0
@@ -2341,25 +2448,47 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
         &&& self.level == owner.level
         &&& owner.guard_level == self.guard_level
 //        &&& owner.index() == self.va % page_size(self.level)
+        // `path` holds lock guards only for levels in `[self.level,
+        // self.guard_level]` (see the `Cursor.path` doc comment and
+        // `locking.rs`: `lock_range` only locks the subtree rooted at
+        // `guard_level`). The ghost `continuations` chain still extends above
+        // `guard_level` up to the root, but those ancestor nodes are NOT
+        // locked, so their `path` slots are `None` and are not tied to a
+        // continuation guard.
         &&& self.level <= 4 ==> {
-            &&& self.path[3] is Some
-            &&& owner.continuations.contains_key(3)
-            &&& owner.continuations[3].guard == self.path[3].unwrap()
+            &&& 4 <= self.guard_level ==> {
+                &&& self.path[3] is Some
+                &&& owner.continuations.contains_key(3)
+                &&& owner.continuations[3].guard == self.path[3].unwrap()
+            }
+            &&& 4 > self.guard_level ==> self.path[3] is None
         }
         &&& self.level <= 3 ==> {
-            &&& self.path[2] is Some
-            &&& owner.continuations.contains_key(2)
-            &&& owner.continuations[2].guard == self.path[2].unwrap()
+            &&& 3 <= self.guard_level ==> {
+                &&& self.path[2] is Some
+                &&& owner.continuations.contains_key(2)
+                &&& owner.continuations[2].guard == self.path[2].unwrap()
+            }
+            &&& 3 > self.guard_level ==> self.path[2] is None
         }
         &&& self.level <= 2 ==> {
-            &&& self.path[1] is Some
-            &&& owner.continuations.contains_key(1)
-            &&& owner.continuations[1].guard == self.path[1].unwrap()
+            &&& 2 <= self.guard_level ==> {
+                &&& self.path[1] is Some
+                &&& owner.continuations.contains_key(1)
+                &&& owner.continuations[1].guard == self.path[1].unwrap()
+            }
+            &&& 2 > self.guard_level ==> self.path[1] is None
         }
         &&& self.level == 1 ==> {
-            &&& self.path[0] is Some
-            &&& owner.continuations.contains_key(0)
-            &&& owner.continuations[0].guard == self.path[0].unwrap()
+            // `1 <= self.guard_level` always holds (`inv` gives
+            // `guard_level >= 1`), so this clause is equivalent to the
+            // original level-1 case; the `None` branch is vacuous.
+            &&& 1 <= self.guard_level ==> {
+                &&& self.path[0] is Some
+                &&& owner.continuations.contains_key(0)
+                &&& owner.continuations[0].guard == self.path[0].unwrap()
+            }
+            &&& 1 > self.guard_level ==> self.path[0] is None
         }
         &&& self.barrier_va.start == owner.locked_range().start
         &&& self.barrier_va.end == owner.locked_range().end

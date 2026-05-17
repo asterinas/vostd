@@ -84,10 +84,6 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr(), None)
     }
 
-    proof fn drop_tracked(self, tracked s: &mut Self::State)
-    {
-        s.guards.tracked_insert(self.inner.inner@.ptr.addr(), None);
-    }
 }
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {

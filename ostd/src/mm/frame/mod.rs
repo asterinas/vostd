@@ -172,18 +172,31 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let so0 = s0.slot_owners[idx];
+        let so1 = s1.slot_owners[idx];
         &&& s1.inv()
         // `raw_count` is left untouched; only `ref_count` (and possibly
         // storage/vtable for the last-ref teardown) changes.
-        &&& s1.slot_owners[idx].raw_count == s0.slot_owners[idx].raw_count
+        &&& so1.raw_count == so0.raw_count
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
             i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
-    }
-
-    proof fn drop_tracked(self, tracked s: &mut Self::State) {
+        // The slot's identity / page-table linkage is preserved by a
+        // drop (it only adjusts refcount and, on teardown, storage).
+        &&& so1.self_addr == so0.self_addr
+        &&& so1.usage == so0.usage
+        &&& so1.paths_in_pt == so0.paths_in_pt
+        // Refcount transition. `drop_requires` guarantees the old value
+        // is in `[1, REF_COUNT_MAX]`, so these cases are exhaustive:
+        //  - last reference (== 1): the slot is torn down to UNUSED.
+        //  - otherwise (> 1): the refcount is decremented by one.
+        &&& so0.inner_perms.ref_count.value() == 1
+            ==> so1.inner_perms.ref_count.value() == REF_COUNT_UNUSED
+        &&& so0.inner_perms.ref_count.value() > 1
+            ==> so1.inner_perms.ref_count.value()
+                == (so0.inner_perms.ref_count.value() - 1) as u64
     }
 }
 
@@ -803,10 +816,23 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
         let tracked perm = regions.slots.tracked_remove(idx);
         let slot = self.ptr.borrow(Tracked(&perm));
 
+        // Snapshot of the slot's pre-drop state for the strengthened
+        // `drop_ensures` (refcount transition + identity preservation).
+        let ghost so0 = slot_own;
+
         proof {
             assert(slot.ref_count.id() == slot_own.inner_perms.ref_count.id());
         }
         let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.inner_perms.ref_count), 1);
+        // `fetch_sub` returns the pre-decrement value and only mutates
+        // the `ref_count` permission — the other `MetaSlotOwner` fields
+        // are untouched here.
+        proof {
+            assert(last_ref_cnt == so0.inner_perms.ref_count.value());
+            assert(slot_own.self_addr == so0.self_addr);
+            assert(slot_own.usage == so0.usage);
+            assert(slot_own.paths_in_pt == so0.paths_in_pt);
+        }
 
         if last_ref_cnt == 1 {
             // A fence is needed here with the same reasons stated in the implementation of
@@ -825,6 +851,16 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
             #[verus_spec(with Tracked(&mut slot_own))]
             slot.drop_last_in_place();
 
+            proof {
+                // last-ref teardown: slot is UNUSED, identity preserved
+                // (drop_last_in_place ensures self_addr/usage/paths_in_pt).
+                assert(so0.inner_perms.ref_count.value() == 1);
+                assert(slot_own.inner_perms.ref_count.value() == REF_COUNT_UNUSED);
+                assert(slot_own.self_addr == so0.self_addr);
+                assert(slot_own.usage == so0.usage);
+                assert(slot_own.paths_in_pt == so0.paths_in_pt);
+            }
+
             // TODO: return page to allocator
             // allocator::get_global_frame_allocator().dealloc(paddr, PAGE_SIZE);
         } else {
@@ -838,6 +874,13 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
                 assert(slot_own.inner_perms.ref_count.value() == last_ref_cnt - 1);
                 assert(slot_own.inner_perms.vtable_ptr.is_init());
                 assert(slot_own.inv());
+                // Decrement branch: refcount = old - 1, identity preserved.
+                assert(so0.inner_perms.ref_count.value() > 1);
+                assert(slot_own.inner_perms.ref_count.value()
+                    == (so0.inner_perms.ref_count.value() - 1) as u64);
+                assert(slot_own.self_addr == so0.self_addr);
+                assert(slot_own.usage == so0.usage);
+                assert(slot_own.paths_in_pt == so0.paths_in_pt);
             }
         }
 
@@ -848,6 +891,21 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
             assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i] == old_regions.slot_owners[i] by {}
             assert(regions.slots =~= old_regions.slots);
             assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());
+
+            // Strengthened `drop_ensures`: `so0` is exactly the
+            // pre-drop owner at `idx`, and `regions.slot_owners[idx]`
+            // is now `slot_own` (the post-drop owner).
+            assert(so0 == old_regions.slot_owners[idx]);
+            assert(regions.slot_owners[idx] == slot_own);
+            assert(regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr);
+            assert(regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage);
+            assert(regions.slot_owners[idx].paths_in_pt
+                == old_regions.slot_owners[idx].paths_in_pt);
+            assert(old_regions.slot_owners[idx].inner_perms.ref_count.value() == 1
+                ==> regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED);
+            assert(old_regions.slot_owners[idx].inner_perms.ref_count.value() > 1
+                ==> regions.slot_owners[idx].inner_perms.ref_count.value()
+                    == (old_regions.slot_owners[idx].inner_perms.ref_count.value() - 1) as u64);
 
             // Re-establish `regions.inv()` for the post-state. The
             // tracked_insert at `idx` only touches that one entry; for other

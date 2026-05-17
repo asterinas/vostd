@@ -103,26 +103,27 @@ macro_rules! impl_align_ext {
             #[verus_verify]
             impl AlignExt for $uint_type {
                 /// ## Preconditions
-                /// - `align` is a power of two.
-                /// - `align >= 2`.
                 /// - `self + (align - 1)` does not overflow.
                 /// ## Postconditions
-                /// - The function will not panic.
-                /// - The return value is the smallest number that is greater than or equal to `self` and is a multiple of `align`.
+                /// - `align` is a power of two `>= 2` (panic-enforced; the
+                ///   function panics on invalid `align`, so a returning call
+                ///   guarantees validity).
+                /// - The return value is the smallest number that is greater
+                ///   than or equal to `self` and is a multiple of `align`.
                 #[inline]
                 #[verus_spec(ret =>
                     requires
-                        exists |e:nat| pow2(e) == align,
-                        align >= 2,
                         self + (align - 1) <= $uint_type::MAX,
                     ensures
+                        align >= 2,
+                        exists |e:nat| pow2(e) == align,
                         ret >= self,
                         ret % align == 0,
                         ret == nat_align_up(self as nat, align as nat),
                         forall |n: nat| !(n>=self && #[trigger] (n % align as nat) == 0) || (ret <= n),
                 )]
                 fn align_up(self, align: Self) -> Self {
-                    //assert!(align.is_power_of_two() && align >= 2);
+                    vstd_extra::assert!(align.is_power_of_two() && align >= 2);
                     proof!{
                         let x_int = self as int + align as int - 1;
                         let x = x_int as Self;
@@ -170,24 +171,22 @@ macro_rules! impl_align_ext {
 
                 #[inline]
                 #[verus_spec(ret =>
-                    requires
-                        exists |e:nat| pow2(e) == align,
-                        align >= 2,
                     ensures
+                        align >= 2,
+                        exists |e:nat| pow2(e) == align,
                         ret <= self,
                         ret % align == 0,
                         ret == nat_align_down(self as nat, align as nat),
                         forall |n: nat|  !(n<=self && #[trigger] (n % align as nat) == 0) || (ret >= n),
                 )]
 
-                /// ## Preconditions
-                /// - `align` is a power of two.
-                /// - `align >= 2`.
                 /// ## Postconditions
-                /// - The function will not panic.
+                /// - `align` is a power of two `>= 2` (panic-enforced; the
+                ///   function panics on invalid `align`, so a returning call
+                ///   guarantees validity).
                 /// - The return value is the greatest number that is smaller than or equal to `self` and is a multiple of `align`.
                 fn align_down(self, align: Self) -> Self {
-                    //assert!(align.is_power_of_two() && align >= 2);
+                    vstd_extra::assert!(align.is_power_of_two() && align >= 2);
                     proof!{
                         lemma_low_bits_mask_values();
                         let mask = (align - 1) as Self;

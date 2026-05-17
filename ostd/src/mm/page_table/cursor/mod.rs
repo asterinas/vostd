@@ -388,9 +388,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
+            // `in_locked_range` is NOT a precondition: an out-of-range
+            // cursor is handled by the early `Err` below. It is only
+            // *guaranteed to succeed* when the cursor was in range.
             old(owner).in_locked_range() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).query_some_condition(*final(owner)) ==>
@@ -408,6 +410,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.va.reflect_prop(self.va);
             }
             return Err(PageTableError::InvalidVaddr(self.va));
+        }
+        // Past the guard: `self.va < self.barrier_va.end`. With
+        // `Cursor::wf`'s `barrier_va.end == owner.locked_range().end`
+        // and `owner.va.reflect(self.va)`, the owner's VA is below the
+        // locked range end, so it is not `above_locked_range`; by
+        // `owner.inv()` (`in_locked_range || above_locked_range`) it is
+        // therefore `in_locked_range` — re-derived rather than assumed.
+        proof {
+            owner.va.reflect_prop(self.va);
         }
         let rcu_guard = self.rcu_guard;
 
@@ -1243,7 +1254,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
         ensures
             !old(self).jump_panic_condition(va),
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
@@ -1263,12 +1273,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
         loop
             invariant
-                self.invariants(*owner, *regions, *guards),
-                owner.in_locked_range(),
-                self.level <= self.guard_level,
+                owner.inv(),
+                self.inv(),
+                self.wf(*owner),
+                regions.inv(),
+                owner.children_not_locked(*guards),
+                owner.nodes_locked(*guards),
+                owner.metaregion_sound(*regions),
                 self.barrier_va.start <= va < self.barrier_va.end,
                 va % PAGE_SIZE == 0,
-            decreases self.guard_level - self.level,
+            decreases NR_LEVELS - self.level,
         {
             let node_size = page_size(self.level + 1);
             let node_start = self.va.align_down(node_size);
@@ -1281,8 +1295,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 }
             }
 
-            // If the address is within the current node, we can jump directly.
-            if node_start <= va && va - node_start < node_size {
+            if self.level <= self.guard_level && node_start <= va && va - node_start < node_size {
                 let ghost owner0 = *owner;
                 let ghost new_va = AbstractVaddr::from_vaddr(va);
                 let ghost old_va = self.va;
@@ -1305,75 +1318,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             }
 
             proof {
-                owner.in_locked_range_level_le_guard_level();
-                if owner.level < owner.guard_level {
-                    owner.jump_not_in_node_level_lt_guard_minus_one(self.level, va, node_start);
+                if self.level <= self.guard_level && self.level >= NR_LEVELS as PagingLevel {
+                    owner.in_node_holds_at_top(self.va, va, node_size);
                 }
-            }
-
-            // When level == guard_level, the VA target is within the guard node
-            // (barrier_va ⊂ locked_range ⊂ guard_node), so the if-check succeeds
-            // and we return Ok before reaching here. Thus level < guard_level.
-            proof {
-                if self.level == self.guard_level {
-                    let gl = self.guard_level as PagingLevel;
-                    let ns = node_size as nat;
-                    let ps_gl = page_size(gl) as nat;
-                    lemma_page_size_ge_page_size((gl + 1) as PagingLevel);
-                    lemma_page_size_ge_page_size(gl);
-                    lemma_nat_align_down_sound(self.va as nat, ns);
-                    lemma_nat_align_down_sound(owner.prefix.to_vaddr() as nat, ps_gl);
-                    owner.prefix.align_down_concrete(gl as int);
-                    owner.prefix.align_down(gl as int).reflect_prop(
-                        nat_align_down(owner.prefix.to_vaddr() as nat, ps_gl) as Vaddr);
-                    lemma_page_size_divides(gl, (gl + 1) as PagingLevel);
-                    owner.in_locked_range_guard_index_eq_prefix();
-                    lemma_nat_align_down_sound(owner.prefix.to_vaddr() as nat, ns);
-                    lemma_nat_align_down_monotone(owner.prefix.to_vaddr() as nat, ps_gl, ns);
-
-                    let pv = owner.prefix.to_vaddr() as nat;
-                    let ad_ns = nat_align_down(pv, ns);
-                    lemma_nat_align_down_within_block(pv, ps_gl, ns);
-                    let ad_gl = nat_align_down(pv, ps_gl);
-                    let au_gl = ad_gl + ps_gl;
-                    assert(au_gl <= ad_gl + ps_gl);
-                    assert(self.va as nat >= ad_gl);
-                    assert(va < self.barrier_va.end);
-                    assert(self.barrier_va.end == owner.locked_range().end);
-                    assert(self.va < self.barrier_va.end);
-
-                    owner.prefix_aligned_to_guard_level();
-                    owner.prefix_plus_ps_no_overflow();
-                    owner.prefix.aligned_align_up_advances(gl as int);
-                    AbstractVaddr::to_vaddr_from_vaddr_roundtrip(owner.prefix.align_up(gl as int));
-                    owner.prefix.align_up(gl as int).reflect_prop(au_gl as Vaddr);
-                    assert(self.barrier_va.end == au_gl as usize);
-                    assert(ad_ns <= self.va as nat) by(nonlinear_arith)
-                        requires ad_gl >= ad_ns, self.va as nat >= ad_gl;
-                    assert((self.va as nat) < ad_ns + ns) by(nonlinear_arith)
-                        requires (self.va as nat) < au_gl, au_gl <= ad_gl + ps_gl,
-                                 ad_gl + ps_gl <= ad_ns + ns;
-                    lemma_nat_align_down_sound(self.va as nat, ns);
-
-                    let r_va = self.va as nat - ad_ns;
-                    assert(0 <= r_va && r_va < ns);
-                    assert(self.va as nat == (ad_ns / ns) * ns + r_va) by {
-                        lemma_nat_align_down_sound(pv, ns);
-                        assert(ad_ns % ns == 0);
-                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad_ns as int, ns as int);
-                        vstd::arithmetic::mul::lemma_mul_is_commutative(ad_ns as int / ns as int, ns as int);
-                    };
-                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse(
-                        self.va as int, ns as int, (ad_ns / ns) as int, r_va as int);
-                    assert(nat_align_down(self.va as nat, ns) == ad_ns);
-                    assert(node_start <= va);
-
-                    owner.prefix.align_up(gl as int).reflect_prop(au_gl as Vaddr);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_monotone(
-                        gl, (gl + 1) as PagingLevel);
-                    assert(va - node_start < node_size);
-                    assert(false);
-                }
+                assert(self.level > self.guard_level
+                    || self.level < NR_LEVELS as PagingLevel);
             }
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pop_level();
@@ -1566,16 +1515,34 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     fn pop_level(&mut self)
         requires
-            old(self).level < old(self).guard_level,
             old(self).inv(),
             old(owner).inv(),
             old(regions).inv(),
             old(self).wf(*old(owner)),
-            old(owner).in_locked_range(),
+            // [STEP 3] in_locked_range dropped from pop_level
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
             old(owner).metaregion_sound(*old(regions)),
+            // Sound, faithful precondition. `pop_level` diverges (real
+            // `unwrap` panic) exactly when the path slot is `None`, i.e.
+            // `level > guard_level`. When it instead proceeds (slot
+            // `Some`, `level <= guard_level`) it needs `level < NR_LEVELS`
+            // for the ascent. The only excluded state is therefore
+            // `level == guard_level == NR_LEVELS` (a popped-from-root
+            // cursor): callers reach `pop_level` either above the guard
+            // (diverges) or strictly below `NR_LEVELS`.
+            old(self).level > old(self).guard_level || old(self).level < NR_LEVELS,
         ensures
+            // Negation of the panic condition. `pop_level` diverges iff
+            // the slot is `None` iff (`wf`) `level > guard_level`; so if
+            // it *returns*, `level <= guard_level` held. Callers (e.g.
+            // `jump`) discharge their loop obligations by contradiction
+            // from this fact. Pop behavior is otherwise unchanged: at
+            // `level == guard_level` it pops normally to `guard_level + 1`
+            // (the real `unwrap` does not panic there); the abort happens
+            // one ascent later, at `level == guard_level + 1`, where the
+            // slot is genuinely `None`.
+            old(self).level <= old(self).guard_level,
             final(self).inv(),
             final(self).wf(*final(owner)),
             final(regions).inv(),
@@ -1583,19 +1550,30 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).children_not_locked(*final(guards)),
             final(owner).nodes_locked(*final(guards)),
             final(owner).metaregion_sound(*final(regions)),
+            final(self).level == old(self).level + 1,
             final(self).guard_level == old(self).guard_level,
             final(self).barrier_va == old(self).barrier_va,
             *final(owner) == old(owner).pop_level_owner_spec().0,
-            final(owner).in_locked_range(),
+            final(owner).va == old(owner).va,
+            final(owner).prefix == old(owner).prefix,
+            final(owner).guard_level == old(owner).guard_level,
+            old(owner).in_locked_range() ==> final(owner).in_locked_range(),
             *final(regions) == *old(regions),
     {
+        // Faithful model of Rust's real `Option::unwrap`. The path slot
+        // is `None` exactly when `level > guard_level` (`wf`), and there
+        // `unwrap_or_panic` diverges — precisely where the real `unwrap`
+        // panics. At `level == guard_level` the slot is the guard node's
+        // own lock (`Some`): no panic, the pop proceeds normally. On the
+        // returning path the slot was `Some`, hence `level <=
+        // guard_level`, discharging the postcondition.
+        let taken = self.path[self.level as usize - 1].take().unwrap_or_panic();
         proof {
             let ghost child_cont = owner.continuations[owner.level - 1];
+            assert(old(self).path[old(self).level as int - 1] is Some);
             assert(child_cont.all_some());
             assert(child_cont.inv());
-            assert(self.path[self.level as usize - 1] is Some);
-            assert(self.path[self.level as usize - 1].unwrap()
-                == owner.continuations[owner.level - 1].guard);
+            assert(taken == owner.continuations[owner.level - 1].guard);
             assert(guards.lock_held(
                 owner.continuations[owner.level - 1].guard.inner.inner@.ptr.addr(),
             ));
@@ -1606,7 +1584,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
 
-        let taken = self.path[self.level as usize - 1].take().unwrap();
         let _ = ManuallyDrop::new(taken, Tracked(guards));
 
         proof {
@@ -1962,7 +1939,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     pub fn jump(&mut self, va: Vaddr) -> (res: Result<(), PageTableError>)
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
         ensures
             !old(self).0.jump_panic_condition(va),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -2014,7 +1990,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
+            // `in_locked_range` not required — delegates to the relaxed
+            // `Cursor::query`, which handles out-of-range with `Err`.
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).in_locked_range() ==> res is Ok,
@@ -2497,7 +2474,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
             old(self).item_wf(item, entry_owner),
             Self::item_slot_in_regions(item, *old(regions)),
         ensures
@@ -2565,12 +2541,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let size = page_size(level);
         assert_eq!(self.0.va % size, 0);
 
-        // `self.0.va + size <= usize::MAX` from the cursor invariant: since
-        // `owner.in_locked_range()` and `1 <= level <= guard_level`, there is
-        // enough slack in `locked_range().end == prefix + page_size(guard_level)`
-        // to absorb another `page_size(level)`.
         proof {
             owner.va.reflect_prop(self.0.va);
+            assert(owner.in_locked_range());
             owner.va_plus_page_size_no_overflow(level);
         }
         let end = self.0.va + size;
@@ -2698,18 +2671,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
         }
 
-        // replace_cur_entry handles both node and non-node old entries:
-        // - node old: uses neq_old_from_path_disjoint
-        // - non-node old: uses metaregion_sound_preserved
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
 
         let ghost owner2 = *owner;
         let ghost regions_after_replace = *regions;
-        // Capture owner2's va-alignment from the original map() precondition.
-        // Chain: owner0.va.to_vaddr() == old(self).0.va, owner0.va == owner1.va (map_loop)
-        //        == owner2.va (replace_cur_entry), so owner2.va.to_vaddr() == old(self).0.va,
-        //        which was asserted size-aligned.
+
         proof {
             owner0.va.reflect_prop(old(self).0.va);
             assert(owner0.va == owner1.va);
@@ -2767,13 +2734,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             by {
                 assert(regions_after_new_child.slot_owners =~= regions_before_new_child.slot_owners);
             };
-            // Slots monotonicity derivation. Chain:
-            //   old → regions_before_new_child (via map_loop's monotonic-slots ensures)
-            //   regions_before_new_child → regions_after_new_child (new_child only mutates
-            //     slot_owners[pa_idx2].paths_in_pt; slots untouched)
-            //   regions_after_new_child → regions_after_replace (via replace_cur_entry's
-            //     monotonic-slots ensures)
-            //   regions_after_replace → regions (move_forward doesn't touch regions)
+
             assert(regions_before_new_child.slots =~= regions_after_new_child.slots);
             assert(forall |k: usize| #![trigger regions_after_replace.slots.contains_key(k)]
                 regions_after_new_child.slots.contains_key(k)
@@ -3706,7 +3667,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     //   - so cont.guard.addr != locked_addr,
                     //   - dfs preserves locks for addresses != locked_addr.
                     assert forall|i: int|
-                        owner.level - 1 <= i < NR_LEVELS implies
+                        owner.level - 1 <= i < owner.guard_level implies
                         #[trigger] owner.continuations[i].node_locked(*guards) by {
                         let cont = owner.continuations[i];
                         let cont_addr = cont.guard.inner.inner@.ptr.addr();

@@ -21,13 +21,6 @@ pub trait TrackDrop {
     spec fn drop_requires(self, s: Self::State) -> bool;
 
     spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool;
-
-    proof fn drop_tracked(self, tracked s: &mut Self::State)
-        requires
-            self.drop_requires(*old(s)),
-        ensures
-            self.drop_ensures(*old(s), *final(s)),
-    ;
 }
 
 pub trait Drop: TrackDrop {

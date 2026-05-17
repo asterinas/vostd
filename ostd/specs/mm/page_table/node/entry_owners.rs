@@ -36,6 +36,16 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     pub node: Option<NodeOwner<C>>,
     pub frame: Option<FrameEntryOwner>,
     pub locked: Option<Ghost<Seq<FrameView<C>>>>,
+    /// Translation-only / borrowed-sub-tree variant.
+    ///
+    /// Present when the slot's PTE references a sub-tree owned by *another*
+    /// page-table configuration (e.g. a user PT's kernel-half slot
+    /// pointing at a kernel-owned sub-table). The ghost `Set<Mapping>`
+    /// records the mappings reachable through that sub-tree so the
+    /// embedding can reason about what the borrowed translation provides
+    /// without descending into a sub-tree it does not own. Mutually
+    /// exclusive with `node`, `frame`, and `locked`.
+    pub borrowed: Option<Ghost<Set<Mapping>>>,
     pub absent: bool,
     pub in_scope: bool,
     pub path: TreePath<NR_ENTRIES>,
@@ -59,11 +69,16 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.absent
     }
 
+    pub open spec fn is_borrowed(self) -> bool {
+        self.borrowed is Some
+    }
+
     pub open spec fn new_absent_spec(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> Self {
         EntryOwner {
             node: None,
             frame: None,
             locked: None,
+            borrowed: None,
             absent: true,
             in_scope: true,
             path,
@@ -81,6 +96,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 is_tracked,
             }),
             locked: None,
+            borrowed: None,
             absent: false,
             in_scope: true,
             path,
@@ -93,12 +109,39 @@ impl<C: PageTableConfig> EntryOwner<C> {
             node: Some(node),
             frame: None,
             locked: None,
+            borrowed: None,
             absent: false,
             in_scope: true,
             path,
             parent_level: (node.level + 1) as PagingLevel,
         }
     }
+
+    /// Constructor spec for a translation-only / borrowed entry. See
+    /// [`EntryOwner`]'s `borrowed` field for semantics.
+    pub open spec fn new_borrowed_spec(
+        path: TreePath<NR_ENTRIES>,
+        parent_level: PagingLevel,
+        mappings: Set<Mapping>,
+    ) -> Self {
+        EntryOwner {
+            node: None,
+            frame: None,
+            locked: None,
+            borrowed: Some(Ghost(mappings)),
+            absent: false,
+            in_scope: true,
+            path,
+            parent_level,
+        }
+    }
+
+    pub axiom fn new_borrowed(
+        path: TreePath<NR_ENTRIES>,
+        parent_level: PagingLevel,
+        mappings: Set<Mapping>,
+    ) -> tracked Self
+        returns Self::new_borrowed_spec(path, parent_level, mappings);
 
     pub axiom fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> tracked Self
         returns Self::new_absent_spec(path, parent_level);
@@ -203,6 +246,21 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.frame.unwrap().mapped_pa == pte.paddr()
             &&& self.frame.unwrap().prop == pte.prop()
         }
+    }
+
+    /// PTE-shape constraint for a borrowed / translation-only entry. The
+    /// PTE must be a node-PTE (present and non-leaf at `parent_level`),
+    /// since the borrowed sub-table is accessed only via the MMU walk.
+    /// Unlike [`match_pte`], we do *not* pin the PTE's target paddr to
+    /// any owned `NodeOwner` — the sub-table is owned by a different
+    /// page-table configuration and the embedding doesn't track its
+    /// address here.
+    pub open spec fn borrowed_match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
+        &&& self.is_borrowed()
+        &&& pte.paddr() % PAGE_SIZE == 0
+        &&& pte.paddr() < MAX_PADDR
+        &&& pte.is_present()
+        &&& !pte.is_last(parent_level)
     }
 
     /// When owner is absent and pte is the absent PTE with valid paddr, match_pte holds.
@@ -786,6 +844,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& self.node is Some ==> {
             &&& self.frame is None
             &&& self.locked is None
+            &&& self.borrowed is None
             &&& self.node.unwrap().inv()
             &&& !self.absent
             &&& self.parent_level == self.node.unwrap().level + 1
@@ -793,6 +852,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& self.frame is Some ==> {
             &&& self.node is None
             &&& self.locked is None
+            &&& self.borrowed is None
             &&& !self.absent
             // Architectural constraint: frames only exist at PT levels that the
             // ISA actually supports as leaves (4K, 2M, 1G on x86). `parent_level
@@ -808,6 +868,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& self.locked is Some ==> {
             &&& self.frame is None
             &&& self.node is None
+            &&& self.borrowed is None
+            &&& !self.absent
+        }
+        &&& self.borrowed is Some ==> {
+            &&& self.node is None
+            &&& self.frame is None
+            &&& self.locked is None
             &&& !self.absent
         }
         &&& self.path.inv()

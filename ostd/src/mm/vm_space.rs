@@ -13,12 +13,12 @@ use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 use vstd::vpanic;
 
-use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
+use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::frame::MetaSlot;
-use crate::mm::io::VmIoMemView;
+use crate::specs::mm::io::VmIoMemView;
 use crate::mm::kspace::KernelPtConfig;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
@@ -39,9 +39,10 @@ use crate::mm::kspace::KERNEL_PAGE_TABLE;
 use crate::mm::tlb::*;
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
 
+use crate::specs::mm::io::VmIoOwner;
 use crate::{
     mm::{
-        io::{Fallible, VmIoOwner, VmReader, VmWriter},
+        io::{Fallible, VmReader, VmWriter},
         page_prop::PageProperty,
         Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
     },
@@ -178,6 +179,8 @@ impl<'a> VmSpace<'a> {
             Tracked(guards_u): Tracked<&mut Guards<'static, UserPtConfig>>,
         requires
             old(regions).inv(),
+        ensures
+            final(regions).inv(),
     )]
     #[allow(private_interfaces)]
     pub fn new() -> Self {
@@ -224,6 +227,12 @@ impl<'a> VmSpace<'a> {
             owner.inv(),
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
+            // On the success branch, the returned cursor owner satisfies
+            // its invariant. Follows from the underlying PT::cursor's
+            // ensures: r is Ok ⇒ cursor_new_success_conditions (by
+            // contrapositive of the !cond ⇒ Err clause) ⇒ invariants
+            // hold ⇒ cursor_owner.inv().
+            cursor_owner@ matches Some(c) ==> c.inv(),
     )]
     pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
         Cursor<'a, G>,
@@ -272,8 +281,11 @@ impl<'a> VmSpace<'a> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
             -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
         requires
+            owner.inv(),
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
+            // See `cursor` above for the derivation.
+            cursor_owner@ matches Some(c) ==> c.inv(),
     )]
     pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
         CursorMut<'a, G>,
@@ -326,7 +338,12 @@ impl<'a> VmSpace<'a> {
             r is Ok && reader_owner@ is Some ==> {
                 &&& r.unwrap().wf(reader_owner@.unwrap())
                 &&& reader_owner@.unwrap().mem_view is None
-            }
+                &&& reader_owner@.unwrap().inv()
+            },
+            // Range bound is necessary for success: the body's `checked_add`
+            // guard rejects any out-of-range request before constructing a
+            // reader. `nat` arithmetic subsumes the overflow case.
+            r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
     )]
     pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
@@ -380,7 +397,10 @@ impl<'a> VmSpace<'a> {
             r is Ok && writer_owner@ is Some ==> {
                 &&& r.unwrap().wf(writer_owner@.unwrap())
                 &&& writer_owner@.unwrap().mem_view is None
-            }
+                &&& writer_owner@.unwrap().inv()
+            },
+            // Range bound is necessary for success: see `reader` above.
+            r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
     )]
     pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a, Fallible>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
@@ -438,7 +458,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
+            // `in_locked_range` is NOT required: an out-of-range cursor
+            // is handled by the underlying `Cursor::query`'s graceful
+            // `Err`. It only governs *success* (see the guarded result
+            // clauses below), exactly mirroring `Cursor::query`.
             // Non-panic precondition (ref-count non-saturation) propagated from
             // Cursor::query.
             forall |i: usize|
@@ -450,14 +473,13 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                     < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            final(self).0.query_some_condition(*final(owner)) ==> {
-                &&& r is Ok
-                &&& final(self).0.query_some_ensures(*final(owner), r.unwrap())
-            },
-            !final(self).0.query_some_condition(*final(owner)) ==> {
-                &&& r is Ok
-                &&& final(self).0.query_none_ensures(*final(owner), r.unwrap())
-            },
+            old(owner).in_locked_range() ==> r is Ok,
+            r matches Ok(state) ==>
+                final(self).0.query_some_condition(*final(owner)) ==>
+                final(self).0.query_some_ensures(*final(owner), state),
+            r matches Ok(state) ==>
+                !final(self).0.query_some_condition(*final(owner)) ==>
+                final(self).0.query_none_ensures(*final(owner), state),
             old(owner)@.mappings == final(owner)@.mappings,
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
@@ -541,7 +563,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
         ensures
             !old(self).0.jump_panic_condition(va),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -608,7 +629,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
+            // `in_locked_range` is NOT required (out-of-range → graceful
+            // `Err`); it only governs success via the guarded ensures.
             // Non-panic precondition (ref-count non-saturation) propagated from
             // Cursor::query.
             forall |i: usize|
@@ -707,7 +729,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
         ensures
             !old(self).pt_cursor.0.jump_panic_condition(va),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -774,7 +795,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(tlb_model).inv(),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
-            old(cursor_owner).in_locked_range(),
+            // `in_locked_range` is NOT required: an out-of-range cursor
+            // panics at `map`'s `assert!(va < barrier_va.end)` (the real
+            // `map_panic_conditions` out-of-range panic, captured by the
+            // ensures below). `CursorMut::map` re-derives it post-assert.
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
         ensures
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
