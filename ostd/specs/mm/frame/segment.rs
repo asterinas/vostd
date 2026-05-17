@@ -48,8 +48,6 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         true
     }
 
-    proof fn drop_tracked(self, tracked s: &mut Self::State) {
-    }
 }
 
 /// A [`SegmentOwner<M>`] holds the permission tokens for all frames in the

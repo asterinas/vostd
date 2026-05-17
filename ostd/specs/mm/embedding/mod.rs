@@ -35,6 +35,7 @@
 pub mod vm_space;
 pub mod cursor;
 pub mod io;
+pub mod frame;
 pub mod trace;
 
 use core::ops::Range;
@@ -42,12 +43,14 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::UFrame;
+use crate::mm::frame::{MetaSlot, UFrame};
 use crate::specs::mm::io::VmIoOwner;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
-use crate::mm::{Vaddr, MAX_USERSPACE_VADDR};
+use crate::mm::{Paddr, Vaddr, MAX_USERSPACE_VADDR};
+use crate::specs::mm::frame::mapping::frame_to_index_spec;
+use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::node::Guards;
@@ -67,6 +70,19 @@ pub type CursorId = int;
 
 /// Logical identifier for a [`VmIoOwner`] in the store.
 pub type VmIoId = int;
+
+/// Logical identifier for a held [`crate::mm::frame::Frame`] handle in the store.
+pub type FrameId = int;
+
+/// Per-Frame entry in the store. Represents one outstanding handle to
+/// the slot at `paddr` — i.e., one unit of refcount in
+/// `regions.slot_owners[frame_to_index_spec(paddr)]`.
+///
+/// Multiple `FrameEntry`s may share the same `paddr`; each contributes
+/// `+1` to that slot's `inner_perms.ref_count`.
+pub tracked struct FrameEntry {
+    pub paddr: Paddr,
+}
 
 /// Whether a [`VmIoOwner`] backs a `VmReader` or a `VmWriter`.
 pub enum VmIoKind {
@@ -165,6 +181,7 @@ pub tracked struct VmStore<'rcu> {
     pub vm_spaces: Map<VmSpaceId, VmSpaceOwner>,
     pub cursors: Map<CursorId, CursorEntry<'rcu>>,
     pub vm_ios: Map<VmIoId, VmIoEntry>,
+    pub frames: Map<FrameId, FrameEntry>,
 }
 
 impl<'a, 'rcu> VmStore<'rcu> {
@@ -197,6 +214,12 @@ impl<'a, 'rcu> VmStore<'rcu> {
                             ==> (self.vm_ios[id].vaddr as nat)
                                 + (self.vm_ios[id].len as nat)
                                 <= MAX_USERSPACE_VADDR as nat
+        // `frames` is bookkeeping for outstanding `Frame` handles. We
+        // don't enforce a regions-side invariant here — cursor and IO
+        // ops mutate `regions` in ways that would be hard to align,
+        // and frame-side preconditions (slot key existence, refcount
+        // status, etc.) are checked explicitly in [`op_pre`] for the
+        // frame variants instead.
     }
 }
 
@@ -246,6 +269,19 @@ pub enum Op {
     /// Infallible `VmWriter::write`. The exec no longer surfaces
     /// `consumed_w`; the embedding does NOT create a fresh entry.
     Write { source: VmIoId, dest: VmIoId },
+    /// `Frame::from_unused`: try to allocate a fresh handle on a
+    /// previously-unused slot. Registers a [`FrameEntry`] on success.
+    FrameFromUnused { paddr: Paddr },
+    /// `Frame::from_in_use`: try to acquire a new handle on an
+    /// in-use slot. Registers a [`FrameEntry`] on success
+    /// (refcount of the slot increments by one).
+    FrameFromInUse { paddr: Paddr },
+    /// Drop one outstanding `Frame` handle. There is exactly one drop;
+    /// the step branches internally on the live refcount (mirroring
+    /// exec `drop`): `>= 2` decrements (slot stays SHARED), `== 1`
+    /// tears down to UNUSED (requires the slot detached from the page
+    /// table — `paths_in_pt.is_empty()`). See [`frame::drop_pre`].
+    FrameDrop { fid: FrameId },
 }
 
 /// Per-op precondition — the conjunction of facts about the store that
@@ -274,11 +310,10 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         Op::OpenCursor { vs, va: _ } => s.vm_spaces.dom().contains(vs),
         Op::OpenCursorMut { vs, va: _ } => s.vm_spaces.dom().contains(vs),
         Op::DropCursor { c } => s.cursors.dom().contains(c),
-        // exec `Cursor::query` / `CursorMut::query` requires
-        // `owner.in_locked_range()`.
-        Op::Query { c } =>
-            s.cursors.dom().contains(c)
-            && s.cursors[c].owner.in_locked_range(),
+        // exec `Cursor::query` / `CursorMut::query` does NOT require
+        // `owner.in_locked_range()` — an out-of-range cursor is handled
+        // by a graceful `Err` (exec `requires` relaxed accordingly).
+        Op::Query { c } => s.cursors.dom().contains(c),
         Op::FindNext { c, len: _ } => s.cursors.dom().contains(c),
         // exec `Cursor::jump` / `CursorMut::jump` requires
         // `owner.in_locked_range()`.
@@ -337,6 +372,25 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             && (s.vm_ios[source].kind == VmIoKind::Reader)
             && s.vm_ios[dest].vm_space is None
             && (s.vm_ios[dest].kind == VmIoKind::Writer),
+        // `Frame::from_unused` requires the slot key exists. The
+        // success branch additionally requires the slot is UNUSED, but
+        // that's a runtime check (axiom returns `None` otherwise).
+        Op::FrameFromUnused { paddr } =>
+            s.regions.slots.contains_key(frame_to_index_spec(paddr)),
+        // `Frame::from_in_use` requires the slot key exists and refcount
+        // wouldn't saturate.
+        Op::FrameFromInUse { paddr } =>
+            s.regions.slots.contains_key(frame_to_index_spec(paddr))
+            && !MetaSlot::get_from_in_use_panic_cond(paddr, s.regions),
+        // Single drop op. `frame::drop_pre` mirrors
+        // `Frame::drop_requires` (expressible parts) verbatim. The
+        // refcount semantics (a page-table mapping is itself a
+        // reference) make the `metaregion_sound`-preserves clause on
+        // [`frame::frame_drop_embedded`] sound without any extra
+        // precondition.
+        Op::FrameDrop { fid } =>
+            s.frames.dom().contains(fid)
+            && frame::drop_pre(s.regions, s.frames[fid].paddr),
     }
 }
 
@@ -487,6 +541,47 @@ impl<'rcu> VmStore<'rcu> {
     {
         self.vm_ios.tracked_insert(vio, entry);
     }
+
+    /// Removes the FrameEntry at `fid` from the store.
+    pub proof fn extract_frame(tracked &mut self, fid: FrameId)
+        -> (tracked res: FrameEntry)
+        requires
+            old(self).inv(),
+            old(self).frames.dom().contains(fid),
+        ensures
+            final(self).regions == old(self).regions,
+            final(self).tlb_model == old(self).tlb_model,
+            final(self).vm_spaces == old(self).vm_spaces,
+            final(self).cursors == old(self).cursors,
+            final(self).vm_ios == old(self).vm_ios,
+            final(self).frames == old(self).frames.remove(fid),
+            res == old(self).frames[fid],
+            final(self).inv(),
+    {
+        self.frames.tracked_remove(fid)
+    }
+
+    /// Inserts a FrameEntry at the given fresh id. The `frames` map is
+    /// purely bookkeeping; no regions-side precondition.
+    pub proof fn insert_frame(
+        tracked &mut self,
+        fid: FrameId,
+        tracked entry: FrameEntry,
+    )
+        requires
+            old(self).inv(),
+            !old(self).frames.dom().contains(fid),
+        ensures
+            final(self).regions == old(self).regions,
+            final(self).tlb_model == old(self).tlb_model,
+            final(self).vm_spaces == old(self).vm_spaces,
+            final(self).cursors == old(self).cursors,
+            final(self).vm_ios == old(self).vm_ios,
+            final(self).frames == old(self).frames.insert(fid, entry),
+            final(self).inv(),
+    {
+        self.frames.tracked_insert(fid, entry);
+    }
 }
 
 // =============================================================================
@@ -547,6 +642,9 @@ pub proof fn step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
         // Infallible `write`: no longer surfaces consumed_w; just
         // mutates source/dest owners.
         Op::Write { source, dest } => step_write(s, source, dest),
+        Op::FrameFromUnused { paddr } => step_frame_from_unused(s, paddr),
+        Op::FrameFromInUse { paddr } => step_frame_from_in_use(s, paddr),
+        Op::FrameDrop { fid } => step_frame_drop(s, fid),
     }
 }
 
@@ -620,7 +718,6 @@ proof fn step_cursor_method<'rcu>(
         old(s).inv(),
         old(s).cursors.dom().contains(c),
         match method {
-            cursor::CursorMethod::Query => old(s).cursors[c].owner.in_locked_range(),
             cursor::CursorMethod::Jump(_) => old(s).cursors[c].owner.in_locked_range(),
             _ => true,
         },
@@ -777,6 +874,52 @@ proof fn step_write<'rcu>(
     s.insert_vm_io(dest, dst);
 }
 
+proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
+    requires
+        old(s).inv(),
+        old(s).regions.slots.contains_key(frame_to_index_spec(paddr)),
+    ensures final(s).inv()
+{
+    let tracked res = frame::from_unused_step(&mut s.regions, paddr);
+    match res {
+        Option::Some(entry) => {
+            let ghost id = fresh_frame_id(s.frames);
+            axiom_fresh_frame_id_not_in_dom(s.frames);
+            s.insert_frame(id, entry);
+        },
+        Option::None => {},
+    }
+}
+
+proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
+    requires
+        old(s).inv(),
+        old(s).regions.slots.contains_key(frame_to_index_spec(paddr)),
+        !MetaSlot::get_from_in_use_panic_cond(paddr, old(s).regions),
+    ensures final(s).inv()
+{
+    let tracked res = frame::from_in_use_step(&mut s.regions, paddr);
+    match res {
+        Option::Some(entry) => {
+            let ghost id = fresh_frame_id(s.frames);
+            axiom_fresh_frame_id_not_in_dom(s.frames);
+            s.insert_frame(id, entry);
+        },
+        Option::None => {},
+    }
+}
+
+proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
+    requires
+        old(s).inv(),
+        old(s).frames.dom().contains(fid),
+        frame::drop_pre(old(s).regions, old(s).frames[fid].paddr),
+    ensures final(s).inv()
+{
+    let tracked entry = s.extract_frame(fid);
+    frame::drop_step(&mut s.regions, entry);
+}
+
 // =============================================================================
 // Internal helpers: fresh-id picking and tracked entry constructors.
 // =============================================================================
@@ -797,6 +940,11 @@ pub open spec fn fresh_vm_io_id<'a>(m: Map<VmIoId, VmIoEntry>) -> VmIoId {
     choose|id: VmIoId| !m.dom().contains(id)
 }
 
+/// Picks a [`FrameId`] not currently in `m.dom()`.
+pub open spec fn fresh_frame_id(m: Map<FrameId, FrameEntry>) -> FrameId {
+    choose|id: FrameId| !m.dom().contains(id)
+}
+
 pub axiom fn axiom_fresh_vm_space_id_not_in_dom<'a>(
     m: Map<VmSpaceId, VmSpaceOwner>,
 )
@@ -814,6 +962,11 @@ pub axiom fn axiom_fresh_cursor_id_not_in_dom<'rcu>(
 pub axiom fn axiom_fresh_vm_io_id_not_in_dom<'a>(m: Map<VmIoId, VmIoEntry>)
     ensures
         !m.dom().contains(fresh_vm_io_id(m)),
+;
+
+pub axiom fn axiom_fresh_frame_id_not_in_dom(m: Map<FrameId, FrameEntry>)
+    ensures
+        !m.dom().contains(fresh_frame_id(m)),
 ;
 
 /// Tracked constructor for [`CursorEntry`].
@@ -846,6 +999,12 @@ pub axiom fn axiom_vm_io_entry_new<'a>(
         res.vaddr == vaddr,
         res.len == len,
         res.owner == owner,
+;
+
+/// Tracked constructor for [`FrameEntry`].
+pub axiom fn axiom_frame_entry_new(paddr: Paddr) -> (tracked res: FrameEntry)
+    ensures
+        res.paddr == paddr,
 ;
 
 } // verus!

@@ -564,7 +564,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.in_locked_range() || self.above_locked_range()
         // The cursor is allowed to pop out of the guard range only when it reaches the end of the locked range.
         // This allows the user to reason solely about the current vaddr and not keep track of the cursor's level.
-        &&& self.popped_too_high ==> self.level >= self.guard_level && self.in_locked_range()
+        &&& self.popped_too_high ==> self.level >= self.guard_level
         &&& !self.popped_too_high ==> self.level <= self.guard_level || self.above_locked_range()
         &&& self.continuations[self.level - 1].all_some()
         &&& forall|i: int| self.level <= i < NR_LEVELS ==> {
@@ -787,9 +787,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     // map_children_implies moved to tree_lemmas.rs.
 
     pub open spec fn nodes_locked(self, guards: Guards<'rcu, C>) -> bool {
+        // Only the subtree rooted at `guard_level` and its descendants down to
+        // `level` are actually locked (see `locking.rs`). The ghost
+        // `continuations` chain extends above `guard_level` to the root, but
+        // those ancestor nodes are NOT lock-held, so the upper bound is
+        // `guard_level`, not `NR_LEVELS`.
         forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==> {
+            self.level - 1 <= i < self.guard_level ==> {
                 self.continuations[i].node_locked(guards)
             }
     }
@@ -2341,25 +2346,47 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
         &&& self.level == owner.level
         &&& owner.guard_level == self.guard_level
 //        &&& owner.index() == self.va % page_size(self.level)
+        // `path` holds lock guards only for levels in `[self.level,
+        // self.guard_level]` (see the `Cursor.path` doc comment and
+        // `locking.rs`: `lock_range` only locks the subtree rooted at
+        // `guard_level`). The ghost `continuations` chain still extends above
+        // `guard_level` up to the root, but those ancestor nodes are NOT
+        // locked, so their `path` slots are `None` and are not tied to a
+        // continuation guard.
         &&& self.level <= 4 ==> {
-            &&& self.path[3] is Some
-            &&& owner.continuations.contains_key(3)
-            &&& owner.continuations[3].guard == self.path[3].unwrap()
+            &&& 4 <= self.guard_level ==> {
+                &&& self.path[3] is Some
+                &&& owner.continuations.contains_key(3)
+                &&& owner.continuations[3].guard == self.path[3].unwrap()
+            }
+            &&& 4 > self.guard_level ==> self.path[3] is None
         }
         &&& self.level <= 3 ==> {
-            &&& self.path[2] is Some
-            &&& owner.continuations.contains_key(2)
-            &&& owner.continuations[2].guard == self.path[2].unwrap()
+            &&& 3 <= self.guard_level ==> {
+                &&& self.path[2] is Some
+                &&& owner.continuations.contains_key(2)
+                &&& owner.continuations[2].guard == self.path[2].unwrap()
+            }
+            &&& 3 > self.guard_level ==> self.path[2] is None
         }
         &&& self.level <= 2 ==> {
-            &&& self.path[1] is Some
-            &&& owner.continuations.contains_key(1)
-            &&& owner.continuations[1].guard == self.path[1].unwrap()
+            &&& 2 <= self.guard_level ==> {
+                &&& self.path[1] is Some
+                &&& owner.continuations.contains_key(1)
+                &&& owner.continuations[1].guard == self.path[1].unwrap()
+            }
+            &&& 2 > self.guard_level ==> self.path[1] is None
         }
         &&& self.level == 1 ==> {
-            &&& self.path[0] is Some
-            &&& owner.continuations.contains_key(0)
-            &&& owner.continuations[0].guard == self.path[0].unwrap()
+            // `1 <= self.guard_level` always holds (`inv` gives
+            // `guard_level >= 1`), so this clause is equivalent to the
+            // original level-1 case; the `None` branch is vacuous.
+            &&& 1 <= self.guard_level ==> {
+                &&& self.path[0] is Some
+                &&& owner.continuations.contains_key(0)
+                &&& owner.continuations[0].guard == self.path[0].unwrap()
+            }
+            &&& 1 > self.guard_level ==> self.path[0] is None
         }
         &&& self.barrier_va.start == owner.locked_range().start
         &&& self.barrier_va.end == owner.locked_range().end

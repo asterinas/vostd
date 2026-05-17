@@ -123,8 +123,10 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
 /// Mirror of [`crate::mm::vm_space::Cursor::query`] /
 /// [`crate::mm::vm_space::CursorMut::query`].
 ///
-/// Exec requires `invariants(owner, regions, guards)` AND
-/// `owner.in_locked_range()` (line 444 / 614 of `vm_space.rs`).
+/// Exec requires `invariants(owner, regions, guards)`. It does **not**
+/// require `owner.in_locked_range()`: an out-of-range cursor is handled
+/// by `Cursor::query`'s graceful `Err` (the exec `requires` was relaxed
+/// accordingly; `in_locked_range` now only governs success, not safety).
 ///
 /// `metaregion_sound_preserves`: a `CursorOwner` that was sound w.r.t.
 /// the old `regions` is still sound w.r.t. the new `regions`. This
@@ -142,7 +144,6 @@ pub axiom fn cursor_query_embedded<'rcu>(
         old(owner).nodes_locked(*old(guards)),
         old(owner).metaregion_sound(*old(regions)),
         !old(owner).popped_too_high,
-        old(owner).in_locked_range(),
     ensures
         final(owner).inv(),
         final(regions).inv(),
@@ -386,8 +387,9 @@ pub(super) proof fn drop_cursor_step<'rcu>(tracked _entry: CursorEntry<'rcu>) {
 /// (and thread `regions` / `guards`): query, find_next, jump,
 /// protect_next.
 ///
-/// `Query` and `Jump` additionally require `owner.in_locked_range()`,
-/// per their exec preconditions.
+/// `Jump` additionally requires `owner.in_locked_range()` per its exec
+/// precondition. `Query` does NOT — exec `query` handles an
+/// out-of-range cursor with a graceful `Err`.
 pub(super) proof fn cursor_method_step<'rcu>(
     tracked entry: &mut CursorEntry<'rcu>,
     tracked regions: &mut MetaRegionOwners,
@@ -398,7 +400,6 @@ pub(super) proof fn cursor_method_step<'rcu>(
         old(regions).inv(),
         old(entry).owner.metaregion_sound(*old(regions)),
         match method {
-            CursorMethod::Query => old(entry).owner.in_locked_range(),
             CursorMethod::Jump(_) => old(entry).owner.in_locked_range(),
             _ => true,
         },

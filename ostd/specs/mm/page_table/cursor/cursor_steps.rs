@@ -996,7 +996,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(new_owner.children_not_locked(guards));
         assert forall |i: int|
             #![trigger new_owner.continuations[i]]
-            new_owner.level - 1 <= i < NR_LEVELS implies
+            new_owner.level - 1 <= i < new_owner.guard_level implies
             new_owner.continuations[i].node_locked(guards) by {
 
             if i == self.level - 2 {
@@ -1131,7 +1131,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            self.in_locked_range(),
+            // [STEP 3] in_locked_range dropped
         ensures
             self.pop_level_owner_spec().0.inv(),
     {
@@ -1253,7 +1253,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[3].inv()
             &&& new_owner.continuations[3].level() == 4
             &&& new_owner.continuations[3].entry_own.parent_level == 5
-            &&& new_owner.va.index[3] == new_owner.continuations[3].idx
+            // `va.index == cont.idx` is inv-guarded by `in_locked_range`
+            // (above-range cursors keep stale continuations).
+            &&& new_owner.in_locked_range()
+                ==> new_owner.va.index[3] == new_owner.continuations[3].idx
         }) by {
             if self.level as int == 3 {
                 assert(new_owner.continuations[3] == new_cont);
@@ -1268,7 +1271,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[2].inv()
             &&& new_owner.continuations[2].level() == 3
             &&& new_owner.continuations[2].entry_own.parent_level == 4
-            &&& new_owner.va.index[2] == new_owner.continuations[2].idx
+            &&& new_owner.in_locked_range()
+                ==> new_owner.va.index[2] == new_owner.continuations[2].idx
             &&& new_owner.continuations[2].guard.inner.inner@.ptr.addr() !=
                 new_owner.continuations[3].guard.inner.inner@.ptr.addr()
             &&& new_owner.continuations[2].path() == new_owner.continuations[3].path().push_tail(new_owner.continuations[3].idx as usize)
@@ -1291,7 +1295,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[1].inv()
             &&& new_owner.continuations[1].level() == 2
             &&& new_owner.continuations[1].entry_own.parent_level == 3
-            &&& new_owner.va.index[1] == new_owner.continuations[1].idx
+            &&& new_owner.in_locked_range()
+                ==> new_owner.va.index[1] == new_owner.continuations[1].idx
             &&& new_owner.continuations[1].guard.inner.inner@.ptr.addr() !=
                 new_owner.continuations[2].guard.inner.inner@.ptr.addr()
             &&& new_owner.continuations[1].guard.inner.inner@.ptr.addr() !=
@@ -1311,7 +1316,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            self.in_locked_range(),
+            // [STEP 3] in_locked_range dropped
             self.children_not_locked(guards),
             self.nodes_locked(guards),
             self.metaregion_sound(regions),
@@ -1338,7 +1343,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(new_owner.nodes_locked(guards)) by {
             assert forall |i: int|
                 #![trigger new_owner.continuations[i]]
-                new_owner.level - 1 <= i < NR_LEVELS implies
+                new_owner.level - 1 <= i < new_owner.guard_level implies
                 new_owner.continuations[i].node_locked(guards) by {
                     if i == self.level as int {
                         assert(new_owner.continuations[i] == new_cont);

@@ -388,9 +388,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
+            // `in_locked_range` is NOT a precondition: an out-of-range
+            // cursor is handled by the early `Err` below. It is only
+            // *guaranteed to succeed* when the cursor was in range.
             old(owner).in_locked_range() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).query_some_condition(*final(owner)) ==>
@@ -408,6 +410,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.va.reflect_prop(self.va);
             }
             return Err(PageTableError::InvalidVaddr(self.va));
+        }
+        // Past the guard: `self.va < self.barrier_va.end`. With
+        // `Cursor::wf`'s `barrier_va.end == owner.locked_range().end`
+        // and `owner.va.reflect(self.va)`, the owner's VA is below the
+        // locked range end, so it is not `above_locked_range`; by
+        // `owner.inv()` (`in_locked_range || above_locked_range`) it is
+        // therefore `in_locked_range` — re-derived rather than assumed.
+        proof {
+            owner.va.reflect_prop(self.va);
         }
         let rcu_guard = self.rcu_guard;
 
@@ -1571,7 +1582,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).inv(),
             old(regions).inv(),
             old(self).wf(*old(owner)),
-            old(owner).in_locked_range(),
+            // [STEP 3] in_locked_range dropped from pop_level
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
             old(owner).metaregion_sound(*old(regions)),
@@ -1586,7 +1597,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).guard_level == old(self).guard_level,
             final(self).barrier_va == old(self).barrier_va,
             *final(owner) == old(owner).pop_level_owner_spec().0,
-            final(owner).in_locked_range(),
+            final(owner).va == old(owner).va,
+            final(owner).prefix == old(owner).prefix,
+            final(owner).guard_level == old(owner).guard_level,
+            old(owner).in_locked_range() ==> final(owner).in_locked_range(),
             *final(regions) == *old(regions),
     {
         proof {
@@ -2014,7 +2028,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
+            // `in_locked_range` not required — delegates to the relaxed
+            // `Cursor::query`, which handles out-of-range with `Err`.
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).in_locked_range() ==> res is Ok,
@@ -3706,7 +3721,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     //   - so cont.guard.addr != locked_addr,
                     //   - dfs preserves locks for addresses != locked_addr.
                     assert forall|i: int|
-                        owner.level - 1 <= i < NR_LEVELS implies
+                        owner.level - 1 <= i < owner.guard_level implies
                         #[trigger] owner.continuations[i].node_locked(*guards) by {
                         let cont = owner.continuations[i];
                         let cont_addr = cont.guard.inner.inner@.ptr.addr();

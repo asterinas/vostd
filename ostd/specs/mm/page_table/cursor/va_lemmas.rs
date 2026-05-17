@@ -81,6 +81,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     ..old_cont
                 },
             ),
+            // Repositioning to a concrete in-range VA clears the
+            // transient `popped_too_high` state.
+            popped_too_high: false,
             ..self
         }
     }
@@ -381,6 +384,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ==> new_va.index[i] == old(self).va.index[i],
             old(self).locked_range().start <= new_va.to_vaddr()
                 < old(self).locked_range().end,
+            // Needed for soundness of the asserted `final(self).inv()`:
+            // we clear `popped_too_high`, so `CursorOwner::inv`'s
+            // `!popped_too_high ==> level <= guard_level || above_locked_range`
+            // clause must hold; the new VA is in-range (not above), so
+            // we require `level <= guard_level`.
+            old(self).level <= old(self).guard_level,
         ensures
             *final(self) == old(self).set_va_in_node_spec(new_va),
             final(self).inv(),;

@@ -458,7 +458,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
+            // `in_locked_range` is NOT required: an out-of-range cursor
+            // is handled by the underlying `Cursor::query`'s graceful
+            // `Err`. It only governs *success* (see the guarded result
+            // clauses below), exactly mirroring `Cursor::query`.
             // Non-panic precondition (ref-count non-saturation) propagated from
             // Cursor::query.
             forall |i: usize|
@@ -470,14 +473,13 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                     < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            final(self).0.query_some_condition(*final(owner)) ==> {
-                &&& r is Ok
-                &&& final(self).0.query_some_ensures(*final(owner), r.unwrap())
-            },
-            !final(self).0.query_some_condition(*final(owner)) ==> {
-                &&& r is Ok
-                &&& final(self).0.query_none_ensures(*final(owner), r.unwrap())
-            },
+            old(owner).in_locked_range() ==> r is Ok,
+            r matches Ok(state) ==>
+                final(self).0.query_some_condition(*final(owner)) ==>
+                final(self).0.query_some_ensures(*final(owner), state),
+            r matches Ok(state) ==>
+                !final(self).0.query_some_condition(*final(owner)) ==>
+                final(self).0.query_none_ensures(*final(owner), state),
             old(owner)@.mappings == final(owner)@.mappings,
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
@@ -628,7 +630,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
+            // `in_locked_range` is NOT required (out-of-range → graceful
+            // `Err`); it only governs success via the guarded ensures.
             // Non-panic precondition (ref-count non-saturation) propagated from
             // Cursor::query.
             forall |i: usize|
