@@ -321,11 +321,12 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         // `panic_diverge` (mirroring the real `pop_level` `unwrap` panic).
         Op::Jump { c, va: _ } => s.cursors.dom().contains(c),
         Op::VirtAddr { c } => s.cursors.dom().contains(c),
-        // exec `CursorMut::map` requires `owner.in_locked_range()` (and
-        // `tlb_model.inv()` from `VmStore::inv`, plus MODEL GAP `item_wf`).
-        Op::Map { c, frame: _, prop: _ } =>
-            s.cursors.dom().contains(c)
-            && s.cursors[c].owner.in_locked_range(),
+        // exec `CursorMut::map` does NOT require `owner.in_locked_range()`
+        // — an out-of-range cursor panics at `assert!(va <
+        // barrier_va.end)` (the real `map_panic_conditions` abort) and
+        // `in_locked_range` is re-derived from that panic. (`tlb_model.inv()`
+        // comes from `VmStore::inv`, plus MODEL GAP `item_wf`.)
+        Op::Map { c, frame: _, prop: _ } => s.cursors.dom().contains(c),
         Op::Unmap { c, len: _ } => s.cursors.dom().contains(c),
         Op::ProtectNext { c, len: _ } => s.cursors.dom().contains(c),
         Op::NewReader { vs, vaddr: _, len: _ } => s.vm_spaces.dom().contains(vs),
@@ -733,7 +734,6 @@ proof fn step_map<'rcu>(
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
-        old(s).cursors[c].owner.in_locked_range(),
     ensures final(s).inv()
 {
     let tracked mut entry = s.extract_cursor(c);

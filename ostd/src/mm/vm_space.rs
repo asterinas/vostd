@@ -795,7 +795,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(tlb_model).inv(),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
-            old(cursor_owner).in_locked_range(),
+            // `in_locked_range` is NOT required: an out-of-range cursor
+            // panics at `map`'s `assert!(va < barrier_va.end)` (the real
+            // `map_panic_conditions` out-of-range panic, captured by the
+            // ensures below). `CursorMut::map` re-derives it post-assert.
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
         ensures
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),

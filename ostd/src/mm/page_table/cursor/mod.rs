@@ -2474,7 +2474,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
             old(self).item_wf(item, entry_owner),
             Self::item_slot_in_regions(item, *old(regions)),
         ensures
@@ -2542,12 +2541,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let size = page_size(level);
         assert_eq!(self.0.va % size, 0);
 
-        // `self.0.va + size <= usize::MAX` from the cursor invariant: since
-        // `owner.in_locked_range()` and `1 <= level <= guard_level`, there is
-        // enough slack in `locked_range().end == prefix + page_size(guard_level)`
-        // to absorb another `page_size(level)`.
         proof {
             owner.va.reflect_prop(self.0.va);
+            assert(owner.in_locked_range());
             owner.va_plus_page_size_no_overflow(level);
         }
         let end = self.0.va + size;
@@ -2675,18 +2671,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
         }
 
-        // replace_cur_entry handles both node and non-node old entries:
-        // - node old: uses neq_old_from_path_disjoint
-        // - non-node old: uses metaregion_sound_preserved
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
 
         let ghost owner2 = *owner;
         let ghost regions_after_replace = *regions;
-        // Capture owner2's va-alignment from the original map() precondition.
-        // Chain: owner0.va.to_vaddr() == old(self).0.va, owner0.va == owner1.va (map_loop)
-        //        == owner2.va (replace_cur_entry), so owner2.va.to_vaddr() == old(self).0.va,
-        //        which was asserted size-aligned.
+
         proof {
             owner0.va.reflect_prop(old(self).0.va);
             assert(owner0.va == owner1.va);
@@ -2744,13 +2734,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             by {
                 assert(regions_after_new_child.slot_owners =~= regions_before_new_child.slot_owners);
             };
-            // Slots monotonicity derivation. Chain:
-            //   old → regions_before_new_child (via map_loop's monotonic-slots ensures)
-            //   regions_before_new_child → regions_after_new_child (new_child only mutates
-            //     slot_owners[pa_idx2].paths_in_pt; slots untouched)
-            //   regions_after_new_child → regions_after_replace (via replace_cur_entry's
-            //     monotonic-slots ensures)
-            //   regions_after_replace → regions (move_forward doesn't touch regions)
+
             assert(regions_before_new_child.slots =~= regions_after_new_child.slots);
             assert(forall |k: usize| #![trigger regions_after_replace.slots.contains_key(k)]
                 regions_after_new_child.slots.contains_key(k)

@@ -15,8 +15,11 @@
 //! - `owner.inv()`, `owner.children_not_locked(guards)`,
 //!   `owner.nodes_locked(guards)`, `!owner.popped_too_high` —
 //!   bundled as `CursorEntry::inv` (entry-side); see [`super::CursorEntry`].
-//! - `owner.in_locked_range()` — required by `query`, `jump`, `map`,
-//!   `protect_next`; see exec ensures clauses for which methods need it.
+//! - `owner.in_locked_range()` — NOT a precondition of `query`, `jump`,
+//!   or `map`: each handles an out-of-range cursor itself (graceful
+//!   `Err` for `query`; a faithful `panic_diverge` otherwise) and
+//!   re-derives `in_locked_range` internally. `protect_next` still
+//!   requires it; see exec clauses.
 //! - `regions.inv()`, `owner.metaregion_sound(regions)` — passed via
 //!   `&mut regions`.
 //! - `tlb_model.inv()` — passed via `&mut tlb_model` to `map` / `unmap`.
@@ -222,11 +225,16 @@ pub axiom fn cursor_jump_embedded<'rcu>(
 
 /// Mirror of [`crate::mm::vm_space::CursorMut::map`].
 ///
-/// Exec requires (line 778-781 of `vm_space.rs`):
+/// Exec requires:
 /// - `tlb_model.inv()`
-/// - `invariants(cursor_owner, regions, guards)`
-/// - `cursor_owner.in_locked_range()`
+/// - `invariants(cursor_owner, regions, guards)` (incl. `!popped_too_high`)
 /// - `item_wf(frame, prop, entry_owner, regions)` — MODEL GAP.
+///
+/// Does **not** require `in_locked_range()`: an out-of-range cursor
+/// panics at `map`'s `assert!(va < barrier_va.end)` (the real
+/// `map_panic_conditions` out-of-range abort); the exec re-derives
+/// `in_locked_range` from that panic + the cursor invariant. This axiom
+/// soundly models the returning path.
 pub axiom fn cursor_mut_map_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
@@ -242,7 +250,6 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         old(owner).nodes_locked(*old(guards)),
         old(owner).metaregion_sound(*old(regions)),
         !old(owner).popped_too_high,
-        old(owner).in_locked_range(),
         old(tlb_model).inv(),
         // MODEL GAP: `item_wf(frame, prop, entry_owner, regions)`
         // depends on a separate `EntryOwner<UserPtConfig>` arg we don't
@@ -465,7 +472,9 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
 /// because the argument shape (UFrame, PageProperty) doesn't match the
 /// others.
 ///
-/// Additionally requires `owner.in_locked_range()` per exec.
+/// Does NOT require `owner.in_locked_range()`: exec `map` panics on an
+/// out-of-range cursor (`assert!(va < barrier_va.end)`) and re-derives
+/// `in_locked_range` from that panic + the cursor invariant.
 pub(super) proof fn map_step<'rcu>(
     tracked entry: &mut CursorEntry<'rcu>,
     tracked regions: &mut MetaRegionOwners,
@@ -478,7 +487,6 @@ pub(super) proof fn map_step<'rcu>(
         old(regions).inv(),
         old(entry).owner.metaregion_sound(*old(regions)),
         old(tlb_model).inv(),
-        old(entry).owner.in_locked_range(),
     ensures
         final(entry).vm_space == old(entry).vm_space,
         final(entry).kind == old(entry).kind,
