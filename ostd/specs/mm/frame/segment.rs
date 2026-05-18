@@ -2,7 +2,6 @@
 //! Spec/proof companion for [`crate::mm::frame::segment`].
 
 use vstd::prelude::*;
-use vstd::simple_pptr;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
@@ -56,14 +55,20 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
 /// The `range` field tracks which physical-address range this owner corresponds
 /// to. It is a ghost-only field used by [`Self::inv`] to express the structural
 /// connection between `perms` and the segment's frames.
+/// Number of frames in a page-aligned physical range.
+#[verifier::inline]
+pub open spec fn seg_nframes(range: Range<Paddr>) -> int {
+    (range.end - range.start) / PAGE_SIZE as int
+}
+
 pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     /// The physical-address range of the segment that this owner corresponds to.
+    ///
+    /// Design B (Arc-style): the owner no longer holds the per-frame slot
+    /// permissions. Each frame's `simple_pptr::PointsTo<MetaSlot>` stays
+    /// canonical in `regions.slots[idx]` and is *borrowed* on drop/next;
+    /// the segment merely contributes one (forgotten) reference per frame.
     pub ghost range: Range<Paddr>,
-    /// The slot-pointer permissions for all frames in the segment.
-    /// Inner permissions for each slot live exclusively in
-    /// `regions.slot_owners[idx].inner_perms`; this `Seq` carries only the
-    /// `simple_pptr::PointsTo<MetaSlot>` per frame.
-    pub perms: Seq<simple_pptr::PointsTo<MetaSlot>>,
     pub _marker: core::marker::PhantomData<M>,
 }
 
@@ -91,20 +96,6 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
         &&& self.range.start % PAGE_SIZE == 0
         &&& self.range.end % PAGE_SIZE == 0
         &&& self.range.start <= self.range.end <= MAX_PADDR
-        &&& self.perms.len() * PAGE_SIZE == self.range.end - self.range.start
-        &&& forall|i: int|
-            #![trigger self.perms[i]]
-            0 <= i < self.perms.len() as int ==> {
-                &&& self.perms[i].addr() == meta_addr(
-                    frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
-                )
-                // Meta slots live in `FRAME_METADATA_RANGE` and are
-                // `META_SLOT_SIZE`-aligned (not `PAGE_SIZE`-aligned, and not
-                // bounded by `MAX_PADDR`).
-                &&& self.perms[i].addr() % META_SLOT_SIZE == 0
-                &&& self.perms[i].addr() < FRAME_METADATA_RANGE.end
-                &&& self.perms[i].is_init()
-            }
     }
 }
 
@@ -126,11 +117,13 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     /// spanning all frames in a segment.
     pub open spec fn relate_regions(self, regions: MetaRegionOwners) -> bool {
         &&& forall|i: int|
-            #![trigger self.perms[i]]
-            0 <= i < self.perms.len() as int ==> {
+            #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
+            0 <= i < seg_nframes(self.range) ==> {
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.slot_owners.contains_key(idx)
-                &&& !regions.slots.contains_key(idx)
+                // Design B: the slot perm is canonical in `regions.slots`
+                // (borrowable), NOT owned by the segment.
+                &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners[idx].raw_count == 1
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
@@ -139,37 +132,53 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 // `(REF_COUNT_MAX, REF_COUNT_UNIQUE)` zone.
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
-                &&& self.perms[i].value().wf(regions.slot_owners[idx])
             }
         &&& forall|i: int, j: int|
-            #![trigger self.perms[i], self.perms[j]]
-            0 <= i < j < self.perms.len() as int ==>
+            #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
+                frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
+            0 <= i < j < seg_nframes(self.range) ==>
                 frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
                     != frame_to_index((self.range.start + j * PAGE_SIZE) as usize)
     }
 
     /// Manually instantiates the [`relate_regions`] forall at a specific index.
-    /// Use this to extract per-frame facts (slot_owner present, raw_count == 1,
-    /// ref_count > 0, perm.value().wf, etc.) without fighting trigger inference.
+    /// Use this to extract per-frame facts (slot_owner present, slot perm in
+    /// `regions.slots`, raw_count == 1, ref_count > 0, etc.) without fighting
+    /// trigger inference.
     pub proof fn relate_regions_at(self, regions: MetaRegionOwners, i: int)
         requires
             self.relate_regions(regions),
-            0 <= i < self.perms.len() as int,
+            0 <= i < seg_nframes(self.range),
         ensures
             ({
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.slot_owners.contains_key(idx)
-                &&& !regions.slots.contains_key(idx)
+                &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners[idx].raw_count == 1
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
-                &&& self.perms[i].value().wf(regions.slot_owners[idx])
             }),
     {
-        // Trigger `#[trigger] self.perms[i]` of the forall.
-        let _ = self.perms[i];
+        // Trigger the forall at index `i`.
+        let _ = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
+    }
+
+    /// Manually instantiates the [`relate_regions`] distinctness forall at a
+    /// specific index pair: distinct in-range frames map to distinct slot
+    /// indices. Reusable lever for `from_unused`/`split`/`slice` proofs.
+    pub proof fn relate_regions_distinct(self, regions: MetaRegionOwners, i: int, j: int)
+        requires
+            self.relate_regions(regions),
+            0 <= i < j < seg_nframes(self.range),
+        ensures
+            frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
+                != frame_to_index((self.range.start + j * PAGE_SIZE) as usize),
+    {
+        // Trigger the distinctness forall at `(i, j)`.
+        let _ = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
+        let _ = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
     }
 }
 
@@ -190,12 +199,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// we convert between physical addresses and meta region indices.
     pub open spec fn wf(&self, owner: &SegmentOwner<M>) -> bool {
         &&& self.range == owner.range
-        &&& owner.perms.len() * PAGE_SIZE == self.range.end - self.range.start
-        &&& forall|i: int|
-            #![trigger owner.perms[i]]
-            0 <= i < owner.perms.len() as int ==> owner.perms[i].addr() == meta_addr(
-                frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
-            )
     }
 
     /// Whether a [`MemView`] covers the segment through the kernel direct mapping.

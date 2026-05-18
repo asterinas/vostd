@@ -252,6 +252,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         ensures
             final(regions).inv(),
             r matches Ok(res) ==> perm@ is Some && MetaSlot::get_from_unused_perm_spec(paddr, metadata, false, res.ptr, perm@.unwrap()),
+            // Design B: expose the perm's well-formedness against the post
+            // slot owner so callers (Arc-style `Segment`) can re-park the
+            // perm into `regions.slots` and re-establish `regions.inv()`.
+            r matches Ok(res) ==> perm@ is Some && perm@.unwrap().value().wf(
+                final(regions).slot_owners[frame_to_index(paddr)]),
             r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> r is Err,
     )]
@@ -847,8 +852,11 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
         let ghost old_regions = *regions;
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
-        let tracked perm = regions.slots.tracked_remove(idx);
-        let slot = self.ptr.borrow(Tracked(&perm));
+        // Design B: a shared `Frame` is Arc-like; its `drop` only adjusts
+        // the refcount. The slot permission is *borrowed* from
+        // `regions.slots`, never moved out and back.
+        let tracked perm = regions.slots.tracked_borrow(idx);
+        let slot = self.ptr.borrow(Tracked(perm));
 
         // Snapshot of the slot's pre-drop state for the strengthened
         // `drop_ensures` (refcount transition + identity preservation).
@@ -923,7 +931,6 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
 
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);
-            regions.slots.tracked_insert(idx, perm);
 
             assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i]
                 == old_regions.slot_owners[i] by {}

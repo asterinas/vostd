@@ -289,6 +289,12 @@ impl MetaSlot {
         ensures
             final(regions).inv(),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
+            // Design B: the returned perm is well-formed against the
+            // (post) slot owner. This lets callers re-park the perm into
+            // `regions.slots` and re-establish `regions.inv()` (the
+            // Arc-style `Segment` path needs this).
+            res matches Ok((res, perm)) ==> perm@.value().wf(
+                final(regions).slot_owners[frame_to_index(paddr)]),
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
             // If we can make the failure conditions exhaustive, we can add this as a liveness condition.
             !has_safe_slot(paddr) ==> res is Err,
@@ -359,6 +365,12 @@ impl MetaSlot {
 
         proof {
             slot_own.usage = PageUsage::Frame;
+            // wf is purely an id/pptr equality between the slot's cell
+            // handles and `slot_own.inner_perms`; CAS / `write_meta` /
+            // `store` mutate values but preserve those ids, so the perm
+            // stays well-formed against the final slot owner. Exposed via
+            // the strengthened `ensures` for Design-B re-park callers.
+            assert(slot_perm.value().wf(slot_own));
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
             assert(regions.inv());
         }
@@ -487,7 +499,10 @@ impl MetaSlot {
         }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-        let tracked mut slot_perm = regions.slots.tracked_remove(frame_to_index(paddr));
+        // Design B: the shared `Frame` path *borrows* the slot permission
+        // from `regions.slots` — it is never moved out (an in-use frame is
+        // Arc-like and `get_from_in_use` only bumps the refcount).
+        let tracked slot_perm = regions.slots.tracked_borrow(frame_to_index(paddr));
 
         let ghost pre = slot_own.inner_perms.ref_count.value();
 
@@ -502,7 +517,7 @@ impl MetaSlot {
                 regions0.slots.contains_key(frame_to_index(paddr)),
                 regions0.slot_owners.contains_key(frame_to_index(paddr)),
                 regions0.inv(),
-                regions0.slots[frame_to_index(paddr)] == slot_perm,
+                regions0.slots[frame_to_index(paddr)] == *slot_perm,
                 // Preserved fields of slot_own for inv() and wf() proofs
                 slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
                 slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
@@ -534,11 +549,11 @@ impl MetaSlot {
                 regions0 == *old(regions),
                 // slot pptr matches what postcondition expects
                 slot == regions0.slots[frame_to_index(paddr)].pptr(),
-                // regions state: slot_owners and slots have idx removed
+                // regions state: slot_owners has idx removed; slots borrowed (unchanged)
                 regions.slot_owners == regions0.slot_owners.remove(frame_to_index(paddr)),
-                regions.slots == regions0.slots.remove(frame_to_index(paddr)),
+                regions.slots == regions0.slots,
         {
-            match #[verus_spec(with Tracked(&slot_perm), Tracked(&mut slot_own.inner_perms))]
+            match #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms))]
             Self::get_from_in_use_loop(slot) {
                 Err(GetFrameError::Retry) => {
                     core::hint::spin_loop();
@@ -597,7 +612,6 @@ impl MetaSlot {
                             assert(slot_own.inner_perms.in_list == orig.inner_perms.in_list);
                         }
                         regions.slot_owners.tracked_insert(idx, slot_own);
-                        regions.slots.tracked_insert(idx, slot_perm);
 
                         assert(regions.slot_owners.dom() =~= regions0.slot_owners.dom());
                         assert(regions.slots =~= regions0.slots);
@@ -620,7 +634,7 @@ impl MetaSlot {
                             == regions0.slot_owners[idx].raw_count);
 
                         // For ptr postcondition: slot_perm.pptr() == old(regions).slots[idx].pptr()
-                        assert(slot_perm == regions0.slots[idx]);
+                        assert(*slot_perm == regions0.slots[idx]);
 
                         // For Err ==> *regions == *old(regions)
                         if res is Err {
