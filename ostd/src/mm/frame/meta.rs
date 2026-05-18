@@ -285,7 +285,13 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            old(regions).slots.contains_key(frame_to_index(paddr)),
+            // Weakened from an unconditional `slots.contains_key`: an
+            // out-of-bound / misaligned `paddr` is *not* a precondition
+            // violation — `get_slot` returns `Err` before `regions` is
+            // touched (no panic). The slot perm is only needed on the
+            // in-bound (`has_safe_slot`) path, where the unconditional
+            // `tracked_remove` is actually reached.
+            has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
             final(regions).inv(),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
@@ -307,9 +313,12 @@ impl MetaSlot {
         let slot = get_slot(paddr)?;
 
         proof {
-            if has_safe_slot(paddr) {
-                regions.inv_implies_correct_addr(paddr);
-            }
+            // `get_slot` ensures `has_safe_slot(paddr) <==> res is Ok`;
+            // the `?` continued, so `has_safe_slot(paddr)`. This fires
+            // the (now `has_safe_slot`-guarded) `slots.contains_key`
+            // precondition and supplies `slot_owners.contains_key`.
+            assert(has_safe_slot(paddr));
+            regions.inv_implies_correct_addr(paddr);
         }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
@@ -475,11 +484,19 @@ impl MetaSlot {
             // `panic_diverge`s when the count would saturate (the real Rust
             // panic) and propagates `Ok ==> ref_count <= REF_COUNT_MAX`, from
             // which `MetaSlotOwner::inv` is re-established.
-            old(regions).slots.contains_key(frame_to_index(paddr)),
-            old(regions).slot_owners.contains_key(frame_to_index(paddr)),
-            old(regions).slots[frame_to_index(paddr)].addr() == frame_to_meta(paddr),
-            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id() ==
-                old(regions).slots[frame_to_index(paddr)].value().ref_count.id(),
+            //
+            // All slot-perm facts are `has_safe_slot`-guarded: an
+            // out-of-bound / misaligned `paddr` is not a precondition
+            // violation (`get_slot` returns `Err` before `regions` is
+            // touched — no panic). The perm is only needed on the
+            // in-bound path, where `tracked_remove`/`tracked_borrow` run.
+            has_safe_slot(paddr) ==> {
+                &&& old(regions).slots.contains_key(frame_to_index(paddr))
+                &&& old(regions).slot_owners.contains_key(frame_to_index(paddr))
+                &&& old(regions).slots[frame_to_index(paddr)].addr() == frame_to_meta(paddr)
+                &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id()
+                    == old(regions).slots[frame_to_index(paddr)].value().ref_count.id()
+            },
         ensures
             final(regions).inv(),
             !has_safe_slot(paddr) ==> res is Err,
@@ -493,9 +510,9 @@ impl MetaSlot {
 
         let slot = get_slot(paddr)?;
 
-        // get_slot doesn't modify regions
         proof {
             assert(regions0 == *old(regions));
+            assert(has_safe_slot(paddr));
         }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));

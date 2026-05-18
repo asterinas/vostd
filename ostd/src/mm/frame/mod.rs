@@ -248,7 +248,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             -> perm: Tracked<Option<vstd::simple_pptr::PointsTo<MetaSlot>>>
         requires
             old(regions).inv(),
-            old(regions).slots.contains_key(frame_to_index(paddr)),
+            // `has_safe_slot`-guarded (see `MetaSlot::get_from_unused`):
+            // an out-of-bound / misaligned `paddr` returns `Err` without
+            // touching `regions`, so it is not a precondition violation.
+            has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
             final(regions).inv(),
             r matches Ok(res) ==> perm@ is Some && MetaSlot::get_from_unused_perm_spec(paddr, metadata, false, res.ptr, perm@.unwrap()),
@@ -330,7 +333,10 @@ impl<M: AnyFrameMeta> Frame<M> {
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
         requires
             old(regions).inv(),
-            old(regions).slots.contains_key(frame_to_index(paddr)),
+            // `has_safe_slot`-guarded (see `MetaSlot::get_from_in_use`):
+            // an out-of-bound / misaligned `paddr` returns `Err` without
+            // touching `regions`, so it is not a precondition violation.
+            has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
             // Refcount saturation is NOT a precondition: on saturation
             // `MetaSlot::get_from_in_use` `panic_diverge`s (the real Rust
             // panic, documented at the `## Liveness` clause above).

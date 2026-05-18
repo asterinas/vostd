@@ -40,7 +40,8 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::{MetaSlot, UFrame};
+use crate::mm::frame::{has_safe_slot, MetaSlot, UFrame};
+use crate::specs::mm::io::VmIoOwner;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
@@ -217,10 +218,11 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // `FrameDrop` / `Segment` only shared-borrow it, and every
         // region-mutating cursor op (`Map`/`Unmap`/`ProtectNext`) touches
         // `slot_owners` (refcount / `paths_in_pt`) but never the `slots`
-        // map domain. This is what lets [`op_pre`] state the
-        // `FrameFromUnused` / `FrameFromInUse` precondition as a clean
-        // paddr-index bound rather than an opaque `slots.contains_key`
-        // (#2 / #3b): the membership fact is recovered from this clause.
+        // map domain. This is what lets [`op_pre`] for `FrameFromUnused`
+        // / `FrameFromInUse` be literally `true` (#2 / #3b fully
+        // resolved): the `has_safe_slot`-guarded slot-perm precondition
+        // of the relaxed exec / axiom is recovered from this clause for
+        // the in-bound case and is vacuous out-of-bound.
         &&& forall|idx: usize|
                 idx < max_meta_slots() ==> #[trigger] self.regions.slots.contains_key(idx)
         &&& self.tlb_model.inv()
@@ -255,10 +257,12 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // remaining frame-side precondition is `frame::drop_pre`,
         // checked explicitly in [`op_pre`] for `Op::FrameDrop`.
         //
-        // #4 (vs the now-resolved #2/#3b): #2/#3b's opaque
-        // `slots.contains_key` is *gone* — recovered from the coverage
-        // clause above, so `op_pre` states only a clean paddr-index
-        // bound. `drop_pre` is the analogous faithful mirror of
+        // #4 (vs the now-fully-resolved #2/#3b): #2/#3b's
+        // `slots.contains_key` is *gone* — the exec / axiom `requires`
+        // was relaxed to a `has_safe_slot`-guarded form (a bad `paddr`
+        // returns `Err` without touching `regions`), so `op_pre` for
+        // `FrameFromUnused`/`FrameFromInUse` is literally `true`.
+        // `drop_pre` is the analogous faithful mirror of
         // `Frame::drop_requires`, but it carries a *refcount* obligation,
         // not just slot membership. Internalising it as
         // `forall fid: drop_pre(regions, frames[fid].paddr)` additionally
@@ -406,23 +410,20 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             && source != dest
             && s.vm_ios[source].is_kernel_reader()
             && s.vm_ios[dest].is_kernel_writer(),
-        // RESOLVED (#2): the precondition is now a clean paddr-index
-        // bound — the caller may only name a slot inside the metadata
-        // region. The opaque `slots.contains_key` ghost-state conjunct
-        // is gone: it is *recovered* in [`step_frame_from_unused`] from
-        // `VmStore::inv`'s slot-perm coverage clause (sound because the
-        // embedding has no perm-extracting `Op`; `from_unused` re-parks
-        // — see [`frame::frame_from_unused_embedded`]). A bad in-range
-        // paddr (slot not UNUSED) still just fails (axiom `None`).
-        Op::FrameFromUnused { paddr } =>
-            frame_to_index_spec(paddr) < max_meta_slots(),
-        // RESOLVED (#3b): same paddr-index bound, same recovery in
-        // [`step_frame_from_in_use`]. Refcount saturation is NOT
-        // precluded: exec `MetaSlot::get_from_in_use` `panic_diverge`s
-        // on saturation (the real Rust panic), so it is sound for the
-        // embedding to omit it.
-        Op::FrameFromInUse { paddr } =>
-            frame_to_index_spec(paddr) < max_meta_slots(),
+        // FULLY RESOLVED (#2): *no* precondition. Any `paddr` is
+        // accepted; a bad (out-of-bound / misaligned / non-UNUSED) one
+        // just fails — the exec returns `Err` *without* touching
+        // `regions` (`get_slot` early-returns; no panic). The relaxed,
+        // `has_safe_slot`-guarded exec/axiom `requires` is discharged in
+        // [`step_frame_from_unused`] from `VmStore::inv`'s coverage
+        // clause for the in-bound case and is vacuous out-of-bound.
+        Op::FrameFromUnused { paddr: _ } => true,
+        // FULLY RESOLVED (#3b): same as `FrameFromUnused`. Refcount
+        // saturation is also not precluded: exec
+        // `MetaSlot::get_from_in_use` `panic_diverge`s on saturation
+        // (the real Rust panic), so it is sound for the embedding to
+        // omit it.
+        Op::FrameFromInUse { paddr: _ } => true,
         // FAITHFUL (#4): `drop_pre` is NOT too strong — it is
         // `Frame::drop_requires` verbatim (the genuine safety contract
         // for releasing a handle: live shared-`Frame` slot, perm parked
@@ -926,14 +927,18 @@ proof fn step_write<'rcu>(
 proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
     requires
         old(s).inv(),
-        frame_to_index_spec(paddr) < max_meta_slots(),
     ensures final(s).inv()
 {
-    // `slots.contains_key` is recovered from `VmStore::inv`'s coverage
-    // clause + the clean paddr-index bound (#2): the embedding never
-    // permanently extracts a slot perm, so every in-region slot is
-    // parked in `regions.slots`.
-    assert(s.regions.slots.contains_key(frame_to_index_spec(paddr)));
+    // `op_pre` is now `true` for this op (#2 fully resolved): *any*
+    // `paddr` is accepted, a bad one just fails. The axiom's only
+    // slot-perm precondition is `has_safe_slot`-guarded; we discharge
+    // it for the in-bound case from `VmStore::inv`'s coverage clause
+    // (`inv_implies_correct_addr` → `idx < max_meta_slots()` → coverage
+    // → `slots.contains_key`), and it is vacuous out-of-bound.
+    if has_safe_slot(paddr) {
+        s.regions.inv_implies_correct_addr(paddr);
+        assert(s.regions.slots.contains_key(frame_to_index_spec(paddr)));
+    }
     let tracked res = frame::from_unused_step(&mut s.regions, paddr);
     match res {
         Option::Some(entry) => {
@@ -948,12 +953,16 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
 proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
     requires
         old(s).inv(),
-        frame_to_index_spec(paddr) < max_meta_slots(),
     ensures final(s).inv()
 {
-    // See `step_frame_from_unused`: `slots.contains_key` is recovered
-    // from `VmStore::inv`'s coverage clause (#3b).
-    assert(s.regions.slots.contains_key(frame_to_index_spec(paddr)));
+    // See `step_frame_from_unused`: `op_pre` is `true` (#3b resolved);
+    // the `has_safe_slot`-guarded slot-perm precondition is recovered
+    // from `VmStore::inv`'s coverage clause for the in-bound case and
+    // is vacuous out-of-bound.
+    if has_safe_slot(paddr) {
+        s.regions.inv_implies_correct_addr(paddr);
+        assert(s.regions.slots.contains_key(frame_to_index_spec(paddr)));
+    }
     let tracked res = frame::from_in_use_step(&mut s.regions, paddr);
     match res {
         Option::Some(entry) => {

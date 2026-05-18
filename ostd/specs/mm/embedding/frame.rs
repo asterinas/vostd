@@ -30,7 +30,7 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::MetaSlot;
+use crate::mm::frame::{has_safe_slot, MetaSlot};
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
 use crate::specs::mm::frame::mapping::frame_to_index_spec;
@@ -66,9 +66,17 @@ pub axiom fn frame_from_unused_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+        // `has_safe_slot`-guarded, mirroring the relaxed exec
+        // `Frame::from_unused` `requires`: an out-of-bound / misaligned
+        // `paddr` is not a precondition violation — it returns `Err`
+        // (here `None`) without touching `regions`.
+        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
     ensures
         final(regions).inv(),
+        // Liveness, mirroring exec `!has_safe_slot(paddr) ==> r is Err`:
+        // a bad `paddr` always fails (and leaves `regions` unchanged via
+        // the `None` branch below).
+        !has_safe_slot(paddr) ==> res is None,
         // Success branch is conditioned on the slot being unused
         // (per `get_from_unused_reparked_spec` recommends + the body's
         // `MetaSlot::get_from_unused` failing otherwise). The reparked
@@ -94,13 +102,18 @@ pub axiom fn frame_from_in_use_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+        // `has_safe_slot`-guarded, mirroring the relaxed exec
+        // `Frame::from_in_use` `requires`: a bad `paddr` returns `Err`
+        // (here `None`) without touching `regions`.
+        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
         // Refcount saturation is NOT required: exec
         // `MetaSlot::get_from_in_use` `panic_diverge`s on saturation
         // (the real Rust panic) — see the relaxed exec `requires`. This
         // axiom soundly models the returning path.
     ensures
         final(regions).inv(),
+        // Liveness, mirroring exec `!has_safe_slot(paddr) ==> res is Err`.
+        !has_safe_slot(paddr) ==> res is None,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         // `from_in_use` only `inc_ref_count`s — it never touches the
@@ -193,9 +206,10 @@ pub(super) proof fn from_unused_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
     ensures
         final(regions).inv(),
+        !has_safe_slot(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_unused_reparked_spec(
             paddr,
@@ -223,10 +237,11 @@ pub(super) proof fn from_in_use_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
         // Saturation `panic_diverge`s in exec — not a precondition.
     ensures
         final(regions).inv(),
+        !has_safe_slot(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
