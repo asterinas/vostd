@@ -47,7 +47,9 @@ use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::{Paddr, Vaddr, MAX_USERSPACE_VADDR};
 use crate::specs::mm::frame::mapping::{frame_to_index_spec, max_meta_slots};
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
+use crate::specs::mm::frame::meta_owners::{
+    PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::io::VmIoOwner;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
@@ -80,6 +82,17 @@ pub type FrameId = int;
 /// `+1` to that slot's `inner_perms.ref_count`.
 pub tracked struct FrameEntry {
     pub paddr: Paddr,
+}
+
+/// Number of outstanding `Frame` handles whose paddr maps to slot
+/// `idx` — i.e. the `#handles(idx)` term of the exact reference-count
+/// accounting `ref_count(idx) == #handles(idx) + paths_in_pt(idx).len()`
+/// (Stage 5 / full #4). Well-defined as a `nat` only when
+/// `frames.dom()` is finite, which [`VmStore::inv`] maintains.
+pub open spec fn handle_count(frames: Map<FrameId, FrameEntry>, idx: usize) -> nat {
+    frames.dom().filter(
+        |fid: FrameId| frame_to_index_spec(frames[fid].paddr) == idx,
+    ).len()
 }
 
 /// Whether a [`VmIoOwner`] backs a `VmReader` or a `VmWriter`.
@@ -278,6 +291,49 @@ impl<'a, 'rcu> VmStore<'rcu> {
         &&& forall|fid: FrameId|
                 #[trigger] self.frames.dom().contains(fid)
                     ==> has_safe_slot(self.frames[fid].paddr)
+        // `frames.dom()` is finite (built by finitely many `insert_frame`
+        // from an empty map; never an infinite `choose`). Needed for
+        // [`handle_count`] (`Set::len`) to be a well-defined `nat` in the
+        // Stage-5 accounting clause.
+        &&& self.frames.dom().finite()
+        // Stage 5 / full #4 — EXACT reference-count accounting.
+        //
+        // `paths_in_pt` is finite for every slot (map inserts one path,
+        // unmap removes one — Stage 2; starts empty). Needed so
+        // `paths_in_pt.len()` is a well-defined `nat`.
+        &&& forall|idx: usize|
+                idx < max_meta_slots()
+                    ==> #[trigger] self.regions.slot_owners[idx].paths_in_pt.finite()
+        // The accounting equation, scoped to *active-head* tracked data
+        // frames: `usage == Frame` (excludes PT nodes — different rc
+        // semantics — and MMIO), and the slot is an active head
+        // (`#handles > 0 || #mappings > 0`). The active-head restriction
+        // sidesteps huge-page sub-page slots (j>0): those have `H==0`,
+        // `paths.len()==0`, yet `rc>0` via `frame_sub_pages_valid`, so
+        // they are *not* active heads and the equation does not apply to
+        // them (and `op_pre[FrameDrop]` never targets a sub-page — a
+        // `FrameEntry` paddr is always a head).
+        //
+        // For an active head: `rc` is neither sentinel, equals
+        // `#handles + #mappings`, and the slot's metadata storage is
+        // initialised (it is in use). From this, `drop_pre_residual`
+        // (`rc>0`, `rc<=MAX`, `rc==1 ==> storage.is_init()`) is fully
+        // derivable for any `FrameEntry`, collapsing `op_pre[FrameDrop]`
+        // to mere id-existence (full #4).
+        &&& forall|idx: usize|
+                #![trigger self.regions.slot_owners[idx]]
+                idx < max_meta_slots()
+                && self.regions.slot_owners[idx].usage == PageUsage::Frame
+                && (handle_count(self.frames, idx) > 0
+                    || self.regions.slot_owners[idx].paths_in_pt.len() > 0)
+                    ==> {
+                    let so = self.regions.slot_owners[idx];
+                    let rc = so.inner_perms.ref_count.value();
+                    &&& rc != REF_COUNT_UNUSED
+                    &&& rc != REF_COUNT_UNIQUE
+                    &&& rc == handle_count(self.frames, idx) + so.paths_in_pt.len()
+                    &&& so.inner_perms.storage.is_init()
+                }
         //
         // #4 (vs the fully-resolved #2/#3b): `op_pre[FrameDrop]` is now
         // reduced to the genuine *refcount residual* only — `ref_count
@@ -612,7 +668,14 @@ impl<'rcu> VmStore<'rcu> {
             res == old(self).frames[fid],
             final(self).inv(),
     {
-        self.frames.tracked_remove(fid)
+        let tracked r = self.frames.tracked_remove(fid);
+        // STAGE-5 SCAFFOLD (admit): the accounting clause couples
+        // `handle_count` (this removal) with the slot's `ref_count`,
+        // which a generic frames-only helper cannot re-establish.
+        // Resolved by splitting `inv()` into structural vs accounting
+        // (Stage 5.5) so helpers ensure only the structural part.
+        admit();
+        r
     }
 
     /// Inserts a FrameEntry at the given fresh id. Requires the entry's
@@ -639,6 +702,9 @@ impl<'rcu> VmStore<'rcu> {
             final(self).inv(),
     {
         self.frames.tracked_insert(fid, entry);
+        // STAGE-5 SCAFFOLD (admit): see `extract_frame` — accounting
+        // couples this insert with the slot's `ref_count`.
+        admit();
     }
 }
 
@@ -715,6 +781,12 @@ proof fn step_new_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>)
     let tracked owner = vm_space::new_vm_space_step(&mut s.regions);
     let ghost id = fresh_vm_space_id(s.vm_spaces);
     axiom_fresh_vm_space_id_not_in_dom(s.vm_spaces);
+    // STAGE-5 SCAFFOLD (admit): `vm_space_new_embedded` allocates PT
+    // nodes only (usage != Frame); it must additionally expose that
+    // Frame-slot `ref_count`/`paths_in_pt` are preserved so the
+    // accounting clause chains (the `insert_vm_space` precondition
+    // `old(self).inv()` needs it). Discharged in Stage 5.3 (axiom delta).
+    admit();
     s.insert_vm_space(id, owner);
 }
 
@@ -755,6 +827,10 @@ proof fn step_open_cursor<'rcu>(
         },
         Option::None => {},
     }
+    // STAGE-5 SCAFFOLD (admit): `open_cursor` may allocate PT nodes
+    // (usage != Frame); must expose Frame-slot rc/paths preservation
+    // for the accounting clause. Discharged in Stage 5.3.
+    admit();
 }
 
 proof fn step_drop_cursor<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
@@ -947,6 +1023,11 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
         Option::Some(entry) => {
             let ghost id = fresh_frame_id(s.frames);
             axiom_fresh_frame_id_not_in_dom(s.frames);
+            // STAGE-5 SCAFFOLD (admit): on Some, `from_unused` set rc
+            // UNUSED→1; adding this handle makes the slot an active
+            // head needing `rc==H+P` (=1==1+0). Re-derived from the
+            // `from_unused` axiom's rc/usage/storage facts in Stage 5.5.
+            admit();
             s.insert_frame(id, entry);
         },
         Option::None => {},
@@ -971,6 +1052,10 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
         Option::Some(entry) => {
             let ghost id = fresh_frame_id(s.frames);
             axiom_fresh_frame_id_not_in_dom(s.frames);
+            // STAGE-5 SCAFFOLD (admit): on Some, `from_in_use` did
+            // rc+=1; adding this handle keeps `rc==H+P` (both +1).
+            // Discharged in Stage 5.5.
+            admit();
             s.insert_frame(id, entry);
         },
         Option::None => {},
@@ -997,6 +1082,11 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     assert(frame::drop_pre(s.regions, p));
     let tracked entry = s.extract_frame(fid);
     frame::drop_step(&mut s.regions, entry);
+    // STAGE-5 SCAFFOLD (admit): drop removes one handle and `drop_step`
+    // does rc-=1 (or 1→UNUSED teardown); `rc==H+P` is preserved (both
+    // sides -1, or slot leaves the active-head set). Discharged in
+    // Stage 5.5.
+    admit();
 }
 
 // =============================================================================
