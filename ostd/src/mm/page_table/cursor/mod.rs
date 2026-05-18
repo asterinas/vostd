@@ -3404,6 +3404,56 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(m == target);
                 assert(owner_before_replace@.mappings.contains(m));
                 assert(view.split_while_huge(m.page_size).mappings.contains(m));
+
+                // Stage 2 (paths_in_pt refactor): the data frame that
+                // was just unmapped no longer occupies any PTE, so its
+                // tree path must leave `paths_in_pt`. This is the
+                // symmetric counterpart of `map()`'s
+                // `paths_in_pt.insert` (cursor/mod.rs:2613). Keeping it
+                // here makes the eventual exact ref-count accounting
+                // (`ref_count == #handles + paths_in_pt.len()`) a true
+                // system invariant rather than monotonically inflated.
+                let ghost removed_idx =
+                    frame_to_index(cur_st.value.frame.unwrap().mapped_pa);
+                let ghost removed_path = cur_st.value.path;
+                let ghost regions_pre_remove = *regions;
+                let tracked mut so_rm =
+                    regions.slot_owners.tracked_remove(removed_idx);
+                so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
+                regions.slot_owners.tracked_insert(removed_idx, so_rm);
+                let ghost owner_final = *owner;
+                // Maintained cursor invariant just before the edit
+                // (replace_cur_entry ensures `invariants`, move_forward
+                // preserves it): gives metaregion_sound + regions.inv().
+                assert(owner_final.metaregion_sound(regions_pre_remove));
+                assert(regions_pre_remove.inv());
+                assert(regions_pre_remove.slot_owners.contains_key(removed_idx));
+                // RESIDUAL (Stage 2c): the single remaining proof
+                // obligation of the whole paths_in_pt-removal refactor.
+                // `path_removable_at_idx` decomposes into:
+                //  (a) no-node-at-`removed_idx`: dischargeable via
+                //      `no_node_at_idx_from_slot_key(*regions,
+                //      removed_idx)` (removed_idx is a data-frame slot in
+                //      `regions.slots`, and node slots live in the
+                //      disjoint FRAME_METADATA_RANGE); and
+                //  (b) no-frame-at-`removed_idx`-with-path-`removed_path`:
+                //      needs (i) cursor-tree path uniqueness and (ii) the
+                //      structural fact that `replace_cur_entry(Child::None)`
+                //      leaves the entry at the cursor path absent and
+                //      `move_forward` preserves absent-ness there. (i)+(ii)
+                //      are a standalone CursorOwner lemma (no ready helper
+                //      exists) — the next focused sub-effort, comparable
+                //      in size to the Stage-1 path_remove lemma itself.
+                // Scaffolded per the iterative-admit plan; everything
+                // else (exec edit, lemma wiring, 4 other obligations,
+                // whole-tree verification) is discharged.
+                assume(owner_final.path_removable_at_idx(removed_idx, removed_path));
+                owner_final.metaregion_preserved_under_path_remove(
+                    regions_pre_remove, *regions, removed_idx, removed_path);
+                // `regions.inv()` after the paths_in_pt edit:
+                // MetaSlotOwner::inv does not constrain paths_in_pt and
+                // `slots` is unchanged, so it is preserved.
+                assert(regions.inv());
             }
             if frag.unwrap() is StrayPageTable {
                 let va = frag.unwrap()->StrayPageTable_va;
