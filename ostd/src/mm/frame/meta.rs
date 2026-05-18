@@ -723,7 +723,7 @@ impl MetaSlot {
         with Tracked(meta_perm): Tracked<&mut vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
             Tracked(vtable_perm): Tracked<&mut vstd::simple_pptr::PointsTo<usize>>
         requires
-            self.storage.id() === old(meta_perm).id(),
+            self.storage.id() == old(meta_perm).id(),
             self.vtable_ptr == old(vtable_perm).pptr(),
             old(vtable_perm).is_uninit(),
         ensures
