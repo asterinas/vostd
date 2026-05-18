@@ -225,6 +225,21 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // the in-bound case and is vacuous out-of-bound.
         &&& forall|idx: usize|
                 idx < max_meta_slots() ==> #[trigger] self.regions.slots.contains_key(idx)
+        // `raw_count` / `in_list` coverage (Design B, #4 partial). Same
+        // soundness shape as the slot-perm coverage above: NOT globally
+        // true, but true *here* because the embedding's `Op` surface has
+        // no `into_raw`/`from_raw`/`ManuallyDrop` op (so `raw_count`
+        // never leaves 0) and no allocator/free-list op (so `in_list`
+        // never leaves 0). Internalising these discharges `drop_pre`'s
+        // `raw_count == 0` and the `in_list == 0` half of its last-ref
+        // teardown conjunct, so `op_pre[FrameDrop]` keeps only the
+        // genuine refcount residual (see [`op_pre`] / [`step_frame_drop`]).
+        &&& forall|idx: usize|
+                idx < max_meta_slots()
+                    ==> #[trigger] self.regions.slot_owners[idx].raw_count == 0
+        &&& forall|idx: usize|
+                idx < max_meta_slots()
+                    ==> #[trigger] self.regions.slot_owners[idx].inner_perms.in_list.value() == 0
         &&& self.tlb_model.inv()
         &&& forall|id: VmSpaceId|
                 #[trigger] self.vm_spaces.dom().contains(id)
@@ -251,29 +266,36 @@ impl<'a, 'rcu> VmStore<'rcu> {
                             ==> (self.vm_ios[id].vaddr as nat)
                                 + (self.vm_ios[id].len as nat)
                                 <= MAX_USERSPACE_VADDR as nat
-        // `frames` is bookkeeping for outstanding `Frame` handles. The
-        // slot-perm *coverage* for those handles is the clause above
-        // (every in-region slot keeps its perm in `regions.slots`); the
-        // remaining frame-side precondition is `frame::drop_pre`,
-        // checked explicitly in [`op_pre`] for `Op::FrameDrop`.
+        // `frames` is bookkeeping for outstanding `Frame` handles. Every
+        // registered handle came from a *successful* `from_unused` /
+        // `from_in_use`, which (post-relaxation) returns `None` unless
+        // `has_safe_slot(paddr)` — so every live `FrameEntry`'s paddr is
+        // in-bound. With the slot-perm / `raw_count` / `in_list`
+        // coverage clauses above, this discharges `drop_pre`'s
+        // `slots.contains_key` (#4-a), `raw_count == 0` (#4-b),
+        // `!= REF_COUNT_UNUSED` (#4-d, from the bound), and the
+        // `in_list == 0` half of the last-ref conjunct (#4-f).
+        &&& forall|fid: FrameId|
+                #[trigger] self.frames.dom().contains(fid)
+                    ==> has_safe_slot(self.frames[fid].paddr)
         //
-        // #4 (vs the now-fully-resolved #2/#3b): #2/#3b's
-        // `slots.contains_key` is *gone* — the exec / axiom `requires`
-        // was relaxed to a `has_safe_slot`-guarded form (a bad `paddr`
-        // returns `Err` without touching `regions`), so `op_pre` for
-        // `FrameFromUnused`/`FrameFromInUse` is literally `true`.
-        // `drop_pre` is the analogous faithful mirror of
-        // `Frame::drop_requires`, but it carries a *refcount* obligation,
-        // not just slot membership. Internalising it as
-        // `forall fid: drop_pre(regions, frames[fid].paddr)` additionally
-        // needs a full reference-count accounting invariant
+        // #4 (vs the fully-resolved #2/#3b): `op_pre[FrameDrop]` is now
+        // reduced to the genuine *refcount residual* only — `ref_count
+        // ∈ [1, MAX]` plus `ref_count == 1 ==> storage.is_init()`. Drop
+        // is a real memory-safety contract (no graceful runtime path:
+        // `Frame::drop` does an unconditional `fetch_sub` + last-ref
+        // `drop_last_in_place` teardown), so unlike #2/#3b it cannot be
+        // relaxed away — only internalised. Fully eliminating the
+        // residual needs the reference-count accounting invariant
         // (`ref_count(p) = #handles(p) + #mappings(p)`) preserved across
-        // `map`/`unmap` ↔ `from_*`/`drop` — a blanket `unmap`
-        // `drop_pre`-preserves is itself unsound (a single mapping with
-        // no handle: `ref_count 1 → 0`). That accounting is the
-        // deliberately-deferred hard invariant; keeping the faithful
-        // `drop_pre` in `op_pre` is the proportionate resolution. See
-        // the `Op::FrameDrop` arm of [`op_pre`] for the full analysis.
+        // `map`/`unmap` ↔ `from_*`/`drop` AND closing the cursor
+        // `item_wf` model gap (map/unmap don't expose their ref_count
+        // effect on frame slots) — a blanket `unmap` drop_pre-preserves
+        // is itself unsound (a single mapping with no handle:
+        // `ref_count 1 → 0`). That accounting is the deliberately
+        // deferred hard invariant; keeping the refcount residual in
+        // `op_pre` is the proportionate partial resolution. See the
+        // `Op::FrameDrop` arm of [`op_pre`] for the full analysis.
     }
 }
 
@@ -410,42 +432,19 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             && source != dest
             && s.vm_ios[source].is_kernel_reader()
             && s.vm_ios[dest].is_kernel_writer(),
-        // FULLY RESOLVED (#2): *no* precondition. Any `paddr` is
-        // accepted; a bad (out-of-bound / misaligned / non-UNUSED) one
-        // just fails — the exec returns `Err` *without* touching
-        // `regions` (`get_slot` early-returns; no panic). The relaxed,
-        // `has_safe_slot`-guarded exec/axiom `requires` is discharged in
-        // [`step_frame_from_unused`] from `VmStore::inv`'s coverage
-        // clause for the in-bound case and is vacuous out-of-bound.
         Op::FrameFromUnused { paddr: _ } => true,
-        // FULLY RESOLVED (#3b): same as `FrameFromUnused`. Refcount
-        // saturation is also not precluded: exec
-        // `MetaSlot::get_from_in_use` `panic_diverge`s on saturation
-        // (the real Rust panic), so it is sound for the embedding to
-        // omit it.
         Op::FrameFromInUse { paddr: _ } => true,
-        // FAITHFUL (#4): `drop_pre` is NOT too strong — it is
-        // `Frame::drop_requires` verbatim (the genuine safety contract
-        // for releasing a handle: live shared-`Frame` slot, perm parked
-        // in `slots`, `raw_count == 0`, `ref_count ∈ [1, MAX]`,
-        // teardown-ready when last).
-        //
-        // Its `slots.contains_key` sub-conjunct is now redundant with
-        // `VmStore::inv`'s coverage clause (the same mechanism that
-        // resolved #2/#3b — `from_unused` re-parks, every region-mutating
-        // axiom is `slots`-preserving). What keeps #4 from collapsing to
-        // `frames.dom().contains(fid)` is the *refcount* sub-conjuncts
-        // (`ref_count ∈ [1, MAX]`, last-ref teardown-ready): deriving
-        // those needs a full reference-count accounting invariant
-        // (`ref_count(p) = #handles(p) + #mappings(p)`) preserved across
-        // `map`/`unmap` ↔ `from_*`/`drop` — a blanket `unmap`
-        // `drop_pre`-preserves is itself unsound (a single-mapping
-        // no-handle frame goes `ref_count 1 → 0`). That accounting is the
-        // deliberately-deferred hard invariant; keeping `drop_pre` here —
-        // a faithful exec mirror — is the proportionate resolution.
+        // #4 PARTIAL: reduced from the full `frame::drop_pre` to the
+        // refcount residual. `slots.contains_key`, `raw_count == 0`,
+        // `!= REF_COUNT_UNUSED`, and `in_list == 0` are now recovered
+        // from `VmStore::inv` (per-`FrameEntry` `has_safe_slot` + the
+        // slot-perm / `raw_count` / `in_list` coverage clauses) in
+        // [`step_frame_drop`]. The remainder (`ref_count ∈ [1, MAX]`,
+        // last-ref `storage.is_init()`) is the genuine safety obligation
+        // that needs the deferred refcount-accounting invariant.
         Op::FrameDrop { fid } =>
             s.frames.dom().contains(fid)
-            && frame::drop_pre(s.regions, s.frames[fid].paddr),
+            && frame::drop_pre_residual(s.regions, s.frames[fid].paddr),
     }
 }
 
@@ -616,8 +615,11 @@ impl<'rcu> VmStore<'rcu> {
         self.frames.tracked_remove(fid)
     }
 
-    /// Inserts a FrameEntry at the given fresh id. The `frames` map is
-    /// purely bookkeeping; no regions-side precondition.
+    /// Inserts a FrameEntry at the given fresh id. Requires the entry's
+    /// paddr be `has_safe_slot` — the per-`FrameEntry` clause of
+    /// [`VmStore::inv`] (#4). Every caller establishes this from the
+    /// `from_*` axioms' `!has_safe_slot ==> None` (a registered handle
+    /// is necessarily in-bound).
     pub proof fn insert_frame(
         tracked &mut self,
         fid: FrameId,
@@ -626,6 +628,7 @@ impl<'rcu> VmStore<'rcu> {
         requires
             old(self).inv(),
             !old(self).frames.dom().contains(fid),
+            has_safe_slot(entry.paddr),
         ensures
             final(self).regions == old(self).regions,
             final(self).tlb_model == old(self).tlb_model,
@@ -978,9 +981,20 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     requires
         old(s).inv(),
         old(s).frames.dom().contains(fid),
-        frame::drop_pre(old(s).regions, old(s).frames[fid].paddr),
+        frame::drop_pre_residual(old(s).regions, old(s).frames[fid].paddr),
     ensures final(s).inv()
 {
+    // Recover the full `frame::drop_pre` from `VmStore::inv` + the
+    // residual (#4 partial). `has_safe_slot(p)` comes from the
+    // per-`FrameEntry` clause (`fid ∈ frames`); it gives
+    // `idx < max_meta_slots()` via `inv_implies_correct_addr`, whence
+    // the coverage / `raw_count` / `in_list` clauses discharge the
+    // internalised conjuncts. `regions` is untouched by `extract_frame`,
+    // so the derived `drop_pre` still holds for `drop_step`.
+    let ghost p = s.frames[fid].paddr;
+    assert(has_safe_slot(p));
+    s.regions.inv_implies_correct_addr(p);
+    assert(frame::drop_pre(s.regions, p));
     let tracked entry = s.extract_frame(fid);
     frame::drop_step(&mut s.regions, entry);
 }

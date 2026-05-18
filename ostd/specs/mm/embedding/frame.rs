@@ -181,6 +181,11 @@ pub axiom fn frame_drop_embedded(
             == old(regions).slot_owners[frame_to_index_spec(paddr)].usage,
         final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt
             == old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt,
+        // `drop` never touches the free-list `in_list` field (the
+        // decrement branch leaves it; `drop_last_in_place` preserves
+        // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
+        final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list,
         old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() == 1
             ==> final(regions).slot_owners[frame_to_index_spec(paddr)]
                 .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
@@ -274,6 +279,21 @@ pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
     }
 }
 
+/// The portion of [`drop_pre`] that is *not* internalised into
+/// `VmStore::inv` (#4 partial resolution): the genuine refcount
+/// obligation, which a simple coverage-style invariant cannot
+/// discharge (it needs the deferred `ref_count = #handles + #mappings`
+/// accounting). The rest of `drop_pre` — `slots.contains_key`,
+/// `raw_count == 0`, `!= REF_COUNT_UNUSED`, and the `in_list == 0`
+/// half of the last-ref conjunct — is recovered from the store
+/// invariant in [`super::step_frame_drop`].
+pub open spec fn drop_pre_residual(regions: MetaRegionOwners, paddr: Paddr) -> bool {
+    let so = regions.slot_owners[frame_to_index_spec(paddr)];
+    &&& so.inner_perms.ref_count.value() > 0
+    &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
+    &&& so.inner_perms.ref_count.value() == 1 ==> so.inner_perms.storage.is_init()
+}
+
 /// Per-op step for `Op::FrameDrop`. The caller has already extracted
 /// the entry from the store. One drop; the single axiom's
 /// refcount-keyed postcondition gives decrement (`> 1`) or
@@ -292,6 +312,13 @@ pub(super) proof fn drop_step(
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index_spec(entry.paddr)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        // `raw_count` / `in_list` preserved at the dropped slot too —
+        // `drop` touches only `ref_count` (+ storage on teardown). Keeps
+        // `VmStore::inv`'s `raw_count` / `in_list` coverage (#4).
+        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].raw_count
+            == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].raw_count,
+        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.in_list
+            == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.in_list,
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {

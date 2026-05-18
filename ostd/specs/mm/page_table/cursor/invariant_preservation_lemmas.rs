@@ -1,8 +1,14 @@
 /// CursorOwner-level preservation lemmas for transient `MetaRegionOwners`
-/// updates that affect at most one slot. Written as preparation for Phase 3b
-/// of the `paths_in_pt` refactor, where map/unmap operations insert or remove
-/// a single tree path from a single frame slot and must show that the global
+/// updates that affect at most one slot. Phase 3b of the `paths_in_pt`
+/// refactor, where map/unmap operations insert or remove a single tree path
+/// from a single frame slot and must show that the global
 /// `Cursor::invariants` survives the edit.
+///
+/// Both directions are now proven: `metaregion_preserved_under_path_insert`
+/// (used by `map`, the huge-page split) and
+/// `metaregion_preserved_under_path_remove` (the foundational lemma the
+/// `unmap` `paths_in_pt.remove` rewrite — Phase 3b stages 2–4 — will use;
+/// the exec/postcondition rewrites that wire it in are still pending).
 ///
 /// Each lemma here lifts [`EntryOwner`]-level preservation facts (from
 /// `entry_owners.rs`) over the full cursor tree.
@@ -253,6 +259,179 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 });
                 cont_entry.metaregion_sound_one_slot_changed(
                     regions0, regions1, changed_idx);
+            }
+        };
+    }
+
+    /// Tree-wide guard for the **removal** of `removed_path` from
+    /// `paths_in_pt[changed_idx]`. Mirror of [`Self::no_node_at_idx`] but
+    /// also rules out any *frame* entry that still maps `changed_idx`
+    /// through exactly `removed_path` — removing that path would break
+    /// such an entry's `metaregion_sound` (`paths_in_pt.contains(path)`).
+    /// A node at `changed_idx` is also excluded (its `paths_in_pt` is a
+    /// singleton, so removal would falsify `== set![path]`). Callers
+    /// (the `unmap` site) satisfy this because the entry whose path is
+    /// being removed has just left the cursor tree.
+    pub open spec fn path_removable_at_idx(
+        self,
+        idx: usize,
+        removed_path: TreePath<NR_ENTRIES>,
+    ) -> bool {
+        &&& self.map_full_tree(
+            |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+                e.meta_slot_paddr() is Some
+                    && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                    ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path))
+        &&& forall |i: int| #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS ==> {
+                let e = self.continuations[i].entry_own;
+                e.meta_slot_paddr() is Some
+                    && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                    ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
+            }
+    }
+
+    /// Preservation of the cursor-level metaregion invariants when the
+    /// only change to `regions` is the **removal** of `removed_path`
+    /// from the `paths_in_pt` set at a single slot. Dual of
+    /// [`Self::metaregion_preserved_under_path_insert`]; the missing
+    /// half of the deferred `paths_in_pt` refactor that `unmap` needs.
+    ///
+    /// Removal is *not* monotone (unlike insert): the guard
+    /// [`Self::path_removable_at_idx`] is what makes it sound — no live
+    /// tree entry still needs `removed_path` at `changed_idx`.
+    pub proof fn metaregion_preserved_under_path_remove(
+        self,
+        regions0: MetaRegionOwners,
+        regions1: MetaRegionOwners,
+        changed_idx: usize,
+        removed_path: TreePath<NR_ENTRIES>,
+    )
+        requires
+            self.inv(),
+            self.metaregion_sound(regions0),
+            regions0.inv(),
+            regions0.slot_owners.contains_key(changed_idx),
+            regions1.slots == regions0.slots,
+            regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
+            forall |i: usize| #![trigger regions1.slot_owners[i]]
+                i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
+            regions1.slot_owners[changed_idx].inner_perms
+                == regions0.slot_owners[changed_idx].inner_perms,
+            regions1.slot_owners[changed_idx].self_addr
+                == regions0.slot_owners[changed_idx].self_addr,
+            regions1.slot_owners[changed_idx].raw_count
+                == regions0.slot_owners[changed_idx].raw_count,
+            regions1.slot_owners[changed_idx].usage
+                == regions0.slot_owners[changed_idx].usage,
+            regions1.slot_owners[changed_idx].paths_in_pt
+                == regions0.slot_owners[changed_idx].paths_in_pt.remove(removed_path),
+            self.path_removable_at_idx(changed_idx, removed_path),
+        ensures
+            self.metaregion_sound(regions1),
+    {
+        let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
+        let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
+        let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+            entry.meta_slot_paddr() is Some
+                && frame_to_index(entry.meta_slot_paddr().unwrap()) == changed_idx
+                ==> !entry.is_node() && (entry.is_frame() ==> entry.path != removed_path);
+        let f_strong = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+            f(entry, path) && guard(entry, path);
+
+        assert(OwnerSubtree::implies(f_strong, g)) by {
+            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && f_strong(entry, path)
+            implies #[trigger] g(entry, path) by {
+                if entry.meta_slot_paddr() is Some {
+                    let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
+                    if eidx != changed_idx {
+                        // Sub-page bridge: for a huge frame whose
+                        // sub_idx == changed_idx, only paths_in_pt changed
+                        // there (inner_perms / usage preserved), so the
+                        // r0 sub-page facts carry to r1.
+                        assert(entry.is_frame() && entry.parent_level > 1 ==> {
+                            let pa = entry.frame.unwrap().mapped_pa;
+                            let nr_pages = page_size(entry.parent_level) / PAGE_SIZE;
+                            forall |j: usize| 0 < j < nr_pages ==> {
+                                let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
+                                sub_idx != changed_idx
+                                || regions1.slot_owners[sub_idx].usage
+                                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
+                                || (
+                                    regions1.slots.contains_key(sub_idx)
+                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                                )
+                            }
+                        });
+                        entry.metaregion_sound_one_slot_changed(
+                            regions0, regions1, changed_idx);
+                    } else {
+                        // eidx == changed_idx: guard ⇒ not a node. If a
+                        // frame, its path ≠ removed_path so the shrunk
+                        // `paths_in_pt` still contains it; the only
+                        // cross-slot conjunct (`frame_sub_pages_valid`)
+                        // is carried by the dedicated own-slot lemma
+                        // (which has the sub-page arithmetic baked in).
+                        assert(!entry.is_node());
+                        if entry.is_frame() {
+                            assert(entry.path != removed_path);
+                            assert(regions0.slot_owners[changed_idx].paths_in_pt
+                                .contains(entry.path));
+                            assert(regions1.slot_owners[changed_idx].paths_in_pt
+                                .contains(entry.path));
+                            entry.frame_sub_pages_valid_preserved_at_own_slot(
+                                regions0, regions1);
+                        }
+                        assert(entry.metaregion_sound(regions1));
+                    }
+                }
+            };
+        };
+
+        self.and_map_full_tree(f, guard);
+        self.map_children_implies(f_strong, g);
+
+        assert forall |i: int| #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS
+        implies
+            self.continuations[i].entry_own.metaregion_sound(regions1)
+        by {
+            let cont_entry = self.continuations[i].entry_own;
+            if cont_entry.meta_slot_paddr() is Some {
+                let eidx = frame_to_index(cont_entry.meta_slot_paddr().unwrap());
+                if eidx != changed_idx {
+                    assert(cont_entry.is_frame() && cont_entry.parent_level > 1 ==> {
+                        let pa = cont_entry.frame.unwrap().mapped_pa;
+                        let nr_pages = page_size(cont_entry.parent_level) / PAGE_SIZE;
+                        forall |j: usize| 0 < j < nr_pages ==> {
+                            let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
+                            sub_idx != changed_idx
+                            || regions1.slot_owners[sub_idx].usage
+                                    == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
+                            || (
+                                regions1.slots.contains_key(sub_idx)
+                                && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                                && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                            )
+                        }
+                    });
+                    cont_entry.metaregion_sound_one_slot_changed(
+                        regions0, regions1, changed_idx);
+                } else {
+                    assert(!cont_entry.is_node());
+                    if cont_entry.is_frame() {
+                        assert(cont_entry.path != removed_path);
+                        assert(regions0.slot_owners[changed_idx].paths_in_pt
+                            .contains(cont_entry.path));
+                        assert(regions1.slot_owners[changed_idx].paths_in_pt
+                            .contains(cont_entry.path));
+                        cont_entry.frame_sub_pages_valid_preserved_at_own_slot(
+                            regions0, regions1);
+                    }
+                    assert(cont_entry.metaregion_sound(regions1));
+                }
             }
         };
     }

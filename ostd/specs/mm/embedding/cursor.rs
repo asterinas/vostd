@@ -91,11 +91,17 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
     ensures
         final(regions).inv(),
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some((c, g)) ==> {
@@ -119,11 +125,17 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
     ensures
         final(regions).inv(),
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some((c, g)) ==> {
@@ -167,11 +179,17 @@ pub axiom fn cursor_query_embedded<'rcu>(
         final(owner).metaregion_sound(*final(regions)),
         !final(owner).popped_too_high,
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -203,11 +221,17 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
         final(owner).metaregion_sound(*final(regions)),
         !final(owner).popped_too_high,
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -244,11 +268,17 @@ pub axiom fn cursor_jump_embedded<'rcu>(
         final(owner).metaregion_sound(*final(regions)),
         !final(owner).popped_too_high,
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -293,11 +323,17 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         !final(owner).popped_too_high,
         final(tlb_model).inv(),
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -334,11 +370,17 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         !final(owner).popped_too_high,
         final(tlb_model).inv(),
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -373,11 +415,17 @@ pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
         final(owner).metaregion_sound(*final(regions)),
         !final(owner).popped_too_high,
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -418,11 +466,17 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
     ensures
         final(regions).inv(),
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some(e) ==> e.inv(),
@@ -474,11 +528,17 @@ pub(super) proof fn cursor_method_step<'rcu>(
         final(regions).inv(),
         final(entry).owner.metaregion_sound(*final(regions)),
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
@@ -517,11 +577,17 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         final(entry).owner.metaregion_sound(*final(regions)),
         final(tlb_model).inv(),
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
@@ -562,11 +628,17 @@ pub(super) proof fn map_step<'rcu>(
         final(entry).owner.metaregion_sound(*final(regions)),
         final(tlb_model).inv(),
         // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region); only `slot_owners`
-        // (refcount / `paths_in_pt`) changes. Preserving the `slots`
-        // domain keeps `VmStore::inv`'s slot-perm coverage clause
-        // chainable across cursor methods (#2 / #3b).
+        // (`slots` is the boot-fixed metadata region) nor the
+        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
+        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable
+        // across cursor methods.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {

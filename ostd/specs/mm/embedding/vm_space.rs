@@ -33,9 +33,14 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners)
         res.inv(),
         // `VmSpace::new` (`create_user_page_table`) allocates a fresh
         // page table; it never touches the boot-fixed metadata slot-perm
-        // map. Preserving the `slots` domain keeps `VmStore::inv`'s
-        // slot-perm coverage clause chainable (#2 / #3b).
+        // map nor the `raw_count` / `in_list` fields. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'a, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -57,9 +62,14 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         res.inv(),
         // `VmSpace::new` (`create_user_page_table`) allocates a fresh
         // page table; it never touches the boot-fixed metadata slot-perm
-        // map. Preserving the `slots` domain keeps `VmStore::inv`'s
-        // slot-perm coverage clause chainable (#2 / #3b).
+        // map nor the `raw_count` / `in_list` fields. Preserving the
+        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
+        // partial) keeps `VmStore::inv`'s coverage clauses chainable.
         final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
         forall|c: CursorOwner<'a, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
