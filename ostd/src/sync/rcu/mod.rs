@@ -1,28 +1,38 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Read-copy update (RCU).
-/* use core::{
-    marker::PhantomData,
-    mem::ManuallyDrop,
-    ops::Deref,
-    ptr::NonNull,
-    sync::atomic::{
-        AtomicPtr,
-        Ordering::{AcqRel, Acquire},
-    },
-};
+use core::marker::PhantomData;
 
+use monitor::{RcuMonitorOwner, RcuMonitorPred};
 use non_null::NonNullPtr;
-use spin::once::Once;
+use vstd::{atomic_ghost::AtomicPtr, prelude::*};
+use vstd_extra::prelude::*;
 
-use self::monitor::RcuMonitor;
-use crate::task::{
-    atomic_mode::{AsAtomicModeGuard, InAtomicMode},
-    disable_preempt, DisabledPreemptGuard,
-};
-
-mod monitor;*/
 pub mod non_null;
-/*
+
+mod monitor;
+
+use crate::task::DisabledPreemptGuard;
+
+pub use self::monitor::RcuMonitor;
+
+use super::Once;
+
+verus! {
+
+broadcast use vstd_extra::external::nonnull::group_nonull_axioms;
+
+exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorOwner, RcuMonitorPred>
+    ensures
+        RCU_MONITOR.wf(),
+        RCU_MONITOR.inv() == RcuMonitorPred,
+{
+    Once::new(Ghost(RcuMonitorPred))
+}
+
+pub fn init() {
+    RCU_MONITOR.init(RcuMonitor::new());
+}
+
 /// A Read-Copy Update (RCU) cell for sharing a pointer between threads.
 ///
 /// The pointer should be a non-null pointer with type `P`, which implements
@@ -61,11 +71,6 @@ pub mod non_null;
 /// ```
 pub struct Rcu<P: NonNullPtr>(RcuInner<P>);
 
-/// A guard that allows access to the pointed data protected by a [`Rcu`].
-#[clippy::has_significant_drop]
-#[must_use]
-pub struct RcuReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
-
 /// A Read-Copy Update (RCU) cell for sharing a _nullable_ pointer.
 ///
 /// This is a variant of [`Rcu`] that allows the contained pointer to be null.
@@ -101,36 +106,116 @@ pub struct RcuReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
 /// ```
 pub struct RcuOption<P: NonNullPtr>(RcuInner<P>);
 
-/// A guard that allows access to the pointed data protected by a [`RcuOption`].
-#[clippy::has_significant_drop]
-#[must_use]
-pub struct RcuOptionReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
-
+struct_with_invariants! {
 /// The inner implementation of both [`Rcu`] and [`RcuOption`].
 struct RcuInner<P: NonNullPtr> {
-    ptr: AtomicPtr<<P as NonNullPtr>::Target>,
+    ptr: AtomicPtr<
+        <P as NonNullPtr>::Target,
+        _,
+        Option<<P as NonNullPtr>::Permission>,
+        _,
+    >,
     // We want to implement Send and Sync explicitly.
     // Having a pointer field prevents them from being implemented
     // automatically by the compiler.
-    _marker: PhantomData<*const P::Target>,
+    _marker: PhantomData<P>,
 }
 
+closed spec fn wf(self) -> bool {
+    invariant on ptr with (_marker) is (
+        v: *mut <P as NonNullPtr>::Target,
+        g: Option<<P as NonNullPtr>::Permission>,
+    ) {
+        match g {
+            Some(perm) => {
+                &&& P::ptr_perm_match(nonnull_from_ptr_mut_spec(v), perm)
+                &&& perm.inv()
+            },
+            None => v@.addr == 0,
+        }
+    }
+}
+}
+
+/// The inner implementation of both [`RcuReadGuard`] and [`RcuOptionReadGuard`].
+struct RcuReadGuardInner<'a, P: NonNullPtr> {
+    obj_ptr: *mut <P as NonNullPtr>::Target,
+    rcu: &'a RcuInner<P>,
+    _inner_guard: DisabledPreemptGuard,
+}
+
+/// A guard that allows access to the pointed data protected by a [`Rcu`].
+#[must_use]
+pub struct RcuReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
+
+/// A guard that allows access to the pointed data protected by a [`RcuOption`].
+#[must_use]
+pub struct RcuOptionReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
+
 // SAFETY: It is apparent that if `P` is `Send`, then `Rcu<P>` is `Send`.
-unsafe impl<P: NonNullPtr> Send for RcuInner<P> where P: Send {}
+#[verifier::external]
+unsafe impl<P: NonNullPtr> Send for RcuInner<P> where P: Send {
+
+}
 
 // SAFETY: To implement `Sync` for `Rcu<P>`, we need to meet two conditions:
 //  1. `P` must be `Sync` because `Rcu::get` allows concurrent access.
 //  2. `P` must be `Send` because `Rcu::update` may obtain an object
 //     of `P` created on another thread.
-unsafe impl<P: NonNullPtr> Sync for RcuInner<P> where P: Send + Sync {}
+#[verifier::external]
+unsafe impl<P: NonNullPtr> Sync for RcuInner<P> where P: Send + Sync {
+
+}
+
+impl<P: NonNullPtr> RcuInner<P> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+}
+
+#[verus_verify]
+impl<P: NonNullPtr + Send> RcuInner<P> {
+    /// Creates a new RCU primitive with the given pointer `pointer`.
+    fn new(pointer: P) -> Self {
+        let (ptr, Tracked(ptr_perm)) = <P as NonNullPtr>::into_raw(pointer);
+        let marker = PhantomData;
+        proof {
+            assert(nonnull_from_ptr_mut_spec(ptr.as_ptr()) == ptr);
+            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(ptr.as_ptr()), ptr_perm));
+            assert(ptr_perm.inv());
+        }
+        let ptr = AtomicPtr::new(Ghost(marker), ptr.as_ptr(), Tracked(Some(ptr_perm)));
+        Self { ptr, _marker: marker }
+    }
+}
+
+} // verus!
+/* use core::{
+    marker::PhantomData,
+    mem::ManuallyDrop,
+    ops::Deref,
+    ptr::NonNull,
+    sync::atomic::{
+        AtomicPtr,
+        Ordering::{AcqRel, Acquire},
+    },
+};
+
+use non_null::NonNullPtr;
+use spin::once::Once;
+
+use self::monitor::RcuMonitor;
+use crate::task::{
+    atomic_mode::{AsAtomicModeGuard, InAtomicMode},
+    disable_preempt, DisabledPreemptGuard,
+};
+
+mod monitor;*/
+/*
 
 impl<P: NonNullPtr + Send> RcuInner<P> {
-    const fn new_none() -> Self {
-        Self {
-            ptr: AtomicPtr::new(core::ptr::null_mut()),
-            _marker: PhantomData,
-        }
-    }
+
 
     fn new(pointer: P) -> Self {
         let ptr = <P as NonNullPtr>::into_raw(pointer).as_ptr();
@@ -197,12 +282,7 @@ impl<P: NonNullPtr> Drop for RcuInner<P> {
     }
 }
 
-/// The inner implementation of both [`RcuReadGuard`] and [`RcuOptionReadGuard`].
-struct RcuReadGuardInner<'a, P: NonNullPtr> {
-    obj_ptr: *mut <P as NonNullPtr>::Target,
-    rcu: &'a RcuInner<P>,
-    _inner_guard: DisabledPreemptGuard,
-}
+
 
 impl<P: NonNullPtr + Send> RcuReadGuardInner<'_, P> {
     fn get(&self) -> Option<P::Ref<'_>> {

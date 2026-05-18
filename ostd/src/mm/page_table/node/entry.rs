@@ -667,8 +667,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // Rebase children's paths from `[i]` (rooted at empty) onto
                 // the cursor path `old_path` so `pt_edge_at`'s
                 // `child.path == parent.path.push_tail(i)` holds.
-                crate::specs::mm::page_table::rebase_freshly_allocated_children(
-                    owner, old_path);
+                crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
                 // From allocated_empty_node_owner: all children are absent.
                 assert(forall|i: int|
                     0 <= i < NR_ENTRIES ==> (#[trigger] owner.children[i]) is Some
