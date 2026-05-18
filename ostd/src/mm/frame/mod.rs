@@ -326,7 +326,9 @@ impl<M: AnyFrameMeta> Frame<M> {
         requires
             old(regions).inv(),
             old(regions).slots.contains_key(frame_to_index(paddr)),
-            !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
+            // Refcount saturation is NOT a precondition: on saturation
+            // `MetaSlot::get_from_in_use` `panic_diverge`s (the real Rust
+            // panic, documented at the `## Liveness` clause above).
         ensures
             final(regions).inv(),
             res is Ok ==>

@@ -344,10 +344,8 @@ pub(super) proof fn read_step(
     requires
         old(source).inv(),
         old(dest).inv(),
-        old(source).vm_space is None,
-        old(source).kind == VmIoKind::Reader,
-        old(dest).vm_space is None,
-        old(dest).kind == VmIoKind::Writer,
+        old(source).is_kernel_reader(),
+        old(dest).is_kernel_writer(),
     ensures
         final(source).vm_space == old(source).vm_space,
         final(source).kind == old(source).kind,
@@ -384,10 +382,8 @@ pub(super) proof fn write_step(
     requires
         old(source).inv(),
         old(dest).inv(),
-        old(source).vm_space is None,
-        old(source).kind == VmIoKind::Reader,
-        old(dest).vm_space is None,
-        old(dest).kind == VmIoKind::Writer,
+        old(source).is_kernel_reader(),
+        old(dest).is_kernel_writer(),
     ensures
         final(source).vm_space == old(source).vm_space,
         final(source).kind == old(source).kind,

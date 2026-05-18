@@ -85,8 +85,10 @@ pub axiom fn frame_from_in_use_embedded(
     requires
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index_spec(paddr)),
-        // exec panics when refcount would saturate (line 297).
-        !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
+        // Refcount saturation is NOT required: exec
+        // `MetaSlot::get_from_in_use` `panic_diverge`s on saturation
+        // (the real Rust panic) — see the relaxed exec `requires`. This
+        // axiom soundly models the returning path.
     ensures
         final(regions).inv(),
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
@@ -203,7 +205,7 @@ pub(super) proof fn from_in_use_step(
     requires
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index_spec(paddr)),
-        !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
+        // Saturation `panic_diverge`s in exec — not a precondition.
     ensures
         final(regions).inv(),
         res matches Some(e) ==> e.paddr == paddr,

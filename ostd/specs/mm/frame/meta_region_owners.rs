@@ -186,15 +186,6 @@ impl MetaRegionOwners {
         assert((frame_to_index_spec(paddr)) < max_meta_slots() as usize);
     }
 
-    pub axiom fn sync_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        tracked &mut self,
-        index: usize,
-        perm: &MetaPerm<M>,
-    )
-        ensures
-            final(self).slots == old(self).slots.insert(index, perm.points_to),
-            final(self).slot_owners == old(self).slot_owners;
-
     pub axiom fn copy_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         tracked &mut self,
         index: usize,
@@ -217,19 +208,6 @@ impl MetaRegionOwners {
     )
         ensures
             final(self).slots == old(self).slots.insert(index, *perm),
-            final(self).slot_owners == old(self).slot_owners;
-
-    /// Take a copy of `slots[index]` out for use by `Frame::into_raw` (which transfers
-    /// the slot-pointer permission to its forgetter). The slot is removed from `slots`.
-    pub axiom fn copy_slot_perm(
-        tracked &mut self,
-        index: usize,
-    ) -> (tracked perm: simple_pptr::PointsTo<MetaSlot>)
-        requires
-            old(self).slots.contains_key(index),
-        ensures
-            perm == old(self).slots[index],
-            final(self).slots == old(self).slots.remove(index),
             final(self).slot_owners == old(self).slot_owners;
 
     /// Inserting a valid frame slot permission into `slots` preserves `inv()`.

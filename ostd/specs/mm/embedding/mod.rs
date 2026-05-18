@@ -8,12 +8,9 @@
 //! single proof-mode dispatcher; it requires `s.inv()` *and* the
 //! per-op precondition [`op_pre`] (which says the ids referenced in
 //! `op` resolve to existing entries with the right cross-store
-//! relationships). Every per-op step takes the relevant *tracked
-//! entries directly* (extracted from the store by helpers like
-//! [`VmStore::extract_cursor`]); the step bodies have neither
-//! preconditions nor `if`-guards on store membership — that burden
-//! lives only in `op_pre` (caller-discharged) and the extract/insert
-//! store helpers.
+//! relationships). `op_pre` contains all preconditions necessary
+//! to dispatch each operation, which makes it the cornerstone of soundness.
+//! See its documentation for analysis.
 //!
 //! # Module layout
 //!
@@ -128,6 +125,26 @@ impl VmIoEntry {
             },
         }
     }
+
+    /// Operand-typing for the Infallible `read`/`write` ops. Exec
+    /// `VmReader::<Infallible>::read` / `VmWriter::<Infallible>::write`
+    /// are *typed* on kernel (`Infallible`) reader/writer handles; the
+    /// embedding proxies "kernel/Infallible" with `vm_space is None` and
+    /// reader-vs-writer with `kind`. These are not runtime preconditions
+    /// — a userspace (Fallible) handle simply cannot be passed where the
+    /// type system demands a kernel one — so they read as a
+    /// well-formedness check on the operand, not a checkable obligation.
+    /// (`inv` already gives `read_view_initialized` / `has_write_view`
+    /// for these cases, exactly what `vm_reader_read_embedded` consumes.)
+    pub open spec fn is_kernel_reader(self) -> bool {
+        &&& self.vm_space is None
+        &&& self.kind == VmIoKind::Reader
+    }
+
+    pub open spec fn is_kernel_writer(self) -> bool {
+        &&& self.vm_space is None
+        &&& self.kind == VmIoKind::Writer
+    }
 }
 
 /// Whether a cursor is a read-only [`Cursor`] or a mutable [`CursorMut`].
@@ -220,6 +237,19 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // and frame-side preconditions (slot key existence, refcount
         // status, etc.) are checked explicitly in [`op_pre`] for the
         // frame variants instead.
+        //
+        // PHASE 4 SCOPING (investigated 2026-05): adding
+        // `forall fid: frame::drop_pre(regions, frames[fid].paddr)`
+        // here breaks ~9 step helpers + `insert_frame` and needs a
+        // `drop_pre`-preserves ensures on every region-mutating
+        // `_embedded` axiom. Crucially, that preserves clause is
+        // *unsound to assert* for the ref-count-incrementing ops
+        // (`map`, `from_in_use`) unless they first model a
+        // saturation `panic_diverge` (Phase-1-style) so the returning
+        // path keeps `ref_count <= REF_COUNT_MAX`. So Phase 4 entails
+        // Phase-1-for-`map` plus the cross-cutting invariant — a
+        // dedicated effort, not a localized fix. Deferred with this
+        // precise rationale (the original deferral was correct).
     }
 }
 
@@ -296,6 +326,11 @@ pub enum Op {
 ///
 /// [`step`] requires `op_pre(*old(s), op)`. Callers must establish the
 /// precondition for the specific Op variant they're about to apply.
+///
+/// SOUNDNESS: when we're done building this model, `op_pre` must be
+/// permissive enough to permit every possible call trace. That means
+/// that these conditions should reduce to
+/// "the relevant objects exist in the store".
 pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
     match op {
         Op::NewVmSpace => true,
@@ -310,22 +345,10 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         Op::OpenCursor { vs, va: _ } => s.vm_spaces.dom().contains(vs),
         Op::OpenCursorMut { vs, va: _ } => s.vm_spaces.dom().contains(vs),
         Op::DropCursor { c } => s.cursors.dom().contains(c),
-        // exec `Cursor::query` / `CursorMut::query` does NOT require
-        // `owner.in_locked_range()` — an out-of-range cursor is handled
-        // by a graceful `Err` (exec `requires` relaxed accordingly).
         Op::Query { c } => s.cursors.dom().contains(c),
         Op::FindNext { c, len: _ } => s.cursors.dom().contains(c),
-        // exec `Cursor::jump` / `CursorMut::jump` does NOT require
-        // `owner.in_locked_range()` — the exec `requires` was relaxed; a
-        // drifted cursor that cannot be repositioned aborts via a sound
-        // `panic_diverge` (mirroring the real `pop_level` `unwrap` panic).
         Op::Jump { c, va: _ } => s.cursors.dom().contains(c),
         Op::VirtAddr { c } => s.cursors.dom().contains(c),
-        // exec `CursorMut::map` does NOT require `owner.in_locked_range()`
-        // — an out-of-range cursor panics at `assert!(va <
-        // barrier_va.end)` (the real `map_panic_conditions` abort) and
-        // `in_locked_range` is re-derived from that panic. (`tlb_model.inv()`
-        // comes from `VmStore::inv`, plus MODEL GAP `item_wf`.)
         Op::Map { c, frame: _, prop: _ } => s.cursors.dom().contains(c),
         Op::Unmap { c, len: _ } => s.cursors.dom().contains(c),
         Op::ProtectNext { c, len: _ } => s.cursors.dom().contains(c),
@@ -335,60 +358,51 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         Op::NewKernelWriter { vaddr: _, len: _ } => true,
         Op::DropReader { vio } => s.vm_ios.dom().contains(vio),
         Op::DropWriter { vio } => s.vm_ios.dom().contains(vio),
-        // exec Fallible `read_val` (line 1610): no tracked owner
-        // params — only `self.inv()` (handle MODEL GAP). op_pre is
-        // purely structural.
         Op::ReaderReadVal { source } => s.vm_ios.dom().contains(source),
-        // exec Fallible `collect` (line 1652): same — handle-only.
         Op::ReaderCollect { source } => s.vm_ios.dom().contains(source),
         Op::ReaderLimit { vio, max: _ } => s.vm_ios.dom().contains(vio),
         Op::ReaderSkip { vio, n: _ } => s.vm_ios.dom().contains(vio),
         Op::ReaderQuery { vio } => s.vm_ios.dom().contains(vio),
-        // exec Fallible `write_val` (line 2361): no tracked owner
-        // params — handle-only.
         Op::WriterWriteVal { writer } => s.vm_ios.dom().contains(writer),
         Op::WriterFillZeros { vio, len: _ } => s.vm_ios.dom().contains(vio),
         Op::WriterLimit { vio, max: _ } => s.vm_ios.dom().contains(vio),
         Op::WriterSkip { vio, n: _ } => s.vm_ios.dom().contains(vio),
         Op::WriterQuery { vio } => s.vm_ios.dom().contains(vio),
-        // exec Infallible `read`: source must be a kernel Reader (gives
-        // `read_view_initialized` via `VmIoEntry::inv`); dest must be a
-        // kernel Writer (gives `has_write_view`). Userspace (vm_space:
-        // Some) entries can never serve as the operands here — exec is
-        // typed `VmReader<Infallible>` / `VmWriter<Infallible>`.
+        // exec Infallible `read` is *typed* `VmReader<Infallible>` →
+        // `VmWriter<Infallible>`: `source`/`dest` must be a kernel
+        // reader/writer (operand well-formedness, not a runtime check —
+        // see `VmIoEntry::is_kernel_reader`). `source != dest` keeps the
+        // two tracked `&mut` borrows disjoint.
         Op::Read { source, dest } =>
             s.vm_ios.dom().contains(source)
             && s.vm_ios.dom().contains(dest)
             && source != dest
-            && s.vm_ios[source].vm_space is None
-            && (s.vm_ios[source].kind == VmIoKind::Reader)
-            && s.vm_ios[dest].vm_space is None
-            && (s.vm_ios[dest].kind == VmIoKind::Writer),
-        // exec Infallible `write`: same shape as `read`.
+            && s.vm_ios[source].is_kernel_reader()
+            && s.vm_ios[dest].is_kernel_writer(),
+        // exec Infallible `write`: same operand typing as `read`.
         Op::Write { source, dest } =>
             s.vm_ios.dom().contains(source)
             && s.vm_ios.dom().contains(dest)
             && source != dest
-            && s.vm_ios[source].vm_space is None
-            && (s.vm_ios[source].kind == VmIoKind::Reader)
-            && s.vm_ios[dest].vm_space is None
-            && (s.vm_ios[dest].kind == VmIoKind::Writer),
-        // `Frame::from_unused` requires the slot key exists. The
-        // success branch additionally requires the slot is UNUSED, but
-        // that's a runtime check (axiom returns `None` otherwise).
+            && s.vm_ios[source].is_kernel_reader()
+            && s.vm_ios[dest].is_kernel_writer(),
+        // TODO: this is too strong, the caller could attempt to
+        // create a frame at a bad `paddr` (it just should fail).
+        // BLOCKED: `slots.contains_key` is not `inv`-derivable
+        // (`MetaRegionOwners::inv` only bounds `slots` keys, line 66);
+        // an absent slot permission is an *error case* the exec body
+        // would need to handle as `Err` — a concurrency-model change,
+        // not a clean precondition relaxation. Deferred.
         Op::FrameFromUnused { paddr } =>
             s.regions.slots.contains_key(frame_to_index_spec(paddr)),
-        // `Frame::from_in_use` requires the slot key exists and refcount
-        // wouldn't saturate.
+        // Refcount saturation is NOT precluded: exec
+        // `MetaSlot::get_from_in_use` `panic_diverge`s on saturation (the
+        // real Rust panic), so it is sound for the embedding to omit it.
+        // `slots.contains_key` remains (the genuine permission
+        // precondition — see `Op::FrameFromUnused`).
         Op::FrameFromInUse { paddr } =>
-            s.regions.slots.contains_key(frame_to_index_spec(paddr))
-            && !MetaSlot::get_from_in_use_panic_cond(paddr, s.regions),
-        // Single drop op. `frame::drop_pre` mirrors
-        // `Frame::drop_requires` (expressible parts) verbatim. The
-        // refcount semantics (a page-table mapping is itself a
-        // reference) make the `metaregion_sound`-preserves clause on
-        // [`frame::frame_drop_embedded`] sound without any extra
-        // precondition.
+            s.regions.slots.contains_key(frame_to_index_spec(paddr)),
+        // TODO: unfold `drop_pre` and check if it's too strong.
         Op::FrameDrop { fid } =>
             s.frames.dom().contains(fid)
             && frame::drop_pre(s.regions, s.frames[fid].paddr),
@@ -891,7 +905,6 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
     requires
         old(s).inv(),
         old(s).regions.slots.contains_key(frame_to_index_spec(paddr)),
-        !MetaSlot::get_from_in_use_panic_cond(paddr, old(s).regions),
     ensures final(s).inv()
 {
     let tracked res = frame::from_in_use_step(&mut s.regions, paddr);

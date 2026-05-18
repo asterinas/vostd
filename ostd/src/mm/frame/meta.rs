@@ -340,13 +340,14 @@ impl MetaSlot {
 
         if as_unique_ptr {
             // No one can create a `Frame` instance directly from the page
-            // address, so `Relaxed` is fine here.
-            let mut contents = slot.take(Tracked(&mut slot_perm));
-            contents.ref_count.store(
+            // address, so `Relaxed` is fine here. Stored through a shared
+            // borrow of the slot (the `MetaSlot` value is unchanged) so the
+            // slot permission is only ever shared-borrowed — a prerequisite
+            // for the permanent-borrow refactor of meta-slot permissions.
+            slot.borrow(Tracked(&slot_perm)).ref_count.store(
                 Tracked(&mut slot_own.inner_perms.ref_count),
                 REF_COUNT_UNIQUE,
             );
-            slot.put(Tracked(&mut slot_perm), contents);
         } else {
             // `Release` is used to ensure that the metadata initialization
             // won't be reordered after this memory store.
@@ -380,10 +381,20 @@ impl MetaSlot {
             perm.pptr() == slot,
             perm.is_init(),
             perm.value().ref_count.id() == old(inner_perms).ref_count.id(),
-            // In order to not panic, the reference count shouldn't be at the maximum.
-            old(inner_perms).ref_count.value() + 1 < REF_COUNT_MAX,
+            // Saturation is NOT a precondition: the body `panic_diverge`s
+            // when the loaded count is `>= REF_COUNT_MAX` (the real Rust
+            // panic), so on the returning path branch-elimination already
+            // gives `last_ref_cnt < REF_COUNT_MAX` (hence `+ 1` cannot
+            // overflow and `ref_count` stays `<= REF_COUNT_MAX`).
         ensures
             res is Ok ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value() + 1,
+            // Negation of the panic condition, propagated: the body
+            // `panic_diverge`s unless the loaded count is `<
+            // REF_COUNT_MAX`, so a returning `Ok` guarantees the
+            // incremented count is still `<= REF_COUNT_MAX`. Callers
+            // (`get_from_in_use`) re-establish `MetaSlotOwner::inv` from
+            // this instead of a `!panic_cond` precondition.
+            res is Ok ==> final(inner_perms).ref_count.value() <= REF_COUNT_MAX,
             // On Ok, the old ref_count was > 0 (the 0 case returns Err(Busy)).
             res is Ok ==> old(inner_perms).ref_count.value() > 0,
             // On Ok, the returned PPtr is the slot argument.
@@ -448,7 +459,10 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            !Self::get_from_in_use_panic_cond(paddr, *old(regions)),
+            // Refcount saturation is NOT a precondition: `get_from_in_use_loop`
+            // `panic_diverge`s when the count would saturate (the real Rust
+            // panic) and propagates `Ok ==> ref_count <= REF_COUNT_MAX`, from
+            // which `MetaSlotOwner::inv` is re-established.
             old(regions).slots.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners.contains_key(frame_to_index(paddr)),
             old(regions).slots[frame_to_index(paddr)].addr() == frame_to_meta(paddr),
@@ -485,12 +499,10 @@ impl MetaSlot {
                 slot_perm.is_init(),
                 slot_perm.value().ref_count.id() == slot_own.inner_perms.ref_count.id(),
                 slot_own.inner_perms.ref_count.value() == pre,
-                slot_own.inner_perms.ref_count.value() + 1 < REF_COUNT_MAX,
                 regions0.slots.contains_key(frame_to_index(paddr)),
                 regions0.slot_owners.contains_key(frame_to_index(paddr)),
                 regions0.inv(),
                 regions0.slots[frame_to_index(paddr)] == slot_perm,
-                !Self::get_from_in_use_panic_cond(paddr, *old(regions)),
                 // Preserved fields of slot_own for inv() and wf() proofs
                 slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
                 slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
@@ -544,13 +556,33 @@ impl MetaSlot {
 
                         assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
 
-                        if slot_own.inner_perms.ref_count.value() > 0 {
-                            // Either Ok (pre > 0) or Err with pre > 0
+                        // Without the old `!panic_cond` precondition,
+                        // `pre` may be `REF_COUNT_UNIQUE`/`UNUSED`
+                        // (sentinels > REF_COUNT_MAX): then
+                        // `get_from_in_use_loop` returns `Err` and leaves
+                        // the slot untouched, so `slot_own == orig` and
+                        // `slot_own.inv()` follows from `orig.inv()`. The
+                        // in-use derivation only applies on `Ok`, where
+                        // the loop's `Ok ==> ref_count <= REF_COUNT_MAX`
+                        // postcondition pins `orig.ref_count = pre` into
+                        // `[1, REF_COUNT_MAX - 1]`.
+                        if res is Ok {
+                            assert(slot_own.inner_perms.ref_count.value() == pre + 1);
+                            assert(slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX);
                             assert(pre > 0);
                             assert(0 < orig.inner_perms.ref_count.value());
                             assert(orig.inner_perms.ref_count.value() <= REF_COUNT_MAX);
                             assert(orig.inner_perms.vtable_ptr.is_init());
                             assert(slot_own.inner_perms.vtable_ptr.is_init());
+                        } else {
+                            assert(slot_own.inner_perms.ref_count.value() == pre);
+                            assert(slot_own.inner_perms.ref_count.value()
+                                == orig.inner_perms.ref_count.value());
+                            assert(slot_own.inner_perms.ref_count.id()
+                                == orig.inner_perms.ref_count.id());
+                            assert(slot_own.inner_perms.storage == orig.inner_perms.storage);
+                            assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
+                            assert(slot_own.inner_perms.in_list == orig.inner_perms.in_list);
                         }
                         assert(slot_own.inv());
                         assert(slot_perm.value().wf(slot_own));
