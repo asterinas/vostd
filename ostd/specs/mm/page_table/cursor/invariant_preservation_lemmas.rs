@@ -25,7 +25,8 @@ use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
-use crate::specs::mm::page_table::owners::{OwnerSubtree, PageTableOwner};
+use crate::specs::mm::page_table::owners::{vaddr_of, OwnerSubtree, PageTableOwner};
+use crate::specs::mm::page_table::Mapping;
 
 verus! {
 
@@ -289,6 +290,156 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
                     ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
             }
+    }
+
+    /// Tree-wide predicate: no *frame* entry in the cursor tree has
+    /// tree path exactly `removed_path`. After `unmap`'s
+    /// `replace_cur_entry(Child::None)`, the entry at the cursor path
+    /// (`== removed_path`) is absent, so by tree-path correctness no
+    /// frame entry can carry that path. This is the one structural
+    /// residual of the `paths_in_pt`-removal refactor.
+    pub open spec fn no_frame_with_path(
+        self,
+        removed_path: TreePath<NR_ENTRIES>,
+    ) -> bool {
+        &&& self.map_full_tree(
+            |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+                e.is_frame() ==> e.path != removed_path)
+        &&& forall |i: int| #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS ==> {
+                let e = self.continuations[i].entry_own;
+                e.is_frame() ==> e.path != removed_path
+            }
+    }
+
+    /// Establishes [`Self::no_frame_with_path`] from the observation that
+    /// **no current view mapping starts at `vaddr_of(removed_path)`**.
+    ///
+    /// This is the standalone "lift `path_correct_pred` + uniqueness over
+    /// the cursor tree" lemma the `unmap` site needs. Each continuation
+    /// child subtree is `pt_inv` + path-correct (via
+    /// [`PageTableOwner::pt_inv_implies_path_correct`]), and its mappings
+    /// all bubble up into `self@.mappings`; so by
+    /// [`PageTableOwner::no_frame_with_path_rec`] a frame entry carrying
+    /// `removed_path` would force a mapping starting at
+    /// `vaddr_of(removed_path)` into `self@.mappings` — exactly what the
+    /// hypothesis forbids. Continuation *entries* are nodes, so the
+    /// continuations conjunct is vacuous.
+    pub proof fn no_frame_with_path_from_no_view_mapping(
+        self,
+        removed_path: TreePath<NR_ENTRIES>,
+    )
+        requires
+            self.inv(),
+            forall |m: Mapping| #![trigger self@.mappings.contains(m)]
+                self@.mappings.contains(m)
+                    ==> m.va_range.start != vaddr_of::<C>(removed_path) as int,
+        ensures
+            self.no_frame_with_path(removed_path),
+    {
+        let g = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+            e.is_frame() ==> e.path != removed_path;
+
+        // map_full_tree(g): each continuation child subtree is pt_inv,
+        // path-correct, and its mappings sit inside self@.mappings.
+        assert forall |i: int| #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS
+        implies self.continuations[i].map_children(g) by {
+            self.inv_continuation(i);
+            let cont = self.continuations[i];
+            reveal(CursorContinuation::inv_children);
+            assert forall |j: int| #![trigger cont.children[j]]
+                0 <= j < cont.children.len() && cont.children[j] is Some
+            implies cont.children[j].unwrap().tree_predicate_map(
+                cont.path().push_tail(j as usize), g) by {
+                cont.inv_children_unroll(j);
+                cont.pt_inv_children_unroll(j);
+                cont.inv_children_rel_unroll(j);
+                let child = cont.children[j].unwrap();
+                let child_path = cont.path().push_tail(j as usize);
+                // child.value.path == child_path (inv_children_rel) and
+                // child.value.path.inv() (EntryOwner::inv_base).
+                assert(child.value.path == child_path);
+                assert(child_path.inv());
+                // L1: pt_inv ⟹ tree-wide path correctness.
+                PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
+                // Every mapping of this child subtree is in self@.mappings.
+                assert forall |m: Mapping|
+                    PageTableOwner(child).view_rec(child_path).contains(m)
+                implies self@.mappings.contains(m) by {
+                    assert(cont.view_mappings().contains(m));
+                    assert(self.view_mappings().contains(m));
+                };
+                // L-rec: no frame entry in this subtree carries removed_path.
+                PageTableOwner(child).no_frame_with_path_rec(
+                    child_path, removed_path, self@.mappings);
+            };
+        };
+
+        // Continuation entries are page-table nodes ⟹ not frames.
+        assert forall |i: int| #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS
+        implies {
+            let e = self.continuations[i].entry_own;
+            e.is_frame() ==> e.path != removed_path
+        } by {
+            self.inv_continuation(i);
+        };
+
+        assert(self.no_frame_with_path(removed_path));
+    }
+
+    /// Bridge: `path_removable_at_idx` follows from the (mechanically
+    /// dischargeable) no-node-at-idx fact plus the structural
+    /// no-frame-with-`removed_path` fact. Per entry mapping `idx`:
+    /// `no_node_at_idx` forces `!is_node`, and `no_frame_with_path`
+    /// forces `is_frame ==> path != removed_path` — exactly the
+    /// `path_removable_at_idx` conjunction.
+    pub proof fn path_removable_from_no_node_and_no_frame_path(
+        self,
+        idx: usize,
+        removed_path: TreePath<NR_ENTRIES>,
+    )
+        requires
+            self.inv(),
+            self.no_node_at_idx(idx),
+            self.no_frame_with_path(removed_path),
+        ensures
+            self.path_removable_at_idx(idx, removed_path),
+    {
+        let nn = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+            e.is_node() && e.meta_slot_paddr() is Some
+                ==> frame_to_index(e.meta_slot_paddr().unwrap()) != idx;
+        let nf = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+            e.is_frame() ==> e.path != removed_path;
+        let r = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+            e.meta_slot_paddr() is Some
+                && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path);
+
+        // Pointwise: nn(e) && nf(e) ==> r(e).
+        assert(OwnerSubtree::implies(
+            |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| nn(e, p) && nf(e, p), r)) by {
+            assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                e.inv() && nn(e, p) && nf(e, p) implies #[trigger] r(e, p) by {}
+        };
+        // map_full_tree halves -> combined -> r.
+        self.and_map_full_tree(nn, nf);
+        self.map_children_implies(
+            |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| nn(e, p) && nf(e, p), r);
+
+        // Continuation-entry halves combine directly.
+        assert forall |i: int| #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS implies {
+                let e = self.continuations[i].entry_own;
+                e.meta_slot_paddr() is Some
+                    && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                    ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
+            } by {
+            let e = self.continuations[i].entry_own;
+            assert(nn(e, e.path));
+            assert(nf(e, e.path));
+        }
     }
 
     /// Preservation of the cursor-level metaregion invariants when the

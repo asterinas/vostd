@@ -3428,26 +3428,51 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(owner_final.metaregion_sound(regions_pre_remove));
                 assert(regions_pre_remove.inv());
                 assert(regions_pre_remove.slot_owners.contains_key(removed_idx));
-                // RESIDUAL (Stage 2c): the single remaining proof
-                // obligation of the whole paths_in_pt-removal refactor.
-                // `path_removable_at_idx` decomposes into:
-                //  (a) no-node-at-`removed_idx`: dischargeable via
-                //      `no_node_at_idx_from_slot_key(*regions,
-                //      removed_idx)` (removed_idx is a data-frame slot in
-                //      `regions.slots`, and node slots live in the
-                //      disjoint FRAME_METADATA_RANGE); and
-                //  (b) no-frame-at-`removed_idx`-with-path-`removed_path`:
-                //      needs (i) cursor-tree path uniqueness and (ii) the
-                //      structural fact that `replace_cur_entry(Child::None)`
-                //      leaves the entry at the cursor path absent and
-                //      `move_forward` preserves absent-ness there. (i)+(ii)
-                //      are a standalone CursorOwner lemma (no ready helper
-                //      exists) — the next focused sub-effort, comparable
-                //      in size to the Stage-1 path_remove lemma itself.
-                // Scaffolded per the iterative-admit plan; everything
-                // else (exec edit, lemma wiring, 4 other obligations,
-                // whole-tree verification) is discharged.
-                assume(owner_final.path_removable_at_idx(removed_idx, removed_path));
+                // (a) no-node-at-`removed_idx`: discharged — a
+                // data-frame slot in the free pool can't host an active
+                // page-table node.
+                assert(regions_pre_remove.slots.contains_key(removed_idx));
+                owner_final.no_node_at_idx_from_slot_key(
+                    regions_pre_remove, removed_idx);
+                // (b) No frame entry in the post-replace cursor tree
+                // carries `removed_path`. `replace_cur_entry(Child::None)`
+                // deleted the slot's only mapping (`target`) and inserted
+                // an empty absent subtree; `move_forward` preserves the
+                // mapping set. So no live view mapping starts at
+                // `vaddr_of(removed_path)`, and by tree-path correctness +
+                // structural uniqueness (lifted over the cursor tree by
+                // `no_frame_with_path_from_no_view_mapping`) no frame entry
+                // can carry that path.
+                owner_before_replace.cur_subtree_eq_filtered_mappings_path();
+                let ghost obr_subtree =
+                    PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
+                assert(owner_final@.mappings
+                    =~= owner_before_replace@.mappings - obr_subtree);
+                assert(obr_subtree == set![target]);
+                let ghost sv =
+                    crate::specs::mm::page_table::vaddr_of::<C>(removed_path) as int;
+                let ghost sz = page_size(owner_before_replace.level) as int;
+                assert(obr_subtree =~= owner_before_replace@.mappings.filter(
+                    |mm: Mapping| sv <= mm.va_range.start < sv + sz));
+                assert(sz > 0) by {
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
+                        owner_before_replace.level);
+                };
+                assert forall |mm: Mapping| owner_final@.mappings.contains(mm)
+                    implies mm.va_range.start != sv by {
+                    if mm.va_range.start == sv {
+                        assert(owner_before_replace@.mappings.contains(mm));
+                        assert(owner_before_replace@.mappings.filter(
+                            |m2: Mapping| sv <= m2.va_range.start < sv + sz)
+                            .contains(mm));
+                        assert(obr_subtree.contains(mm));
+                        assert(mm == target);
+                        assert(!owner_final@.mappings.contains(target));
+                    }
+                };
+                owner_final.no_frame_with_path_from_no_view_mapping(removed_path);
+                owner_final.path_removable_from_no_node_and_no_frame_path(
+                    removed_idx, removed_path);
                 owner_final.metaregion_preserved_under_path_remove(
                     regions_pre_remove, *regions, removed_idx, removed_path);
                 // `regions.inv()` after the paths_in_pt edit:
