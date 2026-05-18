@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 mod dma_coherent;
+pub use dma_coherent::DmaCoherent;
 mod dma_stream;
 #[cfg(ktest)]
 mod test;
