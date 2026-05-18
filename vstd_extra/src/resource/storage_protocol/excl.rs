@@ -69,7 +69,7 @@ impl<A> ExclusiveSP<A> {
             #![auto]
             Self::rel(Self::op(ExclusiveSP::Exclusive(Some(value)), q), s1) && s.dom().disjoint(
                 m.dom(),
-            ) && &&s.union_prefer_right(m) == s1 by {
+            ) && s.union_prefer_right(m) == s1 by {
             assert(s == Map::<(), A>::empty());
             assert(Self::rel(Self::op(ExclusiveSP::Exclusive(Some(value)), q), m));
             assert(s.dom().disjoint(m.dom()));

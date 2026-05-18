@@ -716,9 +716,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             ) is None,
             self.level < L - 1 && self.children[key as int] is Some ==> #[trigger] self.child(
                 key,
-            ) is Some && self.child(key)->0.level == self.level + 1 && self.child(
-                key,
-            )->0.inv(),
+            ) is Some && self.child(key)->0.level == self.level + 1 && self.child(key)->0.inv(),
     {
     }
 
@@ -1160,8 +1158,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             0 <= idx < N,
         ensures
             self.recursive_trace(path.push_tail(idx)).len() == path.len() + 2,
-            self.recursive_seek(path)->0.children[idx as int]->0.value
-                == self.recursive_trace(path.push_tail(idx))[path.len() as int + 1],
+            self.recursive_seek(path)->0.children[idx as int]->0.value == self.recursive_trace(
+                path.push_tail(idx),
+            )[path.len() as int + 1],
         decreases path.len(),
     {
         let path2 = path.push_tail(idx);
@@ -1296,9 +1295,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             !path.is_empty(),
             self.recursive_visit(path).len() > 0,
         ensures
-            #[trigger] self.recursive_visit(path) == seq![
-                self.child(path.pop_head().0)->0,
-            ].add(self.child(path.pop_head().0)->0.recursive_visit(path.pop_head().1)),
+            #[trigger] self.recursive_visit(path) == seq![self.child(path.pop_head().0)->0].add(
+                self.child(path.pop_head().0)->0.recursive_visit(path.pop_head().1),
+            ),
     {
         if path.len() == 1 {
             let (hd, tl) = path.pop_head();

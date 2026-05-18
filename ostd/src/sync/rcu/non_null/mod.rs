@@ -354,7 +354,7 @@ impl<'a, T> ArcRef<'a, T> {
     /// VERUS LIMITATION: The code includes a cast from `&T` to `*const T`, which is not specified yet in Verus.
     /// This is also a nontrivial use case that extends the lifetime of the reference.
     #[verus_verify(external_body)]
-    #[verus_spec(ret => ensures *ret == self@)]
+    #[verus_spec(ret => ensures *ret == *self@)]
     pub fn deref_target(&self) -> &'a T {
         // SAFETY: The reference is created through `NonNullPtr::raw_as_ref`, hence
         // the original owned pointer and target must outlive the lifetime parameter `'a`,
@@ -425,7 +425,7 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Arc<T> {
     }
 
     open spec fn ref_rel_perm(r: Self::Ref, perm: Self::RefPermission) -> bool {
-        perm.view_target() == r@
+        perm.view_target() == *r@
     }
 
     proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission) {
