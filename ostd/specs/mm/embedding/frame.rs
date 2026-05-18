@@ -47,9 +47,13 @@ verus! {
 // =============================================================================
 
 /// Mirror of [`crate::mm::frame::Frame::from_unused`] (non-unique branch:
-/// `as_unique = false`). On `Some`, the slot at `paddr` transitions
-/// from `REF_COUNT_UNUSED` to `1`, with `usage == Frame` and
-/// `paths_in_pt` preserved.
+/// `as_unique = false`) **including the Design-B caller re-park**. On
+/// `Some`, the slot at `paddr` transitions from `REF_COUNT_UNUSED` to
+/// `1`, with `usage == Frame` and `paths_in_pt` preserved, and the
+/// slot perm is re-parked into `regions.slots` (domain preserved — see
+/// [`MetaSlot::get_from_unused_reparked_spec`]). The embedding *is* the
+/// caller of `Frame::from_unused`, and its `FrameEntry` does not carry
+/// the perm, so the modeled atomic step is "allocate + re-park".
 ///
 /// `metaregion_sound`-preserves: any `CursorOwner` sound w.r.t. the
 /// old `regions` is still sound w.r.t. the new `regions`. This is
@@ -66,9 +70,15 @@ pub axiom fn frame_from_unused_embedded(
     ensures
         final(regions).inv(),
         // Success branch is conditioned on the slot being unused
-        // (per `get_from_unused_spec` recommends + the body's
-        // `MetaSlot::get_from_unused` failing otherwise).
-        res is Some ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
+        // (per `get_from_unused_reparked_spec` recommends + the body's
+        // `MetaSlot::get_from_unused` failing otherwise). The reparked
+        // variant keeps the slot perm in `regions.slots` (Design B).
+        res is Some ==> MetaSlot::get_from_unused_reparked_spec(
+            paddr,
+            false,
+            *old(regions),
+            *final(regions),
+        ),
         // Non-interference: failure leaves `regions` unchanged.
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
@@ -93,6 +103,10 @@ pub axiom fn frame_from_in_use_embedded(
         final(regions).inv(),
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
+        // `from_in_use` only `inc_ref_count`s — it never touches the
+        // slot-perm map, so the `slots` domain is preserved on *both*
+        // branches (needed for `VmStore::inv`'s coverage clause).
+        final(regions).slots =~= old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -183,7 +197,12 @@ pub(super) proof fn from_unused_step(
     ensures
         final(regions).inv(),
         res matches Some(e) ==> e.paddr == paddr,
-        res is Some ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
+        res is Some ==> MetaSlot::get_from_unused_reparked_spec(
+            paddr,
+            false,
+            *old(regions),
+            *final(regions),
+        ),
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -211,6 +230,7 @@ pub(super) proof fn from_in_use_step(
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
+        final(regions).slots =~= old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
@@ -252,6 +272,7 @@ pub(super) proof fn drop_step(
         drop_pre(*old(regions), entry.paddr),
     ensures
         final(regions).inv(),
+        final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index_spec(entry.paddr)

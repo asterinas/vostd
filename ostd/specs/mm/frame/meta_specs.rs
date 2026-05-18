@@ -68,6 +68,41 @@ impl MetaSlot {
         }
     }
 
+    /// Design-B variant of [`get_from_unused_spec`]: models the
+    /// post-state *after the caller re-parks* the returned slot perm
+    /// into `regions.slots` (see [`crate::mm::frame::Frame::from_unused`]
+    /// — it hands the perm back via the `perm` out-param and the caller
+    /// re-inserts it). The only difference from [`get_from_unused_spec`]
+    /// is the `slots` clause: the domain is *preserved* (`pre.slots.dom()`)
+    /// rather than `pre.slots.remove(idx)`, since the perm is immediately
+    /// re-inserted. All `slot_owners` transitions are identical.
+    pub open spec fn get_from_unused_reparked_spec(
+        paddr: Paddr,
+        as_unique: bool,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+    ) -> bool
+        recommends
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+            pre.inv(),
+    {
+        let idx = frame_to_index(paddr);
+        {
+            &&& post.slots.dom() =~= pre.slots.dom()
+            &&& MetaSlot::get_from_unused_inner_perms_spec(
+                as_unique,
+                post.slot_owners[idx].inner_perms,
+            )
+            &&& post.slot_owners[idx].usage == PageUsage::Frame
+            &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
+            &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
+            &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
+            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
+            &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+        }
+    }
+
     pub open spec fn get_from_unused_perm_spec<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         paddr: Paddr,
         metadata: M,

@@ -31,6 +31,11 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners)
     ensures
         final(regions).inv(),
         res.inv(),
+        // `VmSpace::new` (`create_user_page_table`) allocates a fresh
+        // page table; it never touches the boot-fixed metadata slot-perm
+        // map. Preserving the `slots` domain keeps `VmStore::inv`'s
+        // slot-perm coverage clause chainable (#2 / #3b).
+        final(regions).slots =~= old(regions).slots,
         forall|c: CursorOwner<'a, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -50,6 +55,11 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
     ensures
         final(regions).inv(),
         res.inv(),
+        // `VmSpace::new` (`create_user_page_table`) allocates a fresh
+        // page table; it never touches the boot-fixed metadata slot-perm
+        // map. Preserving the `slots` domain keeps `VmStore::inv`'s
+        // slot-perm coverage clause chainable (#2 / #3b).
+        final(regions).slots =~= old(regions).slots,
         forall|c: CursorOwner<'a, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {

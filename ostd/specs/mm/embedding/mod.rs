@@ -45,7 +45,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::{Paddr, Vaddr, MAX_USERSPACE_VADDR};
-use crate::specs::mm::frame::mapping::frame_to_index_spec;
+use crate::specs::mm::frame::mapping::{frame_to_index_spec, max_meta_slots};
 use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::io::VmIoOwner;
@@ -205,6 +205,24 @@ impl<'a, 'rcu> VmStore<'rcu> {
     /// The store's top-level invariant.
     pub open spec fn inv(self) -> bool {
         &&& self.regions.inv()
+        // Slot-perm coverage (Design B). Every in-region slot keeps its
+        // `simple_pptr::PointsTo<MetaSlot>` parked in `regions.slots`.
+        // `MetaRegionOwners::inv` only gives the *forward* direction
+        // (`slots.contains_key(i) ==> i < max_meta_slots()`); the reverse
+        // is NOT globally true (`UniqueFrame` / `into_raw` / linked-list
+        // permanently extract a slot perm). It IS true here because the
+        // embedding's `Op` surface contains *no* perm-extracting
+        // operation: `FrameFromUnused` re-parks the perm (modeled in
+        // [`frame::frame_from_unused_embedded`]), `FrameFromInUse` /
+        // `FrameDrop` / `Segment` only shared-borrow it, and every
+        // region-mutating cursor op (`Map`/`Unmap`/`ProtectNext`) touches
+        // `slot_owners` (refcount / `paths_in_pt`) but never the `slots`
+        // map domain. This is what lets [`op_pre`] state the
+        // `FrameFromUnused` / `FrameFromInUse` precondition as a clean
+        // paddr-index bound rather than an opaque `slots.contains_key`
+        // (#2 / #3b): the membership fact is recovered from this clause.
+        &&& forall|idx: usize|
+                idx < max_meta_slots() ==> #[trigger] self.regions.slots.contains_key(idx)
         &&& self.tlb_model.inv()
         &&& forall|id: VmSpaceId|
                 #[trigger] self.vm_spaces.dom().contains(id)
@@ -231,25 +249,27 @@ impl<'a, 'rcu> VmStore<'rcu> {
                             ==> (self.vm_ios[id].vaddr as nat)
                                 + (self.vm_ios[id].len as nat)
                                 <= MAX_USERSPACE_VADDR as nat
-        // `frames` is bookkeeping for outstanding `Frame` handles. We
-        // don't enforce a regions-side invariant here — cursor and IO
-        // ops mutate `regions` in ways that would be hard to align,
-        // and frame-side preconditions (slot key existence, refcount
-        // status, etc.) are checked explicitly in [`op_pre`] for the
-        // frame variants instead.
+        // `frames` is bookkeeping for outstanding `Frame` handles. The
+        // slot-perm *coverage* for those handles is the clause above
+        // (every in-region slot keeps its perm in `regions.slots`); the
+        // remaining frame-side precondition is `frame::drop_pre`,
+        // checked explicitly in [`op_pre`] for `Op::FrameDrop`.
         //
-        // PHASE 4 SCOPING (investigated 2026-05): adding
-        // `forall fid: frame::drop_pre(regions, frames[fid].paddr)`
-        // here breaks ~9 step helpers + `insert_frame` and needs a
-        // `drop_pre`-preserves ensures on every region-mutating
-        // `_embedded` axiom. Crucially, that preserves clause is
-        // *unsound to assert* for the ref-count-incrementing ops
-        // (`map`, `from_in_use`) unless they first model a
-        // saturation `panic_diverge` (Phase-1-style) so the returning
-        // path keeps `ref_count <= REF_COUNT_MAX`. So Phase 4 entails
-        // Phase-1-for-`map` plus the cross-cutting invariant — a
-        // dedicated effort, not a localized fix. Deferred with this
-        // precise rationale (the original deferral was correct).
+        // #4 (vs the now-resolved #2/#3b): #2/#3b's opaque
+        // `slots.contains_key` is *gone* — recovered from the coverage
+        // clause above, so `op_pre` states only a clean paddr-index
+        // bound. `drop_pre` is the analogous faithful mirror of
+        // `Frame::drop_requires`, but it carries a *refcount* obligation,
+        // not just slot membership. Internalising it as
+        // `forall fid: drop_pre(regions, frames[fid].paddr)` additionally
+        // needs a full reference-count accounting invariant
+        // (`ref_count(p) = #handles(p) + #mappings(p)`) preserved across
+        // `map`/`unmap` ↔ `from_*`/`drop` — a blanket `unmap`
+        // `drop_pre`-preserves is itself unsound (a single mapping with
+        // no handle: `ref_count 1 → 0`). That accounting is the
+        // deliberately-deferred hard invariant; keeping the faithful
+        // `drop_pre` in `op_pre` is the proportionate resolution. See
+        // the `Op::FrameDrop` arm of [`op_pre`] for the full analysis.
     }
 }
 
@@ -386,23 +406,42 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             && source != dest
             && s.vm_ios[source].is_kernel_reader()
             && s.vm_ios[dest].is_kernel_writer(),
-        // TODO: this is too strong, the caller could attempt to
-        // create a frame at a bad `paddr` (it just should fail).
-        // BLOCKED: `slots.contains_key` is not `inv`-derivable
-        // (`MetaRegionOwners::inv` only bounds `slots` keys, line 66);
-        // an absent slot permission is an *error case* the exec body
-        // would need to handle as `Err` — a concurrency-model change,
-        // not a clean precondition relaxation. Deferred.
+        // RESOLVED (#2): the precondition is now a clean paddr-index
+        // bound — the caller may only name a slot inside the metadata
+        // region. The opaque `slots.contains_key` ghost-state conjunct
+        // is gone: it is *recovered* in [`step_frame_from_unused`] from
+        // `VmStore::inv`'s slot-perm coverage clause (sound because the
+        // embedding has no perm-extracting `Op`; `from_unused` re-parks
+        // — see [`frame::frame_from_unused_embedded`]). A bad in-range
+        // paddr (slot not UNUSED) still just fails (axiom `None`).
         Op::FrameFromUnused { paddr } =>
-            s.regions.slots.contains_key(frame_to_index_spec(paddr)),
-        // Refcount saturation is NOT precluded: exec
-        // `MetaSlot::get_from_in_use` `panic_diverge`s on saturation (the
-        // real Rust panic), so it is sound for the embedding to omit it.
-        // `slots.contains_key` remains (the genuine permission
-        // precondition — see `Op::FrameFromUnused`).
+            frame_to_index_spec(paddr) < max_meta_slots(),
+        // RESOLVED (#3b): same paddr-index bound, same recovery in
+        // [`step_frame_from_in_use`]. Refcount saturation is NOT
+        // precluded: exec `MetaSlot::get_from_in_use` `panic_diverge`s
+        // on saturation (the real Rust panic), so it is sound for the
+        // embedding to omit it.
         Op::FrameFromInUse { paddr } =>
-            s.regions.slots.contains_key(frame_to_index_spec(paddr)),
-        // TODO: unfold `drop_pre` and check if it's too strong.
+            frame_to_index_spec(paddr) < max_meta_slots(),
+        // FAITHFUL (#4): `drop_pre` is NOT too strong — it is
+        // `Frame::drop_requires` verbatim (the genuine safety contract
+        // for releasing a handle: live shared-`Frame` slot, perm parked
+        // in `slots`, `raw_count == 0`, `ref_count ∈ [1, MAX]`,
+        // teardown-ready when last).
+        //
+        // Its `slots.contains_key` sub-conjunct is now redundant with
+        // `VmStore::inv`'s coverage clause (the same mechanism that
+        // resolved #2/#3b — `from_unused` re-parks, every region-mutating
+        // axiom is `slots`-preserving). What keeps #4 from collapsing to
+        // `frames.dom().contains(fid)` is the *refcount* sub-conjuncts
+        // (`ref_count ∈ [1, MAX]`, last-ref teardown-ready): deriving
+        // those needs a full reference-count accounting invariant
+        // (`ref_count(p) = #handles(p) + #mappings(p)`) preserved across
+        // `map`/`unmap` ↔ `from_*`/`drop` — a blanket `unmap`
+        // `drop_pre`-preserves is itself unsound (a single-mapping
+        // no-handle frame goes `ref_count 1 → 0`). That accounting is the
+        // deliberately-deferred hard invariant; keeping `drop_pre` here —
+        // a faithful exec mirror — is the proportionate resolution.
         Op::FrameDrop { fid } =>
             s.frames.dom().contains(fid)
             && frame::drop_pre(s.regions, s.frames[fid].paddr),
@@ -887,9 +926,14 @@ proof fn step_write<'rcu>(
 proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
     requires
         old(s).inv(),
-        old(s).regions.slots.contains_key(frame_to_index_spec(paddr)),
+        frame_to_index_spec(paddr) < max_meta_slots(),
     ensures final(s).inv()
 {
+    // `slots.contains_key` is recovered from `VmStore::inv`'s coverage
+    // clause + the clean paddr-index bound (#2): the embedding never
+    // permanently extracts a slot perm, so every in-region slot is
+    // parked in `regions.slots`.
+    assert(s.regions.slots.contains_key(frame_to_index_spec(paddr)));
     let tracked res = frame::from_unused_step(&mut s.regions, paddr);
     match res {
         Option::Some(entry) => {
@@ -904,9 +948,12 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
 proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
     requires
         old(s).inv(),
-        old(s).regions.slots.contains_key(frame_to_index_spec(paddr)),
+        frame_to_index_spec(paddr) < max_meta_slots(),
     ensures final(s).inv()
 {
+    // See `step_frame_from_unused`: `slots.contains_key` is recovered
+    // from `VmStore::inv`'s coverage clause (#3b).
+    assert(s.regions.slots.contains_key(frame_to_index_spec(paddr)));
     let tracked res = frame::from_in_use_step(&mut s.regions, paddr);
     match res {
         Option::Some(entry) => {
