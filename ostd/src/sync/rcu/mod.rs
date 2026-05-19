@@ -8,21 +8,36 @@
 use core::{marker::PhantomData, ptr::NonNull};
 
 use monitor::{RcuMonitor, RcuMonitorOwner, RcuMonitorPred};
-use non_null::NonNullPtr;
+use non_null::{NonNullPtr, NonNullPtrRef};
 use vstd::{atomic_ghost::AtomicPtr, atomic_with_ghost, prelude::*};
-use vstd_extra::prelude::*;
+use vstd_extra::{
+    prelude::*,
+    resource::ghost_resource::{count::Count, tokens::CountResource},
+};
 
 pub mod non_null;
 
 mod monitor;
 
-use crate::task::DisabledPreemptGuard;
+use crate::task::{disable_preempt, DisabledPreemptGuard};
 
 use super::Once;
 
 verus! {
 
 broadcast use vstd_extra::external::nonnull::group_nonull_axioms;
+
+// Verification-only budget for splitting read-side ghost tokens.
+//
+// This is not a runtime reader counter and does not model an overflow condition
+// in the RCU implementation. It is a temporary bounded approximation needed by
+// `CountResource`; the final RCU proof should discharge the admission assumption
+// with an unbounded ghost registry or a CPU/epoch-based sharding model.
+const RCU_READER_SLOTS: u64 = 1u64 << 60;
+
+type RcuReadPool<P> = CountResource<<P as NonNullPtr>::Permission, RCU_READER_SLOTS>;
+
+type RcuReadToken<P> = Count<<P as NonNullPtr>::Permission, RCU_READER_SLOTS>;
 
 exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorOwner, RcuMonitorPred>
     ensures
@@ -112,12 +127,12 @@ pub struct RcuOption<P: NonNullPtr>(RcuInner<P>);
 struct_with_invariants! {
 /// The inner implementation of both [`Rcu`] and [`RcuOption`].
 struct RcuInner<P: NonNullPtr> {
-    ptr: AtomicPtr<
-        <P as NonNullPtr>::Target,
-        _,
-        Option<<P as NonNullPtr>::Permission>,
-        _,
-    >,
+        ptr: AtomicPtr<
+            <P as NonNullPtr>::Target,
+            _,
+            Option<RcuReadPool<P>>,
+            _,
+        >,
     // We want to implement Send and Sync explicitly.
     // Having a pointer field prevents them from being implemented
     // automatically by the compiler.
@@ -125,17 +140,19 @@ struct RcuInner<P: NonNullPtr> {
 }
 
 closed spec fn wf(self) -> bool {
-    invariant on ptr with (_marker) is (
-        v: *mut <P as NonNullPtr>::Target,
-        g: Option<<P as NonNullPtr>::Permission>,
-    ) {
-        match g {
-            Some(perm) => {
-                &&& P::ptr_perm_match(nonnull_from_ptr_mut_spec(v), perm)
-                &&& perm.inv()
-            },
-            None => v@.addr == 0,
-        }
+        invariant on ptr with (_marker) is (
+            v: *mut <P as NonNullPtr>::Target,
+            g: Option<RcuReadPool<P>>,
+        ) {
+            match g {
+                Some(perm) => {
+                    &&& v@.addr != 0
+                    &&& P::ptr_perm_match(nonnull_from_ptr_mut_spec(v), perm@)
+                    &&& perm@.inv()
+                    &&& perm.wf()
+                },
+                None => v@.addr == 0,
+            }
     }
 }
 }
@@ -145,6 +162,7 @@ struct RcuReadGuardInner<'a, P: NonNullPtr> {
     obj_ptr: *mut <P as NonNullPtr>::Target,
     rcu: &'a RcuInner<P>,
     _inner_guard: DisabledPreemptGuard,
+    ref_perm: Tracked<Option<RcuReadToken<P>>>,
 }
 
 /// A guard that allows access to the pointed data protected by a [`Rcu`].
@@ -176,6 +194,21 @@ impl<P: NonNullPtr> RcuInner<P> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.wf()
+    }
+}
+
+impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        match self.ref_perm@ {
+            Some(perm) => {
+                &&& self.obj_ptr@.addr != 0
+                &&& P::ptr_perm_match(nonnull_from_ptr_mut_spec(self.obj_ptr), perm.resource())
+                &&& perm.resource().inv()
+                &&& perm.frac() == 1
+            },
+            None => self.obj_ptr@.addr == 0,
+        }
     }
 }
 
@@ -211,6 +244,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
     /// Oftentimes this function is not recommended unless you have serialized
     /// writes with locks. Otherwise, you can use [`Self::read`] and then
     /// [`RcuReadGuard::compare_exchange`] to update the pointer.
+    #[inline]
     pub fn update(&self, new_ptr: P) {
         self.0.update(Some(new_ptr));
     }
@@ -226,8 +260,12 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         let marker = PhantomData;
         proof {
             assert(nonnull_from_ptr_mut_spec(ptr.as_ptr()) == ptr);
+            assert(ptr.as_ptr()@.addr != 0);
             assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(ptr.as_ptr()), ptr_perm));
             assert(ptr_perm.inv());
+        }
+        proof_decl! {
+            let tracked ptr_perm = CountResource::alloc(ptr_perm);
         }
         let ptr = AtomicPtr::new(Ghost(marker), ptr.as_ptr(), Tracked(Some(ptr_perm)));
         Self { ptr, _marker: marker }
@@ -240,6 +278,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                 let (ptr, Tracked(perm)) = <P as NonNullPtr>::into_raw(new_ptr);
                 proof {
                     assert(nonnull_from_ptr_mut_spec(ptr.as_ptr()) == ptr);
+                    assert(ptr.as_ptr()@.addr != 0);
                     assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(ptr.as_ptr()), perm));
                     assert(perm.inv());
                 }
@@ -249,7 +288,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         };
 
         proof_decl! {
-            let tracked mut old_perm: Option<<P as NonNullPtr>::Permission> = None;
+            let tracked mut old_perm: Option<RcuReadPool<P>> = None;
         }
         proof {
             use_type_invariant(self);
@@ -261,12 +300,18 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             returning old_raw_ptr;
             ghost g => {
                 old_perm = g;
-                g = new_perm;
+                g = match new_perm {
+                    Some(perm) => Some(CountResource::alloc(perm)),
+                    None => None,
+                };
                 assert(next == new_raw_ptr);
                 match &g {
                     Some(perm) => {
-                        assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), *perm));
-                        assert(perm.inv());
+                        assert(next@.addr != 0);
+                        assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), perm@));
+                        assert(perm@.inv());
+                        assert(perm.wf());
+                        assert(perm.not_empty());
                     },
                     None => {
                         assert(next@.addr == 0);
@@ -282,6 +327,190 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             //    use it after the end of the current grace period. The removal
             //    is done atomically, so it will only be dropped once.
             // unsafe { delay_drop::<P>(p) };
+        }
+    }
+
+    #[verus_verify]
+    fn read(&self) -> RcuReadGuardInner<'_, P> {
+        let guard = disable_preempt();
+        proof_decl! {
+            let tracked mut ref_perm: Option<RcuReadToken<P>> = None;
+        }
+        proof {
+            use_type_invariant(self);
+        }
+        let obj_ptr = atomic_with_ghost! {
+            self.ptr => load();
+            update prev -> _next;
+            returning loaded;
+            ghost g => {
+                if g is Some {
+                    let tracked mut perm = g.tracked_unwrap();
+                        assert(loaded == prev);
+                        assert(loaded@.addr != 0);
+                        assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(loaded), perm@));
+                        assert(perm@.inv());
+                    let ghost perm_snapshot = perm@;
+
+                    // Verification-only admission for the bounded read-token pool.
+                    // This is not a runtime reader limit; it only reflects that
+                    // `CountResource` uses a Rust const-generic `u64` budget rather
+                    // than an unbounded mathematical `nat`.
+                    assume(perm.not_empty());
+                    assume(1 < perm.frac());
+                    let tracked token = perm.split_one();
+                    assert(perm@ == perm_snapshot);
+                    assert(token.resource() == perm_snapshot);
+                    assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(loaded), token.resource()));
+                    assert(token.resource().inv());
+                    assert(token.frac() == 1);
+                    ref_perm = Some(token);
+                    assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(loaded), perm@));
+                    assert(perm@.inv());
+                    assert(perm.wf());
+                    g = Some(perm);
+                } else {
+                    assert(loaded@.addr == 0);
+                }
+            }
+        };
+        proof {
+            match &ref_perm {
+                Some(perm) => {
+                    assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(obj_ptr), perm.resource()));
+                    assert(perm.resource().inv());
+                    assert(perm.frac() == 1);
+                },
+                None => {
+                    assert(obj_ptr@.addr == 0);
+                },
+            }
+        }
+        RcuReadGuardInner {
+            obj_ptr,
+            rcu: self,
+            _inner_guard: guard,
+            ref_perm: Tracked(ref_perm),
+        }
+    }
+}
+
+#[verus_verify]
+impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
+    #[inline]
+    fn get<'b>(&'b self) -> Option<<P as NonNullPtrRef<'b>>::Ref>
+    where
+        P: NonNullPtrRef<'b>,
+    {
+        // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
+        // outlives the lifetime of `&self`. Additionally, during this period,
+        // it is impossible to create a mutable reference to `P`.
+        let Some(ptr) = NonNull::new(self.obj_ptr) else {
+            return None;
+        };
+
+        proof {
+            use_type_invariant(self);
+            assert(nonnull_new_spec(self.obj_ptr) == Some(ptr));
+            assert(ptr == nonnull_from_ptr_mut_spec(self.obj_ptr));
+        }
+        proof_decl! {
+            let tracked ref_perm: <P as NonNullPtrRef<'b>>::RefPermission =
+                match self.ref_perm.borrow() {
+                    Some(perm) => P::borrow_perm_as_ref_perm(perm.borrow()),
+                    None => proof_from_false(),
+                };
+        }
+        proof {
+            assert(P::ptr_perm_match(ptr, P::ref_perm_view_permission(ref_perm)));
+            assert(ref_perm.inv());
+        }
+
+        Some(unsafe { P::raw_as_ref(ptr, Tracked(ref_perm)) })
+    }
+
+    fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
+        let (new_raw_ptr, Tracked(new_perm)) = match new_ptr {
+            Some(new_ptr) => {
+                let (ptr, Tracked(perm)) = <P as NonNullPtr>::into_raw(new_ptr);
+                proof {
+                    assert(nonnull_from_ptr_mut_spec(ptr.as_ptr()) == ptr);
+                    assert(ptr.as_ptr()@.addr != 0);
+                    assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(ptr.as_ptr()), perm));
+                    assert(perm.inv());
+                }
+                (ptr.as_ptr(), Tracked(Some(perm)))
+            },
+            None => (core::ptr::null_mut(), Tracked(None)),
+        };
+
+        proof_decl! {
+            let tracked mut old_perm: Option<RcuReadPool<P>> = None;
+            let tracked mut err_new_perm: Option<Option<<P as NonNullPtr>::Permission>> = None;
+        }
+        proof {
+            use_type_invariant(self.rcu);
+        }
+        let res = atomic_with_ghost! {
+            self.rcu.ptr => compare_exchange(self.obj_ptr, new_raw_ptr);
+            update _prev -> next;
+            returning res;
+            ghost g => {
+                if res is Ok {
+                    old_perm = g;
+                    g = match new_perm {
+                        Some(perm) => Some(CountResource::alloc(perm)),
+                        None => None,
+                    };
+                    assert(next == new_raw_ptr);
+                    match &g {
+                        Some(perm) => {
+                            assert(next@.addr != 0);
+                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), perm@));
+                            assert(perm@.inv());
+                            assert(perm.wf());
+                            assert(perm.not_empty());
+                        },
+                        None => {
+                            assert(next@.addr == 0);
+                        },
+                    }
+                } else {
+                    err_new_perm = Some(new_perm);
+                }
+            }
+        };
+        if res.is_ok() {
+            if let Some(p) = NonNull::new(self.obj_ptr) {
+                // SAFETY:
+                // 1. The pointer was previously returned by `into_raw`.
+                // 2. The pointer is removed from the RCU slot so that no one will
+                //    use it after the end of the current grace period. The removal
+                //    is done atomically, so it will only be dropped once.
+                // unsafe { delay_drop::<P>(p) };
+            }
+
+            Ok(())
+        } else {
+            let Some(new_nonnull) = NonNull::new(new_raw_ptr) else {
+                return Err(None);
+            };
+            proof {
+                assert(nonnull_new_spec(new_raw_ptr) == Some(new_nonnull));
+                assert(new_nonnull == nonnull_from_ptr_mut_spec(new_raw_ptr));
+            }
+            proof_decl! {
+                let tracked new_perm = err_new_perm.tracked_unwrap().tracked_unwrap();
+            }
+            proof {
+                assert(P::ptr_perm_match(new_nonnull, new_perm));
+                assert(new_perm.inv());
+            }
+            // SAFETY:
+            // 1. It was previously returned by `into_raw`.
+            // 2. The `compare_exchange` fails so the pointer will not
+            //    be used by other threads via reading the RCU primitive.
+            Err(Some(unsafe { <P as NonNullPtr>::from_raw(new_nonnull, Tracked(new_perm)) }))
         }
     }
 }
