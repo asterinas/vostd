@@ -58,7 +58,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
     fn into_raw(self) -> ((res_ptr, perm): (NonNull<Self::Target>, Tracked<Self::Permission>))
         ensures
-            Self::ptr_perm_match(res_ptr, perm@),
+            Self::ptr_perm_match(res_ptr.view_ptr_mut(), perm@),
             self.rel_perm(perm@),
             perm@.inv(),
             res_ptr.view_ptr_mut().addr() % (1usize << Self::ALIGN_BITS) == 0,
@@ -81,7 +81,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
     unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<Self::Permission>) -> (ret: Self)
         requires
-            Self::ptr_perm_match(ptr, perm@),
+            Self::ptr_perm_match(ptr.view_ptr_mut(), perm@),
             perm@.inv(),
         ensures
             ret.rel_perm(perm@),
@@ -98,7 +98,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target>;*/
     /// A specification function that constraints the nonnull pointer and the permission returned by `into_raw`.
     /// This design is to support the tagged pointer trick used in `Either`.
-    spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool;
+    spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool;
 
     /// A specification function that relates the original smart pointer and the permission.
     spec fn rel_perm(self, perm: Self::Permission) -> bool;
@@ -142,7 +142,7 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
     unsafe fn raw_as_ref(raw: NonNull<Self::Target>, perm: Tracked<Self::RefPermission>) -> (ret:
         Self::Ref)
         requires
-            Self::ptr_perm_match(raw, Self::ref_perm_view_permission(perm@)),
+            Self::ptr_perm_match(raw.view_ptr_mut(), Self::ref_perm_view_permission(perm@)),
             perm@.inv(),
         ensures
             Self::ref_rel_perm(ret, perm@),
@@ -155,7 +155,7 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
     ))
         ensures
             Self::ref_rel_perm(ptr_ref, perm@),
-            Self::ptr_perm_match(res_ptr, Self::ref_perm_view_permission(perm@)),
+            Self::ptr_perm_match(res_ptr.view_ptr_mut(), Self::ref_perm_view_permission(perm@)),
             perm@.inv(),
             res_ptr.view_ptr_mut().addr() % (1usize << Self::ALIGN_BITS) == 0,
     ;
@@ -273,8 +273,8 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         }
     }
 
-    open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
-        ptr.view_ptr_mut() == perm.ptr()
+    open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
+        ptr == perm.ptr()
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
@@ -404,8 +404,8 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         }
     }
 
-    open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
-        ptr.view_ptr_mut() == perm.ptr()
+    open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
+        ptr == perm.ptr()
     }
 
     open spec fn rel_perm(self, perm: Self::Permission) -> bool {
