@@ -1,18 +1,23 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Read-copy update (RCU).
-/* use core::{
+
+use vstd::prelude::*;
+use vstd::atomic_ghost::AtomicPtr;
+use vstd_extra::prelude::*;
+
+use core::{
     marker::PhantomData,
     mem::ManuallyDrop,
     ops::Deref,
     ptr::NonNull,
-    sync::atomic::{
+    /*sync::atomic::{
         AtomicPtr,
         Ordering::{AcqRel, Acquire},
-    },
+    },*/
 };
 
 use non_null::NonNullPtr;
-use spin::once::Once;
+/* use spin::once::Once;
 
 use self::monitor::RcuMonitor;
 use crate::task::{
@@ -22,6 +27,8 @@ use crate::task::{
 
 mod monitor;*/
 pub mod non_null;
+
+verus!{
 /*
 /// A Read-Copy Update (RCU) cell for sharing a pointer between threads.
 ///
@@ -105,25 +112,36 @@ pub struct RcuOption<P: NonNullPtr>(RcuInner<P>);
 #[clippy::has_significant_drop]
 #[must_use]
 pub struct RcuOptionReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
-
+*/
+struct_with_invariants!{
 /// The inner implementation of both [`Rcu`] and [`RcuOption`].
 struct RcuInner<P: NonNullPtr> {
-    ptr: AtomicPtr<<P as NonNullPtr>::Target>,
+    ptr: AtomicPtr<<P as NonNullPtr>::Target,_ ,Option<<P as NonNullPtr>::Permission>, _>,
     // We want to implement Send and Sync explicitly.
     // Having a pointer field prevents them from being implemented
     // automatically by the compiler.
     _marker: PhantomData<*const P::Target>,
 }
 
+closed spec fn wf(self) -> bool {
+    invariant on ptr with (_marker) is (p:*mut <P as NonNullPtr>::Target,g:Option<<P as NonNullPtr>::Permission>) {
+        g is Some ==> P::ptr_perm_match(p, g->0)
+    }
+}
+}
+ 
 // SAFETY: It is apparent that if `P` is `Send`, then `Rcu<P>` is `Send`.
+#[verifier::external]
 unsafe impl<P: NonNullPtr> Send for RcuInner<P> where P: Send {}
 
 // SAFETY: To implement `Sync` for `Rcu<P>`, we need to meet two conditions:
 //  1. `P` must be `Sync` because `Rcu::get` allows concurrent access.
 //  2. `P` must be `Send` because `Rcu::update` may obtain an object
 //     of `P` created on another thread.
+#[verifier::external]
 unsafe impl<P: NonNullPtr> Sync for RcuInner<P> where P: Send + Sync {}
 
+/*
 impl<P: NonNullPtr + Send> RcuInner<P> {
     const fn new_none() -> Self {
         Self {
@@ -507,3 +525,4 @@ pub fn init() {
     RCU_MONITOR.call_once(RcuMonitor::new);
 }
 */
+}
