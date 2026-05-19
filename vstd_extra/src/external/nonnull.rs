@@ -83,6 +83,15 @@ pub open spec fn nonnull_cast_spec_wrapper<T: PointeeSized, U>(ptr: NonNull<T>) 
 /// An uninterpreted specification that constructs a `NonNull<T>` from a raw pointer.
 pub uninterp spec fn nonnull_from_ptr_mut_spec<T: PointeeSized>(ptr: *mut T) -> NonNull<T>;
 
+#[inline(always)]
+pub open spec fn nonnull_new_spec<T: PointeeSized>(ptr: *mut T) -> Option<NonNull<T>> {
+    if ptr@.addr == 0 {
+        None
+    } else {
+        Some(nonnull_from_ptr_mut_spec(ptr))
+    }
+}
+
 /// The view of a `NonNull<T>` constructed from `*mut T` should be exactly that `*mut T`.
 pub broadcast axiom fn axiom_nonnull_from_ptr_mut_spec_eq<T: PointeeSized>(ptr: *mut T)
     requires
@@ -115,6 +124,16 @@ pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T)
         ret.view_ptr_mut() == ptr,
     returns
         nonnull_from_ptr_mut_spec(ptr),
+;
+
+#[verifier::when_used_as_spec(nonnull_new_spec)]
+pub assume_specification<T: PointeeSized>[ core::ptr::NonNull::<T>::new ](
+    ptr: *mut T,
+) -> (ret: core::option::Option<core::ptr::NonNull<T>>)
+    ensures
+        ret matches Some(nn) ==> nn.view_ptr_mut() == ptr,
+    returns
+        nonnull_new_spec(ptr),
 ;
 
 #[verifier::when_used_as_spec(nonnull_view_ptr_mut_wrapper)]

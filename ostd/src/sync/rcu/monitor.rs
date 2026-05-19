@@ -30,7 +30,7 @@ pub(super) tracked struct RcuMonitorOwner {}
 struct_with_invariants! {
 /// A RCU monitor ensures the completion of _grace periods_ by keeping track
 /// of each CPU's passing _quiescent states_.
-pub struct RcuMonitor {
+pub(super) struct RcuMonitor {
     pub(super) is_monitoring: AtomicBool<_, bool, _>,
     pub(super) state: SpinLock<State, LocalIrqDisabled>,
 }
@@ -85,40 +85,50 @@ impl Inv for GracePeriod {
 
 #[verus_verify]
 impl RcuMonitor {
-    /// Creates a new RCU monitor with its tracked owner.
+    /// Creates a new RCU monitor.
+    pub(super) fn new() -> Self {
+        let state = SpinLock::new(State::new());
+        proof {
+            use_type_invariant(&state);
+            assert(state.type_inv());
+        }
+        let res = RcuMonitor {
+            is_monitoring: AtomicBool::new(Ghost(state), false, Tracked(false)),
+            state,
+        };
+
+        proof {
+            use_type_invariant(&res.state);
+            assert(res.state.type_inv());
+            assert(res.inv());
+        }
+        res
+    }
+
+    /// Creates a new RCU monitor together with its tracked owner for `Once`.
     #[verus_spec(r =>
         ensures
             r.inv(),
             r.data.inv(),
             RcuMonitorPred.inv(r),
     )]
-    pub(super) fn new() -> AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner> {
-        let state = SpinLock::new(State::new());
+    pub(super) fn new_data() -> AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner> {
+        let data = Self::new();
         proof {
-            use_type_invariant(&state);
-            assert(state.type_inv());
+            use_type_invariant(&data);
+            assert(data.inv());
         }
-        let monitor = RcuMonitor {
-            is_monitoring: AtomicBool::new(Ghost(state), false, Tracked(false)),
-            state,
-        };
-
-        proof {
-            use_type_invariant(&monitor.state);
-            assert(monitor.state.type_inv());
-            assert(monitor.inv());
-        }
-        AtomicDataWithOwner { data: monitor, permission: Tracked(RcuMonitorOwner {  }) }
+        AtomicDataWithOwner { data, permission: Tracked(RcuMonitorOwner {  }) }
     }
 
-    pub(super) fn is_monitoring(&self) -> bool {
+    fn is_monitoring(&self) -> bool {
         proof {
             use_type_invariant(self);
         }
         self.is_monitoring.load()
     }
 
-    pub(super) fn set_monitoring(&self, value: bool) {
+    fn set_monitoring(&self, value: bool) {
         proof {
             use_type_invariant(self);
         }

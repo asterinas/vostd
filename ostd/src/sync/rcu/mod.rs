@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Read-copy update (RCU).
-use core::marker::PhantomData;
+//!
+//! # Note
+//!
+//! Currently this RCU model assumes a sequential consistency (SC) memory model.
+//! We may explore weak memory models in the future.
+use core::{marker::PhantomData, ptr::NonNull};
 
-use monitor::{RcuMonitorOwner, RcuMonitorPred};
+use monitor::{RcuMonitor, RcuMonitorOwner, RcuMonitorPred};
 use non_null::NonNullPtr;
-use vstd::{atomic_ghost::AtomicPtr, prelude::*};
+use vstd::{atomic_ghost::AtomicPtr, atomic_with_ghost, prelude::*};
 use vstd_extra::prelude::*;
 
 pub mod non_null;
@@ -12,8 +17,6 @@ pub mod non_null;
 mod monitor;
 
 use crate::task::DisabledPreemptGuard;
-
-pub use self::monitor::RcuMonitor;
 
 use super::Once;
 
@@ -30,7 +33,7 @@ exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorOwner, RcuMonitorPred>
 }
 
 pub fn init() {
-    RCU_MONITOR.init(RcuMonitor::new());
+    RCU_MONITOR.init(RcuMonitor::new_data());
 }
 
 /// A Read-Copy Update (RCU) cell for sharing a pointer between threads.
@@ -145,10 +148,12 @@ struct RcuReadGuardInner<'a, P: NonNullPtr> {
 }
 
 /// A guard that allows access to the pointed data protected by a [`Rcu`].
+#[clippy::has_significant_drop]
 #[must_use]
 pub struct RcuReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
 
 /// A guard that allows access to the pointed data protected by a [`RcuOption`].
+#[clippy::has_significant_drop]
 #[must_use]
 pub struct RcuOptionReadGuard<'a, P: NonNullPtr>(RcuReadGuardInner<'a, P>);
 
@@ -174,9 +179,48 @@ impl<P: NonNullPtr> RcuInner<P> {
     }
 }
 
+impl<P: NonNullPtr + Send> Inv for Rcu<P> {
+    closed spec fn inv(self) -> bool {
+        &&& self.0.type_inv()
+    }
+}
+
+#[verus_verify]
+impl<P: NonNullPtr + Send> Rcu<P> {
+    /// Creates a new RCU primitive with the given pointer `pointer`.
+    #[inline(always)]
+    #[verus_spec(r =>
+        ensures
+            r.inv(),
+    )]
+    pub fn new(pointer: P) -> Self {
+        let inner = RcuInner::new(pointer);
+        proof {
+            use_type_invariant(&inner);
+        }
+
+        Self(inner)
+    }
+
+    /// Replaces the current pointer with a null pointer.
+    ///
+    /// This function updates the pointer to the new pointer regardless of the
+    /// original pointer. The original pointer will be dropped after the grace
+    /// period.
+    ///
+    /// Oftentimes this function is not recommended unless you have serialized
+    /// writes with locks. Otherwise, you can use [`Self::read`] and then
+    /// [`RcuReadGuard::compare_exchange`] to update the pointer.
+    pub fn update(&self, new_ptr: P) {
+        self.0.update(Some(new_ptr));
+    }
+}
+
 #[verus_verify]
 impl<P: NonNullPtr + Send> RcuInner<P> {
     /// Creates a new RCU primitive with the given pointer `pointer`.
+    #[inline(always)]
+    #[verus_spec]
     fn new(pointer: P) -> Self {
         let (ptr, Tracked(ptr_perm)) = <P as NonNullPtr>::into_raw(pointer);
         let marker = PhantomData;
@@ -187,6 +231,58 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         }
         let ptr = AtomicPtr::new(Ghost(marker), ptr.as_ptr(), Tracked(Some(ptr_perm)));
         Self { ptr, _marker: marker }
+    }
+
+    #[verus_spec]
+    fn update(&self, new_ptr: Option<P>) {
+        let (new_raw_ptr, Tracked(new_perm)) = match new_ptr {
+            Some(new_ptr) => {
+                let (ptr, Tracked(perm)) = <P as NonNullPtr>::into_raw(new_ptr);
+                proof {
+                    assert(nonnull_from_ptr_mut_spec(ptr.as_ptr()) == ptr);
+                    assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(ptr.as_ptr()), perm));
+                    assert(perm.inv());
+                }
+                (ptr.as_ptr(), Tracked(Some(perm)))
+            },
+            None => (core::ptr::null_mut(), Tracked(None)),
+        };
+
+        proof_decl! {
+            let tracked mut old_perm: Option<<P as NonNullPtr>::Permission> = None;
+        }
+        proof {
+            use_type_invariant(self);
+        }
+        let old_raw_ptr =
+            atomic_with_ghost! {
+            self.ptr => swap(new_raw_ptr);
+            update _prev -> next;
+            returning old_raw_ptr;
+            ghost g => {
+                old_perm = g;
+                g = new_perm;
+                assert(next == new_raw_ptr);
+                match &g {
+                    Some(perm) => {
+                        assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), *perm));
+                        assert(perm.inv());
+                    },
+                    None => {
+                        assert(next@.addr == 0);
+                    },
+                }
+            }
+        };
+
+        if let Some(p) = NonNull::new(old_raw_ptr) {
+            // SAFETY:
+            // 1. The pointer was previously returned by `into_raw`.
+            // 2. The pointer is removed from the RCU slot so that no one will
+            //    use it after the end of the current grace period. The removal
+            //    is done atomically, so it will only be dropped once.
+            // unsafe { delay_drop::<P>(p) };
+        }
     }
 }
 
