@@ -266,7 +266,10 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
         //     Self(RcuInner::new_none())
         // }
         let inner = match ptr {
-            Some(ptr) => { proof_with!(Ghost(true)); RcuInner::new(ptr) },
+            Some(ptr) => {
+                proof_with!(Ghost(true));
+                RcuInner::new(ptr)
+            },
             None => RcuInner::new_none(),
         };
 
@@ -638,9 +641,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         ensures
             self.ref_perm@ is Some ==> r is Some,
     )]
-    fn get<'b>(&'b self) -> Option<<P as NonNullPtrRef<'b>>::Ref>
-        where P: NonNullPtrRef<'b>
-    {
+    fn get<'b>(&'b self) -> Option<<P as NonNullPtrRef<'b>>::Ref> where P: NonNullPtrRef<'b> {
         // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
         // outlives the lifetime of `&self`. Additionally, during this period,
         // it is impossible to create a mutable reference to `P`.
