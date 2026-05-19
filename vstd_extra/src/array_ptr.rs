@@ -507,7 +507,7 @@ impl<V, const N: usize> PointsToArray<V, N> {
 impl<V, const N: usize> Clone for ArrayPtr<V, N> {
     fn clone(&self) -> (res: Self)
         ensures
-            res === *self,
+            res == *self,
     {
         Self { ..*self }
     }

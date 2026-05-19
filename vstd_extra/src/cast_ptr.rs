@@ -181,7 +181,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             perm.is_init(),
             perm.wf(&perm.inner_perms),
         ensures
-            *v === perm.value(),
+            *v == perm.value(),
     {
         T::from_borrowed(self.ptr.borrow(Tracked(&perm.points_to)), Tracked(&perm.inner_perms))
     }

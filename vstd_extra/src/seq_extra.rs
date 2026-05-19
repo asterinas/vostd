@@ -142,7 +142,7 @@ pub broadcast proof fn lemma_forall_seq_push<T>(s: Seq<T>, f: spec_fn(int, T) ->
 {
     if forall_seq(s.push(v), f) {
         assert forall|i| 0 <= i < s.len() implies f(i, s[i]) by {
-            assert(s[i] === s.push(v)[i]);
+            assert(s[i] == s.push(v)[i]);
         }
         assert(s.push(v)[s.len() as int] == v);
     }
@@ -155,7 +155,7 @@ pub broadcast proof fn lemma_seq_all_push<T>(s: Seq<T>, f: spec_fn(T) -> bool, v
 {
     if s.push(v).all(f) {
         assert forall|i| 0 <= i < s.len() implies f(s[i]) by {
-            assert(s[i] === s.push(v)[i]);
+            assert(s[i] == s.push(v)[i]);
         }
         assert(s.push(v)[s.len() as int] == v);
     }
