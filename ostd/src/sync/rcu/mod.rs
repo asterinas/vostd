@@ -9,7 +9,7 @@ use core::{marker::PhantomData, ptr::NonNull};
 
 use monitor::{RcuMonitor, RcuMonitorOwner, RcuMonitorPred};
 use non_null::{NonNullPtr, NonNullPtrRef};
-use vstd::{atomic_ghost::AtomicPtr, atomic_with_ghost, prelude::*};
+use vstd::{atomic_ghost::AtomicPtr, atomic_with_ghost, modes::tracked_static_ref, prelude::*};
 use vstd_extra::{
     prelude::*,
     resource::ghost_resource::{count::Count, tokens::CountResource},
@@ -19,6 +19,7 @@ pub mod non_null;
 
 mod monitor;
 
+use crate::specs::task::InAtomicMode;
 use crate::task::{disable_preempt, DisabledPreemptGuard};
 
 use super::Once;
@@ -26,13 +27,13 @@ use super::Once;
 verus! {
 
 broadcast use vstd_extra::external::nonnull::group_nonull_axioms;
-
 // Verification-only budget for splitting read-side ghost tokens.
 //
 // This is not a runtime reader counter and does not model an overflow condition
 // in the RCU implementation. It is a temporary bounded approximation needed by
 // `CountResource`; the final RCU proof should discharge the admission assumption
 // with an unbounded ghost registry or a CPU/epoch-based sharding model.
+
 const RCU_READER_SLOTS: u64 = 1u64 << 60;
 
 type RcuReadPool<P> = CountResource<<P as NonNullPtr>::Permission, RCU_READER_SLOTS>;
@@ -127,6 +128,7 @@ pub struct RcuOption<P: NonNullPtr>(RcuInner<P>);
 struct_with_invariants! {
 /// The inner implementation of both [`Rcu`] and [`RcuOption`].
 struct RcuInner<P: NonNullPtr> {
+        nullable: Ghost<bool>,
         ptr: AtomicPtr<
             <P as NonNullPtr>::Target,
             _,
@@ -140,7 +142,7 @@ struct RcuInner<P: NonNullPtr> {
 }
 
 closed spec fn wf(self) -> bool {
-        invariant on ptr with (_marker) is (
+        invariant on ptr with (nullable, _marker) is (
             v: *mut <P as NonNullPtr>::Target,
             g: Option<RcuReadPool<P>>,
         ) {
@@ -151,7 +153,7 @@ closed spec fn wf(self) -> bool {
                     &&& perm@.inv()
                     &&& perm.wf()
                 },
-                None => v@.addr == 0,
+                None => nullable@ && v@.addr == 0,
             }
     }
 }
@@ -197,6 +199,39 @@ impl<P: NonNullPtr> RcuInner<P> {
     }
 }
 
+impl<P: NonNullPtr> RcuOption<P> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        &&& self.0.type_inv()
+        &&& self.0.nullable@
+    }
+}
+
+impl<P: NonNullPtr> Rcu<P> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        &&& self.0.type_inv()
+        &&& !self.0.nullable@
+    }
+}
+
+impl<'a, P: NonNullPtr> RcuReadGuard<'a, P> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        &&& self.0.type_inv()
+        &&& !self.0.rcu.nullable@
+        &&& self.0.ref_perm@ is Some
+    }
+}
+
+impl<'a, P: NonNullPtr> RcuOptionReadGuard<'a, P> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        &&& self.0.type_inv()
+        &&& self.0.rcu.nullable@
+    }
+}
+
 impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
@@ -214,7 +249,80 @@ impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
 
 impl<P: NonNullPtr + Send> Inv for Rcu<P> {
     closed spec fn inv(self) -> bool {
-        &&& self.0.type_inv()
+        self.type_inv()
+    }
+}
+
+#[verus_verify]
+impl<P: NonNullPtr + Send> RcuOption<P> {
+    /// Creates a new RCU primitive with the given pointer.
+    #[inline]
+    #[verus_spec]
+    pub fn new(ptr: Option<P>) -> Self {
+        // Need to open type invariant.
+        // if let Some(pointer) = pointer {
+        //     Self(RcuInner::new(pointer))
+        // } else {
+        //     Self(RcuInner::new_none())
+        // }
+        let inner = match ptr {
+            Some(ptr) => { proof_with!(Ghost(true)); RcuInner::new(ptr) },
+            None => RcuInner::new_none(),
+        };
+
+        proof {
+            use_type_invariant(&inner);
+        }
+
+        Self(inner)
+    }
+
+    /// Creates a new RCU primitive that contains nothing.
+    ///
+    /// This is a constant equivalence to [`RcuOption::new(None)`].
+    #[inline(always)]
+    pub const fn new_none() -> Self {
+        let inner = RcuInner::new_none();
+
+        proof {
+            use_type_invariant(&inner);
+        }
+
+        Self(inner)
+    }
+
+    /// Replaces the current pointer with a null pointer.
+    ///
+    /// This function updates the pointer to the new pointer regardless of the
+    /// original pointer. If the original pointer is not NULL, it will be
+    /// dropped after the grace period.
+    ///
+    /// Oftentimes this function is not recommended unless you have
+    /// synchronized writes with locks. Otherwise, you can use [`Self::read`]
+    /// and then [`RcuOptionReadGuard::compare_exchange`] to update the pointer.
+    #[inline]
+    pub fn update(&self, new_ptr: Option<P>) {
+        proof {
+            use_type_invariant(self);
+        }
+        self.0.update(new_ptr);
+    }
+
+    /// Retrieves a read guard for the RCU primitive.
+    ///
+    /// The guard allows read access to the data protected by RCU, as well
+    /// as the ability to do compare-and-exchange.
+    ///
+    /// The contained pointer can be NULL and you can only get a reference
+    /// (if checked non-NULL) via [`RcuOptionReadGuard::get`].
+    #[inline]
+    pub fn read(&self) -> RcuOptionReadGuard<'_, P> {
+        let inner = self.0.read();
+        proof {
+            use_type_invariant(self);
+            assert(inner.rcu.nullable@);
+        }
+        RcuOptionReadGuard(inner)
     }
 }
 
@@ -222,11 +330,9 @@ impl<P: NonNullPtr + Send> Inv for Rcu<P> {
 impl<P: NonNullPtr + Send> Rcu<P> {
     /// Creates a new RCU primitive with the given pointer `pointer`.
     #[inline(always)]
-    #[verus_spec(r =>
-        ensures
-            r.inv(),
-    )]
+    #[verus_spec]
     pub fn new(pointer: P) -> Self {
+        proof_with!(Ghost(false));
         let inner = RcuInner::new(pointer);
         proof {
             use_type_invariant(&inner);
@@ -248,13 +354,58 @@ impl<P: NonNullPtr + Send> Rcu<P> {
     pub fn update(&self, new_ptr: P) {
         self.0.update(Some(new_ptr));
     }
+
+    /// Retrieves a read guard for the RCU primitive.
+    ///
+    /// The guard allows read access to the data protected by RCU, as well
+    /// as the ability to do compare-and-exchange.
+    #[inline]
+    pub fn read(&self) -> RcuReadGuard<'_, P> {
+        let inner = self.0.read();
+        proof {
+            use_type_invariant(self);
+            assert(!inner.rcu.nullable@);
+            assert(inner.ref_perm@ is Some);
+        }
+        RcuReadGuard(inner)
+    }
+    // #[inline]
+    // pub fn read_with<'a, G: AsAtomicModeGuard + ?Sized>(&'a self, guard: &'a G) -> P::Ref<'a> where
+    //     P: NonNullPtrRef<'a>,
+    // {
+    //     self.0.read_with(guard.as_atomic_mode_guard()).unwrap()
+    // }
+
 }
 
 #[verus_verify]
 impl<P: NonNullPtr + Send> RcuInner<P> {
+    #[inline(always)]
+    // #[verus_spec]
+    const fn new_none() -> (res: Self)
+        ensures
+            res.nullable@,
+    {
+        Self {
+            nullable: Ghost(true),
+            ptr: AtomicPtr::new(
+                Ghost((Ghost(true), PhantomData)),
+                core::ptr::null_mut(),
+                Tracked(None),
+            ),
+            _marker: PhantomData,
+        }
+    }
+
     /// Creates a new RCU primitive with the given pointer `pointer`.
     #[inline(always)]
-    #[verus_spec]
+    #[verus_spec(r =>
+        with
+            Ghost(nullable): Ghost<bool>,
+        ensures
+            r.type_inv(),
+            r.nullable@ == nullable,
+    )]
     fn new(pointer: P) -> Self {
         let (ptr, Tracked(ptr_perm)) = <P as NonNullPtr>::into_raw(pointer);
         let marker = PhantomData;
@@ -267,11 +418,18 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         proof_decl! {
             let tracked ptr_perm = CountResource::alloc(ptr_perm);
         }
-        let ptr = AtomicPtr::new(Ghost(marker), ptr.as_ptr(), Tracked(Some(ptr_perm)));
-        Self { ptr, _marker: marker }
+        let ptr = AtomicPtr::new(
+            Ghost((Ghost(nullable), marker)),
+            ptr.as_ptr(),
+            Tracked(Some(ptr_perm)),
+        );
+        Self { nullable: Ghost(nullable), ptr, _marker: marker }
     }
 
-    #[verus_spec]
+    #[verus_spec(
+        requires
+            self.nullable@ || new_ptr is Some,
+    )]
     fn update(&self, new_ptr: Option<P>) {
         let (new_raw_ptr, Tracked(new_perm)) = match new_ptr {
             Some(new_ptr) => {
@@ -284,7 +442,12 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                 }
                 (ptr.as_ptr(), Tracked(Some(perm)))
             },
-            None => (core::ptr::null_mut(), Tracked(None)),
+            None => {
+                proof {
+                    assert(self.nullable@);
+                }
+                (core::ptr::null_mut(), Tracked(None))
+            },
         };
 
         proof_decl! {
@@ -314,6 +477,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                         assert(perm.not_empty());
                     },
                     None => {
+                        assert(self.nullable@);
                         assert(next@.addr == 0);
                     },
                 }
@@ -330,16 +494,30 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         }
     }
 
-    #[verus_verify]
-    fn read(&self) -> RcuReadGuardInner<'_, P> {
-        let guard = disable_preempt();
+    #[verus_spec(obj_ptr =>
+        with
+            -> ref_perm: Tracked<Option<RcuReadToken<P>>>,
+        ensures
+            !self.nullable@ ==> ref_perm@ is Some,
+            match ref_perm@ {
+                Some(perm) => {
+                    &&& obj_ptr@.addr != 0
+                    &&& P::ptr_perm_match(nonnull_from_ptr_mut_spec(obj_ptr), perm.resource())
+                    &&& perm.resource().inv()
+                    &&& perm.frac() == 1
+                },
+                None => obj_ptr@.addr == 0,
+            },
+    )]
+    fn load_read_token(&self) -> *mut <P as NonNullPtr>::Target {
         proof_decl! {
             let tracked mut ref_perm: Option<RcuReadToken<P>> = None;
         }
         proof {
             use_type_invariant(self);
         }
-        let obj_ptr = atomic_with_ghost! {
+        let obj_ptr =
+            atomic_with_ghost! {
             self.ptr => load();
             update prev -> _next;
             returning loaded;
@@ -370,6 +548,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                     assert(perm.wf());
                     g = Some(perm);
                 } else {
+                    assert(self.nullable@);
                     assert(loaded@.addr == 0);
                 }
             }
@@ -382,30 +561,96 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                     assert(perm.frac() == 1);
                 },
                 None => {
+                    assert(self.nullable@);
                     assert(obj_ptr@.addr == 0);
                 },
             }
         }
-        RcuReadGuardInner {
-            obj_ptr,
-            rcu: self,
-            _inner_guard: guard,
-            ref_perm: Tracked(ref_perm),
+        proof_with! { |= Tracked(ref_perm) }
+        obj_ptr
+    }
+
+    #[verus_spec(r =>
+        ensures
+            r.rcu.nullable@ == self.nullable@,
+            !self.nullable@ ==> r.ref_perm@ is Some,
+    )]
+    fn read(&self) -> RcuReadGuardInner<'_, P> {
+        let guard = disable_preempt();
+        proof_decl! {
+            let tracked mut ref_perm: Option<RcuReadToken<P>> = None;
         }
+        let obj_ptr = #[verus_spec(with => Tracked(ref_perm))]
+        self.load_read_token();
+        proof {
+            if !self.nullable@ {
+                assert(ref_perm is Some);
+            }
+        }
+        RcuReadGuardInner { obj_ptr, rcu: self, _inner_guard: guard, ref_perm: Tracked(ref_perm) }
+    }
+
+    #[verus_spec]
+    pub fn read_with<'a, A: InAtomicMode>(
+        &'a self,
+        _guard: &'a A,  // &'a dyn InAtomicMode is not well-supported in Verus.
+    ) -> Option<<P as NonNullPtrRef<'a>>::Ref> where P: NonNullPtrRef<'a> {
+        proof_decl! {
+            let tracked mut ref_perm: Option<RcuReadToken<P>> = None;
+        }
+        let obj_ptr = #[verus_spec(with => Tracked(ref_perm))]
+        self.load_read_token();
+        let Some(ptr) = NonNull::new(obj_ptr) else {
+            return None;
+        };
+        proof {
+            assert(nonnull_new_spec(obj_ptr) == Some(ptr));
+            assert(ptr == nonnull_from_ptr_mut_spec(obj_ptr));
+        }
+        proof_decl! {
+            // `read_with` returns only the reference and has no guard object to
+            // store the read token. For this temporary skeleton, leak the
+            // verification-only token so the returned ref can borrow it for
+            // `'a`. The final RCU proof should attach this token to the
+            // atomic-mode/CPU epoch state instead.
+            let tracked ref_perm = ref_perm.tracked_unwrap();
+            let tracked ref_perm = tracked_static_ref(ref_perm);
+            let tracked ref_perm: <P as NonNullPtrRef<'a>>::RefPermission =
+                P::borrow_perm_as_ref_perm(ref_perm.borrow());
+        }
+        proof {
+            assert(P::ptr_perm_match(ptr, P::ref_perm_view_permission(ref_perm)));
+            assert(ref_perm.inv());
+        }
+        // SAFETY:
+        // 1. This pointer is not NULL.
+        // 2. The `_guard` guarantees atomic mode for the duration of lifetime
+        //    `'a`, the pointer is valid because other writers won't release the
+        //    allocation until this task passes the quiescent state.
+        Some(unsafe { P::raw_as_ref(ptr, Tracked(ref_perm)) })
     }
 }
 
 #[verus_verify]
 impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
     #[inline]
+    #[verus_spec(r =>
+        ensures
+            self.ref_perm@ is Some ==> r is Some,
+    )]
     fn get<'b>(&'b self) -> Option<<P as NonNullPtrRef<'b>>::Ref>
-    where
-        P: NonNullPtrRef<'b>,
+        where P: NonNullPtrRef<'b>
     {
         // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
         // outlives the lifetime of `&self`. Additionally, during this period,
         // it is impossible to create a mutable reference to `P`.
         let Some(ptr) = NonNull::new(self.obj_ptr) else {
+            proof {
+                use_type_invariant(self);
+                assert(nonnull_new_spec(self.obj_ptr) is None);
+                assert(self.obj_ptr@.addr == 0);
+                assert(self.ref_perm@ is None);
+            }
             return None;
         };
 
@@ -429,7 +674,16 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         Some(unsafe { P::raw_as_ref(ptr, Tracked(ref_perm)) })
     }
 
+    #[verus_spec(r =>
+        requires
+            self.rcu.nullable@ || new_ptr is Some,
+        ensures
+            new_ptr is Some && r is Err ==> r->Err_0 is Some,
+    )]
     fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
+        proof_decl! {
+            let ghost new_ptr_is_some = new_ptr is Some;
+        }
         let (new_raw_ptr, Tracked(new_perm)) = match new_ptr {
             Some(new_ptr) => {
                 let (ptr, Tracked(perm)) = <P as NonNullPtr>::into_raw(new_ptr);
@@ -438,11 +692,23 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                     assert(ptr.as_ptr()@.addr != 0);
                     assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(ptr.as_ptr()), perm));
                     assert(perm.inv());
+                    assert(new_ptr_is_some);
                 }
                 (ptr.as_ptr(), Tracked(Some(perm)))
             },
-            None => (core::ptr::null_mut(), Tracked(None)),
+            None => {
+                proof {
+                    assert(!new_ptr_is_some);
+                    assert(self.rcu.nullable@);
+                }
+                (core::ptr::null_mut(), Tracked(None))
+            },
         };
+        proof {
+            if new_ptr_is_some {
+                assert(new_raw_ptr@.addr != 0);
+            }
+        }
 
         proof_decl! {
             let tracked mut old_perm: Option<RcuReadPool<P>> = None;
@@ -451,7 +717,8 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         proof {
             use_type_invariant(self.rcu);
         }
-        let res = atomic_with_ghost! {
+        let res =
+            atomic_with_ghost! {
             self.rcu.ptr => compare_exchange(self.obj_ptr, new_raw_ptr);
             update _prev -> next;
             returning res;
@@ -472,6 +739,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                             assert(perm.not_empty());
                         },
                         None => {
+                            assert(self.rcu.nullable@);
                             assert(next@.addr == 0);
                         },
                     }
@@ -489,10 +757,15 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                 //    is done atomically, so it will only be dropped once.
                 // unsafe { delay_drop::<P>(p) };
             }
-
             Ok(())
         } else {
             let Some(new_nonnull) = NonNull::new(new_raw_ptr) else {
+                proof {
+                    assert(nonnull_new_spec(new_raw_ptr) is None);
+                    assert(new_raw_ptr@.addr == 0);
+                    assert(!new_ptr_is_some);
+                    assert(!(new_ptr is Some));
+                }
                 return Err(None);
             };
             proof {
@@ -512,6 +785,68 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             //    be used by other threads via reading the RCU primitive.
             Err(Some(unsafe { <P as NonNullPtr>::from_raw(new_nonnull, Tracked(new_perm)) }))
         }
+    }
+}
+
+#[verus_verify]
+impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
+    /// Gets the reference of the protected data.
+    #[inline]
+    pub fn get<'a>(&'a self) -> <P as NonNullPtrRef<'a>>::Ref where P: NonNullPtrRef<'a> {
+        let res = self.0.get();
+        proof {
+            use_type_invariant(self);
+            assert(self.0.ref_perm@ is Some);
+            assert(res is Some);
+        }
+        res.unwrap()
+    }
+
+    /// Tries to replace the already read pointer with a new pointer.
+    ///
+    /// If another thread has updated the pointer after the read, this
+    /// function will fail, and returns the given pointer back. Otherwise,
+    /// it will replace the pointer with the new one and drop the old pointer
+    /// after the grace period.
+    ///
+    /// If spinning on [`Rcu::read`] and this function, it is recommended
+    /// to relax the CPU or yield the task on failure. Otherwise contention
+    /// will occur.
+    ///
+    /// This API does not help to avoid
+    /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
+    #[inline]
+    pub fn compare_exchange(self, new_ptr: P) -> Result<(), P> {
+        match self.0.compare_exchange(Some(new_ptr)) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                proof {
+                    assert(err is Some);
+                }
+                Err(err.unwrap())
+            },
+        }
+    }
+}
+
+#[verus_verify]
+impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
+    #[inline]
+    pub fn get<'a>(&'a self) -> Option<<P as NonNullPtrRef<'a>>::Ref> where P: NonNullPtrRef<'a> {
+        self.0.get()
+    }
+
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        self.0.obj_ptr.is_null()
+    }
+
+    #[inline]
+    pub fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
+        proof {
+            use_type_invariant(&self);
+        }
+        self.0.compare_exchange(new_ptr)
     }
 }
 

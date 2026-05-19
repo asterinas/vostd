@@ -127,9 +127,8 @@ pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T)
 ;
 
 #[verifier::when_used_as_spec(nonnull_new_spec)]
-pub assume_specification<T: PointeeSized>[ core::ptr::NonNull::<T>::new ](
-    ptr: *mut T,
-) -> (ret: core::option::Option<core::ptr::NonNull<T>>)
+pub assume_specification<T: PointeeSized>[ core::ptr::NonNull::<T>::new ](ptr: *mut T) -> (ret:
+    core::option::Option<core::ptr::NonNull<T>>)
     ensures
         ret matches Some(nn) ==> nn.view_ptr_mut() == ptr,
     returns

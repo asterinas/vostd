@@ -79,4 +79,14 @@ pub assume_specification<T: PointeeSized>[ <*const T>::cast_mut ](ptr: *const T)
     no_unwind
 ;
 
+pub assume_specification<T: PointeeSized>[ <*mut T>::is_null ](ptr: *mut T) -> bool
+    returns
+        ptr.addr() == 0,
+;
+
+pub assume_specification<T: PointeeSized>[ <*const T>::is_null ](ptr: *const T) -> bool
+    returns
+        ptr.addr() == 0,
+;
+
 } // verus!
