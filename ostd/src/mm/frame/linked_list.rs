@@ -750,6 +750,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             *final(self) == *old(self),
             res.is_some() == (0 <= final(owner).index < final(owner).length()),
     {
+        // Verus does not support option.map very well.
+        // self.current.map(|current| {
+        //     let link_mut = unsafe { &mut *(current.ptr.addr() as *mut Link<M>) };
+        //     &mut link_mut.meta
+        // })
         match self.current {
             Some(current) => {
                 proof {
