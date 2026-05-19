@@ -133,6 +133,26 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
             Self::ref_perm_view_permission(perm).inv(),
     ;
 
+    /// Borrows a reusable reading permission from an existing reading permission.
+    proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
+        Self::RefPermission)
+        requires
+            perm.inv(),
+        ensures
+            ret.inv(),
+            Self::ref_perm_view_permission(ret) == Self::ref_perm_view_permission(*perm),
+    ;
+
+    /// Borrows a reusable reading permission from the owned permission.
+    proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
+        Self::RefPermission)
+        requires
+            perm.inv(),
+        ensures
+            ret.inv(),
+            Self::ref_perm_view_permission(ret) == *perm,
+    ;
+
     /// Obtains a shared reference to the original pointer.
     ///
     /// # Safety
@@ -301,6 +321,16 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Box<T> {
     proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission) {
     }
 
+    proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
+        Self::RefPermission) {
+        BoxPointsToRef(perm.0)
+    }
+
+    proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
+        Self::RefPermission) {
+        BoxPointsToRef(perm)
+    }
+
     unsafe fn raw_as_ref(
         raw: NonNull<Self::Target>,
         perm: Tracked<Self::RefPermission>,
@@ -429,6 +459,16 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Arc<T> {
     }
 
     proof fn lemma_ref_perm_inv_impl_perm_inv(perm: Self::RefPermission) {
+    }
+
+    proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
+        Self::RefPermission) {
+        ArcPointsTo { perm: perm.perm }
+    }
+
+    proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
+        Self::RefPermission) {
+        ArcPointsTo { perm: perm.perm }
     }
 
     unsafe fn raw_as_ref(

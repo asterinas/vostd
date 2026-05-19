@@ -269,6 +269,24 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         }
     }
 
+    proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
+        Self::RefPermission) {
+        if perm is Left {
+            Sum::Left(L::borrow_ref_perm(perm.tracked_borrow_left()))
+        } else {
+            Sum::Right(R::borrow_ref_perm(perm.tracked_borrow_right()))
+        }
+    }
+
+    proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
+        Self::RefPermission) {
+        if perm is Left {
+            Sum::Left(L::borrow_perm_as_ref_perm(perm.tracked_borrow_left()))
+        } else {
+            Sum::Right(R::borrow_perm_as_ref_perm(perm.tracked_borrow_right()))
+        }
+    }
+
     unsafe fn raw_as_ref(
         raw: NonNull<Self::Target>,
         Tracked(perm): Tracked<Self::RefPermission>,

@@ -165,7 +165,7 @@ pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
         nonnull_dangling_spec::<T>(),
 ;
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn nonnull_with_addr_spec_wrapper<T: PointeeSized>(
     ptr: NonNull<T>,
     addr: NonZeroUsize,
