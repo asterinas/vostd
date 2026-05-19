@@ -579,6 +579,38 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     }
 }
 
+#[verus_spec(
+    with Tracked(owner): Tracked<&'b mut CursorOwner<M>>
+)]
+fn borrow_current_meta_from_owner<'b, M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+    current: ReprPtr<MetaSlot, MetadataAsLink<M>>,
+) -> (res: &'b mut M)
+    requires
+        old(owner).inv(),
+        0 <= old(owner).index < old(owner).length(),
+        old(owner).list_own.perms.contains_key(old(owner).index),
+        old(owner).list_own.perms[old(owner).index].is_init(),
+        old(owner).list_own.perms[old(owner).index].wf(
+            &old(owner).list_own.perms[old(owner).index].inner_perms,
+        ),
+        current.ptr == old(owner).list_own.perms[old(owner).index].points_to.pptr(),
+    ensures
+        final(owner).index == old(owner).index,
+        final(owner).list_own.list == old(owner).list_own.list,
+        final(owner).list_own.list_id == old(owner).list_own.list_id,
+        final(owner).list_own.perms.dom() === old(owner).list_own.perms.dom(),
+        final(owner).list_own.perms[final(owner).index].points_to.pptr()
+            == old(owner).list_own.perms[old(owner).index].points_to.pptr(),
+{
+    let current_md = MetadataAsLink::cast_to_metadata(current);
+    let tracked current_perm = vstd_extra::map_extra::tracked_borrow_mut_points_to(
+        &mut owner.list_own.perms,
+        owner.index,
+    );
+    let link_md = current_md.borrow_mut(Tracked(current_perm));
+    &mut link_md.metadata.meta
+}
+
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     /// Moves the cursor to the next frame towards the back.
     ///
@@ -697,37 +729,69 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     /// The cursor must be well-formed with respect to the tracked `CursorOwner`.
     /// ## Postconditions
     /// If the cursor is on an element, returns `Some(&mut meta)` borrowing the
-    /// current link's metadata. The cursor state and owner are otherwise
-    /// unchanged.
+    /// current link's metadata. The cursor state and list shape are otherwise
+    /// unchanged; the current metadata permission remains borrowed while the
+    /// returned reference is live.
     /// ## Safety
     /// The `&mut self` guarantees exclusive access to the cursor; the tracked
-    /// `CursorOwner` guarantees the perm for the current link is live. Together
-    /// they justify the mutable borrow of `link.meta`. The body is
-    /// `external_body` because the map-indexed perm extraction needed to call
-    /// `ReprPtr::borrow_mut` runs into a Verus modelling gap — see
-    /// `vstd_extra::map_extra::tracked_borrow_mut_points_to`. The ownership
-    /// invariants in the requires/ensures are what we rely on.
+    /// `CursorOwner` guarantees the perm for the current link is live.
     #[verus_spec(
-        with Tracked(owner): Tracked<&mut CursorOwner<M>>
+        with Tracked(owner): Tracked<&'b mut CursorOwner<M>>
     )]
-    #[verifier::external_body]
-    pub fn current_meta(&mut self) -> (res: Option<&mut M>)
+    pub fn current_meta<'b>(&'b mut self) -> (res: Option<&'b mut M>)
         requires
             old(self).wf(*old(owner)),
             old(owner).inv(),
         ensures
-            final(self).wf(*final(owner)),
-            final(owner).inv(),
-            *final(owner) == *old(owner),
+            final(owner).index == old(owner).index,
+            final(owner).list_own.list == old(owner).list_own.list,
+            final(owner).list_own.list_id == old(owner).list_own.list_id,
+            final(owner).list_own.perms.dom() === old(owner).list_own.perms.dom(),
             *final(self) == *old(self),
             res.is_some() == (0 <= final(owner).index < final(owner).length()),
     {
-        self.current.map(|current| {
-            // SAFETY: `&mut self` + the tracked owner ensure exclusive access
-            // to the current link's metadata.
-            let link_mut = unsafe { &mut *(current.ptr.addr() as *mut Link<M>) };
-            &mut link_mut.meta
-        })
+        // Verus does not support option.map very well.
+        // self.current.map(|current| {
+        //     let link_mut = unsafe { &mut *(current.ptr.addr() as *mut Link<M>) };
+        //     &mut link_mut.meta
+        // })
+        match self.current {
+            Some(current) => {
+                proof {
+                    assert(self.wf(*owner));
+                    assert(owner.inv());
+                    assert(0 <= owner.index <= owner.length());
+                    if !(0 <= owner.index < owner.length()) {
+                        assert(owner.index == owner.length());
+                        assert(self.current.is_none());
+                        assert(false);
+                    }
+                    assert(owner.list_own.inv());
+                    assert(owner.list_own.inv_at(owner.index));
+                    assert(owner.list_own.perms.contains_key(owner.index));
+                    assert(owner.list_own.perms[owner.index].is_init());
+                    assert(owner.list_own.perms[owner.index].wf(
+                        &owner.list_own.perms[owner.index].inner_perms,
+                    ));
+                    assert(current == self.current.unwrap());
+                    assert(current.ptr == owner.list_own.perms[owner.index].points_to.pptr());
+                }
+                #[verus_spec(with Tracked(owner))]
+                let meta = borrow_current_meta_from_owner(current);
+                Some(meta)
+            },
+            None => {
+                proof {
+                    assert(self.wf(*owner));
+                    assert(owner.inv());
+                    if 0 <= owner.index < owner.length() {
+                        assert(self.current.is_some());
+                        assert(false);
+                    }
+                }
+                None
+            },
+        }
     }
 
     /// Takes the current pointing frame out of the linked list.
