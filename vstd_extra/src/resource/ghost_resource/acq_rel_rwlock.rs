@@ -9,8 +9,439 @@
 use crate::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
 use crate::sum::*;
 use vstd::prelude::*;
+use vstd::resource::algebra::ResourceAlgebra;
+use vstd::resource::pcm::PCM;
+use vstd::resource::relations::frame_preserving_update;
 
 verus! {
+
+/// Standalone PCM carrier for acquire-release reader-writer lock protocols.
+///
+/// `Elem` counts the currently owned protocol fragments.  `phase` is ghost
+/// publication metadata: it composes monotonically but does not affect validity,
+/// so phase-only updates are frame-preserving.
+pub ghost enum AcqRelRwPCM<const MAX_READERS: u64, const READ_RETRACT: u64> {
+    Unit,
+    Elem {
+        readers: nat,
+        upreaders: nat,
+        writers: nat,
+        pending_read_fails: nat,
+        pending_upread_fails: nat,
+        phase: nat,
+    },
+    Invalid,
+}
+
+impl<const MAX_READERS: u64, const READ_RETRACT: u64> AcqRelRwPCM<
+    MAX_READERS,
+    READ_RETRACT,
+> {
+    pub open spec fn elem(
+        readers: nat,
+        upreaders: nat,
+        writers: nat,
+        pending_read_fails: nat,
+        pending_upread_fails: nat,
+        phase: nat,
+    ) -> Self {
+        AcqRelRwPCM::Elem {
+            readers,
+            upreaders,
+            writers,
+            pending_read_fails,
+            pending_upread_fails,
+            phase,
+        }
+    }
+
+    pub open spec fn wf_counts(
+        readers: nat,
+        upreaders: nat,
+        writers: nat,
+        pending_read_fails: nat,
+        pending_upread_fails: nat,
+    ) -> bool {
+        &&& readers <= MAX_READERS
+        &&& upreaders <= 1
+        &&& writers <= 1
+        &&& pending_read_fails <= READ_RETRACT
+        &&& pending_upread_fails <= 1
+        &&& upreaders + pending_upread_fails <= 1
+        &&& writers > 0 ==> readers == 0 && upreaders == 0
+    }
+
+    pub open spec fn readers(self) -> nat
+        recommends
+            self is Elem,
+    {
+        self->readers
+    }
+
+    pub open spec fn upreaders(self) -> nat
+        recommends
+            self is Elem,
+    {
+        self->upreaders
+    }
+
+    pub open spec fn writers(self) -> nat
+        recommends
+            self is Elem,
+    {
+        self->writers
+    }
+
+    pub open spec fn pending_read_fails(self) -> nat
+        recommends
+            self is Elem,
+    {
+        self->pending_read_fails
+    }
+
+    pub open spec fn pending_upread_fails(self) -> nat
+        recommends
+            self is Elem,
+    {
+        self->pending_upread_fails
+    }
+
+    pub open spec fn phase(self) -> nat
+        recommends
+            self is Elem,
+    {
+        self->phase
+    }
+}
+
+impl<const MAX_READERS: u64, const READ_RETRACT: u64> ResourceAlgebra for AcqRelRwPCM<
+    MAX_READERS,
+    READ_RETRACT,
+> {
+    open spec fn valid(self) -> bool {
+        match self {
+            AcqRelRwPCM::Unit => true,
+            AcqRelRwPCM::Elem {
+                readers,
+                upreaders,
+                writers,
+                pending_read_fails,
+                pending_upread_fails,
+                phase: _,
+            } => Self::wf_counts(
+                readers,
+                upreaders,
+                writers,
+                pending_read_fails,
+                pending_upread_fails,
+            ),
+            AcqRelRwPCM::Invalid => false,
+        }
+    }
+
+    open spec fn op(a: Self, b: Self) -> Self {
+        match (a, b) {
+            (AcqRelRwPCM::Invalid, _) => AcqRelRwPCM::Invalid,
+            (_, AcqRelRwPCM::Invalid) => AcqRelRwPCM::Invalid,
+            (AcqRelRwPCM::Unit, x) => x,
+            (x, AcqRelRwPCM::Unit) => x,
+            (
+                AcqRelRwPCM::Elem {
+                    readers: ar,
+                    upreaders: au,
+                    writers: aw,
+                    pending_read_fails: apr,
+                    pending_upread_fails: apu,
+                    phase: ap,
+                },
+                AcqRelRwPCM::Elem {
+                    readers: br,
+                    upreaders: bu,
+                    writers: bw,
+                    pending_read_fails: bpr,
+                    pending_upread_fails: bpu,
+                    phase: bp,
+                },
+            ) => AcqRelRwPCM::Elem {
+                readers: ar + br,
+                upreaders: au + bu,
+                writers: aw + bw,
+                pending_read_fails: apr + bpr,
+                pending_upread_fails: apu + bpu,
+                phase: ap + bp,
+            },
+        }
+    }
+
+    proof fn valid_op(a: Self, b: Self) {
+    }
+
+    proof fn commutative(a: Self, b: Self) {
+    }
+
+    proof fn associative(a: Self, b: Self, c: Self) {
+    }
+}
+
+impl<const MAX_READERS: u64, const READ_RETRACT: u64> PCM for AcqRelRwPCM<
+    MAX_READERS,
+    READ_RETRACT,
+> {
+    open spec fn unit() -> Self {
+        AcqRelRwPCM::Unit
+    }
+
+    proof fn op_unit(self) {
+    }
+
+    proof fn unit_valid() {
+    }
+}
+
+pub proof fn lemma_acq_rel_rw_pcm_phase_update<
+    const MAX_READERS: u64,
+    const READ_RETRACT: u64,
+>(
+    readers: nat,
+    upreaders: nat,
+    writers: nat,
+    pending_read_fails: nat,
+    pending_upread_fails: nat,
+    old_phase: nat,
+    new_phase: nat,
+)
+    ensures
+        frame_preserving_update::<AcqRelRwPCM<MAX_READERS, READ_RETRACT>>(
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                writers,
+                pending_read_fails,
+                pending_upread_fails,
+                old_phase,
+            ),
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                writers,
+                pending_read_fails,
+                pending_upread_fails,
+                new_phase,
+            ),
+        ),
+{
+    assert forall|c: AcqRelRwPCM<MAX_READERS, READ_RETRACT>|
+        #![trigger
+            AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+                AcqRelRwPCM::elem(
+                    readers,
+                    upreaders,
+                    writers,
+                    pending_read_fails,
+                    pending_upread_fails,
+                    old_phase,
+                ),
+                c,
+            ),
+            AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+                AcqRelRwPCM::elem(
+                    readers,
+                    upreaders,
+                    writers,
+                    pending_read_fails,
+                    pending_upread_fails,
+                    new_phase,
+                ),
+                c,
+            )
+        ]
+        AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                writers,
+                pending_read_fails,
+                pending_upread_fails,
+                old_phase,
+            ),
+            c,
+        ).valid() implies AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                writers,
+                pending_read_fails,
+                pending_upread_fails,
+                new_phase,
+            ),
+            c,
+        ).valid() by {
+    }
+}
+
+pub proof fn lemma_acq_rel_rw_pcm_release_read_update<
+    const MAX_READERS: u64,
+    const READ_RETRACT: u64,
+>(
+    readers: nat,
+    upreaders: nat,
+    pending_read_fails: nat,
+    pending_upread_fails: nat,
+    old_phase: nat,
+    new_phase: nat,
+)
+    requires
+        readers > 0,
+    ensures
+        frame_preserving_update::<AcqRelRwPCM<MAX_READERS, READ_RETRACT>>(
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                0,
+                pending_read_fails,
+                pending_upread_fails,
+                old_phase,
+            ),
+            AcqRelRwPCM::elem(
+                (readers - 1) as nat,
+                upreaders,
+                0,
+                pending_read_fails,
+                pending_upread_fails,
+                new_phase,
+            ),
+        ),
+{
+    assert forall|c: AcqRelRwPCM<MAX_READERS, READ_RETRACT>|
+        #![trigger
+            AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+                AcqRelRwPCM::elem(
+                    readers,
+                    upreaders,
+                    0,
+                    pending_read_fails,
+                    pending_upread_fails,
+                    old_phase,
+                ),
+                c,
+            ),
+            AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+                AcqRelRwPCM::elem(
+                    (readers - 1) as nat,
+                    upreaders,
+                    0,
+                    pending_read_fails,
+                    pending_upread_fails,
+                    new_phase,
+                ),
+                c,
+            )
+        ]
+        AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                0,
+                pending_read_fails,
+                pending_upread_fails,
+                old_phase,
+            ),
+            c,
+        ).valid() implies AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+            AcqRelRwPCM::elem(
+                (readers - 1) as nat,
+                upreaders,
+                0,
+                pending_read_fails,
+                pending_upread_fails,
+                new_phase,
+            ),
+            c,
+        ).valid() by {
+    }
+}
+
+pub proof fn lemma_acq_rel_rw_pcm_cancel_pending_read_update<
+    const MAX_READERS: u64,
+    const READ_RETRACT: u64,
+>(
+    readers: nat,
+    upreaders: nat,
+    writers: nat,
+    pending_read_fails: nat,
+    pending_upread_fails: nat,
+    phase: nat,
+)
+    requires
+        pending_read_fails > 0,
+    ensures
+        frame_preserving_update::<AcqRelRwPCM<MAX_READERS, READ_RETRACT>>(
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                writers,
+                pending_read_fails,
+                pending_upread_fails,
+                phase,
+            ),
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                writers,
+                (pending_read_fails - 1) as nat,
+                pending_upread_fails,
+                phase,
+            ),
+        ),
+{
+    assert forall|c: AcqRelRwPCM<MAX_READERS, READ_RETRACT>|
+        #![trigger
+            AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+                AcqRelRwPCM::elem(
+                    readers,
+                    upreaders,
+                    writers,
+                    pending_read_fails,
+                    pending_upread_fails,
+                    phase,
+                ),
+                c,
+            ),
+            AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+                AcqRelRwPCM::elem(
+                    readers,
+                    upreaders,
+                    writers,
+                    (pending_read_fails - 1) as nat,
+                    pending_upread_fails,
+                    phase,
+                ),
+                c,
+            )
+        ]
+        AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                writers,
+                pending_read_fails,
+                pending_upread_fails,
+                phase,
+            ),
+            c,
+        ).valid() implies AcqRelRwPCM::<MAX_READERS, READ_RETRACT>::op(
+            AcqRelRwPCM::elem(
+                readers,
+                upreaders,
+                writers,
+                (pending_read_fails - 1) as nat,
+                pending_upread_fails,
+                phase,
+            ),
+            c,
+        ).valid() by {
+    }
+}
 
 /// Token reserved in the lock while write permission is checked out.
 pub type AcqRelNoPerm<R> = EmptyCount<R>;
