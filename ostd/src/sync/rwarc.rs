@@ -159,7 +159,7 @@ impl<T> RwArc<T> {
                 g = g - 1;
             }
     };
-}
+    }
 }
 
 impl<T: Clone> RwArc<T> {

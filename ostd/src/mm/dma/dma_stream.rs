@@ -3,8 +3,8 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{predicate::Predicate, prelude::*};
 use vstd_extra::array_ptr::{ArrayPtr, PointsToArray};
-use vstd_extra::ownership::{Inv, OwnerOf};
 use vstd_extra::external::AsRefSpec;
+use vstd_extra::ownership::{Inv, OwnerOf};
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::{
@@ -97,10 +97,7 @@ pub struct DmaStreamSlice<Dma, M: AnyUFrameMeta + ?Sized> {
     pub _marker: PhantomData<M>,
 }
 
-impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> Inv for DmaStreamSlice<
-    Dma,
-    M,
-> {
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf, Dma: AsRef<DmaStream<M>>> Inv for DmaStreamSlice<Dma, M> {
     #[verifier::inline]
     open spec fn inv(self) -> bool {
         &&& self.len != 0
@@ -148,10 +145,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
     /// Synchronizes the streaming DMA mapping with the device for the slice.
     #[verifier::external_body]
     #[inline]
-    pub fn sync(&self) -> Result<(), Error>
-    where
-        M: OwnerOf,
-    {
+    pub fn sync(&self) -> Result<(), Error> where M: OwnerOf {
         self.stream.as_ref().sync(self.offset..self.offset + self.len)
     }
 
@@ -163,10 +157,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
     )]
     #[verifier::external_body]
     #[inline]
-    pub fn daddr(&self) -> Daddr
-    where
-        M: OwnerOf,
-    {
+    pub fn daddr(&self) -> Daddr where M: OwnerOf {
         self.stream.as_ref().daddr() + self.offset
     }
 
@@ -192,10 +183,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
     )]
-    pub fn reader<'a>(&'a self) -> Result<VmReader<'a>, Error>
-    where
-        M: OwnerOf,
-    {
+    pub fn reader<'a>(&'a self) -> Result<VmReader<'a>, Error> where M: OwnerOf {
         let inner = self.stream.as_ref().read_inner();
 
         if matches!(inner.direction, DmaDirection::ToDevice) {
@@ -238,7 +226,8 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                 proof {
                                     assert(KERNEL_BASE_VADDR > 0) by (compute_only);
                                     assert(vaddr > 0);
-                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
+                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR)
+                                        by (compute_only);
                                     assert(ptr.inv());
                                 }
 
@@ -250,7 +239,9 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                     let tracked inner_perm = inner.tracked_borrow();
                                     let tracked owner = inner_perm.permission.borrow();
                                     let tracked mem_view =
-                                        owner.segment_owner.borrow_kernel_mem_view(inner@.data.segment);
+                                        owner.segment_owner.borrow_kernel_mem_view(
+                                        inner@.data.segment,
+                                    );
                                     reader_perm.mem_view = Some(VmIoMemView::ReadView(mem_view));
                                 }
                                 proof_with!(|= Tracked(Some(reader_perm)));
@@ -284,10 +275,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
     )]
-    pub fn writer<'a>(&'a self) -> Result<VmWriter<'a>, Error>
-    where
-        M: OwnerOf,
-    {
+    pub fn writer<'a>(&'a self) -> Result<VmWriter<'a>, Error> where M: OwnerOf {
         let inner = self.stream.as_ref().read_inner();
 
         if matches!(inner.direction, DmaDirection::FromDevice) {
@@ -330,7 +318,8 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                 proof {
                                     assert(KERNEL_BASE_VADDR > 0) by (compute_only);
                                     assert(vaddr > 0);
-                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
+                                    assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR)
+                                        by (compute_only);
                                     assert(ptr.inv());
                                 }
 
@@ -342,7 +331,9 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                     let tracked inner_perm = inner.tracked_borrow();
                                     let tracked owner = inner_perm.permission.borrow();
                                     let tracked mem_view =
-                                        owner.segment_owner.produce_kernel_mem_view(inner@.data.segment);
+                                        owner.segment_owner.produce_kernel_mem_view(
+                                        inner@.data.segment,
+                                    );
                                     writer_perm.mem_view = Some(VmIoMemView::WriteView(mem_view));
                                 }
                                 proof_with!(|= Tracked(Some(writer_perm)));
@@ -452,10 +443,12 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             segment_owner,  /* vm_space_owner */
         };
 
-        let inner = RwArc::new(AtomicDataWithOwner::new(
-            DmaStreamInner { segment, start_daddr, is_cache_coherent, direction },
-            Tracked(inner_owner),
-        ));
+        let inner = RwArc::new(
+            AtomicDataWithOwner::new(
+                DmaStreamInner { segment, start_daddr, is_cache_coherent, direction },
+                Tracked(inner_owner),
+            ),
+        );
 
         let stream = DmaStream { inner };
 
@@ -1276,9 +1269,10 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
     }
 }
 
-impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf, Dma: AsRef<DmaStream<M>> + Send + Sync>
-    VmIo<()> for DmaStreamSlice<Dma, M>
-{
+impl<
+    M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf,
+    Dma: AsRef<DmaStream<M>> + Send + Sync,
+> VmIo<()> for DmaStreamSlice<Dma, M> {
     closed spec fn obeys_vmio_spec() -> bool {
         true
     }
@@ -1401,8 +1395,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf, Dma: AsRef<DmaStream<M>>
         writer: &mut VmWriter<'_>,
         Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
         Tracked(owner): Tracked<&mut ()>,
-    ) -> (r: core::result::Result<(), Error>)
-    {
+    ) -> (r: core::result::Result<(), Error>) {
         proof_decl! {
             let tracked reader_own_opt;
         }
@@ -1549,8 +1542,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf, Dma: AsRef<DmaStream<M>>
         bytes: ArrayPtr<u8, N>,
         Tracked(bytes_owner): Tracked<&mut PointsToArray<u8, N>>,
         Tracked(owner): Tracked<&mut ()>,
-    ) -> (r: core::result::Result<(), Error>)
-    {
+    ) -> (r: core::result::Result<(), Error>) {
         Err(Error::InvalidArgs)
     }
 }

@@ -87,7 +87,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
             let tracked mut locked_state: Option<PointsTo<T>> = None;
         }
         {#[verus_spec(with => Tracked(locked_state))] self.acquire_lock()}.then(
-            || -> (ret: MutexGuard<T>) 
+            || -> (ret: MutexGuard<T>)
                 requires
                     locked_state is Some,
                     locked_state -> Some_0.id() == self.cell_id(),
@@ -273,7 +273,7 @@ impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
         proof!{use_type_invariant(&self);}
         proof_with!(self.v_perm);
         self.mutex.unlock();
-    }   
+    }
 }
 
 /* impl<T: /* ?Sized + */ fmt::Debug> fmt::Debug for MutexGuard<'_, T> {

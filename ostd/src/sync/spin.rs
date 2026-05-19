@@ -450,11 +450,11 @@ impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
 }
 */
 
-impl <'a, T: /*?Sized */, G: SpinGuardian> SpinLockGuard<'a, T, G> {
+impl<'a, T /*:?Sized */, G: SpinGuardian> SpinLockGuard<'a, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
     pub fn drop(self) {
-        proof!{use_type_invariant(&self);}
+        proof! {use_type_invariant(&self);}
         proof_with!(self.v_perm);
         self.lock.release_lock();
     }
