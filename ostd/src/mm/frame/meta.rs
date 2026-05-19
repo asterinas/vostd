@@ -28,7 +28,7 @@ use vstd::cell::pcell_maybe_uninit;
 use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
-use vstd_extra::panic::panic_diverge;
+use vstd_extra::panic::{may_panic, panic_diverge};
 
 use core::{
     alloc::Layout,
@@ -613,6 +613,7 @@ impl MetaSlot {
         requires
             old(rc_perm).is_for(self.ref_count),
             old(rc_perm).value() != REF_COUNT_UNUSED,
+            old(rc_perm).value() < REF_COUNT_MAX || may_panic(),
         ensures
             final(rc_perm).value() == old(rc_perm).value() + 1,
             old(rc_perm).value() < REF_COUNT_MAX,

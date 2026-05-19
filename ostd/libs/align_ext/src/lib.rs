@@ -16,6 +16,7 @@ use vstd::bits::*;
 use vstd::pervasive::trigger;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
+use vstd_extra::panic::*;
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
 /// `u64`, and `usize`, to provide methods to make integers aligned to a
@@ -114,6 +115,8 @@ macro_rules! impl_align_ext {
                 #[verus_spec(ret =>
                     requires
                         self + (align - 1) <= $uint_type::MAX,
+                        align >= 2 || may_panic(),
+                        (exists |e:nat| pow2(e) == align) || may_panic(),
                     ensures
                         align >= 2,
                         exists |e:nat| pow2(e) == align,
@@ -138,9 +141,12 @@ macro_rules! impl_align_ext {
                             let q = self as int / align as int;
                             let r = self as int % align as int;
                             lemma_fundamental_div_mod(self as int, align as int);
+                            assert(self as int == q * align as int + r) by {
+                                lemma_mul_is_commutative(align as int, q);
+                            }
 
                             assert((q + 1) * align as int == q * align as int + align as int) by {
-                                lemma_mul_is_distributive_add(align as int, q, 1);
+                                lemma_mul_is_distributive_add_other_way(align as int, q, 1);
                             }
                             assert(((q + 1) * align as int) % align as int == 0) by {
                                 lemma_mod_multiples_basic(q + 1, align as int);
@@ -148,6 +154,7 @@ macro_rules! impl_align_ext {
                             assert((r - 1) % align as int == r - 1) by {
                                 lemma_small_mod((r - 1) as nat, align as nat);
                             }
+                            assert(x_int == (q + 1) * align as int + (r - 1));
                             assert(x_int % align as int == (r - 1)) by {
                                 lemma_mod_adds((q + 1) * align as int, r - 1, align as int);
                             }
@@ -171,6 +178,9 @@ macro_rules! impl_align_ext {
 
                 #[inline]
                 #[verus_spec(ret =>
+                    requires
+                        align >= 2 || may_panic(),
+                        (exists |e:nat| pow2(e) == align) || may_panic(),
                     ensures
                         align >= 2,
                         exists |e:nat| pow2(e) == align,

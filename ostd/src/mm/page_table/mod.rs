@@ -34,6 +34,7 @@ use crate::specs::arch::PageTableEntry;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use vstd_extra::ownership::Inv;
+use vstd_extra::panic::may_panic;
 
 mod node;
 pub use node::*;
@@ -348,6 +349,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 pa,
             )].inner_perms.ref_count.value()
                 != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+            // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
+            Self::tracked(item) ==> (regions.slot_owners[frame_to_index(
+                pa,
+            )].inner_perms.ref_count.value()
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX || may_panic()),
         ensures
             item.clone_requires(regions),
     ;

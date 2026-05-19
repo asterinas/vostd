@@ -73,6 +73,7 @@ use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
+use vstd_extra::panic::may_panic;
 
 use crate::mm::{
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
@@ -692,6 +693,8 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED,
+        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+            < REF_COUNT_MAX || may_panic(),
     ensures
         final(regions).inv(),
         final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
@@ -766,6 +769,9 @@ impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
         &&& perm.slot_owners.contains_key(idx)
         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
         &&& perm.slot_owners[idx].inner_perms.ref_count.value() != meta::REF_COUNT_UNUSED
+        // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
+        &&& (perm.slot_owners[idx].inner_perms.ref_count.value() < meta::REF_COUNT_MAX
+            || may_panic())
         &&& has_safe_slot(meta_to_frame(self.ptr.addr()))
     }
 

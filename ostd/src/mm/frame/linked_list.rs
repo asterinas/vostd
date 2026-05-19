@@ -1251,9 +1251,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         proof {
             let tracked mut final_list_own = cursor_own.list_own;
             vstd::modes::tracked_swap(&mut s.0, &mut final_list_own);
-            // `final_list_own` now holds the placeholder put in by
-            // `tracked_take` at function entry — empty list/perms, so we can
-            // discard it via the destroy axiom below.
             final_list_own.tracked_destroy_empty();
         }
     }

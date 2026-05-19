@@ -34,6 +34,7 @@ use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
 use vstd_extra::{assert, assert_eq};
+use vstd_extra::panic::may_panic;
 
 use crate::mm::kspace::KERNEL_PAGE_TABLE;
 use crate::mm::tlb::*;
@@ -458,19 +459,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            // `in_locked_range` is NOT required: an out-of-range cursor
-            // is handled by the underlying `Cursor::query`'s graceful
-            // `Err`. It only governs *success* (see the guarded result
-            // clauses below), exactly mirroring `Cursor::query`.
-            // Non-panic precondition (ref-count non-saturation) propagated from
-            // Cursor::query.
-            forall |i: usize|
-                #![trigger old(regions).slot_owners[i]]
-                old(regions).slot_owners.contains_key(i)
-                && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
+            may_panic(),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).in_locked_range() ==> r is Ok,
@@ -520,6 +509,9 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
+            // Delegates to `Cursor::find_next`, which diverges on the
+            // find-next panic condition.
+            !old(self).0.find_next_panic_condition(len) || may_panic(),
         ensures
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -563,6 +555,9 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
+            // `CursorMut::jump` diverges on a misaligned `va` and may panic
+            // in its `pop_level` repositioning ascent.
+            old(self).0.jump_panic_condition(va) ==> may_panic(),
         ensures
             !old(self).0.jump_panic_condition(va),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -631,15 +626,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // `in_locked_range` is NOT required (out-of-range → graceful
             // `Err`); it only governs success via the guarded ensures.
-            // Non-panic precondition (ref-count non-saturation) propagated from
-            // Cursor::query.
-            forall |i: usize|
-                #![trigger old(regions).slot_owners[i]]
-                old(regions).slot_owners.contains_key(i)
-                && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
+            // `Cursor::query` clones the found item; its refcount bump
+            // aborts (Arc-style) on saturation via `inc_ref_count`'s
+            // diverging panic.
+            may_panic(),
         ensures
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).in_locked_range() ==> res is Ok,
@@ -686,6 +676,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
+            // Delegates to `CursorMut::find_next`, which diverges on the
+            // find-next panic condition.
+            !old(self).pt_cursor.0.find_next_panic_condition(len) || may_panic(),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -729,6 +722,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
+            // `CursorMut::jump` diverges on a misaligned `va` and may panic
+            // in its `pop_level` repositioning ascent.
+            old(self).pt_cursor.0.jump_panic_condition(va) ==> may_panic(),
         ensures
             !old(self).pt_cursor.0.jump_panic_condition(va),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
@@ -800,6 +796,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             // `map_panic_conditions` out-of-range panic, captured by the
             // ensures below). `CursorMut::map` re-derives it post-assert.
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
+            // `CursorMut::map` diverges on the out-of-range / misaligned
+            // panic conditions; propagated from its precondition.
+            !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop })
+                || may_panic(),
         ensures
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
@@ -885,6 +885,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(tlb_model).inv(),
+            // The runtime `assert!`s diverge unless `len` is page-aligned and
+            // the unmap stays within the cursor's barrier.
+            !old(self).pt_cursor.0.find_next_panic_condition(len) || may_panic(),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
@@ -1524,6 +1527,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 op.ensures((p_in,), p_out) ==>
                     UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_out))
                     == UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_in)),
+            // Delegates to `CursorMut::protect_next`, which diverges on the
+            // find-next panic condition.
+            !old(self).pt_cursor.0.find_next_panic_condition(len) || may_panic(),
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),

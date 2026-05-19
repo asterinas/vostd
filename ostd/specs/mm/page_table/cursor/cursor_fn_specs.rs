@@ -66,8 +66,34 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         &&& res.1 is None
     }
 
+    /// Whether the level-`lv` node around the cursor's own VA contains `va`
+    /// — exactly the per-iteration test in `jump`'s loop
+    /// (`node_start <= va && va - node_start < node_size`, with
+    /// `node_start == nat_align_down(self.va, page_size(lv + 1))` and
+    /// `node_size == page_size(lv + 1)`).
+    pub open spec fn jump_node_holds(self, lv: PagingLevel, va: Vaddr) -> bool {
+        let nstart =
+            nat_align_down(self.va as nat, page_size((lv + 1) as PagingLevel) as nat);
+        &&& nstart <= va as nat
+        &&& (va as nat) - nstart < page_size((lv + 1) as PagingLevel) as nat
+    }
+
+    /// Structural (reachability) panic condition for `jump`: it diverges on a
+    /// misaligned `va` (the `assert_eq!`), or when `va` is in the barrier
+    /// range but **no** node on the ascending path within the guard levels
+    /// `[level, guard_level]` contains it — exactly the case where the loop
+    /// never finds `va`, pops above the guard, and hits `pop_level`'s
+    /// `None`-slot unwrap. (An out-of-range `va` returns `Err`, no panic.)
+    /// This mirrors the loop's own search, so it neither over- nor
+    /// under-approximates: an out-of-locked-range cursor that *can* still
+    /// reach `va` via a shared ancestor node does **not** satisfy it.
     pub open spec fn jump_panic_condition(self, va: Vaddr) -> bool {
-        va % PAGE_SIZE != 0
+        ||| va % PAGE_SIZE != 0
+        ||| (self.barrier_va.start <= va < self.barrier_va.end
+             && forall|lv: PagingLevel|
+                 #![trigger self.jump_node_holds(lv, va)]
+                 self.level <= lv <= self.guard_level
+                     ==> !self.jump_node_holds(lv, va))
     }
 
     pub open spec fn find_next_panic_condition(self, len: usize) -> bool {

@@ -4,6 +4,7 @@ use vstd::prelude::*;
 
 use vstd_extra::arithmetic::nat_align_down;
 use vstd_extra::assert;
+use vstd_extra::panic::may_panic;
 use vstd_extra::ownership::{InvView, ModelOf, OwnerOf};
 use vstd_extra::prelude::Inv;
 
@@ -365,6 +366,9 @@ impl KVirtArea {
             self.inv(),
             old(regions).inv(),
             owner.inv(),
+            // Diverges on an out-of-range address, and `CursorMut::query`
+            // may diverge cloning the found item on refcount saturation.
+            may_panic(),
         ensures
             self.query_some_condition(owner, addr) ==> self.query_some_ensures(owner, addr, r),
             !self.query_some_condition(owner, addr) ==> Self::query_none_ensures(r),
@@ -477,6 +481,9 @@ impl KVirtArea {
         prop: PageProperty,
     ) -> Self
         requires
+            // Diverges on misaligned size/offset, on capacity overflow, and
+            // on allocator/cursor failure (internal, not caller-precludable).
+            may_panic(),
             old(regions).inv(),
             owner.inv(),
             // For each frame, the map contains an appropriate owner keyed by
@@ -541,6 +548,8 @@ impl KVirtArea {
 
         for frame in it: frames.into_iter()
             invariant
+                // Per-iteration `assert!` / `cursor.map` may diverge.
+                may_panic(),
                 cursor.0.invariants(cursor_owner, *regions, *guards),
                 // For each remaining frame, the map contains a wf owner at its paddr.
                 // Duplicates among remaining frames are fine — one key, one owner.
@@ -783,6 +792,9 @@ impl KVirtArea {
         prop: PageProperty,
     ) -> (res: Self)
         requires
+            // Diverges on misaligned range/size/offset, on capacity overflow,
+            // and on allocator/cursor failure (internal, not caller-precludable).
+            may_panic(),
             old(regions).inv(),
             owner.inv(),
             map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= usize::MAX,

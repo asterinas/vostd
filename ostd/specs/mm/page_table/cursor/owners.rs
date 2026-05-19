@@ -9,6 +9,7 @@ use vstd_extra::arithmetic::{
 };
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ghost_tree::*;
+use vstd_extra::panic::may_panic;
 use vstd_extra::ownership::*;
 use vstd_extra::seq_extra::{forall_seq, lemma_forall_seq_index};
 
@@ -954,6 +955,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             crate::mm::frame::meta::has_safe_slot(pa),
             // The recorded entry trackedness matches the item being cloned.
             C::tracked(item) == self.cur_entry_owner().frame.unwrap().is_tracked,
+            // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
+            C::tracked(item) ==> (regions.slot_owners[frame_to_index(pa)]
+                .inner_perms.ref_count.value() < REF_COUNT_MAX || may_panic()),
         ensures
             item.clone_requires(regions)
     {
@@ -1506,6 +1510,114 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if top_end >= NR_ENTRIES as int {
             assert(self.continuations[self.level - 1].idx + 1 < NR_ENTRIES);
         }
+    }
+
+    /// The locked range spans exactly one guard-level node:
+    /// `end - start == page_size(guard_level)`. Surfaces the arithmetic
+    /// that `node_within_locked_range` / `in_node_holds_at_top` derive
+    /// internally (`locked_range().start == nat_align_down(prefix, ps_gl)`,
+    /// `end == start + ps_gl`), so callers can turn `node ⊆ locked_range`
+    /// (at `level == guard - 1`, where the node size equals the span) into
+    /// `node == locked_range`.
+    pub proof fn locked_range_span(self)
+        requires
+            self.inv(),
+        ensures
+            self.locked_range().start as nat
+                == nat_align_down(self.prefix.to_vaddr() as nat,
+                    page_size(self.guard_level as PagingLevel) as nat),
+            self.locked_range().start as nat
+                % page_size(self.guard_level as PagingLevel) as nat == 0,
+            self.locked_range().end - self.locked_range().start
+                == page_size(self.guard_level as PagingLevel),
+    {
+        let gl = self.guard_level;
+        let ps_gl = page_size(gl as PagingLevel) as nat;
+        let pv = self.prefix.to_vaddr() as nat;
+
+        lemma_page_size_ge_page_size(gl as PagingLevel);
+        self.prefix.align_down_concrete(gl as int);
+        self.prefix_aligned_to_guard_level();
+        self.prefix_plus_ps_no_overflow();
+        self.prefix.aligned_align_up_advances(gl as int);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(pv, ps_gl) as Vaddr);
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(pv, ps_gl);
+    }
+
+    /// The whole locked range (which contains `va`) lies in the single
+    /// guard-level-parent node (`page_size(guard_level + 1)`) that holds the
+    /// cursor's own VA — `in_node_holds_at_top` generalized from `NR_LEVELS`
+    /// to an arbitrary `guard_level`. The locked range is
+    /// `page_size(guard_level)`-aligned and -sized (`locked_range_span`) and
+    /// `page_size(guard_level)` divides `page_size(guard_level + 1)`, so it
+    /// never straddles a `page_size(guard_level + 1)` boundary.
+    pub proof fn in_node_holds_at_guard(self, self_va: Vaddr, va: Vaddr, node_size: usize)
+        requires
+            self.inv(),
+            self.in_locked_range(),
+            self.va.reflect(self_va),
+            node_size == page_size_spec((self.guard_level + 1) as PagingLevel),
+            self.locked_range().start <= va < self.locked_range().end,
+        ensures
+            nat_align_down(self_va as nat, node_size as nat) <= va as nat,
+            (va as nat) - nat_align_down(self_va as nat, node_size as nat)
+                < node_size as nat,
+    {
+        let gl = self.guard_level;
+        let pg = page_size(gl as PagingLevel) as nat;
+        let pg1 = node_size as nat;
+        let ls = self.locked_range().start as nat;
+
+        // Page-size positivity: `page_size(_) >= PAGE_SIZE > 0`.
+        lemma_page_size_ge_page_size(gl as PagingLevel);
+        lemma_page_size_ge_page_size((gl + 1) as PagingLevel);
+        assert(pg > 0 && pg1 > 0);
+
+        self.locked_range_span();
+        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(
+            gl as PagingLevel, (gl + 1) as PagingLevel);
+        self.va.reflect_prop(self_va);
+        // `in_locked_range` + span: `ls <= self_va < ls + pg`, likewise `va`.
+        // (`in_locked_range`: `locked_range.start <= self.va.to_vaddr() <
+        // locked_range.end`; `reflect_prop`: `to_vaddr() == self_va`; span:
+        // `end == start + pg`.) So the locked range is the `pg`-block at `ls`.
+        assert(ls <= self_va < ls + pg);
+        assert(ls <= va < ls + pg);
+
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, pg);
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, pg1);
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(va as nat, pg1);
+        // `nat_align_down(self_va, pg) == ls`: `ls` is `pg`-aligned and the
+        // unique `pg`-aligned value in `[ls, ls + pg)` (which holds self_va).
+        assert(nat_align_down(self_va as nat, pg) == ls) by {
+            vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, pg);
+            let nad = nat_align_down(self_va as nat, pg) as int;
+            let lsi = ls as int;
+            let pgi = pg as int;
+            // `ls <= nad`: sound's `forall n <= self_va, n % pg == 0 ==> n <=
+            // nad` instantiated at `n = ls` (`ls <= self_va`, `ls % pg == 0`).
+            assert(lsi <= nad);
+            // `nad <= self_va < ls + pg`  ⟹  `0 <= nad - ls < pg`.
+            assert(0 <= nad - lsi && nad - lsi < pgi);
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(nad, pgi);
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(lsi, pgi);
+            let kn = nad / pgi;
+            let kl = lsi / pgi;
+            assert(nad == pgi * kn);   // nad % pg == 0 (sound)
+            assert(lsi == pgi * kl);   // ls  % pg == 0 (locked_range_span)
+            assert(nad - lsi == pgi * (kn - kl)) by (nonlinear_arith)
+                requires nad == pgi * kn, lsi == pgi * kl;
+            assert(kn - kl == 0) by (nonlinear_arith)
+                requires 0 <= pgi * (kn - kl) < pgi, pgi > 0;
+        };
+        vstd_extra::arithmetic::lemma_nat_align_down_monotone(self_va as nat, pg, pg1);
+        vstd_extra::arithmetic::lemma_nat_align_down_within_block(self_va as nat, pg, pg1);
+        // node_start := nat_align_down(self_va, pg1).
+        //   monotone:      node_start <= nat_align_down(self_va, pg) == ls
+        //   within_block:  ls + pg == nat_align_down(self_va,pg) + pg
+        //                            <= node_start + pg1
+        // With `ls <= va < ls + pg`: node_start <= ls <= va, and
+        // va < ls + pg <= node_start + pg1.
     }
 
     /// The node at `level+1` containing `va` fits within the locked range.

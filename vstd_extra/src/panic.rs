@@ -5,11 +5,18 @@ use vstd::vpanic;
 
 verus! {
 
-/// Unconditionally diverges. Callers use `if bad { panic_diverge(); }` as a
-/// runtime check that Verus accepts as establishing `!bad` afterwards.
+/// Represents the intention that the code will panic at some point in the future.
+/// Consumed by [`panic_diverge`] to ensure that the top-level API spec must always
+/// intentionally document potential panics.
+pub uninterp spec fn may_panic() -> bool;
+
+/// Unconditionally diverges. Must be provided with a [`may_panic()] token to ensure that
+/// the panic is expected.
 #[verifier::external_body]
-pub fn panic_diverge() -> ! {
-    vpanic!("panic_diverge")
+pub fn panic_diverge() -> !
+    requires may_panic()
+{
+    vpanic!("")
 }
 
 /// Extension trait providing a panicking `unwrap` that models Rust's
@@ -29,6 +36,8 @@ pub trait UnwrapOrPanic: Sized {
     spec fn payload(&self) -> Self::Inner;
 
     fn unwrap_or_panic(self) -> (r: Self::Inner)
+        requires
+            !self.is_present() ==> may_panic()
         ensures
             self.is_present(),
             r == self.payload(),

@@ -9,6 +9,7 @@ use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
 use crate::mm::page_table::RCClone;
 
 use vstd_extra::assert;
+use vstd_extra::panic::may_panic;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
@@ -189,6 +190,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     &&& old(regions).slot_owners[frame_to_index(paddr_out)].usage is Unused
                     &&& old(regions).slot_owners[frame_to_index(paddr_out)].inner_perms.in_list.points_to(0)
                 },
+            // The runtime `assert!(range.start < range.end)` diverges unless the
+            // range is well-formed when aligned and in-bounds.
+            ((range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0
+                && range.end <= MAX_PADDR) ==> range.start < range.end) || may_panic(),
         ensures
             (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0)
                 ==> r == Err::<Self, _>(GetFrameError::NotAligned),
@@ -524,6 +529,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             owner.inv(),
             old(regions).inv(),
             owner.relate_regions(*old(regions)),
+            // Diverges on a misaligned/out-of-range slice range, and the
+            // per-frame `inc_ref_count` Arc-style abort on refcount
+            // saturation is not caller-precludable.
+            may_panic(),
         ensures
             r.inv(),
             r.range.start == self.range.start + range.start,
@@ -553,6 +562,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         let ghost old_regions = *regions;
         while i < addr_len
             invariant
+                // `inc_ref_count`'s Arc-style abort may diverge each iteration.
+                may_panic(),
                 // Pin the snapshot to the function-entry value so that
                 // facts stated against `old_regions` and `*old(regions)`
                 // are interchangeable inside the loop.

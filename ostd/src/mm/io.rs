@@ -46,6 +46,7 @@ use vstd::pervasive::{arbitrary, proof_from_false};
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 use vstd_extra::assert;
+use vstd_extra::panic::may_panic;
 use vstd_extra::ownership::Inv;
 
 use crate::error::*;
@@ -368,6 +369,7 @@ impl<'a> VmWriter<'a, Infallible> {
             core::mem::size_of::<T>() > 0,
             core::mem::align_of::<T>() > 0,
             core::mem::size_of::<T>() % core::mem::align_of::<T>() == 0,
+            !old(self).fill_panic_condition::<T>() || may_panic(),
         ensures
             final(self).inv(),
             final(self).wf(*final(writer_owner)),
@@ -593,6 +595,9 @@ impl<'a> VmWriter<'a, Infallible> {
             old(self).inv(),
             old(self).wf(*old(owner)),
             old(owner).has_write_view(),
+            // The runtime `assert!(cursor.is_aligned())` diverges unless the
+            // cursor is aligned for `T`.
+            old(self).cursor.vaddr % core::mem::align_of::<T>() == 0 || may_panic(),
         ensures
             final(self).inv(),
             final(owner).inv(),
@@ -956,6 +961,9 @@ impl<'a> VmReader<'a, Infallible> {
             old(self).inv(),
             old(self).wf(*old(owner)),
             old(owner).read_view_initialized(),
+            // The runtime `assert!(cursor.is_aligned())` diverges unless the
+            // cursor is aligned for `T`.
+            old(self).cursor.vaddr % core::mem::align_of::<T>() == 0 || may_panic(),
         ensures
             final(self).inv(),
             final(owner).inv(),
@@ -1453,6 +1461,10 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             core::mem::size_of::<T>() as int + align as int <= usize::MAX as int,
             iter.obeys_prophetic_iter_laws(),
             iter.decrease() is Some,
+            // `align_up` (called for `align > 1`) diverges unless `align`
+            // is a power of two.
+            align <= 1 || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align)
+                || may_panic(),
         ensures
             align == 0 || align == 1
                 || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align),
