@@ -218,6 +218,9 @@ closed spec fn wf(self) -> bool {
         &&& !(active_writer && (active_read_guards + if active_upgrade_guard { 1int } else { 0 }) > 0)
         // Standalone acquire-release PCM mirrors the abstract protocol state.
         &&& g.pcm.value() == g.abstract_pcm()
+        // Abstract weak-memory state: release advances the published phase,
+        // acquire imports it. This is the proof-level acquire/release model.
+        &&& g.wm.wf(g.phase)
         &&& g.core_token.id() == v_id@.core_token_id
         &&& g.core_token.wf()
         &&& g.core_token.is_left() ==> {
@@ -376,6 +379,7 @@ impl<T, G> RwLock<T, G> {
             upreader_guard_token: Some(upreader_guard_token),
             read_guard_token: Sum::Left(read_guard_token),
             phase: 0,
+            wm: AcqRelWm::init(),
             core_token_id: v_id.core_token_id,
             frac_id: v_id.frac_id,
             read_retract_token_id: v_id.read_retract_token_id,
@@ -481,6 +485,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     let tracked mut tmp = g.read_guard_token.tracked_take_left();
                     read_token = Some(tmp.split_one());
                     g.read_guard_token = Sum::Left(tmp);
+                    g.acquire_wm();
                 } else {
                     retract_read_token = Some(g.read_retract_token.split_one());
                 }
@@ -506,6 +511,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     lemma_consts_properties_value(next_usize);
                     lemma_consts_properties_prev_next(prev_usize, next_usize);
                     g.read_retract_token.combine(retract_read_token.tracked_unwrap());
+                    g.release_wm();
                     g.sync_pcm();
                 }
             );
@@ -556,6 +562,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     guard_perm = Some(pointsto);
                     g.core_token.change_to_right(empty);
                     guard_token = Some(g.core_token.split_one_right_knowledge());
+                    g.acquire_wm();
                     g.sync_pcm();
                 }
             }
@@ -596,6 +603,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 lemma_consts_properties_prev_next(prev, next);
                 if prev & (WRITER | UPGRADEABLE_READER) == 0 {
                     upgrade_guard_token = Some(g.upreader_guard_token.tracked_take());
+                    g.acquire_wm();
                 }
                 else if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
@@ -629,6 +637,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     else{
                         g.upread_retract_token= retract_upgrade_token;
                     }
+                    g.release_wm();
                     g.sync_pcm();
                 }
             );
@@ -806,6 +815,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
                 let tracked mut tmp = g.read_guard_token.tracked_take_left();
                 tmp.combine(token);
                 g.read_guard_token = Sum::Left(tmp);
+                g.release_wm();
                 g.sync_pcm();
             }
         );
@@ -938,6 +948,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
                     (read_half_cell_perm, left_token),
                 );
                 g.read_guard_token = Sum::Left(read_guard_token);
+                g.release_wm();
                 g.sync_pcm();
             }
         };
@@ -1010,6 +1021,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             update prev -> next;
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
+                g.acquire_wm();
             }
         );
         loop {
@@ -1074,6 +1086,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                     g.core_token.change_to_right(empty);
                     write_guard_token = Some(g.core_token.split_one_right_knowledge());
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
+                    g.acquire_wm();
+                    g.release_wm();
                     g.sync_pcm();
                 } else {
                     err_upread_guard_token = Some(upread_guard_token);
@@ -1097,6 +1111,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                         token.validate_with_other(g.upread_retract_token.tracked_borrow());
                     }
                     g.upread_retract_token = Some(token);
+                    g.release_wm();
                     g.sync_pcm();
                 }
             );
@@ -1169,6 +1184,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
                 } else {
                     g.upreader_guard_token= Some(guard_token);
                 }
+                g.release_wm();
                 g.sync_pcm();
             }
         );
