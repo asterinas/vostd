@@ -3,7 +3,7 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*, CellId};
 use vstd::prelude::*;
 use vstd::resource::Loc;
-use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
+use vstd_extra::resource::ghost_resource::{acq_rel_rwlock::*, count::*, csum::*, excl::*, tokens::*};
 use vstd_extra::sum::*;
 use vstd_extra::{prelude::*, resource};
 
@@ -43,37 +43,15 @@ exec const V_MAX_READ_RETRACT_FRACS: u64
 }
 
 /// The token reserved in the lock when the write permission is given out.
-type NoPerm<T> = EmptyCount<PointsTo<T>>;
+type NoPerm<T> = AcqRelNoPerm<PointsTo<T>>;
 
 /// Half of the permission for read access, one for `RwLockUpgradeableGuard` and the other for all `RwLockReadGuard`s.
-type HalfPerm<T> = Count<PointsTo<T>>;
+type HalfPerm<T> = AcqRelHalfPerm<PointsTo<T>>;
 
 /// The permission for read access can be further split into `MAX_READER` pieces.
-type ReadPerm<T> = (HalfPerm<T>, OneLeftKnowledge<HalfPerm<T>, NoPerm<T>, 3>);
+type ReadPerm<T> = AcqRelReadPerm<PointsTo<T>>;
 
-tracked struct RwPerms<T> {
-    /// This token tracks whether the write permission is given out. If it is `Left`, it stores the knowledge that
-    /// there are active readers because the existence of `HalfPerm` resource for read access.
-    /// If it is `Right`, we know there is an active writer and there is no active reader, because there is a `NoPerm`
-    /// indicating the absence of `PointsTo<T>`.
-    core_token: SumResource<HalfPerm<T>, NoPerm<T>, 3>,
-    /// The permission to retract a `READER` count. Its total quantity tracks the gap between
-    /// the number of `try_read` increments recorded in the lock atomic and the number of active
-    /// `RwLockReadGuard`s (created and ongoing creation that will succeed) represented by `read_guard_token`.
-    /// It can be splited up to `V_MAX_READ_RETRACT_FRACS:= 2 * MAX_READER` pieces,
-    /// which allows at most `2*MAX_READER - 1` `try_read` attempts that will fail to acquire the lock.
-    read_retract_token: TokenResource<V_MAX_READ_RETRACT_FRACS>,
-    /// The permission to retract the set of `UPGRADEABLE_READER` bit.
-    upread_retract_token: Option<UniqueToken>,
-    /// Tracks whether there is a live `RwLockUpgradeableGuard`, also stores half of the permission for read access.
-    upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
-    /// Tracks the number of live `RwLockReadGuard`s. If it is `Left`, it stores the remaining read permissions.
-    /// If it is `Right`, it stores an empty token indicating the permission has been given out.
-    read_guard_token: Sum<
-        CountResource<ReadPerm<T>, MAX_READER_U64>,
-        EmptyCount<ReadPerm<T>, MAX_READER_U64>,
-    >,
-}
+type RwPerms<T> = AcqRelRwPerms<PointsTo<T>, MAX_READER_U64, V_MAX_READ_RETRACT_FRACS>;
 
 ghost struct RwId {
     core_token_id: Loc,
@@ -393,6 +371,12 @@ impl<T, G> RwLock<T, G> {
             upread_retract_token: Some(upread_retract_token),
             upreader_guard_token: Some(upreader_guard_token),
             read_guard_token: Sum::Left(read_guard_token),
+            phase: 0,
+            core_token_id: v_id.core_token_id,
+            frac_id: v_id.frac_id,
+            read_retract_token_id: v_id.read_retract_token_id,
+            upread_retract_token_id: v_id.upread_retract_token_id,
+            read_guard_token_id: v_id.read_guard_token_id,
         };
 
         Self {
