@@ -9,7 +9,14 @@ use core::{marker::PhantomData, ptr::NonNull};
 
 use monitor::{RcuMonitor, RcuMonitorOwner, RcuMonitorPred};
 use non_null::{NonNullPtr, NonNullPtrRef};
-use vstd::{atomic_ghost::AtomicPtr, atomic_with_ghost, modes::tracked_static_ref, prelude::*};
+use vstd::{
+    atomic_ghost::AtomicPtr,
+    atomic_with_ghost,
+    map::Map,
+    modes::tracked_static_ref,
+    prelude::*,
+    resource::Loc,
+};
 use vstd_extra::{
     prelude::*,
     resource::ghost_resource::{count::Count, tokens::CountResource},
@@ -39,6 +46,42 @@ const RCU_READER_SLOTS: u64 = 1u64 << 60;
 type RcuReadPool<P> = CountResource<<P as NonNullPtr>::Permission, RCU_READER_SLOTS>;
 
 type RcuReadToken<P> = Count<<P as NonNullPtr>::Permission, RCU_READER_SLOTS>;
+
+type RcuRetiredEntry<P> = (Ghost<*mut <P as NonNullPtr>::Target>, RcuReadPool<P>);
+
+/// Called by `drop` of the read guard to track the retired read permissions.
+type RcuRetiredPools<P> = Map<Loc, RcuRetiredEntry<P>>;
+
+type RcuReturnedTokens<P> = Map<Loc, RcuReadToken<P>>;
+
+tracked struct RcuPtrGhost<P: NonNullPtr> {
+    tracked current: Option<RcuReadPool<P>>,
+    tracked retired: RcuRetiredPools<P>,
+    tracked returned: RcuReturnedTokens<P>,
+}
+
+closed spec fn retired_pools_inv<P: NonNullPtr>(retired: RcuRetiredPools<P>) -> bool {
+    forall|id: Loc|
+        #[trigger] retired.contains_key(id) ==> {
+            let entry = retired[id];
+            &&& (entry.0@)@.addr != 0
+            &&& entry.1.id() == id
+            &&& P::ptr_perm_match(nonnull_from_ptr_mut_spec(entry.0@), entry.1@)
+            &&& entry.1@.inv()
+            &&& entry.1.wf()
+            &&& entry.1.not_empty()
+        }
+}
+
+closed spec fn returned_tokens_inv<P: NonNullPtr>(returned: RcuReturnedTokens<P>) -> bool {
+    forall|id: Loc|
+        #[trigger] returned.contains_key(id) ==> {
+            let token = returned[id];
+            &&& token.id() == id
+            &&& token.resource().inv()
+            &&& token.frac() > 0
+        }
+}
 
 exec static RCU_MONITOR: Once<RcuMonitor, RcuMonitorOwner, RcuMonitorPred>
     ensures
@@ -132,7 +175,7 @@ struct RcuInner<P: NonNullPtr> {
         ptr: AtomicPtr<
             <P as NonNullPtr>::Target,
             _,
-            Option<RcuReadPool<P>>,
+            RcuPtrGhost<P>,
             _,
         >,
     // We want to implement Send and Sync explicitly.
@@ -144,14 +187,17 @@ struct RcuInner<P: NonNullPtr> {
 closed spec fn wf(self) -> bool {
         invariant on ptr with (nullable, _marker) is (
             v: *mut <P as NonNullPtr>::Target,
-            g: Option<RcuReadPool<P>>,
+            g: RcuPtrGhost<P>,
         ) {
-            match g {
+            &&& retired_pools_inv::<P>(g.retired)
+            &&& returned_tokens_inv::<P>(g.returned)
+            &&& match g.current {
                 Some(perm) => {
                     &&& v@.addr != 0
                     &&& P::ptr_perm_match(nonnull_from_ptr_mut_spec(v), perm@)
                     &&& perm@.inv()
                     &&& perm.wf()
+                    &&& perm.not_empty()
                 },
                 None => nullable@ && v@.addr == 0,
             }
@@ -389,12 +435,19 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         ensures
             res.nullable@,
     {
+        proof_decl! {
+            let tracked ptr_ghost: RcuPtrGhost<P> = RcuPtrGhost {
+                current: None,
+                retired: Map::tracked_empty(),
+                returned: Map::tracked_empty(),
+            };
+        }
         Self {
             nullable: Ghost(true),
             ptr: AtomicPtr::new(
                 Ghost((Ghost(true), PhantomData)),
                 core::ptr::null_mut(),
-                Tracked(None),
+                Tracked(ptr_ghost),
             ),
             _marker: PhantomData,
         }
@@ -420,11 +473,16 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         }
         proof_decl! {
             let tracked ptr_perm = CountResource::alloc(ptr_perm);
+            let tracked ptr_ghost: RcuPtrGhost<P> = RcuPtrGhost {
+                current: Some(ptr_perm),
+                retired: Map::tracked_empty(),
+                returned: Map::tracked_empty(),
+            };
         }
         let ptr = AtomicPtr::new(
             Ghost((Ghost(nullable), marker)),
             ptr.as_ptr(),
-            Tracked(Some(ptr_perm)),
+            Tracked(ptr_ghost),
         );
         Self { nullable: Ghost(nullable), ptr, _marker: marker }
     }
@@ -465,13 +523,25 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             update _prev -> next;
             returning old_raw_ptr;
             ghost g => {
-                old_perm = g;
-                g = match new_perm {
+                old_perm = g.current;
+                if old_perm is Some {
+                    let tracked pool = old_perm.tracked_unwrap();
+                    let ghost id = pool.id();
+                    if g.retired.contains_key(id) {
+                        let tracked entry = g.retired.tracked_remove(id);
+                        let tracked mut retired_pool = entry.1;
+                        retired_pool.combine(pool);
+                        g.retired.tracked_insert(id, (entry.0, retired_pool));
+                    } else {
+                        g.retired.tracked_insert(id, (Ghost(_prev), pool));
+                    }
+                }
+                g.current = match new_perm {
                     Some(perm) => Some(CountResource::alloc(perm)),
                     None => None,
                 };
                 assert(next == new_raw_ptr);
-                match &g {
+                match &g.current {
                     Some(perm) => {
                         assert(next@.addr != 0);
                         assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), perm@));
@@ -484,6 +554,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                         assert(next@.addr == 0);
                     },
                 }
+                assert(retired_pools_inv::<P>(g.retired));
             }
         };
 
@@ -525,8 +596,8 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             update prev -> _next;
             returning loaded;
             ghost g => {
-                if g is Some {
-                    let tracked mut perm = g.tracked_unwrap();
+                if g.current is Some {
+                    let tracked mut perm = g.current.tracked_unwrap();
                         assert(loaded == prev);
                         assert(loaded@.addr != 0);
                         assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(loaded), perm@));
@@ -549,11 +620,12 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                     assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(loaded), perm@));
                     assert(perm@.inv());
                     assert(perm.wf());
-                    g = Some(perm);
+                    g.current = Some(perm);
                 } else {
                     assert(self.nullable@);
                     assert(loaded@.addr == 0);
                 }
+                assert(retired_pools_inv::<P>(g.retired));
             }
         };
         proof {
@@ -575,6 +647,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
 
     #[verus_spec(r =>
         ensures
+            r.type_inv(),
             r.rcu.nullable@ == self.nullable@,
             !self.nullable@ ==> r.ref_perm@ is Some,
     )]
@@ -636,6 +709,102 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
 
 #[verus_verify]
 impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
+    #[inline]
+    #[verus_spec]
+    fn drop(self) {
+        let rcu = self.rcu;
+        let obj_ptr = self.obj_ptr;
+        proof {
+            use_type_invariant(&self);
+            use_type_invariant(rcu);
+        }
+        proof_decl! {
+            let tracked mut ref_perm = self.ref_perm.get();
+        }
+        atomic_with_ghost! {
+            rcu.ptr => load();
+            update prev -> _next;
+            returning _loaded;
+            ghost g => {
+                if ref_perm is Some {
+                    let tracked token = ref_perm.tracked_unwrap();
+                    let ghost id = token.id();
+                    if g.current is Some {
+                        let tracked mut pool = g.current.tracked_unwrap();
+                        if prev == obj_ptr && pool.id() == id {
+                            assert(obj_ptr@.addr != 0);
+                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(obj_ptr), token.resource()));
+                            assert(token.resource().inv());
+                            assert(token.frac() == 1);
+                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(prev), pool@));
+                            assert(pool@.inv());
+                            assert(pool.wf());
+                            assert(pool.not_empty());
+                            pool.combine(token);
+                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(prev), pool@));
+                            assert(pool@.inv());
+                            assert(pool.wf());
+                            assert(pool.not_empty());
+                            g.current = Some(pool);
+                        } else {
+                            g.current = Some(pool);
+                            if g.retired.contains_key(id) {
+                                let tracked entry = g.retired.tracked_remove(id);
+                                let tracked mut pool = entry.1;
+                                assert(pool.id() == id);
+                                assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(entry.0@), pool@));
+                                assert(pool@.inv());
+                                assert(pool.wf());
+                                assert(pool.not_empty());
+                                pool.combine(token);
+                                assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(entry.0@), pool@));
+                                assert(pool@.inv());
+                                assert(pool.wf());
+                                assert(pool.not_empty());
+                                g.retired.tracked_insert(id, (entry.0, pool));
+                            } else {
+                                assume(false);
+                            }
+                        }
+                    } else {
+                        if g.retired.contains_key(id) {
+                            let tracked entry = g.retired.tracked_remove(id);
+                            let tracked mut pool = entry.1;
+                            assert(pool.id() == id);
+                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(entry.0@), pool@));
+                            assert(pool@.inv());
+                            assert(pool.wf());
+                            assert(pool.not_empty());
+                            pool.combine(token);
+                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(entry.0@), pool@));
+                            assert(pool@.inv());
+                            assert(pool.wf());
+                            assert(pool.not_empty());
+                            g.retired.tracked_insert(id, (entry.0, pool));
+                        } else {
+                            assume(false);
+                        }
+                    }
+                }
+                match &g.current {
+                    Some(pool) => {
+                        assert(prev@.addr != 0);
+                        assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(prev), pool@));
+                        assert(pool@.inv());
+                        assert(pool.wf());
+                        assert(pool.not_empty());
+                    },
+                    None => {
+                        assert(rcu.nullable@);
+                        assert(prev@.addr == 0);
+                    },
+                }
+                assert(retired_pools_inv::<P>(g.retired));
+            }
+        };
+    }
+
     #[inline]
     #[verus_spec(r =>
         ensures
@@ -682,6 +851,15 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             new_ptr is Some && r is Err ==> r->Err_0 is Some,
     )]
     fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
+        let rcu = self.rcu;
+        let obj_ptr = self.obj_ptr;
+        proof {
+            use_type_invariant(&self);
+            use_type_invariant(rcu);
+        }
+        proof_decl! {
+            let tracked mut ref_perm = self.ref_perm.get();
+        }
         proof_decl! {
             let ghost new_ptr_is_some = new_ptr is Some;
         }
@@ -700,7 +878,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             None => {
                 proof {
                     assert(!new_ptr_is_some);
-                    assert(self.rcu.nullable@);
+                    assert(rcu.nullable@);
                 }
                 (core::ptr::null_mut(), Tracked(None))
             },
@@ -715,42 +893,90 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             let tracked mut old_perm: Option<RcuReadPool<P>> = None;
             let tracked mut err_new_perm: Option<Option<<P as NonNullPtr>::Permission>> = None;
         }
-        proof {
-            use_type_invariant(self.rcu);
-        }
         let res =
             atomic_with_ghost! {
-            self.rcu.ptr => compare_exchange(self.obj_ptr, new_raw_ptr);
+            rcu.ptr => compare_exchange(obj_ptr, new_raw_ptr);
             update _prev -> next;
             returning res;
             ghost g => {
                 if res is Ok {
-                    old_perm = g;
-                    g = match new_perm {
+                    old_perm = g.current;
+                    if old_perm is Some {
+                        let tracked pool = old_perm.tracked_unwrap();
+                        let ghost id = pool.id();
+                        if g.retired.contains_key(id) {
+                            let tracked entry = g.retired.tracked_remove(id);
+                            let tracked mut retired_pool = entry.1;
+                            retired_pool.combine(pool);
+                            g.retired.tracked_insert(id, (entry.0, retired_pool));
+                        } else {
+                            g.retired.tracked_insert(id, (Ghost(_prev), pool));
+                        }
+                    }
+                    g.current = match new_perm {
                         Some(perm) => Some(CountResource::alloc(perm)),
                         None => None,
                     };
                     assert(next == new_raw_ptr);
-                    match &g {
-                        Some(perm) => {
-                            assert(next@.addr != 0);
-                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), perm@));
-                            assert(perm@.inv());
-                            assert(perm.wf());
-                            assert(perm.not_empty());
-                        },
+                    match &g.current {
+                    Some(perm) => {
+                        assert(next@.addr != 0);
+                        assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), perm@));
+                        assert(perm@.inv());
+                        assert(perm.wf());
+                        assert(perm.not_empty());
+                    },
                         None => {
-                            assert(self.rcu.nullable@);
+                            assert(rcu.nullable@);
                             assert(next@.addr == 0);
                         },
                     }
                 } else {
                     err_new_perm = Some(new_perm);
                 }
+                if ref_perm is Some {
+                    let tracked token = ref_perm.tracked_unwrap();
+                    let ghost id = token.id();
+                    if g.retired.contains_key(id) {
+                        let tracked entry = g.retired.tracked_remove(id);
+                        let tracked mut pool = entry.1;
+                        assert(pool.id() == id);
+                        assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(entry.0@), pool@));
+                        assert(pool@.inv());
+                        assert(pool.wf());
+                        assert(pool.not_empty());
+                        pool.combine(token);
+                        assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(entry.0@), pool@));
+                        assert(pool@.inv());
+                        assert(pool.wf());
+                        assert(pool.not_empty());
+                        g.retired.tracked_insert(id, (entry.0, pool));
+                    } else if g.current is Some {
+                        let tracked mut pool = g.current.tracked_unwrap();
+                        if pool.id() == id {
+                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), pool@));
+                            assert(pool@.inv());
+                            assert(pool.wf());
+                            assert(pool.not_empty());
+                            pool.combine(token);
+                            assert(P::ptr_perm_match(nonnull_from_ptr_mut_spec(next), pool@));
+                            assert(pool@.inv());
+                            assert(pool.wf());
+                            assert(pool.not_empty());
+                            g.current = Some(pool);
+                        } else {
+                            g.current = Some(pool);
+                            assume(false);
+                        }
+                    } else {
+                        assume(false);
+                    }
+                }
+                assert(retired_pools_inv::<P>(g.retired));
             }
         };
         if res.is_ok() {
-            if let Some(p) = NonNull::new(self.obj_ptr) {
+            if let Some(p) = NonNull::new(obj_ptr) {
                 // SAFETY:
                 // 1. The pointer was previously returned by `into_raw`.
                 // 2. The pointer is removed from the RCU slot so that no one will
@@ -791,6 +1017,12 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
 
 #[verus_verify]
 impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
+    #[inline]
+    pub fn drop(self) {
+        self.0.drop();
+    }
+
     /// Gets the reference of the protected data.
     #[inline]
     pub fn get<'a>(&'a self) -> <P as NonNullPtrRef<'a>>::Ref where P: NonNullPtrRef<'a> {
@@ -832,6 +1064,12 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
 
 #[verus_verify]
 impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
+    #[inline]
+    pub fn drop(self) {
+        self.0.drop();
+    }
+
     #[inline]
     pub fn get<'a>(&'a self) -> Option<<P as NonNullPtrRef<'a>>::Ref> where P: NonNullPtrRef<'a> {
         self.0.get()
@@ -852,27 +1090,6 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
 }
 
 } // verus!
-/* use core::{
-    marker::PhantomData,
-    mem::ManuallyDrop,
-    ops::Deref,
-    ptr::NonNull,
-    sync::atomic::{
-        AtomicPtr,
-        Ordering::{AcqRel, Acquire},
-    },
-};
-
-use non_null::NonNullPtr;
-use spin::once::Once;
-
-use self::monitor::RcuMonitor;
-use crate::task::{
-    atomic_mode::{AsAtomicModeGuard, InAtomicMode},
-    disable_preempt, DisabledPreemptGuard,
-};
-
-mod monitor;*/
 /*
 
 impl<P: NonNullPtr + Send> RcuInner<P> {
@@ -1242,9 +1459,4 @@ pub unsafe fn finish_grace_period() {
     }
 }
 
-static RCU_MONITOR: Once<RcuMonitor> = Once::new();
-
-pub fn init() {
-    RCU_MONITOR.call_once(RcuMonitor::new);
-}
 */
