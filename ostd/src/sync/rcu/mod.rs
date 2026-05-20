@@ -1145,360 +1145,360 @@ impl<T: Send + 'static> RcuDrop<T> {
 }
 
 } // verus!
-/*
+  /*
 
-impl<P: NonNullPtr + Send> RcuInner<P> {
-
-
-    fn new(pointer: P) -> Self {
-        let ptr = <P as NonNullPtr>::into_raw(pointer).as_ptr();
-        let ptr = AtomicPtr::new(ptr);
-        Self {
-            ptr,
-            _marker: PhantomData,
-        }
-    }
-
-    fn update(&self, new_ptr: Option<P>) {
-        let new_ptr = if let Some(new_ptr) = new_ptr {
-            <P as NonNullPtr>::into_raw(new_ptr).as_ptr()
-        } else {
-            core::ptr::null_mut()
-        };
-
-        let old_raw_ptr = self.ptr.swap(new_ptr, AcqRel);
-
-        if let Some(p) = NonNull::new(old_raw_ptr) {
-            // SAFETY:
-            // 1. The pointer was previously returned by `into_raw`.
-            // 2. The pointer is removed from the RCU slot so that no one will
-            //    use it after the end of the current grace period. The removal
-            //    is done atomically, so it will only be dropped once.
-            unsafe { delay_drop::<P>(p) };
-        }
-    }
-
-    fn read(&self) -> RcuReadGuardInner<'_, P> {
-        let guard = disable_preempt();
-        RcuReadGuardInner {
-            obj_ptr: self.ptr.load(Acquire),
-            rcu: self,
-            _inner_guard: guard,
-        }
-    }
-
-    fn read_with<'a>(&'a self, _guard: &'a dyn InAtomicMode) -> Option<P::Ref<'a>> {
-        let obj_ptr = self.ptr.load(Acquire);
-        if obj_ptr.is_null() {
-            return None;
-        }
-        // SAFETY:
-        // 1. This pointer is not NULL.
-        // 2. The `_guard` guarantees atomic mode for the duration of lifetime
-        //    `'a`, the pointer is valid because other writers won't release the
-        //    allocation until this task passes the quiescent state.
-        NonNull::new(obj_ptr).map(|ptr| unsafe { P::raw_as_ref(ptr) })
-    }
-}
-
-impl<P: NonNullPtr> Drop for RcuInner<P> {
-    fn drop(&mut self) {
-        let ptr = self.ptr.load(Acquire);
-        if let Some(p) = NonNull::new(ptr) {
-            // SAFETY: It was previously returned by `into_raw` when creating
-            // the RCU primitive.
-            let pointer = unsafe { <P as NonNullPtr>::from_raw(p) };
-            // It is OK not to delay the drop because the RCU primitive is
-            // owned by nobody else.
-            drop(pointer);
-        }
-    }
-}
+  impl<P: NonNullPtr + Send> RcuInner<P> {
 
 
+      fn new(pointer: P) -> Self {
+          let ptr = <P as NonNullPtr>::into_raw(pointer).as_ptr();
+          let ptr = AtomicPtr::new(ptr);
+          Self {
+              ptr,
+              _marker: PhantomData,
+          }
+      }
 
-impl<P: NonNullPtr + Send> RcuReadGuardInner<'_, P> {
-    fn get(&self) -> Option<P::Ref<'_>> {
-        // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
-        // outlives the lifetime of `&self`. Additionally, during this period,
-        // it is impossible to create a mutable reference to `P`.
-        NonNull::new(self.obj_ptr).map(|ptr| unsafe { P::raw_as_ref(ptr) })
-    }
+      fn update(&self, new_ptr: Option<P>) {
+          let new_ptr = if let Some(new_ptr) = new_ptr {
+              <P as NonNullPtr>::into_raw(new_ptr).as_ptr()
+          } else {
+              core::ptr::null_mut()
+          };
 
-    fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
-        let new_ptr = if let Some(new_ptr) = new_ptr {
-            <P as NonNullPtr>::into_raw(new_ptr).as_ptr()
-        } else {
-            core::ptr::null_mut()
-        };
+          let old_raw_ptr = self.ptr.swap(new_ptr, AcqRel);
 
-        if self
-            .rcu
-            .ptr
-            .compare_exchange(self.obj_ptr, new_ptr, AcqRel, Acquire)
-            .is_err()
-        {
-            let Some(new_ptr) = NonNull::new(new_ptr) else {
-                return Err(None);
-            };
-            // SAFETY:
-            // 1. It was previously returned by `into_raw`.
-            // 2. The `compare_exchange` fails so the pointer will not
-            //    be used by other threads via reading the RCU primitive.
-            return Err(Some(unsafe { <P as NonNullPtr>::from_raw(new_ptr) }));
-        }
+          if let Some(p) = NonNull::new(old_raw_ptr) {
+              // SAFETY:
+              // 1. The pointer was previously returned by `into_raw`.
+              // 2. The pointer is removed from the RCU slot so that no one will
+              //    use it after the end of the current grace period. The removal
+              //    is done atomically, so it will only be dropped once.
+              unsafe { delay_drop::<P>(p) };
+          }
+      }
 
-        if let Some(p) = NonNull::new(self.obj_ptr) {
-            // SAFETY:
-            // 1. The pointer was previously returned by `into_raw`.
-            // 2. The pointer is removed from the RCU slot so that no one will
-            //    use it after the end of the current grace period. The removal
-            //    is done atomically, so it will only be dropped once.
-            unsafe { delay_drop::<P>(p) };
-        }
+      fn read(&self) -> RcuReadGuardInner<'_, P> {
+          let guard = disable_preempt();
+          RcuReadGuardInner {
+              obj_ptr: self.ptr.load(Acquire),
+              rcu: self,
+              _inner_guard: guard,
+          }
+      }
 
-        Ok(())
-    }
-}
+      fn read_with<'a>(&'a self, _guard: &'a dyn InAtomicMode) -> Option<P::Ref<'a>> {
+          let obj_ptr = self.ptr.load(Acquire);
+          if obj_ptr.is_null() {
+              return None;
+          }
+          // SAFETY:
+          // 1. This pointer is not NULL.
+          // 2. The `_guard` guarantees atomic mode for the duration of lifetime
+          //    `'a`, the pointer is valid because other writers won't release the
+          //    allocation until this task passes the quiescent state.
+          NonNull::new(obj_ptr).map(|ptr| unsafe { P::raw_as_ref(ptr) })
+      }
+  }
 
-impl<P: NonNullPtr + Send> Rcu<P> {
-    /// Creates a new RCU primitive with the given pointer.
-    pub fn new(pointer: P) -> Self {
-        Self(RcuInner::new(pointer))
-    }
+  impl<P: NonNullPtr> Drop for RcuInner<P> {
+      fn drop(&mut self) {
+          let ptr = self.ptr.load(Acquire);
+          if let Some(p) = NonNull::new(ptr) {
+              // SAFETY: It was previously returned by `into_raw` when creating
+              // the RCU primitive.
+              let pointer = unsafe { <P as NonNullPtr>::from_raw(p) };
+              // It is OK not to delay the drop because the RCU primitive is
+              // owned by nobody else.
+              drop(pointer);
+          }
+      }
+  }
 
-    /// Replaces the current pointer with a null pointer.
-    ///
-    /// This function updates the pointer to the new pointer regardless of the
-    /// original pointer. The original pointer will be dropped after the grace
-    /// period.
-    ///
-    /// Oftentimes this function is not recommended unless you have serialized
-    /// writes with locks. Otherwise, you can use [`Self::read`] and then
-    /// [`RcuReadGuard::compare_exchange`] to update the pointer.
-    pub fn update(&self, new_ptr: P) {
-        self.0.update(Some(new_ptr));
-    }
 
-    /// Retrieves a read guard for the RCU primitive.
-    ///
-    /// The guard allows read access to the data protected by RCU, as well
-    /// as the ability to do compare-and-exchange.
-    pub fn read(&self) -> RcuReadGuard<'_, P> {
-        RcuReadGuard(self.0.read())
-    }
 
-    /// Reads the RCU-protected value in an atomic mode.
-    ///
-    /// The RCU mechanism protects reads ([`Self::read`]) by entering an
-    /// atomic mode. If we are already in an atomic mode, this function can
-    /// reduce the overhead of disabling preemption again.
-    ///
-    /// Unlike [`Self::read`], this function does not return a read guard, so
-    /// you cannot use [`RcuReadGuard::compare_exchange`] to synchronize the
-    /// writers. You may do it via a [`super::SpinLock`].
-    pub fn read_with<'a, G: AsAtomicModeGuard + ?Sized>(&'a self, guard: &'a G) -> P::Ref<'a> {
-        self.0.read_with(guard.as_atomic_mode_guard()).unwrap()
-    }
-}
+  impl<P: NonNullPtr + Send> RcuReadGuardInner<'_, P> {
+      fn get(&self) -> Option<P::Ref<'_>> {
+          // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
+          // outlives the lifetime of `&self`. Additionally, during this period,
+          // it is impossible to create a mutable reference to `P`.
+          NonNull::new(self.obj_ptr).map(|ptr| unsafe { P::raw_as_ref(ptr) })
+      }
 
-impl<P: NonNullPtr + Send> RcuOption<P> {
-    /// Creates a new RCU primitive with the given pointer.
-    pub fn new(pointer: Option<P>) -> Self {
-        if let Some(pointer) = pointer {
-            Self(RcuInner::new(pointer))
-        } else {
-            Self(RcuInner::new_none())
-        }
-    }
+      fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
+          let new_ptr = if let Some(new_ptr) = new_ptr {
+              <P as NonNullPtr>::into_raw(new_ptr).as_ptr()
+          } else {
+              core::ptr::null_mut()
+          };
 
-    /// Creates a new RCU primitive that contains nothing.
-    ///
-    /// This is a constant equivalence to [`RcuOption::new(None)`].
-    pub const fn new_none() -> Self {
-        Self(RcuInner::new_none())
-    }
+          if self
+              .rcu
+              .ptr
+              .compare_exchange(self.obj_ptr, new_ptr, AcqRel, Acquire)
+              .is_err()
+          {
+              let Some(new_ptr) = NonNull::new(new_ptr) else {
+                  return Err(None);
+              };
+              // SAFETY:
+              // 1. It was previously returned by `into_raw`.
+              // 2. The `compare_exchange` fails so the pointer will not
+              //    be used by other threads via reading the RCU primitive.
+              return Err(Some(unsafe { <P as NonNullPtr>::from_raw(new_ptr) }));
+          }
 
-    /// Replaces the current pointer with a null pointer.
-    ///
-    /// This function updates the pointer to the new pointer regardless of the
-    /// original pointer. If the original pointer is not NULL, it will be
-    /// dropped after the grace period.
-    ///
-    /// Oftentimes this function is not recommended unless you have
-    /// synchronized writes with locks. Otherwise, you can use [`Self::read`]
-    /// and then [`RcuOptionReadGuard::compare_exchange`] to update the pointer.
-    pub fn update(&self, new_ptr: Option<P>) {
-        self.0.update(new_ptr);
-    }
+          if let Some(p) = NonNull::new(self.obj_ptr) {
+              // SAFETY:
+              // 1. The pointer was previously returned by `into_raw`.
+              // 2. The pointer is removed from the RCU slot so that no one will
+              //    use it after the end of the current grace period. The removal
+              //    is done atomically, so it will only be dropped once.
+              unsafe { delay_drop::<P>(p) };
+          }
 
-    /// Retrieves a read guard for the RCU primitive.
-    ///
-    /// The guard allows read access to the data protected by RCU, as well
-    /// as the ability to do compare-and-exchange.
-    ///
-    /// The contained pointer can be NULL and you can only get a reference
-    /// (if checked non-NULL) via [`RcuOptionReadGuard::get`].
-    pub fn read(&self) -> RcuOptionReadGuard<'_, P> {
-        RcuOptionReadGuard(self.0.read())
-    }
+          Ok(())
+      }
+  }
 
-    /// Reads the RCU-protected value in an atomic mode.
-    ///
-    /// The RCU mechanism protects reads ([`Self::read`]) by entering an
-    /// atomic mode. If we are already in an atomic mode, this function can
-    /// reduce the overhead of disabling preemption again.
-    ///
-    /// Unlike [`Self::read`], this function does not return a read guard, so
-    /// you cannot use [`RcuOptionReadGuard::compare_exchange`] to synchronize the
-    /// writers. You may do it via a [`super::SpinLock`].
-    pub fn read_with<'a, G: AsAtomicModeGuard + ?Sized>(
-        &'a self,
-        guard: &'a G,
-    ) -> Option<P::Ref<'a>> {
-        self.0.read_with(guard.as_atomic_mode_guard())
-    }
-}
+  impl<P: NonNullPtr + Send> Rcu<P> {
+      /// Creates a new RCU primitive with the given pointer.
+      pub fn new(pointer: P) -> Self {
+          Self(RcuInner::new(pointer))
+      }
 
-impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
-    /// Gets the reference of the protected data.
-    pub fn get(&self) -> P::Ref<'_> {
-        self.0.get().unwrap()
-    }
+      /// Replaces the current pointer with a null pointer.
+      ///
+      /// This function updates the pointer to the new pointer regardless of the
+      /// original pointer. The original pointer will be dropped after the grace
+      /// period.
+      ///
+      /// Oftentimes this function is not recommended unless you have serialized
+      /// writes with locks. Otherwise, you can use [`Self::read`] and then
+      /// [`RcuReadGuard::compare_exchange`] to update the pointer.
+      pub fn update(&self, new_ptr: P) {
+          self.0.update(Some(new_ptr));
+      }
 
-    /// Tries to replace the already read pointer with a new pointer.
-    ///
-    /// If another thread has updated the pointer after the read, this
-    /// function will fail, and returns the given pointer back. Otherwise,
-    /// it will replace the pointer with the new one and drop the old pointer
-    /// after the grace period.
-    ///
-    /// If spinning on [`Rcu::read`] and this function, it is recommended
-    /// to relax the CPU or yield the task on failure. Otherwise contention
-    /// will occur.
-    ///
-    /// This API does not help to avoid
-    /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
-    pub fn compare_exchange(self, new_ptr: P) -> Result<(), P> {
-        self.0
-            .compare_exchange(Some(new_ptr))
-            .map_err(|err| err.unwrap())
-    }
-}
+      /// Retrieves a read guard for the RCU primitive.
+      ///
+      /// The guard allows read access to the data protected by RCU, as well
+      /// as the ability to do compare-and-exchange.
+      pub fn read(&self) -> RcuReadGuard<'_, P> {
+          RcuReadGuard(self.0.read())
+      }
 
-impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
-    /// Gets the reference of the protected data.
-    ///
-    /// If the RCU primitive protects nothing, this function returns `None`.
-    pub fn get(&self) -> Option<P::Ref<'_>> {
-        self.0.get()
-    }
+      /// Reads the RCU-protected value in an atomic mode.
+      ///
+      /// The RCU mechanism protects reads ([`Self::read`]) by entering an
+      /// atomic mode. If we are already in an atomic mode, this function can
+      /// reduce the overhead of disabling preemption again.
+      ///
+      /// Unlike [`Self::read`], this function does not return a read guard, so
+      /// you cannot use [`RcuReadGuard::compare_exchange`] to synchronize the
+      /// writers. You may do it via a [`super::SpinLock`].
+      pub fn read_with<'a, G: AsAtomicModeGuard + ?Sized>(&'a self, guard: &'a G) -> P::Ref<'a> {
+          self.0.read_with(guard.as_atomic_mode_guard()).unwrap()
+      }
+  }
 
-    /// Returns if the RCU primitive protects nothing when [`Rcu::read`] happens.
-    pub fn is_none(&self) -> bool {
-        self.0.obj_ptr.is_null()
-    }
+  impl<P: NonNullPtr + Send> RcuOption<P> {
+      /// Creates a new RCU primitive with the given pointer.
+      pub fn new(pointer: Option<P>) -> Self {
+          if let Some(pointer) = pointer {
+              Self(RcuInner::new(pointer))
+          } else {
+              Self(RcuInner::new_none())
+          }
+      }
 
-    /// Tries to replace the already read pointer with a new pointer
-    /// (or none).
-    ///
-    /// If another thread has updated the pointer after the read, this
-    /// function will fail, and returns the given pointer back. Otherwise,
-    /// it will replace the pointer with the new one and drop the old pointer
-    /// after the grace period.
-    ///
-    /// If spinning on [`RcuOption::read`] and this function, it is recommended
-    /// to relax the CPU or yield the task on failure. Otherwise contention
-    /// will occur.
-    ///
-    /// This API does not help to avoid
-    /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
-    pub fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
-        self.0.compare_exchange(new_ptr)
-    }
-}
+      /// Creates a new RCU primitive that contains nothing.
+      ///
+      /// This is a constant equivalence to [`RcuOption::new(None)`].
+      pub const fn new_none() -> Self {
+          Self(RcuInner::new_none())
+      }
 
-/// Delays the dropping of a [`NonNullPtr`] after the RCU grace period.
-///
-/// This is internally needed for implementing [`Rcu`] and [`RcuOption`]
-/// because we cannot alias a [`Box`]. Restoring `P` and use [`RcuDrop`] for it
-/// can lead to multiple [`Box`]es simultaneously pointing to the same
-/// content.
-///
-/// # Safety
-///
-/// The pointer must be previously returned by `into_raw`, will not be used
-/// after the end of the current grace period, and will only be dropped once.
-///
-/// [`Box`]: alloc::boxed::Box
-unsafe fn delay_drop<P: NonNullPtr + Send>(pointer: NonNull<<P as NonNullPtr>::Target>) {
-    struct ForceSend<P: NonNullPtr + Send>(NonNull<<P as NonNullPtr>::Target>);
-    // SAFETY: Sending a raw pointer to another task is safe as long as
-    // the pointer access in another task is safe (guaranteed by the trait
-    // bound `P: Send`).
-    unsafe impl<P: NonNullPtr + Send> Send for ForceSend<P> {}
+      /// Replaces the current pointer with a null pointer.
+      ///
+      /// This function updates the pointer to the new pointer regardless of the
+      /// original pointer. If the original pointer is not NULL, it will be
+      /// dropped after the grace period.
+      ///
+      /// Oftentimes this function is not recommended unless you have
+      /// synchronized writes with locks. Otherwise, you can use [`Self::read`]
+      /// and then [`RcuOptionReadGuard::compare_exchange`] to update the pointer.
+      pub fn update(&self, new_ptr: Option<P>) {
+          self.0.update(new_ptr);
+      }
 
-    let pointer: ForceSend<P> = ForceSend(pointer);
+      /// Retrieves a read guard for the RCU primitive.
+      ///
+      /// The guard allows read access to the data protected by RCU, as well
+      /// as the ability to do compare-and-exchange.
+      ///
+      /// The contained pointer can be NULL and you can only get a reference
+      /// (if checked non-NULL) via [`RcuOptionReadGuard::get`].
+      pub fn read(&self) -> RcuOptionReadGuard<'_, P> {
+          RcuOptionReadGuard(self.0.read())
+      }
 
-    let rcu_monitor = RCU_MONITOR.get().unwrap();
-    rcu_monitor.after_grace_period(move || {
-        // This is necessary to make the Rust compiler to move the entire
-        // `ForceSend` structure into the closure.
-        let pointer = pointer;
+      /// Reads the RCU-protected value in an atomic mode.
+      ///
+      /// The RCU mechanism protects reads ([`Self::read`]) by entering an
+      /// atomic mode. If we are already in an atomic mode, this function can
+      /// reduce the overhead of disabling preemption again.
+      ///
+      /// Unlike [`Self::read`], this function does not return a read guard, so
+      /// you cannot use [`RcuOptionReadGuard::compare_exchange`] to synchronize the
+      /// writers. You may do it via a [`super::SpinLock`].
+      pub fn read_with<'a, G: AsAtomicModeGuard + ?Sized>(
+          &'a self,
+          guard: &'a G,
+      ) -> Option<P::Ref<'a>> {
+          self.0.read_with(guard.as_atomic_mode_guard())
+      }
+  }
 
-        // SAFETY:
-        // 1. The pointer was previously returned by `into_raw`.
-        // 2. The pointer won't be used anymore since the grace period has
-        //    finished and this is the only time the pointer gets dropped.
-        let p = unsafe { <P as NonNullPtr>::from_raw(pointer.0) };
-        drop(p);
-    });
-}
+  impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
+      /// Gets the reference of the protected data.
+      pub fn get(&self) -> P::Ref<'_> {
+          self.0.get().unwrap()
+      }
 
-impl<T: Send + 'static> RcuDrop<T> {
-    /// Creates a new [`RcuDrop`] instance that delays the dropping of `value`.
-    pub fn new(value: T) -> Self {
-        Self {
-            value: ManuallyDrop::new(value),
-        }
-    }
-}
+      /// Tries to replace the already read pointer with a new pointer.
+      ///
+      /// If another thread has updated the pointer after the read, this
+      /// function will fail, and returns the given pointer back. Otherwise,
+      /// it will replace the pointer with the new one and drop the old pointer
+      /// after the grace period.
+      ///
+      /// If spinning on [`Rcu::read`] and this function, it is recommended
+      /// to relax the CPU or yield the task on failure. Otherwise contention
+      /// will occur.
+      ///
+      /// This API does not help to avoid
+      /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
+      pub fn compare_exchange(self, new_ptr: P) -> Result<(), P> {
+          self.0
+              .compare_exchange(Some(new_ptr))
+              .map_err(|err| err.unwrap())
+      }
+  }
 
-impl<T: Send + 'static> Deref for RcuDrop<T> {
-    type Target = T;
+  impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
+      /// Gets the reference of the protected data.
+      ///
+      /// If the RCU primitive protects nothing, this function returns `None`.
+      pub fn get(&self) -> Option<P::Ref<'_>> {
+          self.0.get()
+      }
 
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
+      /// Returns if the RCU primitive protects nothing when [`Rcu::read`] happens.
+      pub fn is_none(&self) -> bool {
+          self.0.obj_ptr.is_null()
+      }
 
-impl<T: Send + 'static> Drop for RcuDrop<T> {
-    fn drop(&mut self) {
-        // SAFETY: The `ManuallyDrop` will not be used after this point.
-        let taken = unsafe { ManuallyDrop::take(&mut self.value) };
-        let rcu_monitor = RCU_MONITOR.get().unwrap();
-        rcu_monitor.after_grace_period(|| {
-            drop(taken);
-        });
-    }
-}
+      /// Tries to replace the already read pointer with a new pointer
+      /// (or none).
+      ///
+      /// If another thread has updated the pointer after the read, this
+      /// function will fail, and returns the given pointer back. Otherwise,
+      /// it will replace the pointer with the new one and drop the old pointer
+      /// after the grace period.
+      ///
+      /// If spinning on [`RcuOption::read`] and this function, it is recommended
+      /// to relax the CPU or yield the task on failure. Otherwise contention
+      /// will occur.
+      ///
+      /// This API does not help to avoid
+      /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
+      pub fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
+          self.0.compare_exchange(new_ptr)
+      }
+  }
 
-/// Finishes the current grace period.
-///
-/// This function is called when the current grace period on current CPU is
-/// finished. If this CPU is the last CPU to finish the current grace period,
-/// it takes all the current callbacks and invokes them.
-///
-/// # Safety
-///
-/// The caller must ensure that this CPU is not executing in a RCU read-side
-/// critical section.
-pub unsafe fn finish_grace_period() {
-    let rcu_monitor = RCU_MONITOR.get().unwrap();
-    // SAFETY: The caller ensures safety.
-    unsafe {
-        rcu_monitor.finish_grace_period();
-    }
-}
+  /// Delays the dropping of a [`NonNullPtr`] after the RCU grace period.
+  ///
+  /// This is internally needed for implementing [`Rcu`] and [`RcuOption`]
+  /// because we cannot alias a [`Box`]. Restoring `P` and use [`RcuDrop`] for it
+  /// can lead to multiple [`Box`]es simultaneously pointing to the same
+  /// content.
+  ///
+  /// # Safety
+  ///
+  /// The pointer must be previously returned by `into_raw`, will not be used
+  /// after the end of the current grace period, and will only be dropped once.
+  ///
+  /// [`Box`]: alloc::boxed::Box
+  unsafe fn delay_drop<P: NonNullPtr + Send>(pointer: NonNull<<P as NonNullPtr>::Target>) {
+      struct ForceSend<P: NonNullPtr + Send>(NonNull<<P as NonNullPtr>::Target>);
+      // SAFETY: Sending a raw pointer to another task is safe as long as
+      // the pointer access in another task is safe (guaranteed by the trait
+      // bound `P: Send`).
+      unsafe impl<P: NonNullPtr + Send> Send for ForceSend<P> {}
 
-*/
+      let pointer: ForceSend<P> = ForceSend(pointer);
+
+      let rcu_monitor = RCU_MONITOR.get().unwrap();
+      rcu_monitor.after_grace_period(move || {
+          // This is necessary to make the Rust compiler to move the entire
+          // `ForceSend` structure into the closure.
+          let pointer = pointer;
+
+          // SAFETY:
+          // 1. The pointer was previously returned by `into_raw`.
+          // 2. The pointer won't be used anymore since the grace period has
+          //    finished and this is the only time the pointer gets dropped.
+          let p = unsafe { <P as NonNullPtr>::from_raw(pointer.0) };
+          drop(p);
+      });
+  }
+
+  impl<T: Send + 'static> RcuDrop<T> {
+      /// Creates a new [`RcuDrop`] instance that delays the dropping of `value`.
+      pub fn new(value: T) -> Self {
+          Self {
+              value: ManuallyDrop::new(value),
+          }
+      }
+  }
+
+  impl<T: Send + 'static> Deref for RcuDrop<T> {
+      type Target = T;
+
+      fn deref(&self) -> &Self::Target {
+          &self.value
+      }
+  }
+
+  impl<T: Send + 'static> Drop for RcuDrop<T> {
+      fn drop(&mut self) {
+          // SAFETY: The `ManuallyDrop` will not be used after this point.
+          let taken = unsafe { ManuallyDrop::take(&mut self.value) };
+          let rcu_monitor = RCU_MONITOR.get().unwrap();
+          rcu_monitor.after_grace_period(|| {
+              drop(taken);
+          });
+      }
+  }
+
+  /// Finishes the current grace period.
+  ///
+  /// This function is called when the current grace period on current CPU is
+  /// finished. If this CPU is the last CPU to finish the current grace period,
+  /// it takes all the current callbacks and invokes them.
+  ///
+  /// # Safety
+  ///
+  /// The caller must ensure that this CPU is not executing in a RCU read-side
+  /// critical section.
+  pub unsafe fn finish_grace_period() {
+      let rcu_monitor = RCU_MONITOR.get().unwrap();
+      // SAFETY: The caller ensures safety.
+      unsafe {
+          rcu_monitor.finish_grace_period();
+      }
+  }
+
+  */
