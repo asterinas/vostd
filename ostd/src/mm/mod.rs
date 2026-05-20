@@ -118,6 +118,21 @@ pub trait PagingConstsTrait: Debug + Sync {
             res > 0,
     ;
 
+    /// All configs in vostd use the same value for the per-config
+    /// `NR_LEVELS_spec()` as the architecture-level constant `NR_LEVELS`
+    /// (= 4 for x86_64). This is *implicit* in the cursor framework:
+    /// `CursorOwner::inv()` hardcodes `self.level <= NR_LEVELS` (const)
+    /// for cursors over any `C: PagingConstsTrait`, so a config whose
+    /// `NR_LEVELS_spec()` exceeded `NR_LEVELS` would be unusable. This
+    /// lemma exposes that equality as a usable fact so generic proofs
+    /// can chain `level != C::NR_LEVELS_spec()` to `level < NR_LEVELS`
+    /// (e.g. `Cursor::find_next_impl`'s PageTable-branch gate ⟹
+    /// `CursorMut::take_next`'s `replace_cur_entry` discharge).
+    proof fn lemma_NR_LEVELS_eq()
+        ensures
+            Self::NR_LEVELS_spec() as int == NR_LEVELS as int,
+    ;
+
     spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel;
 
     /// The highest level that a PTE can be directly used to translate a VA.

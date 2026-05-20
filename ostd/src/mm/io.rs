@@ -369,7 +369,7 @@ impl<'a> VmWriter<'a, Infallible> {
             core::mem::size_of::<T>() > 0,
             core::mem::align_of::<T>() > 0,
             core::mem::size_of::<T>() % core::mem::align_of::<T>() == 0,
-            !old(self).fill_panic_condition::<T>() || may_panic(),
+            old(self).fill_panic_condition::<T>() ==> may_panic(),
         ensures
             final(self).inv(),
             final(self).wf(*final(writer_owner)),
@@ -597,7 +597,7 @@ impl<'a> VmWriter<'a, Infallible> {
             old(owner).has_write_view(),
             // The runtime `assert!(cursor.is_aligned())` diverges unless the
             // cursor is aligned for `T`.
-            old(self).cursor.vaddr % core::mem::align_of::<T>() == 0 || may_panic(),
+            old(self).cursor.vaddr % core::mem::align_of::<T>() != 0 ==> may_panic(),
         ensures
             final(self).inv(),
             final(owner).inv(),
@@ -963,7 +963,7 @@ impl<'a> VmReader<'a, Infallible> {
             old(owner).read_view_initialized(),
             // The runtime `assert!(cursor.is_aligned())` diverges unless the
             // cursor is aligned for `T`.
-            old(self).cursor.vaddr % core::mem::align_of::<T>() == 0 || may_panic(),
+            old(self).cursor.vaddr % core::mem::align_of::<T>() != 0 ==> may_panic(),
         ensures
             final(self).inv(),
             final(owner).inv(),
@@ -1463,11 +1463,10 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             iter.decrease() is Some,
             // `align_up` (called for `align > 1`) diverges unless `align`
             // is a power of two.
-            align <= 1 || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align)
-                || may_panic(),
+            !(align <= 1 || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align))
+                ==> may_panic(),
         ensures
-            align == 0 || align == 1
-                || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align),
+            align <= 1 || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align),
     {
         use ::align_ext::AlignExt;
         let mut nr_written: usize = 0;

@@ -418,6 +418,13 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::lemma_BASE_PAGE_SIZE_properties();
     }
 
+    proof fn lemma_NR_LEVELS_eq()
+        ensures
+            Self::NR_LEVELS_spec() as int == NR_LEVELS as int,
+    {
+        C::C::lemma_NR_LEVELS_eq();
+    }
+
     proof fn lemma_PTE_SIZE_properties()
         ensures
             0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE(),
@@ -1691,6 +1698,20 @@ impl<C: PageTableConfig> PageTable<C> {
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
                     < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
+            // Saturated-slot bridge (relayed from `Cursor::new`):
+            // a slot at `>= REF_COUNT_MAX` before iff after, with the same
+            // value. Used by `KVirtArea::query` to bridge inner-cursor
+            // saturation back to the caller's snapshot.
+            forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+                final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                        == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
+            forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
+                old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                        == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
     )]
     pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>) -> Result<
         (Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>),

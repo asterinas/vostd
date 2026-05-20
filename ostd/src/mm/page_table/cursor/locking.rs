@@ -78,6 +78,31 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
                 != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
+        // For *in-use* slots, refcount value and usage are exactly
+        // preserved across `lock_range` — composes
+        // `try_traverse_and_lock_subtree_root`'s in-use preservation with
+        // `dfs_acquire_lock`'s `slot_owners =~=` preservation.
+        forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+            old(regions).slot_owners.contains_key(idx)
+            && old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+            ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                && final(regions).slot_owners[idx].usage
+                    == old(regions).slot_owners[idx].usage,
+        // Saturated-slot bridge (bidirectional): a slot is at
+        // `>= REF_COUNT_MAX` before iff after, with the same value.
+        // Composes helpers' clauses (see their ensures).
+        forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+            ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
+        forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+            ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
         // Frames that were item_not_mapped before remain so after locking.
         forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
             CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
@@ -246,6 +271,34 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
                 != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
+        // For *in-use* slots (non-UNUSED refcount), the refcount value and
+        // usage are exactly preserved — locking only allocates fresh PT
+        // nodes from UNUSED slots; it never mutates a slot already in use.
+        forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+            old(regions).slot_owners.contains_key(idx)
+            && old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+            ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                && final(regions).slot_owners[idx].usage
+                    == old(regions).slot_owners[idx].usage,
+        // Saturated-slot bridge (bidirectional): a slot is at
+        // `>= REF_COUNT_MAX` before iff after, with the same value.
+        // Fresh PT-node allocations start at rc=1 (well below
+        // `REF_COUNT_MAX = i64::MAX as u64`); locking doesn't touch
+        // already-saturated slots. Used by `KVirtArea::query` to bridge
+        // the inner `Cursor::query`'s per-specific-slot saturation
+        // condition back to the caller's `*old(regions)` snapshot.
+        forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+            ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
+        forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+            ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
+                    == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
         // Therefore any frame that was `item_not_mapped` (its paths_in_pt was
         // empty, hence `ref_count` might be UNUSED-or-non-UNUSED) stays so:
         // the paddr range's slots either had non-UNUSED ref_count (preserved

@@ -61,6 +61,13 @@ impl PagingConstsTrait for PagingConsts {
         4
     }
 
+    proof fn lemma_NR_LEVELS_eq()
+        ensures
+            Self::NR_LEVELS_spec() as int == NR_LEVELS as int,
+    {
+        // Both sides are concretely 4 for x86_64.
+    }
+
     // Expansion for ADDRESS_WIDTH
     #[verifier::inline]
     open spec fn ADDRESS_WIDTH_spec() -> usize {

@@ -4,7 +4,7 @@ use crate::mm::page_table::*;
 use crate::mm::{PagingConstsTrait, Vaddr};
 use crate::specs::arch::mm::{NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::{is_mmio_paddr, REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
@@ -42,6 +42,31 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
     pub open spec fn query_some_condition(self, owner: CursorOwner<'rcu, C>) -> bool {
         self.model(owner).present()
+    }
+
+    /// Panic condition for [`Self::query`]. `query` diverges *only* via the
+    /// Arc-style refcount-saturation abort when it clones the **specific**
+    /// frame the cursor resolves to. That happens iff:
+    ///  - the cursor is in range (out-of-range returns `Err` *before* any
+    ///    clone — the early `self.va >= barrier_va.end` exit), and
+    ///  - a mapping is present at the cursor (`owner@.present()`), and
+    ///  - the resolved leaf frame is tracked (non-MMIO, so cloning it bumps
+    ///    its slot's refcount — MMIO/untracked leaves never bump), and
+    ///  - that slot's refcount is already at `REF_COUNT_MAX`, so the
+    ///    `inc_ref_count` in `clone_item` would overflow and abort.
+    /// `owner@.query_mapping().pa_range.start` is exactly the paddr the
+    /// descent lands on (bridged by [`CursorOwner::cur_entry_frame_present`]).
+    pub open spec fn query_panic_condition(
+        self,
+        owner: CursorOwner<'rcu, C>,
+        regions: MetaRegionOwners,
+    ) -> bool {
+        let pa = owner@.query_mapping().pa_range.start;
+        let idx = frame_to_index(pa);
+        &&& self.barrier_va.start <= self.va < self.barrier_va.end
+        &&& owner@.present()
+        &&& !is_mmio_paddr(pa)
+        &&& regions.slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX
     }
 
     pub open spec fn query_some_ensures(
