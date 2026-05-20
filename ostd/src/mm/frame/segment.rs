@@ -17,7 +17,6 @@ use vstd_extra::ownership::*;
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaSlot};
 use crate::mm::{paddr_to_vaddr, Paddr, PagingLevel, Vaddr};
-use vstd::simple_pptr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
@@ -264,19 +263,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 addr_len == (range.end - range.start) / PAGE_SIZE as int,
                 i <= addr_len,
                 forall|paddr_in: Paddr|
-                    (range.start + i * PAGE_SIZE <= paddr_in < range.end && paddr_in % PAGE_SIZE == 0) ==> {
+                    (range.start + i * PAGE_SIZE <= paddr_in < range.end && paddr_in % PAGE_SIZE
+                        == 0) ==> {
                         &&& metadata_fn.requires((paddr_in,))
                     },
                 forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
-                    range.start + i * PAGE_SIZE <= paddr_in < range.end
-                        && paddr_in % PAGE_SIZE == 0
+                    range.start + i * PAGE_SIZE <= paddr_in < range.end && paddr_in % PAGE_SIZE == 0
                         && metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
                         &&& paddr_out < MAX_PADDR
                         &&& paddr_out % PAGE_SIZE == 0
                         &&& paddr_in == paddr_out
                         &&& regions.slots.contains_key(frame_to_index(paddr_out))
                         &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
-                        &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.in_list.points_to(0)
+                        &&& regions.slot_owners[frame_to_index(
+                            paddr_out,
+                        )].inner_perms.in_list.points_to(0)
                     },
                 forall|j: int|
                     0 <= j < addrs.len() as int ==> {
@@ -583,13 +584,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         let ghost old_regions = *regions;
         while i < addr_len
             invariant
-                // Precise: each iteration's `inc_ref_count` diverges only if
-                // *that specific* slot is at saturation, in which case
-                // `slice_panic_condition`'s `exists j` witnesses it.
                 self.slice_panic_condition(range, *old(regions)) ==> may_panic(),
-                // Pin the snapshot to the function-entry value so that
-                // facts stated against `old_regions` and `*old(regions)`
-                // are interchangeable inside the loop.
                 old_regions == *old(regions),
                 regions.inv(),
                 regions.slots =~= old_regions.slots,
@@ -618,15 +613,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     first_perm_idx + i as int <= j < last_perm_idx ==>
                         (*regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                             == old_regions.slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)],
-                // For each *already-processed* slot, `inc_ref_count`'s
-                // `ensures old(rc_perm).value() < REF_COUNT_MAX` witnesses
-                // that its **pre-bump** refcount — which is exactly the
-                // function-entry value, by the untouched-preservation
-                // invariant above instantiated at this iter's index — was
-                // strictly below saturation. At loop exit (`i == addr_len`)
-                // this spans the full slice range, falsifying the `exists j`
-                // disjunct of `slice_panic_condition` and discharging the
-                // `ensures !slice_panic_condition` postcondition.
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     first_perm_idx <= j < first_perm_idx + i as int ==>
@@ -677,10 +663,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             proof {
                 assert forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx + i as int <= j < last_perm_idx implies
-                        (*regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                            == old_regions.slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                by {
+                    first_perm_idx + i as int <= j < last_perm_idx implies (
+                *regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
+                    == old_regions.slot_owners[frame_to_index(
+                    (self.range.start + j * PAGE_SIZE) as usize,
+                )] by {
                     let _ = owner.perms[j];
                     let _ = owner.perms[perm_idx];
                 };
@@ -779,10 +766,7 @@ impl<M: AnyFrameMeta> From<Frame<M>> for Segment<M> {
     fn from(frame: Frame<M>) -> Self {
         let pa = frame.start_paddr();
         let _ = core::mem::ManuallyDrop::new(frame);
-        Self {
-            range: pa..(pa + PAGE_SIZE),
-            _marker: core::marker::PhantomData,
-        }
+        Self { range: pa..(pa + PAGE_SIZE), _marker: core::marker::PhantomData }
     }
 }
 
@@ -850,15 +834,13 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         // Re-trigger the precondition's `forall|i| owner.perms[i] => ...`
         // under `frame_idx_at(self.range.start, i)`, which is the trigger the
         // loop invariant uses.
-        assert forall|i: int|
-            #![trigger frame_idx_at(self.range.start, i)]
-            0 <= i < n implies {
-                let idx = frame_idx_at(self.range.start, i);
-                old(regions).slot_owners[idx].inner_perms.ref_count.value() == 1 ==> {
-                    &&& old(regions).slot_owners[idx].inner_perms.storage.is_init()
-                    &&& old(regions).slot_owners[idx].inner_perms.in_list.value() == 0
-                }
-            } by {
+        assert forall|i: int| #![trigger frame_idx_at(self.range.start, i)] 0 <= i < n implies {
+            let idx = frame_idx_at(self.range.start, i);
+            old(regions).slot_owners[idx].inner_perms.ref_count.value() == 1 ==> {
+                &&& old(regions).slot_owners[idx].inner_perms.storage.is_init()
+                &&& old(regions).slot_owners[idx].inner_perms.in_list.value() == 0
+            }
+        } by {
             let _ = owner.perms[i];
         };
 
@@ -877,14 +859,15 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 // Remaining owner.perms are the suffix of the original
                 forall|j: int|
                     #![trigger owner.perms[j]]
-                    0 <= j < (n - k) ==>
-                        owner.perms[j] == old_owner.perms[j + k],
+                    0 <= j < (n - k) ==> owner.perms[j] == old_owner.perms[j + k],
                 // Unprocessed frames' slot_owners are present and unchanged
                 forall|j: int|
                     #![trigger frame_idx_at(self.range.start, j)]
-                    k <= j < n ==>
-                        regions.slot_owners.contains_key(frame_idx_at(self.range.start, j))
-                        && regions.slot_owners[frame_idx_at(self.range.start, j)] == old(regions).slot_owners[frame_idx_at(self.range.start, j)],
+                    k <= j < n ==> regions.slot_owners.contains_key(
+                        frame_idx_at(self.range.start, j),
+                    ) && regions.slot_owners[frame_idx_at(self.range.start, j)] == old(
+                        regions,
+                    ).slot_owners[frame_idx_at(self.range.start, j)],
                 regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
                 // Re-state the function-entry preconditions over the
                 // immutable `old_owner`/`old(regions)` snapshots so each
@@ -908,7 +891,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             if paddr >= self.range.end {
                 break;
             }
-
             let tracked slot_perm = owner.perms.tracked_remove(0);
             proof_decl! {
                 let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
@@ -952,19 +934,22 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                 &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
                     < super::meta::REF_COUNT_MAX
-                &&& !MetaSlot::inc_ref_count_panic_cond(
-                    perm.slot_owners[idx].inner_perms.ref_count)
+                &&& !MetaSlot::inc_ref_count_panic_cond(perm.slot_owners[idx].inner_perms.ref_count)
             }
     }
 
-    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+    open spec fn clone_ensures(
+        self,
+        old_perm: MetaRegionOwners,
+        new_perm: MetaRegionOwners,
+        res: Self,
+    ) -> bool {
         &&& res.range == self.range
         &&& res.inv()
         &&& new_perm.inv()
     }
 
-    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self)
-    {
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self) {
         let mut paddr = self.range.start;
 
         let ghost old_perm = *perm;
@@ -987,14 +972,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
                             < super::meta::REF_COUNT_MAX
                         &&& !MetaSlot::inc_ref_count_panic_cond(
-                            perm.slot_owners[idx].inner_perms.ref_count)
+                            perm.slot_owners[idx].inner_perms.ref_count,
+                        )
                     },
             decreases self.range.end - paddr,
         {
             if paddr >= self.range.end {
                 break;
             }
-
             proof {
                 assert(paddr + PAGE_SIZE <= self.range.end);
                 assert(paddr + PAGE_SIZE <= MAX_PADDR);
@@ -1006,10 +991,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             paddr = paddr + PAGE_SIZE;
         }
 
-        Self {
-            range: self.range.start..self.range.end,
-            _marker: core::marker::PhantomData,
-        }
+        Self { range: self.range.start..self.range.end, _marker: core::marker::PhantomData }
     }
 }
 

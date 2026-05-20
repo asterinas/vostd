@@ -13,6 +13,9 @@ target/
 # VS Code
 .vscode/settings.json
 
+# Zed
+.zed/settings.json
+
 # Tools
 tools/verus
 tools/verus-analyzer
@@ -53,3 +56,8 @@ doc
 
 # build artifacts
 *.rlib
+
+# Agents
+.agents/
+.codex/
+.claude/

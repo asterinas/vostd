@@ -8,7 +8,7 @@ use vstd_extra::ownership::*;
 
 use core::ops::Range;
 
-use crate::mm::frame::{Segment, AnyFrameMeta, MetaSlot};
+use crate::mm::frame::{AnyFrameMeta, MetaSlot, Segment};
 use crate::mm::{paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};

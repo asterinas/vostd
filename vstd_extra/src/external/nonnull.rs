@@ -26,14 +26,14 @@ pub trait NonNullAdditionalFns<T: PointeeSized> {
     /// Type invariant: the address of the pointer is non-null.
     broadcast proof fn lemma_addr_is_nonnull(self)
         ensures
-            (#[trigger] self.view_ptr_mut())@.addr != 0,
+            !(#[trigger] self.view_ptr_mut()).is_null(),
     ;
 
     spec fn addr_spec(self) -> NonZeroUsize;
 
     broadcast proof fn lemma_addr_view_eq_view_ptr_mut(self)
         ensures
-            (#[trigger] self.addr_spec()).view() == self.view_ptr_mut()@.addr,
+            (#[trigger] self.addr_spec()).view() == self.view_ptr_mut().addr(),
     ;
 
     /// A wrapper of `NonNull::addr` in `std`, here we use our own `NonZeroUsize`
@@ -65,17 +65,17 @@ impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
     }
 }
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn nonnull_addr_spec_wrapper<T: PointeeSized>(ptr: NonNull<T>) -> NonZeroUsize {
     ptr.addr_spec()
 }
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn nonnull_view_ptr_mut_wrapper<T: PointeeSized>(ptr: NonNull<T>) -> *mut T {
     ptr.view_ptr_mut()
 }
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn nonnull_cast_spec_wrapper<T: PointeeSized, U>(ptr: NonNull<T>) -> NonNull<U> {
     ptr.cast_spec::<U>()
 }
@@ -83,10 +83,19 @@ pub open spec fn nonnull_cast_spec_wrapper<T: PointeeSized, U>(ptr: NonNull<T>) 
 /// An uninterpreted specification that constructs a `NonNull<T>` from a raw pointer.
 pub uninterp spec fn nonnull_from_ptr_mut_spec<T: PointeeSized>(ptr: *mut T) -> NonNull<T>;
 
+#[verifier::inline]
+pub open spec fn nonnull_new_spec<T: PointeeSized>(ptr: *mut T) -> Option<NonNull<T>> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(nonnull_from_ptr_mut_spec(ptr))
+    }
+}
+
 /// The view of a `NonNull<T>` constructed from `*mut T` should be exactly that `*mut T`.
 pub broadcast axiom fn axiom_nonnull_from_ptr_mut_spec_eq<T: PointeeSized>(ptr: *mut T)
     requires
-        ptr@.addr != 0,
+        !ptr.is_null(),
     ensures
         (#[trigger] nonnull_from_ptr_mut_spec(ptr)).view_ptr_mut() == ptr,
 ;
@@ -110,17 +119,26 @@ pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T)
     T,
 >)
     requires
-        ptr@.addr != 0,
+        !ptr.is_null(),
     ensures
         ret.view_ptr_mut() == ptr,
     returns
         nonnull_from_ptr_mut_spec(ptr),
 ;
 
+#[verifier::when_used_as_spec(nonnull_new_spec)]
+pub assume_specification<T: PointeeSized>[ core::ptr::NonNull::<T>::new ](ptr: *mut T) -> (ret:
+    core::option::Option<core::ptr::NonNull<T>>)
+    ensures
+        ret matches Some(nn) ==> nn.view_ptr_mut() == ptr,
+    returns
+        nonnull_new_spec(ptr),
+;
+
 #[verifier::when_used_as_spec(nonnull_view_ptr_mut_wrapper)]
 pub assume_specification<T: PointeeSized>[ NonNull::as_ptr ](ptr: NonNull<T>) -> (ret: *mut T)
     ensures
-        ret@.addr != 0,
+        !ret.is_null(),
         ptr.view_ptr_mut() == ret,
 ;
 
@@ -146,7 +164,7 @@ pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
         nonnull_dangling_spec::<T>(),
 ;
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn nonnull_with_addr_spec_wrapper<T: PointeeSized>(
     ptr: NonNull<T>,
     addr: NonZeroUsize,

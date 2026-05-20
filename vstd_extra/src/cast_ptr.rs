@@ -181,7 +181,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             perm.is_init(),
             perm.wf(&perm.inner_perms),
         ensures
-            *v === perm.value(),
+            *v == perm.value(),
     {
         T::from_borrowed(self.ptr.borrow(Tracked(&perm.points_to)), Tracked(&perm.inner_perms))
     }
@@ -189,10 +189,10 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
     /// Borrows the pointed-to `T` mutably for the lifetime of `perm`.
     ///
     /// While the returned borrow is live, `perm` is exclusively held and
-    /// cannot be used. Mutations made through `*v` are not tracked by the
-    /// Verus model: the postcondition only promises the final `perm` is still
-    /// initialised and well-formed. Callers must preserve any invariants
-    /// beyond that themselves.
+    /// cannot be used. The returned borrow is tied to the tracked permission:
+    /// at the return point, the permission's value matches `*v`. Callers must
+    /// preserve any invariants beyond the final initialised/well-formed state
+    /// themselves.
     #[verifier::external_body]
     pub exec fn borrow_mut<'a>(self, Tracked(perm): Tracked<&'a mut PointsTo<R, T>>) -> (v:
         &'a mut T)
@@ -205,6 +205,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             final(perm).pptr() == old(perm).pptr(),
             final(perm).is_init(),
             final(perm).wf(&final(perm).inner_perms),
+            final(perm).value() == *final(v),
     {
         // SAFETY: `Repr<R> for T` asserts layout compatibility between R and
         // T. The tracked `perm` guards against concurrent access.

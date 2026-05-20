@@ -114,7 +114,6 @@ pub struct Fallible {}
 /// Marker type indicating that VM I/O operations cannot fail (e.g., kernel-space access).
 pub struct Infallible {}
 
-
 /// Copies `len` bytes from `src` to `dst`.
 ///
 /// This is the escape hatch into the abstract [`VirtPtr`] memory model: it is
@@ -347,8 +346,7 @@ impl<'a> VmWriter<'a, Infallible> {
     /// for `T`, or the available space isn't a multiple of `size_of::<T>()`.
     pub open spec fn fill_panic_condition<T>(self) -> bool {
         ||| self.cursor.vaddr as int % core::mem::align_of::<T>() as int != 0
-        ||| (self.end.vaddr - self.cursor.vaddr) as int
-            % core::mem::size_of::<T>() as int != 0
+        ||| (self.end.vaddr - self.cursor.vaddr) as int % core::mem::size_of::<T>() as int != 0
     }
 
     /// Fills the available space by repeatedly writing the same `Pod` value.
@@ -568,7 +566,6 @@ impl<'a> VmWriter<'a, Infallible> {
         reader.read(self)
     }
 
-
     /// Writes a value of the `PodOnce` type using one non-tearing memory store.
     ///
     /// If the length of the `PodOnce` type exceeds `self.avail()`, this method will return `Err`.
@@ -617,7 +614,6 @@ impl<'a> VmWriter<'a, Infallible> {
         if self.avail() < core::mem::size_of::<T>() {
             return Err(Error::InvalidArgs);
         }
-
         let cursor = self.cursor.cast::<T>();
         assert!(cursor.is_aligned());
 
@@ -640,11 +636,11 @@ impl<'a> VmWriter<'a, Infallible> {
             assert forall|i: usize|
                 #![trigger mem_dst.addr_transl(i)]
                 self.cursor.vaddr <= i < self.cursor.vaddr + core::mem::size_of::<T>() implies {
-                    mem_dst.addr_transl(i) is Some
-                } by {
-                    assert(owner.range@.start == self.cursor.vaddr);
-                    assert(owner.range@.end == self.end.vaddr);
-                }
+                mem_dst.addr_transl(i) is Some
+            } by {
+                assert(owner.range@.start == self.cursor.vaddr);
+                assert(owner.range@.end == self.end.vaddr);
+            }
         }
         #[allow(unused_unsafe)]
         unsafe { self.cursor.write_volatile::<T>(Tracked(&mut mem_dst), *new_val) };
@@ -983,7 +979,6 @@ impl<'a> VmReader<'a, Infallible> {
         if self.remain() < core::mem::size_of::<T>() {
             return Err(Error::InvalidArgs);
         }
-
         let cursor = self.cursor.cast::<T>();
         assert!(cursor.is_aligned());
 
@@ -1831,7 +1826,6 @@ impl<'a> VmWriter<'a, Fallible> {
         if len_to_set == 0 {
             return Ok(0);
         }
-
         // SAFETY: The destination is a subset of the memory range specified by
         // the current writer, so it is either valid for writing or in user space.
         let set_len = unsafe { memset_fallible(self.cursor, 0u8, len_to_set) };
@@ -1969,7 +1963,6 @@ impl<'a> VmReader<'a, Infallible> {
 }
 
 } // verus!
-
 mod pod_once_impls {
     use super::PodOnce;
 
@@ -2071,7 +2064,7 @@ macro_rules! impl_read_fallible {
             }
         }
         } // verus!
-    };
+};
 }
 
 macro_rules! impl_write_fallible {
@@ -2114,7 +2107,7 @@ macro_rules! impl_write_fallible {
             }
         }
         } // verus!
-    };
+};
 }
 
 impl_read_fallible!(Fallible, Infallible);

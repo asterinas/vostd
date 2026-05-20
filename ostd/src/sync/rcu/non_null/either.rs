@@ -211,19 +211,19 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         }
     }
 
-    open spec fn ptr_perm_match(ptr: NonNull<Self::Target>, perm: Self::Permission) -> bool {
+    open spec fn ptr_perm_match(ptr: *mut Self::Target, perm: Self::Permission) -> bool {
         let tag = 1usize << Self::ALIGN_BITS;
         match perm {
             Sum::Left(left) => {
-                &&& ptr.view_ptr_mut().addr() & tag == 0
+                &&& ptr.addr() & tag == 0
                 &&& L::ptr_perm_match(ptr.cast(), left)
             },
             Sum::Right(right) => {
-                let untagged_ptr = ptr.view_ptr_mut().with_addr((ptr.view_ptr_mut().addr() & !tag));
+                let untagged_ptr = ptr.with_addr((ptr.addr() & !tag));
                 let right_nonnull = nonnull_from_ptr_mut_spec(untagged_ptr);
-                &&& ptr.view_ptr_mut().addr() & tag == tag
-                &&& (ptr.view_ptr_mut().addr() & !tag) != 0
-                &&& R::ptr_perm_match(right_nonnull.cast(), right)
+                &&& ptr.addr() & tag == tag
+                &&& (ptr.addr() & !tag) != 0
+                &&& R::ptr_perm_match(right_nonnull.cast().view_ptr_mut(), right)
             },
         }
     }
@@ -266,6 +266,24 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         match perm {
             Sum::Left(left) => L::lemma_ref_perm_inv_impl_perm_inv(left),
             Sum::Right(right) => R::lemma_ref_perm_inv_impl_perm_inv(right),
+        }
+    }
+
+    proof fn borrow_ref_perm(tracked perm: &Self::RefPermission) -> (tracked ret:
+        Self::RefPermission) {
+        if perm is Left {
+            Sum::Left(L::borrow_ref_perm(perm.tracked_borrow_left()))
+        } else {
+            Sum::Right(R::borrow_ref_perm(perm.tracked_borrow_right()))
+        }
+    }
+
+    proof fn borrow_perm_as_ref_perm(tracked perm: &'a Self::Permission) -> (tracked ret:
+        Self::RefPermission) {
+        if perm is Left {
+            Sum::Left(L::borrow_perm_as_ref_perm(perm.tracked_borrow_left()))
+        } else {
+            Sum::Right(R::borrow_perm_as_ref_perm(perm.tracked_borrow_right()))
         }
     }
 

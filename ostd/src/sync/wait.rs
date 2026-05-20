@@ -212,11 +212,11 @@ impl Waiter {
     }
 }
 
+struct_with_invariants! {
 /// A waker that can wake up the associated [`Waiter`].
 ///
 /// A waker can be created by calling [`Waiter::new_pair`]. This method creates an `Arc<Waker>` that can
 /// be used across different threads.
-struct_with_invariants! {
 pub struct Waker {
     has_woken: AtomicBool<_, (), _>, // It should attach a task-related token once we start to verify the scheduler, using () as a placeholder for now.
     task: Arc<Task>,

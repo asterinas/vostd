@@ -1,5 +1,166 @@
 // SPDX-License-Identifier: MPL-2.0
-use alloc::collections::VecDeque;
+use vstd::{
+    atomic_ghost::AtomicBool, atomic_with_ghost, predicate::Predicate as DataPredicate, prelude::*,
+};
+use vstd_extra::ownership::Inv;
+
+use crate::{
+    specs::mm::cpu::{AtomicCpuSet, CpuSet},
+    sync::{once::Predicate as OncePredicate, AtomicDataWithOwner, LocalIrqDisabled, SpinLock},
+};
+
+verus! {
+
+// This thing can be very tricky to deal with
+// type Callbacks = VecDeque<Box<dyn FnOnce() + Send + 'static>>;
+pub(super) struct GracePeriod {
+    // callbacks: Callbacks,
+    cpu_mask: AtomicCpuSet,
+    is_complete: bool,
+}
+
+pub(super) struct State {
+    current_gp: GracePeriod,
+    // next_callbacks: Callbacks,
+}
+
+/// Owner of this [`RcuMonitor`].
+pub(super) tracked struct RcuMonitorOwner {}
+
+struct_with_invariants! {
+/// A RCU monitor ensures the completion of _grace periods_ by keeping track
+/// of each CPU's passing _quiescent states_.
+pub(super) struct RcuMonitor {
+    pub(super) is_monitoring: AtomicBool<_, bool, _>,
+    pub(super) state: SpinLock<State, LocalIrqDisabled>,
+}
+
+closed spec fn wf(self) -> bool {
+    invariant on is_monitoring with (state) is (v: bool, g: bool) {
+        &&& v == g
+        &&& state.type_inv()
+    }
+}
+}
+
+impl DataPredicate<RcuMonitor> for RcuMonitorOwner {
+    closed spec fn predicate(&self, v: RcuMonitor) -> bool {
+        true
+    }
+}
+
+impl RcuMonitor {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+}
+
+pub(super) struct RcuMonitorPred;
+
+impl OncePredicate<AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner>> for RcuMonitorPred {
+    closed spec fn inv(self, v: AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner>) -> bool {
+        &&& v.permission@.predicate(v.data)
+        &&& v.data.inv()
+    }
+}
+
+impl Inv for RcuMonitor {
+    closed spec fn inv(self) -> bool {
+        self.wf()
+    }
+}
+
+impl Inv for State {
+    closed spec fn inv(self) -> bool {
+        self.current_gp.inv()
+    }
+}
+
+impl Inv for GracePeriod {
+    closed spec fn inv(self) -> bool {
+        true
+    }
+}
+
+#[verus_verify]
+impl RcuMonitor {
+    /// Creates a new RCU monitor.
+    pub(super) fn new() -> Self {
+        let state = SpinLock::new(State::new());
+        proof {
+            use_type_invariant(&state);
+            assert(state.type_inv());
+        }
+        let res = RcuMonitor {
+            is_monitoring: AtomicBool::new(Ghost(state), false, Tracked(false)),
+            state,
+        };
+
+        proof {
+            use_type_invariant(&res.state);
+            assert(res.state.type_inv());
+            assert(res.inv());
+        }
+        res
+    }
+
+    /// Creates a new RCU monitor together with its tracked owner for `Once`.
+    #[verus_spec(r =>
+        ensures
+            r.inv(),
+            r.data.inv(),
+            RcuMonitorPred.inv(r),
+    )]
+    pub(super) fn new_data() -> AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner> {
+        let data = Self::new();
+        proof {
+            use_type_invariant(&data);
+            assert(data.inv());
+        }
+        AtomicDataWithOwner { data, permission: Tracked(RcuMonitorOwner {  }) }
+    }
+
+    fn is_monitoring(&self) -> bool {
+        proof {
+            use_type_invariant(self);
+        }
+        self.is_monitoring.load()
+    }
+
+    fn set_monitoring(&self, value: bool) {
+        proof {
+            use_type_invariant(self);
+        }
+        atomic_with_ghost! {
+            self.is_monitoring => store(value);
+            ghost g => {
+                g = value;
+            }
+        }
+    }
+}
+
+impl State {
+    fn new() -> (res: Self)
+        ensures
+            res.inv(),
+    {
+        Self { current_gp: GracePeriod::new() }
+    }
+}
+
+impl GracePeriod {
+    fn new() -> (res: Self)
+        ensures
+            res.inv(),
+    {
+        Self { cpu_mask: AtomicCpuSet::new(CpuSet::new_empty()), is_complete: true }
+    }
+}
+
+} // verus!
+/*use alloc::collections::VecDeque;
 use core::sync::atomic::{
     AtomicBool,
     Ordering::{self, Relaxed},
@@ -12,12 +173,7 @@ use crate::{
     task::atomic_mode::AsAtomicModeGuard,
 };
 
-/// A RCU monitor ensures the completion of _grace periods_ by keeping track
-/// of each CPU's passing _quiescent states_.
-pub(super) struct RcuMonitor {
-    is_monitoring: AtomicBool,
-    state: SpinLock<State>,
-}
+
 
 impl RcuMonitor {
     /// Creates a new RCU monitor.
@@ -90,10 +246,6 @@ impl RcuMonitor {
     }
 }
 
-struct State {
-    current_gp: GracePeriod,
-    next_callbacks: Callbacks,
-}
 
 impl State {
     fn new() -> Self {
@@ -102,14 +254,6 @@ impl State {
             next_callbacks: VecDeque::new(),
         }
     }
-}
-
-type Callbacks = VecDeque<Box<dyn FnOnce() + Send + 'static>>;
-
-struct GracePeriod {
-    callbacks: Callbacks,
-    cpu_mask: AtomicCpuSet,
-    is_complete: bool,
 }
 
 impl GracePeriod {
@@ -143,3 +287,4 @@ impl GracePeriod {
         self.callbacks = callbacks;
     }
 }
+*/

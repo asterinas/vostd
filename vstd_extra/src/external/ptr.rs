@@ -27,24 +27,34 @@ pub assume_specification<T: PointeeSized>[ <*mut T>::map_addr ](
         f.ensures((ptr@.addr,), ret@.addr),
 ;
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn ptr_cast_spec<T: PointeeSized, U>(ptr: *const T) -> *const U {
     ptr as *const U
 }
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn ptr_mut_cast_spec<T: PointeeSized, U>(ptr: *mut T) -> *mut U {
     ptr as *mut U
 }
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn ptr_mut_cast_const_spec<T: PointeeSized>(ptr: *mut T) -> *const T {
     ptr as *const T
 }
 
-#[inline(always)]
+#[verifier::inline]
 pub open spec fn ptr_cast_mut_spec<T: PointeeSized>(ptr: *const T) -> *mut T {
     ptr as *mut T
+}
+
+#[verifier::inline]
+pub open spec fn ptr_is_null_spec<T: PointeeSized>(ptr: *const T) -> bool {
+    ptr.addr() == 0
+}
+
+#[verifier::inline]
+pub open spec fn ptr_mut_is_null_spec<T: PointeeSized>(ptr: *mut T) -> bool {
+    ptr.addr() == 0
 }
 
 #[verifier::when_used_as_spec(ptr_cast_spec)]
@@ -75,6 +85,24 @@ pub assume_specification<T: PointeeSized>[ <*mut T>::cast_const ](ptr: *mut T) -
 pub assume_specification<T: PointeeSized>[ <*const T>::cast_mut ](ptr: *const T) -> *mut T
     returns
         ptr as *mut T,
+    opens_invariants none
+    no_unwind
+;
+
+/// [<*const T>::is_null](https://doc.rust-lang.org/std/primitive.pointer.html#method.is_null) only checks the raw data pointer.
+#[verifier::when_used_as_spec(ptr_is_null_spec)]
+pub assume_specification<T: PointeeSized>[ <*const T>::is_null ](ptr: *const T) -> bool
+    returns
+        ptr.addr() == 0,
+    opens_invariants none
+    no_unwind
+;
+
+/// [<*mut T>::is_null](https://doc.rust-lang.org/std/primitive.pointer.html#method.is_null) only checks the raw data pointer.
+#[verifier::when_used_as_spec(ptr_mut_is_null_spec)]
+pub assume_specification<T: PointeeSized>[ <*mut T>::is_null ](ptr: *mut T) -> bool
+    returns
+        ptr.addr() == 0,
     opens_invariants none
     no_unwind
 ;
