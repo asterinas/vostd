@@ -491,7 +491,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             Some(new_ptr) => {
                 let (ptr, Tracked(perm)) = <P as NonNullPtr>::into_raw(new_ptr);
                 proof {
-                    assert(!ptr.as_ptr().is_null()s);
+                    assert(!ptr.as_ptr().is_null());
                     assert(P::ptr_perm_match(ptr.as_ptr(), perm));
                     assert(perm.inv());
                 }
