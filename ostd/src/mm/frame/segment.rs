@@ -21,7 +21,7 @@ use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-pub use crate::specs::mm::frame::segment::{frame_idx_at, SegmentOwner};
+use crate::specs::mm::frame::segment::*;
 use crate::specs::mm::virt_mem::MemView;
 use vstd_extra::drop_tracking::*;
 
@@ -952,7 +952,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 &&& old(regions).slot_owners[idx].inner_perms.in_list.value() == 0
             }
         } by {
-            let _ = owner.perms[i];
         };
 
         loop

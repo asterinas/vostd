@@ -402,11 +402,15 @@ impl MetaSlot {
             perm.pptr() == slot,
             perm.is_init(),
             perm.value().ref_count.id() == old(inner_perms).ref_count.id(),
-            // Saturation is NOT a precondition: the body `panic_diverge`s
-            // when the loaded count is `>= REF_COUNT_MAX` (the real Rust
-            // panic), so on the returning path branch-elimination already
-            // gives `last_ref_cnt < REF_COUNT_MAX` (hence `+ 1` cannot
-            // overflow and `ref_count` stays `<= REF_COUNT_MAX`).
+            // Saturation is not a *precludable* precondition (the body
+            // `panic_diverge`s when the loaded count is `>= REF_COUNT_MAX`,
+            // the real Rust panic), but the panic_diverge needs
+            // `may_panic()` to verify, so the condition is propagated via
+            // the `P ==> may_panic()` form (matches `inc_ref_count`).
+            // On the returning path the panic-condition is false, so
+            // `last_ref_cnt < REF_COUNT_MAX` and `ref_count` stays
+            // `<= REF_COUNT_MAX`.
+            old(inner_perms).ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
         ensures
             res is Ok ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value() + 1,
             // Negation of the panic condition, propagated: the body
@@ -480,10 +484,12 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            // Refcount saturation is NOT a precondition: `get_from_in_use_loop`
-            // `panic_diverge`s when the count would saturate (the real Rust
-            // panic) and propagates `Ok ==> ref_count <= REF_COUNT_MAX`, from
-            // which `MetaSlotOwner::inv` is re-established.
+            // Refcount saturation propagated as `value >= REF_COUNT_MAX ==>
+            // may_panic()` (matches `get_from_in_use_loop` + `inc_ref_count`):
+            // on saturation, `get_from_in_use_loop` `panic_diverge`s (the
+            // real Rust panic); on non-saturation it propagates
+            // `Ok ==> ref_count <= REF_COUNT_MAX` and `MetaSlotOwner::inv`
+            // is re-established.
             //
             // All slot-perm facts are `has_safe_slot`-guarded: an
             // out-of-bound / misaligned `paddr` is not a precondition
@@ -496,6 +502,8 @@ impl MetaSlot {
                 &&& old(regions).slots[frame_to_index(paddr)].addr() == frame_to_meta(paddr)
                 &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id()
                     == old(regions).slots[frame_to_index(paddr)].value().ref_count.id()
+                &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms
+                    .ref_count.value() >= REF_COUNT_MAX ==> may_panic()
             },
         ensures
             final(regions).inv(),
@@ -531,6 +539,11 @@ impl MetaSlot {
                 slot_perm.is_init(),
                 slot_perm.value().ref_count.id() == slot_own.inner_perms.ref_count.id(),
                 slot_own.inner_perms.ref_count.value() == pre,
+                // Carry the may_panic implication into the loop so
+                // `get_from_in_use_loop`'s saturation precondition is
+                // dischargeable per-iteration (mirrors the `P ==> may_panic`
+                // loop-invariant pattern used by `map_frames` / `jump`).
+                slot_own.inner_perms.ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
                 regions0.slots.contains_key(frame_to_index(paddr)),
                 regions0.slot_owners.contains_key(frame_to_index(paddr)),
                 regions0.inv(),

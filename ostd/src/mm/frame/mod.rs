@@ -54,7 +54,7 @@ use core::{
 };
 
 //pub use allocator::GlobalFrameAllocator;
-use meta::REF_COUNT_UNUSED;
+use meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 pub use segment::Segment;
 
 // Re-export commonly used types
@@ -336,10 +336,14 @@ impl<M: AnyFrameMeta> Frame<M> {
             // `has_safe_slot`-guarded (see `MetaSlot::get_from_in_use`):
             // an out-of-bound / misaligned `paddr` returns `Err` without
             // touching `regions`, so it is not a precondition violation.
-            has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
-            // Refcount saturation is NOT a precondition: on saturation
-            // `MetaSlot::get_from_in_use` `panic_diverge`s (the real Rust
-            // panic, documented at the `## Liveness` clause above).
+            has_safe_slot(paddr) ==> {
+                &&& old(regions).slots.contains_key(frame_to_index(paddr))
+                // Refcount saturation propagated as `P ==> may_panic()`:
+                // on saturation, `MetaSlot::get_from_in_use` `panic_diverge`s
+                // (the real Rust panic, documented at `## Liveness` above).
+                &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms
+                    .ref_count.value() >= REF_COUNT_MAX ==> may_panic()
+            },
         ensures
             final(regions).inv(),
             res is Ok ==>
