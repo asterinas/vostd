@@ -5,7 +5,7 @@
 //!
 //! Currently this RCU model assumes a sequential consistency (SC) memory model.
 //! We may explore weak memory models in the future.
-use core::{marker::PhantomData, ptr::NonNull};
+use core::{marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use monitor::{RcuMonitor, RcuMonitorOwner, RcuMonitorPred};
 use non_null::{NonNullPtr, NonNullPtrRef};
@@ -1096,6 +1096,54 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
     }
 }
 
+/// A wrapper to delay calling destructor of `T` after the RCU grace period.
+///
+/// Upon dropping this structure, a callback will be registered to the global
+/// RCU monitor and the destructor of `T` will be delayed until the callback.
+///
+/// [`RcuDrop<T>`] is guaranteed to have the same layout as `T`. You can also
+/// access the inner value safely via [`RcuDrop<T>`].
+// #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct RcuDrop<T: Send + 'static> {
+    value: core::mem::ManuallyDrop<T>,
+}
+
+impl<T: Send + 'static> View for RcuDrop<T> {
+    type V = T;
+
+    closed spec fn view(&self) -> T {
+        self.value@
+    }
+}
+
+#[verus_verify]
+impl<T: Send + 'static> Deref for RcuDrop<T> {
+    type Target = T;
+
+    #[verus_spec(r =>
+        ensures
+            *r == self@,
+    )]
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+#[verus_verify]
+impl<T: Send + 'static> RcuDrop<T> {
+    /// Creates a new [`RcuDrop<T>`] that wraps the given value.
+    #[inline]
+    #[verus_spec(r =>
+        ensures
+            r@ == value,
+    )]
+    pub fn new(value: T) -> Self {
+        Self { value: core::mem::ManuallyDrop::new(value) }
+    }
+}
+
 } // verus!
 /*
 
@@ -1405,19 +1453,6 @@ unsafe fn delay_drop<P: NonNullPtr + Send>(pointer: NonNull<<P as NonNullPtr>::T
         let p = unsafe { <P as NonNullPtr>::from_raw(pointer.0) };
         drop(p);
     });
-}
-
-/// A wrapper to delay calling destructor of `T` after the RCU grace period.
-///
-/// Upon dropping this structure, a callback will be registered to the global
-/// RCU monitor and the destructor of `T` will be delayed until the callback.
-///
-/// [`RcuDrop<T>`] is guaranteed to have the same layout as `T`. You can also
-/// access the inner value safely via [`RcuDrop<T>`].
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct RcuDrop<T: Send + 'static> {
-    value: ManuallyDrop<T>,
 }
 
 impl<T: Send + 'static> RcuDrop<T> {
