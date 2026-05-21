@@ -15,8 +15,8 @@ use vstd::arithmetic::power2::{lemma2_to64, lemma_pow2_strictly_increases};
 use vstd::bits::*;
 use vstd::pervasive::trigger;
 use vstd::prelude::*;
-use vstd_extra::prelude::*;
 use vstd_extra::panic::*;
+use vstd_extra::prelude::*;
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
 /// `u64`, and `usize`, to provide methods to make integers aligned to a

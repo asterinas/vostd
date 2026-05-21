@@ -1,6 +1,6 @@
 //! Specs for stdlib methods on integer types that aren't covered by vstd.
-use vstd::prelude::*;
 use vstd::arithmetic::power2::pow2;
+use vstd::prelude::*;
 
 verus! {
 

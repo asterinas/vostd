@@ -463,6 +463,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         // locked range end, so it is not `above_locked_range`; by
         // `owner.inv()` (`in_locked_range || above_locked_range`) it is
         // therefore `in_locked_range` — re-derived rather than assumed.
+
         proof {
             owner.va.reflect_prop(self.va);
         }
@@ -473,8 +474,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         #[verifier::spinoff_prover]
         loop
             invariant
-                // Precise: `query` clones the specific resolved leaf frame;
-                // that clone aborts only if that one slot is saturated.
+        // Precise: `query` clones the specific resolved leaf frame;
+        // that clone aborts only if that one slot is saturated.
+
                 old(self).query_panic_condition(*old(owner), *old(regions)) ==> may_panic(),
                 self.invariants(*owner, *regions, *guards),
                 owner.in_locked_range(),
@@ -494,10 +496,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 // The descent itself never clones, so every slot's refcount
                 // is *exactly* its precondition value at each loop head (the
                 // single `clone_item` is the last action before `return`).
-                forall|i: usize| #![trigger regions.slot_owners[i]]
-                    old(regions).slot_owners.contains_key(i) ==>
-                        regions.slot_owners[i].inner_perms.ref_count.value()
-                            == old(regions).slot_owners[i].inner_perms.ref_count.value(),
+                forall|i: usize|
+                    #![trigger regions.slot_owners[i]]
+                    old(regions).slot_owners.contains_key(i)
+                        ==> regions.slot_owners[i].inner_perms.ref_count.value() == old(
+                        regions,
+                    ).slot_owners[i].inner_perms.ref_count.value(),
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                 forall|idx: usize|
                     #![trigger regions.slot_owners[idx]]
@@ -606,8 +610,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         owner.cur_entry_absent_not_present();
                         assert(owner@ == old(owner)@);
-                        assert(!old(self).query_panic_condition(
-                            *old(owner), *old(regions)));
+                        assert(!old(self).query_panic_condition(*old(owner), *old(regions)));
                     }
                     None
                 },
@@ -645,20 +648,21 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(regions.slot_owners.contains_key(idx));
                         assert(owner.cur_entry_owner().inv_base());
                         EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                            owner.cur_entry_owner());
+                            owner.cur_entry_owner(),
+                        );
                         if C::tracked(item)
                             && regions.slot_owners[idx].inner_perms.ref_count.value()
-                                >= REF_COUNT_MAX {
+                            >= REF_COUNT_MAX {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner.cur_entry_owner());
+                                owner.cur_entry_owner(),
+                            );
                             assert(owner@ == old(owner)@);
                             assert(owner@.query_mapping().pa_range.start == pa);
                             assert(old(owner)@.present());
                             assert(!is_mmio_paddr(pa));
                             assert(old(regions).slot_owners[idx].inner_perms.ref_count.value()
                                 == regions.slot_owners[idx].inner_perms.ref_count.value());
-                            assert(old(self).query_panic_condition(
-                                *old(owner), *old(regions)));
+                            assert(old(self).query_panic_condition(*old(owner), *old(regions)));
                             assert(may_panic());
                         }
                         owner.cur_frame_clone_requires(item, pa, level, prop, *regions);
@@ -718,13 +722,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 < REF_COUNT_MAX);
                         } else {
                             EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                                owner.cur_entry_owner());
+                                owner.cur_entry_owner(),
+                            );
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
-                                owner.cur_entry_owner());
+                                owner.cur_entry_owner(),
+                            );
                             assert(is_mmio_paddr(pa));
                         }
-                        assert(!old(self).query_panic_condition(
-                            *old(owner), *old(regions)));
+                        assert(!old(self).query_panic_condition(*old(owner), *old(regions)));
                     }
 
                     Some(cloned)
@@ -1535,8 +1540,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 // popped past failed to contain `va`.
                 forall|k: PagingLevel|
                     #![trigger old(self).jump_node_holds(k, va)]
-                    old(self).level <= k < self.level && k <= self.guard_level
-                        ==> !old(self).jump_node_holds(k, va),
+                    old(self).level <= k < self.level && k <= self.guard_level ==> !old(
+                        self,
+                    ).jump_node_holds(k, va),
             decreases NR_LEVELS - self.level,
         {
             let node_size = page_size(self.level + 1);
@@ -1579,8 +1585,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 if self.level <= self.guard_level && self.level >= NR_LEVELS as PagingLevel {
                     owner.in_node_holds_at_top(self.va, va, node_size);
                 }
-                assert(self.level > self.guard_level
-                    || self.level < NR_LEVELS as PagingLevel);
+                assert(self.level > self.guard_level || self.level < NR_LEVELS as PagingLevel);
 
                 if self.level <= self.guard_level {
                     assert(!old(self).jump_node_holds(self.level, va));
@@ -1791,8 +1796,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).level > old(self).guard_level || old(self).level < NR_LEVELS,
             old(self).level > old(self).guard_level ==> may_panic(),
         ensures
-            // Negation of the panic condition: if `pop_level` returned, the
-            // path slot was `Some`, i.e. `level <= guard_level`.
+    // Negation of the panic condition: if `pop_level` returned, the
+    // path slot was `Some`, i.e. `level <= guard_level`.
+
             old(self).level <= old(self).guard_level,
             final(self).inv(),
             final(self).wf(*final(owner)),
@@ -3675,16 +3681,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::rlimit(10000)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> (res: Option<PageTableFrag<C>>)
         requires
-            // Diverges *precisely* in the `Child::PageTable` arm when the
-            // cursor is at the top level (`level == NR_LEVELS`) under a
-            // config that forbids top-level unmaps. Phrased as the
-            // `P ==> may_panic()` form for consistency with other
-            // panic-condition implications: P = `!TOP_LEVEL_CAN_UNMAP
-            // && level >= NR_LEVELS && old entry is a PT`. The Frame/None
-            // match arms never panic, so `is_node` is part of P.
-            (!C::TOP_LEVEL_CAN_UNMAP_spec()
-                && old(self).0.level >= NR_LEVELS
-                && old(owner).cur_entry_owner().is_node()) ==> may_panic(),
+    // Diverges *precisely* in the `Child::PageTable` arm when the
+    // cursor is at the top level (`level == NR_LEVELS`) under a
+    // config that forbids top-level unmaps. Phrased as the
+    // `P ==> may_panic()` form for consistency with other
+    // panic-condition implications: P = `!TOP_LEVEL_CAN_UNMAP
+    // && level >= NR_LEVELS && old entry is a PT`. The Frame/None
+    // match arms never panic, so `is_node` is part of P.
+
+            (!C::TOP_LEVEL_CAN_UNMAP_spec() && old(self).0.level >= NR_LEVELS && old(
+                owner,
+            ).cur_entry_owner().is_node()) ==> may_panic(),
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
             !old(owner).popped_too_high,
@@ -4115,8 +4122,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     //   - so cont.guard.addr != locked_addr,
                     //   - dfs preserves locks for addresses != locked_addr.
                     assert forall|i: int|
-                        owner.level - 1 <= i < owner.guard_level implies
-                        #[trigger] owner.continuations[i].node_locked(*guards) by {
+                        owner.level - 1 <= i
+                            < owner.guard_level implies #[trigger] owner.continuations[i].node_locked(
+                    *guards) by {
                         let cont = owner.continuations[i];
                         let cont_addr = cont.guard.inner.inner@.ptr.addr();
                         assert(owner.continuations[i].guard

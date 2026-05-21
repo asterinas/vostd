@@ -32,11 +32,11 @@
 //! mechanism keeping the axiom in sync with its exec counterpart;
 //! reviewers touching either side should grep for the partner.
 
-pub mod vm_space;
 pub mod cursor;
-pub mod io;
 pub mod frame;
+pub mod io;
 pub mod trace;
+pub mod vm_space;
 
 use core::ops::Range;
 
@@ -44,7 +44,6 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::{MetaSlot, UFrame};
-use crate::specs::mm::io::VmIoOwner;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
@@ -52,6 +51,7 @@ use crate::mm::{Paddr, Vaddr, MAX_USERSPACE_VADDR};
 use crate::specs::mm::frame::mapping::frame_to_index_spec;
 use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::io::VmIoOwner;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::node::Guards;
 use crate::specs::mm::tlb::TlbModel;

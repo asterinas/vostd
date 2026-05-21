@@ -352,8 +352,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
             Self::tracked(item) ==> (regions.slot_owners[frame_to_index(
                 pa,
-            )].inner_perms.ref_count.value()
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX || may_panic()),
+            )].inner_perms.ref_count.value() < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                || may_panic()),
         ensures
             item.clone_requires(regions),
     ;

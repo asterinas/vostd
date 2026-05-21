@@ -9,8 +9,8 @@ use vstd_extra::arithmetic::{
 };
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ghost_tree::*;
-use vstd_extra::panic::may_panic;
 use vstd_extra::ownership::*;
+use vstd_extra::panic::may_panic;
 use vstd_extra::seq_extra::{forall_seq, lemma_forall_seq_index};
 
 use core::marker::PhantomData;

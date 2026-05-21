@@ -9,10 +9,10 @@ use crate::mm::page_table::RCClone;
 
 use vstd::simple_pptr;
 use vstd_extra::assert;
-use vstd_extra::panic::may_panic;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
+use vstd_extra::panic::may_panic;
 use vstd_extra::seq_extra::seq_tracked_split_at;
 
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
@@ -520,13 +520,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         ||| range.end % PAGE_SIZE != 0
         ||| range.start > range.end
         ||| self.range.start as int + range.end as int > self.range.end as int
-        ||| exists |j: int|
+        ||| exists|j: int|
             #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-            (range.start as int) / (PAGE_SIZE as int) <= j
-                < (range.end as int) / (PAGE_SIZE as int)
-                && regions.slot_owners[
-                       frame_to_index((self.range.start + j * PAGE_SIZE) as usize)
-                   ].inner_perms.ref_count.value() >= REF_COUNT_MAX
+            (range.start as int) / (PAGE_SIZE as int) <= j < (range.end as int) / (PAGE_SIZE as int)
+                && regions.slot_owners[frame_to_index(
+                (self.range.start + j * PAGE_SIZE) as usize,
+            )].inner_perms.ref_count.value() >= REF_COUNT_MAX
     }
 
     /// Gets an extra handle to the frames in the byte offset range.
@@ -611,14 +610,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 // ref-count/wf facts via `relate_regions`.
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx + i as int <= j < last_perm_idx ==>
-                        (*regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                            == old_regions.slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)],
+                    first_perm_idx + i as int <= j < last_perm_idx ==> (
+                    *regions).slot_owners[frame_to_index(
+                        (self.range.start + j * PAGE_SIZE) as usize,
+                    )] == old_regions.slot_owners[frame_to_index(
+                        (self.range.start + j * PAGE_SIZE) as usize,
+                    )],
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx <= j < first_perm_idx + i as int ==>
-                        old_regions.slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                            .inner_perms.ref_count.value() < REF_COUNT_MAX,
+                    first_perm_idx <= j < first_perm_idx + i as int
+                        ==> old_regions.slot_owners[frame_to_index(
+                        (self.range.start + j * PAGE_SIZE) as usize,
+                    )].inner_perms.ref_count.value() < REF_COUNT_MAX,
             decreases addr_len - i,
         {
             let paddr = start + i * PAGE_SIZE;

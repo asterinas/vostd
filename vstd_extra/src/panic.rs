@@ -14,7 +14,8 @@ pub uninterp spec fn may_panic() -> bool;
 /// the panic is expected.
 #[verifier::external_body]
 pub fn panic_diverge() -> !
-    requires may_panic()
+    requires
+        may_panic(),
 {
     vpanic!("")
 }
@@ -37,7 +38,7 @@ pub trait UnwrapOrPanic: Sized {
 
     fn unwrap_or_panic(self) -> (r: Self::Inner)
         requires
-            !self.is_present() ==> may_panic()
+            !self.is_present() ==> may_panic(),
         ensures
             self.is_present(),
             r == self.payload(),

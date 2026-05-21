@@ -4,8 +4,8 @@ use vstd::prelude::*;
 
 use vstd_extra::arithmetic::nat_align_down;
 use vstd_extra::assert;
-use vstd_extra::panic::may_panic;
 use vstd_extra::ownership::{InvView, ModelOf, OwnerOf};
+use vstd_extra::panic::may_panic;
 use vstd_extra::prelude::Inv;
 
 use core::marker::PhantomData;
@@ -234,9 +234,8 @@ pub axiom fn kvirt_alloc_range_bounds(
         // `cursor.0.va < cursor.0.barrier_va.end` in `map_frames` is
         // soundly bridged to a caller-side
         // `map_offset + frames·PAGE_SIZE <= area_size` precondition.
-         && (r.end - r.start) == area_size && map_offset <= r.end - r.start && r.start
-            + map_offset <= usize::MAX && r.start % PAGE_SIZE == 0 && r.end % PAGE_SIZE == 0
-            && KERNEL_BASE_VADDR
+         && (r.end - r.start) == area_size && map_offset <= r.end - r.start && r.start + map_offset
+            <= usize::MAX && r.start % PAGE_SIZE == 0 && r.end % PAGE_SIZE == 0 && KERNEL_BASE_VADDR
             <= r.start
         // The allocator draws from `VMALLOC_VADDR_RANGE = [VMALLOC_BASE_VADDR,
         // FRAME_METADATA_BASE_VADDR)`, so `r.end` is bounded by
@@ -341,8 +340,7 @@ impl KVirtArea {
         let pa = v.query_mapping().pa_range.start;
         let idx = frame_to_index(pa);
         ||| !(self.range.start <= addr < self.range.end)
-        ||| (v.present()
-            && !is_mmio_paddr(pa)
+        ||| (v.present() && !is_mmio_paddr(pa)
             && regions.slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX)
     }
 
@@ -499,13 +497,11 @@ impl KVirtArea {
             //      saturated there ⟹ kvirt's P fires ⟹ `may_panic()`.
             let pa = cursor_owner@.query_mapping().pa_range.start;
             let idx = frame_to_index(pa);
-            if cursor_owner@.present()
-                && !is_mmio_paddr(pa)
-                && (*regions).slot_owners[idx].inner_perms.ref_count.value()
-                    >= REF_COUNT_MAX {
+            if cursor_owner@.present() && !is_mmio_paddr(pa) && (
+            *regions).slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX {
                 // Trigger Cursor::new's forward saturated-slot bridge.
-                assert((*old(regions)).slot_owners[idx].inner_perms.ref_count.value()
-                    == (*regions).slot_owners[idx].inner_perms.ref_count.value());
+                assert((*old(regions)).slot_owners[idx].inner_perms.ref_count.value() == (
+                *regions).slot_owners[idx].inner_perms.ref_count.value());
                 assert(cursor_owner@.mappings == owner.cursor_view_at(addr).mappings);
                 assert(cursor_owner@.cur_va == owner.cursor_view_at(addr).cur_va);
                 assert(cursor_owner@ =~= owner.cursor_view_at(addr));
@@ -538,13 +534,13 @@ impl KVirtArea {
             let idx = frame_to_index(pa);
             assert(self.range.start <= addr < self.range.end);
             assert(pre_query_view =~= owner.cursor_view_at(addr));
-            if owner.cursor_view_at(addr).present()
-                && !is_mmio_paddr(pa)
-                && (*old(regions)).slot_owners[idx].inner_perms.ref_count.value()
-                    >= REF_COUNT_MAX {
+            if owner.cursor_view_at(addr).present() && !is_mmio_paddr(pa) && (*old(
+                regions,
+            )).slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX {
                 // Reverse saturated-slot bridge (Cursor::new).
-                assert(pre_query_regions.slot_owners[idx].inner_perms.ref_count.value()
-                    == (*old(regions)).slot_owners[idx].inner_perms.ref_count.value());
+                assert(pre_query_regions.slot_owners[idx].inner_perms.ref_count.value() == (*old(
+                    regions,
+                )).slot_owners[idx].inner_perms.ref_count.value());
                 // cursor.query's `ensures !P_cursor`: with in-range (always) +
                 // pre_query_view.present() (== owner.cursor_view_at(addr).present()
                 // via =~=) + !is_mmio_paddr(pa') where pa' = pre_query_view's
@@ -612,7 +608,8 @@ impl KVirtArea {
         prop: PageProperty,
     ) -> (res: Self)
         requires
-            Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len()) ==> may_panic(),
+            Self::map_frames_bounds_panic_condition(area_size, map_offset, frames.len())
+                ==> may_panic(),
             kvirt_alloc_oom_condition(area_size) ==> may_panic(),
             old(regions).inv(),
             owner.inv(),
@@ -662,8 +659,10 @@ impl KVirtArea {
             // KernelPtConfig.
             assert(cursor_range.end as int
                 <= <KernelPtConfig as PageTableConfig>::LOCKED_END_BOUND_spec());
-            assert(cursor_range.start % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec() == 0);
-            assert(cursor_range.end % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec() == 0);
+            assert(cursor_range.start % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
+                == 0);
+            assert(cursor_range.end % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
+                == 0);
         }
 
         let page_table = {
@@ -687,11 +686,16 @@ impl KVirtArea {
             // ⟺ `map_offset >= area_size` ⟹ `bounds_panic_condition`
             // ⟹ `may_panic()` via the requires implication.
             if !cursor_res.is_ok() {
-                assert(!crate::mm::page_table::Cursor::<KernelPtConfig, A>
-                    ::cursor_new_success_conditions(&cursor_range));
+                assert(!crate::mm::page_table::Cursor::<
+                    KernelPtConfig,
+                    A,
+                >::cursor_new_success_conditions(&cursor_range));
                 assert(map_offset >= area_size);
                 assert(Self::map_frames_bounds_panic_condition(
-                    area_size, map_offset, frames.len()));
+                    area_size,
+                    map_offset,
+                    frames.len(),
+                ));
                 assert(may_panic());
             }
         }
@@ -765,7 +769,10 @@ impl KVirtArea {
                             PAGE_SIZE > 0,
                     ;
                     assert(Self::map_frames_bounds_panic_condition(
-                        area_size, map_offset, frames.len()));
+                        area_size,
+                        map_offset,
+                        frames.len(),
+                    ));
                     assert(may_panic());
                 }
             }
@@ -874,7 +881,10 @@ impl KVirtArea {
                             PAGE_SIZE > 0,
                     ;
                     assert(Self::map_frames_bounds_panic_condition(
-                        area_size, map_offset, frames.len()));
+                        area_size,
+                        map_offset,
+                        frames.len(),
+                    ));
                     assert(may_panic());
                 }
             }
@@ -998,8 +1008,7 @@ impl KVirtArea {
         ||| pa_range.end % PAGE_SIZE != 0
         ||| area_size % PAGE_SIZE != 0
         ||| map_offset % PAGE_SIZE != 0
-        ||| map_offset as int
-            + vstd_extra::external::range::range_usize_len(pa_range) as int
+        ||| map_offset as int + vstd_extra::external::range::range_usize_len(pa_range) as int
             > area_size as int
     }
 
@@ -1045,8 +1054,9 @@ impl KVirtArea {
         prop: PageProperty,
     ) -> (res: Self)
         requires
-            // **Precise form** (post Phases A/B/C). Bounds are caller-
-            // provable; OOM uses the implication form.
+    // **Precise form** (post Phases A/B/C). Bounds are caller-
+    // provable; OOM uses the implication form.
+
             !Self::map_untracked_frames_bounds_panic_condition(area_size, map_offset, &pa_range),
             kvirt_alloc_oom_condition(area_size) ==> may_panic(),
             old(regions).inv(),
@@ -1091,9 +1101,14 @@ impl KVirtArea {
                 // surrounding `if pa_range.start < pa_range.end`, so
                 // `va_range.start < va_range.end`.
                 assert(va_range.start < va_range.end);
-                assert(va_range.start % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec() == 0);
-                assert(va_range.end % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec() == 0);
-                assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_new_success_conditions(&va_range));
+                assert(va_range.start % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
+                    == 0);
+                assert(va_range.end % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
+                    == 0);
+                assert(crate::mm::page_table::Cursor::<
+                    KernelPtConfig,
+                    A,
+                >::cursor_new_success_conditions(&va_range));
             }
 
             let page_table = {

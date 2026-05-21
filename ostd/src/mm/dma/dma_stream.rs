@@ -1257,7 +1257,6 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
 
         Ok(())
     }
-
 }
 
 impl<

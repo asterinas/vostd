@@ -46,16 +46,14 @@ use vstd::pervasive::{arbitrary, proof_from_false};
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 use vstd_extra::assert;
-use vstd_extra::panic::may_panic;
 use vstd_extra::ownership::Inv;
+use vstd_extra::panic::may_panic;
 
 use crate::error::*;
 use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::MAX_USERSPACE_VADDR;
-use crate::specs::mm::io::{
-    axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner,
-};
+use crate::specs::mm::io::{axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner};
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 verus! {
@@ -83,8 +81,7 @@ unsafe fn memcpy_fallible(dst: VirtPtr, src: VirtPtr, len: usize) -> (r: usize)
         r <= len,
 {
     // SAFETY: The safety is upheld by the caller.
-    let failed_bytes = unsafe {
-        __memcpy_fallible(dst.vaddr as *mut u8, src.vaddr as *const u8, len)
+    let failed_bytes = unsafe { __memcpy_fallible(dst.vaddr as *mut u8, src.vaddr as *const u8, len)
     };
     len - failed_bytes
 }
@@ -184,7 +181,6 @@ pub struct VmReader<'a, Fallibility = Fallible> {
     pub end: VirtPtr,
     pub phantom: PhantomData<(&'a [u8], Fallibility)>,
 }
-
 
 /// [`VmWriter`] is a writer for writing data to a contiguous range of memory.
 ///
@@ -331,7 +327,6 @@ impl<'a> VmWriter<'a, Infallible> {
         if self.avail() < len {
             return Err(Error::InvalidArgs);
         }
-
         proof_decl! {
             let tracked mut reader_owner_inner: VmIoOwner;
         }
@@ -397,7 +392,11 @@ impl<'a> VmWriter<'a, Infallible> {
         proof {
             // (avail / len) * len == avail when avail % len == 0 and len > 0.
             assert(written_num * len == avail) by (nonlinear_arith)
-                requires len > 0, avail % len == 0, written_num == avail / len;
+                requires
+                    len > 0,
+                    avail % len == 0,
+                    written_num == avail / len,
+            ;
         }
 
         proof_decl! {
@@ -442,13 +441,17 @@ impl<'a> VmWriter<'a, Infallible> {
             proof {
                 // (i + 1) * len <= written_num * len, hence cursor_i.vaddr + len <= end
                 assert((i + 1) * len <= written_num * len) by (nonlinear_arith)
-                    requires i < written_num, len > 0;
+                    requires
+                        i < written_num,
+                        len > 0,
+                ;
                 assert(i * len + len == (i + 1) * len) by (nonlinear_arith);
                 assert(cursor_i.vaddr + len <= end);
                 // forall va in [cursor_i.vaddr, cursor_i.vaddr + len), mv.addr_transl is Some
                 assert forall|va: usize|
-                    cursor_i.vaddr <= va < cursor_i.vaddr + len implies
-                    #[trigger] mv.addr_transl(va) is Some by {
+                    cursor_i.vaddr <= va < cursor_i.vaddr + len implies #[trigger] mv.addr_transl(
+                    va,
+                ) is Some by {
                     assert(start <= va < end);
                 };
             }
@@ -463,25 +466,31 @@ impl<'a> VmWriter<'a, Infallible> {
                 // cursor_i.vaddr == cursor_i_pre.vaddr + len == start + i*len
                 assert(cursor_i.vaddr == cursor_i_pre.vaddr + len);
                 assert(cursor_i_pre.vaddr + len == start + i * len) by (nonlinear_arith)
-                    requires cursor_i_pre.vaddr == start + (i - 1) * len, len > 0;
+                    requires
+                        cursor_i_pre.vaddr == start + (i - 1) * len,
+                        len > 0,
+                ;
                 // upper bound: i <= written_num ==> i*len <= avail
                 assert(i * len <= written_num * len) by (nonlinear_arith)
-                    requires i <= written_num, len > 0;
+                    requires
+                        i <= written_num,
+                        len > 0,
+                ;
                 // alignment: cursor_i.vaddr == start + i*len, both summands divisible by align.
                 let alignT = core::mem::align_of::<T>() as int;
                 // Bridge usize invariants to int.
                 assert(len as int % alignT == 0);
                 assert(start as int % alignT == 0);
                 // (i*len) % alignT == ((i % alignT) * (len % alignT)) % alignT == 0.
-                ::vstd::arithmetic::div_mod::lemma_mul_mod_noop(
-                    i as int, len as int, alignT,
-                );
+                ::vstd::arithmetic::div_mod::lemma_mul_mod_noop(i as int, len as int, alignT);
                 assert((i as int % alignT) * (len as int % alignT) == 0);
                 assert(0int % alignT == 0);
                 assert((i as int * len as int) % alignT == 0);
                 // ((start + i*len)) % alignT == ((start % alignT) + ((i*len) % alignT)) % alignT == 0.
                 ::vstd::arithmetic::div_mod::lemma_add_mod_noop(
-                    start as int, i as int * len as int, alignT,
+                    start as int,
+                    i as int * len as int,
+                    alignT,
                 );
                 assert((start as int + i as int * len as int) % alignT == 0);
                 // Bridge back to usize form: cursor_i.vaddr == start + i*len.
@@ -1316,12 +1325,8 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     /// from the slice via [`VmWriter::from`]) and delegates to [`Self::read`].
     /// The shallow contract here only forwards the result; impls with non-trivial
     /// `read_requires` must override.
-    fn read_bytes(
-        &self,
-        offset: usize,
-        buf: &mut [u8],
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>)
+    fn read_bytes(&self, offset: usize, buf: &mut [u8], Tracked(owner): Tracked<&mut P>) -> (r:
+        Result<()>)
         requires
             !Self::obeys_vmio_read_requires(),
     {
@@ -1335,11 +1340,7 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     }
 
     /// Reads a value of a specified type at a specified offset.
-    fn read_val<T: Pod>(
-        &self,
-        offset: usize,
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<T>)
+    fn read_val<T: Pod>(&self, offset: usize, Tracked(owner): Tracked<&mut P>) -> (r: Result<T>)
         requires
             !Self::obeys_vmio_read_requires(),
     {
@@ -1374,12 +1375,9 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     /// from the slice via [`VmReader::from`]) and delegates to [`Self::write`].
     /// The shallow contract here only forwards the result; impls with non-trivial
     /// `write_requires` must override.
-    fn write_bytes(
-        &self,
-        offset: usize,
-        buf: &[u8],
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>)
+    fn write_bytes(&self, offset: usize, buf: &[u8], Tracked(owner): Tracked<&mut P>) -> (r: Result<
+        (),
+    >)
         requires
             !Self::obeys_vmio_write_requires(),
     {
@@ -1393,12 +1391,8 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     }
 
     /// Writes a value of a specified type at a specified offset.
-    fn write_val<T: Pod>(
-        &self,
-        offset: usize,
-        new_val: &T,
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>)
+    fn write_val<T: Pod>(&self, offset: usize, new_val: &T, Tracked(owner): Tracked<&mut P>) -> (r:
+        Result<()>)
         requires
             !Self::obeys_vmio_write_requires(),
     {
@@ -1443,13 +1437,13 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     ///   stdlib iterator combinators ostd uses).
     /// - `self`'s impl has no custom `write_requires` (use the override route
     ///   for impls that do).
-    fn write_vals<'a, T: Pod + 'a, I: ::vstd::std_specs::iter::IteratorSpec<Item = &'a T> + Iterator<Item = &'a T>>(
-        &self,
-        offset: usize,
-        iter: I,
-        align: usize,
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<usize>)
+    fn write_vals<
+        'a,
+        T: Pod + 'a,
+        I: ::vstd::std_specs::iter::IteratorSpec<Item = &'a T> + Iterator<Item = &'a T>,
+    >(&self, offset: usize, iter: I, align: usize, Tracked(owner): Tracked<&mut P>) -> (r: Result<
+        usize,
+    >)
         requires
             !Self::obeys_vmio_write_requires(),
             offset as int + align as int <= usize::MAX as int,
@@ -1478,15 +1472,15 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
                 !Self::obeys_vmio_write_requires(),
                 iter.obeys_prophetic_iter_laws(),
                 iter.decrease() is Some,
-                align == 0 || align == 1
-                    || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align),
+                align == 0 || align == 1 || (exists|e: nat|
+                    ::vstd::arithmetic::power2::pow2(e) == align),
             decreases iter.decrease().unwrap(),
         {
             match iter.next() {
                 Some(item) => {
                     // Stop *before* writing if we couldn't safely advance afterwards.
-                    if nr_written == usize::MAX
-                        || (item_size > 0 && offset > usize::MAX - item_size) {
+                    if nr_written == usize::MAX || (item_size > 0 && offset > usize::MAX
+                        - item_size) {
                         return Ok(nr_written);
                     }
                     match self.write_val(offset, item, Tracked(owner)) {
@@ -1828,6 +1822,7 @@ impl<'a> VmWriter<'a, Fallible> {
         }
         // SAFETY: The destination is a subset of the memory range specified by
         // the current writer, so it is either valid for writing or in user space.
+
         let set_len = unsafe { memset_fallible(self.cursor, 0u8, len_to_set) };
         self.cursor = self.cursor.wrapping_add(set_len);
 
@@ -1912,7 +1907,6 @@ impl<'a> VmWriter<'a, Infallible> {
         proof_with!(|= Tracked(owner_inner));
         writer
     }
-
 }
 
 #[verus_verify]

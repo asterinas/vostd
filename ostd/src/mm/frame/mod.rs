@@ -185,21 +185,22 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
             #![trigger s1.slot_owners[i]]
             i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
-        &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
+        &&& s1.slot_owners.dom()
+            =~= s0.slot_owners.dom()
         // The slot's identity / page-table linkage is preserved by a
         // drop (it only adjusts refcount and, on teardown, storage).
         &&& so1.self_addr == so0.self_addr
         &&& so1.usage == so0.usage
-        &&& so1.paths_in_pt == so0.paths_in_pt
+        &&& so1.paths_in_pt
+            == so0.paths_in_pt
         // Refcount transition. `drop_requires` guarantees the old value
         // is in `[1, REF_COUNT_MAX]`, so these cases are exhaustive:
         //  - last reference (== 1): the slot is torn down to UNUSED.
         //  - otherwise (> 1): the refcount is decremented by one.
-        &&& so0.inner_perms.ref_count.value() == 1
-            ==> so1.inner_perms.ref_count.value() == REF_COUNT_UNUSED
-        &&& so0.inner_perms.ref_count.value() > 1
-            ==> so1.inner_perms.ref_count.value()
-                == (so0.inner_perms.ref_count.value() - 1) as u64
+        &&& so0.inner_perms.ref_count.value() == 1 ==> so1.inner_perms.ref_count.value()
+            == REF_COUNT_UNUSED
+        &&& so0.inner_perms.ref_count.value() > 1 ==> so1.inner_perms.ref_count.value() == (
+        so0.inner_perms.ref_count.value() - 1) as u64
     }
 }
 
@@ -787,9 +788,11 @@ impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
         &&& perm.slots.contains_key(idx)
         &&& perm.slot_owners.contains_key(idx)
         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
-        &&& perm.slot_owners[idx].inner_perms.ref_count.value() != meta::REF_COUNT_UNUSED
+        &&& perm.slot_owners[idx].inner_perms.ref_count.value()
+            != meta::REF_COUNT_UNUSED
         // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-        &&& perm.slot_owners[idx].inner_perms.ref_count.value() >= meta::REF_COUNT_MAX ==> may_panic()
+        &&& perm.slot_owners[idx].inner_perms.ref_count.value() >= meta::REF_COUNT_MAX
+            ==> may_panic()
         &&& has_safe_slot(meta_to_frame(self.ptr.addr()))
     }
 
@@ -851,7 +854,10 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
         proof {
             assert(slot.ref_count.id() == slot_own.inner_perms.ref_count.id());
         }
-        let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.inner_perms.ref_count), 1);
+        let last_ref_cnt = slot.ref_count.fetch_sub(
+            Tracked(&mut slot_own.inner_perms.ref_count),
+            1,
+        );
         // `fetch_sub` returns the pre-decrement value and only mutates
         // the `ref_count` permission — the other `MetaSlotOwner` fields
         // are untouched here.
@@ -904,8 +910,8 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
                 assert(slot_own.inv());
                 // Decrement branch: refcount = old - 1, identity preserved.
                 assert(so0.inner_perms.ref_count.value() > 1);
-                assert(slot_own.inner_perms.ref_count.value()
-                    == (so0.inner_perms.ref_count.value() - 1) as u64);
+                assert(slot_own.inner_perms.ref_count.value() == (so0.inner_perms.ref_count.value()
+                    - 1) as u64);
                 assert(slot_own.self_addr == so0.self_addr);
                 assert(slot_own.usage == so0.usage);
                 assert(slot_own.paths_in_pt == so0.paths_in_pt);
@@ -933,8 +939,8 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
             assert(old_regions.slot_owners[idx].inner_perms.ref_count.value() == 1
                 ==> regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED);
             assert(old_regions.slot_owners[idx].inner_perms.ref_count.value() > 1
-                ==> regions.slot_owners[idx].inner_perms.ref_count.value()
-                    == (old_regions.slot_owners[idx].inner_perms.ref_count.value() - 1) as u64);
+                ==> regions.slot_owners[idx].inner_perms.ref_count.value() == (
+            old_regions.slot_owners[idx].inner_perms.ref_count.value() - 1) as u64);
 
             // Re-establish `regions.inv()` for the post-state. The
             // tracked_insert at `idx` only touches that one entry; for other

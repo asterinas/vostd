@@ -49,9 +49,9 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::io::VmIoOwner;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::{Vaddr, MAX_USERSPACE_VADDR};
+use crate::specs::mm::io::VmIoOwner;
 
 use super::{axiom_vm_io_entry_new, VmIoEntry, VmIoKind, VmSpaceId};
 
