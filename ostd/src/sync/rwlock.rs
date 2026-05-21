@@ -3,7 +3,7 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*, CellId};
 use vstd::prelude::*;
 use vstd::resource::Loc;
-use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
+use vstd_extra::resource::ghost_resource::{acq_rel_rwlock::*, count::*, csum::*, excl::*, tokens::*};
 use vstd_extra::sum::*;
 use vstd_extra::{prelude::*, resource};
 
@@ -43,37 +43,15 @@ exec const V_MAX_READ_RETRACT_FRACS: u64
 }
 
 /// The token reserved in the lock when the write permission is given out.
-type NoPerm<T> = EmptyCount<PointsTo<T>>;
+type NoPerm<T> = AcqRelNoPerm<PointsTo<T>>;
 
 /// Half of the permission for read access, one for `RwLockUpgradeableGuard` and the other for all `RwLockReadGuard`s.
-type HalfPerm<T> = Count<PointsTo<T>>;
+type HalfPerm<T> = AcqRelHalfPerm<PointsTo<T>>;
 
 /// The permission for read access can be further split into `MAX_READER` pieces.
-type ReadPerm<T> = (HalfPerm<T>, OneLeftKnowledge<HalfPerm<T>, NoPerm<T>, 3>);
+type ReadPerm<T> = AcqRelReadPerm<PointsTo<T>>;
 
-tracked struct RwPerms<T> {
-    /// This token tracks whether the write permission is given out. If it is `Left`, it stores the knowledge that
-    /// there are active readers because the existence of `HalfPerm` resource for read access.
-    /// If it is `Right`, we know there is an active writer and there is no active reader, because there is a `NoPerm`
-    /// indicating the absence of `PointsTo<T>`.
-    core_token: SumResource<HalfPerm<T>, NoPerm<T>, 3>,
-    /// The permission to retract a `READER` count. Its total quantity tracks the gap between
-    /// the number of `try_read` increments recorded in the lock atomic and the number of active
-    /// `RwLockReadGuard`s (created and ongoing creation that will succeed) represented by `read_guard_token`.
-    /// It can be splited up to `V_MAX_READ_RETRACT_FRACS:= 2 * MAX_READER` pieces,
-    /// which allows at most `2*MAX_READER - 1` `try_read` attempts that will fail to acquire the lock.
-    read_retract_token: TokenResource<V_MAX_READ_RETRACT_FRACS>,
-    /// The permission to retract the set of `UPGRADEABLE_READER` bit.
-    upread_retract_token: Option<UniqueToken>,
-    /// Tracks whether there is a live `RwLockUpgradeableGuard`, also stores half of the permission for read access.
-    upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
-    /// Tracks the number of live `RwLockReadGuard`s. If it is `Left`, it stores the remaining read permissions.
-    /// If it is `Right`, it stores an empty token indicating the permission has been given out.
-    read_guard_token: Sum<
-        CountResource<ReadPerm<T>, MAX_READER_U64>,
-        EmptyCount<ReadPerm<T>, MAX_READER_U64>,
-    >,
-}
+type RwPerms<T> = AcqRelRwPerms<PointsTo<T>, MAX_READER_U64, V_MAX_READ_RETRACT_FRACS>;
 
 ghost struct RwId {
     core_token_id: Loc,
@@ -238,6 +216,11 @@ closed spec fn wf(self) -> bool {
         &&& 0 <= active_read_guards <= reader_bits <= total_reader_bits
         // The core invariant of `RwLock`: there are no simultaneous active writers and readers.
         &&& !(active_writer && (active_read_guards + if active_upgrade_guard { 1int } else { 0 }) > 0)
+        // Standalone acquire-release PCM mirrors the abstract protocol state.
+        &&& g.pcm.value() == g.abstract_pcm()
+        // Abstract weak-memory state: release advances the published phase,
+        // acquire imports it. This is the proof-level acquire/release model.
+        &&& g.wm.wf(g.phase)
         &&& g.core_token.id() == v_id@.core_token_id
         &&& g.core_token.wf()
         &&& g.core_token.is_left() ==> {
@@ -380,6 +363,7 @@ impl<T, G> RwLock<T, G> {
         let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
             (read_half_cell_perm, left_token),
         );
+        let tracked pcm = vstd::resource::pcm::Resource::alloc(AcqRelRwPCM::elem(0, 0, 0, 0, 0, 0));
         let ghost v_id = RwId {
             frac_id,
             core_token_id: core_token.id(),
@@ -388,11 +372,19 @@ impl<T, G> RwLock<T, G> {
             read_guard_token_id: read_guard_token.id(),
         };
         let tracked perms = RwPerms {
+            pcm,
             core_token,
             read_retract_token,
             upread_retract_token: Some(upread_retract_token),
             upreader_guard_token: Some(upreader_guard_token),
             read_guard_token: Sum::Left(read_guard_token),
+            phase: 0,
+            wm: AcqRelWm::init(),
+            core_token_id: v_id.core_token_id,
+            frac_id: v_id.frac_id,
+            read_retract_token_id: v_id.read_retract_token_id,
+            upread_retract_token_id: v_id.upread_retract_token_id,
+            read_guard_token_id: v_id.read_guard_token_id,
         };
 
         Self {
@@ -493,9 +485,11 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     let tracked mut tmp = g.read_guard_token.tracked_take_left();
                     read_token = Some(tmp.split_one());
                     g.read_guard_token = Sum::Left(tmp);
+                    g.acquire_wm();
                 } else {
                     retract_read_token = Some(g.read_retract_token.split_one());
                 }
+                g.sync_pcm();
             }
         );
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
@@ -517,6 +511,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     lemma_consts_properties_value(next_usize);
                     lemma_consts_properties_prev_next(prev_usize, next_usize);
                     g.read_retract_token.combine(retract_read_token.tracked_unwrap());
+                    g.release_wm();
+                    g.sync_pcm();
                 }
             );
             None
@@ -566,6 +562,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     guard_perm = Some(pointsto);
                     g.core_token.change_to_right(empty);
                     guard_token = Some(g.core_token.split_one_right_knowledge());
+                    g.acquire_wm();
+                    g.sync_pcm();
                 }
             }
         ).is_ok() {
@@ -605,10 +603,12 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 lemma_consts_properties_prev_next(prev, next);
                 if prev & (WRITER | UPGRADEABLE_READER) == 0 {
                     upgrade_guard_token = Some(g.upreader_guard_token.tracked_take());
+                    g.acquire_wm();
                 }
                 else if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
                 }
+                g.sync_pcm();
             }
         )
             & (WRITER | UPGRADEABLE_READER);
@@ -637,6 +637,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     else{
                         g.upread_retract_token= retract_upgrade_token;
                     }
+                    g.release_wm();
+                    g.sync_pcm();
                 }
             );
         }
@@ -813,6 +815,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
                 let tracked mut tmp = g.read_guard_token.tracked_take_left();
                 tmp.combine(token);
                 g.read_guard_token = Sum::Left(tmp);
+                g.release_wm();
+                g.sync_pcm();
             }
         );
     }
@@ -944,6 +948,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
                     (read_half_cell_perm, left_token),
                 );
                 g.read_guard_token = Sum::Left(read_guard_token);
+                g.release_wm();
+                g.sync_pcm();
             }
         };
     }
@@ -1015,6 +1021,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             update prev -> next;
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
+                g.acquire_wm();
             }
         );
         loop {
@@ -1079,6 +1086,9 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                     g.core_token.change_to_right(empty);
                     write_guard_token = Some(g.core_token.split_one_right_knowledge());
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
+                    g.acquire_wm();
+                    g.release_wm();
+                    g.sync_pcm();
                 } else {
                     err_upread_guard_token = Some(upread_guard_token);
                 }
@@ -1101,6 +1111,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                         token.validate_with_other(g.upread_retract_token.tracked_borrow());
                     }
                     g.upread_retract_token = Some(token);
+                    g.release_wm();
+                    g.sync_pcm();
                 }
             );
             Ok(
@@ -1172,6 +1184,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
                 } else {
                     g.upreader_guard_token= Some(guard_token);
                 }
+                g.release_wm();
+                g.sync_pcm();
             }
         );
     }
