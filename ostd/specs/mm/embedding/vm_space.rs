@@ -10,6 +10,7 @@ use vstd_extra::ownership::*;
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
+use crate::specs::mm::frame::meta_owners::{PageUsage, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
@@ -41,6 +42,18 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners)
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
             && final(regions).slot_owners[i].inner_perms.in_list
                 == old(regions).slot_owners[i].inner_perms.in_list,
+        // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
+        // nodes — every *changed* slot was UNUSED before and becomes a
+        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
+        // from this single clause.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+            },
         forall|c: CursorOwner<'a, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -70,6 +83,18 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
             && final(regions).slot_owners[i].inner_perms.in_list
                 == old(regions).slot_owners[i].inner_perms.in_list,
+        // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
+        // nodes — every *changed* slot was UNUSED before and becomes a
+        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
+        // from this single clause.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+            },
         forall|c: CursorOwner<'a, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {

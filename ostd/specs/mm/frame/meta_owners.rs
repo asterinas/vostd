@@ -252,6 +252,37 @@ pub tracked struct MetaSlotOwner {
 
 impl Inv for MetaSlotOwner {
     open spec fn inv(self) -> bool {
+        // FUTURE (main-inv strengthening, deferred 4-point cascade):
+        //
+        //   &&& self.paths_in_pt.is_empty()           // here, in the UNUSED branch
+        //
+        // Universally true (a live PTE mapping bumps `ref_count`, so
+        // reaching `UNUSED` requires no outstanding mappings) and the
+        // dual of the `paths_in_pt.finite()` clause below; would absorb
+        // 2 of the embedding's `STAGE-5 SCAFFOLD (assume)` markers in
+        // [`crate::specs::mm::embedding::mod`] for free.
+        //
+        // Cost: 4 call-site obligations to discharge —
+        //   1. `Frame::drop` rc==1 branch (mod.rs:902):
+        //      `assert(MetaSlot::drop_last_in_place_safety_cond(slot_own))`
+        //      needs `slot_own.paths_in_pt.is_empty()`. Follows
+        //      semantically from "rc==1 ⟹ no PTE-side reference"
+        //      because every PTE bumps rc, but is not currently
+        //      surfaced as a derivable fact at that site.
+        //   2-3. `UniqueFrame::drop` (unique.rs:381, 525): same
+        //      argument — UniqueFrame holds the sole reference, so
+        //      paths must be empty pre-teardown.
+        //   4. Huge-page split (page_table/node/entry.rs:1139): the
+        //      sub-page Child::Frame::invariants assertion needs the
+        //      strengthened `MetaSlotOwner::inv` to hold for newly-
+        //      installed sub-page slots.
+        //
+        // Implementation path: add `paths_in_pt.is_empty()` here AND
+        // to `drop_last_in_place_safety_cond` in meta_specs.rs; then
+        // discharge each of the 4 cascade obligations (likely needs a
+        // small lemma "rc-based reference-count accounts for PTEs"
+        // surfaced at the kernel-spec level). See the audit at the
+        // end of session — this is its own focused effort.
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNUSED ==> {
             &&& self.raw_count == 0
             &&& self.inner_perms.storage.is_uninit()

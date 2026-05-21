@@ -194,6 +194,14 @@ pub axiom fn frame_drop_embedded(
                 .inner_perms.ref_count.value()
                 == (old(regions).slot_owners[frame_to_index_spec(paddr)]
                     .inner_perms.ref_count.value() - 1) as u64,
+        // Storage preservation in the decrement branch (rc>1): the
+        // exec `fetch_sub` only touches `ref_count`; only the rc==1
+        // teardown branch invokes `drop_last_in_place` (which uninits
+        // storage). Needed so the embedding accounting clause's
+        // `storage.is_init` carries across non-teardown drops.
+        old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() > 1
+            ==> final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage,
         // ---- embedding inv chaining ----
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -279,21 +287,6 @@ pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
     }
 }
 
-/// The portion of [`drop_pre`] that is *not* internalised into
-/// `VmStore::inv` (#4 partial resolution): the genuine refcount
-/// obligation, which a simple coverage-style invariant cannot
-/// discharge (it needs the deferred `ref_count = #handles + #mappings`
-/// accounting). The rest of `drop_pre` — `slots.contains_key`,
-/// `raw_count == 0`, `!= REF_COUNT_UNUSED`, and the `in_list == 0`
-/// half of the last-ref conjunct — is recovered from the store
-/// invariant in [`super::step_frame_drop`].
-pub open spec fn drop_pre_residual(regions: MetaRegionOwners, paddr: Paddr) -> bool {
-    let so = regions.slot_owners[frame_to_index_spec(paddr)];
-    &&& so.inner_perms.ref_count.value() > 0
-    &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
-    &&& so.inner_perms.ref_count.value() == 1 ==> so.inner_perms.storage.is_init()
-}
-
 /// Per-op step for `Op::FrameDrop`. The caller has already extracted
 /// the entry from the store. One drop; the single axiom's
 /// refcount-keyed postcondition gives decrement (`> 1`) or
@@ -319,6 +312,26 @@ pub(super) proof fn drop_step(
             == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].raw_count,
         final(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.in_list
             == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.in_list,
+        // Surface the rest of `frame_drop_embedded`'s ensures at the
+        // dropped slot — needed by `step_frame_drop` to discharge the
+        // accounting clause (Stage 5).
+        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].usage
+            == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].usage,
+        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].paths_in_pt
+            == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].paths_in_pt,
+        // rc transition (mirrors `frame_drop_embedded` exactly).
+        old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() == 1
+            ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)]
+                .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+        old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() > 1
+            ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)]
+                .inner_perms.ref_count.value()
+                == (old(regions).slot_owners[frame_to_index_spec(entry.paddr)]
+                    .inner_perms.ref_count.value() - 1) as u64,
+        // Storage preservation in the decrement branch (rc>1).
+        old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() > 1
+            ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.storage
+                == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.storage,
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {

@@ -54,6 +54,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Vaddr;
+use crate::specs::mm::frame::meta_owners::{PageUsage, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::node::Guards;
@@ -102,6 +103,18 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
             && final(regions).slot_owners[i].inner_perms.in_list
                 == old(regions).slot_owners[i].inner_perms.in_list,
+        // Stage 5.3: opening a cursor only allocates fresh PT nodes —
+        // every *changed* slot was UNUSED before and becomes a
+        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
+        // from this single clause.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+            },
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some((c, g)) ==> {
@@ -136,6 +149,18 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
             && final(regions).slot_owners[i].inner_perms.in_list
                 == old(regions).slot_owners[i].inner_perms.in_list,
+        // Stage 5.3: opening a cursor only allocates fresh PT nodes —
+        // every *changed* slot was UNUSED before and becomes a
+        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
+        // from this single clause.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+            },
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some((c, g)) ==> {
@@ -449,16 +474,23 @@ pub enum CursorMutRegionsMethod {
     Unmap(usize),
 }
 
-/// Per-op step for `Op::OpenCursor` / `Op::OpenCursorMut`. Calls the
+/// Per-op step for `Op::OpenCursor` (read-only [`Cursor`]). Calls the
 /// embedded axiom; on `Some`, wraps the cursor owner + guards into a
 /// `CursorEntry` with the supplied `vs` (so the resulting entry's
 /// `vm_space` field correctly references the parent VmSpace).
+///
+/// Monomorphic in the cursor kind — read-only vs mutable are *separate*
+/// functions, each calling a single `_embedded` axiom. This is
+/// deliberate: a `match kind { ReadOnly => axiom_a, Mutable => axiom_b }`
+/// wrapper blocks Verus from chaining the per-branch axioms' quantified
+/// ensures (the Stage 5.3 changed-slots clause) into the wrapper's own
+/// ensures. With one axiom call per function the forall flows straight
+/// through. See [`open_cursor_mut_step`] for the mutable twin.
 pub(super) proof fn open_cursor_step<'a, 'rcu>(
     tracked vm_space: &VmSpaceOwner,
     tracked regions: &mut MetaRegionOwners,
     vs: VmSpaceId,
     va: Range<Vaddr>,
-    kind: CursorKind,
 ) -> (tracked res: Option<CursorEntry<'rcu>>)
     requires
         vm_space.inv(),
@@ -477,21 +509,77 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
             && final(regions).slot_owners[i].inner_perms.in_list
                 == old(regions).slot_owners[i].inner_perms.in_list,
+        // Stage 5.3: opening a cursor only allocates fresh PT nodes —
+        // every *changed* slot was UNUSED before and becomes a
+        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
+        // from this single clause.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+            },
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some(e) ==> e.inv(),
         res matches Some(e) ==> e.owner.metaregion_sound(*final(regions)),
-        res matches Some(e) ==> e.kind == kind,
+        res matches Some(e) ==> e.kind == CursorKind::ReadOnly,
         res matches Some(e) ==> e.va == va,
         res matches Some(e) ==> e.vm_space == vs,
 {
-    let tracked owner_opt = match kind {
-        CursorKind::ReadOnly => vm_space_cursor_embedded(vm_space, regions, va),
-        CursorKind::Mutable => vm_space_cursor_mut_embedded(vm_space, regions, va),
-    };
+    let tracked owner_opt = vm_space_cursor_embedded(vm_space, regions, va);
     match owner_opt {
         Option::Some((owner, guards)) => {
-            let tracked entry = axiom_cursor_entry_new(vs, kind, va, owner, guards);
+            let tracked entry =
+                axiom_cursor_entry_new(vs, CursorKind::ReadOnly, va, owner, guards);
+            Option::Some(entry)
+        },
+        Option::None => Option::None,
+    }
+}
+
+/// Per-op step for `Op::OpenCursorMut` (mutable [`CursorMut`]). The
+/// mutable twin of [`open_cursor_step`]; see its docs for why the two
+/// cursor kinds are separate monomorphic functions.
+pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
+    tracked vm_space: &VmSpaceOwner,
+    tracked regions: &mut MetaRegionOwners,
+    vs: VmSpaceId,
+    va: Range<Vaddr>,
+) -> (tracked res: Option<CursorEntry<'rcu>>)
+    requires
+        vm_space.inv(),
+        old(regions).inv(),
+    ensures
+        final(regions).inv(),
+        final(regions).slots =~= old(regions).slots,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
+            && final(regions).slot_owners[i].inner_perms.in_list
+                == old(regions).slot_owners[i].inner_perms.in_list,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+            },
+        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+            c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
+        res matches Some(e) ==> e.inv(),
+        res matches Some(e) ==> e.owner.metaregion_sound(*final(regions)),
+        res matches Some(e) ==> e.kind == CursorKind::Mutable,
+        res matches Some(e) ==> e.va == va,
+        res matches Some(e) ==> e.vm_space == vs,
+{
+    let tracked owner_opt = vm_space_cursor_mut_embedded(vm_space, regions, va);
+    match owner_opt {
+        Option::Some((owner, guards)) => {
+            let tracked entry =
+                axiom_cursor_entry_new(vs, CursorKind::Mutable, va, owner, guards);
             Option::Some(entry)
         },
         Option::None => Option::None,
