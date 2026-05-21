@@ -149,7 +149,17 @@ pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
 
 /// Space-holder of the AnyFrameMeta virtual table.
 pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
-    exec fn on_drop(&mut self, _reader: &mut VmReader<'_, Infallible>) {
+    /// Tracked argument bundle for [`Self::on_drop`]. Impls that don't need
+    /// any extra permissions can set this to `()`. The PT-node impl uses it
+    /// to carry the `nr_children` PCell permission, the `VmIoOwner` for the
+    /// reader, and the `MetaRegionOwners` needed to drop child frames.
+    type OnDropArgs;
+
+    exec fn on_drop(
+        &mut self,
+        _reader: &mut VmReader<'_, Infallible>,
+        _args: Tracked<&mut Self::OnDropArgs>,
+    ) {
     }
 
     exec fn is_untyped(&self) -> bool {
@@ -402,27 +412,11 @@ impl MetaSlot {
             perm.pptr() == slot,
             perm.is_init(),
             perm.value().ref_count.id() == old(inner_perms).ref_count.id(),
-            // Saturation is not a *precludable* precondition (the body
-            // `panic_diverge`s when the loaded count is `>= REF_COUNT_MAX`,
-            // the real Rust panic), but the panic_diverge needs
-            // `may_panic()` to verify, so the condition is propagated via
-            // the `P ==> may_panic()` form (matches `inc_ref_count`).
-            // On the returning path the panic-condition is false, so
-            // `last_ref_cnt < REF_COUNT_MAX` and `ref_count` stays
-            // `<= REF_COUNT_MAX`.
             old(inner_perms).ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
         ensures
             res is Ok ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value() + 1,
-            // Negation of the panic condition, propagated: the body
-            // `panic_diverge`s unless the loaded count is `<
-            // REF_COUNT_MAX`, so a returning `Ok` guarantees the
-            // incremented count is still `<= REF_COUNT_MAX`. Callers
-            // (`get_from_in_use`) re-establish `MetaSlotOwner::inv` from
-            // this instead of a `!panic_cond` precondition.
             res is Ok ==> final(inner_perms).ref_count.value() <= REF_COUNT_MAX,
-            // On Ok, the old ref_count was > 0 (the 0 case returns Err(Busy)).
             res is Ok ==> old(inner_perms).ref_count.value() > 0,
-            // On Ok, the returned PPtr is the slot argument.
             res matches Ok(ptr) ==> ptr == slot,
             res is Err ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value(),
             final(inner_perms).ref_count.id() == old(inner_perms).ref_count.id(),

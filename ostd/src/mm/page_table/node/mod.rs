@@ -42,6 +42,7 @@ use vstd::atomic::PAtomicU8;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
+use vstd_extra::drop_tracking::Drop as VerifiedDrop;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
@@ -104,8 +105,73 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 /// [`PageTableGuard`].
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
+/// Tracked argument bundle for [`PageTablePageMeta::on_drop`]. Carries the
+/// permissions the body needs to walk the PTEs and drop child frames /
+/// mapped items: the `nr_children` PCell perm, the reader's `VmIoOwner`,
+/// and the global `MetaRegionOwners` consulted by `Frame::from_raw`.
+pub tracked struct PtMetaOnDropArgs<C: PageTableConfig> {
+    pub nr_children_perm: vstd::cell::pcell_maybe_uninit::PointsTo<u16>,
+    pub vm_io_owner: crate::specs::mm::io::VmIoOwner,
+    pub regions: crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
+    pub _phantom: core::marker::PhantomData<C>,
+}
+
 impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
-    fn on_drop(&mut self, _reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>) {
+    type OnDropArgs = PtMetaOnDropArgs<C>;
+
+    /// Drops the children of a page-table node: walks each present PTE and
+    /// drops the referenced child page-table-node frame or mapped item.
+    ///
+    /// Currently axiomatized (`external_body`) — the impl creates a
+    /// trait-resolution cycle: `AnyFrameMeta for PageTablePageMeta<C>` →
+    /// (body) `Frame::<Self>::from_raw` / `Drop for Frame<Self>` →
+    /// `M: AnyFrameMeta` bound → back to the impl being defined. Verus
+    /// flags this at resolution time, before any function-body `decreases`
+    /// measure (tried `decreases self.level` — rejected). Removing the
+    /// bound from `Frame<M>` is possible structurally but requires
+    /// splitting `impl<'a, M: AnyFrameMeta> Frame<M>` to separate methods
+    /// that use M's trait (`start_paddr`, `dyn_meta`, `borrow`, `slot`,
+    /// `into_raw`, etc.) from those that don't (`from_raw` and the
+    /// `from_raw_*` spec helpers in specs/mm/frame/frame_specs.rs) — a
+    /// non-trivial refactor of frame/mod.rs.
+    #[verifier::external_body]
+    fn on_drop(
+        &mut self,
+        reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>,
+        mut args: Tracked<&mut Self::OnDropArgs>,
+    ) {
+        let level = self.level;
+        let range = if level == C::NR_LEVELS() {
+            C::TOP_LEVEL_INDEX_RANGE()
+        } else {
+            0..nr_subpage_per_huge::<C>()
+        };
+
+        // Drop the children.
+        reader.skip(range.start * core::mem::size_of::<C::E>());
+        for _ in range {
+            // Non-atomic read is OK because we have mutable access.
+            let pte = reader.read_once::<C::E>().unwrap();
+            if pte.is_present() {
+                let paddr = pte.paddr();
+                // As a fast path, we can ensure that the type of the child frame
+                // is `Self` if the PTE points to a child page table. Then we don't
+                // need to check the vtable for the drop method.
+                if !pte.is_last(level) {
+                    // SAFETY: The PTE points to a page table node. The ownership
+                    // of the child is transferred to the child then dropped.
+                    let frame = unsafe { Frame::<Self>::from_raw(paddr) };
+                    VerifiedDrop::drop(frame, Tracked(&mut (*args).regions));
+                } else {
+                    // SAFETY: The PTE points to a mapped item. The ownership
+                    // of the item is transferred here then dropped. `C::Item`
+                    // has no `vstd_extra::Drop` impl — the inner `Frame`(s) it
+                    // contains run their verified `Drop` via Rust's scope-end
+                    // drop chain.
+                    let _item = unsafe { C::item_from_raw(paddr, level, pte.prop()) };
+                }
+            }
+        }
     }
 
     fn is_untyped(&self) -> bool {

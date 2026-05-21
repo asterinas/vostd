@@ -580,6 +580,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// `match_pte`, `parent_level`) with `allocated_empty_node_grandchildren_none`
     /// to drive `pt_inv_at_depth` to its non-node base case at every absent
     /// child.
+    #[verifier::spinoff_prover]
     pub proof fn allocated_empty_node_pt_inv(owner: OwnerSubtree<C>)
         requires
             owner.inv(),
