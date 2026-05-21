@@ -424,32 +424,30 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         proof {
             assert forall|i: int|
                 #![trigger frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize)]
-                0 <= i < crate::specs::mm::frame::segment::seg_nframes(frame_own1.range)
-                implies {
-                    let idx = frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize);
-                    &&& regions.slot_owners.contains_key(idx)
-                    &&& regions.slots.contains_key(idx)
-                    &&& regions.slot_owners[idx].raw_count == 1
-                    &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
-                    &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
-                    &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                        <= crate::mm::frame::meta::REF_COUNT_MAX
-                } by {
+                0 <= i < crate::specs::mm::frame::segment::seg_nframes(frame_own1.range) implies {
+                let idx = frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize);
+                &&& regions.slot_owners.contains_key(idx)
+                &&& regions.slots.contains_key(idx)
+                &&& regions.slot_owners[idx].raw_count == 1
+                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                    <= crate::mm::frame::meta::REF_COUNT_MAX
+            } by {
                 owner.relate_regions_at(old_regions, i);
             }
             assert forall|i: int|
                 #![trigger frame_to_index((frame_own2.range.start + i * PAGE_SIZE) as usize)]
-                0 <= i < crate::specs::mm::frame::segment::seg_nframes(frame_own2.range)
-                implies {
-                    let idx = frame_to_index((frame_own2.range.start + i * PAGE_SIZE) as usize);
-                    &&& regions.slot_owners.contains_key(idx)
-                    &&& regions.slots.contains_key(idx)
-                    &&& regions.slot_owners[idx].raw_count == 1
-                    &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
-                    &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
-                    &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                        <= crate::mm::frame::meta::REF_COUNT_MAX
-                } by {
+                0 <= i < crate::specs::mm::frame::segment::seg_nframes(frame_own2.range) implies {
+                let idx = frame_to_index((frame_own2.range.start + i * PAGE_SIZE) as usize);
+                &&& regions.slot_owners.contains_key(idx)
+                &&& regions.slots.contains_key(idx)
+                &&& regions.slot_owners[idx].raw_count == 1
+                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                    <= crate::mm::frame::meta::REF_COUNT_MAX
+            } by {
                 owner.relate_regions_at(old_regions, i + (offset / PAGE_SIZE) as int);
             }
             // Distinctness forall of `relate_regions` for each half, derived
@@ -459,19 +457,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             assert forall|i: int, j: int|
                 #![trigger frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize),
                     frame_to_index((frame_own1.range.start + j * PAGE_SIZE) as usize)]
-                0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(frame_own1.range)
-                implies frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize)
-                    != frame_to_index((frame_own1.range.start + j * PAGE_SIZE) as usize)
-            by {
+                0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(
+                    frame_own1.range,
+                ) implies frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize)
+                != frame_to_index((frame_own1.range.start + j * PAGE_SIZE) as usize) by {
                 owner.relate_regions_distinct(old_regions, i, j);
             }
             assert forall|i: int, j: int|
                 #![trigger frame_to_index((frame_own2.range.start + i * PAGE_SIZE) as usize),
                     frame_to_index((frame_own2.range.start + j * PAGE_SIZE) as usize)]
-                0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(frame_own2.range)
-                implies frame_to_index((frame_own2.range.start + i * PAGE_SIZE) as usize)
-                    != frame_to_index((frame_own2.range.start + j * PAGE_SIZE) as usize)
-            by {
+                0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(
+                    frame_own2.range,
+                ) implies frame_to_index((frame_own2.range.start + i * PAGE_SIZE) as usize)
+                != frame_to_index((frame_own2.range.start + j * PAGE_SIZE) as usize) by {
                 owner.relate_regions_distinct(
                     old_regions,
                     i + (offset / PAGE_SIZE) as int,
@@ -729,10 +727,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             proof {
                 assert forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx + i as int <= j < last_perm_idx implies
-                        (*regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                            == old_regions.slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                by {
+                    first_perm_idx + i as int <= j < last_perm_idx implies (
+                *regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
+                    == old_regions.slot_owners[frame_to_index(
+                    (self.range.start + j * PAGE_SIZE) as usize,
+                )] by {
                     // `relate_regions`'s distinctness forall (triggered on the
                     // two `frame_to_index` terms) gives `slot_idx != idx_j`,
                     // so the `tracked_insert` at `slot_idx` left `idx_j`
@@ -829,27 +828,26 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 // frame's slot/owner is unchanged from `*old(regions)`.
                 assert forall|i: int|
                     #![trigger frame_to_index((owner.range.start + i * PAGE_SIZE) as usize)]
-                    0 <= i < crate::specs::mm::frame::segment::seg_nframes(owner.range)
-                    implies {
-                        let idx = frame_to_index((owner.range.start + i * PAGE_SIZE) as usize);
-                        &&& regions.slot_owners.contains_key(idx)
-                        &&& regions.slots.contains_key(idx)
-                        &&& regions.slot_owners[idx].raw_count == 1
-                        &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
-                        &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
-                        &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                            <= crate::mm::frame::meta::REF_COUNT_MAX
-                    } by {
+                    0 <= i < crate::specs::mm::frame::segment::seg_nframes(owner.range) implies {
+                    let idx = frame_to_index((owner.range.start + i * PAGE_SIZE) as usize);
+                    &&& regions.slot_owners.contains_key(idx)
+                    &&& regions.slots.contains_key(idx)
+                    &&& regions.slot_owners[idx].raw_count == 1
+                    &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                    &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                    &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                        <= crate::mm::frame::meta::REF_COUNT_MAX
+                } by {
                     old(owner).relate_regions_at(*old(regions), i + 1);
                     old(owner).relate_regions_distinct(*old(regions), 0, i + 1);
                 }
                 assert forall|i: int, j: int|
                     #![trigger frame_to_index((owner.range.start + i * PAGE_SIZE) as usize),
                         frame_to_index((owner.range.start + j * PAGE_SIZE) as usize)]
-                    0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(owner.range)
-                    implies frame_to_index((owner.range.start + i * PAGE_SIZE) as usize)
-                        != frame_to_index((owner.range.start + j * PAGE_SIZE) as usize)
-                by {
+                    0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(
+                        owner.range,
+                    ) implies frame_to_index((owner.range.start + i * PAGE_SIZE) as usize)
+                    != frame_to_index((owner.range.start + j * PAGE_SIZE) as usize) by {
                     old(owner).relate_regions_distinct(*old(regions), i + 1, j + 1);
                 }
             }
@@ -951,8 +949,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 &&& old(regions).slot_owners[idx].inner_perms.storage.is_init()
                 &&& old(regions).slot_owners[idx].inner_perms.in_list.value() == 0
             }
-        } by {
-        };
+        } by {};
 
         loop
             invariant
@@ -1003,7 +1000,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             if paddr >= self.range.end {
                 break;
             }
-
             proof {
                 // Frame `k`'s per-slot facts: forgotten (`raw_count == 1`),
                 // slot perm canonical in `regions.slots`, live refcount.
@@ -1038,11 +1034,11 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 assert forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     (k + 1) <= j < n implies {
-                        let idx = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
-                        &&& regions.slot_owners.contains_key(idx)
-                        &&& regions.slots.contains_key(idx)
-                        &&& regions.slot_owners[idx] == old(regions).slot_owners[idx]
-                    } by {
+                    let idx = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
+                    &&& regions.slot_owners.contains_key(idx)
+                    &&& regions.slots.contains_key(idx)
+                    &&& regions.slot_owners[idx] == old(regions).slot_owners[idx]
+                } by {
                     old_owner.relate_regions_distinct(*old(regions), k, j);
                 };
             }
