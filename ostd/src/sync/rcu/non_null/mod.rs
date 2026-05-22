@@ -237,7 +237,10 @@ impl<'a, T> BoxRef<'a, T> {
 
         // The function body of ptr_ref is exactly the same as `unsafe { &*(self.inner) }`
         //unsafe { &*(self.inner) }
-        vstd::raw_ptr::ptr_ref(self.inner, Tracked(self.tracked_perm.borrow().tracked_borrow_points_to()))
+        vstd::raw_ptr::ptr_ref(
+            self.inner,
+            Tracked(self.tracked_perm.borrow().tracked_borrow_points_to()),
+        )
     }
 }
 
