@@ -97,14 +97,15 @@ verus! {
 
 #[inline(always)]
 #[verifier::when_used_as_spec(frame_to_meta_spec)]
-pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
+#[verus_spec(res =>
     requires
         paddr % PAGE_SIZE == 0,
         paddr < MAX_PADDR,
     ensures
         res == frame_to_meta_spec(paddr),
         res % META_SLOT_SIZE == 0,
-{
+)]
+pub fn frame_to_meta(paddr: Paddr) -> Vaddr {
     let base = FRAME_METADATA_RANGE.start;
     let offset = paddr / PAGE_SIZE;
     base + offset * META_SLOT_SIZE
@@ -112,14 +113,15 @@ pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
 
 #[inline(always)]
 #[verifier::when_used_as_spec(meta_to_frame_spec)]
-pub fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
+#[verus_spec(res =>
     requires
         FRAME_METADATA_RANGE.start <= vaddr && vaddr < FRAME_METADATA_RANGE.end,
         vaddr % META_SLOT_SIZE == 0,
     ensures
         res == meta_to_frame_spec(vaddr),
         res % PAGE_SIZE == 0,
-{
+)]
+pub fn meta_to_frame(vaddr: Vaddr) -> Paddr {
     let base = FRAME_METADATA_RANGE.start;
     let offset = (vaddr - base) / META_SLOT_SIZE;
     offset * PAGE_SIZE

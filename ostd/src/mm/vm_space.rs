@@ -151,7 +151,8 @@ type Result<A> = core::result::Result<A, Error>;
 impl<'a> VmSpace<'a> {
     #[inline]
     #[verus_spec(r =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards_k): Tracked<&mut Guards<'static, KernelPtConfig>>,
             Tracked(guards_u): Tracked<&mut Guards<'static, UserPtConfig>>,
         requires
@@ -175,7 +176,8 @@ impl<'a> VmSpace<'a> {
     /// - The returned [`VmSpace`] instance satisfies the invariants of [`VmSpace`].
     #[inline]
     #[verus_spec(r =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards_k): Tracked<&mut Guards<'static, KernelPtConfig>>,
             Tracked(guards_u): Tracked<&mut Guards<'static, UserPtConfig>>,
         requires
@@ -220,10 +222,11 @@ impl<'a> VmSpace<'a> {
     ///   [`cursor_new_success_conditions`](crate::mm::page_table::Cursor::cursor_new_success_conditions),
     ///   the result is `Ok` and a [`CursorOwner`] is returned.
     #[verus_spec(r =>
-        with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
+        with
+            Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
-            -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+                -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             owner.inv(),
         ensures
@@ -277,10 +280,11 @@ impl<'a> VmSpace<'a> {
     ///   [`cursor_new_success_conditions`](crate::mm::page_table::Cursor::cursor_new_success_conditions),
     ///   the result is `Ok` and a [`CursorOwner`] is returned.
     #[verus_spec(r =>
-        with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
+        with
+            Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
-            -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
+                -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             owner.inv(),
         ensures
@@ -454,9 +458,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// - This function preserves all memory invariants.
     /// - The locking mechanism prevents data races.
     #[verus_spec(r =>
-        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+        with
+            Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // Out-of-range is a graceful `Err`; the sole panic is cloning
@@ -509,9 +514,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// Because it panics rather than move the cursor to an invalid address,
     /// it ensures that the cursor is safe to use after the call.
     #[verus_spec(res =>
-        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+        with
+            Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).0.find_next_panic_condition(len) ==> may_panic(),
@@ -524,7 +530,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                 &&& final(owner).in_locked_range()
             },
     )]
-    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>) {
+    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.find_next(len)
     }
@@ -553,9 +559,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// it ensures that the cursor is safe to use after the call.
     /// The locking mechanism prevents data races.
     #[verus_spec(res =>
-        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+        with
+            Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
@@ -577,10 +584,11 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     }
 
     /// Get the virtual address of the current slot.
-    pub fn virt_addr(&self) -> Vaddr
+    #[verus_spec(
         returns
             self.0.va,
-    {
+    )]
+    pub fn virt_addr(&self) -> Vaddr {
         self.0.virt_addr()
     }
 }
@@ -622,9 +630,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// - This function preserves all memory invariants.
     /// - The locking mechanism prevents data races.
     #[verus_spec(res =>
-        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+        with
+            Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // Out-of-range → graceful `Err`; the sole panic is cloning the
@@ -672,11 +681,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Because it panics rather than move the cursor to an invalid address,
     /// it ensures that the cursor is safe to use after the call.
     #[verus_spec(res =>
-        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+        with
+            Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
-    )]
-    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
@@ -688,7 +696,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },
-    {
+    )]
+    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.find_next(len)
     }
@@ -784,11 +793,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// - For soundness purposes, it doesn't matter if a frame is mapped multiple times
     /// in the same page table. There is still a clear definition of the behavior.
     #[verus_spec(
-        with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+        with
+            Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
-            Tracked(tlb_model): Tracked<&mut TlbModel>
+            Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             old(tlb_model).inv(),
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
@@ -872,10 +882,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// - TODO: formalizing and proving that this function preserves TLB consistency would
     /// be pretty straightforward and would be a nice addition to the correctness properties.
     #[verus_spec(r =>
-        with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+        with
+            Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
-            Tracked(tlb_model): Tracked<&mut TlbModel>
+            Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(tlb_model).inv(),
@@ -1507,7 +1518,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// ## Safety
     /// - From a soundness perspective changing a userspace page's `prop` field is safe.
     #[verus_spec(r =>
-        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+        with
+            Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
         requires

@@ -53,7 +53,7 @@ use crate::error::*;
 use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::MAX_USERSPACE_VADDR;
-use crate::specs::mm::io::{axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner};
+pub use crate::specs::mm::io::{axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner};
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 verus! {
@@ -76,10 +76,11 @@ pub assume_specification<T>[ <*mut T>::is_aligned ](_0: *mut T) -> (res: bool)
 /// - `src` must be valid for reads of `len` bytes.
 /// - `dst` must either be valid for writes of `len` bytes or be in user space.
 #[verifier::external_body]
-unsafe fn memcpy_fallible(dst: VirtPtr, src: VirtPtr, len: usize) -> (r: usize)
+#[verus_spec(r =>
     ensures
         r <= len,
-{
+)]
+unsafe fn memcpy_fallible(dst: VirtPtr, src: VirtPtr, len: usize) -> usize {
     // SAFETY: The safety is upheld by the caller.
     let failed_bytes = unsafe { __memcpy_fallible(dst.vaddr as *mut u8, src.vaddr as *const u8, len)
     };
@@ -96,10 +97,11 @@ unsafe fn memcpy_fallible(dst: VirtPtr, src: VirtPtr, len: usize) -> (r: usize)
 /// # Safety
 /// - `dst` must either be valid for writes of `len` bytes or be in user space.
 #[verifier::external_body]
-unsafe fn memset_fallible(dst: VirtPtr, value: u8, len: usize) -> (r: usize)
+#[verus_spec(r =>
     ensures
         r <= len,
-{
+)]
+unsafe fn memset_fallible(dst: VirtPtr, value: u8, len: usize) -> usize {
     // SAFETY: The safety is upheld by the caller.
     let failed_bytes = unsafe { __memset_fallible(dst.vaddr as *mut u8, value, len) };
     len - failed_bytes
@@ -176,7 +178,7 @@ unsafe fn memcpy(dst: VirtPtr, src: VirtPtr, len: usize) {
 /// of [`VmReader`] and [`VmWriter`] in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
 pub struct VmReader<'a, Fallibility = Fallible> {
-    pub id: Ghost<nat>,
+    pub ghost_id: Ghost<nat>,
     pub cursor: VirtPtr,
     pub end: VirtPtr,
     pub phantom: PhantomData<(&'a [u8], Fallibility)>,
@@ -200,7 +202,7 @@ pub struct VmReader<'a, Fallibility = Fallible> {
 /// of [`VmReader`] and [`VmWriter`] in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
 pub struct VmWriter<'a, Fallibility = Fallible> {
-    pub id: Ghost<nat>,
+    pub ghost_id: Ghost<nat>,
     pub cursor: VirtPtr,
     pub end: VirtPtr,
     pub phantom: PhantomData<(&'a [u8], Fallibility)>,
@@ -272,7 +274,7 @@ impl<'a> VmWriter<'a, Infallible> {
         };
 
         proof_with!(|= Tracked(owner));
-        Self { id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
+        Self { ghost_id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
     }
 
     /// Converts an infallible writer into a fallible one.
@@ -280,10 +282,10 @@ impl<'a> VmWriter<'a, Infallible> {
         ensures
             r.cursor == self.cursor,
             r.end == self.end,
-            r.id == self.id,
+            r.ghost_id == self.ghost_id,
     )]
     pub fn to_fallible(self) -> VmWriter<'a, Fallible> {
-        VmWriter { id: self.id, cursor: self.cursor, end: self.end, phantom: PhantomData }
+        VmWriter { ghost_id: self.ghost_id, cursor: self.cursor, end: self.end, phantom: PhantomData }
     }
 
     /// Writes a value of `Pod` type to the kernel-space buffer.
@@ -681,7 +683,7 @@ impl<Fallibility> Clone for VmReader<'_, Fallibility> {
     /// Note that we cannot implement [`Clone`] for [`VmWriter`]
     /// because it can represent mutable references, which must remain exclusive.
     fn clone(&self) -> Self {
-        Self { id: self.id, cursor: self.cursor, end: self.end, phantom: PhantomData }
+        Self { ghost_id: self.ghost_id, cursor: self.cursor, end: self.end, phantom: PhantomData }
     }
 }
 
@@ -741,7 +743,7 @@ impl<'a> VmReader<'a, Infallible> {
         };
 
         proof_with!(|= Tracked(owner));
-        Self { id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
+        Self { ghost_id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
     }
 
     /// Converts an infallible reader into a fallible one.
@@ -750,9 +752,9 @@ impl<'a> VmReader<'a, Infallible> {
             r.remain_spec() == self.remain_spec(),
             r.cursor == self.cursor,
             r.end == self.end,
-            r.id == self.id,
+            r.ghost_id == self.ghost_id,
     {
-        VmReader { id: self.id, cursor: self.cursor, end: self.end, phantom: PhantomData }
+        VmReader { ghost_id: self.ghost_id, cursor: self.cursor, end: self.end, phantom: PhantomData }
     }
 
     /// Reads data from `self` and writes it into the provided `writer`.
@@ -1065,7 +1067,7 @@ impl<'a> VmReader<'a, Fallible> {
             mem_view: None,
         };
         proof_with!(|= Tracked(owner));
-        Self { id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
+        Self { ghost_id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
     }
 
     /// Reads a value of `Pod` type from a (potentially) user-space buffer.
@@ -1080,7 +1082,7 @@ impl<'a> VmReader<'a, Fallible> {
         ensures
             final(self).inv(),
             final(self).end == old(self).end,
-            final(self).id == old(self).id,
+            final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
             r is Err ==> *final(self) == *old(self),
     )]
@@ -1122,7 +1124,7 @@ impl<'a> VmReader<'a, Fallible> {
         ensures
             final(self).inv(),
             final(self).end == old(self).end,
-            final(self).id == old(self).id,
+            final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
             r is Err ==> *final(self) == *old(self),
     )]
@@ -1580,7 +1582,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             r.remain_spec() <= max_remain,
             r.remain_spec() <= old(self).remain_spec(),
             r.cursor == old(self).cursor,
-            r.id == old(self).id,
+            r.ghost_id == old(self).ghost_id,
     )]
     pub fn limit(&mut self, max_remain: usize) -> &mut Self {
         if max_remain < self.remain() {
@@ -1605,7 +1607,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
             r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
             r.remain_spec() == old(self).remain_spec() - nbytes,
             r.end == old(self).end,
-            r.id == old(self).id,
+            r.ghost_id == old(self).ghost_id,
     )]
     pub fn skip(&mut self, nbytes: usize) -> &mut Self {
         assert!(nbytes <= self.remain());
@@ -1667,7 +1669,7 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
             r.avail_spec() <= max_avail,
             r.avail_spec() <= old(self).avail_spec(),
             r.cursor == old(self).cursor,
-            r.id == old(self).id,
+            r.ghost_id == old(self).ghost_id,
     )]
     pub fn limit(&mut self, max_avail: usize) -> &mut Self {
         if max_avail < self.avail() {
@@ -1692,7 +1694,7 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
             r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
             r.avail_spec() == old(self).avail_spec() - nbytes,
             r.end == old(self).end,
-            r.id == old(self).id,
+            r.ghost_id == old(self).ghost_id,
     )]
     pub fn skip(&mut self, nbytes: usize) -> &mut Self {
         assert!(nbytes <= self.avail());
@@ -1717,7 +1719,7 @@ impl<'a> VmWriter<'a, Fallible> {
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
-            -> owner: Tracked<VmIoOwner>,
+                -> owner: Tracked<VmIoOwner>,
         ensures
             r.inv_wf(),
             owner@.id == id,
@@ -1743,7 +1745,7 @@ impl<'a> VmWriter<'a, Fallible> {
             mem_view: None,
         };
         proof_with!(|= Tracked(owner));
-        Self { id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
+        Self { ghost_id: Ghost(id), cursor: ptr, end: ptr.wrapping_add(len), phantom: PhantomData }
     }
 
     /// Writes a value of `Pod` type to user space.
@@ -1761,7 +1763,7 @@ impl<'a> VmWriter<'a, Fallible> {
         ensures
             final(self).inv(),
             final(self).end == old(self).end,
-            final(self).id == old(self).id,
+            final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
             r is Err ==> *final(self) == *old(self),
     )]
@@ -1798,7 +1800,7 @@ impl<'a> VmWriter<'a, Fallible> {
         ensures
             final(self).inv(),
             final(self).end == old(self).end,
-            final(self).id == old(self).id,
+            final(self).ghost_id == old(self).ghost_id,
             final(self).cursor.range == old(self).cursor.range,
             final(self).cursor.vaddr >= old(self).cursor.vaddr,
             final(self).cursor.vaddr <= old(self).end.vaddr,
@@ -2010,10 +2012,10 @@ macro_rules! impl_read_fallible {
                     old(writer).inv(),
                 ensures
                     final(self).end == old(self).end,
-                    final(self).id == old(self).id,
+                    final(self).ghost_id == old(self).ghost_id,
                     final(self).cursor.range == old(self).cursor.range,
                     final(writer).end == old(writer).end,
-                    final(writer).id == old(writer).id,
+                    final(writer).ghost_id == old(writer).ghost_id,
                     final(writer).cursor.range == old(writer).cursor.range,
                     final(self).inv(),
                     final(writer).inv(),
@@ -2071,10 +2073,10 @@ macro_rules! impl_write_fallible {
                     old(reader).inv(),
                 ensures
                     final(self).end == old(self).end,
-                    final(self).id == old(self).id,
+                    final(self).ghost_id == old(self).ghost_id,
                     final(self).cursor.range == old(self).cursor.range,
                     final(reader).end == old(reader).end,
-                    final(reader).id == old(reader).id,
+                    final(reader).ghost_id == old(reader).ghost_id,
                     final(reader).cursor.range == old(reader).cursor.range,
                     final(self).inv(),
                     final(reader).inv(),

@@ -22,7 +22,7 @@ use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::segment::{frame_idx_at, SegmentOwner};
+pub use crate::specs::mm::frame::segment::{frame_idx_at, SegmentOwner};
 use crate::specs::mm::virt_mem::MemView;
 use vstd_extra::drop_tracking::*;
 
@@ -125,24 +125,26 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// Gets the end physical address of the contiguous frames.
     #[inline(always)]
     #[verifier::when_used_as_spec(end_paddr_spec)]
-    pub fn end_paddr(&self) -> (res: Paddr)
+    #[verus_spec(
         requires
             self.inv(),
         returns
             self.end_paddr_spec(),
-    {
+    )]
+    pub fn end_paddr(&self) -> Paddr {
         self.range.end
     }
 
     /// Gets the length in bytes of the contiguous frames.
     #[inline(always)]
     #[verifier::when_used_as_spec(size_spec)]
-    pub fn size(&self) -> (res: usize)
+    #[verus_spec(r =>
         requires
             self.inv(),
         returns
-            self.size_spec(),
-    {
+            self.size_spec()
+    )]
+    pub fn size(&self) -> usize {
         self.range.end - self.range.start
     }
 

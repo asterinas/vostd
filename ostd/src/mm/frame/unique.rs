@@ -49,8 +49,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// it also returns an owner for that frame, indicating that the caller now has exclusive ownership of it.
     /// See [Safe Encapsulation] for more details.
     #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
-        -> owner: Tracked<Option<UniqueFrameOwner<M>>>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+                -> owner: Tracked<Option<UniqueFrameOwner<M>>>,
         requires
             old(regions).slots.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners.contains_key(frame_to_index(paddr)),
@@ -97,12 +98,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     }
 
     #[verifier::external_body]
-    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> (res: UniqueFrame<
-        M1,
-    >)
+    #[verus_spec(res =>
         ensures
             Self::transmute_spec(self, res),
-    {
+    )]
+    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> UniqueFrame<M1> {
         unimplemented!()
     }
 
@@ -118,9 +118,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// The existence of a valid owner guarantees that the memory is initialized with metadata of type `M`,
     /// and represents that the caller has exclusive ownership of the frame.
     #[verus_spec(res =>
-        with Tracked(owner): Tracked<UniqueFrameOwner<M>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-        -> new_owner: Tracked<UniqueFrameOwner<M1>>
+        with
+            Tracked(owner): Tracked<UniqueFrameOwner<M>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+                -> new_owner: Tracked<UniqueFrameOwner<M1>>,
         requires
             self.wf(owner),
             owner.inv(),
@@ -206,16 +207,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// ## Safety
     /// The existence of a valid owner guarantees that the memory is initialized with metadata of type `M`,
     /// and represents that the caller has exclusive ownership of the frame.
-    #[verus_spec(
-        with Tracked(owner): Tracked<&'a UniqueFrameOwner<M>>
-    )]
-    pub fn meta<'a>(&self) -> (l: &'a M)
+    #[verus_spec(l =>
+        with
+            Tracked(owner): Tracked<&'a UniqueFrameOwner<M>>,
         requires
             owner.inv(),
             self.wf(*owner),
         ensures
             owner.meta_perm.mem_contents().value().metadata == l,
-    {
+    )]
+    pub fn meta<'a>(&self) -> &'a M {
         // SAFETY: The type is tracked by the type system.
         #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
         let slot = self.slot();
@@ -235,10 +236,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// ## Safety
     /// The existence of a valid owner guarantees that the memory is initialized with metadata of type `M`,
     /// and represents that the caller has exclusive ownership of the frame. (See [Safe Encapsulation])
-    #[verus_spec(
-        with Tracked(owner): Tracked<&UniqueFrameOwner<M>>
-    )]
-    pub fn meta_mut(&mut self) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
+    #[verus_spec(res =>
+        with
+            Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
         requires
             owner.inv(),
             old(self).wf(*owner),
@@ -246,7 +246,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             res.addr() == final(self).ptr.addr(),
             res.ptr.addr() == final(self).ptr.addr(),
             *final(self) == *old(self),
-    {
+    )]
+    pub fn meta_mut(&mut self) -> ReprPtr<MetaSlot, Metadata<M>> {
         // SAFETY: The type is tracked by the type system.
         // And we have the exclusive access to the metadata.
         #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
@@ -257,10 +258,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     }
 }
 
+#[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
     /// Gets the physical address of the start of the frame.
     #[verus_spec(
-        with Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
+        with
+            Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
         requires
             owner.inv(),
             self.wf(*owner),
@@ -344,8 +347,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     // allow the allocator hold the ownership of all the frames in a chunk
     // instead of the head. Then this weird public API can be `#[cfg(ktest)]`.
     #[verus_spec(
-        with Tracked(owner): Tracked<UniqueFrameOwner<M>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+        with
+            Tracked(owner): Tracked<UniqueFrameOwner<M>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             self.wf(owner),
             owner.inv(),
@@ -388,8 +392,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
     /// Converts this frame into a raw physical address.
     #[verus_spec(r =>
-        with Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+        with
+            Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             Self::into_raw_requires(self, *old(regions)),
             self.wf(*owner),
@@ -418,11 +423,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     /// The caller must ensure that the physical address is valid and points to
     /// a forgotten frame that was previously casted by [`Self::into_raw`].
     #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(meta_perm): Tracked<PointsTo<MetaSlot, Metadata<M>>>,
-            Tracked(meta_own): Tracked<M::Owner>
-    )]
-    pub(crate) fn from_raw(paddr: Paddr) -> (res: (Self, Tracked<UniqueFrameOwner<M>>))
+            Tracked(meta_own): Tracked<M::Owner>,
         requires
             paddr < MAX_PADDR,
             paddr % PAGE_SIZE == 0,
@@ -441,7 +445,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             final(regions).slot_owners[frame_to_index(paddr)].raw_count == old(
                 regions,
             ).slot_owners[frame_to_index(paddr)].raw_count - 1,
-    {
+    )]
+    pub(crate) fn from_raw(paddr: Paddr) -> (Self, Tracked<UniqueFrameOwner<M>>) {
         let vaddr = frame_to_meta(paddr);
         let ptr = vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(vaddr);
 
@@ -462,15 +467,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
     #[verifier::external_body]
     #[verus_spec(
-        with Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>
-    )]
-    pub fn slot<'a>(&self) -> &'a MetaSlot
+        with
+            Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
         requires
             slot_perm.pptr() == self.ptr,
             slot_perm.is_init(),
         returns
             slot_perm.value(),
-    {
+    )]
+    pub fn slot<'a>(&self) -> &'a MetaSlot {
         unimplemented!()
         // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
         // mutably borrowed, so taking an immutable reference to it is safe.
@@ -481,7 +486,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
     #[verus_spec(
-        with Tracked(owner): Tracked<UniqueFrameOwner<M>>,
+        with
+            Tracked(owner): Tracked<UniqueFrameOwner<M>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             old(self).wf(owner),
@@ -533,16 +539,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     }
 }
 
+#[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// Converts a unique frame into a shared one by setting ref_count = 1.
     /// Inherent sibling of `From<UniqueFrame<M>> for Frame<M>`: freed from
     /// the trait-signature straitjacket, this version can thread the tracked
     /// `MetaRegionOwners` via `verus_spec`.
-    #[verus_spec(
-        with Tracked(owner): Tracked<UniqueFrameOwner<M>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn from_unique(unique: UniqueFrame<M>) -> (res: Self)
+    #[verus_spec(res =>
+        with
+            Tracked(owner): Tracked<UniqueFrameOwner<M>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             unique.wf(owner),
             owner.inv(),
@@ -556,7 +562,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         ensures
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-    {
+    )]
+    pub fn from_unique(unique: UniqueFrame<M>) -> Self {
         let ghost idx_g = owner.slot_index;
         let idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
@@ -578,14 +585,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     }
 }
 
+#[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// Tries to convert a shared frame into a unique one by CAS'ing ref_count
     /// from 1 to `REF_COUNT_UNIQUE`. Inherent sibling of
     /// `TryFrom<Frame<M>> for UniqueFrame<M>`.
-    #[verus_spec(
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn try_from_shared(frame: Frame<M>) -> (res: Result<Self, Frame<M>>)
+    #[verus_spec(res =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             frame.inv(),
             old(regions).inv(),
@@ -600,7 +607,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         ensures
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-    {
+    )]
+    pub fn try_from_shared(frame: Frame<M>) -> Result<Self, Frame<M>> {
         let idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);

@@ -53,7 +53,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
+            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
         requires
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
             old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,

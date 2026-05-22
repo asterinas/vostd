@@ -578,7 +578,7 @@ impl<Fallibility> VmWriter<'_, Fallibility> {
         &&& owner.inv()
         &&& owner.range@.start == self.cursor.vaddr
         &&& owner.range@.end == self.end.vaddr
-        &&& owner.id == self.id
+        &&& owner.id == self.ghost_id
         &&& owner.mem_view matches Some(VmIoMemView::WriteView(mv)) ==> {
             forall|va: usize|
                 owner.range@.start <= va < owner.range@.end ==> {
@@ -608,7 +608,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
         &&& owner.inv()
         &&& owner.range@.start == self.cursor.vaddr
         &&& owner.range@.end == self.end.vaddr
-        &&& owner.id == self.id
+        &&& owner.id == self.ghost_id
         &&& owner.mem_view matches Some(VmIoMemView::ReadView(mv)) ==> {
             forall|va: usize|
                 owner.range@.start <= va < owner.range@.end ==> {
