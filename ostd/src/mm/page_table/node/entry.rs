@@ -961,7 +961,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             assert(small_pa % PAGE_SIZE == 0);
 
-            let tracked child_owner = EntryOwner::new_frame(
+            let tracked child_owner = EntryOwner::tracked_new_frame(
                 small_pa,
                 new_owner.value.path.push_tail(i as usize),
                 (level - 1) as PagingLevel,

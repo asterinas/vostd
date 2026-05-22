@@ -64,7 +64,7 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     #[verus_spec(
         with Tracked(model): Tracked<&mut TlbModel>
         ensures
-            *final(model) == old(model).issue_tlb_flush_spec(op),
+            *final(model) == old(model).issue_tlb_flush(op),
             final(model).inv(),
     )]
     #[verifier::external_body]
@@ -82,7 +82,7 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     #[verus_spec(r =>
         with Tracked(model): Tracked<&mut TlbModel>
         ensures
-            *final(model) == old(model).issue_tlb_flush_spec(op),
+            *final(model) == old(model).issue_tlb_flush(op),
             final(model).inv(),
     )]
     #[verifier::external_body]

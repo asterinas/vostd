@@ -92,7 +92,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         UniqueFrameOwner::<M> { meta_own: owner, meta_perm: perm, slot_index: index@ }
     }
 
-    pub open spec fn from_unused_owner_spec(
+    pub open spec fn from_unused_owner(
         old_regions: MetaRegionOwners,
         paddr: Paddr,
         metadata: M,
@@ -110,13 +110,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.inv()
     }
 
-    pub axiom fn from_unused_owner(
+    pub axiom fn tracked_from_unused_owner(
         tracked regions: &mut MetaRegionOwners,
         paddr: Paddr,
         meta_perm: PointsTo<MetaSlot, Metadata<M>>,
     ) -> (tracked res: Self)
     ensures
-        Self::from_unused_owner_spec(*old(regions), paddr, meta_perm.value().metadata, res, *final(regions));
+        Self::from_unused_owner(*old(regions), paddr, meta_perm.value().metadata, res, *final(regions));
     /* {
         let tracked perm = regions.slots.tracked_remove(frame_to_index(paddr));
         UniqueFrameOwner::<M> {

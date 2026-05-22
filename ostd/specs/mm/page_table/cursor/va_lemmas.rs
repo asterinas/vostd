@@ -63,14 +63,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         Range { start, end }
     }
 
-    pub open spec fn set_va_spec(self, new_va: AbstractVaddr) -> Self {
+    pub open spec fn set_va(self, new_va: AbstractVaddr) -> Self {
         Self {
             va: new_va,
             ..self
         }
     }
 
-    pub open spec fn set_va_in_node_spec(self, new_va: AbstractVaddr) -> Self {
+    pub open spec fn set_va_in_node(self, new_va: AbstractVaddr) -> Self {
         let old_cont = self.continuations[self.level - 1];
         Self {
             va: new_va,
@@ -366,17 +366,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     // ─── Axioms: VA mutation ─────────────────────────────────────────────
 
-    pub axiom fn set_va(tracked &mut self, new_va: AbstractVaddr)
+    pub axiom fn tracked_set_va(tracked &mut self, new_va: AbstractVaddr)
         requires
             forall |i: int| #![auto] old(self).level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).va.index[i],
             forall |i: int| #![auto] old(self).guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).prefix.index[i],
         ensures
-            *final(self) == old(self).set_va_spec(new_va);
+            *final(self) == old(self).set_va(new_va);
 
     /// When jumping within the same page-table node, only indices at levels
     /// >= level are guaranteed to match. The entry-within-node index (level - 1)
     /// may change, so we update continuations[level-1].idx along with va.
-    pub axiom fn set_va_in_node(tracked &mut self, new_va: AbstractVaddr)
+    pub axiom fn tracked_set_va_in_node(tracked &mut self, new_va: AbstractVaddr)
         requires
             old(self).inv(),
             new_va.inv(),
@@ -391,7 +391,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // we require `level <= guard_level`.
             old(self).level <= old(self).guard_level,
         ensures
-            *final(self) == old(self).set_va_in_node_spec(new_va),
+            *final(self) == old(self).set_va_in_node(new_va),
             final(self).inv(),;
 }
 

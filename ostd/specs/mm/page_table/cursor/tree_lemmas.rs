@@ -108,10 +108,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.all_but_index_some(),
             child.all_some(),
         ensures
-            self.restore_spec(child).0.as_subtree() ==
-            self.put_child_spec(child.as_subtree()).as_subtree(),
+            self.restore(child).0.as_subtree() ==
+            self.put_child(child.as_subtree()).as_subtree(),
     {
-        assert(self.put_child_spec(child.as_subtree()).children ==
+        assert(self.put_child(child.as_subtree()).children ==
         self.children.update(self.idx as int, Some(child.as_subtree())));
     }
 }

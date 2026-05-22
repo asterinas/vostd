@@ -187,7 +187,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     )]
     #[verifier::external_body]
     pub fn alloc<'rcu>(level: PagingLevel) -> Self {
-        let tracked entry_owner = EntryOwner::new_absent(TreePath::new(Seq::empty()), level);
+        let tracked entry_owner = EntryOwner::tracked_new_absent(TreePath::new(Seq::empty()), level);
 
         let tracked mut owner = OwnerSubtree::<C>::new_val_tracked(entry_owner, level as nat);
         let meta = PageTablePageMeta::new(level);

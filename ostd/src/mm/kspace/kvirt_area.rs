@@ -971,11 +971,11 @@ impl KVirtArea {
 
                 // Reinsert a fresh owner for this paddr so later iterations on the
                 // same frame reuse it. `new_frame` fabricates an `EntryOwner` with
-                // the correct `new_frame_spec` shape for the paddr/level/prop;
+                // the correct `new_frame` shape for the paddr/level/prop;
                 // `frame_entry_wf` holds for any future frame at the same paddr.
                 // Note: `new_frame` returns with `in_scope = true`; clear it for
                 // `inv()` to hold (which requires `!in_scope`).
-                let tracked mut fresh = EntryOwner::<KernelPtConfig>::new_frame(
+                let tracked mut fresh = EntryOwner::<KernelPtConfig>::tracked_new_frame(
                     cur_mapped_pa,
                     cur_path,
                     cur_parent_level,
