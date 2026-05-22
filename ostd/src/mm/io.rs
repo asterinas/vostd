@@ -53,7 +53,9 @@ use crate::error::*;
 use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::MAX_USERSPACE_VADDR;
-pub use crate::specs::mm::io::{axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner};
+pub use crate::specs::mm::io::{
+    axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner,
+};
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 verus! {
@@ -285,7 +287,12 @@ impl<'a> VmWriter<'a, Infallible> {
             r.ghost_id == self.ghost_id,
     )]
     pub fn to_fallible(self) -> VmWriter<'a, Fallible> {
-        VmWriter { ghost_id: self.ghost_id, cursor: self.cursor, end: self.end, phantom: PhantomData }
+        VmWriter {
+            ghost_id: self.ghost_id,
+            cursor: self.cursor,
+            end: self.end,
+            phantom: PhantomData,
+        }
     }
 
     /// Writes a value of `Pod` type to the kernel-space buffer.
@@ -754,7 +761,12 @@ impl<'a> VmReader<'a, Infallible> {
             r.end == self.end,
             r.ghost_id == self.ghost_id,
     {
-        VmReader { ghost_id: self.ghost_id, cursor: self.cursor, end: self.end, phantom: PhantomData }
+        VmReader {
+            ghost_id: self.ghost_id,
+            cursor: self.cursor,
+            end: self.end,
+            phantom: PhantomData,
+        }
     }
 
     /// Reads data from `self` and writes it into the provided `writer`.
