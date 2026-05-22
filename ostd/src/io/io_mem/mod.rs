@@ -177,7 +177,10 @@ impl VmIo for IoMem {
         }
 
         let mut reader = self.reader();
-        reader.skip(offset).read_fallible(writer).map_err(|(e, _)| e)?;
+        reader
+            .skip(offset)
+            .read_fallible(writer)
+            .map_err(|(e, _)| e)?;
         debug_assert!(!writer.has_avail());
 
         Ok(())
@@ -194,7 +197,10 @@ impl VmIo for IoMem {
         }
 
         let mut writer = self.writer();
-        writer.skip(offset).write_fallible(reader).map_err(|(e, _)| e)?;
+        writer
+            .skip(offset)
+            .write_fallible(reader)
+            .map_err(|(e, _)| e)?;
         debug_assert!(!reader.has_remain());
 
         Ok(())

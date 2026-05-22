@@ -72,7 +72,10 @@ impl IntRemappingTable {
         writer.skip(offset).write_once(&0u64).unwrap();
         // Write the upper bits first (which keeps the present bit unset)
         let mut writer = self.segment.writer();
-        writer.skip(offset + size_of::<u64>()).write_once(&upper).unwrap();
+        writer
+            .skip(offset + size_of::<u64>())
+            .write_once(&upper)
+            .unwrap();
         let mut writer = self.segment.writer();
         writer.skip(offset).write_once(&lower).unwrap();
     }

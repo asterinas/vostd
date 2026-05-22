@@ -43,7 +43,11 @@ closed spec fn wf(&self) -> bool {
 }
 }
 
-broadcast proof fn lemma_inner_num_rw_atomic_inv<T>(data: RwLock<T, PreemptDisabled>, v: usize, g: int)
+broadcast proof fn lemma_inner_num_rw_atomic_inv<T>(
+    data: RwLock<T, PreemptDisabled>,
+    v: usize,
+    g: int,
+)
     ensures
         #[trigger] <InvariantPredicate_auto_Inner_num_rw<T> as AtomicInvariantPredicate<
             RwLock<T, PreemptDisabled>,
@@ -66,6 +70,7 @@ fn inc_num_rw<T>(inner: &Inner<T>)
 {
     proof {
         broadcast use lemma_inner_num_rw_atomic_inv;
+
     }
     atomic_with_ghost! {
         inner.num_rw => fetch_add(1);

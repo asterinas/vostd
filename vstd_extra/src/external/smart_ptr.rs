@@ -11,9 +11,7 @@ verus! {
 pub assume_specification<T: core::marker::MetaSized, A: core::alloc::Allocator + Clone>[ <Arc<
     T,
     A,
-> as Clone>::clone ](
-    a: &Arc<T, A>,
-) -> (res: Arc<T, A>)
+> as Clone>::clone ](a: &Arc<T, A>) -> (res: Arc<T, A>)
     ensures
         res == *a,
 ;
