@@ -457,7 +457,6 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             requires
                 P::ptr_perm_match(ptr.view_ptr_mut(), P::ref_perm_view_permission(tracked_ref_perm)),
             {unsafe { P::raw_as_ref(ptr,Tracked(tracked_ref_perm)) }})
-        //Some(unsafe { P::raw_as_ref(ptr, Tracked(tracked_ref_perm)) })
     }
 }
 
