@@ -216,7 +216,7 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
         SpinLockGuard {
             lock: self,
             guard: inner_guard,
-            v_perm: Tracked(perm),
+            tracked_perm: Tracked(perm),
         }
     }
 
@@ -241,7 +241,7 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
             let lock_guard = SpinLockGuard {
                 lock: self,
                 guard: inner_guard,
-                v_perm: Tracked(perm.tracked_unwrap()),
+                tracked_perm: Tracked(perm.tracked_unwrap()),
             };
             return Some(lock_guard);
         }
@@ -350,7 +350,7 @@ unsafe impl<T: Send, G> Sync for SpinLock<T, G> {}
 ///
 /// # Verified Properties
 /// ## Verification Design
-/// The guard is extended with a ghost permission field `v_perm` that
+/// The guard is extended with a ghost permission field `tracked_perm` that
 /// holds the ghost permission ([`PointsTo<T>`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html))
 /// This permission grants exclusive ownership of the protected data and enables verified access to the `PCell<T>`.
 ///
@@ -363,7 +363,7 @@ unsafe impl<T: Send, G> Sync for SpinLock<T, G> {}
 /// ```rust
 /// #[verifier::type_invariant]
 ///    spec fn type_inv(self) -> bool{
-///        self.lock.cell_id() == self.v_perm@.id()
+///        self.lock.cell_id() == self.tracked_perm@.id()
 ///    }
 /// ```
 ///
@@ -378,19 +378,19 @@ pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     lock: &'a SpinLock<T, G>,
     /// Ghost permission for verification
-    v_perm: Tracked<PointsTo<T>>,
+    tracked_perm: Tracked<PointsTo<T>>,
 }
 
 impl<'a, T, G: SpinGuardian> SpinLockGuard<'a, T, G>
 {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool{
-        self.lock.cell_id() == self.v_perm@.id()
+        self.lock.cell_id() == self.tracked_perm@.id()
     }
 
     /// The value stored in the lock.
     pub closed spec fn value(self) -> T {
-        *self.v_perm@.value()
+        *self.tracked_perm@.value()
     }
 
     /// The value stored in the lock. It is an alias of `Self::value`.
@@ -412,7 +412,7 @@ impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
     #[verus_spec(returns self.view())]
     fn deref(&self) -> &T {
         proof_decl! {
-            let tracked read_perm = self.v_perm.borrow();
+            let tracked read_perm = self.tracked_perm.borrow();
         }
         proof!{
             use_type_invariant(self);
@@ -438,7 +438,7 @@ impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
             use_type_invariant(&*self);
         }
         // unsafe { &mut *self.lock.inner.val.get() }
-        self.lock.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
+        self.lock.inner.val.borrow_mut(Tracked(&mut *self.tracked_perm))
     }
 }
 }
@@ -455,7 +455,7 @@ impl<'a, T /*:?Sized */, G: SpinGuardian> SpinLockGuard<'a, T, G> {
     #[verus_spec]
     pub fn drop(self) {
         proof! {use_type_invariant(&self);}
-        proof_with!(self.v_perm);
+        proof_with!(self.tracked_perm);
         self.lock.release_lock();
     }
 }

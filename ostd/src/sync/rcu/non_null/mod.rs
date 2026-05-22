@@ -187,7 +187,7 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
 pub struct BoxRef<'a, T> {
     inner: *mut T,
     _marker: PhantomData<&'a T>,
-    v_perm: Tracked<BoxPointsToRef<'a, T>>,
+    tracked_perm: Tracked<BoxPointsToRef<'a, T>>,
 }
 
 impl<'a, T> BoxRef<'a, T> {
@@ -195,8 +195,8 @@ impl<'a, T> BoxRef<'a, T> {
     spec fn type_inv(self) -> bool {
         &&& self.inner@.addr != 0
         &&& self.inner@.addr as int % vstd::layout::align_of::<T>() as int == 0
-        &&& self.v_perm@@.ptr() == self.inner
-        &&& self.v_perm@.inv()
+        &&& self.tracked_perm@@.ptr() == self.inner
+        &&& self.tracked_perm@.inv()
     }
 
     pub closed spec fn ptr(self) -> *mut T {
@@ -204,7 +204,7 @@ impl<'a, T> BoxRef<'a, T> {
     }
 
     pub closed spec fn value(self) -> T {
-        self.v_perm@@.value()
+        self.tracked_perm@@.value()
     }
 }
 
@@ -237,7 +237,7 @@ impl<'a, T> BoxRef<'a, T> {
 
         // The function body of ptr_ref is exactly the same as `unsafe { &*(self.inner) }`
         //unsafe { &*(self.inner) }
-        vstd::raw_ptr::ptr_ref(self.inner, Tracked(self.v_perm.borrow().tracked_borrow_points_to()))
+        vstd::raw_ptr::ptr_ref(self.inner, Tracked(self.tracked_perm.borrow().tracked_borrow_points_to()))
     }
 }
 
@@ -335,7 +335,7 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Box<T> {
         raw: NonNull<Self::Target>,
         perm: Tracked<Self::RefPermission>,
     ) -> Self::Ref {
-        BoxRef { inner: raw.as_ptr(), _marker: PhantomData, v_perm: perm }
+        BoxRef { inner: raw.as_ptr(), _marker: PhantomData, tracked_perm: perm }
     }
 
     fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
@@ -344,7 +344,7 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Box<T> {
             assume(ptr_ref.ptr().addr() % (1usize << Self::ALIGN_BITS) == 0);
         }
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
-        (unsafe { NonNull::new_unchecked(ptr_ref.inner) }, ptr_ref.v_perm)
+        (unsafe { NonNull::new_unchecked(ptr_ref.inner) }, ptr_ref.tracked_perm)
     }
 }
 

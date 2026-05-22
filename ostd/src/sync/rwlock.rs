@@ -181,12 +181,12 @@ pub struct RwLock<T  /* : ?Sized*/ , Guard /* = PreemptDisabled*/ > {
     lock: AtomicUsize<_, RwPerms<T>,_>,
     // val: UnsafeCell<T>,
     val: PCell<T>,
-    v_id: Ghost<RwId>,
+    ghost_id: Ghost<RwId>,
 }
 
 /// This invariant holds at any time, i.e. not violated during any method execution.
 closed spec fn wf(self) -> bool {
-    invariant on lock with (val, guard, v_id) is (v: usize, g: RwPerms<T>) {
+    invariant on lock with (val, guard, ghost_id) is (v: usize, g: RwPerms<T>) {
         // BITS VALUE
         let has_writer_bit: bool = (v & WRITER) != 0;
         let has_upgrade_bit: bool = (v & UPGRADEABLE_READER) != 0;
@@ -238,7 +238,7 @@ closed spec fn wf(self) -> bool {
         &&& 0 <= active_read_guards <= reader_bits <= total_reader_bits
         // The core invariant of `RwLock`: there are no simultaneous active writers and readers.
         &&& !(active_writer && (active_read_guards + if active_upgrade_guard { 1int } else { 0 }) > 0)
-        &&& g.core_token.id() == v_id@.core_token_id
+        &&& g.core_token.id() == ghost_id@.core_token_id
         &&& g.core_token.wf()
         &&& g.core_token.is_left() ==> {
             &&& !g.core_token.is_resource_owner()
@@ -246,38 +246,38 @@ closed spec fn wf(self) -> bool {
         }
         &&& g.core_token.is_right() ==> {
             let empty = g.core_token.resource_right();
-            &&& empty.id() == v_id@.frac_id
+            &&& empty.id() == ghost_id@.frac_id
             &&& g.core_token.frac() == 2
             &&& g.core_token.has_resource()
         }
         &&& g.read_retract_token.wf()
-        &&& g.read_retract_token.id() == v_id@.read_retract_token_id
+        &&& g.read_retract_token.id() == ghost_id@.read_retract_token_id
         &&& g.upread_retract_token is Some ==>
             {
                 let token = g.upread_retract_token->0;
                 &&& token.wf()
-                &&& token.id() == v_id@.upread_retract_token_id
+                &&& token.id() == ghost_id@.upread_retract_token_id
             }
         &&& g.upreader_guard_token is Some ==> {
             let token = g.upreader_guard_token->0;
-            wf_upgradeable_guard_token(v_id@.core_token_id, v_id@.frac_id, val.id(), token)
+            wf_upgradeable_guard_token(ghost_id@.core_token_id, ghost_id@.frac_id, val.id(), token)
         }
         &&& match g.read_guard_token {
             Sum::Left(token) => {
                 &&& token.wf()
-                &&& token.id() == v_id@.read_guard_token_id
+                &&& token.id() == ghost_id@.read_guard_token_id
                 &&& token.not_empty() ==> {
                     let resource = token.resource();
                     let read_half_cell_perm = resource.0;
                     let mode_knowledge = resource.1;
-                    &&& mode_knowledge.id() == v_id@.core_token_id
-                    &&& read_half_cell_perm.id() == v_id@.frac_id
+                    &&& mode_knowledge.id() == ghost_id@.core_token_id
+                    &&& read_half_cell_perm.id() == ghost_id@.frac_id
                     &&& read_half_cell_perm.resource().id() == val.id()
                     &&& read_half_cell_perm.frac() == 1
                 }
             },
             Sum::Right(empty) => {
-                &&& empty.id() == v_id@.read_guard_token_id
+                &&& empty.id() == ghost_id@.read_guard_token_id
             },
         }
 
@@ -323,19 +323,19 @@ impl<T, G> RwLock<T, G> {
     }
 
     pub closed spec fn core_token_id(self) -> Loc {
-        self.v_id@.core_token_id
+        self.ghost_id@.core_token_id
     }
 
     pub closed spec fn frac_id(self) -> Loc {
-        self.v_id@.frac_id
+        self.ghost_id@.frac_id
     }
 
     pub closed spec fn upread_retract_token_id(self) -> Loc {
-        self.v_id@.upread_retract_token_id
+        self.ghost_id@.upread_retract_token_id
     }
 
     pub closed spec fn read_guard_token_id(self) -> Loc {
-        self.v_id@.read_guard_token_id
+        self.ghost_id@.read_guard_token_id
     }
 
     /// Encapsulates the invariant described in the *Invariant* section of [`RwLock`].
@@ -380,7 +380,7 @@ impl<T, G> RwLock<T, G> {
         let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
             (read_half_cell_perm, left_token),
         );
-        let ghost v_id = RwId {
+        let ghost ghost_id = RwId {
             frac_id,
             core_token_id: core_token.id(),
             upread_retract_token_id: upread_retract_token.id(),
@@ -398,10 +398,10 @@ impl<T, G> RwLock<T, G> {
         Self {
             guard: PhantomData,
             //lock: AtomicUsize::new(0),
-            lock: AtomicUsize::new(Ghost((val, PhantomData, Ghost(v_id))), 0, Tracked(perms)),
+            lock: AtomicUsize::new(Ghost((val, PhantomData, Ghost(ghost_id))), 0, Tracked(perms)),
             //val: UnsafeCell::new(val),
             val: val,
-            v_id: Ghost(v_id),
+            ghost_id: Ghost(ghost_id),
         }
     }
 }
@@ -503,7 +503,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 RwLockReadGuard {
                     inner: self,
                     guard,
-                    v_token: Tracked(read_token.tracked_unwrap()),
+                    tracked_token: Tracked(read_token.tracked_unwrap()),
                 },
             )
         } else {
@@ -573,8 +573,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 RwLockWriteGuard {
                     inner: self,
                     guard,
-                    v_perm: Tracked(guard_perm.tracked_unwrap()),
-                    v_token: Tracked(guard_token.tracked_unwrap()),
+                    tracked_perm: Tracked(guard_perm.tracked_unwrap()),
+                    tracked_token: Tracked(guard_token.tracked_unwrap()),
                 },
             )
         } else {
@@ -617,7 +617,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 RwLockUpgradeableGuard {
                     inner: self,
                     guard,
-                    v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
+                    tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()),
                 },
             );
         } else if lock == WRITER {
@@ -718,7 +718,7 @@ unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> 
 pub struct RwLockReadGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
-    v_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
+    tracked_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
 }
 
 /*
@@ -732,20 +732,20 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockReadGuard<'_, T, G>
 impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        let resource = self.v_token@.resource();
+        let resource = self.tracked_token@.resource();
         let read_half_cell_perm = resource.0;
         let mode_knowledge = resource.1;
         &&& self.inner.core_token_id() == mode_knowledge.id()
         &&& self.inner.frac_id() == read_half_cell_perm.id()
         &&& self.inner.cell_id() == read_half_cell_perm.resource().id()
-        &&& self.v_token@.id() == self.inner.read_guard_token_id()
+        &&& self.tracked_token@.id() == self.inner.read_guard_token_id()
         &&& read_half_cell_perm.frac() == 1
-        &&& self.v_token@.frac() == 1
+        &&& self.tracked_token@.frac() == 1
     }
 
     /// The value stored in the lock.
     pub closed spec fn value(self) -> T {
-        *self.v_token@.resource().0.resource().value()
+        *self.tracked_token@.resource().0.resource().value()
     }
 
     /// The value stored in the lock. It is an alias of `Self::value`.
@@ -774,7 +774,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
-        self.inner.val.borrow(Tracked(self.v_token.borrow().borrow().0.borrow()))
+        self.inner.val.borrow(Tracked(self.tracked_token.borrow().borrow().0.borrow()))
     }
 }
 
@@ -797,7 +797,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
             lemma_consts_properties();
         }
         proof_decl! {
-            let tracked token = self.v_token.get();
+            let tracked token = self.tracked_token.get();
         }
         // self.inner.lock.fetch_sub(READER, Release);
         atomic_with_ghost!(
@@ -832,20 +832,20 @@ pub struct RwLockWriteGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
     /// Ghost permission for verification
-    v_perm: Tracked<PointsTo<T>>,
-    v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
+    tracked_perm: Tracked<PointsTo<T>>,
+    tracked_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
 impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool {
-        &&& self.inner.cell_id() == self.v_perm@.id()
-        &&& self.inner.core_token_id() == self.v_token@.id()
+        &&& self.inner.cell_id() == self.tracked_perm@.id()
+        &&& self.inner.core_token_id() == self.tracked_token@.id()
     }
 
     /// The value stored in the lock.
     pub closed spec fn value(self) -> T {
-        *self.v_perm@.value()
+        *self.tracked_perm@.value()
     }
 
     /// The value stored in the lock. It is an alias of `Self::value`.
@@ -881,7 +881,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
-        self.inner.val.borrow(Tracked(self.v_perm.borrow()))
+        self.inner.val.borrow(Tracked(self.tracked_perm.borrow()))
     }
 }
 
@@ -897,7 +897,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> 
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.inner.val.get() }
-        self.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
+        self.inner.val.borrow_mut(Tracked(&mut *self.tracked_perm))
     }
 }
 
@@ -917,8 +917,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
             lemma_consts_properties();
         }
         proof_decl! {
-            let tracked mut perm = self.v_perm.get();
-            let tracked token = self.v_token.get();
+            let tracked mut perm = self.tracked_perm.get();
+            let tracked token = self.tracked_token.get();
         }
         //self.inner.lock.fetch_and(!WRITER, Release);
         atomic_with_ghost!{
@@ -963,7 +963,7 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 pub struct RwLockUpgradeableGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
-    v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
+    tracked_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
 /*
@@ -980,13 +980,13 @@ impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             self.inner.core_token_id(),
             self.inner.frac_id(),
             self.inner.cell_id(),
-            self.v_token@,
+            self.tracked_token@,
         )
     }
 
     /// The value stored in the lock.
     pub closed spec fn value(self) -> T {
-        *self.v_token@.resource().resource().value()
+        *self.tracked_token@.resource().resource().value()
     }
 
     /// The value stored in the lock. It is an alias of `Self::value`.
@@ -1041,7 +1041,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         }
         let mut this = self;
         proof_decl! {
-            let tracked mut upread_guard_token = this.v_token.get();
+            let tracked mut upread_guard_token = this.tracked_token.get();
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
@@ -1107,8 +1107,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                 RwLockWriteGuard {
                     inner,
                     guard,
-                    v_perm: Tracked(write_perm.tracked_unwrap()),
-                    v_token: Tracked(write_guard_token.tracked_unwrap()),
+                    tracked_perm: Tracked(write_perm.tracked_unwrap()),
+                    tracked_token: Tracked(write_guard_token.tracked_unwrap()),
                 },
             )
         } else {
@@ -1116,7 +1116,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                 RwLockUpgradeableGuard {
                     inner: this.inner,
                     guard: this.guard,
-                    v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
+                    tracked_token: Tracked(err_upread_guard_token.tracked_unwrap()),
                 },
             )
         }
@@ -1134,7 +1134,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, 
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
-        self.inner.val.borrow(Tracked(self.v_token.borrow().tracked_borrow().borrow()))
+        self.inner.val.borrow(Tracked(self.tracked_token.borrow().tracked_borrow().borrow()))
     }
 }
 
@@ -1154,7 +1154,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
             lemma_consts_properties();
         }
         proof_decl!{
-            let tracked guard_token = self.v_token.get();
+            let tracked guard_token = self.tracked_token.get();
         }
         //self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
         atomic_with_ghost!(

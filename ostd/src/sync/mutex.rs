@@ -184,18 +184,18 @@ unsafe impl<T: /*?Sized + */Send> Sync for Mutex<T> {}
 #[verus_verify]
 pub struct MutexGuard<'a, T  /* : ?Sized */ > {
     mutex: &'a Mutex<T>,
-    v_perm: Tracked<PointsTo<T>>,
+    tracked_perm: Tracked<PointsTo<T>>,
 }
 
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        self.v_perm@.id() == self.mutex.cell_id()
+        self.tracked_perm@.id() == self.mutex.cell_id()
     }
 
     /// The value stored in the mutex.
     pub closed spec fn value(self) -> T {
-        *self.v_perm@.value()
+        *self.tracked_perm@.value()
     }
 
     /// The value stored in the mutex. It is an alias of `Self::value`.
@@ -224,7 +224,7 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     )]
     unsafe fn new(mutex: &'a Mutex<T>) -> (r: MutexGuard<'a, T>)
     {
-        MutexGuard { mutex, v_perm: Tracked(perm) }
+        MutexGuard { mutex, tracked_perm: Tracked(perm) }
     }
 }
 
@@ -238,7 +238,7 @@ impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
             use_type_invariant(self);
         }
         // unsafe { &*self.mutex.val.get() }
-        self.mutex.val.borrow(Tracked(self.v_perm.borrow()))
+        self.mutex.val.borrow(Tracked(self.tracked_perm.borrow()))
     }
 }
 
@@ -255,7 +255,7 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.mutex.val.get() }
-        self.mutex.val.borrow_mut(Tracked(&mut *self.v_perm))
+        self.mutex.val.borrow_mut(Tracked(&mut *self.tracked_perm))
     }
 }
 
@@ -271,7 +271,7 @@ impl<T: /* ?Sized*/ > MutexGuard<'_, T> {
     #[verus_spec]
     pub fn drop(self) {
         proof!{use_type_invariant(&self);}
-        proof_with!(self.v_perm);
+        proof_with!(self.tracked_perm);
         self.mutex.unlock();
     }
 }

@@ -145,11 +145,11 @@ pub struct RwMutex<T /*: ?Sized*/> {
     queue: WaitQueue,
     // val: UnsafeCell<T>,
     val: PCell<T>,
-    v_id: Ghost<RwId>,
+    ghost_id: Ghost<RwId>,
 }
 
 closed spec fn wf(self) -> bool {
-    invariant on lock with (val, v_id) is (v: usize, g: RwPerms<T>) {
+    invariant on lock with (val, ghost_id) is (v: usize, g: RwPerms<T>) {
         let has_writer_bit: bool = (v & WRITER) != 0;
         let has_upgrade_bit: bool = (v & UPGRADEABLE_READER) != 0;
         let has_max_reader_bit: bool = (v & MAX_READER) != 0;
@@ -182,7 +182,7 @@ closed spec fn wf(self) -> bool {
         &&& active_writer <==> has_writer_bit
         &&& 0 <= active_read_guards <= reader_bits <= total_reader_bits
         &&& !(active_writer && (active_read_guards + if active_upgrade_guard { 1int } else { 0 }) > 0)
-        &&& g.core_token.id() == v_id@.core_token_id
+        &&& g.core_token.id() == ghost_id@.core_token_id
         &&& g.core_token.wf()
         &&& g.core_token.is_left() ==> {
             &&& !g.core_token.is_resource_owner()
@@ -190,37 +190,37 @@ closed spec fn wf(self) -> bool {
         }
         &&& g.core_token.is_right() ==> {
             let empty = g.core_token.resource_right();
-            &&& empty.id() == v_id@.frac_id
+            &&& empty.id() == ghost_id@.frac_id
             &&& g.core_token.frac() == 2
             &&& g.core_token.has_resource()
         }
         &&& g.read_retract_token.wf()
-        &&& g.read_retract_token.id() == v_id@.read_retract_token_id
+        &&& g.read_retract_token.id() == ghost_id@.read_retract_token_id
         &&& g.upread_retract_token is Some ==> {
             let token = g.upread_retract_token->0;
             &&& token.wf()
-            &&& token.id() == v_id@.upread_retract_token_id
+            &&& token.id() == ghost_id@.upread_retract_token_id
         }
         &&& g.upreader_guard_token is Some ==> {
             let token = g.upreader_guard_token->0;
-            wf_upgradeable_guard_token(v_id@.core_token_id, v_id@.frac_id, val.id(), token)
+            wf_upgradeable_guard_token(ghost_id@.core_token_id, ghost_id@.frac_id, val.id(), token)
         }
         &&& match g.read_guard_token {
             Sum::Left(token) => {
                 &&& token.wf()
-                &&& token.id() == v_id@.read_guard_token_id
+                &&& token.id() == ghost_id@.read_guard_token_id
                 &&& token.not_empty() ==> {
                     let resource = token.resource();
                     let read_half_cell_perm = resource.0;
                     let mode_knowledge = resource.1;
-                    &&& mode_knowledge.id() == v_id@.core_token_id
-                    &&& read_half_cell_perm.id() == v_id@.frac_id
+                    &&& mode_knowledge.id() == ghost_id@.core_token_id
+                    &&& read_half_cell_perm.id() == ghost_id@.frac_id
                     &&& read_half_cell_perm.resource().id() == val.id()
                     &&& read_half_cell_perm.frac() == 1
                 }
             },
             Sum::Right(empty) => {
-                &&& empty.id() == v_id@.read_guard_token_id
+                &&& empty.id() == ghost_id@.read_guard_token_id
             },
         }
     }
@@ -254,19 +254,19 @@ impl<T> RwMutex<T> {
     }
 
     pub closed spec fn core_token_id(self) -> Loc {
-        self.v_id@.core_token_id
+        self.ghost_id@.core_token_id
     }
 
     pub closed spec fn frac_id(self) -> Loc {
-        self.v_id@.frac_id
+        self.ghost_id@.frac_id
     }
 
     pub closed spec fn upread_retract_token_id(self) -> Loc {
-        self.v_id@.upread_retract_token_id
+        self.ghost_id@.upread_retract_token_id
     }
 
     pub closed spec fn read_guard_token_id(self) -> Loc {
-        self.v_id@.read_guard_token_id
+        self.ghost_id@.read_guard_token_id
     }
 
     #[verifier::type_invariant]
@@ -309,7 +309,7 @@ impl<T> RwMutex<T> {
         let tracked read_guard_token = CountResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
             (read_half_cell_perm, left_token),
         );
-        let ghost v_id = RwId {
+        let ghost ghost_id = RwId {
             frac_id,
             core_token_id: core_token.id(),
             upread_retract_token_id: upread_retract_token.id(),
@@ -327,9 +327,9 @@ impl<T> RwMutex<T> {
         Self {
             // val: UnsafeCell::new(val),
             val,
-            lock: AtomicUsize::new(Ghost((val, Ghost(v_id))), 0, Tracked(perms)),
+            lock: AtomicUsize::new(Ghost((val, Ghost(ghost_id))), 0, Tracked(perms)),
             queue: WaitQueue::new(),
-            v_id: Ghost(v_id),
+            ghost_id: Ghost(ghost_id),
         }
     }
 }
@@ -411,7 +411,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             Some(
                 RwMutexReadGuard {
                     inner: self,
-                    v_token: Tracked(read_token.tracked_unwrap())
+                    tracked_token: Tracked(read_token.tracked_unwrap())
             })
         } else {
             atomic_with_ghost!(
@@ -469,7 +469,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             }
         ).is_ok() {
             Some(
-                RwMutexWriteGuard { inner: self , v_perm: Tracked(guard_perm.tracked_unwrap()), v_token: Tracked(guard_token.tracked_unwrap())}
+                RwMutexWriteGuard { inner: self , tracked_perm: Tracked(guard_perm.tracked_unwrap()), tracked_token: Tracked(guard_token.tracked_unwrap())}
             )
         } else {
             None
@@ -507,7 +507,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
 
         if lock == 0 {
             return Some(
-                RwMutexUpgradeableGuard { inner: self, v_token: Tracked(upgrade_guard_token.tracked_unwrap()) }
+                RwMutexUpgradeableGuard { inner: self, tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()) }
             );
         } else if lock == WRITER {
             atomic_with_ghost!(
@@ -589,25 +589,25 @@ unsafe impl<T:   /*: ?Sized +*/ Sync> Sync for RwMutexUpgradeableGuard<'_, T> {
 #[must_use]
 pub struct RwMutexReadGuard<'a, T  /*: ?Sized*/ > {
     inner: &'a RwMutex<T>,
-    v_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
+    tracked_token: Tracked<Count<ReadPerm<T>, MAX_READER_U64>>,
 }
 
 impl<'a, T> RwMutexReadGuard<'a, T> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        let resource = self.v_token@.resource();
+        let resource = self.tracked_token@.resource();
         let read_half_cell_perm = resource.0;
         let mode_knowledge = resource.1;
         &&& self.inner.core_token_id() == mode_knowledge.id()
         &&& self.inner.frac_id() == read_half_cell_perm.id()
         &&& self.inner.cell_id() == read_half_cell_perm.resource().id()
-        &&& self.v_token@.id() == self.inner.read_guard_token_id()
+        &&& self.tracked_token@.id() == self.inner.read_guard_token_id()
         &&& read_half_cell_perm.frac() == 1
-        &&& self.v_token@.frac() == 1
+        &&& self.tracked_token@.frac() == 1
     }
 
     pub closed spec fn value(self) -> T {
-        *self.v_token@.resource().0.resource().value()
+        *self.tracked_token@.resource().0.resource().value()
     }
 
     pub open spec fn view(self) -> T {
@@ -624,7 +624,7 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexReadGuard<'_, T> {
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
-        self.inner.val.borrow(Tracked(self.v_token.borrow().borrow().0.borrow()))
+        self.inner.val.borrow(Tracked(self.tracked_token.borrow().borrow().0.borrow()))
     }
 }
 
@@ -637,7 +637,7 @@ impl<T  /* : ?Sized */ > RwMutexReadGuard<'_, T> {
             lemma_consts_properties();
         }
         proof_decl! {
-            let tracked token = self.v_token.get();
+            let tracked token = self.tracked_token.get();
         }
         if atomic_with_ghost!(
             self.inner.lock => fetch_sub(READER);
@@ -666,19 +666,19 @@ impl<T  /* : ?Sized */ > RwMutexReadGuard<'_, T> {
 #[verifier::reject_recursive_types(T)]
 pub struct RwMutexWriteGuard<'a, T  /*: ?Sized*/ > {
     inner: &'a RwMutex<T>,
-    v_perm: Tracked<PointsTo<T>>,
-    v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
+    tracked_perm: Tracked<PointsTo<T>>,
+    tracked_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
 impl<'a, T> RwMutexWriteGuard<'a, T> {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool {
-        &&& self.inner.cell_id() == self.v_perm@.id()
-        &&& self.inner.core_token_id() == self.v_token@.id()
+        &&& self.inner.cell_id() == self.tracked_perm@.id()
+        &&& self.inner.core_token_id() == self.tracked_token@.id()
     }
 
     pub closed spec fn value(self) -> T {
-        *self.v_perm@.value()
+        *self.tracked_perm@.value()
     }
 
     pub open spec fn view(self) -> T {
@@ -695,7 +695,7 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexWriteGuard<'_, T> {
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
-        self.inner.val.borrow(Tracked(self.v_perm.borrow()))
+        self.inner.val.borrow(Tracked(self.tracked_perm.borrow()))
     }
 }
 
@@ -724,8 +724,8 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
             lemma_consts_properties();
         }
         proof_decl! {
-            let tracked perm = self.v_perm.get();
-            let tracked token = self.v_token.get();
+            let tracked perm = self.tracked_perm.get();
+            let tracked token = self.tracked_token.get();
             let tracked mut upgrade_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut err_perm: Option<PointsTo<T>> = None;
             let tracked mut err_write_guard_token: Option<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>> = None;
@@ -784,11 +784,11 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
             };
             self.inner.queue.wake_all();
             Ok(
-                RwMutexUpgradeableGuard { inner, v_token: Tracked(upgrade_guard_token.tracked_unwrap()) }
+                RwMutexUpgradeableGuard { inner, tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()) }
             )
         } else {
             Err(
-                RwMutexWriteGuard { inner, v_perm: Tracked(err_perm.tracked_unwrap()), v_token: Tracked(err_write_guard_token.tracked_unwrap()) }
+                RwMutexWriteGuard { inner, tracked_perm: Tracked(err_perm.tracked_unwrap()), tracked_token: Tracked(err_write_guard_token.tracked_unwrap()) }
             )
         }
     }
@@ -800,8 +800,8 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
             lemma_consts_properties();
         }
         proof_decl! {
-            let tracked perm = self.v_perm.get();
-            let tracked token = self.v_token.get();
+            let tracked perm = self.tracked_perm.get();
+            let tracked token = self.tracked_token.get();
         }
         atomic_with_ghost! {
             self.inner.lock => fetch_and(!WRITER);
@@ -849,7 +849,7 @@ impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
             use_type_invariant(&*self);
         }
         //unsafe { &mut *self.inner.val.get() }
-        self.inner.val.borrow_mut(Tracked(&mut *self.v_perm))
+        self.inner.val.borrow_mut(Tracked(&mut *self.tracked_perm))
     }
 }
 
@@ -858,7 +858,7 @@ impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
 #[verifier::reject_recursive_types(T)]
 pub struct RwMutexUpgradeableGuard<'a, T  /*: ?Sized*/ > {
     inner: &'a RwMutex<T>,
-    v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
+    tracked_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
 impl<'a, T  /*: ?Sized*/ > RwMutexUpgradeableGuard<'a, T> {
@@ -868,12 +868,12 @@ impl<'a, T  /*: ?Sized*/ > RwMutexUpgradeableGuard<'a, T> {
             self.inner.core_token_id(),
             self.inner.frac_id(),
             self.inner.cell_id(),
-            self.v_token@,
+            self.tracked_token@,
         )
     }
 
     pub closed spec fn value(self) -> T {
-        *self.v_token@.resource().resource().value()
+        *self.tracked_token@.resource().resource().value()
     }
 
     pub open spec fn view(self) -> T {
@@ -930,7 +930,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
             lemma_consts_properties();
         }
         proof_decl! {
-            let tracked upread_guard_token = self.v_token.get();
+            let tracked upread_guard_token = self.tracked_token.get();
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
@@ -986,11 +986,11 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
                 }
             );
             Ok(
-                RwMutexWriteGuard { inner, v_perm: Tracked(write_perm.tracked_unwrap()), v_token: Tracked(write_guard_token.tracked_unwrap()) }
+                RwMutexWriteGuard { inner, tracked_perm: Tracked(write_perm.tracked_unwrap()), tracked_token: Tracked(write_guard_token.tracked_unwrap()) }
             )
         } else {
             Err(
-                RwMutexUpgradeableGuard { inner: self.inner, v_token: Tracked(err_upread_guard_token.tracked_unwrap()) }
+                RwMutexUpgradeableGuard { inner: self.inner, tracked_token: Tracked(err_upread_guard_token.tracked_unwrap()) }
             )
         }
     }
@@ -1003,7 +1003,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
             lemma_consts_properties();
         }
         proof_decl! {
-            let tracked guard_token = self.v_token.get();
+            let tracked guard_token = self.tracked_token.get();
         }
         let res = atomic_with_ghost!(
             self.inner.lock => fetch_sub(UPGRADEABLE_READER);
@@ -1037,7 +1037,7 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexUpgradeableGuard<'_, T> {
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
-        self.inner.val.borrow(Tracked(self.v_token.borrow().tracked_borrow().borrow()))
+        self.inner.val.borrow(Tracked(self.tracked_token.borrow().tracked_borrow().borrow()))
     }
 }
 
