@@ -1153,7 +1153,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             }
             return Ok(());
         }
-        reader.skip(offset);
+        let reader = reader.skip(offset);
         proof {
             reader_own.advance(offset);
 
@@ -1224,7 +1224,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             }
             return Ok(());
         }
-        writer.skip(offset);
+        let writer = writer.skip(offset);
         proof {
             writer_own.advance(offset);
 
@@ -1409,7 +1409,7 @@ impl<
             }
             return Ok(());
         }
-        reader.skip(offset);
+        let reader = reader.skip(offset);
         proof {
             reader_own.advance(offset);
 
@@ -1493,7 +1493,7 @@ impl<
             }
             return Ok(());
         }
-        writer.skip(offset);
+        let writer = writer.skip(offset);
         proof {
             slice_writer_own.advance(offset);
 

@@ -177,8 +177,7 @@ impl VmIo for IoMem {
         }
 
         let mut reader = self.reader();
-        reader.skip(offset);
-        reader.read_fallible(writer).map_err(|(e, _)| e)?;
+        reader.skip(offset).read_fallible(writer).map_err(|(e, _)| e)?;
         debug_assert!(!writer.has_avail());
 
         Ok(())
@@ -195,8 +194,7 @@ impl VmIo for IoMem {
         }
 
         let mut writer = self.writer();
-        writer.skip(offset);
-        writer.write_fallible(reader).map_err(|(e, _)| e)?;
+        writer.skip(offset).write_fallible(reader).map_err(|(e, _)| e)?;
         debug_assert!(!reader.has_remain());
 
         Ok(())
@@ -206,14 +204,12 @@ impl VmIo for IoMem {
 impl VmIoOnce for IoMem {
     fn read_once<T: PodOnce>(&self, offset: usize) -> Result<T> {
         let mut reader = self.reader();
-        reader.skip(offset);
-        reader.read_once()
+        reader.skip(offset).read_once()
     }
 
     fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()> {
         let mut writer = self.writer();
-        writer.skip(offset);
-        writer.write_once(new_val)
+        writer.skip(offset).write_once(new_val)
     }
 }
 

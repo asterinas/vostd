@@ -622,7 +622,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
             }
             return Ok(());
         }
-        reader.skip(offset);
+        let reader = reader.skip(offset);
         proof {
             reader_own.advance(offset);
             assert(reader_own.inv());
@@ -687,7 +687,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
             }
             return Ok(());
         }
-        writer.skip(offset);
+        let writer = writer.skip(offset);
         proof {
             writer_own.advance(offset);
 
@@ -730,8 +730,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIoOnce for DmaCoherent
     #[verifier::external_body]
     fn read_once<T: PodOnce>(&self, offset: usize) -> core::result::Result<T, Error> {
         let mut reader = self.reader();
-        reader.skip(offset);
-        reader.read_once()
+        reader.skip(offset).read_once()
     }
 
     #[verifier::external_body]
@@ -740,8 +739,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIoOnce for DmaCoherent
         Error,
     > {
         let mut writer = self.writer();
-        writer.skip(offset);
-        writer.write_once(new_val)
+        writer.skip(offset).write_once(new_val)
     }
 }
 

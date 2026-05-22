@@ -1610,20 +1610,21 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     /// # Panics
     ///
     /// If `nbytes` is greater than `self.remain()`, then the method panics.
-    #[verus_spec(
+    #[verus_spec(r =>
         requires
             old(self).inv(),
             nbytes <= old(self).remain_spec(),
         ensures
-            final(self).inv(),
-            final(self).cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            final(self).remain_spec() == old(self).remain_spec() - nbytes,
-            final(self).end == old(self).end,
-            final(self).ghost_id == old(self).ghost_id,
+            r.inv(),
+            r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
+            r.remain_spec() == old(self).remain_spec() - nbytes,
+            r.end == old(self).end,
+            r.ghost_id == old(self).ghost_id,
     )]
-    pub fn skip(&mut self, nbytes: usize) {
+    pub fn skip(&mut self, nbytes: usize) -> &mut Self {
         assert!(nbytes <= self.remain());
         self.cursor = self.cursor.wrapping_add(nbytes);
+        self
     }
 }
 
@@ -1696,20 +1697,21 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     /// # Panics
     ///
     /// If `nbytes` is greater than `self.avail()`, then the method panics.
-    #[verus_spec(
+    #[verus_spec(r =>
         requires
             old(self).inv(),
             nbytes <= old(self).avail_spec(),
         ensures
-            final(self).inv(),
-            final(self).cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            final(self).avail_spec() == old(self).avail_spec() - nbytes,
-            final(self).end == old(self).end,
-            final(self).ghost_id == old(self).ghost_id,
+            r.inv(),
+            r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
+            r.avail_spec() == old(self).avail_spec() - nbytes,
+            r.end == old(self).end,
+            r.ghost_id == old(self).ghost_id,
     )]
-    pub fn skip(&mut self, nbytes: usize) {
+    pub fn skip(&mut self, nbytes: usize) -> &mut Self {
         assert!(nbytes <= self.avail());
         self.cursor = self.cursor.wrapping_add(nbytes);
+        self
     }
 }
 

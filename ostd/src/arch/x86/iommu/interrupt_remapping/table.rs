@@ -69,15 +69,12 @@ impl IntRemappingTable {
         let offset = (index as usize) * size_of::<u128>();
         // Write a zero as the lower bits first to clear the present bit.
         let mut writer = self.segment.writer();
-        writer.skip(offset);
-        writer.write_once(&0u64).unwrap();
+        writer.skip(offset).write_once(&0u64).unwrap();
         // Write the upper bits first (which keeps the present bit unset)
         let mut writer = self.segment.writer();
-        writer.skip(offset + size_of::<u64>());
-        writer.write_once(&upper).unwrap();
+        writer.skip(offset + size_of::<u64>()).write_once(&upper).unwrap();
         let mut writer = self.segment.writer();
-        writer.skip(offset);
-        writer.write_once(&lower).unwrap();
+        writer.skip(offset).write_once(&lower).unwrap();
     }
 
     /// Encodes the value written into the Interrupt Remapping Table Register.
