@@ -34,7 +34,7 @@ use crate::mm::frame::{has_safe_slot, MetaSlot};
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
 use crate::specs::mm::frame::mapping::frame_to_index_spec;
-use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
@@ -116,6 +116,21 @@ pub axiom fn frame_from_in_use_embedded(
         !has_safe_slot(paddr) ==> res is None,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
+        // 2b: faithful axiom-strengthening. The exec `get_from_in_use`
+        // returns `Ok` only when the pre `ref_count` is a live SHARED
+        // count in `[1, REF_COUNT_MAX-1]` — `UNUSED` / `UNIQUE` / `0` /
+        // saturated all `Err` or `panic_diverge` — and the `Acquire`
+        // compare-exchange makes the slot's written metadata visible.
+        // So on `Some` the acquired slot is live (non-sentinel
+        // `ref_count`) with initialised storage. `get_from_in_use_success`
+        // does not surface this, and `MetaSlotOwner::inv` only gives
+        // `vtable_ptr.is_init()` for SHARED slots, not `storage`.
+        res is Some ==> {
+            let so = final(regions).slot_owners[frame_to_index_spec(paddr)];
+            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
+            &&& so.inner_perms.storage.is_init()
+        },
         // `from_in_use` only `inc_ref_count`s — it never touches the
         // slot-perm map, so the `slots` domain is preserved on *both*
         // branches (needed for `VmStore::inv`'s coverage clause).
@@ -181,6 +196,15 @@ pub axiom fn frame_drop_embedded(
             == old(regions).slot_owners[frame_to_index_spec(paddr)].usage,
         final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt
             == old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt,
+        // `ref_count == 1` ⟹ the torn-down slot has no page-table
+        // mappings. A mapping is itself a reference (see the doc
+        // comment above: `reference_count()` counts the mappings), so a
+        // mapped slot would have `ref_count >= 2`. Hence `paths_in_pt`
+        // is empty — same epistemic status as the `metaregion_sound`-
+        // preserves clause (sound to assert, reflecting real exec; not
+        // derivable from the incomplete `drop_pre` predicate alone).
+        old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() == 1
+            ==> final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty(),
         // `drop` never touches the free-list `in_list` field (the
         // decrement branch leaves it; `drop_last_in_place` preserves
         // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
@@ -258,6 +282,14 @@ pub(super) proof fn from_in_use_step(
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
+        // 2b: surface the acquired slot's liveness — see
+        // [`frame_from_in_use_embedded`].
+        res is Some ==> {
+            let so = final(regions).slot_owners[frame_to_index_spec(paddr)];
+            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
+            &&& so.inner_perms.storage.is_init()
+        },
         final(regions).slots =~= old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -319,6 +351,10 @@ pub(super) proof fn drop_step(
             == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].usage,
         final(regions).slot_owners[frame_to_index_spec(entry.paddr)].paths_in_pt
             == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].paths_in_pt,
+        // `ref_count == 1` ⟹ no mappings ⟹ empty `paths_in_pt` at the
+        // torn-down slot — see [`frame_drop_embedded`].
+        old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() == 1
+            ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)].paths_in_pt.is_empty(),
         // rc transition (mirrors `frame_drop_embedded` exactly).
         old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() == 1
             ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)]

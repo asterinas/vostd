@@ -453,11 +453,17 @@ impl<'a, 'rcu> VmStore<'rcu> {
     ///
     /// For an active head: `rc` is neither sentinel, equals
     /// `#handles + #mappings`, and the slot's metadata storage is
-    /// initialised (it is in use). From this, the residual refcount
+    /// initialised (it is in use).
+    ///
+    /// The exact equation is *Frame-scoped*. The residual refcount
     /// obligation of `drop_pre` (`rc>0`, `rc<=MAX`,
-    /// `rc==1 ==> storage.is_init()`) is fully derivable for any
-    /// `FrameEntry`, collapsing `op_pre[FrameDrop]` to mere
-    /// id-existence (full #4).
+    /// `rc==1 ==> storage.is_init()`) is instead discharged for *any*
+    /// `FrameEntry` — regardless of slot `usage` — by the separate,
+    /// usage-independent **handle clause** (`handle_count > 0 ⟹` live
+    /// non-sentinel `rc ≥ #handles` with initialised storage).
+    /// `from_in_use` can legitimately hand out a handle on a non-Frame
+    /// slot, so this is what keeps `op_pre[FrameDrop]` collapsed to
+    /// mere id-existence (full #4).
     ///
     /// **Why split from `structural_inv`:** the equation references
     /// *both* `self.frames` (via `handle_count`) *and*
@@ -472,14 +478,31 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // so they belong in `accounting_inv` not `structural_inv` —
         // preserving the 5.5a split).
         //
-        // **Handles imply Frame usage.** A `FrameEntry` is created
-        // only by `from_unused` (sets `usage==Frame` post) or
-        // `from_in_use` (which now requires pre `usage==Frame`);
-        // usage is preserved by every op thereafter.
-        &&& forall|fid: FrameId|
-                #[trigger] self.frames.dom().contains(fid)
-                    ==> self.regions.slot_owners[frame_to_index_spec(self.frames[fid].paddr)]
-                            .usage == PageUsage::Frame
+        // **Handle ⟹ live, initialised slot** (usage-independent;
+        // Stage 5 / 2b). Every outstanding `Frame` handle is a genuine
+        // reference, so a slot with `handle_count > 0` has a live,
+        // non-sentinel `ref_count` of at least that many, and
+        // initialised metadata storage. This holds for *any* `usage`:
+        // `from_in_use` can legitimately acquire a handle on a
+        // page-table / MMIO slot — upstream `from_in_use` lives on
+        // `Frame<dyn AnyFrameMeta>` and never inspects `usage` — which
+        // is why the old "handles imply Frame usage" clause was
+        // dropped. This clause alone discharges `drop_pre` for *any*
+        // `FrameEntry`, keeping `op_pre[FrameDrop]` collapsed to mere
+        // id-existence (full #4) without a `usage` precondition on
+        // `FrameFromInUse`.
+        &&& forall|idx: usize|
+                #![trigger self.regions.slot_owners[idx]]
+                idx < max_meta_slots()
+                && handle_count(self.frames, idx) > 0
+                    ==> {
+                    let so = self.regions.slot_owners[idx];
+                    let rc = so.inner_perms.ref_count.value();
+                    &&& rc != REF_COUNT_UNUSED
+                    &&& rc != REF_COUNT_UNIQUE
+                    &&& rc >= handle_count(self.frames, idx)
+                    &&& so.inner_perms.storage.is_init()
+                }
         // **UNUSED ⟹ no users.** A live PTE bumps `rc`, so reaching
         // `UNUSED` requires `paths_in_pt.is_empty()`; similarly a
         // handle bumps `rc` so reaching `UNUSED` requires
@@ -657,23 +680,7 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             && s.vm_ios[source].is_kernel_reader()
             && s.vm_ios[dest].is_kernel_writer(),
         Op::FrameFromUnused { paddr: _ } => true,
-        // **Tightened in Stage 5.5c:** `from_in_use` must name a Frame
-        // slot (semantically a precondition anyway — calling it on a
-        // PT-node or MMIO paddr would create a `Frame` handle to a
-        // non-Frame slot, breaking the embedding's "handles imply
-        // Frame usage" invariant and unsafe at runtime). For `has_safe_slot`
-        // false the axiom returns `None` regardless, so the precondition
-        // is conditional.
-        Op::FrameFromInUse { paddr } =>
-            has_safe_slot(paddr)
-                ==> s.regions.slot_owners[frame_to_index_spec(paddr)].usage
-                        == PageUsage::Frame,
-        // #4 RESOLVED: with the Stage-5 accounting invariant in
-        // `VmStore::inv`, `drop_pre` is fully derivable for any
-        // `FrameEntry`'s slot — a handle implies the slot is an active
-        // head (H≥1), so the equation gives `rc≥1`, `rc≤MAX`,
-        // `storage.is_init`, and the structural coverage clauses give
-        // the rest. `op_pre[FrameDrop]` collapses to mere id-existence.
+        Op::FrameFromInUse { paddr: _ } => true,
         Op::FrameDrop { fid } => s.frames.dom().contains(fid),
     }
 }
@@ -955,8 +962,8 @@ pub proof fn step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
 /// (the changed-slots clause) and left `frames` untouched.
 ///
 /// Under those two facts every slot an accounting clause cares about is
-/// provably *unchanged*: a slot a `FrameEntry` points at, a Frame-usage
-/// slot, and a non-UNUSED slot each contradict one hypothesis of the
+/// provably *unchanged*: a slot carrying a handle, a Frame-usage slot,
+/// and a non-UNUSED slot each contradict one hypothesis of the
 /// `UNUSED → non-UNUSED, non-Frame` transition, so the old clause
 /// carries verbatim.
 ///
@@ -980,22 +987,23 @@ proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(
     ensures
         s_new.accounting_inv(),
 {
-    // Clause 1 — handles ⟹ Frame usage. The slot a live handle points
-    // at cannot have transitioned: a transitioned slot was pre-UNUSED,
-    // but a pre-UNUSED slot has `handle_count == 0` (old clause 2),
-    // while this slot carries the handle `fid`, so `handle_count >= 1`.
-    assert forall|fid: FrameId|
-        #[trigger] s_new.frames.dom().contains(fid) implies
-        s_new.regions.slot_owners[frame_to_index_spec(s_new.frames[fid].paddr)]
-            .usage == PageUsage::Frame by {
-        let idx = frame_to_index_spec(s_old.frames[fid].paddr);
-        assert(s_old.frames.dom().contains(fid));
-        assert(has_safe_slot(s_old.frames[fid].paddr));
-        assert(idx < max_meta_slots());
-        // `handle_count(s_old.frames, idx) >= 1` — the handle `fid`.
-        lemma_handle_count_insert_fresh(
-            s_old.frames.remove(fid), fid, s_old.frames[fid], idx);
-        assert(s_old.frames =~= s_old.frames.remove(fid).insert(fid, s_old.frames[fid]));
+    // Handle clause — handle ⟹ live, initialised slot. A slot carrying
+    // a handle in `s_new` cannot have transitioned: a transitioned slot
+    // was pre-UNUSED, but a pre-UNUSED slot has `handle_count == 0`
+    // (old clause 2). So the slot is unchanged and the old handle
+    // clause carries.
+    assert forall|idx: usize|
+        #![trigger s_new.regions.slot_owners[idx]]
+        idx < max_meta_slots()
+        && handle_count(s_new.frames, idx) > 0
+            implies {
+                let so = s_new.regions.slot_owners[idx];
+                let rc = so.inner_perms.ref_count.value();
+                &&& rc != REF_COUNT_UNUSED
+                &&& rc != REF_COUNT_UNIQUE
+                &&& rc >= handle_count(s_new.frames, idx)
+                &&& so.inner_perms.storage.is_init()
+            } by {
         if s_new.regions.slot_owners[idx] != s_old.regions.slot_owners[idx] {
             // changed ⟹ pre-UNUSED ⟹ (old clause 2) handle_count == 0.
             assert(s_old.regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -1003,7 +1011,7 @@ proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(
             assert(handle_count(s_old.frames, idx) == 0);
             assert(false);
         }
-        assert(frame_to_index_spec(s_new.frames[fid].paddr) == idx);
+        assert(s_new.regions.slot_owners[idx] == s_old.regions.slot_owners[idx]);
     };
     // Clause 2 — UNUSED ⟹ no users. An UNUSED slot in `s_new` is
     // unchanged (a transitioned slot is non-UNUSED in `s_new`).
@@ -1334,31 +1342,33 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
             assert(handle_count(old_frames, target_idx) == 0);
             assert(old_regions.slot_owners[target_idx].paths_in_pt.is_empty());
 
-            // 5.5c new clause: "Handles ⟹ Frame usage". For old fids,
-            // their idx != target (else pre would have a handle at an
-            // UNUSED slot, violating old UNUSED clause). For the new id:
-            // post usage(target)==Frame from reparked_spec.
-            assert forall|fid: FrameId|
-                #[trigger] s.frames.dom().contains(fid) implies
-                s.regions.slot_owners[frame_to_index_spec(s.frames[fid].paddr)]
-                    .usage == PageUsage::Frame by {
-                let ghost fid_idx = frame_to_index_spec(s.frames[fid].paddr);
-                if fid == id {
-                    assert(fid_idx == target_idx);
+            // Handle clause: handle ⟹ live, initialised slot. The new
+            // handle `id` lands on `target_idx` — post `rc == 1`,
+            // `storage.is_init` (`get_from_unused_inner_perms_spec`,
+            // `as_unique == false`), and pre `handle_count == 0` so
+            // post `handle_count == 1`. Every other slot and its
+            // handle-count are unchanged, so the old handle clause
+            // carries.
+            assert forall|idx: usize|
+                #![trigger s.regions.slot_owners[idx]]
+                idx < max_meta_slots()
+                && handle_count(s.frames, idx) > 0
+                    implies {
+                        let so = s.regions.slot_owners[idx];
+                        let rc = so.inner_perms.ref_count.value();
+                        &&& rc != REF_COUNT_UNUSED
+                        &&& rc != REF_COUNT_UNIQUE
+                        &&& rc >= handle_count(s.frames, idx)
+                        &&& so.inner_perms.storage.is_init()
+                    } by {
+                lemma_handle_count_insert_fresh(old_frames, id, entry, idx);
+                if idx == target_idx {
+                    assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
+                        == REF_COUNT_UNUSED);
+                    assert(handle_count(old_frames, idx) == 0);
+                    assert(handle_count(s.frames, idx) == 1);
                 } else {
-                    assert(old_frames.dom().contains(fid));
-                    assert(s.frames[fid] == old_frames[fid]);
-                    if fid_idx == target_idx {
-                        // Contradiction: pre handle_count(target)==0.
-                        lemma_handle_count_insert_fresh(
-                            old_frames.remove(fid), fid,
-                            old_frames[fid], target_idx);
-                        assert(old_frames =~= old_frames.remove(fid)
-                            .insert(fid, old_frames[fid]));
-                        assert(handle_count(old_frames, target_idx) >= 1);
-                    }
-                    assert(s.regions.slot_owners[fid_idx]
-                        == old_regions.slot_owners[fid_idx]);
+                    assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
                 }
             };
 
@@ -1440,14 +1450,7 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
 }
 
 proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
-    requires
-        old(s).inv(),
-        // Tightened in Stage 5.5c (see op_pre[FrameFromInUse]):
-        // creating a Frame handle requires the target slot to already
-        // be `usage == Frame`.
-        has_safe_slot(paddr)
-            ==> old(s).regions.slot_owners[frame_to_index_spec(paddr)].usage
-                    == PageUsage::Frame,
+    requires old(s).inv()
     ensures final(s).inv()
 {
     // See `step_frame_from_unused`: `op_pre` is `true` (#3b resolved);
@@ -1469,25 +1472,35 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
             s.insert_frame(id, entry);
             assert(s.frames[id].paddr == paddr);
 
-            // 5.5c new clause: "Handles ⟹ Frame usage". For id at
-            // target: usage(target)==Frame from op_pre's tightening
-            // (preserved by axiom). Old fids: usage==Frame from old
-            // clause 1, preserved (slot unchanged at non-target; for
-            // target, pre rc>0 → not UNUSED → usage preserved).
-            assert forall|fid: FrameId|
-                #[trigger] s.frames.dom().contains(fid) implies
-                s.regions.slot_owners[frame_to_index_spec(s.frames[fid].paddr)]
-                    .usage == PageUsage::Frame by {
-                let ghost fid_idx = frame_to_index_spec(s.frames[fid].paddr);
-                if fid == id {
-                    assert(fid_idx == target_idx);
-                } else {
-                    assert(old_frames.dom().contains(fid));
-                    assert(s.frames[fid] == old_frames[fid]);
-                    if fid_idx != target_idx {
-                        assert(s.regions.slot_owners[fid_idx]
-                            == old_regions.slot_owners[fid_idx]);
+            // Handle clause: handle ⟹ live, initialised slot. The new
+            // handle `id` lands on `target_idx`; the strengthened
+            // `from_in_use` axiom surfaces post `rc ∉ {UNUSED, UNIQUE}`
+            // and `storage.is_init` there, and `rc >= handle_count`
+            // carries because `rc` and `handle_count` both step by +1.
+            // Every other slot and its handle-count are unchanged.
+            assert forall|idx: usize|
+                #![trigger s.regions.slot_owners[idx]]
+                idx < max_meta_slots()
+                && handle_count(s.frames, idx) > 0
+                    implies {
+                        let so = s.regions.slot_owners[idx];
+                        let rc = so.inner_perms.ref_count.value();
+                        &&& rc != REF_COUNT_UNUSED
+                        &&& rc != REF_COUNT_UNIQUE
+                        &&& rc >= handle_count(s.frames, idx)
+                        &&& so.inner_perms.storage.is_init()
+                    } by {
+                lemma_handle_count_insert_fresh(old_frames, id, entry, idx);
+                if idx == target_idx {
+                    // pre `rc >= handle_count` (old handle clause, or
+                    // vacuous when pre `handle_count == 0`); `rc` and
+                    // `handle_count` then both step by +1.
+                    if handle_count(old_frames, idx) > 0 {
+                        assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
+                            >= handle_count(old_frames, idx));
                     }
+                } else {
+                    assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
                 }
             };
 
@@ -1545,12 +1558,11 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
                 } by {
                     lemma_handle_count_insert_fresh(old_frames, id, entry, idx);
                     if idx == target_idx {
-                        // Pre usage(target)==Frame (from op_pre 5.5c).
-                        // Pre rc != UNUSED (from get_from_in_use_success
-                        // success post rc = pre + 1; pre rc!=UNUSED via
-                        // the axiom's inv-respecting transition). Old
-                        // clause 3 fires ⟹ pre active head ⟹ old
-                        // accounting eqn fires.
+                        // Pre usage(target)==Frame: `get_from_in_use`
+                        // preserves `usage`, and the clause antecedent
+                        // gives post `usage == Frame`. Old clause 3
+                        // then fires ⟹ pre active head ⟹ old accounting
+                        // equation fires.
                         assert(old_regions.slot_owners[idx].usage == PageUsage::Frame);
                     } else {
                         assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
@@ -1572,24 +1584,24 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     // Derive the full `frame::drop_pre` from `VmStore::inv` alone (#4
     // fully resolved). The structural coverage clauses give
     // `slots.contains_key`, `raw_count == 0`, `in_list == 0`. The
-    // accounting clause fires at `idx` because fid ∈ frames ⟹ H≥1 ⟹
-    // active head; the equation then gives `rc != UNUSED`, `rc != UNIQUE`,
-    // `rc == H+P ≥ 1`, `rc <= MAX` (via the forbidden-zone exclusion in
-    // `MetaSlotOwner::inv`), and `storage.is_init` (last-ref premise).
+    // usage-independent **handle clause** of `accounting_inv` fires at
+    // `idx_p` (fid ∈ frames ⟹ handle_count ≥ 1): it gives
+    // `rc ∉ {UNUSED, UNIQUE}`, `rc ≥ handle_count ≥ 1`, and
+    // `storage.is_init`; `rc <= MAX` then follows from the
+    // forbidden-zone exclusion in `MetaSlotOwner::inv`. No `usage`
+    // assumption is needed — the handle clause holds for any slot.
     let ghost p = s.frames[fid].paddr;
     assert(has_safe_slot(p));
     s.regions.inv_implies_correct_addr(p);
     let ghost idx_p = frame_to_index_spec(p);
-    // fid ∈ frames ⟹ usage(idx_p)==Frame via accounting_inv's
-    // "handles imply Frame usage" clause.
-    assert(s.regions.slot_owners[idx_p].usage == PageUsage::Frame);
+    assert(idx_p < max_meta_slots());
     // fid ∈ frames ⟹ handle_count(s.frames, idx_p) ≥ 1: filter
     // applied to s.frames.dom().contains(fid) with predicate true.
     assert(s.frames.dom().filter(
         |gid: FrameId| frame_to_index_spec(s.frames[gid].paddr) == idx_p)
         .contains(fid));
     assert(handle_count(s.frames, idx_p) >= 1);
-    // Active head ⇒ accounting clause fires.
+    // Handle clause ⇒ drop_pre.
     assert(frame::drop_pre(s.regions, p));
     let ghost target_idx = frame_to_index_spec(p);
     let ghost old_frames = s.frames;
@@ -1599,19 +1611,33 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
 
     // Discharge accounting_inv on the post-drop state.
 
-    // 5.5c new clause: "Handles ⟹ Frame usage". For remaining fids
-    // (fid removed): from old clause 1, usage preserved. drop_step
-    // preserves usage at target_idx and slot_owner at others.
-    assert forall|fid2: FrameId|
-        #[trigger] s.frames.dom().contains(fid2) implies
-        s.regions.slot_owners[frame_to_index_spec(s.frames[fid2].paddr)]
-            .usage == PageUsage::Frame by {
-        let ghost fid2_idx = frame_to_index_spec(s.frames[fid2].paddr);
-        assert(old_frames.dom().contains(fid2));
-        assert(s.frames[fid2] == old_frames[fid2]);
-        if fid2_idx != target_idx {
-            assert(s.regions.slot_owners[fid2_idx]
-                == old_regions.slot_owners[fid2_idx]);
+    // Handle clause: handle ⟹ live, initialised slot. For idx ≠ target,
+    // slot and handle-count are unchanged. For target: a *remaining*
+    // handle (post `handle_count > 0`) means pre `handle_count >= 2`,
+    // so pre `rc >= 2 > 1` (old handle clause) and `drop_step` took the
+    // decrement branch — post `rc = pre rc - 1` stays non-sentinel,
+    // `>= post handle_count`, with storage preserved.
+    assert forall|idx: usize|
+        #![trigger s.regions.slot_owners[idx]]
+        idx < max_meta_slots()
+        && handle_count(s.frames, idx) > 0
+            implies {
+                let so = s.regions.slot_owners[idx];
+                let rc = so.inner_perms.ref_count.value();
+                &&& rc != REF_COUNT_UNUSED
+                &&& rc != REF_COUNT_UNIQUE
+                &&& rc >= handle_count(s.frames, idx)
+                &&& so.inner_perms.storage.is_init()
+            } by {
+        lemma_handle_count_remove(old_frames, fid, idx);
+        if idx == target_idx {
+            // post handle_count > 0 ⟹ pre handle_count >= 2.
+            assert(handle_count(old_frames, idx) >= 2);
+            // old handle clause ⟹ pre rc >= pre handle_count >= 2 > 1.
+            assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
+                >= handle_count(old_frames, idx));
+        } else {
+            assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
         }
     };
 
@@ -1628,14 +1654,14 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
                 && s.regions.slot_owners[idx].paths_in_pt.is_empty() by {
         lemma_handle_count_remove(old_frames, fid, idx);
         if idx == target_idx {
-            // Post rc=UNUSED ⟹ pre rc was 1 (drop_step rc transition).
+            // Post rc==UNUSED ⟹ pre rc was 1 (drop_step rc transition).
             assert(old_regions.slot_owners[idx].inner_perms.ref_count.value() == 1);
-            // Old accounting at target_idx: pre H + pre P == 1, pre H >= 1
-            // (fid contributed) ⟹ pre H == 1, pre P == 0.
+            // Old handle clause: pre rc (== 1) >= pre handle_count, and
+            // `fid` contributes ⟹ pre handle_count == 1 ⟹ post == 0.
             assert(handle_count(old_frames, idx) == 1);
             assert(handle_count(s.frames, idx) == 0);
-            assert(s.regions.slot_owners[idx].paths_in_pt
-                == old_regions.slot_owners[idx].paths_in_pt);
+            // pre rc == 1 ⟹ `drop_step` leaves `paths_in_pt` empty.
+            assert(s.regions.slot_owners[idx].paths_in_pt.is_empty());
         } else {
             assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
         }
@@ -1684,8 +1710,8 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
             lemma_handle_count_remove(old_frames, fid, idx);
             if idx == target_idx {
                 // Pre fid contributes ⇒ pre H >= 1 ⇒ pre active head.
-                // Pre `usage == Frame` from accounting_inv's
-                // "handles imply Frame usage" clause (Stage 5.5c).
+                // Pre `usage == Frame`: `drop_step` preserves `usage`,
+                // and the clause antecedent gives post `usage == Frame`.
                 assert(old_regions.slot_owners[idx].usage == PageUsage::Frame);
                 assert(handle_count(old_frames, idx) > 0);
                 let ghost pre_rc = old_regions.slot_owners[idx]
