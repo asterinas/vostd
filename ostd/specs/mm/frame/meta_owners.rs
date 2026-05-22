@@ -252,42 +252,23 @@ pub tracked struct MetaSlotOwner {
 
 impl Inv for MetaSlotOwner {
     open spec fn inv(self) -> bool {
-        // FUTURE (main-inv strengthening, deferred 4-point cascade):
-        //
-        //   &&& self.paths_in_pt.is_empty()           // here, in the UNUSED branch
-        //
-        // Universally true (a live PTE mapping bumps `ref_count`, so
-        // reaching `UNUSED` requires no outstanding mappings) and the
-        // dual of the `paths_in_pt.finite()` clause below; would absorb
-        // 2 of the embedding's `STAGE-5 SCAFFOLD (assume)` markers in
-        // [`crate::specs::mm::embedding::mod`] for free.
-        //
-        // Cost: 4 call-site obligations to discharge —
-        //   1. `Frame::drop` rc==1 branch (mod.rs:902):
-        //      `assert(MetaSlot::drop_last_in_place_safety_cond(slot_own))`
-        //      needs `slot_own.paths_in_pt.is_empty()`. Follows
-        //      semantically from "rc==1 ⟹ no PTE-side reference"
-        //      because every PTE bumps rc, but is not currently
-        //      surfaced as a derivable fact at that site.
-        //   2-3. `UniqueFrame::drop` (unique.rs:381, 525): same
-        //      argument — UniqueFrame holds the sole reference, so
-        //      paths must be empty pre-teardown.
-        //   4. Huge-page split (page_table/node/entry.rs:1139): the
-        //      sub-page Child::Frame::invariants assertion needs the
-        //      strengthened `MetaSlotOwner::inv` to hold for newly-
-        //      installed sub-page slots.
-        //
-        // Implementation path: add `paths_in_pt.is_empty()` here AND
-        // to `drop_last_in_place_safety_cond` in meta_specs.rs; then
-        // discharge each of the 4 cascade obligations (likely needs a
-        // small lemma "rc-based reference-count accounts for PTEs"
-        // surfaced at the kernel-spec level). See the audit at the
-        // end of session — this is its own focused effort.
+        // A managed slot at `REF_COUNT_UNUSED` is free — it has no live
+        // PTE mapping, since a mapping is itself a reference that would
+        // keep the count above the unused sentinel. Hence `paths_in_pt`
+        // is empty. Maintained by the teardown path: the sole transition
+        // *into* `UNUSED` is `drop_last_in_place`, whose
+        // `drop_last_in_place_safety_cond` requires an empty
+        // `paths_in_pt`. MMIO slots are excluded — they are not
+        // ref-counted as ordinary frames (an MMIO region may sit at the
+        // `UNUSED` sentinel while still mapped), exactly as the embedding
+        // accounting and the huge-page split loop invariant scope out
+        // `usage == MMIO`.
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNUSED ==> {
             &&& self.raw_count == 0
             &&& self.inner_perms.storage.is_uninit()
             &&& self.inner_perms.vtable_ptr.is_uninit()
             &&& self.inner_perms.in_list.value() == 0
+            &&& (self.usage != PageUsage::MMIO ==> self.paths_in_pt.is_empty())
         }
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNIQUE ==> {
             &&& self.inner_perms.vtable_ptr.is_init()

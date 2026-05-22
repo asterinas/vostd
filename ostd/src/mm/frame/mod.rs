@@ -170,6 +170,13 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
             &&& slot_own.inner_perms.storage.is_init()
             &&& slot_own.inner_perms.in_list.value() == 0
+            // Strengthened `MetaSlotOwner::inv` UNUSED branch: the
+            // last-ref teardown sets the slot to `REF_COUNT_UNUSED`,
+            // which now demands an empty `paths_in_pt`. Sound: at
+            // `ref_count == 1` the `Frame` being dropped is the sole
+            // reference, so there is no live PTE mapping (a mapping
+            // would be a further reference, forcing `ref_count >= 2`).
+            &&& slot_own.paths_in_pt.is_empty()
         }
     }
 

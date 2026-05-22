@@ -167,6 +167,14 @@ impl MetaSlot {
         &&& owner.inner_perms.storage.is_init()
         &&& owner.inner_perms.in_list.value() == 0
         &&& owner.raw_count == 0
+        // The slot is torn down to `REF_COUNT_UNUSED`; the strengthened
+        // `MetaSlotOwner::inv` UNUSED branch requires an empty
+        // `paths_in_pt`, and `drop_last_in_place` does not touch
+        // `paths_in_pt`, so it must already be empty. Sound: a slot at
+        // the teardown point has no live PTE mapping (a mapping is a
+        // reference — it would keep the count above the teardown
+        // threshold).
+        &&& owner.paths_in_pt.is_empty()
     }
 
     pub open spec fn inc_ref_count_spec(&self, pre: MetaSlotModel) -> (MetaSlotModel)

@@ -132,6 +132,12 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 // `(REF_COUNT_MAX, REF_COUNT_UNIQUE)` zone.
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
+                // A segment holds its frames as a unit; they are not
+                // mapped into any page table, so the slot carries no PTE
+                // paths. Needed to discharge `Frame::drop`'s strengthened
+                // precondition (`ref_count == 1 ==> paths_in_pt empty`)
+                // in the per-frame teardown loop.
+                &&& regions.slot_owners[idx].paths_in_pt.is_empty()
             }
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
@@ -159,6 +165,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
+                &&& regions.slot_owners[idx].paths_in_pt.is_empty()
             }),
     {
         // Trigger the forall at index `i`.

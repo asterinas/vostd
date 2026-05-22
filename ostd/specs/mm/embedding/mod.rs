@@ -504,11 +504,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
                     &&& so.inner_perms.storage.is_init()
                 }
         // **UNUSED ⟹ no users.** A live PTE bumps `rc`, so reaching
-        // `UNUSED` requires `paths_in_pt.is_empty()`; similarly a
-        // handle bumps `rc` so reaching `UNUSED` requires
-        // `handle_count == 0`. (Embedding-local form of the deferred
-        // main-inv strengthening — see the FUTURE note at
-        // `MetaSlotOwner::inv`.)
+        // `UNUSED` requires `paths_in_pt.is_empty()`.
         &&& forall|idx: usize|
                 #![trigger self.regions.slot_owners[idx]]
                 idx < max_meta_slots()

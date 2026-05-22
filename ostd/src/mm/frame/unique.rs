@@ -362,6 +362,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             owner.meta_perm.inner_perms.in_list.value() == 0,
             owner.meta_perm.inner_perms.storage.is_init(),
             owner.meta_perm.inner_perms.vtable_ptr.is_init(),
+            // The strengthened `MetaSlotOwner::inv` UNUSED branch
+            // requires an empty `paths_in_pt` post-teardown; a
+            // `UniqueFrame` is exclusively owned and so is never mapped,
+            // so its slot carries no PTE paths.
+            old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
         ensures
             final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
@@ -501,6 +506,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             owner.meta_perm.inner_perms.storage.is_init(),
             owner.meta_perm.inner_perms.vtable_ptr.is_init(),
             old(regions).inv(),
+            // The strengthened `MetaSlotOwner::inv` UNUSED branch
+            // requires an empty `paths_in_pt` post-teardown; a
+            // `UniqueFrame` is exclusively owned and so is never mapped,
+            // so its slot carries no PTE paths.
+            old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
         ensures
             final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
