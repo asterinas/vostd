@@ -3,7 +3,7 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{predicate::Predicate, prelude::*};
 use vstd_extra::array_ptr::{ArrayPtr, PointsToArray};
-use vstd_extra::external::AsRefSpec;
+use vstd_extra::external::convert::AsRefSpec;
 use vstd_extra::ownership::{Inv, OwnerOf};
 
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
@@ -12,7 +12,10 @@ use crate::{
     mm::{
         dma::{dma_type, Daddr, DmaType},
         frame::{segment::SegmentOwner, untyped::AnyUFrameMeta, AnyFrameMeta, Segment},
-        io::{VmIo, VmReader, VmWriter},
+        io::{
+            axiom_kernel_mem_view, FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader,
+            VmWriter,
+        },
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr, Paddr,
     },
@@ -123,7 +126,6 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
     }
 
     /// Returns the underlying `DmaStream`.
-    #[verus_spec(returns self.stream.as_ref_spec())]
     #[inline]
     pub fn stream(&self) -> &DmaStream<M> {
         self.stream.as_ref()
@@ -166,7 +168,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
     #[inline]
     #[verus_spec(r =>
         with
-            -> reader_perm: Tracked<Option<VmIoOwner<'a>>>,
+            -> reader_perm: Tracked<Option<VmIoOwner>>,
         requires
             self.inv(),
         ensures
@@ -184,7 +186,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
     )]
-    pub fn reader<'a>(&'a self) -> Result<VmReader<'a>, Error> where M: OwnerOf {
+    pub fn reader<'a>(&'a self) -> Result<VmReader<'a, Infallible>, Error> where M: OwnerOf {
         let inner = self.stream.as_ref().read_inner();
 
         if matches!(inner.direction, DmaDirection::ToDevice) {
@@ -203,7 +205,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 Some(_) => {
                     proof_decl! {
                         let ghost id: nat;
-                        let tracked mut reader_perm: VmIoOwner<'a>;
+                        let tracked mut reader_perm: VmIoOwner;
                     }
                     proof {
                         lemma_max_paddr_range();
@@ -237,12 +239,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                     VmReader::from_kernel_space(ptr, self.len)
                                 };
                                 proof {
-                                    let tracked inner_perm = inner.tracked_borrow();
-                                    let tracked owner = inner_perm.permission.borrow();
-                                    let tracked mem_view =
-                                        owner.segment_owner.borrow_kernel_mem_view(
-                                        inner@.data.segment,
-                                    );
+                                    let tracked mem_view = axiom_kernel_mem_view(range);
                                     reader_perm.mem_view = Some(VmIoMemView::ReadView(mem_view));
                                 }
                                 proof_with!(|= Tracked(Some(reader_perm)));
@@ -259,7 +256,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
     #[inline]
     #[verus_spec(r =>
         with
-            -> writer_perm: Tracked<Option<VmIoOwner<'a>>>,
+            -> writer_perm: Tracked<Option<VmIoOwner>>,
         requires
             self.inv(),
         ensures
@@ -276,7 +273,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
     )]
-    pub fn writer<'a>(&'a self) -> Result<VmWriter<'a>, Error> where M: OwnerOf {
+    pub fn writer<'a>(&'a self) -> Result<VmWriter<'a, Infallible>, Error> where M: OwnerOf {
         let inner = self.stream.as_ref().read_inner();
 
         if matches!(inner.direction, DmaDirection::FromDevice) {
@@ -295,7 +292,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 Some(_) => {
                     proof_decl! {
                         let ghost id: nat;
-                        let tracked mut writer_perm: VmIoOwner<'a>;
+                        let tracked mut writer_perm: VmIoOwner;
                     }
                     proof {
                         lemma_max_paddr_range();
@@ -329,12 +326,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                                     VmWriter::from_kernel_space(ptr, self.len)
                                 };
                                 proof {
-                                    let tracked inner_perm = inner.tracked_borrow();
-                                    let tracked owner = inner_perm.permission.borrow();
-                                    let tracked mem_view =
-                                        owner.segment_owner.produce_kernel_mem_view(
-                                        inner@.data.segment,
-                                    );
+                                    let tracked mem_view = axiom_kernel_mem_view(range);
                                     writer_perm.mem_view = Some(VmIoMemView::WriteView(mem_view));
                                 }
                                 proof_with!(|= Tracked(Some(writer_perm)));
@@ -396,7 +388,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             // Tracked(vm_space_owner): Tracked<VmSpaceOwner<'_>>,
         requires
             segment.inv(),
-            segment.inv_with(&segment_owner),
+            segment.wf(&segment_owner),
         ensures
             r matches Ok(r) ==> r.inner.wf(),
     )]
@@ -560,7 +552,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> reader_owner: Tracked<VmIoOwner<'a>>,
+            -> reader_owner: Tracked<VmIoOwner>,
         requires
             this@.inv(),
             this@.data.direction != DmaDirection::ToDevice,
@@ -576,10 +568,10 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     )]
     fn reader_inner<'a>(
         this: RwLockReadGuard<'a, DmaStreanInnerAtomic<M>, PreemptDisabled>,
-    ) -> VmReader<'a> {
+    ) -> VmReader<'a, Infallible> {
         proof_decl! {
             let ghost id: nat;
-            let tracked mut reader_owner: VmIoOwner<'a>;
+            let tracked mut reader_owner: VmIoOwner;
         }
         proof {
             lemma_max_paddr_range();
@@ -602,9 +594,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             VmReader::from_kernel_space(ptr, len)
         };
         proof {
-            let tracked inner = this.tracked_borrow();
-            let tracked owner = inner.permission.borrow();
-            let tracked mem_view = owner.segment_owner.borrow_kernel_mem_view(this@.data.segment);
+            let tracked mem_view = axiom_kernel_mem_view(range);
             reader_owner.mem_view = Some(VmIoMemView::ReadView(mem_view));
         }
         proof_with!(|= Tracked(reader_owner));
@@ -622,7 +612,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> writer_owner: Tracked<VmIoOwner<'a>>,
+            -> writer_owner: Tracked<VmIoOwner>,
         requires
             this@.inv(),
             this@.data.direction != DmaDirection::FromDevice,
@@ -637,10 +627,10 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     )]
     fn writer_inner<'a>(
         this: RwLockReadGuard<'a, DmaStreanInnerAtomic<M>, PreemptDisabled>,
-    ) -> VmWriter<'a> {
+    ) -> VmWriter<'a, Infallible> {
         proof_decl! {
             let ghost id: nat;
-            let tracked mut writer_owner: VmIoOwner<'a>;
+            let tracked mut writer_owner: VmIoOwner;
         }
         proof {
             lemma_max_paddr_range();
@@ -663,9 +653,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             VmWriter::from_kernel_space(ptr, len)
         };
         proof {
-            let tracked inner = this.tracked_borrow();
-            let tracked owner = inner.permission.borrow();
-            let tracked mem_view = owner.segment_owner.produce_kernel_mem_view(this@.data.segment);
+            let tracked mem_view = axiom_kernel_mem_view(range);
             writer_owner.mem_view = Some(VmIoMemView::WriteView(mem_view));
         }
         proof_with!(|= Tracked(writer_owner));
@@ -686,6 +674,7 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInnerOwner<M> {
     }
 }
 
+#[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized> DmaStream<M> {
     /// Acquires a read guard for the inner DMA stream state.
     ///
@@ -701,8 +690,6 @@ impl<M: AnyUFrameMeta + ?Sized> DmaStream<M> {
     #[inline(always)]
     #[verifier::external_body]
     #[verus_spec(r =>
-        requires
-            self.inner.wf(),
         ensures
             self.inner.wf(),
             r@.inv(),
@@ -839,7 +826,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> reader_perm: Tracked<Option<VmIoOwner<'a>>>,
+            -> reader_perm: Tracked<Option<VmIoOwner>>,
         requires
             self.inner.wf(),
         ensures
@@ -855,7 +842,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                 &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
     )]
-    pub fn reader<'a>(&'a self) -> core::result::Result<VmReader<'a>, Error> {
+    pub fn reader<'a>(&'a self) -> core::result::Result<VmReader<'a, Infallible>, Error> {
         let inner = self.read_inner();
 
         if matches!(inner.direction, DmaDirection::ToDevice) {
@@ -870,7 +857,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             proof_with!(|= Tracked(Some(reader_perm)));
             Ok(
                 VmReader {
-                    id: reader.id,
+                    ghost_id: reader.ghost_id,
                     cursor: reader.cursor,
                     end: reader.end,
                     phantom: PhantomData,
@@ -891,7 +878,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> writer_perm: Tracked<Option<VmIoOwner<'a>>>,
+            -> writer_perm: Tracked<Option<VmIoOwner>>,
         requires
             self.inner.wf(),
         ensures
@@ -905,7 +892,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                 &&& r.unwrap().wf(writer_perm@.unwrap())
             },
     )]
-    pub fn writer<'a>(&'a self) -> core::result::Result<VmWriter<'a>, Error> {
+    pub fn writer<'a>(&'a self) -> core::result::Result<VmWriter<'a, Infallible>, Error> {
         let inner = self.read_inner();
 
         if matches!(inner.direction, DmaDirection::FromDevice) {
@@ -918,7 +905,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             proof_with!(|= Tracked(Some(writer_perm)));
             Ok(
                 VmWriter {
-                    id: writer.id,
+                    ghost_id: writer.ghost_id,
                     cursor: writer.cursor,
                     end: writer.end,
                     phantom: PhantomData,
@@ -989,7 +976,7 @@ impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaStreamInner<M>> for DmaStreamInnerO
     open spec fn predicate(&self, v: DmaStreamInner<M>) -> bool {
         &&& self.inv()
         &&& v.inv()
-        &&& v.segment.inv_with(&self.segment_owner)
+        &&& v.segment.wf(&self.segment_owner)
     }
 }
 
@@ -1021,18 +1008,18 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
     }
 
     closed spec fn obeys_vmio_read_spec() -> bool {
-        true
+        false
     }
 
     closed spec fn obeys_vmio_write_spec() -> bool {
-        true
+        false
     }
 
     open spec fn read_requires(
         self,
         offset: usize,
         writer: VmWriter<'_>,
-        writer_own: VmIoOwner<'_>,
+        writer_own: VmIoOwner,
         owner: DmaStreamVmIoOwner<M>,
     ) -> bool {
         &&& self.inv()
@@ -1050,7 +1037,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         self,
         offset: usize,
         reader: VmReader<'_>,
-        reader_own: VmIoOwner<'_>,
+        reader_own: VmIoOwner,
         owner: DmaStreamVmIoOwner<M>,
     ) -> bool {
         &&& self.inv()
@@ -1070,8 +1057,8 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         offset: usize,
         old_writer: VmWriter<'_>,
         new_writer: VmWriter<'_>,
-        old_writer_own: VmIoOwner<'_>,
-        new_writer_own: VmIoOwner<'_>,
+        old_writer_own: VmIoOwner,
+        new_writer_own: VmIoOwner,
         old_owner: DmaStreamVmIoOwner<M>,
         new_owner: DmaStreamVmIoOwner<M>,
         r: core::result::Result<(), Error>,
@@ -1100,8 +1087,8 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         offset: usize,
         old_reader: VmReader<'_>,
         new_reader: VmReader<'_>,
-        old_reader_own: VmIoOwner<'_>,
-        new_reader_own: VmIoOwner<'_>,
+        old_reader_own: VmIoOwner,
+        new_reader_own: VmIoOwner,
         old_owner: DmaStreamVmIoOwner<M>,
         new_owner: DmaStreamVmIoOwner<M>,
         r: core::result::Result<(), Error>,
@@ -1130,9 +1117,15 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         &self,
         offset: usize,
         writer: &mut VmWriter<'_>,
-        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(writer_own): Tracked<&mut VmIoOwner>,
         Tracked(owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
+        proof {
+            assert(Self::obeys_vmio_spec());
+            assert(Self::obeys_vmio_read_requires());
+            assert(!Self::obeys_vmio_read_spec());
+            assert(Self::read_requires(*self, offset, *writer, *writer_own, *owner));
+        }
         let inner = self.read_inner();
         if matches!(inner.direction, DmaDirection::ToDevice) {
             return Err(Error::AccessDenied);
@@ -1145,9 +1138,11 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             Self::reader_inner(inner)
         };
 
-        let Some(remain) = reader.remain().checked_sub(offset) else {
+        let remain_before_skip = reader.remain();
+        if offset > remain_before_skip {
             return Err(Error::InvalidArgs);
-        };
+        }
+        let remain = remain_before_skip - offset;
         let len = writer.avail();
         if remain < len {
             return Err(Error::InvalidArgs);
@@ -1158,40 +1153,31 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             }
             return Ok(());
         }
-        reader.advance(offset);
+        reader.skip(offset);
         proof {
             reader_own.advance(offset);
 
-            assert(reader.inv());
-            assert(writer.inv());
             assert(reader_own.inv());
             assert(writer_own.inv());
             assert((*writer_own).inv());
-            assert(reader.wf(reader_own));
-            assert(writer.wf(*writer_own));
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
             assert((*writer_own).mem_view matches Some(VmIoMemView::WriteView(_)));
             assert(reader_own.mem_view matches Some(VmIoMemView::ReadView(_)));
             assert(reader_own.read_view_initialized());
             assert(reader.remain_spec() >= len);
-            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-            assert(reader.cursor.vaddr > 0);
-            assert(writer.cursor.vaddr > 0);
-            assert(writer.cursor.range@.start >= reader.cursor.range@.end
-                || reader.cursor.range@.start >= writer.cursor.range@.end);
         }
 
-        proof_with!(Tracked(&mut reader_own), Tracked(&mut *writer_own));
-        let copied = reader.read(writer);
+        let copied = match reader.read_fallible(writer) {
+            Ok(copied) => copied,
+            Err((err, copied)) => {
+                writer.cursor = writer.cursor.sub(copied);
+                return Err(err);
+            },
+        };
 
         proof {
-            assert(copied == len);
-            assert(len == old(writer).avail_spec());
-            assert(writer.avail_spec() == 0);
-            assert(writer.cursor.vaddr == old(writer).cursor.vaddr + old(writer).avail_spec());
-            assert(writer_own.range@.start == old(writer_own).range@.start + old(
-                writer,
-            ).avail_spec());
+            reader_own.advance(copied);
+            writer_own.advance(copied);
             assert(*owner == *old(owner));
         }
 
@@ -1202,9 +1188,15 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         &self,
         offset: usize,
         reader: &mut VmReader<'_>,
-        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(reader_own): Tracked<&mut VmIoOwner>,
         Tracked(owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
+        proof {
+            assert(Self::obeys_vmio_spec());
+            assert(Self::obeys_vmio_write_requires());
+            assert(!Self::obeys_vmio_write_spec());
+            assert(Self::write_requires(*self, offset, *reader, *reader_own, *owner));
+        }
         let inner = self.read_inner();
         if matches!(inner.direction, DmaDirection::FromDevice) {
             return Err(Error::AccessDenied);
@@ -1217,9 +1209,11 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             Self::writer_inner(inner)
         };
 
-        let Some(avail) = writer.avail().checked_sub(offset) else {
+        let avail_before_skip = writer.avail();
+        if offset > avail_before_skip {
             return Err(Error::InvalidArgs);
-        };
+        }
+        let avail = avail_before_skip - offset;
         let len = reader.remain();
         if avail < len {
             return Err(Error::InvalidArgs);
@@ -1230,28 +1224,22 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             }
             return Ok(());
         }
-        writer.advance(offset);
+        writer.skip(offset);
         proof {
             writer_own.advance(offset);
 
             assert(writer.avail_spec() >= len);
-            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-            assert(writer.cursor.vaddr > 0);
-            assert(writer.cursor.range@.start >= reader.cursor.range@.end
-                || reader.cursor.range@.start >= writer.cursor.range@.end);
         }
-        let copied = {
-            #[verus_spec(with Tracked(&mut writer_own), Tracked(&mut *reader_own))]
-            writer.write(reader)
+        let copied = match writer.write_fallible(reader) {
+            Ok(copied) => copied,
+            Err((err, copied)) => {
+                reader.cursor = reader.cursor.sub(copied);
+                return Err(err);
+            },
         };
         proof {
-            assert(copied == len);
-            assert(len == old(reader).remain_spec());
-            assert(reader.remain_spec() == 0);
-            assert(reader.cursor.vaddr == old(reader).cursor.vaddr + old(reader).remain_spec());
-            assert(reader_own.range@.start == old(reader_own).range@.start + old(
-                reader,
-            ).remain_spec());
+            writer_own.advance(copied);
+            reader_own.advance(copied);
             assert(*owner == *old(owner));
         }
 
@@ -1276,18 +1264,18 @@ impl<
     }
 
     closed spec fn obeys_vmio_read_spec() -> bool {
-        true
+        false
     }
 
     closed spec fn obeys_vmio_write_spec() -> bool {
-        true
+        false
     }
 
     open spec fn read_requires(
         self,
         offset: usize,
         writer: VmWriter<'_>,
-        writer_own: VmIoOwner<'_>,
+        writer_own: VmIoOwner,
         owner: (),
     ) -> bool {
         &&& self.inv()
@@ -1304,7 +1292,7 @@ impl<
         self,
         offset: usize,
         reader: VmReader<'_>,
-        reader_own: VmIoOwner<'_>,
+        reader_own: VmIoOwner,
         owner: (),
     ) -> bool {
         &&& self.inv()
@@ -1323,8 +1311,8 @@ impl<
         offset: usize,
         old_writer: VmWriter<'_>,
         new_writer: VmWriter<'_>,
-        old_writer_own: VmIoOwner<'_>,
-        new_writer_own: VmIoOwner<'_>,
+        old_writer_own: VmIoOwner,
+        new_writer_own: VmIoOwner,
         old_owner: (),
         new_owner: (),
         r: core::result::Result<(), Error>,
@@ -1353,8 +1341,8 @@ impl<
         offset: usize,
         old_reader: VmReader<'_>,
         new_reader: VmReader<'_>,
-        old_writer_own: VmIoOwner<'_>,
-        new_writer_own: VmIoOwner<'_>,
+        old_writer_own: VmIoOwner,
+        new_writer_own: VmIoOwner,
         old_owner: (),
         new_owner: (),
         r: core::result::Result<(), Error>,
@@ -1383,9 +1371,15 @@ impl<
         &self,
         offset: usize,
         writer: &mut VmWriter<'_>,
-        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(writer_own): Tracked<&mut VmIoOwner>,
         Tracked(owner): Tracked<&mut ()>,
     ) -> (r: core::result::Result<(), Error>) {
+        proof {
+            assert(Self::obeys_vmio_spec());
+            assert(Self::obeys_vmio_read_requires());
+            assert(!Self::obeys_vmio_read_spec());
+            assert(Self::read_requires(*self, offset, *writer, *writer_own, *owner));
+        }
         proof_decl! {
             let tracked reader_own_opt;
         }
@@ -1400,9 +1394,11 @@ impl<
         };
         let tracked mut reader_own = reader_own_opt.tracked_unwrap();
 
-        let Some(remain) = reader.remain().checked_sub(offset) else {
+        let remain_before_skip = reader.remain();
+        if offset > remain_before_skip {
             return Err(Error::InvalidArgs);
-        };
+        }
+        let remain = remain_before_skip - offset;
         let len = writer.avail();
         if remain < len {
             return Err(Error::InvalidArgs);
@@ -1413,37 +1409,28 @@ impl<
             }
             return Ok(());
         }
-        reader.advance(offset);
+        reader.skip(offset);
         proof {
             reader_own.advance(offset);
 
-            assert(reader.inv());
-            assert(writer.inv());
             assert(reader_own.inv());
             assert(writer_own.inv());
-            assert(reader.wf(reader_own));
-            assert(writer.wf(*writer_own));
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
             assert(reader_own.read_view_initialized());
             assert(reader.remain_spec() >= len);
-            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-            assert(reader.cursor.vaddr > 0);
-            assert(writer.cursor.vaddr > 0);
-            assert(writer.cursor.range@.start >= reader.cursor.range@.end
-                || reader.cursor.range@.start >= writer.cursor.range@.end);
         }
 
-        proof_with!(Tracked(&mut reader_own), Tracked(&mut *writer_own));
-        let copied = reader.read(writer);
+        let copied = match reader.read_fallible(writer) {
+            Ok(copied) => copied,
+            Err((err, copied)) => {
+                writer.cursor = writer.cursor.sub(copied);
+                return Err(err);
+            },
+        };
 
         proof {
-            assert(copied == len);
-            assert(len == old(writer).avail_spec());
-            assert(writer.avail_spec() == 0);
-            assert(writer.cursor.vaddr == old(writer).cursor.vaddr + old(writer).avail_spec());
-            assert(writer_own.range@.start == old(writer_own).range@.start + old(
-                writer,
-            ).avail_spec());
+            reader_own.advance(copied);
+            writer_own.advance(copied);
             assert(*owner == *old(owner));
         }
 
@@ -1455,7 +1442,7 @@ impl<
         &self,
         offset: usize,
         reader: &mut VmReader,
-        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(reader_own): Tracked<&mut VmIoOwner>,
         Tracked(owner): Tracked<&mut ()>,
     ) -> (r: core::result::Result<(), Error>)
         ensures
@@ -1471,6 +1458,12 @@ impl<
                 r,
             ),
     {
+        proof {
+            assert(Self::obeys_vmio_spec());
+            assert(Self::obeys_vmio_write_requires());
+            assert(!Self::obeys_vmio_write_spec());
+            assert(Self::write_requires(*self, offset, *reader, *reader_own, *owner));
+        }
         proof_decl! {
             let tracked writer_own_opt;
         }
@@ -1485,9 +1478,11 @@ impl<
         };
         let tracked mut slice_writer_own = writer_own_opt.tracked_unwrap();
 
-        let Some(avail) = writer.avail().checked_sub(offset) else {
+        let avail_before_skip = writer.avail();
+        if offset > avail_before_skip {
             return Err(Error::InvalidArgs);
-        };
+        }
+        let avail = avail_before_skip - offset;
         let len = reader.remain();
         if avail < len {
             return Err(Error::InvalidArgs);
@@ -1498,42 +1493,26 @@ impl<
             }
             return Ok(());
         }
-        writer.advance(offset);
+        writer.skip(offset);
         proof {
             slice_writer_own.advance(offset);
 
             assert(writer.avail_spec() >= len);
-            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-            assert(writer.cursor.vaddr > 0);
-            assert(writer.cursor.range@.start >= reader.cursor.range@.end
-                || reader.cursor.range@.start >= writer.cursor.range@.end);
         }
-        let copied = {
-            #[verus_spec(with Tracked(&mut slice_writer_own), Tracked(&mut *reader_own))]
-            writer.write(reader)
+        let copied = match writer.write_fallible(reader) {
+            Ok(copied) => copied,
+            Err((err, copied)) => {
+                reader.cursor = reader.cursor.sub(copied);
+                return Err(err);
+            },
         };
         proof {
-            assert(copied == len);
-            assert(len == old(reader).remain_spec());
-            assert(reader.remain_spec() == 0);
-            assert(reader.cursor.vaddr == old(reader).cursor.vaddr + old(reader).remain_spec());
-            assert(reader_own.range@.start == old(reader_own).range@.start + old(
-                reader,
-            ).remain_spec());
+            slice_writer_own.advance(copied);
+            reader_own.advance(copied);
             assert(*owner == *old(owner));
         }
 
         Ok(())
-    }
-
-    fn read_byte<const N: usize>(
-        &self,
-        offset: usize,
-        bytes: ArrayPtr<u8, N>,
-        Tracked(bytes_owner): Tracked<&mut PointsToArray<u8, N>>,
-        Tracked(owner): Tracked<&mut ()>,
-    ) -> (r: core::result::Result<(), Error>) {
-        Err(Error::InvalidArgs)
     }
 }
 

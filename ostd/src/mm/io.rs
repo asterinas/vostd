@@ -53,7 +53,9 @@ use crate::error::*;
 use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::MAX_USERSPACE_VADDR;
-pub use crate::specs::mm::io::{axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner};
+pub use crate::specs::mm::io::{
+    axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner,
+};
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 verus! {
@@ -285,7 +287,12 @@ impl<'a> VmWriter<'a, Infallible> {
             r.ghost_id == self.ghost_id,
     )]
     pub fn to_fallible(self) -> VmWriter<'a, Fallible> {
-        VmWriter { ghost_id: self.ghost_id, cursor: self.cursor, end: self.end, phantom: PhantomData }
+        VmWriter {
+            ghost_id: self.ghost_id,
+            cursor: self.cursor,
+            end: self.end,
+            phantom: PhantomData,
+        }
     }
 
     /// Writes a value of `Pod` type to the kernel-space buffer.
@@ -754,7 +761,12 @@ impl<'a> VmReader<'a, Infallible> {
             r.end == self.end,
             r.ghost_id == self.ghost_id,
     {
-        VmReader { ghost_id: self.ghost_id, cursor: self.cursor, end: self.end, phantom: PhantomData }
+        VmReader {
+            ghost_id: self.ghost_id,
+            cursor: self.cursor,
+            end: self.end,
+            phantom: PhantomData,
+        }
     }
 
     /// Reads data from `self` and writes it into the provided `writer`.
@@ -1598,21 +1610,20 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     /// # Panics
     ///
     /// If `nbytes` is greater than `self.remain()`, then the method panics.
-    #[verus_spec(r =>
+    #[verus_spec(
         requires
             old(self).inv(),
             nbytes <= old(self).remain_spec(),
         ensures
-            r.inv(),
-            r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            r.remain_spec() == old(self).remain_spec() - nbytes,
-            r.end == old(self).end,
-            r.ghost_id == old(self).ghost_id,
+            final(self).inv(),
+            final(self).cursor.vaddr == old(self).cursor.vaddr + nbytes,
+            final(self).remain_spec() == old(self).remain_spec() - nbytes,
+            final(self).end == old(self).end,
+            final(self).ghost_id == old(self).ghost_id,
     )]
-    pub fn skip(&mut self, nbytes: usize) -> &mut Self {
+    pub fn skip(&mut self, nbytes: usize) {
         assert!(nbytes <= self.remain());
         self.cursor = self.cursor.wrapping_add(nbytes);
-        self
     }
 }
 
@@ -1685,21 +1696,20 @@ impl<'a, Fallibility> VmWriter<'a, Fallibility> {
     /// # Panics
     ///
     /// If `nbytes` is greater than `self.avail()`, then the method panics.
-    #[verus_spec(r =>
+    #[verus_spec(
         requires
             old(self).inv(),
             nbytes <= old(self).avail_spec(),
         ensures
-            r.inv(),
-            r.cursor.vaddr == old(self).cursor.vaddr + nbytes,
-            r.avail_spec() == old(self).avail_spec() - nbytes,
-            r.end == old(self).end,
-            r.ghost_id == old(self).ghost_id,
+            final(self).inv(),
+            final(self).cursor.vaddr == old(self).cursor.vaddr + nbytes,
+            final(self).avail_spec() == old(self).avail_spec() - nbytes,
+            final(self).end == old(self).end,
+            final(self).ghost_id == old(self).ghost_id,
     )]
-    pub fn skip(&mut self, nbytes: usize) -> &mut Self {
+    pub fn skip(&mut self, nbytes: usize) {
         assert!(nbytes <= self.avail());
         self.cursor = self.cursor.wrapping_add(nbytes);
-        self
     }
 }
 

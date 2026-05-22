@@ -162,7 +162,7 @@ mod io {
             unsafe { VmReader::from_kernel_space(reader.cursor(), reader.remain()) };
 
         // Skip first two bytes
-        let reader_infallible = reader_infallible.skip(2);
+        reader_infallible.skip(2);
 
         // Read the remaining bytes
         let mut read_buffer = [0u8; 3];
@@ -180,7 +180,7 @@ mod io {
             unsafe { VmWriter::from_kernel_space(writer.cursor(), writer.avail()) };
 
         // Skip first two bytes
-        let writer_infallible = writer_infallible.skip(2);
+        writer_infallible.skip(2);
 
         // Write [100, 101, 102]
         let data = [100u8, 101, 102];
