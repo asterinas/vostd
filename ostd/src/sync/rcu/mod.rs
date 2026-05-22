@@ -436,7 +436,6 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         if obj_ptr.is_null() {
             return None;
         }
-
         proof_decl! {
             // `read_with` returns only the reference and has no guard object to
             // store the read token. For this temporary skeleton, leak the
@@ -453,10 +452,17 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         // 2. The `_guard` guarantees atomic mode for the duration of lifetime
         //    `'a`, the pointer is valid because other writers won't release the
         //    allocation until this task passes the quiescent state.
-        NonNull::new(obj_ptr).map(|ptr| 
-            requires
-                P::ptr_perm_match(ptr.view_ptr_mut(), P::ref_perm_view_permission(tracked_ref_perm)),
-            {unsafe { P::raw_as_ref(ptr,Tracked(tracked_ref_perm)) }})
+        NonNull::new(obj_ptr).map(
+            |ptr|
+                requires
+                    P::ptr_perm_match(
+                        ptr.view_ptr_mut(),
+                        P::ref_perm_view_permission(tracked_ref_perm),
+                    ),
+                {
+                    unsafe { P::raw_as_ref(ptr, Tracked(tracked_ref_perm)) }
+                },
+        )
     }
 }
 
@@ -499,11 +505,24 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
         // outlives the lifetime of `&self`. Additionally, during this period,
         // it is impossible to create a mutable reference to `P`.
-        NonNull::new(self.obj_ptr).map(|ptr| 
-            requires
-                self.tracked_ref_perm@ is Some,
-                P::ptr_perm_match(ptr.view_ptr_mut(), self.tracked_ref_perm->0.resource()),
-            {unsafe { P::raw_as_ref(ptr, Tracked(P::borrow_perm_as_ref_perm(self.tracked_ref_perm.tracked_borrow().borrow()) )) }})
+        NonNull::new(self.obj_ptr).map(
+            |ptr|
+                requires
+                    self.tracked_ref_perm@ is Some,
+                    P::ptr_perm_match(ptr.view_ptr_mut(), self.tracked_ref_perm->0.resource()),
+                {
+                    unsafe {
+                        P::raw_as_ref(
+                            ptr,
+                            Tracked(
+                                P::borrow_perm_as_ref_perm(
+                                    self.tracked_ref_perm.tracked_borrow().borrow(),
+                                ),
+                            ),
+                        )
+                    }
+                },
+        )
     }
 
     #[verus_spec(r =>
@@ -840,9 +859,12 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
     /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
     #[inline]
     pub fn compare_exchange(self, new_ptr: P) -> Result<(), P> {
-        self.0
-            .compare_exchange(Some(new_ptr))
-            .map_err(|err| requires err is Some {err.unwrap()}) 
+        self.0.compare_exchange(Some(new_ptr)).map_err(
+            |err|
+                requires
+                    err is Some,
+                { err.unwrap() },
+        )
     }
 }
 
