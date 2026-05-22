@@ -729,8 +729,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIoOnce for DmaCoherent
 
     #[verifier::external_body]
     fn read_once<T: PodOnce>(&self, offset: usize) -> core::result::Result<T, Error> {
-        let mut reader = self.reader();
-        reader.skip(offset).read_once()
+        self.reader().skip(offset).read_once()
     }
 
     #[verifier::external_body]
@@ -738,8 +737,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIoOnce for DmaCoherent
         (),
         Error,
     > {
-        let mut writer = self.writer();
-        writer.skip(offset).write_once(new_val)
+        self.writer().skip(offset).write_once(new_val)
     }
 }
 
