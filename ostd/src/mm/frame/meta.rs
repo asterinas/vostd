@@ -947,31 +947,38 @@ impl MetaSlot {
     )]
     #[verifier::external_body]
     pub(super) fn drop_meta_in_place(&self) {
-        unimplemented!()/*        let paddr = self.frame_paddr();
+        // Smoke test for the dyn-dispatch shape — body kept `external_body`
+        // because (a) the args bundle isn't threaded through the call chain
+        // yet (Tracked::assume_new forges it here), (b) `VmReader`,
+        // `vtable_ptr.assume_init_read`, and `core::ptr::drop_in_place` have
+        // no Verus specs. Activates only the type-check; runtime behavior is
+        // axiomatic per the verus_spec ensures above.
+        let paddr = unimplemented!();
+        let _: Paddr = paddr;
 
         // SAFETY: We have exclusive access to the frame metadata.
-        let vtable_ptr = unsafe { &mut *self.vtable_ptr.get() };
+        let vtable_ptr: *const core::ptr::DynMetadata<dyn AnyFrameMeta> = unimplemented!();
         // SAFETY: The frame metadata is initialized and valid.
-        let vtable_ptr = unsafe { vtable_ptr.assume_init_read() };
+        let vtable_ptr = unsafe { *vtable_ptr };
 
+        let storage_ptr: *mut () = unimplemented!();
         let meta_ptr: *mut dyn AnyFrameMeta =
-            core::ptr::from_raw_parts_mut(self.storage.get(), vtable_ptr);
+            core::ptr::from_raw_parts_mut(storage_ptr, vtable_ptr);
 
-        // SAFETY: The implementer of the frame metadata decides that if the frame
-        // is safe to be read or not.
-        let mut reader =
-            unsafe { VmReader::from_kernel_space(paddr_to_vaddr(paddr) as *const u8, PAGE_SIZE) };
+        // SAFETY: The implementer of the frame metadata decides that if the
+        // frame is safe to be read or not.
+        let mut reader: VmReader<'_, Infallible> = unimplemented!();
 
-        // SAFETY: `ptr` points to the metadata storage which is valid to be mutably borrowed under
-        // `vtable_ptr` because the metadata is valid, the vtable is correct, and we have the exclusive
-        // access to the frame metadata.
+        // SAFETY: `ptr` points to the metadata storage which is valid to be
+        // mutably borrowed under `vtable_ptr` because the metadata is valid,
+        // the vtable is correct, and we have exclusive access.
+        let args: Tracked<&mut OnDropArgs> = Tracked::assume_new();
         unsafe {
             // Invoke the custom `on_drop` handler.
-            (*meta_ptr).on_drop(&mut reader);
+            (*meta_ptr).on_drop(&mut reader, args);
             // Drop the frame metadata.
             core::ptr::drop_in_place(meta_ptr);
-        }*/
-
+        }
     }
 }
 

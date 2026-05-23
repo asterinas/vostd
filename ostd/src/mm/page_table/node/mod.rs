@@ -109,18 +109,15 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     /// Drops the children of a page-table node: walks each present PTE and
     /// drops the referenced child page-table-node frame or mapped item.
     ///
-    /// Currently axiomatized (`external_body`) — the impl creates a
-    /// trait-resolution cycle: `AnyFrameMeta for PageTablePageMeta<C>` →
-    /// (body) `Frame::<Self>::from_raw` / `Drop for Frame<Self>` →
-    /// `M: AnyFrameMeta` bound → back to the impl being defined. Verus
-    /// flags this at resolution time, before any function-body `decreases`
-    /// measure (tried `decreases self.level` — rejected). Removing the
-    /// bound from `Frame<M>` is possible structurally but requires
-    /// splitting `impl<'a, M: AnyFrameMeta> Frame<M>` to separate methods
-    /// that use M's trait (`start_paddr`, `dyn_meta`, `borrow`, `slot`,
-    /// `into_raw`, etc.) from those that don't (`from_raw` and the
-    /// `from_raw_*` spec helpers in specs/mm/frame/frame_specs.rs) — a
-    /// non-trivial refactor of frame/mod.rs.
+    /// The trait-resolution cycle that previously forced `external_body` is
+    /// **broken**: `from_raw`, `TrackDrop`/`Drop`/`Inv` impls for `Frame<M>`
+    /// were moved to unbounded `impl<M: ?Sized>` blocks. Without
+    /// `external_body`, Verus type-checks the body and surfaces 7 proof
+    /// obligations (reader cursor invariant through the loop, `from_raw`
+    /// preconditions per child, `Drop::drop_requires` for the constructed
+    /// frame, arithmetic on `range.start * size_of::<C::E>()`). Discharging
+    /// those is multi-day work — see `[[pt-on-drop-proof]]` Phase 4. Until
+    /// then this remains axiomatized.
     #[verifier::external_body]
     fn on_drop(
         &mut self,
