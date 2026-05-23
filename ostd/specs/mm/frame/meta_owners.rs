@@ -151,8 +151,6 @@ pub enum MetaSlotStorage {
 /// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
 /// it can then be used to stand in for `dyn AnyFrameMeta`.
 impl AnyFrameMeta for MetaSlotStorage {
-    type OnDropArgs = ();
-
     uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
@@ -373,7 +371,7 @@ impl MetaSlotOwner {
         ensures *final(self) == (Self { inner_perms: *inner_perms, ..*old(self) });
 }
 
-pub struct Metadata<M: AnyFrameMeta> {
+pub struct Metadata<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
     pub metadata: M,
     pub ref_count: u64,
     pub vtable_ptr: MemContents<usize>,

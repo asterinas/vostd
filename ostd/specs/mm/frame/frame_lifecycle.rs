@@ -6,16 +6,17 @@ use crate::mm::frame::Frame;
 use crate::mm::Paddr;
 use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::mapping::group_page_meta;
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, MetaSlotStorage, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
+use vstd_extra::cast_ptr::Repr;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 verus! {
 
 #[verus_verify]
-impl<'a, M: AnyFrameMeta> Frame<M> {
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
 
     pub proof fn lemma_from_raw_manuallydrop_general(
         raw: Paddr,

@@ -32,7 +32,8 @@ use crate::mm::PagingConstsTrait;
 use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::arch::PagingConsts;
 use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_index_spec};
-use crate::specs::mm::frame::meta_owners::{is_mmio_paddr, PageUsage, REF_COUNT_MAX};
+use crate::specs::mm::frame::meta_owners::{is_mmio_paddr, MetaSlotStorage, PageUsage, REF_COUNT_MAX};
+use vstd_extra::cast_ptr::Repr;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};
 use crate::specs::mm::page_table::*;
@@ -43,7 +44,7 @@ use crate::specs::task::InAtomicMode;
 verus! {
 
 /// Spec representation of Frame<T> as DynFrame (used when the actual conversion is opaque).
-pub open spec fn frame_as_dynframe<T: AnyFrameMeta>(frame: Frame<T>) -> DynFrame {
+pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(frame: Frame<T>) -> DynFrame {
     DynFrame { ptr: frame.ptr, _marker: PhantomData }
 }
 
@@ -60,7 +61,7 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
 
 /// Spec function: the entry owner correctly matches the frame and property for mapping.
 #[allow(private_interfaces)]
-pub open spec fn frame_entry_wf<T: AnyFrameMeta>(
+pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     frame: Frame<T>,
     prop: PageProperty,
     entry_owner: EntryOwner<KernelPtConfig>,

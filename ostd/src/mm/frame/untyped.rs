@@ -29,7 +29,13 @@ verus! {
 /// If a structure `M` implements [`AnyUFrameMeta`], it can be used as the
 /// metadata of a type of untyped frames [`Frame<M>`]. All frames of such type
 /// will be accessible as untyped memory.
-pub trait AnyUFrameMeta: AnyFrameMeta {
+///
+/// `Repr<MetaSlotStorage>` is required so that `Frame<M>` is well-formed (it
+/// is no longer an `AnyFrameMeta` supertrait). This makes `AnyUFrameMeta`
+/// itself dyn-incompatible — `Segment<dyn AnyUFrameMeta>` (the `USegment`
+/// alias below) was already in an unsatisfiable state under the old
+/// supertrait chain, so this doesn't lose anything in practice.
+pub trait AnyUFrameMeta: AnyFrameMeta + vstd_extra::cast_ptr::Repr<MetaSlotStorage> {
 
 }
 

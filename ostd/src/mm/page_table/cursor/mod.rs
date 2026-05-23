@@ -40,7 +40,7 @@ use vstd_extra::ownership::*;
 use vstd_extra::panic::*;
 use vstd_extra::{assert, assert_eq};
 
-use crate::mm::frame::Frame;
+use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr, MAX_NR_LEVELS, MAX_PADDR};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -194,7 +194,7 @@ pub enum PageTableFrag<C: PageTableConfig> {
     ///
     /// The caller is responsible for dropping it after TLB coherence.
     StrayPageTable {
-        pt: Frame<PageTablePageMeta<C>>,  // TODO: this was a dyn AnyFrameMeta, but we can't support that...
+        pt: Frame<dyn AnyFrameMeta>,
         va: Vaddr,
         len: usize,
         num_frames: usize,
@@ -4264,7 +4264,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 Some(
                     PageTableFrag::StrayPageTable {
-                        pt: pt.into(),
+                        pt: pt.into_dyn(),
                         va,
                         len: page_size(self.0.level),
                         num_frames,

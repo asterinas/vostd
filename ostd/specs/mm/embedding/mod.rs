@@ -487,10 +487,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // page-table / MMIO slot — upstream `from_in_use` lives on
         // `Frame<dyn AnyFrameMeta>` and never inspects `usage` — which
         // is why the old "handles imply Frame usage" clause was
-        // dropped. This clause alone discharges `drop_pre` for *any*
-        // `FrameEntry`, keeping `op_pre[FrameDrop]` collapsed to mere
-        // id-existence (full #4) without a `usage` precondition on
-        // `FrameFromInUse`.
+        // dropped.
         &&& forall|idx: usize|
                 #![trigger self.regions.slot_owners[idx]]
                 idx < max_meta_slots()
@@ -677,7 +674,25 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             && s.vm_ios[dest].is_kernel_writer(),
         Op::FrameFromUnused { paddr: _ } => true,
         Op::FrameFromInUse { paddr: _ } => true,
-        Op::FrameDrop { fid } => s.frames.dom().contains(fid),
+        // The bulk of `frame::drop_pre` is recovered from `VmStore::inv`
+        // — structural coverage gives `slots.contains_key`,
+        // `raw_count == 0`, `in_list == 0`; the handle clause of
+        // `accounting_inv` gives the refcount bounds, non-sentinel
+        // status, and `storage.is_init`. The one residual is the
+        // FUTURE-plan strengthening of exec `Frame::drop_requires`:
+        // `rc == 1 ⟹ paths_in_pt.is_empty()`. For a Frame-usage slot
+        // this is derivable from clause 4 (`rc == H + P` for active
+        // heads), but the embedding's accounting is Frame-scoped while
+        // 2b allows `FrameEntry`s on non-Frame slots, so the conjunct
+        // is carried in `op_pre` rather than re-derived universally.
+        // Callers discharge it trivially for Frame entries (clause 4)
+        // and via real-world refcount reasoning for non-Frame ones.
+        Op::FrameDrop { fid } =>
+            s.frames.dom().contains(fid)
+            && (s.regions.slot_owners[frame_to_index_spec(s.frames[fid].paddr)]
+                    .inner_perms.ref_count.value() == 1
+                ==> s.regions.slot_owners[frame_to_index_spec(s.frames[fid].paddr)]
+                        .paths_in_pt.is_empty()),
     }
 }
 
@@ -1575,6 +1590,15 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     requires
         old(s).inv(),
         old(s).frames.dom().contains(fid),
+        // Mirrors the residual conjunct of `op_pre[FrameDrop]`: the
+        // exec `Frame::drop_requires` strengthening (`rc == 1 ⟹
+        // paths_in_pt.is_empty()`) is not universally derivable from
+        // the embedding's Frame-scoped accounting, so it travels in via
+        // the dispatcher's `op_pre` and into the step.
+        old(s).regions.slot_owners[frame_to_index_spec(old(s).frames[fid].paddr)]
+                .inner_perms.ref_count.value() == 1
+            ==> old(s).regions.slot_owners[frame_to_index_spec(old(s).frames[fid].paddr)]
+                    .paths_in_pt.is_empty(),
     ensures final(s).inv()
 {
     // Derive the full `frame::drop_pre` from `VmStore::inv` alone (#4

@@ -596,7 +596,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> UniqueFrameOwner<Link<M>> {
     }
 }
 
-pub struct MetadataAsLink<M: AnyFrameMeta> {
+pub struct MetadataAsLink<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
     pub metadata: M,
     pub next: Option<PPtr<MetaSlot>>,
     pub prev: Option<PPtr<MetaSlot>>,

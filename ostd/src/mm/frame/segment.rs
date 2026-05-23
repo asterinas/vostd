@@ -864,7 +864,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta> From<Frame<M>> for Segment<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
     /// Converts a single [`Frame`] into a one-page [`Segment`] by forgetting
     /// the frame and recording its paddr range. Symmetric to vostd's
     /// `From<Frame<M>> for Segment<M>`.
@@ -904,7 +904,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> 
     }
 }
 
-impl<M: AnyFrameMeta + ?Sized> Segment<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
     /// Verified drop: iterates over each frame in the segment, decrements its
     /// reference count, and (when last ref) tears down the metadata.
     ///

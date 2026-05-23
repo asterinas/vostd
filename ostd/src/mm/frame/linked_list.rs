@@ -1347,12 +1347,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M>
 {
-    type OnDropArgs = M::OnDropArgs;
-
     fn on_drop(
         &mut self,
         reader: &mut crate::mm::VmReader<crate::mm::Infallible>,
-        args: Tracked<&mut Self::OnDropArgs>,
+        args: Tracked<&mut crate::mm::frame::meta::OnDropArgs>,
     ) {
         self.meta.on_drop(reader, args);
     }

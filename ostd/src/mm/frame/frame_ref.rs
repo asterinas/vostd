@@ -12,7 +12,9 @@ use crate::mm::frame::MetaPerm;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::frame_specs::BorrowDebt;
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use vstd_extra::cast_ptr::Repr;
 
 use super::Frame;
 
@@ -21,12 +23,12 @@ use vstd::simple_pptr::PPtr;
 verus! {
 
 /// A struct that can work as `&'a Frame<M>`.
-pub struct FrameRef<'a, M: AnyFrameMeta> {
+pub struct FrameRef<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> {
     pub inner: ManuallyDrop<Frame<M>>,
     pub _marker: PhantomData<&'a Frame<M>>,
 }
 
-impl<M: AnyFrameMeta> Deref for FrameRef<'_, M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
     type Target = Frame<M>;
 
     #[verus_spec(ensures returns &self.inner.0)]
@@ -36,7 +38,7 @@ impl<M: AnyFrameMeta> Deref for FrameRef<'_, M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta> FrameRef<'_, M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
     /// # Verified Properties
@@ -190,7 +192,7 @@ pub assume_specification[ usize::trailing_zeros ](_0: usize) -> u32
 
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
 // `*const` pointer.
-unsafe impl<M: AnyFrameMeta + ?Sized + 'static> NonNullPtr for Frame<M> {
+unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Frame<M> {
     type Target = PhantomData<Self>;
 
     type Ref<'a> = FrameRef<'a, M>;

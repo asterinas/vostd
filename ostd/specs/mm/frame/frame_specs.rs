@@ -57,7 +57,7 @@ impl BorrowDebt {
     {}
 }
 
-impl<'a, M: AnyFrameMeta> Frame<M> {
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     // ── from_raw precondition predicates ──
 
     /// **Safety**: The frame exists and is addressable.  This is sufficient to

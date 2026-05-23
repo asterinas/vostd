@@ -9,9 +9,7 @@ use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
-use super::meta_owners::{
-    MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage, REF_COUNT_UNUSED,
-};
+use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage};
 use super::*;
 use crate::mm::frame::meta::{
     mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
@@ -209,29 +207,6 @@ impl MetaRegionOwners {
         ensures
             final(self).slots == old(self).slots.insert(index, *perm),
             final(self).slot_owners == old(self).slot_owners;
-
-    /// Inserting a valid frame slot permission into `slots` preserves `inv()`.
-    ///
-    /// This captures the invariant that `slot_owners[idx].self_addr == meta_addr(idx)` is
-    /// maintained globally — when a frame's `slot_perm` (extracted earlier from `slots`) is
-    /// reinserted, all invariant conditions are satisfied.
-    pub axiom fn frame_slot_perm_insert_preserves_inv(
-        self,
-        idx: usize,
-        perm: simple_pptr::PointsTo<MetaSlot>,
-        new_regions: MetaRegionOwners,
-    )
-        requires
-            self.inv(),
-            perm.addr() == meta_addr(idx),
-            perm.is_init(),
-            perm.value().wf(self.slot_owners[idx]),
-            self.slot_owners.contains_key(idx),
-            self.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-            new_regions.slots == self.slots.insert(idx, perm),
-            new_regions.slot_owners == self.slot_owners,
-        ensures
-            new_regions.inv();
 }
 
 } // verus!

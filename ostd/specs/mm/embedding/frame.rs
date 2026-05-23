@@ -178,6 +178,14 @@ pub axiom fn frame_drop_embedded(
             ==> {
             &&& old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage.is_init()
             &&& old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list.value() == 0
+            // Mirrors the FUTURE-plan strengthening of exec
+            // `Frame::drop_requires`: at `rc == 1` the dropped handle is
+            // the sole reference, so the slot has no live PTE mappings
+            // (a mapping would push `rc >= 2`). The exec demands this as
+            // a precondition; the embedding's requires must mirror it
+            // verbatim or the axiom is logically inconsistent on inputs
+            // the exec cannot accept.
+            &&& old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty()
         },
     ensures
         // ---- mirrors strengthened `Frame::drop_ensures` ----
@@ -316,6 +324,7 @@ pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
     &&& so.inner_perms.ref_count.value() == 1 ==> {
         &&& so.inner_perms.storage.is_init()
         &&& so.inner_perms.in_list.value() == 0
+        &&& so.paths_in_pt.is_empty()
     }
 }
 

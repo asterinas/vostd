@@ -147,18 +147,30 @@ pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
     PPtr(slot, PhantomData::<MetaSlot>)
 }
 
-/// Space-holder of the AnyFrameMeta virtual table.
-pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
-    /// Tracked argument bundle for [`Self::on_drop`]. Impls that don't need
-    /// any extra permissions can set this to `()`. The PT-node impl uses it
-    /// to carry the `nr_children` PCell permission, the `VmIoOwner` for the
-    /// reader, and the `MetaRegionOwners` needed to drop child frames.
-    type OnDropArgs;
+/// Tracked argument bundle for [`AnyFrameMeta::on_drop`]. Erased (non-generic,
+/// non-associated) so the trait stays dyn-compatible. Carries every permission
+/// any impl might need: the `MetaRegionOwners` consulted when dropping child
+/// frames, the `VmIoOwner` backing the reader, and the `nr_children` PCell
+/// perm for the PT-node early-exit optimization. Impls that don't need a
+/// given field simply ignore it.
+pub tracked struct OnDropArgs {
+    pub regions: MetaRegionOwners,
+    pub vm_io_owner: crate::specs::mm::io::VmIoOwner,
+    pub nr_children_perm: pcell_maybe_uninit::PointsTo<u16>,
+}
 
+/// Space-holder of the AnyFrameMeta virtual table.
+///
+/// Dyn-compatible: no `Self`-by-value, no associated types on dispatched
+/// methods, no dyn-incompatible supertrait. `vtable_ptr` is `Self: Sized`
+/// because it's only used statically (the runtime vtable pointer lives on
+/// the slot, not on the instance). Sites that need `Repr<MetaSlotStorage>`
+/// must spell it out — it was previously a supertrait.
+pub trait AnyFrameMeta {
     exec fn on_drop(
         &mut self,
         _reader: &mut VmReader<'_, Infallible>,
-        _args: Tracked<&mut Self::OnDropArgs>,
+        _args: Tracked<&mut OnDropArgs>,
     ) {
     }
 
@@ -166,7 +178,7 @@ pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
         false
     }
 
-    spec fn vtable_ptr(&self) -> usize;
+    spec fn vtable_ptr(&self) -> usize where Self: Sized;
 }
 
 global layout MetaSlot is size == 64, align == 8;

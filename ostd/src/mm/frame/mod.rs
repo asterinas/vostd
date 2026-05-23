@@ -102,7 +102,7 @@ fn acquire_fence() {
 /// frame is a untyped frame. Otherwise, it is a typed frame.
 /// # Verification Design
 #[repr(transparent)]
-pub struct Frame<M: AnyFrameMeta> {
+pub struct Frame<M: AnyFrameMeta + ?Sized> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,
 }
@@ -113,7 +113,7 @@ pub struct Frame<M: AnyFrameMeta> {
 /// and this will happen with read-only `FrameRef`s. All such references need to be dropped by the time
 /// `from_raw` is called. So, `ManuallyDrop::drop` decrements the counter when the reference is dropped,
 /// and `from_raw` may only be called when the counter is 1.
-impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> TrackDrop for Frame<M> {
     type State = MetaRegionOwners;
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
@@ -211,7 +211,7 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
     }
 }
 
-impl<M: AnyFrameMeta> Inv for Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Inv for Frame<M> {
     open spec fn inv(self) -> bool {
         &&& self.ptr.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= self.ptr.addr() < FRAME_METADATA_RANGE.start
@@ -219,7 +219,7 @@ impl<M: AnyFrameMeta> Inv for Frame<M> {
     }
 }
 
-impl<M: AnyFrameMeta> Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     pub open spec fn paddr(self) -> usize {
         meta_to_frame(self.ptr.addr())
     }
@@ -316,8 +316,26 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     }
 }
 
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> Frame<M> {
+    /// Erases the static metadata type, yielding a `Frame<dyn AnyFrameMeta>`.
+    ///
+    /// Inherent method rather than `From`/`Into` to avoid trait-inference
+    /// ambiguity at call sites that previously relied on the blanket
+    /// `From<T> for T` (e.g. `frame.into()` for `Frame<UFrame>`).
+    ///
+    /// Axiomatized (`external_body`) because the body is `transmute`, which
+    /// Verus has no built-in spec for.
+    #[verifier::external_body]
+    pub fn into_dyn(self) -> Frame<dyn AnyFrameMeta> {
+        // SAFETY: `Frame<M>` is `#[repr(transparent)]` over `PPtr<MetaSlot>`
+        // plus a zero-size `PhantomData<M>`. `Frame<dyn AnyFrameMeta>` has
+        // the same runtime layout (thin pointer + ZST phantom).
+        unsafe { core::mem::transmute(self) }
+    }
+}
+
 #[verus_verify]
-impl<M: AnyFrameMeta> Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     /// Gets a dynamically typed [`Frame`] from a raw, in-use page.
     ///
     /// If the provided frame is not in use at the moment, it will return an error.
@@ -375,7 +393,7 @@ impl<M: AnyFrameMeta> Frame<M> {
 }
 
 #[verus_verify]
-impl<'a, M: AnyFrameMeta> Frame<M> {
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     /// Gets the physical address of the start of the frame.
     #[verus_spec(
         with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
@@ -805,7 +823,7 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr) {
 pub type DynFrame = Frame<MetaSlotStorage>;
 
 #[verus_verify]
-impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
     open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         &&& self.inv()
@@ -863,7 +881,7 @@ impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
     }
 }
 
-impl<M: AnyFrameMeta> Drop for Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Drop for Frame<M> {
     fn drop(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) {
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let ghost old_regions = *regions;
@@ -1028,12 +1046,6 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         } else {
             Err(dyn_frame)
         }
-    }
-}*/
-/*impl<M: AnyFrameMeta> From<Frame<M>> for Frame<dyn AnyFrameMeta> {
-    fn from(frame: Frame<M>) -> Self {
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        unsafe { core::mem::transmute(frame) }
     }
 }*/
 /*impl<M: AnyFrameMeta> From<UFrame> for Frame<M> {

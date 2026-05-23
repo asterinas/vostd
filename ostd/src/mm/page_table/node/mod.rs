@@ -105,20 +105,7 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 /// [`PageTableGuard`].
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
-/// Tracked argument bundle for [`PageTablePageMeta::on_drop`]. Carries the
-/// permissions the body needs to walk the PTEs and drop child frames /
-/// mapped items: the `nr_children` PCell perm, the reader's `VmIoOwner`,
-/// and the global `MetaRegionOwners` consulted by `Frame::from_raw`.
-pub tracked struct PtMetaOnDropArgs<C: PageTableConfig> {
-    pub nr_children_perm: vstd::cell::pcell_maybe_uninit::PointsTo<u16>,
-    pub vm_io_owner: crate::specs::mm::io::VmIoOwner,
-    pub regions: crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
-    pub _phantom: core::marker::PhantomData<C>,
-}
-
 impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
-    type OnDropArgs = PtMetaOnDropArgs<C>;
-
     /// Drops the children of a page-table node: walks each present PTE and
     /// drops the referenced child page-table-node frame or mapped item.
     ///
@@ -138,7 +125,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     fn on_drop(
         &mut self,
         reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>,
-        mut args: Tracked<&mut Self::OnDropArgs>,
+        mut args: Tracked<&mut crate::mm::frame::meta::OnDropArgs>,
     ) {
         let level = self.level;
         let range = if level == C::NR_LEVELS() {
