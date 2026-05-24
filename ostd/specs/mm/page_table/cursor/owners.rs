@@ -64,8 +64,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         (child, cont)
     }
 
-    #[verifier::returns(proof)]
-    pub proof fn tracked_take_child(tracked &mut self) -> (res: OwnerSubtree<C>)
+    pub proof fn tracked_take_child(tracked &mut self) -> (tracked res: OwnerSubtree<C>)
         requires
             old(self).inv(),
             old(self).idx < old(self).children.len(),
@@ -88,7 +87,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         }
     }
 
-    #[verifier::returns(proof)]
     pub proof fn tracked_put_child(tracked &mut self, tracked child: OwnerSubtree<C>)
         requires
             old(self).idx < old(self).children.len(),
@@ -128,8 +126,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         (child, cont)
     }
 
-    #[verifier::returns(proof)]
-    pub axiom fn tracked_make_cont(tracked &mut self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (res: Self)
+    pub axiom fn tracked_make_cont(tracked &mut self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (tracked res: Self)
         requires
             old(self).all_some(),
             old(self).idx < NR_ENTRIES,
@@ -147,7 +144,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         (Self { children: self.children.update(self.idx as int, Some(child_node)), ..self }, child.guard)
     }
 
-    #[verifier::returns(proof)]
     pub axiom fn tracked_restore(tracked &mut self, tracked child: Self) -> (tracked guard: PageTableGuard<'rcu, C>)
         ensures
             *final(self) == old(self).restore(child).0,

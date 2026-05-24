@@ -1083,7 +1083,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
     }
 
-    #[verifier::returns(proof)]
     pub proof fn tracked_push_level_owner(tracked &mut self, guard: PageTableGuard<'rcu, C>)
         requires
             old(self).inv(),
@@ -1502,7 +1501,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         });
     }
 
-    #[verifier::returns(proof)]
     pub proof fn tracked_pop_level_owner(tracked &mut self) -> (tracked guard: PageTableGuard<'rcu, C>)
         requires
             old(self).inv(),

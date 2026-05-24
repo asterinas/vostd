@@ -523,14 +523,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> { list_own: list_own, index: index }
     }
 
-    #[verifier::returns(proof)]
-    pub axiom fn tracked_cursor_mut_at_owner(list_own: LinkedListOwner<M>, index: int) -> Self
-        returns Self::cursor_mut_at_owner(list_own, index);
+    pub axiom fn tracked_cursor_mut_at_owner(list_own: LinkedListOwner<M>, index: int) -> (tracked res: Self)
+        ensures res == Self::cursor_mut_at_owner(list_own, index);
 
-    #[verifier::returns(proof)]
     pub axiom fn tracked_front_owner(
         list_own: LinkedListOwner<M>,
-    ) -> (res: Self)
+    ) -> (tracked res: Self)
         ensures
             res == Self::front_owner(list_own);
     pub open spec fn back_owner(
@@ -546,11 +544,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
-    #[verifier::returns(proof)]
     #[verifier::external_body]
     pub proof fn tracked_back_owner(
         list_own: LinkedListOwner<M>,
-    ) -> (res: Self)
+    ) -> (tracked res: Self)
         ensures
             res == Self::back_owner(list_own),
     {
@@ -573,11 +570,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
-    #[verifier::returns(proof)]
     #[verifier::external_body]
     pub proof fn tracked_ghost_owner(
         list_own: LinkedListOwner<M>,
-    ) -> (res: Self)
+    ) -> (tracked res: Self)
         ensures
             res == Self::ghost_owner(list_own),
     {
