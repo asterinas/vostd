@@ -229,7 +229,8 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
     open spec fn inv(self) -> bool {
-        forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
+        &&& self.list.len() > 0 ==> self.list_id != 0
+        &&& forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
     }
 }
 
@@ -258,6 +259,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         }
         &&& self.list[i].inv()
         &&& self.list[i].in_list == self.list_id
+        &&& self.perms[i].inner_perms.in_list.value() == self.list_id
     }
 
     pub open spec fn view_helper(owners: Seq<LinkOwner>) -> Seq<LinkModel>
