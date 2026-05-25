@@ -25,8 +25,10 @@
 //! 2. Switching to user space.
 //!
 //! This module provides API to detect such "sleep-like" actions.
-use core::sync::atomic::Ordering;
+use vstd::prelude::*;
 
+use core::sync::atomic::Ordering;
+/* 
 /// Marks a function as one that might sleep.
 ///
 /// This function will panic if it is executed in atomic mode.
@@ -43,7 +45,7 @@ pub fn might_sleep() {
         );
     }
 }
-
+*/
 /// A marker trait for guard types that enforce the atomic mode.
 ///
 /// Key kernel primitives such as `SpinLock` and `Rcu` rely on
@@ -58,8 +60,9 @@ pub fn might_sleep() {
 ///
 /// The implementer must ensure that the atomic mode is maintained while
 /// the guard type is alive.
-pub unsafe trait InAtomicMode: core::fmt::Debug {}
-
+#[verus_verify]
+pub unsafe trait InAtomicMode/* : core::fmt::Debug*/ {}
+/* 
 /// Abstracts any type from which one can obtain a reference to an atomic-mode guard.
 pub trait AsAtomicModeGuard {
     /// Returns a guard for the atomic mode.
@@ -77,3 +80,4 @@ impl AsAtomicModeGuard for dyn InAtomicMode + '_ {
         self
     }
 }
+*/

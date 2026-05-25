@@ -2,8 +2,8 @@
 //! Tasks are the unit of code execution.
 use vstd::prelude::*;
 
-/* pub mod atomic_mode;
-mod kernel_stack; */
+pub mod atomic_mode;
+/* mod kernel_stack; */
 mod preempt;
 // mod processor;
 pub mod scheduler;

@@ -16,7 +16,6 @@ use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{PageTableOwner, INC_LEVELS};
-use crate::specs::task::InAtomicMode;
 
 use core::marker::PhantomData;
 use core::ops::Deref;
@@ -24,7 +23,7 @@ use core::ops::Deref;
 use crate::{
     mm::{nr_subpage_per_huge, page_prop::PageProperty},
     //    sync::RcuDrop,
-    //    task::atomic_mode::InAtomicMode,
+    task::atomic_mode::InAtomicMode,
 };
 
 use super::*;
@@ -587,7 +586,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i) && i != final(owner).value.node.unwrap().meta_perm.addr() ==> final(guards).unlocked(i),
     )]
-    pub(in crate::mm) fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+    pub(in crate::mm) fn alloc_if_none(&mut self, guard: &'rcu dyn InAtomicMode) -> (res: Option<
         PageTableGuard<'rcu, C>,
     >) {
         let entry_is_present = self.pte.is_present();
@@ -806,7 +805,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     #[trigger] final(parent_owner).children_perm.value()[j]
                         == old(parent_owner).children_perm.value()[j],
     )]
-    pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res:
+    pub(in crate::mm) fn split_if_mapped_huge(&mut self, guard: &'rcu dyn InAtomicMode) -> (res:
         Option<PageTableGuard<'rcu, C>>) {
         #[verus_spec(with Tracked(&parent_owner.meta_perm))]
         let level = self.node.level();

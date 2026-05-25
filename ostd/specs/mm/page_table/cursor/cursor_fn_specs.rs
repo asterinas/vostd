@@ -8,7 +8,7 @@ use crate::specs::mm::frame::meta_owners::{is_mmio_paddr, REF_COUNT_MAX, REF_COU
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
-use crate::specs::task::InAtomicMode;
+use crate::task::atomic_mode::InAtomicMode;
 
 use core::ops::Range;
 
@@ -16,7 +16,7 @@ verus! {
 
 // ─── Cursor specs ─────────────────────────────────────────────────────────────
 
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     pub open spec fn cursor_new_success_conditions(va: &Range<Vaddr>) -> bool {
         &&& va.start < va.end
         &&& va.start % C::BASE_PAGE_SIZE() == 0
@@ -129,7 +129,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
 // ─── CursorMut specs ──────────────────────────────────────────────────────────
 
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     // TODO: trace the `level >= guard_level` panic to its actual location in `pop_level`
     // (unwrap of None path entry). The lock treatment of the invariant has now been
     // fixed (`Cursor::wf` and `CursorOwner::nodes_locked` are gated on `guard_level`

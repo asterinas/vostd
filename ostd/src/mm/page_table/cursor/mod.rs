@@ -53,6 +53,7 @@ use crate::specs::mm::frame::meta_owners::{
 };
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
+use crate::task::DisabledPreemptGuard;
 
 use core::{fmt::Debug, marker::PhantomData, ops::Range};
 
@@ -60,7 +61,7 @@ use align_ext::AlignExt;
 
 use crate::{
     mm::{page_prop::PageProperty, page_table::is_valid_range},
-    specs::task::InAtomicMode,
+    task::atomic_mode::InAtomicMode,
 };
 
 use super::{
@@ -82,14 +83,14 @@ pub type PagesState<C> = (Range<Vaddr>, Option<<C as PageTableConfig>::Item>);
 ///
 /// A cursor is able to move to the next slot, to read page properties,
 /// and even to jump to a virtual address directly.
-pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
+pub struct Cursor<'rcu, C: PageTableConfig> {
     /// The current path of the cursor.
     ///
     /// The level 1 page table lock guard is at index 0, and the level N page
     /// table lock guard is at index N - 1.
     pub path: [Option<PageTableGuard<'rcu, C>>; NR_LEVELS],
     /// The cursor should be used in a RCU read side critical section.
-    pub rcu_guard: &'rcu A,
+    pub rcu_guard: &'rcu dyn InAtomicMode,
     /// The level of the page table that the cursor currently points to.
     pub level: PagingLevel,
     /// The top-most level that the cursor is allowed to access.
@@ -109,9 +110,9 @@ pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
 /// page table corresponding to the address range. A virtual address range
 /// in a page table can only be accessed by one cursor, regardless of the
 /// mutability of the cursor.
-pub struct CursorMut<'rcu, C: PageTableConfig, A: InAtomicMode>(pub Cursor<'rcu, C, A>);
+pub struct CursorMut<'rcu, C: PageTableConfig>(pub Cursor<'rcu, C>);
 
-impl<C: PageTableConfig, A: InAtomicMode> Iterator for Cursor<'_, C, A> {
+impl<C: PageTableConfig> Iterator for Cursor<'_, C> {
     type Item = PagesState<C>;
 
     #[verifier::external_body]
@@ -218,7 +219,7 @@ impl<C: PageTableConfig> PageTableFrag<C> {
 }
 
 #[verus_verify]
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Ghost(pa): Ghost<Paddr>)]
@@ -342,9 +343,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
-            forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
-                CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
-                CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
+            forall|item: C::Item| #![trigger CursorMut::<C>::item_not_mapped(item, *old(regions))]
+                CursorMut::<C>::item_not_mapped(item, *old(regions)) ==>
+                CursorMut::<C>::item_not_mapped(item, *final(regions)),
             // Non-saturation preservation.
             (forall |i: usize| #![trigger old(regions).slot_owners[i]]
                 old(regions).slot_owners.contains_key(i)
@@ -360,7 +361,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
                     < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
     )]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> Result<
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu dyn InAtomicMode, va: &Range<Vaddr>) -> Result<
         (Self, Tracked<CursorOwner<'rcu, C>>),
         PageTableError,
     > {
@@ -2059,7 +2060,7 @@ impl<C: PageTableConfig> Drop for Cursor<'_, C> {
 */
 
 #[verus_verify]
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
+impl<'rcu, C: PageTableConfig> CursorMut<'rcu, C> {
     /// Creates a cursor claiming exclusive access over the given range.
     ///
     /// The cursor created will only be able to map, query or jump within the given
@@ -2075,7 +2076,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // Per-config tightening; see `Cursor::new`.
             va.end as int <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Cursor::<C, A>::cursor_new_success_conditions(va) ==> {
+            Cursor::<C>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -2084,7 +2085,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
             },
-            !Cursor::<C, A>::cursor_new_success_conditions(va) ==> r is Err,
+            !Cursor::<C>::cursor_new_success_conditions(va) ==> r is Err,
             // cursor_mut only acquires locks on page-table node slots; it does not
             // set paths_in_pt for data-frame slots. Any frame that was item_not_mapped
             // before the call remains item_not_mapped after.
@@ -2100,7 +2101,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
     )]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> Result<
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu dyn InAtomicMode, va: &Range<Vaddr>) -> Result<
         (Self, Tracked<CursorOwner<'rcu, C>>),
         PageTableError,
     > {
@@ -2114,7 +2115,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     // (from !conditions ==> Err, contrapositive gives Ok ==> conditions).
                     // Therefore the success-case ensures apply, giving us invariants.
                     assert(inner_cursor.invariants(*tracked_owner, *regions, *guards));
-                    assert(CursorMut::<C, A>(inner_cursor).0.invariants(
+                    assert(CursorMut::<C>(inner_cursor).0.invariants(
                         *tracked_owner,
                         *regions,
                         *guards,
@@ -2301,7 +2302,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(owner)@ == old(owner)@,
             *final(regions) == *old(regions),
     )]
-    fn map_branch_pt(&mut self, pt: PageTableNodeRef<'rcu, C>, rcu_guard: &'rcu A) {
+    fn map_branch_pt(&mut self, pt: PageTableNodeRef<'rcu, C>, rcu_guard: &'rcu dyn InAtomicMode) {
         let ghost guards0 = *guards;
 
         let ghost level_key = owner.level as int - 1;
@@ -2371,7 +2372,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             forall|idx: usize| #![trigger final(regions).slots.contains_key(idx)]
                 old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
     )]
-    pub fn map_loop(&mut self, level: PagingLevel, rcu_guard: &'rcu A) {
+    pub fn map_loop(&mut self, level: PagingLevel, rcu_guard: &'rcu dyn InAtomicMode) {
         let ghost guard_level = self.0.guard_level;
         let ghost barrier_va = self.0.barrier_va;
         let ghost owner0 = *owner;

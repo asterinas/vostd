@@ -26,10 +26,9 @@ use crate::specs::mm::page_table::*;
 use crate::specs::arch::mm::*;
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::*;
-use crate::specs::task::InAtomicMode;
 
 use crate::mm::frame::meta::mapping::frame_to_index;
-use crate::mm::kspace::kvirt_area::disable_preempt;
+use crate::task::{atomic_mode::InAtomicMode, disable_preempt};
 use crate::specs::arch::PageTableEntry;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -1122,10 +1121,10 @@ impl PageTable<KernelPtConfig> {
         ensures
             final(regions).inv(),
     )]
-    pub(in crate::mm) fn create_user_page_table<G: InAtomicMode + 'static>(
+    pub(in crate::mm) fn create_user_page_table(
         &'static self,
     ) -> PageTable<UserPtConfig> {
-        let preempt_guard: &G = disable_preempt::<G>();
+        let preempt_guard= disable_preempt();
 
         proof_decl! {
             let tracked mut new_pt_owner: Option<PageTableOwner<UserPtConfig>> = None;
@@ -1188,14 +1187,14 @@ impl PageTable<KernelPtConfig> {
             #[verus_spec(with Tracked(regions), Tracked(root_perm))]
             let root_ref = self.root.borrow();
             #[verus_spec(with Tracked(root_owner), Tracked(guards_k))]
-            root_ref.lock(preempt_guard)
+            root_ref.lock(&preempt_guard)
         };
         let ghost regions_after_kroot_borrow: MetaRegionOwners = *regions;
-        let mut new_node: PageTableGuard<'static, UserPtConfig> = {
+        let mut new_node = {
             #[verus_spec(with Tracked(regions), Tracked(&new_node_owner.meta_perm))]
             let new_ref = new_root.borrow();
             #[verus_spec(with Tracked(&new_node_owner), Tracked(guards_u))]
-            new_ref.lock(preempt_guard)
+            new_ref.lock(&preempt_guard)
         };
         proof {
             // Each `borrow` adjusts raw_count to 1 at one slot index. For the kernel
@@ -1624,7 +1623,7 @@ impl<C: PageTableConfig> PageTable<C> {
             // Per-config tightening; see `Cursor::new`.
             va.end as int <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
+            Cursor::<C>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -1634,20 +1633,25 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
             },
-            !Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Err,
-            forall |item: C::Item| #![trigger CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions))]
-                CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions)) ==>
-                CursorMut::<'rcu, C, G>::item_not_mapped(item, *final(regions)),
+            !Cursor::<C>::cursor_new_success_conditions(va) ==> r is Err,
+            forall |item: C::Item| #![trigger CursorMut::<'rcu, C>::item_not_mapped(item, *old(regions))]
+                CursorMut::<'rcu, C>::item_not_mapped(item, *old(regions)) ==>
+                CursorMut::<'rcu, C>::item_not_mapped(item, *final(regions)),
             // cursor_mut only locks page-table node slots; paths_in_pt is unchanged for all slots.
             forall |idx: usize| #![auto]
                 (*final(regions)).slot_owners[idx].paths_in_pt == (*old(regions)).slot_owners[idx].paths_in_pt,
     )]
     #[verifier::external_body]
-    pub fn cursor_mut<'rcu, G: InAtomicMode>(
+    /* pub fn cursor_mut<'rcu, G: AsAtomicModeGuard>(
         &'rcu self,
         guard: &'rcu G,
         va: &Range<Vaddr>,
-    ) -> Result<(CursorMut<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+    ) -> Result<CursorMut<'rcu, C>, PageTableError>*/
+    pub fn cursor_mut<'rcu>(
+        &'rcu self,
+        guard: &'rcu dyn InAtomicMode,
+        va: &Range<Vaddr>,
+    ) -> Result<(CursorMut<'rcu, C>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
         #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         CursorMut::new(self, guard, va)
     }
@@ -1667,7 +1671,7 @@ impl<C: PageTableConfig> PageTable<C> {
             // Per-config tightening; see `Cursor::new`.
             va.end as int <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
+            Cursor::<C>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -1678,7 +1682,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().1@.as_page_table_owner() == owner
                 &&& r.unwrap().1@.continuations[3].path() == owner.0.value.path
             },
-            !Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Err,
+            !Cursor::<C>::cursor_new_success_conditions(va) ==> r is Err,
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
@@ -1713,8 +1717,13 @@ impl<C: PageTableConfig> PageTable<C> {
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
     )]
-    pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>) -> Result<
-        (Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>),
+    /* pub fn cursor<'rcu, G: AsAtomicModeGuard>(
+        &'rcu self,
+        guard: &'rcu G,
+        va: &Range<Vaddr>,
+    )*/
+    pub fn cursor<'rcu>(&'rcu self, guard: &'rcu dyn InAtomicMode, va: &Range<Vaddr>) -> Result<
+        (Cursor<'rcu, C>, Tracked<CursorOwner<'rcu, C>>),
         PageTableError,
     > {
         #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]

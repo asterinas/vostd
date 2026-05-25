@@ -32,15 +32,13 @@ use super::Once;
 
 use self::monitor::{RcuMonitor, RcuMonitorOwner, RcuMonitorPred};
 use crate::task::{
-    //atomic_mode::{AsAtomicModeGuard, InAtomicMode},
+    atomic_mode::{/*AsAtomicModeGuard,*/ InAtomicMode},
     disable_preempt,
     DisabledPreemptGuard,
 };
 
 mod monitor;
 pub mod non_null;
-
-use crate::specs::task::InAtomicMode;
 
 verus! {
 

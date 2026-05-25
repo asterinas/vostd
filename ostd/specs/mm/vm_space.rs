@@ -10,6 +10,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace};
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR};
+use crate::task::atomic_mode::InAtomicMode;
 use crate::specs::arch::mm::{current_page_table_paddr_spec, NR_LEVELS};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::io::{VmIoMemView, VmIoOwner};
@@ -19,7 +20,6 @@ use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::mm::page_table::{Guards, Mapping, OwnerSubtree, PageTableOwner, PageTableView};
 use crate::specs::mm::tlb::TlbModel;
 use crate::specs::mm::virt_mem::{FrameContents, MemView};
-use crate::specs::task::InAtomicMode;
 
 verus! {
 
@@ -694,7 +694,7 @@ impl<'a> VmSpace<'a> {
     }
 }
 
-impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
+impl<'rcu> Cursor<'rcu> {
     pub open spec fn query_success_requires(self) -> bool {
         self.0.barrier_va.start <= self.0.va < self.0.barrier_va.end
     }
@@ -715,7 +715,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     }
 }
 
-impl<'a, A: InAtomicMode> CursorMut<'a, A> {
+impl<'a> CursorMut<'a> {
     pub open spec fn map_cursor_requires(
         self,
         cursor_owner: CursorOwner<'a, UserPtConfig>,
@@ -744,7 +744,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& self.pt_cursor.0.va + page_size(level) <= self.pt_cursor.0.barrier_va.end
         &&& entry_owner.inv()
         &&& self.pt_cursor.0.va % page_size(level) == 0
-        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(item, regions)
+        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig>::item_slot_in_regions(item, regions)
     }
 
     pub open spec fn map_item_ensures(

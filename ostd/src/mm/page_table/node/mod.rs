@@ -32,6 +32,7 @@ mod child_specs;
 mod entry_specs;
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
+use crate::task::DisabledPreemptGuard;
 pub use child::*;
 pub use entry::*;
 
@@ -69,7 +70,7 @@ use crate::{
         //        FrameAllocOptions, Infallible,
         //        VmReader,
     },
-    specs::task::InAtomicMode,
+    task::atomic_mode::InAtomicMode,
 };
 
 verus! {
@@ -292,7 +293,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
+    pub fn lock<'rcu>(self, _guard: &'rcu dyn InAtomicMode) -> PageTableGuard<'rcu, C> where
         'a: 'rcu,
      {
         unimplemented!()
@@ -317,7 +318,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<
+    pub fn make_guard_unchecked<'rcu>(self, _guard: &'rcu dyn InAtomicMode) -> PageTableGuard<
         'rcu,
         C,
     > where 'a: 'rcu {
