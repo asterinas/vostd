@@ -193,12 +193,7 @@ pub enum PageTableFrag<C: PageTableConfig> {
     /// A sub-tree of a page table that is taken out of the page table.
     ///
     /// The caller is responsible for dropping it after TLB coherence.
-    StrayPageTable {
-        pt: Frame<dyn AnyFrameMeta>,
-        va: Vaddr,
-        len: usize,
-        num_frames: usize,
-    },
+    StrayPageTable { pt: Frame<dyn AnyFrameMeta>, va: Vaddr, len: usize, num_frames: usize },
 }
 
 impl<C: PageTableConfig> PageTableFrag<C> {

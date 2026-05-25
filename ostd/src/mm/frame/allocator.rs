@@ -8,7 +8,6 @@ use align_ext::AlignExt;
 
 use super::{meta::AnyFrameMeta, segment::Segment, Frame};
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
-use vstd_extra::cast_ptr::Repr;
 use crate::{
     boot::memory_region::MemoryRegionType,
     error::Error,
@@ -17,6 +16,7 @@ use crate::{
     prelude::*,
     //    util::ops::range_difference,
 };
+use vstd_extra::cast_ptr::Repr;
 
 verus! {
 
@@ -54,7 +54,10 @@ impl FrameAllocOptions {
     }*/
     /// Allocates a single frame with additional metadata.
     #[verifier::external_body]
-    pub fn alloc_frame_with<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, metadata: M) -> Result<Frame<M>, Error> {
+    pub fn alloc_frame_with<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, metadata: M) -> Result<
+        Frame<M>,
+        Error,
+    > {
         unimplemented!()/*
         let single_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).unwrap();
         let frame = get_global_frame_allocator()

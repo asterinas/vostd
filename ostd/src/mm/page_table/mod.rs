@@ -191,8 +191,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// auto-derive from `axiom_nr_subpage_per_huge` + `axiom_pte_size`.
     proof fn axiom_pte_walk_fills_page()
         ensures
-            NR_ENTRIES * core::mem::size_of::<Self::E>()
-                == crate::specs::arch::mm::PAGE_SIZE,
+            NR_ENTRIES * core::mem::size_of::<Self::E>() == crate::specs::arch::mm::PAGE_SIZE,
     ;
 
     /// The top-level index range fits within a single PT-node. Concretely

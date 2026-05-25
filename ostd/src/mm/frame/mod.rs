@@ -169,7 +169,8 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // call drop_last_in_place, which requires:
         &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
             &&& slot_own.inner_perms.storage.is_init()
-            &&& slot_own.inner_perms.in_list.value() == 0
+            &&& slot_own.inner_perms.in_list.value()
+                == 0
             // Strengthened `MetaSlotOwner::inv` UNUSED branch: the
             // last-ref teardown sets the slot to `REF_COUNT_UNUSED`,
             // which now demands an empty `paths_in_pt`. Sound: at

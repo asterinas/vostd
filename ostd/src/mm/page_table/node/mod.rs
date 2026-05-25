@@ -143,12 +143,8 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             args.vm_io_owner.read_view_of(),
             args.child_perms.dom(),
         )
-        &&& self.walk_uniqueness_from_view(
-            reader,
-            args.vm_io_owner.read_view_of(),
-        )
+        &&& self.walk_uniqueness_from_view(reader, args.vm_io_owner.read_view_of())
     }
-
 
     /// Drops the children of a page-table node: walks each present PTE and
     /// drops the referenced child page-table-node frame or mapped item.
@@ -182,12 +178,10 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost align_of_e: int = core::mem::align_of::<C::E>() as int;
         let ghost pre_skip_cursor: int = reader.cursor.vaddr as int;
 
-        let ghost initial_view: crate::specs::mm::virt_mem::MemView
-            = args.vm_io_owner.read_view_of();
-        let ghost initial_dom: vstd::set::Set<usize>
-            = args.child_perms.dom();
-        let ghost initial_reader: crate::mm::VmReader<'_, crate::mm::Infallible>
-            = *reader;
+        let ghost initial_view: crate::specs::mm::virt_mem::MemView =
+            args.vm_io_owner.read_view_of();
+        let ghost initial_dom: vstd::set::Set<usize> = args.child_perms.dom();
+        let ghost initial_reader: crate::mm::VmReader<'_, crate::mm::Infallible> = *reader;
 
         #[verus_spec(with Tracked(&mut args.vm_io_owner))]
         reader.skip_in_place(range.start * core::mem::size_of::<C::E>());
@@ -195,16 +189,13 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         proof {
             C::axiom_pte_align_divides_size();
             let k = size_of_e / align_of_e;
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                size_of_e, align_of_e,
-            );
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size_of_e, align_of_e);
             assert(size_of_e == align_of_e * k);
             vstd::arithmetic::mul::lemma_mul_is_commutative(align_of_e, k);
-            vstd::arithmetic::mul::lemma_mul_is_associative(
-                range.start as int, k, align_of_e,
-            );
+            vstd::arithmetic::mul::lemma_mul_is_associative(range.start as int, k, align_of_e);
             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                range.start as int * k, align_of_e,
+                range.start as int * k,
+                align_of_e,
             );
             assert((range.start as int * size_of_e) % align_of_e == 0);
             vstd::arithmetic::div_mod::lemma_mod_adds(
@@ -227,10 +218,14 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             C::axiom_nr_subpage_per_huge_eq_nr_entries();
             crate::mm::page_table::axiom_top_level_index_range_bounds::<C>();
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
-                size_of_e, NR_ENTRIES as int, range_start,
+                size_of_e,
+                NR_ENTRIES as int,
+                range_start,
             );
             vstd::arithmetic::mul::lemma_mul_inequality(
-                range_end - range_start, NR_ENTRIES as int - range_start, size_of_e,
+                range_end - range_start,
+                NR_ENTRIES as int - range_start,
+                size_of_e,
             );
             assert(post_skip_remain >= (range_end - range_start) * size_of_e);
             assert(args.child_perms.dom() == initial_dom.difference(removed_indices)) by {
@@ -260,8 +255,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 0 <= range_start,
                 range_start <= range_end,
                 range_end <= NR_ENTRIES as int,
-                reader.remain_spec() as int
-                    == post_skip_remain - iter_count as int * size_of_e,
+                reader.remain_spec() as int == post_skip_remain - iter_count as int * size_of_e,
                 post_skip_remain >= (range_end - range_start) * size_of_e,
                 Self::child_perms_embedding(*args),
                 self.walk_coverage_from_view(initial_reader, initial_view, initial_dom),
@@ -271,8 +265,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 // missing inside walk_coverage / walk_uniqueness instances.
                 self.level == level,
                 reader.end == initial_reader.end,
-                reader.cursor.vaddr == initial_reader.cursor.vaddr
-                    + range_start * size_of_e
+                reader.cursor.vaddr == initial_reader.cursor.vaddr + range_start * size_of_e
                     + iter_count as int * size_of_e,
                 forall|i: usize|
                     #![trigger initial_view.addr_transl(i)]
@@ -285,16 +278,15 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                     reader.cursor.vaddr <= va < initial_reader.end.vaddr ==> {
                         &&& initial_view.addr_transl(va)
                             == args.vm_io_owner.read_view_of().addr_transl(va)
-                        &&& initial_view.read(va)
-                            == args.vm_io_owner.read_view_of().read(va)
+                        &&& initial_view.read(va) == args.vm_io_owner.read_view_of().read(va)
                     },
                 removed_indices.subset_of(initial_dom),
                 args.child_perms.dom() == initial_dom.difference(removed_indices),
                 // Witness past iter for each removed idx — the discharge
                 // proof picks it up via `choose|j|` and invokes
                 // `walk_uniqueness` at (current_cursor, witness_cursor).
-                forall|idx: usize| #[trigger] removed_indices.contains(idx) ==>
-                    exists|j: int|
+                forall|idx: usize| #[trigger]
+                    removed_indices.contains(idx) ==> exists|j: int|
                         #![trigger Self::walk_pte_at_view(
                             initial_view,
                             (initial_reader.cursor.vaddr
@@ -302,9 +294,8 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                 + j * size_of_e) as usize,
                         )]
                         0 <= j < iter_count as int && {
-                            let cj = (initial_reader.cursor.vaddr
-                                + range_start * size_of_e
-                                + j * size_of_e) as usize;
+                            let cj = (initial_reader.cursor.vaddr + range_start * size_of_e + j
+                                * size_of_e) as usize;
                             let pte_j = Self::walk_pte_at_view(initial_view, cj);
                             &&& pte_j.is_present()
                             &&& !pte_j.is_last(self.level)
@@ -325,8 +316,8 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 );
             }
             let ghost cursor_pre_read: usize = reader.cursor.vaddr;
-            let ghost pre_view: crate::specs::mm::virt_mem::MemView
-                = args.vm_io_owner.read_view_of();
+            let ghost pre_view: crate::specs::mm::virt_mem::MemView =
+                args.vm_io_owner.read_view_of();
             proof {
                 crate::specs::mm::virt_mem::MemView::lemma_read_bytes_eq_pointwise(
                     pre_view,
@@ -336,7 +327,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 );
             }
             let pte = #[verus_spec(with Tracked(&mut args.vm_io_owner))]
-                reader.read_once::<C::E>();
+            reader.read_once::<C::E>();
             let pte = pte.unwrap();
             proof {
                 crate::mm::pod::lemma_decode_pod_inverse::<C::E>(pte);
@@ -350,17 +341,27 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 if !pte.is_last(level) {
                     proof {
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                            size_of_e, range_start, iter_count as int,
+                            size_of_e,
+                            range_start,
+                            iter_count as int,
                         );
                         vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                            range_start + iter_count as int, size_of_e,
+                            range_start + iter_count as int,
+                            size_of_e,
                         );
                         Self::lemma_coverage_at(
-                            *self, initial_reader, initial_view, initial_dom, cursor_pre_read,
+                            *self,
+                            initial_reader,
+                            initial_view,
+                            initial_dom,
+                            cursor_pre_read,
                         );
                         broadcast use crate::mm::frame::meta::mapping::lemma_frame_to_index_injective;
-                        assert forall|idx: usize| #[trigger] removed_indices.contains(idx)
-                            implies idx != frame_to_index(pte.paddr()) by {
+
+                        assert forall|idx: usize| #[trigger]
+                            removed_indices.contains(idx) implies idx != frame_to_index(
+                            pte.paddr(),
+                        ) by {
                             let j = choose|j: int|
                                 #![trigger Self::walk_pte_at_view(
                                     initial_view,
@@ -369,37 +370,48 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                         + j * size_of_e) as usize,
                                 )]
                                 0 <= j < iter_count as int && {
-                                    let cj = (initial_reader.cursor.vaddr
-                                        + range_start * size_of_e
+                                    let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
                                         + j * size_of_e) as usize;
                                     let pte_j = Self::walk_pte_at_view(initial_view, cj);
                                     &&& pte_j.is_present()
                                     &&& !pte_j.is_last(self.level)
                                     &&& idx == frame_to_index(pte_j.paddr())
                                 };
-                            let cj: usize = (initial_reader.cursor.vaddr
-                                + range_start * size_of_e
+                            let cj: usize = (initial_reader.cursor.vaddr + range_start * size_of_e
                                 + j * size_of_e) as usize;
                             let pte_j = Self::walk_pte_at_view(initial_view, cj);
                             vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
                             vstd::arithmetic::mul::lemma_mul_nonnegative(j, size_of_e);
                             vstd::arithmetic::mul::lemma_mul_strict_inequality(
-                                j, iter_count as int, size_of_e,
+                                j,
+                                iter_count as int,
+                                size_of_e,
                             );
                             vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                                size_of_e, range_start, j,
+                                size_of_e,
+                                range_start,
+                                j,
                             );
                             vstd::arithmetic::mul::lemma_mul_inequality(
-                                range_start + j + 1, range_end, size_of_e,
+                                range_start + j + 1,
+                                range_end,
+                                size_of_e,
                             );
                             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
-                                size_of_e, range_end, range_start,
+                                size_of_e,
+                                range_end,
+                                range_start,
                             );
                             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                                range_start + j, size_of_e,
+                                range_start + j,
+                                size_of_e,
                             );
                             Self::lemma_uniqueness_at_pair(
-                                *self, initial_reader, initial_view, cursor_pre_read, cj,
+                                *self,
+                                initial_reader,
+                                initial_view,
+                                cursor_pre_read,
+                                cj,
                             );
                             pte.axiom_present_paddr_aligned();
                             pte_j.axiom_present_paddr_aligned();
@@ -409,9 +421,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         // `from_raw_requires_safety` (via embedding) discharge.
                         assert(args.child_perms.dom().contains(frame_to_index(paddr)));
                     }
-                    let tracked child_perm = args.child_perms.tracked_remove(
-                        frame_to_index(paddr)
-                    );
+                    let tracked child_perm = args.child_perms.tracked_remove(frame_to_index(paddr));
                     proof {
                         removed_indices = removed_indices.insert(frame_to_index(paddr));
                         // Witness for the just-inserted idx: j = iter_count
@@ -419,8 +429,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         // cursor_pre_read, pte_j == pte. Required to keep
                         // the witness-exists loop invariant true.
                         assert({
-                            let cj = (initial_reader.cursor.vaddr
-                                + range_start * size_of_e
+                            let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
                                 + iter_count as int * size_of_e) as usize;
                             let pte_j = Self::walk_pte_at_view(initial_view, cj);
                             &&& cj == cursor_pre_read
@@ -455,7 +464,9 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             iter_count = iter_count + 1;
             proof {
                 vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                    size_of_e, iter_count_old, 1,
+                    size_of_e,
+                    iter_count_old,
+                    1,
                 );
             }
         }
@@ -900,13 +911,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// against the given memory view. Linked to `read_once` via
     /// `pod_bytes(v) == read_view.read_bytes(...)` (strengthened ensures)
     /// + [`lemma_decode_pod_inverse`].
-    pub open spec fn walk_pte_at_view(
-        view: crate::specs::mm::virt_mem::MemView,
-        c: usize,
-    ) -> C::E {
-        crate::mm::pod::decode_pod::<C::E>(
-            view.read_bytes(c, core::mem::size_of::<C::E>())
-        )
+    pub open spec fn walk_pte_at_view(view: crate::specs::mm::virt_mem::MemView, c: usize) -> C::E {
+        crate::mm::pod::decode_pod::<C::E>(view.read_bytes(c, core::mem::size_of::<C::E>()))
     }
 
     /// Single-cursor projection of [`walk_coverage_from_view`]. Extracting
@@ -920,8 +926,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         c: usize,
     ) -> bool {
         let pte = Self::walk_pte_at_view(view, c);
-        pte.is_present() && !pte.is_last(self.level)
-            ==> dom.contains(frame_to_index(pte.paddr()))
+        pte.is_present() && !pte.is_last(self.level) ==> dom.contains(frame_to_index(pte.paddr()))
     }
 
     /// Instantiate [`walk_coverage_from_view`]'s forall at one cursor.
@@ -982,13 +987,14 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     ) -> bool {
         forall|c: usize|
             #![trigger Self::walk_pte_at_view(view, c)]
-            reader.cursor.vaddr <= c
-            && c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec()
-            && (c - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0
-            ==> {
+            reader.cursor.vaddr <= c && c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr
+                + reader.remain_spec() && (c - reader.cursor.vaddr) % core::mem::size_of::<
+                C::E,
+            >() as int == 0 ==> {
                 let pte = Self::walk_pte_at_view(view, c);
-                pte.is_present() && !pte.is_last(self.level)
-                    ==> dom.contains(frame_to_index(pte.paddr()))
+                pte.is_present() && !pte.is_last(self.level) ==> dom.contains(
+                    frame_to_index(pte.paddr()),
+                )
             }
     }
 
@@ -1001,19 +1007,16 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     ) -> bool {
         forall|c1: usize, c2: usize|
             #![trigger Self::walk_pte_at_view(view, c1), Self::walk_pte_at_view(view, c2)]
-            reader.cursor.vaddr <= c1
-            && c1 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec()
-            && (c1 - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0
-            && reader.cursor.vaddr <= c2
-            && c2 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec()
-            && (c2 - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0
-            && c1 != c2
-            ==> {
+            reader.cursor.vaddr <= c1 && c1 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr
+                + reader.remain_spec() && (c1 - reader.cursor.vaddr) % core::mem::size_of::<
+                C::E,
+            >() as int == 0 && reader.cursor.vaddr <= c2 && c2 + core::mem::size_of::<C::E>()
+                <= reader.cursor.vaddr + reader.remain_spec() && (c2 - reader.cursor.vaddr)
+                % core::mem::size_of::<C::E>() as int == 0 && c1 != c2 ==> {
                 let pte1 = Self::walk_pte_at_view(view, c1);
                 let pte2 = Self::walk_pte_at_view(view, c2);
-                pte1.is_present() && !pte1.is_last(self.level)
-                    && pte2.is_present() && !pte2.is_last(self.level)
-                    ==> pte1.paddr() != pte2.paddr()
+                pte1.is_present() && !pte1.is_last(self.level) && pte2.is_present()
+                    && !pte2.is_last(self.level) ==> pte1.paddr() != pte2.paddr()
             }
     }
 
@@ -1021,9 +1024,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// has a slot perm matching the shape `from_raw` + `VerifiedDrop::drop`
     /// expect (init, alignment, refcount within bounds, last-reference
     /// shape when refcount == 1).
-    pub open spec fn child_perms_embedding(
-        args: crate::mm::frame::meta::OnDropArgs,
-    ) -> bool {
+    pub open spec fn child_perms_embedding(args: crate::mm::frame::meta::OnDropArgs) -> bool {
         forall|paddr: crate::mm::Paddr|
             #![trigger args.child_perms.dom().contains(frame_to_index(paddr))]
             args.child_perms.dom().contains(frame_to_index(paddr)) ==> {
@@ -1034,7 +1035,9 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                 &&& so.raw_count <= 1
                 &&& args.child_perms[idx].is_init()
                 &&& args.child_perms[idx].addr() == frame_to_meta(paddr)
-                &&& args.child_perms[idx].value().wf(so)
+                &&& args.child_perms[idx].value().wf(
+                    so,
+                )
                 // Live frame: refcount in [1, REF_COUNT_MAX]. Needed for
                 // `Drop::drop_requires` after `from_raw` reconstructs the
                 // child Frame.

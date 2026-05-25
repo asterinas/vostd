@@ -175,11 +175,7 @@ pub trait AnyFrameMeta {
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
     /// reader/region/child-perm invariants) override this; the trait
     /// method's `requires` clause calls it.
-    open spec fn on_drop_pre(
-        &self,
-        reader: VmReader<'_, Infallible>,
-        args: OnDropArgs,
-    ) -> bool {
+    open spec fn on_drop_pre(&self, reader: VmReader<'_, Infallible>, args: OnDropArgs) -> bool {
         true
     }
 
@@ -981,8 +977,10 @@ impl MetaSlot {
         let vtable_ptr = unsafe { *vtable_ptr };
 
         let storage_ptr: *mut () = unimplemented!();
-        let meta_ptr: *mut dyn AnyFrameMeta =
-            core::ptr::from_raw_parts_mut(storage_ptr, vtable_ptr);
+        let meta_ptr: *mut dyn AnyFrameMeta = core::ptr::from_raw_parts_mut(
+            storage_ptr,
+            vtable_ptr,
+        );
 
         // SAFETY: The implementer of the frame metadata decides that if the
         // frame is safe to be read or not.

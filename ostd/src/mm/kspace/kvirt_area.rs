@@ -32,19 +32,23 @@ use crate::mm::PagingConstsTrait;
 use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::arch::PagingConsts;
 use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_index_spec};
-use crate::specs::mm::frame::meta_owners::{is_mmio_paddr, MetaSlotStorage, PageUsage, REF_COUNT_MAX};
-use vstd_extra::cast_ptr::Repr;
+use crate::specs::mm::frame::meta_owners::{
+    is_mmio_paddr, MetaSlotStorage, PageUsage, REF_COUNT_MAX,
+};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};
 use crate::specs::mm::page_table::*;
 use crate::specs::task::InAtomicMode;
+use vstd_extra::cast_ptr::Repr;
 
 //static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
 
 verus! {
 
 /// Spec representation of Frame<T> as DynFrame (used when the actual conversion is opaque).
-pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(frame: Frame<T>) -> DynFrame {
+pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
+    frame: Frame<T>,
+) -> DynFrame {
     DynFrame { ptr: frame.ptr, _marker: PhantomData }
 }
 
