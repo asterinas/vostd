@@ -19,14 +19,14 @@ impl<L, R> Sum<L, R> {
         self->Right_0
     }
 
-    pub proof fn new_left(tracked left: L) -> (tracked res: Self)
+    pub proof fn tracked_new_left(tracked left: L) -> (tracked res: Self)
         returns
             Self::Left(left),
     {
         Self::Left(left)
     }
 
-    pub proof fn new_right(tracked right: R) -> (tracked res: Self)
+    pub proof fn tracked_new_right(tracked right: R) -> (tracked res: Self)
         returns
             Self::Right(right),
     {
@@ -97,7 +97,7 @@ impl<L, R> Sum<L, R> {
             *final(self) is Left,
             final(self)->Left_0 == new_left,
     {
-        let tracked mut tmp = Self::new_left(new_left);
+        let tracked mut tmp = Self::tracked_new_left(new_left);
         tracked_swap(self, &mut tmp);
         tmp.tracked_take_left()
     }
@@ -110,7 +110,7 @@ impl<L, R> Sum<L, R> {
             *final(self) is Right,
             final(self)->Right_0 == new_right,
     {
-        let tracked mut tmp = Self::new_right(new_right);
+        let tracked mut tmp = Self::tracked_new_right(new_right);
         tracked_swap(self, &mut tmp);
         tmp.tracked_take_right()
     }
@@ -121,6 +121,17 @@ impl<L: Inv, R: Inv> Inv for Sum<L, R> {
         match self {
             Self::Left(left) => left.inv(),
             Self::Right(right) => right.inv(),
+        }
+    }
+}
+
+impl<L: View, R: View> View for Sum<L, R> {
+    type V = Sum<L::V, R::V>;
+
+    open spec fn view(&self) -> Self::V {
+        match self {
+            Self::Left(left) => Sum::Left(left.view()),
+            Self::Right(right) => Sum::Right(right.view()),
         }
     }
 }

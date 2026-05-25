@@ -160,7 +160,7 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
         1 <= level <= NR_LEVELS + 1,
     ensures
         ret == page_size_spec(level),
-        exists|e| ret == pow2(e),
+        is_pow2(ret as int),
         ret >= PAGE_SIZE,
 {
     PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
