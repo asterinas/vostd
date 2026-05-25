@@ -61,6 +61,13 @@ closed spec fn wf(self) -> bool {
 }
 
 impl WaitQueue {
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+}
+
+impl WaitQueue {
     /// Creates a new, empty wait queue.
     pub const fn new() -> Self {
         WaitQueue {
@@ -108,13 +115,20 @@ impl WaitQueue {
 
     /// Wakes up one waiting thread, if there is one at the point of time when this method is
     /// called, returning whether such a thread was woken up.
-    #[verifier::external_body]
+    #[verifier::exec_allows_no_decreases_clause]
     pub fn wake_one(&self) -> (r: bool) {
+        proof!{
+            use_type_invariant(self);
+        }
+
         // Fast path
         if self.is_empty() {
             return false;
         }
-        loop {
+        loop
+            invariant
+                self.wf(),
+        {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
                 return false;
@@ -122,10 +136,13 @@ impl WaitQueue {
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
-                ghost g => {}
+                ghost g => {
+                    assume(prev > 0);
+                }
             };
             // Avoid holding lock when calling `wake_up`
-            drop(wakers);
+            //drop(wakers);
+            wakers.drop();
 
             if waker.wake_up() {
                 return true;
@@ -134,15 +151,22 @@ impl WaitQueue {
     }
 
     /// Wakes up all waiting threads, returning the number of threads that were woken up.
-    #[verifier::external_body]
+    #[verifier::exec_allows_no_decreases_clause]
     pub fn wake_all(&self) -> (r: usize) {
+        proof!{
+            use_type_invariant(self);
+        }
+
         // Fast path
         if self.is_empty() {
             return 0;
         }
         let mut num_woken = 0;
 
-        loop {
+        loop
+            invariant
+                self.wf(),
+        {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
                 break;
@@ -150,12 +174,16 @@ impl WaitQueue {
             atomic_with_ghost! {
                 self.num_wakers => fetch_sub(1);
                 update prev -> next;
-                ghost g => {}
+                ghost g => {
+                    assume(prev > 1);
+                }
             };
             // Avoid holding lock when calling `wake_up`
-            drop(wakers);
+            //drop(wakers);
+            wakers.drop();
 
             if waker.wake_up() {
+                assume(num_woken < usize::MAX);
                 num_woken += 1;
             }
         }
@@ -170,14 +198,18 @@ impl WaitQueue {
 
     /// Enqueues the input [`Waker`] to the wait queue.
     #[doc(hidden)]
-    #[verifier::external_body]
     pub fn enqueue(&self, waker: Arc<Waker>) {
+        proof!{
+            use_type_invariant(self);
+        }
         let mut wakers = self.wakers.lock();
         wakers.push_back(waker);
         atomic_with_ghost! {
             self.num_wakers => fetch_add(1);
             update prev -> next;
-            ghost g => {}
+            ghost g => {
+                assume(prev < u32::MAX);
+            }
         };
     }
 }
@@ -332,12 +364,21 @@ impl Waiter {
     }
 }
 
-impl Drop for Waiter {
+/*impl Drop for Waiter {
     #[verifier::external_body]
     fn drop(&mut self)
         opens_invariants none
         no_unwind
     {
+        // When dropping the waiter, we need to close the waker to ensure that if someone wants to
+        // wake up the waiter afterwards, they will perform a no-op.
+        self.waker.close();
+    }
+}*/
+
+impl Waiter {
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
+    pub fn drop(self) {
         // When dropping the waiter, we need to close the waker to ensure that if someone wants to
         // wake up the waiter afterwards, they will perform a no-op.
         self.waker.close();
