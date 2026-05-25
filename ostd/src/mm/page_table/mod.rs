@@ -176,6 +176,45 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES,
     ;
 
+    /// Layout identity: the PTE type's Rust `size_of` matches the config's
+    /// `PTE_SIZE_spec`. Concrete impls satisfy this via their `global
+    /// layout` declaration. Exposed for generic code that calls
+    /// `core::mem::size_of::<Self::E>()`.
+    proof fn axiom_pte_size_eq_size_of()
+        ensures
+            core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE_spec(),
+    ;
+
+    /// A full PT-node's worth of PTEs fills exactly one base page.
+    /// `NR_ENTRIES * size_of::<E>() == PAGE_SIZE`. Bundles the
+    /// `pow2-divides-pow2 ⇒ mul-equals-div` arithmetic Verus doesn't
+    /// auto-derive from `axiom_nr_subpage_per_huge` + `axiom_pte_size`.
+    proof fn axiom_pte_walk_fills_page()
+        ensures
+            NR_ENTRIES * core::mem::size_of::<Self::E>()
+                == crate::specs::arch::mm::PAGE_SIZE,
+    ;
+
+    /// The top-level index range fits within a single PT-node. Concretely
+    /// `0..256` (UserPtConfig) or `256..512` (KernelPtConfig); both have
+    /// `end <= NR_ENTRIES`. Used by PT-node `on_drop` to bound
+    /// `range.start * size_of::<C::E>() <= PAGE_SIZE`.
+    proof fn axiom_top_level_index_range_within_nr_entries()
+        ensures
+            Self::TOP_LEVEL_INDEX_RANGE_spec().end <= NR_ENTRIES,
+    ;
+
+    /// `align_of::<E>()` divides `size_of::<E>()`. True for any sized Rust
+    /// type (the alignment divides the size by the layout rules), but
+    /// Verus's `size_of`/`align_of` are uninterpreted so we expose it as
+    /// an axiom. Used by PT-node `on_drop` to prove cursor alignment is
+    /// preserved across `read_once` iterations.
+    proof fn axiom_pte_align_divides_size()
+        ensures
+            core::mem::size_of::<Self::E>() % core::mem::align_of::<Self::E>() == 0,
+            core::mem::align_of::<Self::E>() > 0,
+    ;
+
     /// The item that can be mapped into the virtual memory space using the
     /// page table.
     ///
@@ -533,6 +572,17 @@ pub trait PageTableEntryTrait:
     fn paddr(&self) -> (res: Paddr)
         ensures
             res == self.paddr_spec(),
+    ;
+
+    /// AXIOM: a present PTE's `paddr()` is page-aligned. PT entries record
+    /// the base address of either a child PT page or a mapped frame; both
+    /// are page-aligned by construction. Used by `PageTablePageMeta::on_drop`
+    /// to combine `lemma_frame_to_index_injective` with walk uniqueness.
+    proof fn axiom_present_paddr_aligned(&self)
+        requires
+            self.is_present(),
+        ensures
+            self.paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
     ;
 
     spec fn prop_spec(&self) -> PageProperty;
@@ -1142,27 +1192,16 @@ impl PageTable<KernelPtConfig> {
         );
         let ghost new_pt_owner_snap = new_pt_owner@.unwrap();
         proof {
-            // Transfer metaregion_sound for the kernel root entry from regions_before_alloc
-            // to the post-alloc regions. The kernel root is a node, so metaregion_sound
-            // only depends on slot_owners (not slots). empty_with_owner only changes one
-            // slot_owner (the new PT's), and the kernel root's slot_owner is at a different
-            // index, so it is preserved.
             let kern_idx = crate::specs::mm::frame::mapping::frame_to_index(
                 kernel_owner.0.value.meta_slot_paddr().unwrap(),
             );
             let new_idx = new_idx_g;
-            // The new PT's slot was previously in the free pool, so its index differed
-            // from any active node's slot index — including the kernel root's.
             crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
                 KernelPtConfig,
             >::active_entry_not_in_free_pool(kernel_owner.0.value, regions_before_alloc, new_idx);
             assert(kern_idx != new_idx);
             assert(regions.slot_owners[kern_idx] == regions_before_alloc.slot_owners[kern_idx]);
-            // Tree-wide kernel_owner.metaregion_sound transfer comes from the
-            // freshness postcondition of empty_with_owner.
             assert(kernel_owner.metaregion_sound(*regions));
-            // Capture freshness of new_idx in slots: empty_with_owner's
-            // postcondition says new_idx is no longer in regions.slots.
             assert(!regions.slots.contains_key(new_idx));
         }
 

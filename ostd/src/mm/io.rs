@@ -980,18 +980,35 @@ impl<'a> VmReader<'a, Infallible> {
             old(self).inv(),
             old(self).wf(*old(owner)),
             old(owner).read_view_initialized(),
-            // The runtime `assert!(cursor.is_aligned())` diverges unless the
-            // cursor is aligned for `T`.
             old(self).cursor.vaddr % core::mem::align_of::<T>() != 0 ==> may_panic(),
         ensures
             final(self).inv(),
             final(owner).inv(),
             final(self).wf(*final(owner)),
+            final(owner).read_view_initialized(),
+            old(self).remain_spec() >= core::mem::size_of::<T>() ==> r is Ok,
+            final(self).end == old(self).end,
+            final(self).ghost_id == old(self).ghost_id,
             match r {
-                Ok(_) => {
+                Ok(v) => {
                     &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
                     &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
+                    &&& crate::mm::pod::pod_bytes::<T>(v)
+                        == crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner))
+                            .read_bytes(old(self).cursor.vaddr, core::mem::size_of::<T>())
+                    &&& forall|va: usize|
+                        #![trigger crate::specs::mm::io::VmIoOwner::read_view_of(*final(owner)).read(va)]
+                        final(self).cursor.vaddr <= va < old(self).end.vaddr
+                        && crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va) is Some
+                        && crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).memory.contains_key(
+                            crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va).unwrap().0
+                        ) ==> {
+                            &&& crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va)
+                                == crate::specs::mm::io::VmIoOwner::read_view_of(*final(owner)).addr_transl(va)
+                            &&& crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).read(va)
+                                == crate::specs::mm::io::VmIoOwner::read_view_of(*final(owner)).read(va)
+                        }
                 },
                 Err(_) => {
                     *old(self) == *final(self)
@@ -1143,9 +1160,7 @@ impl<'a> VmReader<'a, Fallible> {
     pub fn collect(&mut self) -> Result<alloc::vec::Vec<u8>> {
         let len = self.remain();
         let mut buf = alloc::vec![0u8; len];
-        // Use the shared-borrow `as_virt_ptr` + `axiom_slice_in_kernel` pair:
-        // both spec calls observe the same `&[u8]` value, so the chain
-        // `ptr.vaddr == as_ptr_spec(slice) == [kernel-space]` closes cleanly.
+
         let ptr = {
             let slice: &[u8] = buf.as_slice();
             let ptr = slice.as_virt_ptr();
@@ -1625,6 +1640,53 @@ impl<Fallibility> VmReader<'_, Fallibility> {
         assert!(nbytes <= self.remain());
         self.cursor = self.cursor.wrapping_add(nbytes);
         self
+    }
+
+    /// Same as [`Self::skip`] but returns `()` instead of `&mut Self`.
+    ///
+    /// Sidesteps a Verus modeling quirk: `&mut self`-returning-`&mut Self`
+    /// reborrows don't auto-propagate the return-value's ensures (`r.*`)
+    /// to the post-state of `*self` (`final(self).*`). Callers that don't
+    /// need to chain can use this in-place variant to avoid `r`-vs-`self`
+    /// reborrow tracking.
+    #[verus_spec(
+        with
+            Tracked(owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
+        requires
+            old(self).inv(),
+            old(self).wf(*old(owner)),
+            old(owner).mem_view is Some,
+            nbytes <= old(self).remain_spec(),
+        ensures
+            final(self).inv(),
+            final(owner).inv(),
+            final(self).wf(*final(owner)),
+            old(owner).read_view_initialized() ==> final(owner).read_view_initialized(),
+            final(self).cursor.vaddr == old(self).cursor.vaddr + nbytes,
+            final(self).remain_spec() == old(self).remain_spec() - nbytes,
+            final(self).end == old(self).end,
+            final(self).ghost_id == old(self).ghost_id,
+
+            old(owner).mem_view matches Some(crate::specs::mm::io::VmIoMemView::ReadView(_)) ==>
+                forall|va: usize|
+                    #![trigger crate::specs::mm::io::VmIoOwner::read_view_of(*final(owner)).read(va)]
+                    final(self).cursor.vaddr <= va < old(self).end.vaddr
+                    && crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va) is Some
+                    && crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).memory.contains_key(
+                        crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va).unwrap().0
+                    ) ==> {
+                        &&& crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va)
+                            == crate::specs::mm::io::VmIoOwner::read_view_of(*final(owner)).addr_transl(va)
+                        &&& crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).read(va)
+                            == crate::specs::mm::io::VmIoOwner::read_view_of(*final(owner)).read(va)
+                    },
+    )]
+    pub fn skip_in_place(&mut self, nbytes: usize) {
+        assert!(nbytes <= self.remain());
+        self.cursor = self.cursor.wrapping_add(nbytes);
+        proof {
+            owner.advance(nbytes);
+        }
     }
 }
 

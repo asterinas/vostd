@@ -271,6 +271,21 @@ impl VmIoOwner {
             old(self).mem_view matches Some(VmIoMemView::ReadView(_)) ==> final(self).mem_view matches Some(VmIoMemView::ReadView(_)),
             old(self).mem_view matches Some(VmIoMemView::WriteView(_)) ==> final(self).mem_view matches Some(VmIoMemView::WriteView(_)),
             old(self).read_view_initialized() ==> final(self).read_view_initialized(),
+            // Byte preservation on the un-advanced sub-range — lets
+            // `read_once` loops chain byte-level facts across iterations.
+            old(self).mem_view matches Some(VmIoMemView::ReadView(_)) ==>
+                forall|va: usize|
+                    #![trigger final(self).read_view_of().read(va)]
+                    old(self).range@.start + nbytes <= va < old(self).range@.end
+                    && old(self).read_view_of().addr_transl(va) is Some
+                    && old(self).read_view_of().memory.contains_key(
+                        old(self).read_view_of().addr_transl(va).unwrap().0
+                    ) ==> {
+                        &&& old(self).read_view_of().addr_transl(va)
+                            == final(self).read_view_of().addr_transl(va)
+                        &&& old(self).read_view_of().read(va)
+                            == final(self).read_view_of().read(va)
+                    },
     {
         let ghost old_start = self.range@.start;
         let ghost old_end = self.range@.end;
@@ -299,6 +314,7 @@ impl VmIoOwner {
                 let ghost view_g = view;
                 let tracked (left, right) = view.split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
+                MemView::lemma_split_preserves_read(view_g, old_start, nbytes, left, right);
                 assert(right.mappings.finite());
                 assert(right.mappings_are_disjoint()) by {
                     assert(right.mappings <= view_g.mappings);
@@ -519,10 +535,23 @@ impl VmIoOwner {
             self.mem_view matches Some(VmIoMemView::ReadView(_)),
         ensures
             VmIoMemView::ReadView(*r) == self.mem_view.unwrap(),
+            *r == Self::read_view_of(*self),
     {
         match &self.mem_view {
             Some(VmIoMemView::ReadView(r)) => r,
             _ => { proof_from_false() },
+        }
+    }
+
+    /// Spec helper: extract the [`MemView`] from a read-view owner.
+    ///
+    /// Defined only when `self.mem_view matches Some(ReadView(_))`; otherwise
+    /// returns an arbitrary value. Callers should establish the matching
+    /// pattern via [`has_read_view`] before using this.
+    pub open spec fn read_view_of(self) -> MemView {
+        match self.mem_view {
+            Some(VmIoMemView::ReadView(mv)) => mv,
+            _ => arbitrary(),
         }
     }
 

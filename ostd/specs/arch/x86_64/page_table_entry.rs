@@ -321,6 +321,11 @@ impl PageTableEntryTrait for PageTableEntry {
         admit();
     }
 
+    proof fn axiom_present_paddr_aligned(&self)
+    {
+        admit();
+    }
+
 }
 
 impl PageTableEntry {

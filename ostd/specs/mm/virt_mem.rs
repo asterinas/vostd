@@ -449,6 +449,73 @@ impl MemView {
             this.memory == lhs.join_spec(rhs).memory,
     {
     }
+
+    /// Lemma: byte-level reads agree on the right half of a split.
+    ///
+    /// For any `va >= vaddr + len` whose translated frame is present in
+    /// `original.memory`, the stored frame contents at `va` match the
+    /// original view. This is the byte-level analogue of
+    /// [`Self::lemma_split_preserves_transl`] and supports propagating
+    /// the read view across [`VmIoOwner::advance`] calls (used by loops
+    /// over `read_once`).
+    pub proof fn lemma_split_preserves_read(
+        original: MemView,
+        vaddr: usize,
+        len: usize,
+        left: MemView,
+        right: MemView,
+    )
+        requires
+            original.split_spec(vaddr, len) == (left, right),
+        ensures
+            forall|va: usize|
+                #![trigger original.read(va)]
+                va >= vaddr + len
+                && original.addr_transl(va) is Some
+                && original.memory.contains_key(
+                    original.addr_transl(va).unwrap().0
+                ) ==> original.read(va) == right.read(va),
+    {
+        Self::lemma_split_preserves_transl(original, vaddr, len, left, right);
+        let split_end = vaddr + len;
+        let right_pas = Set::new(
+            |pa: usize| exists|va: usize| va >= split_end && original.is_mapped(va, pa),
+        );
+        assert(right.memory =~= original.memory.restrict(right_pas));
+        assert forall|va: usize|
+            va >= split_end
+            && original.addr_transl(va) is Some
+            && original.memory.contains_key(
+                original.addr_transl(va).unwrap().0
+            ) implies #[trigger] original.read(va) == right.read(va) by {
+            assert(original.addr_transl(va) == right.addr_transl(va));
+            let pa = original.addr_transl(va).unwrap().0;
+            assert(original.is_mapped(va, pa));
+            assert(right_pas.contains(pa));
+            assert(right.memory[pa] == original.memory[pa]);
+        }
+    }
+
+    /// Lemma: pointwise [`Self::read`] equality implies [`Self::read_bytes`] equality.
+    pub proof fn lemma_read_bytes_eq_pointwise(
+        a: MemView,
+        b: MemView,
+        va: usize,
+        n: usize,
+    )
+        requires
+            forall|i: usize| va <= i < va + n ==> a.read(i) == b.read(i),
+            va + n <= usize::MAX,
+        ensures
+            a.read_bytes(va, n) == b.read_bytes(va, n),
+        decreases n,
+    {
+        if n == 0 {
+            return;
+        }
+        assert(a.read(va) == b.read(va));
+        Self::lemma_read_bytes_eq_pointwise(a, b, (va + 1) as usize, (n - 1) as usize);
+    }
 }
 
 impl Inv for VirtPtr {
