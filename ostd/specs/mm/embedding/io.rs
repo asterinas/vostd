@@ -138,15 +138,15 @@ pub axiom fn vm_reader_read_embedded(
         final(source_owner).read_view_initialized(),
         final(dest_owner).has_write_view(),
         // Source/dest ranges only shrink (start advances).
-        final(source_owner).range@.start >= old(source_owner).range@.start,
-        final(source_owner).range@.end == old(source_owner).range@.end,
-        final(dest_owner).range@.start >= old(dest_owner).range@.start,
-        final(dest_owner).range@.end == old(dest_owner).range@.end,
+        final(source_owner).range.start >= old(source_owner).range.start,
+        final(source_owner).range.end == old(source_owner).range.end,
+        final(dest_owner).range.start >= old(dest_owner).range.start,
+        final(dest_owner).range.end == old(dest_owner).range.end,
         consumed_w.inv(),
         consumed_w.has_write_view(),
         // consumed_w covers the just-written portion of dest.
-        consumed_w.range@.start >= old(dest_owner).range@.start,
-        consumed_w.range@.end <= final(dest_owner).range@.start,
+        consumed_w.range.start >= old(dest_owner).range.start,
+        consumed_w.range.end <= final(dest_owner).range.start,
 ;
 
 /// Mirror of [`crate::mm::io::VmReader::limit`].
@@ -192,10 +192,10 @@ pub axiom fn vm_writer_write_embedded(
         final(source_owner).read_view_initialized(),
         final(dest_owner).has_write_view(),
         // Ranges only shrink (start advances; end fixed).
-        final(source_owner).range@.start >= old(source_owner).range@.start,
-        final(source_owner).range@.end == old(source_owner).range@.end,
-        final(dest_owner).range@.start >= old(dest_owner).range@.start,
-        final(dest_owner).range@.end == old(dest_owner).range@.end,
+        final(source_owner).range.start >= old(source_owner).range.start,
+        final(source_owner).range.end == old(source_owner).range.end,
+        final(dest_owner).range.start >= old(dest_owner).range.start,
+        final(dest_owner).range.end == old(dest_owner).range.end,
 ;
 
 /// Mirror of [`crate::mm::io::VmWriter::fill_zeros`].
