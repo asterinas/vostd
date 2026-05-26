@@ -77,7 +77,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             owner@.inv(),
             r.wf(owner@),
             r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr()),
-            r.remain_spec() == self.size_spec(),
+            r.remain_spec() == self.size(),
             owner@.is_kernel,
     )]
     pub fn reader(&self) -> VmReader<'_, Infallible> {
@@ -121,7 +121,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             owner@.inv(),
             r.wf(owner@),
             r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr()),
-            r.avail_spec() == self.size_spec(),
+            r.avail_spec() == self.size(),
             owner@.is_kernel,
             !owner@.is_fallible,
     )]

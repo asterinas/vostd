@@ -89,13 +89,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 
     /// Gets the length in bytes of the contiguous frames.
-    #[inline(always)]
-    #[verifier::when_used_as_spec(size_spec)]
+    #[verus_verify(dual_spec)]
     #[verus_spec(r =>
         requires
             self.inv(),
         returns
-            self.size_spec()
+            self.size()
     )]
     pub fn size(&self) -> usize {
         self.range.end - self.range.start
@@ -816,22 +815,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         }
     }
 
-    /// Returns the length in bytes of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn size_spec(&self) -> usize
-        recommends
-            self.inv(),
-    {
-        (self.range.end - self.range.start) as usize
-    }
-
     /// Returns the number of pages of the contiguous frames.
     #[verifier::inline]
     pub open spec fn nrpage_spec(&self) -> usize
         recommends
             self.inv(),
     {
-        self.size_spec() / PAGE_SIZE
+        self.size() / PAGE_SIZE
     }
 
     /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
@@ -839,7 +829,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         recommends
             self.inv(),
             offset % PAGE_SIZE == 0,
-            0 < offset < self.size_spec(),
+            0 < offset < self.size(),
     {
         let at = (self.range.start + offset) as usize;
         let idx = at / PAGE_SIZE;
