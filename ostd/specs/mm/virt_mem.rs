@@ -466,7 +466,7 @@ impl MemView {
         right: MemView,
     )
         requires
-            original.split_spec(vaddr, len) == (left, right),
+            original.split(vaddr, len) == (left, right),
         ensures
             forall|va: usize|
                 #![trigger original.read(va)]
