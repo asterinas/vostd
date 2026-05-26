@@ -13,9 +13,6 @@ pub type Vaddr = usize;
 /// Physical addresses.
 pub type Paddr = usize;
 
-/// The level of a page table node or a frame.
-pub type PagingLevel = u8;
-
 /// The maximum value of `PagingConstsTrait::NR_LEVELS`.
 pub const MAX_NR_LEVELS: usize = 4;
 
@@ -52,6 +49,9 @@ pub use kspace::paddr_to_vaddr;
 #[doc(hidden)]
 pub use page_table::largest_pages;
 
+/// The level of a page table node or a frame.
+pub type PagingLevel = u8;
+
 verus! {
 
 /// The maximum virtual address of user space (non inclusive).
@@ -73,19 +73,7 @@ pub const MAX_USERSPACE_VADDR: usize = 0x0000_8000_0000_0000 - PAGE_SIZE;
 /// architectures.
 pub const KERNEL_VADDR_RANGE: Range<Vaddr> = 0xffff_8000_0000_0000..0xffff_ffff_ffff_0000;
 
-/// Gets physical address trait
-pub trait HasPaddr {
-    /// Returns the physical address.
-    fn paddr(&self) -> Paddr;
-}
-
-/// Checks if the given address is page-aligned.
-pub const fn is_page_aligned(p: usize) -> bool {
-    (p & (PAGE_SIZE - 1)) == 0
-}
-
-#[allow(non_snake_case)]
-pub trait PagingConstsTrait: Debug + Sync {
+pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     spec fn BASE_PAGE_SIZE_spec() -> usize;
 
     proof fn lemma_BASE_PAGE_SIZE_properties()
@@ -217,6 +205,17 @@ pub proof fn lemma_nr_subpage_per_huge_bounded<C: PagingConstsTrait>()
     assert(C::BASE_PAGE_SIZE() / C::PTE_SIZE() > 0) by {
         lemma_div_non_zero(C::BASE_PAGE_SIZE() as int, C::PTE_SIZE() as int);
     };
+}
+
+/// Gets physical address trait
+pub trait HasPaddr {
+    /// Returns the physical address.
+    fn paddr(&self) -> Paddr;
+}
+
+/// Checks if the given address is page-aligned.
+pub const fn is_page_aligned(p: usize) -> bool {
+    (p & (PAGE_SIZE - 1)) == 0
 }
 
 } // verus!
