@@ -6,6 +6,7 @@
 //! the declaration of untyped frames and segments, and the implementation of
 //! extra functionalities (such as [`VmIo`]) for them.
 use vstd::prelude::*;
+use vstd_extra::ownership::OwnerOf;
 
 use super::*;
 use crate::mm::{
@@ -20,7 +21,6 @@ use crate::specs::arch::kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_pro
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::io::VmIoOwner;
 use crate::specs::mm::virt_mem::VirtPtr;
-use vstd_extra::ownership::OwnerOf;
 
 verus! {
 
@@ -49,6 +49,41 @@ pub trait AnyUFrameMeta: AnyFrameMeta + vstd_extra::cast_ptr::Repr<MetaSlotStora
 /// Verus doesn't let us do very much with `dyn` traits, so instead of a `dyn AnyFrameMeta`
 /// we use `MetaSlotStorage`, a type that is a tagged union of the metadata types we've worked with so far.
 pub type UFrame = Frame<MetaSlotStorage>;
+
+/*
+/// Makes a structure usable as untyped frame metadata.
+///
+/// If this macro is used for built-in typed frame metadata, it won't compile.
+#[macro_export]
+macro_rules! impl_untyped_frame_meta_for {
+    // Implement without specifying the drop behavior.
+    ($t:ty) => {
+        // SAFETY: Untyped frames can be safely read.
+        unsafe impl $crate::mm::frame::meta::AnyFrameMeta for $t {
+            fn is_untyped(&self) -> bool {
+                true
+            }
+        }
+        impl $crate::mm::frame::untyped::AnyUFrameMeta for $t {}
+    };
+    // Implement with a customized drop function.
+    ($t:ty, $body:expr) => {
+        // SAFETY: Untyped frames can be safely read.
+        unsafe impl $crate::mm::frame::meta::AnyFrameMeta for $t {
+            fn on_drop(&mut self, reader: &mut $crate::mm::VmReader<$crate::mm::Infallible>) {
+                $body
+            }
+
+            fn is_untyped(&self) -> bool {
+                true
+            }
+        }
+        impl $crate::mm::frame::untyped::AnyUFrameMeta for $t {}
+    };
+}
+
+// A special case of untyped metadata is the unit type.
+impl_untyped_frame_meta_for!(()); */
 
 /// A physical memory range that is untyped.
 ///

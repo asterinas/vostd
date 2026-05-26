@@ -34,6 +34,23 @@ pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
     pub _marker: PhantomData<M>,
 }
 
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Send> Send for UniqueFrame<M> {
+
+}
+
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Sync> Sync for UniqueFrame<M> {
+
+}
+
+/*
+impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for UniqueFrame<M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "UniqueFrame({:#x})", self.start_paddr())
+    }
+}*/
+
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// Gets a [`UniqueFrame`] with a specific usage from a raw, unused page.
@@ -488,6 +505,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
     }
 }
+
+/*
+impl<M: AnyFrameMeta + ?Sized> Drop for UniqueFrame<M> {
+    fn drop(&mut self) {
+        self.slot().ref_count.store(0, Ordering::Relaxed);
+        // SAFETY: We are the sole owner and the reference count is 0.
+        // The slot is initialized.
+        unsafe { self.slot().drop_last_in_place() };
+
+        super::allocator::get_global_frame_allocator().dealloc(self.start_paddr(), PAGE_SIZE);
+    }
+} */
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
     #[verus_spec(

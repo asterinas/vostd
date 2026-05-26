@@ -13,7 +13,14 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
+use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
+use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
+use vstd::simple_pptr::{self, PPtr};
+use vstd_extra::cast_ptr::*;
+use vstd_extra::ownership::*;
+use vstd_extra::panic::{may_panic, panic_diverge};
+use vstd_extra::prelude::*;
 
 pub mod mapping;
 
@@ -21,14 +28,6 @@ use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, MET
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-
-use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
-use vstd::cell::pcell_maybe_uninit;
-
-use vstd::simple_pptr::{self, PPtr};
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::{may_panic, panic_diverge};
 
 use core::{
     alloc::Layout,
@@ -41,7 +40,7 @@ use core::{
     sync::atomic::{AtomicU64, AtomicU8, Ordering},
 };
 
-//use align_ext::AlignExt;
+use align_ext::AlignExt;
 //use log::info;
 
 use crate::{
@@ -117,36 +116,6 @@ pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 
 type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
 
-/// The error type for getting the frame from a physical address.
-#[derive(Debug)]
-pub enum GetFrameError {
-    /// The frame is in use.
-    InUse,
-    /// The frame is not in use.
-    Unused,
-    /// The frame is being initialized or destructed.
-    Busy,
-    /// The frame is private to an owner of [`UniqueFrame`].
-    ///
-    /// [`UniqueFrame`]: super::unique::UniqueFrame
-    Unique,
-    /// The provided physical address is out of bound.
-    OutOfBound,
-    /// The provided physical address is not aligned.
-    NotAligned,
-    /// Verification only: `compare_exchange` returned `Err`, retry
-    Retry,
-}
-
-pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
-    recommends
-        paddr % 4096 == 0,
-        paddr < MAX_PADDR,
-{
-    let slot = frame_to_meta(paddr);
-    PPtr(slot, PhantomData::<MetaSlot>)
-}
-
 /// Tracked argument bundle for [`AnyFrameMeta::on_drop`]. Erased (non-generic,
 /// non-associated) so the trait stays dyn-compatible. Carries every permission
 /// any impl might need: the `MetaRegionOwners` consulted when dropping child
@@ -218,6 +187,36 @@ pub const fn meta_slot_size() -> (res: usize)
 pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
     &&& paddr % PAGE_SIZE == 0
     &&& paddr < MAX_PADDR
+}
+
+/// The error type for getting the frame from a physical address.
+#[derive(Debug)]
+pub enum GetFrameError {
+    /// The frame is in use.
+    InUse,
+    /// The frame is not in use.
+    Unused,
+    /// The frame is being initialized or destructed.
+    Busy,
+    /// The frame is private to an owner of [`UniqueFrame`].
+    ///
+    /// [`UniqueFrame`]: super::unique::UniqueFrame
+    Unique,
+    /// The provided physical address is out of bound.
+    OutOfBound,
+    /// The provided physical address is not aligned.
+    NotAligned,
+    /// Verification only: `compare_exchange` returned `Err`, retry
+    Retry,
+}
+
+pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
+    recommends
+        paddr % 4096 == 0,
+        paddr < MAX_PADDR,
+{
+    let slot = frame_to_meta(paddr);
+    PPtr(slot, PhantomData::<MetaSlot>)
 }
 
 /// Gets the reference to a metadata slot.
