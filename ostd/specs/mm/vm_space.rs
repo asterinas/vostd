@@ -610,9 +610,9 @@ impl<'a> VmSpaceOwner {
             final(self).inv(),
             final(self).active == old(self).active,
             final(self).shared_reader == old(self).shared_reader,
-            owner.range@.start < owner.range@.end ==> final(self).readers == old(self).readers.push(owner),
+            owner.range.start < owner.range.end ==> final(self).readers == old(self).readers.push(owner),
     {
-        if owner.range@.start < owner.range@.end {
+        if owner.range.start < owner.range.end {
             // Return the memory view back to the vm space owner.
             self.readers.tracked_push(owner);
         }

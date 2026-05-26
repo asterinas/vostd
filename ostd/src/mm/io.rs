@@ -268,8 +268,8 @@ impl<'a> VmWriter<'a, Infallible> {
             Some(VmIoMemView::WriteView(mv))
         };
         let tracked owner = VmIoOwner {
-            id: Ghost(id),
-            range: Ghost(ptr.vaddr..(ptr.vaddr + len) as usize),
+            id,
+            range: ptr.vaddr..(ptr.vaddr + len) as usize,
             is_fallible: fallible,
             is_kernel: true,
             mem_view,
@@ -379,12 +379,12 @@ impl<'a> VmWriter<'a, Infallible> {
             final(self).cursor == old(self).end,
             final(self).end == old(self).end,
             // writer_owner: fully advanced past the filled region.
-            final(writer_owner).range@.start == old(writer_owner).range@.end,
-            final(writer_owner).range@.end == old(writer_owner).range@.end,
+            final(writer_owner).range.start == old(writer_owner).range.end,
+            final(writer_owner).range.end == old(writer_owner).range.end,
             // reader_owner: brand-new ReadView over the filled region.
             reader_owner@.inv(),
-            reader_owner@.range@.start == old(writer_owner).range@.start,
-            reader_owner@.range@.end == old(writer_owner).range@.end,
+            reader_owner@.range.start == old(writer_owner).range.start,
+            reader_owner@.range.end == old(writer_owner).range.end,
             reader_owner@.has_read_view(),
             reader_owner@.is_kernel == old(writer_owner).is_kernel,
             // Return value: exactly `avail / size_of::<T>()` elements written.
@@ -656,8 +656,8 @@ impl<'a> VmWriter<'a, Infallible> {
                 self.cursor.vaddr <= i < self.cursor.vaddr + core::mem::size_of::<T>() implies {
                 mem_dst.addr_transl(i) is Some
             } by {
-                assert(owner.range@.start == self.cursor.vaddr);
-                assert(owner.range@.end == self.end.vaddr);
+                assert(owner.range.start == self.cursor.vaddr);
+                assert(owner.range.end == self.end.vaddr);
             }
         }
         #[allow(unused_unsafe)]
@@ -669,7 +669,7 @@ impl<'a> VmWriter<'a, Infallible> {
             owner.mem_view = Some(VmIoMemView::WriteView(mem_dst));
 
             assert forall|va|
-                owner.range@.start <= va < owner.range@.end implies mem_dst.addr_transl(
+                owner.range.start <= va < owner.range.end implies mem_dst.addr_transl(
                 va,
             ) is Some by {
                 assert(mem_dst.mappings == mem_dst_pre.mappings);
@@ -742,8 +742,8 @@ impl<'a> VmReader<'a, Infallible> {
         let ghost range: Range<usize> = ptr.vaddr..(ptr.vaddr + len) as usize;
         let tracked mv = axiom_kernel_mem_view(range);
         let tracked owner = VmIoOwner {
-            id: Ghost(id),
-            range: Ghost(range),
+            id,
+            range,
             is_fallible: false,
             is_kernel: true,
             mem_view: Some(VmIoMemView::ReadView(mv)),
@@ -826,8 +826,8 @@ impl<'a> VmReader<'a, Infallible> {
             final(writer).avail_spec() == old(writer).avail_spec() - r as usize,
             final(writer).cursor.vaddr == old(writer).cursor.vaddr + r as usize,
             consumed_w@.inv(),
-            consumed_w@.range@.start == old(owner_w).range@.start,
-            consumed_w@.range@.end == old(owner_w).range@.start + r as usize,
+            consumed_w@.range.start == old(owner_w).range.start,
+            consumed_w@.range.end == old(owner_w).range.start + r as usize,
             consumed_w@.has_write_view(),
     )]
     pub fn read(&mut self, writer: &mut VmWriter<'_, Infallible>) -> usize {
@@ -862,8 +862,8 @@ impl<'a> VmReader<'a, Infallible> {
                         i,
                     ).unwrap().1 as int] is Init
                 } by {
-                    assert(owner_r.range@.start == self.cursor.vaddr);
-                    assert(owner_r.range@.end == self.end.vaddr);
+                    assert(owner_r.range.start == self.cursor.vaddr);
+                    assert(owner_r.range.end == self.end.vaddr);
                 }
             }
             // SAFETY: The source and destination are subsets of memory ranges specified by the
@@ -881,7 +881,7 @@ impl<'a> VmReader<'a, Infallible> {
                 owner_r.mem_view = Some(VmIoMemView::ReadView(mv_r));
 
                 assert forall|va|
-                    owner_w.range@.start <= va < owner_w.range@.end implies mv_w.addr_transl(
+                    owner_w.range.start <= va < owner_w.range.end implies mv_w.addr_transl(
                     va,
                 ) is Some by {
                     assert(mv_w.mappings == mv_w_pre.mappings);
@@ -1089,8 +1089,8 @@ impl<'a> VmReader<'a, Fallible> {
     )]
     pub unsafe fn from_user_space(ptr: VirtPtr, len: usize) -> Self {
         let tracked owner = VmIoOwner {
-            id: Ghost(id),
-            range: Ghost(ptr.range@),
+            id,
+            range: ptr.range@,
             is_fallible: true,
             is_kernel: false,
             mem_view: None,
@@ -1810,8 +1810,8 @@ impl<'a> VmWriter<'a, Fallible> {
     )]
     pub unsafe fn from_user_space(ptr: VirtPtr, len: usize) -> Self {
         let tracked owner = VmIoOwner {
-            id: Ghost(id),
-            range: Ghost(ptr.range@),
+            id,
+            range: ptr.range@,
             is_fallible: true,
             is_kernel: false,
             mem_view: None,
@@ -1956,8 +1956,8 @@ impl<'a> VmWriter<'a, Infallible> {
             owner@.inv(),
             r.wf(*owner),
             owner@.has_write_view(),
-            r.cursor.range@ == owner@.range@,
-            owner@.range@.end - owner@.range@.start == old(slice).len(),
+            r.cursor.range == owner@.range,
+            owner@.range.end - owner@.range.start == old(slice).len(),
     )]
     pub fn from(slice: &'a mut [u8]) -> Self {
         // SAFETY:
@@ -2004,8 +2004,8 @@ impl<'a> VmReader<'a, Infallible> {
             owner@.inv(),
             r.wf(*owner),
             owner@.read_view_initialized(),
-            r.cursor.range@ == owner@.range@,
-            owner@.range@.end - owner@.range@.start == slice.len(),
+            r.cursor.range == owner@.range,
+            owner@.range.end - owner@.range.start == slice.len(),
     )]
     pub fn from(slice: &'a [u8]) -> Self {
         // SAFETY:
