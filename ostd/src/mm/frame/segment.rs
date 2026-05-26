@@ -39,10 +39,8 @@ verus! {
 /// type.
 #[repr(transparent)]
 pub struct Segment<M: AnyFrameMeta + ?Sized> {
-    /// The physical address range of the segment.
-    pub range: Range<Paddr>,
-    /// Marker for the metadata type.
-    pub _marker: core::marker::PhantomData<M>,
+    range: Range<Paddr>,
+    _marker: core::marker::PhantomData<M>,
 }
 
 /*
@@ -90,9 +88,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             old(regions).inv(),
             owner.relate_regions(*old(regions)),
             forall|i: int|
-                #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
-                0 <= i < crate::specs::mm::frame::segment::seg_nframes(self.range) ==> {
-                    let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
+                #![trigger frame_to_index((self.start_paddr() + i * PAGE_SIZE) as usize)]
+                0 <= i < crate::specs::mm::frame::segment::seg_nframes(self.range()) ==> {
+                    let idx = frame_to_index((self.start_paddr() + i * PAGE_SIZE) as usize);
                     old(regions).slot_owners[idx].inner_perms.ref_count.value() == 1 ==> {
                         &&& old(regions).slot_owners[idx].inner_perms.storage.is_init()
                         &&& old(regions).slot_owners[idx].inner_perms.in_list.value() == 0
@@ -245,7 +243,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
         &&& perm.inv()
         &&& forall|pa: Paddr|
             #![trigger frame_to_index(pa)]
-            (self.range.start <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
+            (self.start_paddr() <= pa < self.end_paddr() && pa % PAGE_SIZE == 0) ==> {
                 let idx = frame_to_index(pa);
                 &&& perm.slots.contains_key(idx)
                 &&& has_safe_slot(pa)
@@ -262,7 +260,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
         new_perm: MetaRegionOwners,
         res: Self,
     ) -> bool {
-        &&& res.range == self.range
+        &&& res.range() == self.range()
         &&& res.inv()
         &&& new_perm.inv()
     }
@@ -368,9 +366,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             r is Ok ==> range.end <= MAX_PADDR ==> range.start < range.end,
             r matches Ok(r) ==> {
                 &&& final(regions).inv()
-                &&& r.range.start == range.start
-                &&& r.range.end == range.end
-                &&& r.range.start < r.range.end
+                &&& r.start_paddr() == range.start
+                &&& r.end_paddr() == range.end
+                &&& r.start_paddr() < r.end_paddr()
                 &&& owner@ matches Some(owner) && {
                     &&& r.inv()
                     &&& r.wf(&owner)
@@ -552,10 +550,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         requires
             old(regions).inv(),
             owner.inv(),
-            (Segment::<M> { range, _marker: core::marker::PhantomData }).wf(&owner),
+            range == owner.range,
             owner.relate_regions(*old(regions)),
         ensures
-            r.range == range,
+            r.range() == range,
             r.inv(),
             r.wf(&owner),
             final(regions).inv(),
@@ -567,12 +565,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
+impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// Gets the start physical address of the contiguous frames.
     #[verus_verify(dual_spec)]
     #[verus_spec(
-        requires
-            self.inv(),
         returns
             self.start_paddr(),
     )]
@@ -583,8 +579,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// Gets the end physical address of the contiguous frames.
     #[verus_verify(dual_spec)]
     #[verus_spec(
-        requires
-            self.inv(),
         returns
             self.end_paddr(),
     )]
@@ -597,6 +591,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verus_spec(r =>
         requires
             self.inv(),
+        ensures
+            r == self.end_paddr() - self.start_paddr(),
         returns
             self.size()
     )]
@@ -604,6 +600,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         self.range.end - self.range.start
     }
 
+    pub open spec fn range(&self) -> Range<Paddr> {
+        self.start_paddr()..self.end_paddr()
+    }
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// Splits the frames into two at the given byte offset from the start.
     ///
     /// The resulting frames cannot be empty. So the offset cannot be neither
@@ -752,12 +755,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         ||| range.start % PAGE_SIZE != 0
         ||| range.end % PAGE_SIZE != 0
         ||| range.start > range.end
-        ||| self.range.start as int + range.end as int > self.range.end as int
+        ||| self.start_paddr() as int + range.end as int > self.end_paddr() as int
         ||| exists|j: int|
-            #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
+            #![trigger frame_to_index((self.start_paddr() + j * PAGE_SIZE) as usize)]
             (range.start as int) / (PAGE_SIZE as int) <= j < (range.end as int) / (PAGE_SIZE as int)
                 && regions.slot_owners[frame_to_index(
-                (self.range.start + j * PAGE_SIZE) as usize,
+                (self.start_paddr() + j * PAGE_SIZE) as usize,
             )].inner_perms.ref_count.value() >= REF_COUNT_MAX
     }
 
@@ -790,9 +793,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         ensures
             !self.slice_panic_condition(range, *old(regions)),
             r.inv(),
-            r.range.start == self.range.start + range.start,
-            r.range.end == self.range.start + range.end,
-            r.range.end <= self.range.end,
+            r.start_paddr() == self.start_paddr() + range.start,
+            r.end_paddr() == self.start_paddr() + range.end,
+            r.end_paddr() <= self.end_paddr(),
             final(regions).inv(),
             final(regions).slots =~= old(regions).slots,
             final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
@@ -943,7 +946,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             owner.inv(),
             owner.relate_regions(*old(regions)),
         ensures
-            r == self.range,
+            r == self.range(),
             final(regions).inv(),
             *final(regions) =~= *old(regions),
             frame_perms@ == owner,
@@ -993,10 +996,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             final(self).inv(),
             final(owner).relate_regions(*final(regions)),
             match res {
-                None => final(self).range.start == old(self).range.end,
+                None => final(self).start_paddr() == old(self).end_paddr(),
                 Some(f) => {
-                    &&& final(self).range.start == old(self).range.start + PAGE_SIZE
-                    &&& f.paddr() == old(self).range.start
+                    &&& final(self).start_paddr() == old(self).start_paddr() + PAGE_SIZE
+                    &&& f.paddr() == old(self).start_paddr()
                     &&& final(regions).slots.contains_key(frame_to_index(f.paddr()))
                     &&& final(regions).slot_owners[frame_to_index(f.paddr())].raw_count == 0
                 },
@@ -1078,17 +1081,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 
     /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
-    pub open spec fn split_spec(self, offset: usize) -> (Self, Self)
+    pub closed spec fn split_spec(self, offset: usize) -> (Self, Self)
         recommends
             self.inv(),
             offset % PAGE_SIZE == 0,
             0 < offset < self.size(),
     {
-        let at = (self.range.start + offset) as usize;
+        let at = (self.start_paddr() + offset) as usize;
         let idx = at / PAGE_SIZE;
         (
-            Self { range: self.range.start..at, _marker: core::marker::PhantomData },
-            Self { range: at..self.range.end, _marker: core::marker::PhantomData },
+            Self { range: self.start_paddr()..at, _marker: core::marker::PhantomData },
+            Self { range: at..self.end_paddr(), _marker: core::marker::PhantomData },
         )
     }
 }
@@ -1206,4 +1209,17 @@ impl TryFrom<Segment<dyn AnyFrameMeta>> for USegment {
         Ok(unsafe { core::mem::transmute::<Segment<dyn AnyFrameMeta>, USegment>(seg) })
     }
 } */
+
+impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
+    /// The invariant of a [`Segment`]:
+    ///
+    /// - the physical addresses of the frames are aligned and within bounds.
+    /// - the range is well-formed, i.e., the start is less than or equal to the end.
+    open spec fn inv(self) -> bool {
+        &&& self.start_paddr() % PAGE_SIZE == 0
+        &&& self.end_paddr() % PAGE_SIZE == 0
+        &&& self.start_paddr() <= self.end_paddr() <= MAX_PADDR
+    }
+}
+
 } // verus!

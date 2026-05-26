@@ -72,18 +72,6 @@ pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     pub _marker: core::marker::PhantomData<M>,
 }
 
-impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
-    /// The invariant of a [`Segment`]:
-    ///
-    /// - the physical addresses of the frames are aligned and within bounds.
-    /// - the range is well-formed, i.e., the start is less than or equal to the end.
-    open spec fn inv(self) -> bool {
-        &&& self.range.start % PAGE_SIZE == 0
-        &&& self.range.end % PAGE_SIZE == 0
-        &&& self.range.start <= self.range.end <= MAX_PADDR
-    }
-}
-
 impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
     /// The invariant of a [`SegmentOwner`]:
     ///
@@ -205,7 +193,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// Interested readers are encouraged to see [`frame_to_index`] and [`meta_addr`] for how
     /// we convert between physical addresses and meta region indices.
     pub open spec fn wf(&self, owner: &SegmentOwner<M>) -> bool {
-        &&& self.range == owner.range
+        &&& self.range() == owner.range
     }
 
     /// Whether a [`MemView`] covers the segment through the kernel direct mapping.
@@ -218,8 +206,8 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         &&& view.mappings_are_disjoint()
         &&& forall|vaddr: Vaddr|
             #![trigger view.addr_transl(vaddr)]
-            paddr_to_vaddr(self.range.start) <= vaddr < paddr_to_vaddr(self.range.start)
-                + self.range.end - self.range.start ==> {
+            paddr_to_vaddr(self.start_paddr()) <= vaddr < paddr_to_vaddr(self.start_paddr())
+                + self.end_paddr() - self.start_paddr() ==> {
                 &&& view.addr_transl(vaddr) is Some
                 &&& view.memory.contains_key(view.addr_transl(vaddr).unwrap().0)
                 &&& view.memory[view.addr_transl(vaddr).unwrap().0].inv()
@@ -229,7 +217,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             }
         &&& forall|paddr: Paddr|
             #![trigger paddr_to_vaddr(paddr)]
-            self.range.start <= paddr < self.range.end ==> {
+            self.start_paddr() <= paddr < self.end_paddr() ==> {
                 let vaddr = paddr_to_vaddr(paddr);
                 &&& view.addr_transl(vaddr) is Some
                 &&& view.addr_transl(vaddr).unwrap().0 <= paddr
