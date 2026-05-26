@@ -668,8 +668,7 @@ impl<'a> VmWriter<'a, Infallible> {
         proof {
             owner.mem_view = Some(VmIoMemView::WriteView(mem_dst));
 
-            assert forall|va|
-                owner.range.start <= va < owner.range.end implies mem_dst.addr_transl(
+            assert forall|va| owner.range.start <= va < owner.range.end implies mem_dst.addr_transl(
                 va,
             ) is Some by {
                 assert(mem_dst.mappings == mem_dst_pre.mappings);
