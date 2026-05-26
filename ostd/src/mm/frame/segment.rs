@@ -570,8 +570,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// Gets the start physical address of the contiguous frames.
     #[verus_verify(dual_spec)]
-    #[verus_spec(returns
-        self.start_paddr(),
+    #[verus_spec(
+        requires
+            self.inv(),
+        returns
+            self.start_paddr(),
     )]
     pub fn start_paddr(&self) -> Paddr {
         self.range.start
@@ -579,8 +582,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
     /// Gets the end physical address of the contiguous frames.
     #[verus_verify(dual_spec)]
-    #[verus_spec(returns
-        self.end_paddr(),
+    #[verus_spec(
+        requires
+            self.inv(),
+        returns
+            self.end_paddr(),
     )]
     pub fn end_paddr(&self) -> Paddr {
         self.range.end
