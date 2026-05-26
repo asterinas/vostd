@@ -658,7 +658,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     )]
     pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
         'a: 'rcu,
-     {
+    {
         unimplemented!()
     }
 

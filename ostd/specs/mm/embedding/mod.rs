@@ -45,7 +45,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::{Paddr, Vaddr, MAX_USERSPACE_VADDR};
-use crate::specs::mm::frame::mapping::{frame_to_index_spec, max_meta_slots};
+use crate::specs::mm::frame::mapping::{frame_to_index_spec, index_to_frame_spec, max_meta_slots};
 use crate::specs::mm::frame::meta_owners::{
     PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
 };
@@ -73,6 +73,10 @@ pub type VmIoId = int;
 /// Logical identifier for a held [`crate::mm::frame::Frame`] handle in the store.
 pub type FrameId = int;
 
+/// Logical identifier for a held [`crate::mm::frame::Segment`] handle in
+/// the store.
+pub type SegmentId = int;
+
 /// Per-Frame entry in the store. Represents one outstanding handle to
 /// the slot at `paddr` — i.e., one unit of refcount in
 /// `regions.slot_owners[frame_to_index_spec(paddr)]`.
@@ -81,6 +85,47 @@ pub type FrameId = int;
 /// `+1` to that slot's `inner_perms.ref_count`.
 pub tracked struct FrameEntry {
     pub paddr: Paddr,
+}
+
+/// Per-Segment entry in the store. Represents one outstanding
+/// `Segment<M>` covering the contiguous physical range `range`.
+///
+/// Per exec [`SegmentOwner::relate_regions`]: every frame slot in
+/// `range` carries one *forgotten* reference for this segment — i.e.,
+/// `raw_count` at the slot equals the number of `SegmentEntry`s
+/// covering it (see [`segment_cover_count`]). The frame's
+/// `ref_count >= 1` is bumped by the segment's owning reference (one
+/// per frame); the segment does *not* hold a separate `Frame` handle,
+/// so the embedding's `frames` map is unrelated to per-segment frame
+/// refcounting.
+///
+/// Multiple `SegmentEntry`s may overlap (e.g. after `clone`); each
+/// independently contributes `+1` to every covered slot's `raw_count`
+/// and `ref_count`.
+///
+/// [`SegmentOwner::relate_regions`]: crate::specs::mm::frame::segment::SegmentOwner::relate_regions
+pub tracked struct SegmentEntry {
+    pub range: Range<Paddr>,
+}
+
+/// Number of outstanding `Segment` handles covering the frame slot
+/// at `paddr` — i.e., `#{ sid : segments[sid].range covers paddr }`.
+/// This is the per-slot `raw_count` term contributed by segments
+/// (Design B: each segment holds one forgotten reference per frame
+/// in its range, so `raw_count == segment_cover_count(segments, ...)`).
+/// Intended to be called on page-aligned paddrs (e.g. via
+/// `index_to_frame_spec(idx)`); segment ranges are themselves page-
+/// aligned so the resulting count is the same for any paddr within
+/// a given page.
+pub open spec fn segment_cover_count(
+    segments: Map<SegmentId, SegmentEntry>,
+    paddr: Paddr,
+) -> nat {
+    segments.dom().filter(
+        |sid: SegmentId|
+            segments[sid].range.start <= paddr
+                && paddr < segments[sid].range.end,
+    ).len()
 }
 
 /// Number of outstanding `Frame` handles whose paddr maps to slot
@@ -333,6 +378,7 @@ pub tracked struct VmStore<'rcu> {
     pub cursors: Map<CursorId, CursorEntry<'rcu>>,
     pub vm_ios: Map<VmIoId, VmIoEntry>,
     pub frames: Map<FrameId, FrameEntry>,
+    pub segments: Map<SegmentId, SegmentEntry>,
 }
 
 impl<'a, 'rcu> VmStore<'rcu> {
@@ -692,7 +738,15 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             && (s.regions.slot_owners[frame_to_index_spec(s.frames[fid].paddr)]
                     .inner_perms.ref_count.value() == 1
                 ==> s.regions.slot_owners[frame_to_index_spec(s.frames[fid].paddr)]
-                        .paths_in_pt.is_empty()),
+                        .paths_in_pt.is_empty())
+            // The slot's `raw_count` is 0 — no segment forgot a
+            // reference to this frame. Mirrors exec `Frame::drop_requires`
+            // which similarly demands `raw_count == 0` (you can't drop a
+            // `Frame` while a `Segment` still holds a forgotten reference
+            // to the same paddr). Via the structural `raw_count ==
+            // segment_cover_count` invariant this is equivalent to no
+            // `SegmentEntry` covering the slot.
+            && segment_cover_count(s.segments, s.frames[fid].paddr) == 0,
     }
 }
 
@@ -722,6 +776,8 @@ impl<'rcu> VmStore<'rcu> {
             final(self).vm_spaces == old(self).vm_spaces.remove(vs),
             final(self).cursors == old(self).cursors,
             final(self).vm_ios == old(self).vm_ios,
+            final(self).frames == old(self).frames,
+            final(self).segments == old(self).segments,
             res == old(self).vm_spaces[vs],
             final(self).inv(),
     {
@@ -745,6 +801,8 @@ impl<'rcu> VmStore<'rcu> {
             final(self).vm_spaces == old(self).vm_spaces.insert(vs, owner),
             final(self).cursors == old(self).cursors,
             final(self).vm_ios == old(self).vm_ios,
+            final(self).frames == old(self).frames,
+            final(self).segments == old(self).segments,
             final(self).inv(),
     {
         self.vm_spaces.tracked_insert(vs, owner);
@@ -762,6 +820,8 @@ impl<'rcu> VmStore<'rcu> {
             final(self).vm_spaces == old(self).vm_spaces,
             final(self).cursors == old(self).cursors.remove(c),
             final(self).vm_ios == old(self).vm_ios,
+            final(self).frames == old(self).frames,
+            final(self).segments == old(self).segments,
             res == old(self).cursors[c],
             final(self).inv(),
     {
@@ -789,6 +849,8 @@ impl<'rcu> VmStore<'rcu> {
             final(self).vm_spaces == old(self).vm_spaces,
             final(self).cursors == old(self).cursors.insert(c, entry),
             final(self).vm_ios == old(self).vm_ios,
+            final(self).frames == old(self).frames,
+            final(self).segments == old(self).segments,
             final(self).inv(),
     {
         self.cursors.tracked_insert(c, entry);
@@ -806,6 +868,8 @@ impl<'rcu> VmStore<'rcu> {
             final(self).vm_spaces == old(self).vm_spaces,
             final(self).cursors == old(self).cursors,
             final(self).vm_ios == old(self).vm_ios.remove(vio),
+            final(self).frames == old(self).frames,
+            final(self).segments == old(self).segments,
             res == old(self).vm_ios[vio],
             final(self).inv(),
     {
@@ -839,6 +903,8 @@ impl<'rcu> VmStore<'rcu> {
             final(self).vm_spaces == old(self).vm_spaces,
             final(self).cursors == old(self).cursors,
             final(self).vm_ios == old(self).vm_ios.insert(vio, entry),
+            final(self).frames == old(self).frames,
+            final(self).segments == old(self).segments,
             final(self).inv(),
     {
         self.vm_ios.tracked_insert(vio, entry);
@@ -864,6 +930,7 @@ impl<'rcu> VmStore<'rcu> {
             final(self).cursors == old(self).cursors,
             final(self).vm_ios == old(self).vm_ios,
             final(self).frames == old(self).frames.remove(fid),
+            final(self).segments == old(self).segments,
             res == old(self).frames[fid],
             final(self).structural_inv(),
     {
@@ -894,6 +961,7 @@ impl<'rcu> VmStore<'rcu> {
             final(self).cursors == old(self).cursors,
             final(self).vm_ios == old(self).vm_ios,
             final(self).frames == old(self).frames.insert(fid, entry),
+            final(self).segments == old(self).segments,
             final(self).structural_inv(),
     {
         self.frames.tracked_insert(fid, entry);
@@ -1172,7 +1240,13 @@ proof fn step_cursor_method<'rcu>(
     ensures final(s).inv()
 {
     let tracked mut entry = s.extract_cursor(c);
+    let ghost old_regions = s.regions;
+    let ghost old_segments = s.segments;
     cursor::cursor_method_step(&mut entry, &mut s.regions, method);
+    // Cursor methods only touch `regions` and the cursor entry; segments
+    // are unchanged. With raw_count preserved per-slot (axiom ensures),
+    // `raw_count == segment_cover_count(segments, ...)` carries.
+    assert(s.segments == old_segments);
     s.insert_cursor(c, entry);
 }
 
@@ -1599,6 +1673,10 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
                 .inner_perms.ref_count.value() == 1
             ==> old(s).regions.slot_owners[frame_to_index_spec(old(s).frames[fid].paddr)]
                     .paths_in_pt.is_empty(),
+        // No segment forgot a reference to this slot — exec
+        // `Frame::drop_requires` demands `raw_count == 0`, and the
+        // structural invariant pins `raw_count == segment_cover_count`.
+        segment_cover_count(old(s).segments, old(s).frames[fid].paddr) == 0,
     ensures final(s).inv()
 {
     // Derive the full `frame::drop_pre` from `VmStore::inv` alone (#4
