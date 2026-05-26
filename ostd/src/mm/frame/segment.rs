@@ -1,21 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
+
 //! A contiguous range of frames.
+
 use vstd::prelude::*;
-
-use core::{fmt::Debug, ops::Range};
-
-use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
-use crate::mm::page_table::RCClone;
-
 use vstd::simple_pptr;
-use vstd_extra::assert;
+use vstd_extra::prelude::*;
 use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
+use vstd_extra::assert;
 use vstd_extra::panic::may_panic;
-use vstd_extra::seq_extra::seq_tracked_split_at;
+use vstd_extra::drop_tracking::*;
 
-use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
-use super::{AnyFrameMeta, GetFrameError, MetaSlot};
 use crate::mm::{paddr_to_vaddr, Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
@@ -23,7 +17,15 @@ use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::segment::*;
 use crate::specs::mm::virt_mem::MemView;
-use vstd_extra::drop_tracking::*;
+use crate::mm::page_table::RCClone;
+
+
+use core::{fmt::Debug, /*mem::ManuallyDrop,*/ ops::Range};
+
+use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
+use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
+use super::{AnyFrameMeta, GetFrameError, MetaSlot};
+
 
 verus! {
 
@@ -47,6 +49,14 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
     pub _marker: core::marker::PhantomData<M>,
 }
 
+/*
+impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Segment({:#x}..{:#x})", self.range.start, self.range.end)
+    }
+}
+*/
+
 /// A contiguous range of homogeneous untyped physical memory frames that have any metadata.
 ///
 /// In other words, the metadata of the frames are of the same type, and they
@@ -58,77 +68,21 @@ pub type USegment = Segment<dyn AnyUFrameMeta>;
 
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
-    /// Returns the starting physical address of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn start_paddr_spec(&self) -> Paddr
-        recommends
-            self.inv(),
-    {
-        self.range.start
-    }
-
-    /// Returns the ending physical address of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn end_paddr_spec(&self) -> Paddr
-        recommends
-            self.inv(),
-    {
-        self.range.end
-    }
-
-    /// Returns the length in bytes of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn size_spec(&self) -> usize
-        recommends
-            self.inv(),
-    {
-        (self.range.end - self.range.start) as usize
-    }
-
-    /// Returns the number of pages of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn nrpage_spec(&self) -> usize
-        recommends
-            self.inv(),
-    {
-        self.size_spec() / PAGE_SIZE
-    }
-
-    /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
-    pub open spec fn split_spec(self, offset: usize) -> (Self, Self)
-        recommends
-            self.inv(),
-            offset % PAGE_SIZE == 0,
-            0 < offset < self.size_spec(),
-    {
-        let at = (self.range.start + offset) as usize;
-        let idx = at / PAGE_SIZE;
-        (
-            Self { range: self.range.start..at, _marker: core::marker::PhantomData },
-            Self { range: at..self.range.end, _marker: core::marker::PhantomData },
-        )
-    }
 
     /// Gets the start physical address of the contiguous frames.
-    #[inline(always)]
-    #[verifier::when_used_as_spec(start_paddr_spec)]
-    pub fn start_paddr(&self) -> (res: Paddr)
-        requires
-            self.inv(),
-        returns
-            self.start_paddr_spec(),
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns
+        self.start_paddr(),
+    )]
+    pub fn start_paddr(&self) -> Paddr
     {
         self.range.start
     }
 
     /// Gets the end physical address of the contiguous frames.
-    #[inline(always)]
-    #[verifier::when_used_as_spec(end_paddr_spec)]
-    #[verus_spec(
-        requires
-            self.inv(),
-        returns
-            self.end_paddr_spec(),
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns
+        self.end_paddr(),
     )]
     pub fn end_paddr(&self) -> Paddr {
         self.range.end
@@ -861,6 +815,39 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             None
         }
     }
+
+    /// Returns the length in bytes of the contiguous frames.
+    #[verifier::inline]
+    pub open spec fn size_spec(&self) -> usize
+        recommends
+            self.inv(),
+    {
+        (self.range.end - self.range.start) as usize
+    }
+
+    /// Returns the number of pages of the contiguous frames.
+    #[verifier::inline]
+    pub open spec fn nrpage_spec(&self) -> usize
+        recommends
+            self.inv(),
+    {
+        self.size_spec() / PAGE_SIZE
+    }
+
+    /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
+    pub open spec fn split_spec(self, offset: usize) -> (Self, Self)
+        recommends
+            self.inv(),
+            offset % PAGE_SIZE == 0,
+            0 < offset < self.size_spec(),
+    {
+        let at = (self.range.start + offset) as usize;
+        let idx = at / PAGE_SIZE;
+        (
+            Self { range: self.range.start..at, _marker: core::marker::PhantomData },
+            Self { range: at..self.range.end, _marker: core::marker::PhantomData },
+        )
+    }
 }
 
 #[verus_verify]
@@ -879,6 +866,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> From<Frame<M>> for Segment<M> {
         let _ = core::mem::ManuallyDrop::new(frame);
         Self { range: pa..(pa + PAGE_SIZE), _marker: core::marker::PhantomData }
     }
+
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for Segment<M> {
