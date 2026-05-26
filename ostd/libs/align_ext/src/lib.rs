@@ -10,8 +10,7 @@
 
 use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::mul::*;
-use vstd::arithmetic::power2::pow2;
-use vstd::arithmetic::power2::{lemma2_to64, lemma_pow2_strictly_increases};
+use vstd::arithmetic::{power::pow, power2::*};
 use vstd::bits::*;
 use vstd::pervasive::trigger;
 use vstd::prelude::*;
@@ -96,12 +95,12 @@ macro_rules! call_lemma_low_bits_mask_is_mod {
 macro_rules! impl_align_ext {
     ($( $uint_type:ty ),+,) => {
         $(
-                /// # Verified Properties
-                /// ## Safety
-                /// The implementation is written in safe Rust and there is no undefined behavior.
-                /// ## Functional correctness
-                /// The implementation meets the specification given in the trait `AlignExt`.
-            #[verus_verify]
+            verus!{
+            /// # Verified Properties
+            /// ## Safety
+            /// The implementation is written in safe Rust and there is no undefined behavior.
+            /// ## Functional correctness
+            /// The implementation meets the specification given in the trait `AlignExt`.
             impl AlignExt for $uint_type {
                 /// ## Preconditions
                 /// - `self + (align - 1)` does not overflow.
@@ -115,11 +114,10 @@ macro_rules! impl_align_ext {
                 #[verus_spec(ret =>
                     requires
                         self + (align - 1) <= $uint_type::MAX,
-                        align >= 2 || may_panic(),
-                        (exists |e:nat| pow2(e) == align) || may_panic(),
+                        !(align >= 2 && is_pow2(align as int)) ==> may_panic(),
                     ensures
                         align >= 2,
-                        exists |e:nat| pow2(e) == align,
+                        is_pow2(align as int),
                         ret >= self,
                         ret % align == 0,
                         ret == nat_align_up(self as nat, align as nat),
@@ -128,6 +126,7 @@ macro_rules! impl_align_ext {
                 fn align_up(self, align: Self) -> Self {
                     vstd_extra::assert!(align.is_power_of_two() && align >= 2);
                     proof!{
+                        is_pow2_equiv(align as int);
                         let x_int = self as int + align as int - 1;
                         let x = x_int as Self;
                         if self as int % align as int == 0 {
@@ -162,7 +161,8 @@ macro_rules! impl_align_ext {
 
                         lemma_low_bits_mask_values();
                         let mask = (align - 1) as Self;
-                        let e = choose |e: nat| pow2(e) == align;
+                        let e = choose |e: nat| pow(2, e) == align;
+                        lemma_pow2(e);
                         assert(e < $uint_type::BITS) by {
                             if e >= $uint_type::BITS {
                                 lemma_pow2_strictly_increases($uint_type::BITS as nat, e);
@@ -179,11 +179,10 @@ macro_rules! impl_align_ext {
                 #[inline]
                 #[verus_spec(ret =>
                     requires
-                        align >= 2 || may_panic(),
-                        (exists |e:nat| pow2(e) == align) || may_panic(),
+                        !(is_pow2(align as int) && align >= 2) ==> may_panic(),
                     ensures
                         align >= 2,
-                        exists |e:nat| pow2(e) == align,
+                        is_pow2(align as int),
                         ret <= self,
                         ret % align == 0,
                         ret == nat_align_down(self as nat, align as nat),
@@ -198,9 +197,11 @@ macro_rules! impl_align_ext {
                 fn align_down(self, align: Self) -> Self {
                     vstd_extra::assert!(align.is_power_of_two() && align >= 2);
                     proof!{
+                        is_pow2_equiv(align as int);
                         lemma_low_bits_mask_values();
                         let mask = (align - 1) as Self;
-                        let e = choose |e: nat| pow2(e) == align;
+                        let e = choose |e: nat| pow(2, e) == align;
+                        lemma_pow2(e);
                         assert(e < $uint_type::BITS) by {
                             if e >= $uint_type::BITS {
                                 lemma_pow2_strictly_increases($uint_type::BITS as nat, e);
@@ -215,7 +216,8 @@ macro_rules! impl_align_ext {
                     self & !(align - 1)
                 }
             }
-        )*
+        }
+            )*
     }
 }
 

@@ -82,7 +82,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 let tracked typed_perm = MetaSlot::cast_perm::<M>(slot_perm, inner_perms_taken);
                 slot_own.sync_inner(&typed_perm.inner_perms);
                 regions.slot_owners.tracked_insert(idx, slot_own);
-                let tracked owner = UniqueFrameOwner::<M>::from_unused_owner(regions, paddr, typed_perm);
+                let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(regions, paddr, typed_perm);
             }
             proof_with!(|= Tracked(Some(owner)));
             Ok(Self { ptr, _marker: PhantomData })
@@ -184,7 +184,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
         let tracked meta_perm = MetaSlot::cast_perm::<M1>(slot_perm, inner_perms);
 
-        let tracked mut new_owner = UniqueFrameOwner::<M1>::from_unused_owner(
+        let tracked mut new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
             regions,
             meta_to_frame(self.ptr.addr()),
             meta_perm,

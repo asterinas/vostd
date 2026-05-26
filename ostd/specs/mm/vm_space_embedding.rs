@@ -411,7 +411,7 @@ pub axiom fn axiom_fresh_cursor_id_not_in_dom<'rcu>(
 /// Verus does not let a `proof fn` construct a tracked struct via a
 /// struct-literal when ghost-mode and tracked-mode fields are mixed; the
 /// idiomatic workaround is a constructor axiom (cf.
-/// [`CursorContinuation::new`]).
+/// [`CursorContinuation::tracked_new`]).
 pub axiom fn axiom_cursor_entry_new<'rcu>(
     vm_space: VmSpaceId,
     kind: CursorKind,

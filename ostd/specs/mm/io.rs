@@ -296,7 +296,7 @@ impl VmIoOwner {
         let tracked res = match old_view {
             VmIoMemView::WriteView(view) => {
                 let ghost view_g = view;
-                let tracked (left, right) = view.split(old_start, nbytes);
+                let tracked (left, right) = view.tracked_split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
                 assert(right.mappings.finite());
                 assert(right.mappings_are_disjoint()) by {
@@ -312,7 +312,7 @@ impl VmIoOwner {
             },
             VmIoMemView::ReadView(view) => {
                 let ghost view_g = view;
-                let tracked (left, right) = view.split(old_start, nbytes);
+                let tracked (left, right) = view.tracked_split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
                 MemView::lemma_split_preserves_read(view_g, old_start, nbytes, left, right);
                 assert(right.mappings.finite());
@@ -416,7 +416,7 @@ impl VmIoOwner {
         let tracked left_view = match old_view {
             VmIoMemView::WriteView(view) => {
                 let ghost view_g = view;
-                let tracked (left, right) = view.split(old_start, nbytes);
+                let tracked (left, right) = view.tracked_split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
                 // Prove both halves preserve mappings invariants and translation.
                 assert(left.mappings.finite());
@@ -442,7 +442,7 @@ impl VmIoOwner {
             },
             VmIoMemView::ReadView(view) => {
                 let ghost view_g = view;
-                let tracked (left, right) = view.split(old_start, nbytes);
+                let tracked (left, right) = view.tracked_split(old_start, nbytes);
                 MemView::lemma_split_preserves_transl(view_g, old_start, nbytes, left, right);
                 assert(left.mappings.finite());
                 assert(left.mappings_are_disjoint()) by {

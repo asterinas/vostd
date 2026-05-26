@@ -510,30 +510,28 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
             final(cursor).list_own.perms[old(cursor).index] == perm,
             final(cursor).index == old(cursor).index + 1;
 
-    pub open spec fn front_owner_spec(
+    pub open spec fn front_owner(
         list_own: LinkedListOwner<M>,
     ) -> Self {
         CursorOwner::<M> { list_own: list_own, index: 0 }
     }
 
-    pub open spec fn cursor_mut_at_owner_spec(
+    pub open spec fn cursor_mut_at_owner(
         list_own: LinkedListOwner<M>,
         index: int,
     ) -> Self {
         CursorOwner::<M> { list_own: list_own, index: index }
     }
 
-    #[verifier::returns(proof)]
-    pub axiom fn cursor_mut_at_owner(list_own: LinkedListOwner<M>, index: int) -> Self
-        returns Self::cursor_mut_at_owner_spec(list_own, index);
+    pub axiom fn tracked_cursor_mut_at_owner(list_own: LinkedListOwner<M>, index: int) -> (tracked res: Self)
+        ensures res == Self::cursor_mut_at_owner(list_own, index);
 
-    #[verifier::returns(proof)]
-    pub axiom fn front_owner(
+    pub axiom fn tracked_front_owner(
         list_own: LinkedListOwner<M>,
-    ) -> (res: Self)
+    ) -> (tracked res: Self)
         ensures
-            res == Self::front_owner_spec(list_own);
-    pub open spec fn back_owner_spec(
+            res == Self::front_owner(list_own);
+    pub open spec fn back_owner(
         list_own: LinkedListOwner<M>,
     ) -> Self {
         CursorOwner::<M> {
@@ -546,13 +544,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
-    #[verifier::returns(proof)]
     #[verifier::external_body]
-    pub proof fn back_owner(
+    pub proof fn tracked_back_owner(
         list_own: LinkedListOwner<M>,
-    ) -> (res: Self)
+    ) -> (tracked res: Self)
         ensures
-            res == Self::back_owner_spec(list_own),
+            res == Self::back_owner(list_own),
     {
         CursorOwner::<M> {
             list_own: list_own,
@@ -564,7 +561,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
-    pub open spec fn ghost_owner_spec(
+    pub open spec fn ghost_owner(
         list_own: LinkedListOwner<M>,
     ) -> Self {
         CursorOwner::<M> {
@@ -573,13 +570,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
-    #[verifier::returns(proof)]
     #[verifier::external_body]
-    pub proof fn ghost_owner(
+    pub proof fn tracked_ghost_owner(
         list_own: LinkedListOwner<M>,
-    ) -> (res: Self)
+    ) -> (tracked res: Self)
         ensures
-            res == Self::ghost_owner_spec(list_own),
+            res == Self::ghost_owner(list_own),
     {
         CursorOwner::<M> {
             list_own: list_own,

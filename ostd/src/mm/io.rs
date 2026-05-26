@@ -42,7 +42,7 @@ use crate::arch::mm::{__memcpy_fallible, __memset_fallible};
 use crate::specs::arch::PAGE_SIZE;
 use core::marker::PhantomData;
 use core::ops::Range;
-use vstd::pervasive::{arbitrary, proof_from_false};
+use vstd::arithmetic::power2::is_pow2;
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 use vstd_extra::assert;
@@ -1481,10 +1481,9 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
             iter.decrease() is Some,
             // `align_up` (called for `align > 1`) diverges unless `align`
             // is a power of two.
-            !(align <= 1 || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align))
-                ==> may_panic(),
+            !(align <= 1 || is_pow2(align as int)) ==> may_panic(),
         ensures
-            align <= 1 || (exists|e: nat| ::vstd::arithmetic::power2::pow2(e) == align),
+            align <= 1 || is_pow2(align as int),
     {
         use ::align_ext::AlignExt;
         let mut nr_written: usize = 0;
@@ -1501,8 +1500,7 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
                 !Self::obeys_vmio_write_requires(),
                 iter.obeys_prophetic_iter_laws(),
                 iter.decrease() is Some,
-                align == 0 || align == 1 || (exists|e: nat|
-                    ::vstd::arithmetic::power2::pow2(e) == align),
+                align == 0 || align == 1 || is_pow2(align as int),
             decreases iter.decrease().unwrap(),
         {
             match iter.next() {

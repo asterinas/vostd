@@ -229,7 +229,7 @@ impl MemView {
     ///
     /// The result keeps overlapping mappings and restricts memory to physical
     /// frames reachable from that virtual range.
-    pub open spec fn borrow_at_spec(&self, vaddr: usize, len: usize) -> MemView {
+    pub open spec fn borrow_at(&self, vaddr: usize, len: usize) -> MemView {
         let range_end = vaddr + len;
 
         let valid_pas = Set::new(
@@ -260,7 +260,7 @@ impl MemView {
     /// Returns `(left, right)` where:
     /// - `left` covers `[vaddr, split_end)`, i.e. all mappings overlapping that range.
     /// - `right` covers addresses `>= split_end`.
-    pub open spec fn split_spec(self, vaddr: usize, len: usize) -> (MemView, MemView) {
+    pub open spec fn split(self, vaddr: usize, len: usize) -> (MemView, MemView) {
         let split_end = vaddr + len;
 
         // The left part.
@@ -283,41 +283,41 @@ impl MemView {
         )
     }
 
-    /// Tracked wrapper of [`Self::borrow_at_spec`].
+    /// Tracked wrapper of [`Self::borrow_at`].
     ///
     /// # Verified Properties
     ///
     /// ## Postconditions
-    /// - `r == self.borrow_at_spec(vaddr, len)`.
+    /// - `r == self.borrow_at(vaddr, len)`.
     #[verifier::external_body]
-    pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: MemView)
+    pub proof fn tracked_borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: MemView)
         ensures
-            r == self.borrow_at_spec(vaddr, len),
+            r == self.borrow_at(vaddr, len),
     {
         unimplemented!()
     }
 
 
-    /// Tracked wrapper of [`Self::split_spec`].
+    /// Tracked wrapper of [`Self::split`].
     ///
     /// # Verified Properties
     ///
     /// ## Postconditions
-    /// - `r == self.split_spec(vaddr, len)`.
+    /// - `r == self.split(vaddr, len)`.
     #[verifier::external_body]
-    pub proof fn split(tracked self, vaddr: usize, len: usize) -> (tracked r: (Self, Self))
+    pub proof fn tracked_split(tracked self, vaddr: usize, len: usize) -> (tracked r: (Self, Self))
         ensures
-            r == self.split_spec(vaddr, len),
+            r == self.split(vaddr, len),
     {
         unimplemented!()
     }
 
-    /// Lemma: [`Self::split_spec`] preserves translation semantics on each side.
+    /// Lemma: [`Self::split`] preserves translation semantics on each side.
     ///
     /// # Verified Properties
     ///
     /// ## Preconditions
-    /// - `original.split_spec(vaddr, len) == (left, right)`.
+    /// - `original.split(vaddr, len) == (left, right)`.
     ///
     /// ## Postconditions
     /// - `right.memory.dom().subset_of(original.memory.dom())`.
@@ -333,7 +333,7 @@ impl MemView {
         right: MemView,
     )
         requires
-            original.split_spec(vaddr, len) == (left, right),
+            original.split(vaddr, len) == (left, right),
         ensures
             right.memory.dom().subset_of(original.memory.dom()),
             forall|va: usize|
@@ -392,14 +392,14 @@ impl MemView {
     ///
     /// Mappings are unioned, and memory conflicts are resolved by
     /// [`vstd::map::Map::union_prefer_right`] with `other` taking precedence.
-    pub open spec fn join_spec(self, other: MemView) -> MemView {
+    pub open spec fn join(self, other: MemView) -> MemView {
         MemView {
             mappings: self.mappings.union(other.mappings),
             memory: self.memory.union_prefer_right(other.memory),
         }
     }
 
-    /// Tracked wrapper of [`Self::join_spec`].
+    /// Tracked wrapper of [`Self::join`].
     ///
     /// # Verified Properties
     ///
@@ -407,13 +407,13 @@ impl MemView {
     /// - `old(self).mappings.disjoint(other.mappings)`.
     ///
     /// ## Postconditions
-    /// - `*self == old(self).join_spec(other)`.
+    /// - `*self == old(self).join(other)`.
     #[verifier::external_body]
-    pub proof fn join(tracked &mut self, tracked other: Self)
+    pub proof fn tracked_join(tracked &mut self, tracked other: Self)
         requires
             old(self).mappings.disjoint(other.mappings),
         ensures
-            *final(self) == old(self).join_spec(other),
+            *final(self) == old(self).join(other),
     {
         unimplemented!()
     }
@@ -423,13 +423,13 @@ impl MemView {
     /// # Verified Properties
     ///
     /// ## Preconditions
-    /// - `this.split_spec(vaddr, len) == (lhs, rhs)`.
+    /// - `this.split(vaddr, len) == (lhs, rhs)`.
     /// - Every mapping in `this` starts at or after `vaddr`.
     /// - Every physical frame tracked by `this.memory` is reachable from some
     ///   virtual address at or after `vaddr`.
     ///
     /// ## Postconditions
-    /// - `lhs.join_spec(rhs)` has the same mappings and memory contents as `this`.
+    /// - `lhs.join(rhs)` has the same mappings and memory contents as `this`.
     pub proof fn lemma_split_join_identity(
         this: MemView,
         lhs: MemView,
@@ -438,15 +438,15 @@ impl MemView {
         len: usize,
     )
         requires
-            this.split_spec(vaddr, len) == (lhs, rhs),
+            this.split(vaddr, len) == (lhs, rhs),
             forall|m: Mapping|
                 #[trigger] this.mappings.contains(m) ==> vaddr <= m.va_range.start < m.va_range.end,
             forall|pa: Paddr|
                 #[trigger] this.memory.contains_key(pa) ==> exists |va: usize|
                     vaddr <= va && #[trigger] this.is_mapped(va, pa),
         ensures
-            this.mappings == lhs.join_spec(rhs).mappings,
-            this.memory == lhs.join_spec(rhs).memory,
+            this.mappings == lhs.join(rhs).mappings,
+            this.memory == lhs.join(rhs).memory,
     {
     }
 
@@ -1104,7 +1104,7 @@ impl GlobalMemView {
             self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa)
     }
 
-    pub open spec fn take_view_spec(self, vaddr: usize, len: usize) -> (Self, MemView) {
+    pub open spec fn take_view(self, vaddr: usize, len: usize) -> (Self, MemView) {
         let range_end = vaddr + len;
 
         let leave_mappings: Set<Mapping> = self.tlb_mappings.filter(
@@ -1134,12 +1134,12 @@ impl GlobalMemView {
         )
     }
 
-    pub axiom fn take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view: MemView)
+    pub axiom fn tracked_take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view: MemView)
         ensures
-            *final(self) == old(self).take_view_spec(vaddr, len).0,
-            view == old(self).take_view_spec(vaddr, len).1;
+            *final(self) == old(self).take_view(vaddr, len).0,
+            view == old(self).take_view(vaddr, len).1;
 
-    pub open spec fn return_view_spec(self, view: MemView) -> Self {
+    pub open spec fn return_view(self, view: MemView) -> Self {
         GlobalMemView {
             tlb_mappings: self.tlb_mappings.union(view.mappings),
             memory: self.memory.union_prefer_right(view.memory),
@@ -1147,11 +1147,11 @@ impl GlobalMemView {
         }
     }
 
-    pub axiom fn return_view(&mut self, view: MemView)
+    pub axiom fn tracked_return_view(&mut self, view: MemView)
         ensures
-            *final(self) == old(self).return_view_spec(view);
+            *final(self) == old(self).return_view(view);
 
-    pub open spec fn tlb_flush_vaddr_spec(self, vaddr: Vaddr) -> Self {
+    pub open spec fn tlb_flush_vaddr(self, vaddr: Vaddr) -> Self {
         let tlb_mappings = self.tlb_mappings.filter(
             |m: Mapping| m.va_range.end <= vaddr || vaddr < m.va_range.start
         );
@@ -1161,14 +1161,14 @@ impl GlobalMemView {
         }
     }
 
-    pub axiom fn tlb_flush_vaddr(&mut self, vaddr: Vaddr)
+    pub axiom fn tracked_tlb_flush_vaddr(&mut self, vaddr: Vaddr)
         requires
             old(self).inv()
         ensures
-            *final(self) == old(self).tlb_flush_vaddr_spec(vaddr),
+            *final(self) == old(self).tlb_flush_vaddr(vaddr),
             final(self).inv();
 
-    pub open spec fn tlb_soft_fault_spec(self, vaddr: Vaddr) -> Self {
+    pub open spec fn tlb_soft_fault(self, vaddr: Vaddr) -> Self {
         let mapping = self.pt_mappings.filter(|m: Mapping| m.va_range.start <= vaddr < m.va_range.end).choose();
         GlobalMemView {
             tlb_mappings: self.tlb_mappings.insert(mapping),
@@ -1176,15 +1176,15 @@ impl GlobalMemView {
         }
     }
 
-    pub axiom fn tlb_soft_fault(tracked &mut self, vaddr: Vaddr)
+    pub axiom fn tracked_tlb_soft_fault(tracked &mut self, vaddr: Vaddr)
         requires
             old(self).inv(),
             old(self).addr_transl(vaddr) is None,
         ensures
-            *final(self) == old(self).tlb_soft_fault_spec(vaddr),
+            *final(self) == old(self).tlb_soft_fault(vaddr),
             final(self).inv();
 
-    pub open spec fn pt_map_spec(self, m: Mapping) -> Self {
+    pub open spec fn pt_map(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.insert(m);
         let unmapped_pas = self.unmapped_pas.difference(
             Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end)
@@ -1196,16 +1196,16 @@ impl GlobalMemView {
         }
     }
 
-    pub axiom fn pt_map(&mut self, m: Mapping)
+    pub axiom fn tracked_pt_map(&mut self, m: Mapping)
         requires
             forall|pa: Paddr|
                 m.pa_range.start <= pa < m.pa_range.end ==>
                 old(self).unmapped_pas.contains(pa),
             old(self).inv()
         ensures
-            *final(self) == old(self).pt_map_spec(m);
+            *final(self) == old(self).pt_map(m);
 
-    pub open spec fn pt_unmap_spec(self, m: Mapping) -> Self {
+    pub open spec fn pt_unmap(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.remove(m);
         let unmapped_pas = self.unmapped_pas.union(
             Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end)
@@ -1217,12 +1217,12 @@ impl GlobalMemView {
         }
     }
 
-    pub axiom fn pt_unmap(&mut self, m: Mapping)
+    pub axiom fn tracked_pt_unmap(&mut self, m: Mapping)
         requires
             old(self).pt_mappings.contains(m),
             old(self).inv()
         ensures
-            *final(self) == old(self).pt_unmap_spec(m),
+            *final(self) == old(self).pt_unmap(m),
             final(self).inv();
 
     pub proof fn lemma_va_mapping_unique(self, va: usize)

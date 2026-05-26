@@ -33,13 +33,13 @@ pub broadcast proof fn lemma_seq_add_head_back<T>(s: Seq<T>)
     requires
         s.len() > 0,
     ensures
-        s =~= #[trigger] seq![s[0]].add(s.drop_first()),
+        s == #[trigger] seq![s[0]].add(s.drop_first()),
 {
 }
 
 pub broadcast proof fn lemma_seq_push_head<T>(s: Seq<T>, hd: T)
     ensures
-        #[trigger] seq![hd].add(s) =~= s.reverse().push(hd).reverse(),
+        #[trigger] seq![hd].add(s) == s.reverse().push(hd).reverse(),
 {
 }
 
