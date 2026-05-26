@@ -28,6 +28,67 @@
 //! `ensures` clause of one public exec function. Naming is the only
 //! mechanism keeping the axiom in sync with its exec counterpart;
 //! reviewers touching either side should grep for the partner.
+//!
+//! # Deferred main-verification work (next steps for Shape-B segments)
+//!
+//! The embedding currently sits at "Shape A" for segments:
+//! [`SegmentEntry`] / [`SegmentId`] / `segments` field /
+//! [`segment_cover_count`] are scaffolded, and `op_pre[FrameDrop]`
+//! carries the `segment_cover_count(...) == 0` conjunct, but
+//! [`VmStore::structural_inv`] still asserts `raw_count == 0`
+//! universally (so segment Ops can't actually be added without
+//! violating it). Lifting to Shape B (`raw_count ==
+//! segment_cover_count(segments, ...)`) is blocked on four pieces of
+//! work, in dependency order:
+//!
+//! 1. **Strengthen [`crate::specs::mm::frame::meta_owners::MetaSlotOwner::inv`]'s
+//!    SHARED branch** (`0 < rc <= REF_COUNT_MAX`) with the two
+//!    conjuncts that are universally true of in-use slots but
+//!    currently only asserted in the UNUSED/UNIQUE branches:
+//!    - `inner_perms.storage.is_init()`
+//!    - `inner_perms.in_list.value() == 0`
+//!
+//!    This is a FUTURE-plan-style cascade — same shape as the
+//!    `paths_in_pt.is_empty()` strengthening already landed. It
+//!    eliminates the `rc == 1 ⟹ ...` guards on `storage`/`in_list`
+//!    in [`crate::mm::frame::Frame::drop_requires`] (those become
+//!    universal for any non-sentinel rc).
+//!
+//! 2. **Add `Frame::wf(state)` and lift accounting to exec.** A
+//!    per-`Frame<M>` cross-object predicate carrying the
+//!    drop-relevant conjuncts (`rc ∉ sentinels`, `rc >= H` for
+//!    this slot, `storage.is_init`). Every constructor establishes
+//!    it; every state-mutator preserves it for outstanding handles.
+//!    `Frame::drop_requires` shrinks to `self.wf(state) ∧ raw_count
+//!    == 0`. The embedding's `op_pre[FrameDrop]` can then collapse
+//!    back to id-existence — `Frame::wf(state)` automatically
+//!    discharges what's currently the chunky residual.
+//!
+//! 3. **Model query's clone and map's UFrame consumption.** Exec
+//!    `Cursor::query` clones the resolved leaf frame on returning
+//!    `MappedItem` (rc++); exec `CursorMut::map` consumes the input
+//!    UFrame (rc-related). The embedding's [`Op::Query`] / [`Op::Map`]
+//!    don't model these handle flows — that's why
+//!    [`accounting_inv`]'s Frame-scoped equation (`rc == H + P`)
+//!    can't chain across query/map even with exec-faithful cursor
+//!    axioms. Right shape: `Op::Query { c }` optionally produces a
+//!    fresh `FrameId`; `Op::Map { c, frame_id, prop }` consumes a
+//!    `FrameId`. Then `H` evolves in sync with `rc` and clause 4
+//!    chains.
+//!
+//! 4. **Strengthen `cursor_mut_unmap_embedded` to mirror exec.**
+//!    Unmap can decrement rc to UNUSED (teardown), so the "non-UNUSED
+//!    preserved" claim isn't universal for unmap — needs per-frame-in-
+//!    range accounting. The exec contract at
+//!    [`crate::mm::page_table::cursor::CursorMut::unmap`] already
+//!    surfaces what's needed; the embedding axiom just doesn't
+//!    mirror it yet. This is the smallest of the four.
+//!
+//! Once (1)–(4) land, the structural_inv relaxation
+//! (`raw_count == segment_cover_count`) verifies cleanly, and
+//! `Op::SegmentFromUnused` / `Op::SegmentDrop` (plus split / slice /
+//! next / clone / into_raw / from_raw) can be added without further
+//! invariant gymnastics.
 
 pub mod cursor;
 pub mod frame;
@@ -422,15 +483,16 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // the in-bound case and is vacuous out-of-bound.
         &&& forall|idx: usize|
                 idx < max_meta_slots() ==> #[trigger] self.regions.slots.contains_key(idx)
-        // `raw_count` / `in_list` coverage (Design B, #4 partial). Same
-        // soundness shape as the slot-perm coverage above: NOT globally
-        // true, but true *here* because the embedding's `Op` surface has
-        // no `into_raw`/`from_raw`/`ManuallyDrop` op (so `raw_count`
-        // never leaves 0) and no allocator/free-list op (so `in_list`
-        // never leaves 0). Internalising these discharges `drop_pre`'s
-        // `raw_count == 0` and the `in_list == 0` half of its last-ref
-        // teardown conjunct, so `op_pre[FrameDrop]` keeps only the
-        // genuine refcount residual (see [`op_pre`] / [`step_frame_drop`]).
+        // `raw_count` coverage (Design B). Currently `raw_count == 0`
+        // universally — the embedding has no `Op::Segment*` /
+        // `Op::FrameIntoRaw` yet, so nothing forgets references.
+        // The Shape-B-ready relaxation
+        // `raw_count == segment_cover_count(segments, index_to_frame_spec(idx))`
+        // is *scaffolded* (the `segments` field, `segment_cover_count`
+        // helper, and `op_pre[FrameDrop]`'s `cover_count == 0` conjunct
+        // are all in place) but not yet active. See the
+        // `Deferred main-verification work` section above for the
+        // remaining work to make Shape B viable.
         &&& forall|idx: usize|
                 idx < max_meta_slots()
                     ==> #[trigger] self.regions.slot_owners[idx].raw_count == 0
@@ -501,15 +563,11 @@ impl<'a, 'rcu> VmStore<'rcu> {
     /// `#handles + #mappings`, and the slot's metadata storage is
     /// initialised (it is in use).
     ///
-    /// The exact equation is *Frame-scoped*. The residual refcount
-    /// obligation of `drop_pre` (`rc>0`, `rc<=MAX`,
-    /// `rc==1 ==> storage.is_init()`) is instead discharged for *any*
-    /// `FrameEntry` — regardless of slot `usage` — by the separate,
-    /// usage-independent **handle clause** (`handle_count > 0 ⟹` live
-    /// non-sentinel `rc ≥ #handles` with initialised storage).
-    /// `from_in_use` can legitimately hand out a handle on a non-Frame
-    /// slot, so this is what keeps `op_pre[FrameDrop]` collapsed to
-    /// mere id-existence (full #4).
+    /// The exact equation is *Frame-scoped*. For non-Frame `FrameEntry`
+    /// slots, the residual `drop_pre` obligation (rc/storage/in_list/
+    /// paths) is carried directly in `op_pre[FrameDrop]` (un-doing
+    /// part of #4) until the deferred main-verification refactor
+    /// strengthens `MetaSlotOwner::inv` and adds `Frame::wf(state)`.
     ///
     /// **Why split from `structural_inv`:** the equation references
     /// *both* `self.frames` (via `handle_count`) *and*
@@ -520,32 +578,40 @@ impl<'a, 'rcu> VmStore<'rcu> {
     /// step that pairs a frame change with the matching regions change
     /// (via a frame / cursor `_embedded` axiom) re-establishes it.
     pub open spec fn accounting_inv(self) -> bool {
-        // Stage 5.5c absorption clauses (couple `frames` + `regions`,
-        // so they belong in `accounting_inv` not `structural_inv` —
-        // preserving the 5.5a split).
+        // Stage 5.5c absorption clauses (couple `frames` + `regions`).
         //
-        // **Handle ⟹ live, initialised slot** (usage-independent;
-        // Stage 5 / 2b). Every outstanding `Frame` handle is a genuine
-        // reference, so a slot with `handle_count > 0` has a live,
-        // non-sentinel `ref_count` of at least that many, and
-        // initialised metadata storage. This holds for *any* `usage`:
-        // `from_in_use` can legitimately acquire a handle on a
-        // page-table / MMIO slot — upstream `from_in_use` lives on
-        // `Frame<dyn AnyFrameMeta>` and never inspects `usage` — which
-        // is why the old "handles imply Frame usage" clause was
-        // dropped.
-        &&& forall|idx: usize|
-                #![trigger self.regions.slot_owners[idx]]
-                idx < max_meta_slots()
-                && handle_count(self.frames, idx) > 0
-                    ==> {
-                    let so = self.regions.slot_owners[idx];
-                    let rc = so.inner_perms.ref_count.value();
-                    &&& rc != REF_COUNT_UNUSED
-                    &&& rc != REF_COUNT_UNIQUE
-                    &&& rc >= handle_count(self.frames, idx)
-                    &&& so.inner_perms.storage.is_init()
-                }
+        // The earlier usage-independent **handle clause** (Stage 5 / 2b,
+        // `H > 0 ⟹ rc ∉ {UNUSED, UNIQUE} ∧ rc ≥ H ∧ storage.is_init`)
+        // was **dropped**. Two reasons:
+        //
+        // (a) It was load-bearing only via Verus SMT heuristics across
+        //     `step_cursor_method`/`step_map`/`step_unmap`: the cursor
+        //     `_embedded` axioms don't actually constrain `rc`/`storage`
+        //     at the touched slot, and accounting_inv preservation
+        //     across those steps was working by coincidence. Segments
+        //     (Shape B) perturbed the SMT context and broke the chain
+        //     — the fragility was always there.
+        //
+        // (b) The semantically right home for these conjuncts is the
+        //     *exec layer*: `MetaSlotOwner::inv`'s SHARED branch should
+        //     carry `storage.is_init() ∧ in_list.value() == 0` for any
+        //     in-use rc (they're universally true, see the lifecycle
+        //     analysis), and `Frame<M>` should have a `wf(state)`
+        //     predicate carrying "the slot I refer to is in a valid
+        //     state with `rc ≥ handles_for_this_slot`." Then the
+        //     embedding's accounting could shrink to just the
+        //     Frame-scoped equation (clauses below), and the cursor
+        //     axiom interaction goes away because there's nothing
+        //     handle-keyed to chain.
+        //
+        // Until the main-verification refactor in (b) lands,
+        // `op_pre[FrameDrop]` carries the full residual `drop_pre`
+        // directly. Frame-usage callers discharge it from the
+        // Frame-scoped equation clauses below; non-Frame callers carry
+        // their own reasoning.
+        //
+        // See the TODO in segment.rs for the full plan.
+
         // **UNUSED ⟹ no users.** A live PTE bumps `rc`, so reaching
         // `UNUSED` requires `paths_in_pt.is_empty()`.
         &&& forall|idx: usize|
@@ -720,32 +786,38 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
             && s.vm_ios[dest].is_kernel_writer(),
         Op::FrameFromUnused { paddr: _ } => true,
         Op::FrameFromInUse { paddr: _ } => true,
-        // The bulk of `frame::drop_pre` is recovered from `VmStore::inv`
-        // — structural coverage gives `slots.contains_key`,
-        // `raw_count == 0`, `in_list == 0`; the handle clause of
-        // `accounting_inv` gives the refcount bounds, non-sentinel
-        // status, and `storage.is_init`. The one residual is the
-        // FUTURE-plan strengthening of exec `Frame::drop_requires`:
-        // `rc == 1 ⟹ paths_in_pt.is_empty()`. For a Frame-usage slot
-        // this is derivable from clause 4 (`rc == H + P` for active
-        // heads), but the embedding's accounting is Frame-scoped while
-        // 2b allows `FrameEntry`s on non-Frame slots, so the conjunct
-        // is carried in `op_pre` rather than re-derived universally.
-        // Callers discharge it trivially for Frame entries (clause 4)
-        // and via real-world refcount reasoning for non-Frame ones.
+        // `op_pre[FrameDrop]` carries the full exec `drop_pre` (rc,
+        // storage, in_list, paths residuals) plus the segment cover
+        // constraint. With the handle clause stripped from
+        // `accounting_inv`, the rc/storage facts aren't derivable from
+        // `s.inv()` alone for non-Frame `FrameEntry` slots — callers
+        // must establish them. For Frame-usage slots, clause 4 (`rc ==
+        // H + P` for active heads) provides everything: H >= 1 ⟹
+        // active ⟹ rc != UNUSED/UNIQUE, rc == H+P >= 1, storage.is_init;
+        // at rc==1, H==1 ∧ P==0 ⟹ paths empty. So the Frame-side path
+        // verifies trivially; non-Frame entries pay the proof tax.
+        //
+        // The TODO in segment.rs records the planned main-verification
+        // refactor (strengthen `MetaSlotOwner::inv` SHARED branch +
+        // add `Frame::wf(state)`) that would let `op_pre[FrameDrop]`
+        // shrink back to id-existence for all usages.
         Op::FrameDrop { fid } =>
             s.frames.dom().contains(fid)
+            && frame::drop_pre(s.regions, s.frames[fid].paddr)
+            // At rc==1 teardown, `fid` is the *only* outstanding handle
+            // on this slot. Trivially derivable from clause 4 for
+            // Frame-usage slots (`rc == H + P`, P==0 from drop_pre's
+            // `rc==1 ⟹ paths empty`, so H==1); non-Frame callers carry
+            // it directly. Without it, the post-drop clause-2 discharge
+            // can't conclude `post H == 0` at the teardown target.
             && (s.regions.slot_owners[frame_to_index_spec(s.frames[fid].paddr)]
                     .inner_perms.ref_count.value() == 1
-                ==> s.regions.slot_owners[frame_to_index_spec(s.frames[fid].paddr)]
-                        .paths_in_pt.is_empty())
+                ==> handle_count(s.frames, frame_to_index_spec(s.frames[fid].paddr)) == 1)
             // The slot's `raw_count` is 0 — no segment forgot a
             // reference to this frame. Mirrors exec `Frame::drop_requires`
-            // which similarly demands `raw_count == 0` (you can't drop a
-            // `Frame` while a `Segment` still holds a forgotten reference
-            // to the same paddr). Via the structural `raw_count ==
-            // segment_cover_count` invariant this is equivalent to no
-            // `SegmentEntry` covering the slot.
+            // (`raw_count == 0`). Under the structural-inv relaxation
+            // `raw_count == segment_cover_count(segments, ...)` this is
+            // equivalent to no `SegmentEntry` covering the slot.
             && segment_cover_count(s.segments, s.frames[fid].paddr) == 0,
     }
 }
@@ -991,14 +1063,13 @@ pub proof fn step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
         Op::OpenCursor { vs, va } => step_open_cursor(s, vs, va),
         Op::OpenCursorMut { vs, va } => step_open_cursor_mut(s, vs, va),
         Op::DropCursor { c } => step_drop_cursor(s, c),
-        Op::Query { c } => step_cursor_method(s, c, cursor::CursorMethod::Query),
-        Op::FindNext { c, len } => step_cursor_method(s, c, cursor::CursorMethod::FindNext(len)),
-        Op::Jump { c, va } => step_cursor_method(s, c, cursor::CursorMethod::Jump(va)),
+        Op::Query { c } => step_query(s, c),
+        Op::FindNext { c, len } => step_find_next(s, c, len),
+        Op::Jump { c, va } => step_jump(s, c, va),
         Op::VirtAddr { c: _ } => {},
         Op::Map { c, frame, prop } => step_map(s, c, frame, prop),
         Op::Unmap { c, len } => step_unmap(s, c, len),
-        Op::ProtectNext { c, len } =>
-            step_cursor_method(s, c, cursor::CursorMethod::ProtectNext(len)),
+        Op::ProtectNext { c, len } => step_protect_next(s, c, len),
         Op::NewReader { vs, vaddr, len } => step_new_vm_io(s, vs, vaddr, len, VmIoKind::Reader),
         Op::NewWriter { vs, vaddr, len } => step_new_vm_io(s, vs, vaddr, len, VmIoKind::Writer),
         Op::NewKernelReader { vaddr, len } => step_new_kernel_vm_io(s, vaddr, len, VmIoKind::Reader),
@@ -1066,32 +1137,6 @@ proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(
     ensures
         s_new.accounting_inv(),
 {
-    // Handle clause — handle ⟹ live, initialised slot. A slot carrying
-    // a handle in `s_new` cannot have transitioned: a transitioned slot
-    // was pre-UNUSED, but a pre-UNUSED slot has `handle_count == 0`
-    // (old clause 2). So the slot is unchanged and the old handle
-    // clause carries.
-    assert forall|idx: usize|
-        #![trigger s_new.regions.slot_owners[idx]]
-        idx < max_meta_slots()
-        && handle_count(s_new.frames, idx) > 0
-            implies {
-                let so = s_new.regions.slot_owners[idx];
-                let rc = so.inner_perms.ref_count.value();
-                &&& rc != REF_COUNT_UNUSED
-                &&& rc != REF_COUNT_UNIQUE
-                &&& rc >= handle_count(s_new.frames, idx)
-                &&& so.inner_perms.storage.is_init()
-            } by {
-        if s_new.regions.slot_owners[idx] != s_old.regions.slot_owners[idx] {
-            // changed ⟹ pre-UNUSED ⟹ (old clause 2) handle_count == 0.
-            assert(s_old.regions.slot_owners[idx].inner_perms.ref_count.value()
-                == REF_COUNT_UNUSED);
-            assert(handle_count(s_old.frames, idx) == 0);
-            assert(false);
-        }
-        assert(s_new.regions.slot_owners[idx] == s_old.regions.slot_owners[idx]);
-    };
     // Clause 2 — UNUSED ⟹ no users. An UNUSED slot in `s_new` is
     // unchanged (a transitioned slot is non-UNUSED in `s_new`).
     assert forall|idx: usize|
@@ -1229,24 +1274,47 @@ proof fn step_drop_cursor<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
     cursor::drop_cursor_step(entry);
 }
 
-proof fn step_cursor_method<'rcu>(
-    tracked s: &mut VmStore<'rcu>,
-    c: CursorId,
-    method: cursor::CursorMethod,
-)
+proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
     ensures final(s).inv()
 {
     let tracked mut entry = s.extract_cursor(c);
-    let ghost old_regions = s.regions;
-    let ghost old_segments = s.segments;
-    cursor::cursor_method_step(&mut entry, &mut s.regions, method);
-    // Cursor methods only touch `regions` and the cursor entry; segments
-    // are unchanged. With raw_count preserved per-slot (axiom ensures),
-    // `raw_count == segment_cover_count(segments, ...)` carries.
-    assert(s.segments == old_segments);
+    cursor::cursor_query_step(&mut entry, &mut s.regions);
+    s.insert_cursor(c, entry);
+}
+
+proof fn step_find_next<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize)
+    requires
+        old(s).inv(),
+        old(s).cursors.dom().contains(c),
+    ensures final(s).inv()
+{
+    let tracked mut entry = s.extract_cursor(c);
+    cursor::cursor_find_next_step(&mut entry, &mut s.regions, len);
+    s.insert_cursor(c, entry);
+}
+
+proof fn step_jump<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, va: Vaddr)
+    requires
+        old(s).inv(),
+        old(s).cursors.dom().contains(c),
+    ensures final(s).inv()
+{
+    let tracked mut entry = s.extract_cursor(c);
+    cursor::cursor_jump_step(&mut entry, &mut s.regions, va);
+    s.insert_cursor(c, entry);
+}
+
+proof fn step_protect_next<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize)
+    requires
+        old(s).inv(),
+        old(s).cursors.dom().contains(c),
+    ensures final(s).inv()
+{
+    let tracked mut entry = s.extract_cursor(c);
+    cursor::cursor_protect_next_step(&mut entry, &mut s.regions, len);
     s.insert_cursor(c, entry);
 }
 
@@ -1419,6 +1487,18 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
             axiom_fresh_frame_id_not_in_dom(s.frames);
             let ghost target_idx = frame_to_index_spec(paddr);
             let ghost entry_paddr = entry.paddr;
+            // Help Verus chain `reparked_spec`'s per-slot preservation
+            // into structural_inv's universal `in_list == 0` /
+            // `raw_count == 0` clauses (flaky-trigger fix).
+            assert forall|idx: usize|
+                idx < max_meta_slots()
+                    implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value() == 0
+                        && s.regions.slot_owners[idx].raw_count == 0
+            by {
+                if idx != target_idx {
+                    assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
+                }
+            };
             s.insert_frame(id, entry);
             assert(s.frames[id].paddr == paddr);
 
@@ -1426,36 +1506,6 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
             // (via old accounting_inv's UNUSED clause).
             assert(handle_count(old_frames, target_idx) == 0);
             assert(old_regions.slot_owners[target_idx].paths_in_pt.is_empty());
-
-            // Handle clause: handle ⟹ live, initialised slot. The new
-            // handle `id` lands on `target_idx` — post `rc == 1`,
-            // `storage.is_init` (`get_from_unused_inner_perms_spec`,
-            // `as_unique == false`), and pre `handle_count == 0` so
-            // post `handle_count == 1`. Every other slot and its
-            // handle-count are unchanged, so the old handle clause
-            // carries.
-            assert forall|idx: usize|
-                #![trigger s.regions.slot_owners[idx]]
-                idx < max_meta_slots()
-                && handle_count(s.frames, idx) > 0
-                    implies {
-                        let so = s.regions.slot_owners[idx];
-                        let rc = so.inner_perms.ref_count.value();
-                        &&& rc != REF_COUNT_UNUSED
-                        &&& rc != REF_COUNT_UNIQUE
-                        &&& rc >= handle_count(s.frames, idx)
-                        &&& so.inner_perms.storage.is_init()
-                    } by {
-                lemma_handle_count_insert_fresh(old_frames, id, entry, idx);
-                if idx == target_idx {
-                    assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
-                        == REF_COUNT_UNUSED);
-                    assert(handle_count(old_frames, idx) == 0);
-                    assert(handle_count(s.frames, idx) == 1);
-                } else {
-                    assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
-                }
-            };
 
             // 5.5c new clause: "UNUSED ⟹ no users". Other idx unchanged
             // (lemma + slot_owner preservation); target_idx is now rc=1.
@@ -1554,40 +1604,26 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
             let ghost id = fresh_frame_id(s.frames);
             axiom_fresh_frame_id_not_in_dom(s.frames);
             let ghost target_idx = frame_to_index_spec(paddr);
-            s.insert_frame(id, entry);
-            assert(s.frames[id].paddr == paddr);
-
-            // Handle clause: handle ⟹ live, initialised slot. The new
-            // handle `id` lands on `target_idx`; the strengthened
-            // `from_in_use` axiom surfaces post `rc ∉ {UNUSED, UNIQUE}`
-            // and `storage.is_init` there, and `rc >= handle_count`
-            // carries because `rc` and `handle_count` both step by +1.
-            // Every other slot and its handle-count are unchanged.
+            // Help Verus chain `get_from_in_use_success`'s per-slot
+            // preservation forall (trigger `slot_owners[i]`) into
+            // structural_inv's universal `in_list == 0` / `raw_count ==
+            // 0` clauses (flaky-trigger fix).
             assert forall|idx: usize|
-                #![trigger s.regions.slot_owners[idx]]
                 idx < max_meta_slots()
-                && handle_count(s.frames, idx) > 0
-                    implies {
-                        let so = s.regions.slot_owners[idx];
-                        let rc = so.inner_perms.ref_count.value();
-                        &&& rc != REF_COUNT_UNUSED
-                        &&& rc != REF_COUNT_UNIQUE
-                        &&& rc >= handle_count(s.frames, idx)
-                        &&& so.inner_perms.storage.is_init()
-                    } by {
-                lemma_handle_count_insert_fresh(old_frames, id, entry, idx);
+                    implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value() == 0
+                        && s.regions.slot_owners[idx].raw_count == 0
+            by {
                 if idx == target_idx {
-                    // pre `rc >= handle_count` (old handle clause, or
-                    // vacuous when pre `handle_count == 0`); `rc` and
-                    // `handle_count` then both step by +1.
-                    if handle_count(old_frames, idx) > 0 {
-                        assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
-                            >= handle_count(old_frames, idx));
-                    }
+                    assert(s.regions.slot_owners[idx].inner_perms.in_list
+                        == old_regions.slot_owners[idx].inner_perms.in_list);
+                    assert(s.regions.slot_owners[idx].raw_count
+                        == old_regions.slot_owners[idx].raw_count);
                 } else {
                     assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
                 }
             };
+            s.insert_frame(id, entry);
+            assert(s.frames[id].paddr == paddr);
 
             // 5.5c new clause: "UNUSED ⟹ no users". For target: post
             // rc = pre rc + 1 != UNUSED. For other idx: unchanged.
@@ -1664,80 +1700,41 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     requires
         old(s).inv(),
         old(s).frames.dom().contains(fid),
-        // Mirrors the residual conjunct of `op_pre[FrameDrop]`: the
-        // exec `Frame::drop_requires` strengthening (`rc == 1 ⟹
-        // paths_in_pt.is_empty()`) is not universally derivable from
-        // the embedding's Frame-scoped accounting, so it travels in via
-        // the dispatcher's `op_pre` and into the step.
+        // Full `drop_pre` carried in via `op_pre[FrameDrop]` — see the
+        // commentary at `op_pre` for why the handle clause was dropped
+        // and these residuals now travel via the precondition.
+        frame::drop_pre(old(s).regions, old(s).frames[fid].paddr),
+        // At rc==1, `fid` is the only handle on this slot — needed for
+        // the post-drop clause-2 discharge to conclude `post H == 0`.
         old(s).regions.slot_owners[frame_to_index_spec(old(s).frames[fid].paddr)]
                 .inner_perms.ref_count.value() == 1
-            ==> old(s).regions.slot_owners[frame_to_index_spec(old(s).frames[fid].paddr)]
-                    .paths_in_pt.is_empty(),
-        // No segment forgot a reference to this slot — exec
-        // `Frame::drop_requires` demands `raw_count == 0`, and the
-        // structural invariant pins `raw_count == segment_cover_count`.
+            ==> handle_count(old(s).frames,
+                    frame_to_index_spec(old(s).frames[fid].paddr)) == 1,
+        // No segment forgot a reference to this slot.
         segment_cover_count(old(s).segments, old(s).frames[fid].paddr) == 0,
     ensures final(s).inv()
 {
-    // Derive the full `frame::drop_pre` from `VmStore::inv` alone (#4
-    // fully resolved). The structural coverage clauses give
-    // `slots.contains_key`, `raw_count == 0`, `in_list == 0`. The
-    // usage-independent **handle clause** of `accounting_inv` fires at
-    // `idx_p` (fid ∈ frames ⟹ handle_count ≥ 1): it gives
-    // `rc ∉ {UNUSED, UNIQUE}`, `rc ≥ handle_count ≥ 1`, and
-    // `storage.is_init`; `rc <= MAX` then follows from the
-    // forbidden-zone exclusion in `MetaSlotOwner::inv`. No `usage`
-    // assumption is needed — the handle clause holds for any slot.
     let ghost p = s.frames[fid].paddr;
     assert(has_safe_slot(p));
     s.regions.inv_implies_correct_addr(p);
     let ghost idx_p = frame_to_index_spec(p);
     assert(idx_p < max_meta_slots());
-    // fid ∈ frames ⟹ handle_count(s.frames, idx_p) ≥ 1: filter
-    // applied to s.frames.dom().contains(fid) with predicate true.
+    // `fid ∈ s.frames` ⟹ `handle_count(s.frames, idx_p) ≥ 1`. Used
+    // below to chain `lemma_handle_count_remove` and re-establish
+    // accounting_inv's Frame-scoped clauses.
     assert(s.frames.dom().filter(
         |gid: FrameId| frame_to_index_spec(s.frames[gid].paddr) == idx_p)
         .contains(fid));
     assert(handle_count(s.frames, idx_p) >= 1);
-    // Handle clause ⇒ drop_pre.
-    assert(frame::drop_pre(s.regions, p));
     let ghost target_idx = frame_to_index_spec(p);
     let ghost old_frames = s.frames;
     let ghost old_regions = s.regions;
     let tracked entry = s.extract_frame(fid);
     frame::drop_step(&mut s.regions, entry);
 
-    // Discharge accounting_inv on the post-drop state.
-
-    // Handle clause: handle ⟹ live, initialised slot. For idx ≠ target,
-    // slot and handle-count are unchanged. For target: a *remaining*
-    // handle (post `handle_count > 0`) means pre `handle_count >= 2`,
-    // so pre `rc >= 2 > 1` (old handle clause) and `drop_step` took the
-    // decrement branch — post `rc = pre rc - 1` stays non-sentinel,
-    // `>= post handle_count`, with storage preserved.
-    assert forall|idx: usize|
-        #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots()
-        && handle_count(s.frames, idx) > 0
-            implies {
-                let so = s.regions.slot_owners[idx];
-                let rc = so.inner_perms.ref_count.value();
-                &&& rc != REF_COUNT_UNUSED
-                &&& rc != REF_COUNT_UNIQUE
-                &&& rc >= handle_count(s.frames, idx)
-                &&& so.inner_perms.storage.is_init()
-            } by {
-        lemma_handle_count_remove(old_frames, fid, idx);
-        if idx == target_idx {
-            // post handle_count > 0 ⟹ pre handle_count >= 2.
-            assert(handle_count(old_frames, idx) >= 2);
-            // old handle clause ⟹ pre rc >= pre handle_count >= 2 > 1.
-            assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
-                >= handle_count(old_frames, idx));
-        } else {
-            assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
-        }
-    };
+    // Discharge accounting_inv on the post-drop state. Handle clause
+    // is gone; only clauses 2 (UNUSED), 3 (Frame active head), 4
+    // (Frame equation) remain.
 
     // 5.5c new clause: "UNUSED ⟹ no users". For non-target: unchanged.
     // For target: if drop teardown (rc 1→UNUSED), need post H==0 and
