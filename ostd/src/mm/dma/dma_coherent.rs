@@ -9,7 +9,7 @@ use crate::{
     error::Error,
     mm::{
         dma::{dma_type, Daddr, DmaType},
-        frame::{segment::SegmentOwner, untyped::AnyUFrameMeta, Segment},
+        frame::{untyped::AnyUFrameMeta, Segment},
         io::{
             axiom_kernel_mem_view, FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmIoMemView,
             VmIoOnce, VmIoOwner, VmReader, VmWriter,
@@ -22,6 +22,7 @@ use crate::{
             kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
             PAGE_SIZE,
         },
+        mm::frame::segment::SegmentOwner,
         mm::pod::PodOnce,
         mm::virt_mem::VirtPtr,
     },
@@ -129,6 +130,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                         frame_count - i,
                 )]
                 while i < frame_count {
+                    assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
                     let _paddr = start_paddr + i * PAGE_SIZE;
                     // TODO: restore iommu::map once the IOMMU API is verified.
                     i += 1;
@@ -224,7 +226,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
         }
         proof {
             lemma_max_paddr_range();
-            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr_spec());
+            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr());
         }
 
         let vaddr = paddr_to_vaddr(this.segment.start_paddr());
@@ -275,7 +277,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
         }
         proof {
             lemma_max_paddr_range();
-            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr_spec());
+            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr());
         }
 
         let vaddr = paddr_to_vaddr(this.segment.start_paddr());
@@ -545,7 +547,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
             Ok(_) => {
                 &&& new_writer.avail_spec() == 0
                 &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
-                &&& new_writer_own.range@.start == old_writer_own.range@.start
+                &&& new_writer_own.range.start == old_writer_own.range.start
                     + old_writer.avail_spec()
             },
             Err(_) => {
@@ -575,7 +577,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
             Ok(_) => {
                 &&& new_reader.remain_spec() == 0
                 &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
-                &&& new_reader_own.range@.start == old_reader_own.range@.start
+                &&& new_reader_own.range.start == old_reader_own.range.start
                     + old_reader.remain_spec()
             },
             Err(_) => {

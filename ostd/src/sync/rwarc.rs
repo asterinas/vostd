@@ -43,53 +43,13 @@ closed spec fn wf(&self) -> bool {
 }
 }
 
-broadcast proof fn lemma_inner_num_rw_atomic_inv<T>(
-    data: RwLock<T, PreemptDisabled>,
-    v: usize,
-    g: int,
-)
-    ensures
-        #[trigger] <InvariantPredicate_auto_Inner_num_rw<T> as AtomicInvariantPredicate<
-            RwLock<T, PreemptDisabled>,
-            usize,
-            int,
-        >>::atomic_inv(data, v, g) ==> v as int == g,
-{
-    reveal(
-        <InvariantPredicate_auto_Inner_num_rw<_> as AtomicInvariantPredicate<
-            _,
-            usize,
-            int,
-        >>::atomic_inv,
-    );
-}
-
-fn inc_num_rw<T>(inner: &Inner<T>)
-    requires
-        inner.wf(),
-{
-    proof {
-        broadcast use lemma_inner_num_rw_atomic_inv;
-
-    }
-    atomic_with_ghost! {
-        inner.num_rw => fetch_add(1);
-        update prev -> next;
-        ghost g => {
-            assume(g < usize::MAX);
-            assert(next == g + 1);
-            g = g + 1;
-        }
-    };
-}
-
 impl<T> RwArc<T> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.wf()
     }
 
-    pub closed spec fn wf(self) -> bool {
+    pub closed spec fn wf(&self) -> bool {
         &&& self.0.wf()
         &&& self.0.num_rw.well_formed()
     }
@@ -149,9 +109,7 @@ impl<T> RwArc<T> {
     }
 }
 
-#[verus_verify]
 impl<T> Clone for RwArc<T> {
-    #[verus_spec]
     fn clone(&self) -> Self
         returns
             self,
@@ -160,12 +118,16 @@ impl<T> Clone for RwArc<T> {
             use_type_invariant(self);
         }
         let inner = self.0.clone();
-        proof!{
-            assert(inner.wf());
-        }
         // Note that overflowing the counter will make it unsound. But not to worry: the above
         // `Arc::clone` must have already aborted the kernel before this happens.
-        inc_num_rw(&inner);
+        // inner.num_rw.fetch_add(1, Ordering::Relaxed);
+        atomic_with_ghost! {
+            inner.num_rw => fetch_add(1);
+            ghost g => {
+                assume(g < usize::MAX);
+                g = g + 1;
+            }
+        };
 
         Self(inner)
     }

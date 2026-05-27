@@ -11,7 +11,7 @@ use crate::{
     error::Error,
     mm::{
         dma::{dma_type, Daddr, DmaType},
-        frame::{segment::SegmentOwner, untyped::AnyUFrameMeta, AnyFrameMeta, Segment},
+        frame::{untyped::AnyUFrameMeta, AnyFrameMeta, Segment},
         io::{
             axiom_kernel_mem_view, FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader,
             VmWriter,
@@ -24,6 +24,7 @@ use crate::{
             kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
             PAGE_SIZE,
         },
+        mm::frame::segment::SegmentOwner,
         mm::io::{VmIoMemView, VmIoOwner},
         mm::virt_mem::{MemView, VirtPtr},
     },
@@ -209,7 +210,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                     }
                     proof {
                         lemma_max_paddr_range();
-                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr_spec());
+                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr());
                     }
 
                     let base_vaddr = paddr_to_vaddr(inner.segment.start_paddr());
@@ -296,7 +297,7 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                     }
                     proof {
                         lemma_max_paddr_range();
-                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr_spec());
+                        lemma_paddr_to_vaddr_properties(inner@.data.segment.start_paddr());
                     }
 
                     let base_vaddr = paddr_to_vaddr(inner.segment.start_paddr());
@@ -421,6 +422,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                         frame_count - i,
                 )]
                 while i < frame_count {
+                    assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
                     let paddr = start_paddr + i * PAGE_SIZE;
 
                     // iommu::map...
@@ -575,7 +577,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         }
         proof {
             lemma_max_paddr_range();
-            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr_spec());
+            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr());
         }
 
         let vaddr = paddr_to_vaddr(this.segment.start_paddr());
@@ -634,7 +636,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         }
         proof {
             lemma_max_paddr_range();
-            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr_spec());
+            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr());
         }
 
         let vaddr = paddr_to_vaddr(this.segment.start_paddr());
@@ -932,7 +934,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             DmaDirection::ToDevice => return Err(Error::AccessDenied),
             _ => {},
         }
-        let Some(size) = this.segment.range.end.checked_sub(this.segment.range.start) else {
+        let Some(size) = this.segment.end_paddr().checked_sub(this.segment.start_paddr()) else {
             return Err(Error::InvalidArgs);
         };
         match size.checked_sub(offset) {
@@ -960,7 +962,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             DmaDirection::FromDevice => return Err(Error::AccessDenied),
             _ => {},
         }
-        let Some(size) = this.segment.range.end.checked_sub(this.segment.range.start) else {
+        let Some(size) = this.segment.end_paddr().checked_sub(this.segment.start_paddr()) else {
             return Err(Error::InvalidArgs);
         };
         match size.checked_sub(offset) {
@@ -1072,7 +1074,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             Ok(_) => {
                 &&& new_writer.avail_spec() == 0
                 &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
-                &&& new_writer_own.range@.start == old_writer_own.range@.start
+                &&& new_writer_own.range.start == old_writer_own.range.start
                     + old_writer.avail_spec()
             },
             Err(_) => {
@@ -1102,7 +1104,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
             Ok(_) => {
                 &&& new_reader.remain_spec() == 0
                 &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
-                &&& new_reader_own.range@.start == old_reader_own.range@.start
+                &&& new_reader_own.range.start == old_reader_own.range.start
                     + old_reader.remain_spec()
             },
             Err(_) => {
@@ -1326,7 +1328,7 @@ impl<
             Ok(_) => {
                 &&& new_writer.avail_spec() == 0
                 &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
-                &&& new_writer_own.range@.start == old_writer_own.range@.start
+                &&& new_writer_own.range.start == old_writer_own.range.start
                     + old_writer.avail_spec()
             },
             Err(_) => {
@@ -1356,7 +1358,7 @@ impl<
             Ok(_) => {
                 &&& new_reader.remain_spec() == 0
                 &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
-                &&& new_writer_own.range@.start == old_writer_own.range@.start
+                &&& new_writer_own.range.start == old_writer_own.range.start
                     + old_reader.remain_spec()
             },
             Err(_) => {

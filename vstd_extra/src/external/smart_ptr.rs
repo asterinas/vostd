@@ -8,14 +8,6 @@ use vstd::raw_ptr::*;
 // A unified interface for the raw ptr permission returned by `into_raw` methods of smart pointers like `Box` and `Arc`.
 verus! {
 
-pub assume_specification<T: core::marker::MetaSized, A: core::alloc::Allocator + Clone>[ <Arc<
-    T,
-    A,
-> as Clone>::clone ](a: &Arc<T, A>) -> (res: Arc<T, A>)
-    ensures
-        res == *a,
-;
-
 /// A verification-only trait that abstracts the permission that tracks both the pointer and the value it points to.
 pub trait PtrPointsToTrait {
     /// The type of the pointer.
