@@ -577,16 +577,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///    slice range, so the saturation disjunct is an *exists* over those
     ///    specific paddrs `self.range.start + j * PAGE_SIZE` for
     ///    `j ∈ [range.start/PAGE_SIZE, range.end/PAGE_SIZE)`.
-    pub open spec fn slice_panic_condition(
+    pub open spec fn page_in_range_saturated(
         self,
         range: &Range<usize>,
         regions: MetaRegionOwners,
     ) -> bool {
-        ||| range.start % PAGE_SIZE != 0
-        ||| range.end % PAGE_SIZE != 0
-        ||| range.start > range.end
-        ||| self.range.start as int + range.end as int > self.range.end as int
-        ||| exists|j: int|
+        exists|j: int|
             #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
             (range.start as int) / (PAGE_SIZE as int) <= j < (range.end as int) / (PAGE_SIZE as int)
                 && regions.slot_owners[frame_to_index(
@@ -619,9 +615,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             owner.inv(),
             old(regions).inv(),
             owner.relate_regions(*old(regions)),
-            self.slice_panic_condition(range, *old(regions)) ==> may_panic(),
+            range.start % PAGE_SIZE != 0 ==> may_panic(),
+            range.end % PAGE_SIZE != 0 ==> may_panic(),
+            range.start > range.end ==> may_panic(),
+            self.range.start as int + range.end as int > self.range.end as int ==> may_panic(),
+            self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
         ensures
-            !self.slice_panic_condition(range, *old(regions)),
+            range.start % PAGE_SIZE == 0,
+            range.end % PAGE_SIZE == 0,
+            range.start <= range.end,
+            self.range.start as int + range.end as int <= self.range.end as int,
+            !self.page_in_range_saturated(range, *old(regions)),
             r.inv(),
             r.range.start == self.range.start + range.start,
             r.range.end == self.range.start + range.end,
@@ -643,14 +647,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         assert!(start <= end && end <= self.range.end);
         assert!(start <= end && end <= self.range.end);
 
-        let mut i: usize = 0;
-        let addr_len = (end - start) / PAGE_SIZE;
+        let mut paddr = start;
+        let ghost addr_len = (end - start) / PAGE_SIZE as int;
         let ghost first_perm_idx: int = (range.start / PAGE_SIZE) as int;
         let ghost last_perm_idx: int = (range.end / PAGE_SIZE) as int;
         let ghost old_regions = *regions;
-        while i < addr_len
+        let ghost mut i: int = 0;
+        loop
             invariant
-                self.slice_panic_condition(range, *old(regions)) ==> may_panic(),
+                self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
                 old_regions == *old(regions),
                 regions.inv(),
                 regions.slots =~= old_regions.slots,
@@ -660,9 +665,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 start <= end <= self.range.end,
                 start % PAGE_SIZE == 0,
                 end % PAGE_SIZE == 0,
-                start + i * PAGE_SIZE <= end,
-                i <= addr_len,
+                paddr == (start + i * PAGE_SIZE) as usize,
+                paddr <= end,
+                0 <= i <= addr_len,
                 addr_len == (end - start) / PAGE_SIZE as int,
+                paddr < end <==> i < addr_len,
                 self.inv(),
                 self.wf(&owner),
                 owner.inv(),
@@ -670,13 +677,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 first_perm_idx == range.start / PAGE_SIZE,
                 last_perm_idx == range.end / PAGE_SIZE,
                 first_perm_idx + addr_len as int == last_perm_idx,
-                first_perm_idx + i as int <= last_perm_idx,
+                first_perm_idx + i <= last_perm_idx,
                 // For frames not yet processed, the entry is unchanged from
                 // `old_regions`. This lets the next iteration recover the
                 // ref-count/wf facts via `relate_regions`.
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx + i as int <= j < last_perm_idx ==> (
+                    first_perm_idx + i <= j < last_perm_idx ==> (
                     *regions).slot_owners[frame_to_index(
                         (self.range.start + j * PAGE_SIZE) as usize,
                     )] == old_regions.slot_owners[frame_to_index(
@@ -684,69 +691,45 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     )],
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx <= j < first_perm_idx + i as int
+                    first_perm_idx <= j < first_perm_idx + i
                         ==> old_regions.slot_owners[frame_to_index(
                         (self.range.start + j * PAGE_SIZE) as usize,
                     )].inner_perms.ref_count.value() < REF_COUNT_MAX,
+            ensures
+                i == addr_len,
             decreases addr_len - i,
         {
-            let paddr = start + i * PAGE_SIZE;
+            if paddr >= end {
+                break;
+            }
             let ghost slot_idx: usize = frame_to_index(paddr);
-            let ghost perm_idx: int = first_perm_idx + i as int;
+            let ghost perm_idx: int = first_perm_idx + i;
 
             proof {
-                // Design B: the slot perm is canonical in `regions.slots`.
-                // `relate_regions_at` gives `slots.contains_key(slot_idx)`,
-                // `slot_owners[slot_idx]` facts, and (via distinctness) that
-                // the entry is unchanged from `old_regions`.
                 owner.relate_regions_at(old_regions, perm_idx);
                 assert(regions.slot_owners[slot_idx] == old_regions.slot_owners[slot_idx]);
             }
 
-            let tracked mut slot_own = regions.slot_owners.tracked_remove(slot_idx);
-            let tracked mut inner_perms = slot_own.take_inner_perms();
+            #[verus_spec(with Tracked(regions))]
+            crate::mm::frame::inc_frame_ref_count(paddr);
 
-            let vaddr: Vaddr = frame_to_meta(paddr);
-            let ptr = vstd::simple_pptr::PPtr::<super::MetaSlot>::from_addr(vaddr);
-
-            // Design B: borrow the slot perm out of `regions.slots` (canonical
-            // home for an active segment's frames) and feed it to
-            // `inc_ref_count` via `ptr.borrow`. Disjoint from the
-            // `slot_owners` `tracked_remove` above (distinct map fields) —
-            // same pattern as `Frame::inc_frame_ref_count`.
-            #[verus_spec(with Tracked(&mut inner_perms.ref_count))]
-            ptr.borrow(Tracked(regions.slots.tracked_borrow(slot_idx))).inc_ref_count();
+            paddr = paddr + PAGE_SIZE;
 
             proof {
-                assert(old_regions.slot_owners[slot_idx].inner_perms.ref_count.value()
-                    < REF_COUNT_MAX);
-                slot_own.sync_inner(&inner_perms);
-                regions.slot_owners.tracked_insert(slot_idx, slot_own);
-            }
-
-            i += 1;
-
-            proof {
+                i = i + 1;
                 assert forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx + i as int <= j < last_perm_idx implies (
+                    first_perm_idx + i <= j < last_perm_idx implies (
                 *regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     == old_regions.slot_owners[frame_to_index(
                     (self.range.start + j * PAGE_SIZE) as usize,
                 )] by {
-                    // `relate_regions`'s distinctness forall (triggered on the
-                    // two `frame_to_index` terms) gives `slot_idx != idx_j`,
-                    // so the `tracked_insert` at `slot_idx` left `idx_j`
-                    // untouched.
                     let _ = frame_to_index((self.range.start + perm_idx * PAGE_SIZE) as usize);
                     let _ = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
                 };
             }
         }
 
-        proof {
-            assert(!self.slice_panic_condition(range, *old(regions)));
-        }
         Self { range: start..end, _marker: core::marker::PhantomData }
     }
 

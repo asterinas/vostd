@@ -49,12 +49,15 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::UFrame;
+use crate::mm::frame::{has_safe_slot, UFrame};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
-use crate::mm::Vaddr;
-use crate::specs::mm::frame::meta_owners::{PageUsage, REF_COUNT_UNUSED};
+use crate::mm::{Paddr, Vaddr};
+use crate::specs::mm::frame::mapping::frame_to_index_spec;
+use crate::specs::mm::frame::meta_owners::{
+    PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::node::Guards;
@@ -184,11 +187,24 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
 /// the old `regions` is still sound w.r.t. the new `regions`. This
 /// keeps `VmStore::inv` chainable across method calls that touch
 /// regions.
+///
+/// **Result `Some(paddr)` / `None`.** Exec `query` returns
+/// `(Range<Vaddr>, Option<MappedItem>)`. When the inner `Option` is
+/// `Some(item)` and the item is *tracked* (non-MMIO), exec
+/// `clone_item` bumps `rc` at the leaf slot by one. The returned
+/// `Paddr` here is the cloned leaf's physical address (i.e. the
+/// new handle the caller now logically owns); the embedding's
+/// [`step_query`] registers a fresh [`FrameEntry`] at that paddr
+/// to keep `accounting_inv`'s `rc == H + P` chained. `None` covers
+/// three cases: query returned `Err` (out of range), query returned
+/// `Ok(_, None)` (cursor not at a leaf), or query returned a `Some`
+/// non-tracked (MMIO) item (`clone_item` is a no-op for those).
+/// In all three `None` subcases `slot_owners` is fully preserved.
 pub axiom fn cursor_query_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
     tracked guards: &mut Guards<'rcu, UserPtConfig>,
-)
+) -> (res: Option<Paddr>)
     requires
         old(owner).inv(),
         old(regions).inv(),
@@ -205,33 +221,43 @@ pub axiom fn cursor_query_embedded<'rcu>(
         !final(owner).popped_too_high,
         // `slots` preserved (the boot-fixed metadata perm map).
         final(regions).slots =~= old(regions).slots,
-        // Exec query "does not change anything in the metadata region
-        // except for incrementing the reference counts of nodes when it
-        // descends into them" (cursor/mod.rs:414). So at every slot:
-        // `raw_count`, `in_list`, `usage`, `paths_in_pt`, `storage`,
-        // `self_addr` are preserved; only `ref_count` may bump (at PT
-        // nodes the cursor descends, plus the leaf frame if the cursor
-        // returns a `MappedItem` and clones it).
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].self_addr == old(regions).slot_owners[i].self_addr
-            && final(regions).slot_owners[i].usage == old(regions).slot_owners[i].usage
-            && final(regions).slot_owners[i].paths_in_pt == old(regions).slot_owners[i].paths_in_pt
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list
-            && final(regions).slot_owners[i].inner_perms.storage
-                == old(regions).slot_owners[i].inner_perms.storage
-            && final(regions).slot_owners[i].inner_perms.vtable_ptr
-                == old(regions).slot_owners[i].inner_perms.vtable_ptr,
-        // `ref_count` may bump but never transitions to/from a sentinel:
-        // descending bumps `rc += 1` at non-sentinel rc; cloning the
-        // leaf bumps `rc += 1` at non-sentinel rc; nothing goes to
-        // UNUSED. Matches exec query's "preserves all memory invariants"
-        // and the Acquire-pairing comments in `get_from_in_use_loop`.
-        forall|i: usize| #![trigger final(regions).slot_owners[i].inner_perms.ref_count.value()]
-            old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED,
+        // `None` ⟹ slot_owners fully preserved (no clone happened).
+        res is None ==> forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        // `Some(paddr)` ⟹ `rc++` at the cloned leaf's slot; all other
+        // slots fully preserved. The cloned leaf must be a tracked
+        // (non-MMIO) data Frame whose slot is in-bound and active.
+        res matches Some(paddr) ==> {
+            &&& has_safe_slot(paddr)
+            &&& old(regions).slot_owners[frame_to_index_spec(paddr)].usage
+                    == PageUsage::Frame
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms
+                    .ref_count.value()
+                == (old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms
+                        .ref_count.value() + 1) as nat
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms
+                    .ref_count.value() <= REF_COUNT_MAX
+            &&& forall|i: usize| #![trigger final(regions).slot_owners[i]]
+                i != frame_to_index_spec(paddr)
+                    ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
+            // At the cloned slot, only `ref_count` changes — everything
+            // else (`raw_count`, `in_list`, `usage`, `paths_in_pt`,
+            // `storage`, `self_addr`, `vtable_ptr`) is preserved.
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].raw_count
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].raw_count
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].self_addr
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].self_addr
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].usage
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].usage
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.vtable_ptr
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.vtable_ptr
+        },
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -333,7 +359,7 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
     tracked regions: &mut MetaRegionOwners,
     tracked guards: &mut Guards<'rcu, UserPtConfig>,
     tracked tlb_model: &mut TlbModel,
-    frame: UFrame,
+    paddr: Paddr,
     prop: PageProperty,
 )
     requires
@@ -344,6 +370,10 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         old(owner).metaregion_sound(*old(regions)),
         !old(owner).popped_too_high,
         old(tlb_model).inv(),
+        // The mapped paddr is page-aligned and in-bounds (these come
+        // from a consumed `FrameEntry`'s paddr; `has_safe_slot` is
+        // guaranteed by the embedding's structural_inv `frames` clause).
+        has_safe_slot(paddr),
         // MODEL GAP: `item_wf(frame, prop, entry_owner, regions)`
         // depends on a separate `EntryOwner<UserPtConfig>` arg we don't
         // model. The exec call assumes the caller supplies one.
@@ -364,25 +394,63 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
                 == old(regions).slot_owners[i].inner_perms.in_list,
         // Per exec cursor/mod.rs:2853 + 2836: at non-mapped slots that
         // were already in use (pre rc != UNUSED), the entire
-        // slot_owner is preserved (ref_count + paths_in_pt + usage +
-        // storage etc.). NB: slots that were UNUSED pre may transition
-        // to non-UNUSED as the cursor allocates fresh PT nodes, so the
-        // "fully preserved" guard requires `pre rc != UNUSED`.
+        // slot_owner is preserved. NB: slots that were UNUSED pre may
+        // transition to non-UNUSED as the cursor allocates fresh PT
+        // nodes, so the "fully preserved" guard requires `pre rc != UNUSED`.
         forall|i: usize| #![trigger final(regions).slot_owners[i]]
-            i != frame.index()
+            i != frame_to_index_spec(paddr)
             && old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Per exec cursor/mod.rs:2844-2846: any pre-non-UNUSED slot
-        // stays non-UNUSED. Lets `accounting_inv`'s `rc==UNUSED ⟹ ...`
-        // clause chain — post UNUSED slots were already UNUSED pre.
+        // stays non-UNUSED.
         forall|i: usize| #![trigger final(regions).slot_owners[i].inner_perms.ref_count.value()]
             old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED,
-        // Per exec cursor/mod.rs:2861-2866: at the mapped slot, if pre
-        // rc > 0 then post rc > 0.
-        old(regions).slot_owners[frame.index()].inner_perms.ref_count.value() > 0
-            ==> final(regions).slot_owners[frame.index()].inner_perms.ref_count.value() > 0,
+        // **`ref_count` PRESERVED at the mapped slot.** Faithful axiom
+        // strengthening relative to the exec contract (which only says
+        // `pre rc > 0 ⟹ post rc > 0`): exec map `ManuallyDrop`s the
+        // input UFrame (so its handle's ref-count contribution stays
+        // put rather than running `Drop`) and writes a PTE pointing to
+        // the frame; the UFrame's ref is "transferred" to the new PTE,
+        // net zero rc change. Combined with `Op::Map` consuming the
+        // corresponding `FrameEntry` (`H_post = H_pre - 1`) and
+        // `paths_in_pt += {cursor.path}` at the mapped slot
+        // (`P_post = P_pre + 1`), `accounting_inv` clause 4
+        // (`rc == H + P`) chains: `pre rc == pre H + pre P` ⟹
+        // `post rc = pre rc = (H_post + 1) + (P_post - 1) = H_post + P_post`.
+        final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value()
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value(),
+        // **`paths_in_pt.len() += 1` at the mapped slot.** The cursor's
+        // current path is inserted into the mapped slot's `paths_in_pt`
+        // (this is the bookkeeping side of writing the PTE; see
+        // [cursor/mod.rs:2613] for the exec insertion site).
+        final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.len()
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.len() + 1,
+        // **`usage` / `storage` PRESERVED at the mapped slot.** Map
+        // doesn't change the slot's identity or metadata — it only
+        // updates the PTE and the bookkeeping `paths_in_pt`.
+        final(regions).slot_owners[frame_to_index_spec(paddr)].usage
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].usage,
+        final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage,
+        // Slots that stay UNUSED are fully preserved.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        // **Changed-slots clause.** At any slot *other* than the
+        // mapped frame, a pre-UNUSED → post-non-UNUSED transition
+        // means the cursor allocated a fresh PT node (not a data
+        // frame), so `usage != Frame`. Combined with the other clauses
+        // this lets `accounting_inv`'s Frame-scoped clauses 3 and 4
+        // become vacuous at newly-allocated PT-node slots; the
+        // mapped slot itself is handled by the per-slot ensures
+        // above.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            i != frame_to_index_spec(paddr)
+            && old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+            && final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                ==> final(regions).slot_owners[i].usage != PageUsage::Frame,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -418,18 +486,69 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         final(owner).metaregion_sound(*final(regions)),
         !final(owner).popped_too_high,
         final(tlb_model).inv(),
-        // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region) nor the
-        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
-        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
-        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
-        // partial) keeps `VmStore::inv`'s coverage clauses chainable
-        // across cursor methods.
+        // `slots` (the boot-fixed metadata perm map) preserved.
         final(regions).slots =~= old(regions).slots,
+        // **Universal per-slot preservation.** Unmap doesn't change a
+        // slot's identity (`usage`/`self_addr`/`raw_count`/`in_list`/
+        // `vtable_ptr`) and never bumps `rc` to `UNIQUE` (UNIQUE is a
+        // unique-handle sentinel produced only by
+        // `Frame::into_unique`, not by unmap).
         forall|i: usize| #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
+            {
+                &&& final(regions).slot_owners[i].raw_count
+                        == old(regions).slot_owners[i].raw_count
+                &&& final(regions).slot_owners[i].self_addr
+                        == old(regions).slot_owners[i].self_addr
+                &&& final(regions).slot_owners[i].usage
+                        == old(regions).slot_owners[i].usage
+                &&& final(regions).slot_owners[i].inner_perms.in_list
+                        == old(regions).slot_owners[i].inner_perms.in_list
+                &&& final(regions).slot_owners[i].inner_perms.vtable_ptr
+                        == old(regions).slot_owners[i].inner_perms.vtable_ptr
+                // `rc` doesn't bump to UNIQUE.
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNIQUE
+                    ==> final(regions).slot_owners[i].inner_perms.ref_count.value()
+                            != REF_COUNT_UNIQUE
+                // Storage preserved at slots that end non-UNUSED.
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                    ==> final(regions).slot_owners[i].inner_perms.storage
+                            == old(regions).slot_owners[i].inner_perms.storage
+            },
+        // **Frame-slot per-PTE accounting.** For each Frame-usage slot
+        // affected by unmap, removing `k` PTEs decreases both `rc` and
+        // `paths_in_pt.len()` by `k`, preserving the difference
+        // (the "non-mapping count" = handles). Stated as
+        // `final.rc + old.paths.len == old.rc + final.paths.len` to
+        // avoid `nat` subtraction. The accompanying `rc ≤ old.rc` /
+        // `paths.len ≤ old.paths.len` clauses pin the direction of
+        // change (unmap only removes). The `post rc != 0` clause
+        // rules out the transient "rc == 0" state at Frame slots:
+        // exec teardown collapses Frame ∧ rc==0 to `REF_COUNT_UNUSED`
+        // atomically; the embedding sees the post-teardown state.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            old(regions).slot_owners[i].usage == PageUsage::Frame ==> {
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        + old(regions).slot_owners[i].paths_in_pt.len()
+                    == old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        + final(regions).slot_owners[i].paths_in_pt.len()
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        <= old(regions).slot_owners[i].inner_perms.ref_count.value()
+                &&& final(regions).slot_owners[i].paths_in_pt.len()
+                        <= old(regions).slot_owners[i].paths_in_pt.len()
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != 0
+            },
+        // **MMIO slots untouched.** Unmap only walks tracked user VAs;
+        // MMIO PTEs (`PageUsage::MMIO`) require explicit
+        // unmap-via-other-API. Without this, the
+        // `MetaSlotOwner::inv` MMIO exception (UNUSED + MMIO allows
+        // non-empty `paths_in_pt`) would block
+        // `accounting_inv` clause 1 (UNUSED ⟹ paths empty) at
+        // post-UNUSED MMIO slots.
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            old(regions).slot_owners[i].usage == PageUsage::MMIO
+                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -610,19 +729,16 @@ pub(super) proof fn drop_cursor_step<'rcu>(tracked _entry: CursorEntry<'rcu>) {
 /// handles an out-of-range cursor with a graceful `Err`; exec `jump`'s
 /// `in_locked_range` precondition was relaxed (a drifted cursor that
 /// cannot be repositioned aborts via a sound `panic_diverge`).
-/// Per-op step for `Op::Query`. Query is the *lossy* navigation
-/// method: when it returns a `MappedItem` containing the resolved leaf
-/// frame, exec `Cursor::query` clones the frame (bumping `rc` at that
-/// slot). The embedding does not model the returned `MappedItem` so
-/// the cloned handle is dropped on the floor — `slot_owners` is *not*
-/// fully preserved here (a single slot may have `rc++`), only
-/// `raw_count` and `in_list` are pinned. This is the legacy weak
-/// contract; the other navigation steps (find_next / jump /
-/// protect_next) preserve `slot_owners` fully.
+/// Per-op step for `Op::Query`. Mirrors
+/// [`cursor_query_embedded`]'s `Option<Paddr>` result: `Some(paddr)`
+/// when query returned a tracked `MappedItem` (and `rc` was bumped at
+/// the leaf), `None` otherwise. The store-level [`step_query`]
+/// (mod.rs) consumes that paddr to register a fresh `FrameEntry`,
+/// closing accounting.
 pub(super) proof fn cursor_query_step<'rcu>(
     tracked entry: &mut CursorEntry<'rcu>,
     tracked regions: &mut MetaRegionOwners,
-)
+) -> (res: Option<Paddr>)
     requires
         old(entry).inv(),
         old(regions).inv(),
@@ -635,10 +751,32 @@ pub(super) proof fn cursor_query_step<'rcu>(
         final(regions).inv(),
         final(entry).owner.metaregion_sound(*final(regions)),
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
+        res is None ==> forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        res matches Some(paddr) ==> {
+            &&& has_safe_slot(paddr)
+            &&& old(regions).slot_owners[frame_to_index_spec(paddr)].usage
+                    == PageUsage::Frame
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms
+                    .ref_count.value()
+                == (old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms
+                        .ref_count.value() + 1) as nat
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms
+                    .ref_count.value() <= REF_COUNT_MAX
+            &&& forall|i: usize| #![trigger final(regions).slot_owners[i]]
+                i != frame_to_index_spec(paddr)
+                    ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].raw_count
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].raw_count
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].usage
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].usage
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list
+            &&& final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
+        },
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
@@ -751,18 +889,49 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         final(regions).inv(),
         final(entry).owner.metaregion_sound(*final(regions)),
         final(tlb_model).inv(),
-        // Page-table cursor ops never touch the metadata slot-perm map
-        // (`slots` is the boot-fixed metadata region) nor the
-        // ManuallyDrop `raw_count` / free-list `in_list` fields; only
-        // `slot_owners` refcount / `paths_in_pt` changes. Preserving the
-        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
-        // partial) keeps `VmStore::inv`'s coverage clauses chainable
-        // across cursor methods.
+        // Mirror the faithful `cursor_mut_unmap_embedded` ensures: per-
+        // slot universal preservation (raw_count, in_list, usage,
+        // self_addr, vtable_ptr); rc doesn't bump to UNIQUE; storage
+        // preserved at non-UNUSED post; and at Frame slots, the
+        // "non-mapping count" `rc - paths.len()` is invariant with
+        // `rc` and `paths.len` monotonically non-increasing.
         final(regions).slots =~= old(regions).slots,
         forall|i: usize| #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
+            {
+                &&& final(regions).slot_owners[i].raw_count
+                        == old(regions).slot_owners[i].raw_count
+                &&& final(regions).slot_owners[i].self_addr
+                        == old(regions).slot_owners[i].self_addr
+                &&& final(regions).slot_owners[i].usage
+                        == old(regions).slot_owners[i].usage
+                &&& final(regions).slot_owners[i].inner_perms.in_list
+                        == old(regions).slot_owners[i].inner_perms.in_list
+                &&& final(regions).slot_owners[i].inner_perms.vtable_ptr
+                        == old(regions).slot_owners[i].inner_perms.vtable_ptr
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNIQUE
+                    ==> final(regions).slot_owners[i].inner_perms.ref_count.value()
+                            != REF_COUNT_UNIQUE
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                    ==> final(regions).slot_owners[i].inner_perms.storage
+                            == old(regions).slot_owners[i].inner_perms.storage
+            },
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            old(regions).slot_owners[i].usage == PageUsage::Frame ==> {
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        + old(regions).slot_owners[i].paths_in_pt.len()
+                    == old(regions).slot_owners[i].inner_perms.ref_count.value()
+                        + final(regions).slot_owners[i].paths_in_pt.len()
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
+                        <= old(regions).slot_owners[i].inner_perms.ref_count.value()
+                &&& final(regions).slot_owners[i].paths_in_pt.len()
+                        <= old(regions).slot_owners[i].paths_in_pt.len()
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != 0
+            },
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            old(regions).slot_owners[i].usage == PageUsage::MMIO
+                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
@@ -786,7 +955,7 @@ pub(super) proof fn map_step<'rcu>(
     tracked entry: &mut CursorEntry<'rcu>,
     tracked regions: &mut MetaRegionOwners,
     tracked tlb_model: &mut TlbModel,
-    frame: UFrame,
+    paddr: Paddr,
     prop: PageProperty,
 )
     requires
@@ -794,6 +963,7 @@ pub(super) proof fn map_step<'rcu>(
         old(regions).inv(),
         old(entry).owner.metaregion_sound(*old(regions)),
         old(tlb_model).inv(),
+        has_safe_slot(paddr),
     ensures
         final(entry).vm_space == old(entry).vm_space,
         final(entry).kind == old(entry).kind,
@@ -809,20 +979,34 @@ pub(super) proof fn map_step<'rcu>(
             && final(regions).slot_owners[i].inner_perms.in_list
                 == old(regions).slot_owners[i].inner_perms.in_list,
         forall|i: usize| #![trigger final(regions).slot_owners[i]]
-            i != frame.index()
+            i != frame_to_index_spec(paddr)
             && old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|i: usize| #![trigger final(regions).slot_owners[i].inner_perms.ref_count.value()]
             old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame.index()].inner_perms.ref_count.value() > 0
-            ==> final(regions).slot_owners[frame.index()].inner_perms.ref_count.value() > 0,
+        final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value()
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value(),
+        final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.len()
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.len() + 1,
+        final(regions).slot_owners[frame_to_index_spec(paddr)].usage
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].usage,
+        final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage,
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            final(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            i != frame_to_index_spec(paddr)
+            && old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+            && final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                ==> final(regions).slot_owners[i].usage != PageUsage::Frame,
         forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
     cursor_mut_map_embedded(
-        &mut entry.owner, regions, &mut entry.guards, tlb_model, frame, prop);
+        &mut entry.owner, regions, &mut entry.guards, tlb_model, paddr, prop);
 }
 
 } // verus!

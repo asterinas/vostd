@@ -273,8 +273,20 @@ impl Inv for MetaSlotOwner {
             &&& self.inner_perms.storage.is_init()
             &&& self.inner_perms.in_list.value() == 0
         }
+        // A SHARED slot (`0 < rc <= REF_COUNT_MAX`) is genuinely in use:
+        // metadata storage is written, `vtable_ptr` resolves the
+        // dynamic type, and the slot is *not* on the allocator's free
+        // list. `storage.is_init()` and `in_list.value() == 0` were
+        // previously asserted only in the `UNIQUE` branch and via the
+        // `rc == 1 ⟹ ...` guard on `Frame::drop_requires`; they are
+        // universally true of any in-use slot, so they live here. Once
+        // these are invariants, the embedding's `op_pre[FrameDrop]` can
+        // drop its `rc == 1 ⟹ storage.is_init ∧ in_list == 0` residual
+        // (it follows from `regions.inv() ⟹ slot_owners[idx].inv()`).
         &&& 0 < self.inner_perms.ref_count.value() <= REF_COUNT_MAX ==> {
             &&& self.inner_perms.vtable_ptr.is_init()
+            &&& self.inner_perms.storage.is_init()
+            &&& self.inner_perms.in_list.value() == 0
         }
         &&& REF_COUNT_MAX < self.inner_perms.ref_count.value() < REF_COUNT_UNIQUE ==> { false }
         &&& self.inner_perms.ref_count.value() == 0 ==> {

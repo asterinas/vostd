@@ -54,7 +54,7 @@ use core::{
 };
 
 //pub use allocator::GlobalFrameAllocator;
-use meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 pub use segment::Segment;
 
 // Re-export commonly used types
@@ -150,33 +150,28 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     open spec fn drop_requires(self, s: Self::State) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let slot_own = s.slot_owners[idx];
-        &&& self.inv()
-        &&& s.inv()
-        &&& s.slots.contains_key(idx)
-        &&& s.slots[idx].pptr() == self.ptr
-        &&& s.slot_owners.contains_key(idx)
+        // Cross-object validity: this Frame is consistent with `s` and
+        // the slot is in the SHARED rc range. `wf_state` carries the
+        // slot identity + pointer agreement + `rc ∈ (0, MAX] ∧ ≠ UNIQUE`
+        // bounds.
+        &&& self.wf_state(s)
+        // Outstanding raw paddrs must be drained before drop; otherwise
+        // a `from_raw` after teardown would resurrect a dead slot.
         &&& slot_own.raw_count == 0
-        &&& slot_own.inner_perms.ref_count.value() > 0
-        &&& slot_own.inner_perms.ref_count.value()
-            != REF_COUNT_UNUSED
-        // Bound the count below `REF_COUNT_MAX` so post-`fetch_sub` we land
-        // outside the `(REF_COUNT_MAX, REF_COUNT_UNIQUE)` forbidden zone that
-        // `MetaSlotOwner::inv` rejects (and away from `REF_COUNT_UNIQUE`,
-        // which is reserved for `UniqueFrame::drop`).
-        &&& slot_own.inner_perms.ref_count.value()
-            <= REF_COUNT_MAX
-        // When this is the last reference (ref_count == 1), we need to be able to
-        // call drop_last_in_place, which requires:
+        // At `ref_count == 1` the teardown branch of `drop_last_in_place`
+        // runs, requiring an empty `paths_in_pt` (the strengthened
+        // `MetaSlotOwner::inv` UNUSED branch demands it post-teardown,
+        // and `drop_last_in_place` doesn't touch paths). Sound: at
+        // `ref_count == 1` the `Frame` being dropped is the sole
+        // reference, so there is no live PTE mapping (a mapping would
+        // be a further reference, forcing `ref_count >= 2`).
+        //
+        // The other `drop_last_in_place_safety_cond` conjuncts
+        // (`storage.is_init`, `in_list == 0`) are subsumed by the
+        // strengthened `MetaSlotOwner::inv` SHARED branch
+        // (`0 < rc <= REF_COUNT_MAX`) — they hold universally for any
+        // in-use slot, not just at `rc == 1`.
         &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
-            &&& slot_own.inner_perms.storage.is_init()
-            &&& slot_own.inner_perms.in_list.value()
-                == 0
-            // Strengthened `MetaSlotOwner::inv` UNUSED branch: the
-            // last-ref teardown sets the slot to `REF_COUNT_UNUSED`,
-            // which now demands an empty `paths_in_pt`. Sound: at
-            // `ref_count == 1` the `Frame` being dropped is the sole
-            // reference, so there is no live PTE mapping (a mapping
-            // would be a further reference, forcing `ref_count >= 2`).
             &&& slot_own.paths_in_pt.is_empty()
         }
     }
@@ -231,6 +226,44 @@ impl<M: ?Sized> Frame<M> {
 
     pub open spec fn index(self) -> usize {
         frame_to_index(self.paddr())
+    }
+
+    /// Cross-object well-formedness predicate: this `Frame` handle and
+    /// the supplied [`MetaRegionOwners`] state are mutually consistent.
+    /// Packages the static "Frame ⟷ state" conjuncts (slot/pointer
+    /// identity, slot in-use range) so that consumer specs
+    /// ([`drop_requires`], [`clone_requires`]) read uniformly.
+    ///
+    /// **Name**: `wf_state` (not just `wf`) to avoid clashing with the
+    /// `OwnerOf::wf(self, Self::Owner)` impl that
+    /// [`PageTableNode<C> = Frame<PageTablePageMeta<C>>`] inherits — the
+    /// two predicates take different argument types and serve different
+    /// purposes (per-handle vs. per-owner well-formedness).
+    ///
+    /// The rc range (`> 0 ∧ ≠ UNUSED ∧ ≠ UNIQUE ∧ ≤ MAX`) captures the
+    /// fact that holding a `Frame<M>` is itself evidence that the slot
+    /// is in the SHARED state — no UNUSED, no UNIQUE (which is reserved
+    /// for [`UniqueFrame`]). Combined with
+    /// [`MetaSlotOwner::inv`]'s SHARED branch (post Item 1), `wf_state`
+    /// implies `storage.is_init`, `in_list == 0`, and `vtable_ptr.is_init`
+    /// at the slot, so consumers don't have to repeat those.
+    ///
+    /// **Not preserved by `drop` for `self`**: dropping `self` releases
+    /// the reference; for *other* handles to the same slot, `wf_state`
+    /// is preserved by `drop`'s `>1` branch (post rc ∈ [1, MAX-1]) and
+    /// vacuous in the `==1` branch (no other handles to break).
+    pub open spec fn wf_state(self, s: MetaRegionOwners) -> bool {
+        let idx = self.index();
+        let slot_own = s.slot_owners[idx];
+        &&& self.inv()
+        &&& s.inv()
+        &&& s.slots.contains_key(idx)
+        &&& s.slots[idx].pptr() == self.ptr
+        &&& s.slot_owners.contains_key(idx)
+        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
+        &&& slot_own.inner_perms.ref_count.value() > 0
+        &&& slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX
     }
 }
 
@@ -817,6 +850,12 @@ pub type DynFrame = Frame<MetaSlotStorage>;
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
     open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        // NB: not using [`Frame::wf_state`] here — it'd cascade into the
+        // [`PageTableConfig::clone_requires_concrete`] trait method,
+        // forcing a per-impl bridge for the pointer-agreement +
+        // `rc != UNIQUE` + `rc <= MAX` conjuncts. The drop site uses
+        // `wf_state`; clone keeps the (slightly weaker) explicit
+        // shape that matches the trait method's preconditions.
         &&& self.inv()
         &&& perm.inv()
         &&& perm.slots.contains_key(idx)
@@ -936,11 +975,6 @@ impl<M: ?Sized> Drop for Frame<M> {
             // allocator::get_global_frame_allocator().dealloc(paddr, PAGE_SIZE);
         } else {
             proof {
-                // last_ref_cnt > 1, so post-fetch_sub ref_count = last_ref_cnt - 1.
-                // CAS would have caught REF_COUNT_MAX/REF_COUNT_UNIQUE upstream,
-                // so last_ref_cnt is in (1, REF_COUNT_MAX]. New value is in
-                // (0, REF_COUNT_MAX - 1], thus outside the forbidden zone. We
-                // just need `vtable_ptr.is_init()`, preserved from pre-fetch_sub.
                 assert(last_ref_cnt > 1);
                 assert(slot_own.inner_perms.ref_count.value() == last_ref_cnt - 1);
                 assert(slot_own.inner_perms.vtable_ptr.is_init());

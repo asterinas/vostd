@@ -704,7 +704,6 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     }
 }
 
-//}
 impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// Borrows an entry in the node at a given index.
     ///
