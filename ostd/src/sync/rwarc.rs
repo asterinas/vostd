@@ -123,7 +123,13 @@ impl<T> Clone for RwArc<T> {
         // inner.num_rw.fetch_add(1, Ordering::Relaxed);
         atomic_with_ghost! {
             inner.num_rw => fetch_add(1);
+            update prev -> next;
             ghost g => {
+                assert(InvariantPredicate_auto_Inner_num_rw::<T>::atomic_inv(
+                    self.0.num_rw.constant(),
+                    prev as usize,
+                    g,
+                ));
                 assume(g < usize::MAX);
                 g = g + 1;
             }
