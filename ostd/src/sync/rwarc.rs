@@ -109,11 +109,10 @@ impl<T> RwArc<T> {
     }
 }
 
+#[verus_verify]
 impl<T> Clone for RwArc<T> {
-    fn clone(&self) -> Self
-        returns
-            self,
-    {
+    #[verus_spec(returns self)]
+    fn clone(&self) -> Self {
         proof!{
             use_type_invariant(self);
         }
