@@ -57,7 +57,10 @@ impl BorrowDebt {
     {}
 }
 
-impl<'a, M: AnyFrameMeta> Frame<M> {
+// Unbounded so `from_raw` (which lives in an unbounded `impl Frame<M>` block
+// to break the AnyFrameMeta trait-resolution cycle in PT-node on_drop) can
+// reference these helpers via `Self::from_raw_*`.
+impl<'a, M: ?Sized> Frame<M> {
     // ── from_raw precondition predicates ──
 
     /// **Safety**: The frame exists and is addressable.  This is sufficient to

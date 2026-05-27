@@ -58,6 +58,10 @@ pub struct PageTableEntry(pub usize);
 
 global layout PageTableEntry is size == 8, align == 8;
 
+impl crate::specs::mm::pod::Pod for PageTableEntry {}
+
+impl crate::specs::mm::pod::PodOnce for PageTableEntry {}
+
 /// Masks of the physical address.
 pub const PHYS_ADDR_MASK: usize = 0xffff_ffff_ffff_f000;
 
@@ -313,6 +317,11 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     proof fn new_properties()
+    {
+        admit();
+    }
+
+    proof fn axiom_present_paddr_aligned(&self)
     {
         admit();
     }

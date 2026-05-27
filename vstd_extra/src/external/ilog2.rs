@@ -40,81 +40,6 @@ pub broadcast proof fn lemma_pow2_is_pow2(e: nat)
     }
 }
 
-pub proof fn lemma2_to64_hi32()
-    ensures
-        pow2(33) == 0x200000000,
-        pow2(34) == 0x400000000,
-        pow2(35) == 0x800000000,
-        pow2(36) == 0x1000000000,
-        pow2(37) == 0x2000000000,
-        pow2(38) == 0x4000000000,
-        pow2(39) == 0x8000000000,
-        pow2(40) == 0x10000000000,
-        pow2(41) == 0x20000000000,
-        pow2(42) == 0x40000000000,
-        pow2(43) == 0x80000000000,
-        pow2(44) == 0x100000000000,
-        pow2(45) == 0x200000000000,
-        pow2(46) == 0x400000000000,
-        pow2(47) == 0x800000000000,
-        pow2(48) == 0x1000000000000,
-        pow2(49) == 0x2000000000000,
-        pow2(50) == 0x4000000000000,
-        pow2(51) == 0x8000000000000,
-        pow2(52) == 0x10000000000000,
-        pow2(53) == 0x20000000000000,
-        pow2(54) == 0x40000000000000,
-        pow2(55) == 0x80000000000000,
-        pow2(56) == 0x100000000000000,
-        pow2(57) == 0x200000000000000,
-        pow2(58) == 0x400000000000000,
-        pow2(59) == 0x800000000000000,
-        pow2(60) == 0x1000000000000000,
-        pow2(61) == 0x2000000000000000,
-        pow2(62) == 0x4000000000000000,
-        pow2(63) == 0x8000000000000000,
-        pow2(64) == 0x10000000000000000,
-{
-    lemma2_to64();
-    reveal(pow2);
-    reveal(pow);
-    #[verusfmt::skip]
-    assert(
-        pow2(33) == 0x200000000 &&
-        pow2(34) == 0x400000000 &&
-        pow2(35) == 0x800000000 &&
-        pow2(36) == 0x1000000000 &&
-        pow2(37) == 0x2000000000 &&
-        pow2(38) == 0x4000000000 &&
-        pow2(39) == 0x8000000000 &&
-        pow2(40) == 0x10000000000 &&
-        pow2(41) == 0x20000000000 &&
-        pow2(42) == 0x40000000000 &&
-        pow2(43) == 0x80000000000 &&
-        pow2(44) == 0x100000000000 &&
-        pow2(45) == 0x200000000000 &&
-        pow2(46) == 0x400000000000 &&
-        pow2(47) == 0x800000000000 &&
-        pow2(48) == 0x1000000000000 &&
-        pow2(49) == 0x2000000000000 &&
-        pow2(50) == 0x4000000000000 &&
-        pow2(51) == 0x8000000000000 &&
-        pow2(52) == 0x10000000000000 &&
-        pow2(53) == 0x20000000000000 &&
-        pow2(54) == 0x40000000000000 &&
-        pow2(55) == 0x80000000000000 &&
-        pow2(56) == 0x100000000000000 &&
-        pow2(57) == 0x200000000000000 &&
-        pow2(58) == 0x400000000000000 &&
-        pow2(59) == 0x800000000000000 &&
-        pow2(60) == 0x1000000000000000 &&
-        pow2(61) == 0x2000000000000000 &&
-        pow2(62) == 0x4000000000000000 &&
-        pow2(63) == 0x8000000000000000 &&
-        pow2(64) == 0x10000000000000000
-    ) by (compute_only);
-}
-
 pub proof fn lemma_pow2_is_pow2_to64()
     ensures
         is_pow2(0x1),
@@ -184,7 +109,7 @@ pub proof fn lemma_pow2_is_pow2_to64()
         is_pow2(0x10000000000000000),
 {
     lemma2_to64();
-    lemma2_to64_hi32();
+    lemma2_to64_rest();
     lemma_pow2_is_pow2(0);
     lemma_pow2_is_pow2(1);
     lemma_pow2_is_pow2(2);
@@ -321,7 +246,7 @@ pub proof fn lemma_log2_to64()
         log(2, 0x10000000000000000) == 64,
 {
     lemma2_to64();
-    lemma2_to64_hi32();
+    lemma2_to64_rest();
     lemma_pow2_log2(0);
     lemma_pow2_log2(1);
     lemma_pow2_log2(2);
@@ -712,22 +637,6 @@ pub proof fn lemma_u64_ilog2_to64()
         (0x8000000000000000 as u64).ilog2() == 63,
 {
     lemma_log2_to64();
-}
-
-pub broadcast proof fn lemma_usize_shl_is_mul(x: usize, shift: usize)
-    requires
-        0 <= shift < usize::BITS,
-        x * pow2(shift as nat) <= usize::MAX,
-    ensures
-        #[trigger] (x << shift) == x * pow2(shift as nat),
-{
-    if usize::BITS == 64 {
-        lemma_u64_shl_is_mul(x as u64, shift as u64);
-    } else if usize::BITS == 32 {
-        lemma_u32_shl_is_mul(x as u32, shift as u32);
-    } else {
-        assert(false);
-    }
 }
 
 pub broadcast proof fn lemma_usize_pow2_shl_is_pow2(x: usize, shift: usize)

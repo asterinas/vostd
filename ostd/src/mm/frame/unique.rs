@@ -34,6 +34,23 @@ pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
     pub _marker: PhantomData<M>,
 }
 
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Send> Send for UniqueFrame<M> {
+
+}
+
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Sync> Sync for UniqueFrame<M> {
+
+}
+
+/*
+impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for UniqueFrame<M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "UniqueFrame({:#x})", self.start_paddr())
+    }
+}*/
+
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// Gets a [`UniqueFrame`] with a specific usage from a raw, unused page.
@@ -82,7 +99,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 let tracked typed_perm = MetaSlot::cast_perm::<M>(slot_perm, inner_perms_taken);
                 slot_own.sync_inner(&typed_perm.inner_perms);
                 regions.slot_owners.tracked_insert(idx, slot_own);
-                let tracked owner = UniqueFrameOwner::<M>::from_unused_owner(regions, paddr, typed_perm);
+                let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(regions, paddr, typed_perm);
             }
             proof_with!(|= Tracked(Some(owner)));
             Ok(Self { ptr, _marker: PhantomData })
@@ -184,7 +201,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
         let tracked meta_perm = MetaSlot::cast_perm::<M1>(slot_perm, inner_perms);
 
-        let tracked mut new_owner = UniqueFrameOwner::<M1>::from_unused_owner(
+        let tracked mut new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
             regions,
             meta_to_frame(self.ptr.addr()),
             meta_perm,
@@ -362,6 +379,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             owner.meta_perm.inner_perms.in_list.value() == 0,
             owner.meta_perm.inner_perms.storage.is_init(),
             owner.meta_perm.inner_perms.vtable_ptr.is_init(),
+            // The strengthened `MetaSlotOwner::inv` UNUSED branch
+            // requires an empty `paths_in_pt` post-teardown; a
+            // `UniqueFrame` is exclusively owned and so is never mapped,
+            // so its slot carries no PTE paths.
+            old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
         ensures
             final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
@@ -484,6 +506,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     }
 }
 
+/*
+impl<M: AnyFrameMeta + ?Sized> Drop for UniqueFrame<M> {
+    fn drop(&mut self) {
+        self.slot().ref_count.store(0, Ordering::Relaxed);
+        // SAFETY: We are the sole owner and the reference count is 0.
+        // The slot is initialized.
+        unsafe { self.slot().drop_last_in_place() };
+
+        super::allocator::get_global_frame_allocator().dealloc(self.start_paddr(), PAGE_SIZE);
+    }
+} */
+
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
     #[verus_spec(
         with
@@ -501,6 +535,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             owner.meta_perm.inner_perms.storage.is_init(),
             owner.meta_perm.inner_perms.vtable_ptr.is_init(),
             old(regions).inv(),
+            // The strengthened `MetaSlotOwner::inv` UNUSED branch
+            // requires an empty `paths_in_pt` post-teardown; a
+            // `UniqueFrame` is exclusively owned and so is never mapped,
+            // so its slot carries no PTE paths.
+            old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
         ensures
             final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),

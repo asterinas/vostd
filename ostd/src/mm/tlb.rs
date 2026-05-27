@@ -2,6 +2,7 @@
 //! TLB flush operations.
 use vstd::prelude::*;
 
+use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
 
 use alloc::vec::Vec;
@@ -16,6 +17,7 @@ use super::{
 };
 
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu};
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::tlb::TlbModel;
 
@@ -64,12 +66,12 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     #[verus_spec(
         with Tracked(model): Tracked<&mut TlbModel>
         ensures
-            *final(model) == old(model).issue_tlb_flush_spec(op),
+            *final(model) == old(model).issue_tlb_flush(op),
             final(model).inv(),
     )]
     #[verifier::external_body]
-    pub fn issue_tlb_flush<M: AnyFrameMeta>(&mut self, op: TlbFlushOp) {
-        self.ops_stack.push(op, None::<Frame<M>>);
+    pub fn issue_tlb_flush(&mut self, op: TlbFlushOp) {
+        self.ops_stack.push(op, None);
     }
 
     /// Issues a TLB flush request that must happen before dropping the page.
@@ -82,14 +84,14 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     #[verus_spec(r =>
         with Tracked(model): Tracked<&mut TlbModel>
         ensures
-            *final(model) == old(model).issue_tlb_flush_spec(op),
+            *final(model) == old(model).issue_tlb_flush(op),
             final(model).inv(),
     )]
     #[verifier::external_body]
-    pub fn issue_tlb_flush_with<M: AnyFrameMeta>(
+    pub fn issue_tlb_flush_with(
         &mut self,
         op: TlbFlushOp,
-        drop_after_flush: Frame<M>,
+        drop_after_flush: Frame<dyn AnyFrameMeta>,
     ) {
         self.ops_stack.push(op, Some(drop_after_flush));
     }
@@ -290,7 +292,7 @@ impl OpsStack {
     }
 
     #[verifier::external_body]
-    fn push<M: AnyFrameMeta>(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<M>>) {
+    fn push(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<dyn AnyFrameMeta>>) {
         if let Some(frame) = drop_after_flush {
             //            self.page_keeper.push(frame);
         }

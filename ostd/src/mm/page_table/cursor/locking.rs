@@ -115,7 +115,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
     let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS as int - 1];
 
-    let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::new(
+    let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::tracked_new(
         pt_own.0,
         start_idx as usize,
         root_guard,
@@ -353,7 +353,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
                 let tracked mut cont = cursor_own.continuations.tracked_remove(
                     cursor_own.level - 1,
                 );
-                let tracked child_cont = cont.make_cont(next_idx, new_guard);
+                let tracked child_cont = cont.tracked_make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
@@ -401,7 +401,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
                 let tracked mut cont = cursor_own.continuations.tracked_remove(
                     cursor_own.level - 1,
                 );
-                let tracked child_cont = cont.make_cont(next_idx, new_guard);
+                let tracked child_cont = cont.tracked_make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
@@ -426,7 +426,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
                 let tracked mut cont = cursor_own.continuations.tracked_remove(
                     cursor_own.level - 1,
                 );
-                let tracked child_cont = cont.make_cont(next_idx, new_guard);
+                let tracked child_cont = cont.tracked_make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;

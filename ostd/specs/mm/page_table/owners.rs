@@ -580,6 +580,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// `match_pte`, `parent_level`) with `allocated_empty_node_grandchildren_none`
     /// to drive `pt_inv_at_depth` to its non-node base case at every absent
     /// child.
+    #[verifier::spinoff_prover]
     pub proof fn allocated_empty_node_pt_inv(owner: OwnerSubtree<C>)
         requires
             owner.inv(),
@@ -894,6 +895,148 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(m.va_range.end <= vaddr_of::<C>(path) as int + (i + 1) * child_ps);
             assert(m.va_range.end <= vaddr_of::<C>(path) as int + parent_ps);
         }
+    }
+
+    /// `pt_inv` (plus the root's recorded path) lifts to a full
+    /// `path_correct_pred` tree predicate: every entry's `.path` field
+    /// equals its structural position.  `PageTableOwner::inv()` already
+    /// bundles this (see the `Inv` impl below) but only for *node*-rooted
+    /// trees; callers that need it for an arbitrary `pt_inv` subtree
+    /// (including the leaf/frame-rooted child subtrees of a cursor
+    /// continuation) need a standalone form not gated on `value.is_node()`.
+    pub proof fn pt_inv_implies_path_correct(
+        subtree: OwnerSubtree<C>,
+        path: TreePath<NR_ENTRIES>,
+    )
+        requires
+            PageTableOwner(subtree).pt_inv(),
+            subtree.value.path == path,
+        ensures
+            subtree.tree_predicate_map(path, Self::path_correct_pred()),
+        decreases INC_LEVELS - subtree.level,
+    {
+        assert(subtree.children.len() == NR_ENTRIES);
+        // Root: path_correct_pred(value, path) == (value.path == path).
+        assert(Self::path_correct_pred()(subtree.value, path));
+        if subtree.level < INC_LEVELS - 1 {
+            assert forall |i: int|
+                0 <= i < subtree.children.len()
+                && (#[trigger] subtree.children[i]) is Some
+            implies
+                subtree.children[i].unwrap().tree_predicate_map(
+                    path.push_tail(i as usize), Self::path_correct_pred())
+            by {
+                if subtree.value.is_node() {
+                    PageTableOwner(subtree).pt_inv_unroll(i);
+                    // pt_edge_at: child.value.path == subtree.value.path.push_tail(i)
+                    assert(subtree.children[i].unwrap().value.path
+                        == path.push_tail(i as usize));
+                    Self::pt_inv_implies_path_correct(
+                        subtree.children[i].unwrap(),
+                        path.push_tail(i as usize));
+                } else {
+                    // Non-node ⟹ children all None, contradicts `is Some`.
+                    PageTableOwner(subtree).pt_inv_non_node(i);
+                }
+            };
+        }
+    }
+
+    /// Forward dual of [`Self::view_rec_vaddr_range`]: in a `pt_inv`,
+    /// path-correct subtree whose mappings are all contained in
+    /// `ambient`, if no mapping in `ambient` starts at
+    /// `vaddr_of(removed_path)`, then no *frame* entry anywhere in the
+    /// subtree carries `removed_path` as its path.  A frame entry at
+    /// structural position `pos` contributes exactly one mapping starting
+    /// at `vaddr_of(pos)`; path-correctness makes `pos == entry.path`, so
+    /// a frame with `.path == removed_path` would force a mapping starting
+    /// at `vaddr_of(removed_path)` into `ambient` — a contradiction.
+    pub proof fn no_frame_with_path_rec(
+        self,
+        path: TreePath<NR_ENTRIES>,
+        removed_path: TreePath<NR_ENTRIES>,
+        ambient: Set<Mapping>,
+    )
+        requires
+            self.pt_inv(),
+            path.inv(),
+            path.len() <= INC_LEVELS - 1,
+            path.len() == self.0.level,
+            self.0.value.parent_level == (INC_LEVELS - self.0.level) as PagingLevel,
+            self.0.value.path == path,
+            self.0.tree_predicate_map(path, Self::path_correct_pred()),
+            forall |mm: Mapping| #![trigger self.view_rec(path).contains(mm)]
+                self.view_rec(path).contains(mm) ==> ambient.contains(mm),
+            forall |mm: Mapping| #![trigger ambient.contains(mm)]
+                ambient.contains(mm)
+                ==> mm.va_range.start != vaddr_of::<C>(removed_path) as int,
+        ensures
+            self.0.tree_predicate_map(
+                path,
+                |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+                    e.is_frame() ==> e.path != removed_path),
+        decreases INC_LEVELS - path.len(),
+    {
+        let g = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+            e.is_frame() ==> e.path != removed_path;
+
+        // Path-correctness at the root: value.path == path.
+        assert(Self::path_correct_pred()(self.0.value, path));
+        assert(self.0.value.path == path);
+
+        // Root entry satisfies `g`.
+        if self.0.value.is_frame() {
+            let frame = self.0.value.frame.unwrap();
+            let pt_level = (INC_LEVELS - path.len()) as PagingLevel;
+            let expected = Mapping {
+                va_range: Range {
+                    start: vaddr_of::<C>(path) as int,
+                    end: vaddr_of::<C>(path) as int + page_size(pt_level) as int,
+                },
+                pa_range: Range {
+                    start: frame.mapped_pa,
+                    end: (frame.mapped_pa + page_size(pt_level)) as Paddr,
+                },
+                page_size: page_size(pt_level),
+                property: frame.prop,
+            };
+            assert(self.view_rec(path) =~= set![expected]);
+            assert(self.view_rec(path).contains(expected));
+            assert(ambient.contains(expected));
+            assert(vaddr_of::<C>(path) as int != vaddr_of::<C>(removed_path) as int);
+            assert(self.0.value.path != removed_path);
+        }
+        assert(g(self.0.value, path));
+
+        if self.0.level < INC_LEVELS - 1 {
+            assert forall |i: int|
+                0 <= i < self.0.children.len()
+                && (#[trigger] self.0.children[i]) is Some
+            implies
+                self.0.children[i].unwrap().tree_predicate_map(
+                    path.push_tail(i as usize), g)
+            by {
+                if self.0.value.is_node() {
+                    self.pt_inv_unroll(i);
+                    let child = PageTableOwner(self.0.children[i].unwrap());
+                    path.push_tail_preserves_inv(i as usize);
+                    path.push_tail_property_len(i as usize);
+                    // child.view_rec ⊆ self.view_rec(path) ⊆ ambient
+                    assert forall |mm: Mapping|
+                        child.view_rec(path.push_tail(i as usize)).contains(mm)
+                    implies ambient.contains(mm) by {
+                        assert(self.view_rec(path).contains(mm));
+                    };
+                    // path-correctness passes to the child.
+                    self.0.map_unroll_once(path, Self::path_correct_pred(), i);
+                    child.no_frame_with_path_rec(
+                        path.push_tail(i as usize), removed_path, ambient);
+                } else {
+                    PageTableOwner(self.0).pt_inv_non_node(i);
+                }
+            };
+        }
+        assert(self.0.tree_predicate_map(path, g));
     }
 
     pub proof fn view_rec_disjoint_vaddrs(self, path: TreePath<NR_ENTRIES>, m1: Mapping, m2: Mapping)

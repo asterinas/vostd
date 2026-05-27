@@ -82,6 +82,18 @@ pub fn frame_to_index(paddr: Paddr) -> (res: usize)
     paddr / PAGE_SIZE
 }
 
+/// `frame_to_index` is injective on page-aligned paddrs. Used by the
+/// `on_drop` walk to derive distinct dom indices from distinct paddrs.
+pub broadcast proof fn lemma_frame_to_index_injective(p1: Paddr, p2: Paddr)
+    requires
+        p1 % PAGE_SIZE == 0,
+        p2 % PAGE_SIZE == 0,
+        p1 != p2,
+    ensures
+        #[trigger] frame_to_index_spec(p1) != #[trigger] frame_to_index_spec(p2),
+{
+}
+
 #[verifier::when_used_as_spec(index_to_frame_spec)]
 pub fn index_to_frame(index: usize) -> (res: Paddr)
     requires

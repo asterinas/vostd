@@ -6,6 +6,7 @@
 //! the declaration of untyped frames and segments, and the implementation of
 //! extra functionalities (such as [`VmIo`]) for them.
 use vstd::prelude::*;
+use vstd_extra::ownership::OwnerOf;
 
 use super::*;
 use crate::mm::{
@@ -20,7 +21,6 @@ use crate::specs::arch::kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_pro
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::io::VmIoOwner;
 use crate::specs::mm::virt_mem::VirtPtr;
-use vstd_extra::ownership::OwnerOf;
 
 verus! {
 
@@ -29,7 +29,13 @@ verus! {
 /// If a structure `M` implements [`AnyUFrameMeta`], it can be used as the
 /// metadata of a type of untyped frames [`Frame<M>`]. All frames of such type
 /// will be accessible as untyped memory.
-pub trait AnyUFrameMeta: AnyFrameMeta {
+///
+/// `Repr<MetaSlotStorage>` is required so that `Frame<M>` is well-formed (it
+/// is no longer an `AnyFrameMeta` supertrait). This makes `AnyUFrameMeta`
+/// itself dyn-incompatible — `Segment<dyn AnyUFrameMeta>` (the `USegment`
+/// alias below) was already in an unsatisfiable state under the old
+/// supertrait chain, so this doesn't lose anything in practice.
+pub trait AnyUFrameMeta: AnyFrameMeta + vstd_extra::cast_ptr::Repr<MetaSlotStorage> {
 
 }
 
@@ -43,6 +49,41 @@ pub trait AnyUFrameMeta: AnyFrameMeta {
 /// Verus doesn't let us do very much with `dyn` traits, so instead of a `dyn AnyFrameMeta`
 /// we use `MetaSlotStorage`, a type that is a tagged union of the metadata types we've worked with so far.
 pub type UFrame = Frame<MetaSlotStorage>;
+
+/*
+/// Makes a structure usable as untyped frame metadata.
+///
+/// If this macro is used for built-in typed frame metadata, it won't compile.
+#[macro_export]
+macro_rules! impl_untyped_frame_meta_for {
+    // Implement without specifying the drop behavior.
+    ($t:ty) => {
+        // SAFETY: Untyped frames can be safely read.
+        unsafe impl $crate::mm::frame::meta::AnyFrameMeta for $t {
+            fn is_untyped(&self) -> bool {
+                true
+            }
+        }
+        impl $crate::mm::frame::untyped::AnyUFrameMeta for $t {}
+    };
+    // Implement with a customized drop function.
+    ($t:ty, $body:expr) => {
+        // SAFETY: Untyped frames can be safely read.
+        unsafe impl $crate::mm::frame::meta::AnyFrameMeta for $t {
+            fn on_drop(&mut self, reader: &mut $crate::mm::VmReader<$crate::mm::Infallible>) {
+                $body
+            }
+
+            fn is_untyped(&self) -> bool {
+                true
+            }
+        }
+        impl $crate::mm::frame::untyped::AnyUFrameMeta for $t {}
+    };
+}
+
+// A special case of untyped metadata is the unit type.
+impl_untyped_frame_meta_for!(()); */
 
 /// A physical memory range that is untyped.
 ///
@@ -70,8 +111,8 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             r.inv(),
             owner@.inv(),
             r.wf(owner@),
-            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr_spec()),
-            r.remain_spec() == self.size_spec(),
+            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr()),
+            r.remain_spec() == self.size(),
             owner@.is_kernel,
     )]
     pub fn reader(&self) -> VmReader<'_, Infallible> {
@@ -88,7 +129,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
         let ghost range = vaddr..(vaddr + len) as usize;
         let ptr = VirtPtr { vaddr, range: Ghost(range) };
         proof {
-            lemma_paddr_to_vaddr_properties(self.start_paddr_spec());
+            lemma_paddr_to_vaddr_properties(self.start_paddr());
             assert(KERNEL_BASE_VADDR > 0) by (compute_only);
             assert(vaddr > 0);
             assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
@@ -114,8 +155,8 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
             r.inv(),
             owner@.inv(),
             r.wf(owner@),
-            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr_spec()),
-            r.avail_spec() == self.size_spec(),
+            r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr()),
+            r.avail_spec() == self.size(),
             owner@.is_kernel,
             !owner@.is_fallible,
     )]
@@ -133,7 +174,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
         let ghost range = vaddr..(vaddr + len) as usize;
         let ptr = VirtPtr { vaddr, range: Ghost(range) };
         proof {
-            lemma_paddr_to_vaddr_properties(self.start_paddr_spec());
+            lemma_paddr_to_vaddr_properties(self.start_paddr());
             assert(KERNEL_BASE_VADDR > 0) by (compute_only);
             assert(vaddr > 0);
             assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);

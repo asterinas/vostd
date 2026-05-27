@@ -331,7 +331,7 @@ impl<'a> VmSpaceOwner {
             reader.inv(),
         ensures
             reader.wf(*final(owner_r)),
-            final(owner_r).mem_view == Some(VmIoMemView::ReadView(old(self).mem_view@.unwrap().borrow_at_spec(
+            final(owner_r).mem_view == Some(VmIoMemView::ReadView(old(self).mem_view@.unwrap().borrow_at(
                 old(owner_r).range.start,
                 (old(owner_r).range.end - old(owner_r).range.start) as usize,
             ))),
@@ -341,7 +341,7 @@ impl<'a> VmSpaceOwner {
                 Some(ref mv) => mv,
                 _ => { proof_from_false() },
             };
-            let tracked borrowed_mv = mv.borrow_at(
+            let tracked borrowed_mv = mv.tracked_borrow_at(
                 owner_r.range.start,
                 (owner_r.range.end - owner_r.range.start) as usize,
             );
@@ -407,7 +407,7 @@ impl<'a> VmSpaceOwner {
             writer.inv(),
         ensures
             writer.wf(*final(owner_w)),
-            final(owner_w).mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@.unwrap().split_spec(
+            final(owner_w).mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@.unwrap().split(
                 old(owner_w).range.start,
                 (old(owner_w).range.end - old(owner_w).range.start) as usize,
             ).0)),
@@ -415,7 +415,7 @@ impl<'a> VmSpaceOwner {
     pub proof fn activate_writer(tracked &mut self, writer: &'a VmWriter<'a>, tracked owner_w: &'a mut VmIoOwner) {
             let tracked mut mv = self.mem_view.tracked_take();
             let ghost old_mv = mv;
-            let tracked (lhs, rhs) = mv.split(
+            let tracked (lhs, rhs) = mv.tracked_split(
                 owner_w.range.start,
                 (owner_w.range.end - owner_w.range.start) as usize,
             );
@@ -512,7 +512,7 @@ impl<'a> VmSpaceOwner {
 
         let tracked mut remaining = self.mem_view.tracked_take();
         let ghost old_remaining = remaining;
-        remaining.join(mv);
+        remaining.tracked_join(mv);
         self.mem_view = Some(remaining);
 
         assert(self.mem_view_wf()) by {
@@ -610,9 +610,9 @@ impl<'a> VmSpaceOwner {
             final(self).inv(),
             final(self).active == old(self).active,
             final(self).shared_reader == old(self).shared_reader,
-            owner.range@.start < owner.range@.end ==> final(self).readers == old(self).readers.push(owner),
+            owner.range.start < owner.range.end ==> final(self).readers == old(self).readers.push(owner),
     {
-        if owner.range@.start < owner.range@.end {
+        if owner.range.start < owner.range.end {
             // Return the memory view back to the vm space owner.
             self.readers.tracked_push(owner);
         }

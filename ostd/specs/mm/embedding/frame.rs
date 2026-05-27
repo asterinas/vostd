@@ -30,11 +30,11 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::MetaSlot;
+use crate::mm::frame::{has_safe_slot, MetaSlot};
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
 use crate::specs::mm::frame::mapping::frame_to_index_spec;
-use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
@@ -47,9 +47,13 @@ verus! {
 // =============================================================================
 
 /// Mirror of [`crate::mm::frame::Frame::from_unused`] (non-unique branch:
-/// `as_unique = false`). On `Some`, the slot at `paddr` transitions
-/// from `REF_COUNT_UNUSED` to `1`, with `usage == Frame` and
-/// `paths_in_pt` preserved.
+/// `as_unique = false`) **including the Design-B caller re-park**. On
+/// `Some`, the slot at `paddr` transitions from `REF_COUNT_UNUSED` to
+/// `1`, with `usage == Frame` and `paths_in_pt` preserved, and the
+/// slot perm is re-parked into `regions.slots` (domain preserved — see
+/// [`MetaSlot::get_from_unused_reparked_spec`]). The embedding *is* the
+/// caller of `Frame::from_unused`, and its `FrameEntry` does not carry
+/// the perm, so the modeled atomic step is "allocate + re-park".
 ///
 /// `metaregion_sound`-preserves: any `CursorOwner` sound w.r.t. the
 /// old `regions` is still sound w.r.t. the new `regions`. This is
@@ -62,13 +66,27 @@ pub axiom fn frame_from_unused_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+        // `has_safe_slot`-guarded, mirroring the relaxed exec
+        // `Frame::from_unused` `requires`: an out-of-bound / misaligned
+        // `paddr` is not a precondition violation — it returns `Err`
+        // (here `None`) without touching `regions`.
+        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
     ensures
         final(regions).inv(),
+        // Liveness, mirroring exec `!has_safe_slot(paddr) ==> r is Err`:
+        // a bad `paddr` always fails (and leaves `regions` unchanged via
+        // the `None` branch below).
+        !has_safe_slot(paddr) ==> res is None,
         // Success branch is conditioned on the slot being unused
-        // (per `get_from_unused_spec` recommends + the body's
-        // `MetaSlot::get_from_unused` failing otherwise).
-        res is Some ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
+        // (per `get_from_unused_reparked_spec` recommends + the body's
+        // `MetaSlot::get_from_unused` failing otherwise). The reparked
+        // variant keeps the slot perm in `regions.slots` (Design B).
+        res is Some ==> MetaSlot::get_from_unused_reparked_spec(
+            paddr,
+            false,
+            *old(regions),
+            *final(regions),
+        ),
         // Non-interference: failure leaves `regions` unchanged.
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
@@ -84,13 +102,39 @@ pub axiom fn frame_from_in_use_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
-        // exec panics when refcount would saturate (line 297).
-        !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
+        // `has_safe_slot`-guarded, mirroring the relaxed exec
+        // `Frame::from_in_use` `requires`: a bad `paddr` returns `Err`
+        // (here `None`) without touching `regions`.
+        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+        // Refcount saturation is NOT required: exec
+        // `MetaSlot::get_from_in_use` `panic_diverge`s on saturation
+        // (the real Rust panic) — see the relaxed exec `requires`. This
+        // axiom soundly models the returning path.
     ensures
         final(regions).inv(),
+        // Liveness, mirroring exec `!has_safe_slot(paddr) ==> res is Err`.
+        !has_safe_slot(paddr) ==> res is None,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
+        // 2b: faithful axiom-strengthening. The exec `get_from_in_use`
+        // returns `Ok` only when the pre `ref_count` is a live SHARED
+        // count in `[1, REF_COUNT_MAX-1]` — `UNUSED` / `UNIQUE` / `0` /
+        // saturated all `Err` or `panic_diverge` — and the `Acquire`
+        // compare-exchange makes the slot's written metadata visible.
+        // So on `Some` the acquired slot is live (non-sentinel
+        // `ref_count`) with initialised storage. `get_from_in_use_success`
+        // does not surface this, and `MetaSlotOwner::inv` only gives
+        // `vtable_ptr.is_init()` for SHARED slots, not `storage`.
+        res is Some ==> {
+            let so = final(regions).slot_owners[frame_to_index_spec(paddr)];
+            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
+            &&& so.inner_perms.storage.is_init()
+        },
+        // `from_in_use` only `inc_ref_count`s — it never touches the
+        // slot-perm map, so the `slots` domain is preserved on *both*
+        // branches (needed for `VmStore::inv`'s coverage clause).
+        final(regions).slots =~= old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -134,6 +178,14 @@ pub axiom fn frame_drop_embedded(
             ==> {
             &&& old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage.is_init()
             &&& old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list.value() == 0
+            // Mirrors the FUTURE-plan strengthening of exec
+            // `Frame::drop_requires`: at `rc == 1` the dropped handle is
+            // the sole reference, so the slot has no live PTE mappings
+            // (a mapping would push `rc >= 2`). The exec demands this as
+            // a precondition; the embedding's requires must mirror it
+            // verbatim or the axiom is logically inconsistent on inputs
+            // the exec cannot accept.
+            &&& old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty()
         },
     ensures
         // ---- mirrors strengthened `Frame::drop_ensures` ----
@@ -152,6 +204,20 @@ pub axiom fn frame_drop_embedded(
             == old(regions).slot_owners[frame_to_index_spec(paddr)].usage,
         final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt
             == old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt,
+        // `ref_count == 1` ⟹ the torn-down slot has no page-table
+        // mappings. A mapping is itself a reference (see the doc
+        // comment above: `reference_count()` counts the mappings), so a
+        // mapped slot would have `ref_count >= 2`. Hence `paths_in_pt`
+        // is empty — same epistemic status as the `metaregion_sound`-
+        // preserves clause (sound to assert, reflecting real exec; not
+        // derivable from the incomplete `drop_pre` predicate alone).
+        old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() == 1
+            ==> final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty(),
+        // `drop` never touches the free-list `in_list` field (the
+        // decrement branch leaves it; `drop_last_in_place` preserves
+        // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
+        final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list
+            == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list,
         old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() == 1
             ==> final(regions).slot_owners[frame_to_index_spec(paddr)]
                 .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
@@ -160,6 +226,14 @@ pub axiom fn frame_drop_embedded(
                 .inner_perms.ref_count.value()
                 == (old(regions).slot_owners[frame_to_index_spec(paddr)]
                     .inner_perms.ref_count.value() - 1) as u64,
+        // Storage preservation in the decrement branch (rc>1): the
+        // exec `fetch_sub` only touches `ref_count`; only the rc==1
+        // teardown branch invokes `drop_last_in_place` (which uninits
+        // storage). Needed so the embedding accounting clause's
+        // `storage.is_init` carries across non-teardown drops.
+        old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() > 1
+            ==> final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
+                == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage,
         // ---- embedding inv chaining ----
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -177,11 +251,17 @@ pub(super) proof fn from_unused_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
     ensures
         final(regions).inv(),
+        !has_safe_slot(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
-        res is Some ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
+        res is Some ==> MetaSlot::get_from_unused_reparked_spec(
+            paddr,
+            false,
+            *old(regions),
+            *final(regions),
+        ),
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -202,13 +282,23 @@ pub(super) proof fn from_in_use_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
-        !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
+        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+        // Saturation `panic_diverge`s in exec — not a precondition.
     ensures
         final(regions).inv(),
+        !has_safe_slot(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
+        // 2b: surface the acquired slot's liveness — see
+        // [`frame_from_in_use_embedded`].
+        res is Some ==> {
+            let so = final(regions).slot_owners[frame_to_index_spec(paddr)];
+            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
+            &&& so.inner_perms.storage.is_init()
+        },
+        final(regions).slots =~= old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
@@ -234,6 +324,7 @@ pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
     &&& so.inner_perms.ref_count.value() == 1 ==> {
         &&& so.inner_perms.storage.is_init()
         &&& so.inner_perms.in_list.value() == 0
+        &&& so.paths_in_pt.is_empty()
     }
 }
 
@@ -250,10 +341,42 @@ pub(super) proof fn drop_step(
         drop_pre(*old(regions), entry.paddr),
     ensures
         final(regions).inv(),
+        final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index_spec(entry.paddr)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        // `raw_count` / `in_list` preserved at the dropped slot too —
+        // `drop` touches only `ref_count` (+ storage on teardown). Keeps
+        // `VmStore::inv`'s `raw_count` / `in_list` coverage (#4).
+        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].raw_count
+            == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].raw_count,
+        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.in_list
+            == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.in_list,
+        // Surface the rest of `frame_drop_embedded`'s ensures at the
+        // dropped slot — needed by `step_frame_drop` to discharge the
+        // accounting clause (Stage 5).
+        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].usage
+            == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].usage,
+        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].paths_in_pt
+            == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].paths_in_pt,
+        // `ref_count == 1` ⟹ no mappings ⟹ empty `paths_in_pt` at the
+        // torn-down slot — see [`frame_drop_embedded`].
+        old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() == 1
+            ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)].paths_in_pt.is_empty(),
+        // rc transition (mirrors `frame_drop_embedded` exactly).
+        old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() == 1
+            ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)]
+                .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+        old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() > 1
+            ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)]
+                .inner_perms.ref_count.value()
+                == (old(regions).slot_owners[frame_to_index_spec(entry.paddr)]
+                    .inner_perms.ref_count.value() - 1) as u64,
+        // Storage preservation in the decrement branch (rc>1).
+        old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.ref_count.value() > 1
+            ==> final(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.storage
+                == old(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.storage,
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {

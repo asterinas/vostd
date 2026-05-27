@@ -42,6 +42,7 @@ use vstd::atomic::PAtomicU8;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
+use vstd_extra::drop_tracking::Drop as VerifiedDrop;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
@@ -52,7 +53,7 @@ use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
 use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{frame_to_meta, meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::{
     MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED,
 };
@@ -105,7 +106,370 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
-    fn on_drop(&mut self, _reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>) {
+    /// Caller invariants the PT-node `on_drop` body relies on:
+    /// - Reader well-formedness + `vm_io_owner` matching + read view
+    ///   initialized + at least `PAGE_SIZE` bytes remaining for the
+    ///   PT-node walk.
+    /// - Global region table invariant.
+    /// - Embedding ([`child_perms_embedding`]): for every paddr in
+    ///   `child_perms.dom()`, the slot and perm match `from_raw` /
+    ///   `VerifiedDrop::drop`'s expected shape.
+    /// - Walk coverage ([`walk_coverage_from_view`]): for every present
+    ///   non-last PTE in the page bytes, `frame_to_index(pte.paddr()) ∈
+    ///   child_perms.dom()`.
+    /// - Walk uniqueness ([`walk_uniqueness_from_view`]): distinct PTE
+    ///   positions with present non-last PTEs have distinct paddrs.
+    ///
+    /// The body now discharges the dom-membership obligation in full via
+    /// byte-level chaining (`decode_pod` + `read_once`'s strengthened
+    /// ensures + the byte-preservation loop invariant) plus the two
+    /// walk-* preconditions; see [`lemma_coverage_at`] and
+    /// [`lemma_uniqueness_at_pair`].
+    open spec fn on_drop_pre(
+        &self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        args: crate::mm::frame::meta::OnDropArgs,
+    ) -> bool {
+        &&& reader.inv()
+        &&& reader.wf(args.vm_io_owner)
+        &&& reader.remain_spec() >= crate::specs::arch::mm::PAGE_SIZE
+        &&& reader.cursor.vaddr % core::mem::align_of::<C::E>() == 0
+        &&& args.vm_io_owner.inv()
+        &&& args.vm_io_owner.read_view_initialized()
+        &&& args.regions.inv()
+        &&& Self::child_perms_embedding(args)
+        &&& self.walk_coverage_from_view(
+            reader,
+            args.vm_io_owner.read_view_of(),
+            args.child_perms.dom(),
+        )
+        &&& self.walk_uniqueness_from_view(reader, args.vm_io_owner.read_view_of())
+    }
+
+    /// Drops the children of a page-table node: walks each present PTE and
+    /// drops the referenced child page-table-node frame or mapped item.
+    #[verifier::rlimit(400)]
+    #[verifier::spinoff_prover]
+    fn on_drop(
+        &mut self,
+        reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>,
+        Tracked(args): Tracked<&mut crate::mm::frame::meta::OnDropArgs>,
+    ) {
+        let level = self.level;
+        let range = if level == C::NR_LEVELS() {
+            C::TOP_LEVEL_INDEX_RANGE()
+        } else {
+            0..nr_subpage_per_huge::<C>()
+        };
+
+        proof {
+            C::axiom_pte_walk_fills_page();
+            C::axiom_top_level_index_range_within_nr_entries();
+            C::axiom_nr_subpage_per_huge_eq_nr_entries();
+            crate::mm::page_table::axiom_top_level_index_range_bounds::<C>();
+            vstd::arithmetic::mul::lemma_mul_inequality(
+                range.start as int,
+                NR_ENTRIES as int,
+                core::mem::size_of::<C::E>() as int,
+            );
+        }
+
+        let ghost size_of_e: int = core::mem::size_of::<C::E>() as int;
+        let ghost align_of_e: int = core::mem::align_of::<C::E>() as int;
+        let ghost pre_skip_cursor: int = reader.cursor.vaddr as int;
+
+        let ghost initial_view: crate::specs::mm::virt_mem::MemView =
+            args.vm_io_owner.read_view_of();
+        let ghost initial_dom: vstd::set::Set<usize> = args.child_perms.dom();
+        let ghost initial_reader: crate::mm::VmReader<'_, crate::mm::Infallible> = *reader;
+
+        #[verus_spec(with Tracked(&mut args.vm_io_owner))]
+        reader.skip_in_place(range.start * core::mem::size_of::<C::E>());
+
+        proof {
+            C::axiom_pte_align_divides_size();
+            let k = size_of_e / align_of_e;
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size_of_e, align_of_e);
+            assert(size_of_e == align_of_e * k);
+            vstd::arithmetic::mul::lemma_mul_is_commutative(align_of_e, k);
+            vstd::arithmetic::mul::lemma_mul_is_associative(range.start as int, k, align_of_e);
+            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
+                range.start as int * k,
+                align_of_e,
+            );
+            assert((range.start as int * size_of_e) % align_of_e == 0);
+            vstd::arithmetic::div_mod::lemma_mod_adds(
+                pre_skip_cursor,
+                range.start as int * size_of_e,
+                align_of_e,
+            );
+        }
+
+        let ghost post_skip_remain: int = reader.remain_spec() as int;
+        let ghost range_start: int = range.start as int;
+        let ghost range_end: int = range.end as int;
+        let n_iters: usize = range.end - range.start;
+        let mut iter_count: usize = 0;
+        let ghost mut removed_indices: vstd::set::Set<usize> = vstd::set::Set::empty();
+
+        proof {
+            C::axiom_pte_walk_fills_page();
+            C::axiom_top_level_index_range_within_nr_entries();
+            C::axiom_nr_subpage_per_huge_eq_nr_entries();
+            crate::mm::page_table::axiom_top_level_index_range_bounds::<C>();
+            vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
+                size_of_e,
+                NR_ENTRIES as int,
+                range_start,
+            );
+            vstd::arithmetic::mul::lemma_mul_inequality(
+                range_end - range_start,
+                NR_ENTRIES as int - range_start,
+                size_of_e,
+            );
+            assert(post_skip_remain >= (range_end - range_start) * size_of_e);
+            assert(args.child_perms.dom() == initial_dom.difference(removed_indices)) by {
+                assert(removed_indices == vstd::set::Set::<usize>::empty());
+                assert(initial_dom.difference(vstd::set::Set::<usize>::empty()) == initial_dom);
+            }
+        }
+
+        while iter_count < n_iters
+            invariant
+                reader.inv(),
+                reader.wf(args.vm_io_owner),
+                args.vm_io_owner.inv(),
+                args.vm_io_owner.read_view_initialized(),
+                args.regions.inv(),
+                reader.cursor.vaddr as int % align_of_e == 0,
+                size_of_e == core::mem::size_of::<C::E>() as int,
+                align_of_e == core::mem::align_of::<C::E>() as int,
+                size_of_e % align_of_e == 0,
+                align_of_e > 0,
+                size_of_e > 0,
+                iter_count <= n_iters,
+                n_iters as int == range_end - range_start,
+                // Verus loses non-negativity of `range_start` / `range_end`
+                // across the loop boundary; pin it via these invariants so
+                // `lemma_mul_nonnegative` preconditions discharge in the body.
+                0 <= range_start,
+                range_start <= range_end,
+                range_end <= NR_ENTRIES as int,
+                reader.remain_spec() as int == post_skip_remain - iter_count as int * size_of_e,
+                post_skip_remain >= (range_end - range_start) * size_of_e,
+                Self::child_perms_embedding(*args),
+                self.walk_coverage_from_view(initial_reader, initial_view, initial_dom),
+                self.walk_uniqueness_from_view(initial_reader, initial_view),
+                // Without this, Verus treats `self.level` as potentially
+                // mutated by `&mut self` and the level-comparison facts go
+                // missing inside walk_coverage / walk_uniqueness instances.
+                self.level == level,
+                reader.end == initial_reader.end,
+                reader.cursor.vaddr == initial_reader.cursor.vaddr + range_start * size_of_e
+                    + iter_count as int * size_of_e,
+                forall|i: usize|
+                    #![trigger initial_view.addr_transl(i)]
+                    initial_reader.cursor.vaddr <= i < initial_reader.end.vaddr ==> {
+                        &&& initial_view.addr_transl(i) is Some
+                        &&& initial_view.memory.contains_key(initial_view.addr_transl(i).unwrap().0)
+                    },
+                forall|va: usize|
+                    #![trigger args.vm_io_owner.read_view_of().read(va)]
+                    reader.cursor.vaddr <= va < initial_reader.end.vaddr ==> {
+                        &&& initial_view.addr_transl(va)
+                            == args.vm_io_owner.read_view_of().addr_transl(va)
+                        &&& initial_view.read(va) == args.vm_io_owner.read_view_of().read(va)
+                    },
+                removed_indices.subset_of(initial_dom),
+                args.child_perms.dom() == initial_dom.difference(removed_indices),
+                // Witness past iter for each removed idx — the discharge
+                // proof picks it up via `choose|j|` and invokes
+                // `walk_uniqueness` at (current_cursor, witness_cursor).
+                forall|idx: usize| #[trigger]
+                    removed_indices.contains(idx) ==> exists|j: int|
+                        #![trigger Self::walk_pte_at_view(
+                            initial_view,
+                            (initial_reader.cursor.vaddr
+                                + range_start * size_of_e
+                                + j * size_of_e) as usize,
+                        )]
+                        0 <= j < iter_count as int && {
+                            let cj = (initial_reader.cursor.vaddr + range_start * size_of_e + j
+                                * size_of_e) as usize;
+                            let pte_j = Self::walk_pte_at_view(initial_view, cj);
+                            &&& pte_j.is_present()
+                            &&& !pte_j.is_last(self.level)
+                            &&& idx == frame_to_index(pte_j.paddr())
+                        },
+            decreases n_iters - iter_count,
+        {
+            proof {
+                vstd::arithmetic::mul::lemma_mul_is_distributive_sub(
+                    size_of_e,
+                    range_end - range_start,
+                    iter_count as int,
+                );
+                vstd::arithmetic::mul::lemma_mul_inequality(
+                    1,
+                    range_end - range_start - iter_count as int,
+                    size_of_e,
+                );
+            }
+            let ghost cursor_pre_read: usize = reader.cursor.vaddr;
+            let ghost pre_view: crate::specs::mm::virt_mem::MemView =
+                args.vm_io_owner.read_view_of();
+            proof {
+                crate::specs::mm::virt_mem::MemView::lemma_read_bytes_eq_pointwise(
+                    pre_view,
+                    initial_view,
+                    cursor_pre_read,
+                    core::mem::size_of::<C::E>(),
+                );
+            }
+            let pte = #[verus_spec(with Tracked(&mut args.vm_io_owner))]
+            reader.read_once::<C::E>();
+            let pte = pte.unwrap();
+            proof {
+                crate::mm::pod::lemma_decode_pod_inverse::<C::E>(pte);
+                assert(pte == Self::walk_pte_at_view(initial_view, cursor_pre_read));
+                vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
+                vstd::arithmetic::mul::lemma_mul_nonnegative(iter_count as int, size_of_e);
+                assert(initial_reader.cursor.vaddr <= cursor_pre_read);
+            }
+            if pte.is_present() {
+                let paddr = pte.paddr();
+                if !pte.is_last(level) {
+                    proof {
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+                            size_of_e,
+                            range_start,
+                            iter_count as int,
+                        );
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
+                            range_start + iter_count as int,
+                            size_of_e,
+                        );
+                        Self::lemma_coverage_at(
+                            *self,
+                            initial_reader,
+                            initial_view,
+                            initial_dom,
+                            cursor_pre_read,
+                        );
+                        broadcast use crate::mm::frame::meta::mapping::lemma_frame_to_index_injective;
+
+                        assert forall|idx: usize| #[trigger]
+                            removed_indices.contains(idx) implies idx != frame_to_index(
+                            pte.paddr(),
+                        ) by {
+                            let j = choose|j: int|
+                                #![trigger Self::walk_pte_at_view(
+                                    initial_view,
+                                    (initial_reader.cursor.vaddr
+                                        + range_start * size_of_e
+                                        + j * size_of_e) as usize,
+                                )]
+                                0 <= j < iter_count as int && {
+                                    let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
+                                        + j * size_of_e) as usize;
+                                    let pte_j = Self::walk_pte_at_view(initial_view, cj);
+                                    &&& pte_j.is_present()
+                                    &&& !pte_j.is_last(self.level)
+                                    &&& idx == frame_to_index(pte_j.paddr())
+                                };
+                            let cj: usize = (initial_reader.cursor.vaddr + range_start * size_of_e
+                                + j * size_of_e) as usize;
+                            let pte_j = Self::walk_pte_at_view(initial_view, cj);
+                            vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
+                            vstd::arithmetic::mul::lemma_mul_nonnegative(j, size_of_e);
+                            vstd::arithmetic::mul::lemma_mul_strict_inequality(
+                                j,
+                                iter_count as int,
+                                size_of_e,
+                            );
+                            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+                                size_of_e,
+                                range_start,
+                                j,
+                            );
+                            vstd::arithmetic::mul::lemma_mul_inequality(
+                                range_start + j + 1,
+                                range_end,
+                                size_of_e,
+                            );
+                            vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
+                                size_of_e,
+                                range_end,
+                                range_start,
+                            );
+                            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
+                                range_start + j,
+                                size_of_e,
+                            );
+                            Self::lemma_uniqueness_at_pair(
+                                *self,
+                                initial_reader,
+                                initial_view,
+                                cursor_pre_read,
+                                cj,
+                            );
+                            pte.axiom_present_paddr_aligned();
+                            pte_j.axiom_present_paddr_aligned();
+                        };
+                        // Pinning these in SMT context lets `tracked_remove`'s
+                        // dom-containment precondition and `from_raw`'s
+                        // `from_raw_requires_safety` (via embedding) discharge.
+                        assert(args.child_perms.dom().contains(frame_to_index(paddr)));
+                    }
+                    let tracked child_perm = args.child_perms.tracked_remove(frame_to_index(paddr));
+                    proof {
+                        removed_indices = removed_indices.insert(frame_to_index(paddr));
+                        // Witness for the just-inserted idx: j = iter_count
+                        // (before the end-of-body increment), cursor_j ==
+                        // cursor_pre_read, pte_j == pte. Required to keep
+                        // the witness-exists loop invariant true.
+                        assert({
+                            let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
+                                + iter_count as int * size_of_e) as usize;
+                            let pte_j = Self::walk_pte_at_view(initial_view, cj);
+                            &&& cj == cursor_pre_read
+                            &&& pte_j == pte
+                            &&& pte_j.is_present()
+                            &&& !pte_j.is_last(self.level)
+                            &&& frame_to_index(paddr) == frame_to_index(pte_j.paddr())
+                        });
+                    }
+                    let frame = unsafe {
+                        #[verus_spec(
+                            with Tracked(&mut args.regions),
+                                 Tracked(&child_perm) => _debt
+                        )]
+                        Frame::<Self>::from_raw(paddr)
+                    };
+                    VerifiedDrop::drop(frame, Tracked(&mut args.regions));
+                } else {
+                    // SAFETY: The PTE points to a mapped item. The ownership
+                    // of the item is transferred here then dropped.
+                    let _item = unsafe { C::item_from_raw(paddr, level, pte.prop()) };
+                }
+            }
+            proof {
+                vstd::arithmetic::div_mod::lemma_mod_adds(
+                    reader.cursor.vaddr as int - size_of_e,
+                    size_of_e,
+                    align_of_e,
+                );
+            }
+            let ghost iter_count_old: int = iter_count as int;
+            iter_count = iter_count + 1;
+            proof {
+                vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+                    size_of_e,
+                    iter_count_old,
+                    1,
+                );
+            }
+        }
     }
 
     fn is_untyped(&self) -> bool {
@@ -187,7 +551,10 @@ impl<C: PageTableConfig> PageTableNode<C> {
     )]
     #[verifier::external_body]
     pub fn alloc<'rcu>(level: PagingLevel) -> Self {
-        let tracked entry_owner = EntryOwner::new_absent(TreePath::new(Seq::empty()), level);
+        let tracked entry_owner = EntryOwner::tracked_new_absent(
+            TreePath::new(Seq::empty()),
+            level,
+        );
 
         let tracked mut owner = OwnerSubtree::<C>::new_val_tracked(entry_owner, level as nat);
         let meta = PageTablePageMeta::new(level);
@@ -542,48 +909,156 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             _phantom: PhantomData,
         }
     }
+
+    /// The PTE value that `read_once::<C::E>` would produce at cursor `c`
+    /// against the given memory view. Linked to `read_once` via
+    /// `pod_bytes(v) == read_view.read_bytes(...)` (strengthened ensures)
+    /// + [`lemma_decode_pod_inverse`].
+    pub open spec fn walk_pte_at_view(view: crate::specs::mm::virt_mem::MemView, c: usize) -> C::E {
+        crate::mm::pod::decode_pod::<C::E>(view.read_bytes(c, core::mem::size_of::<C::E>()))
+    }
+
+    /// Single-cursor projection of [`walk_coverage_from_view`]. Extracting
+    /// the forall body to a named predicate lets the body invoke
+    /// [`lemma_coverage_at`] for one specific `c` instead of relying on
+    /// auto-trigger matching across the loop invariant's `forall|c|`.
+    pub open spec fn walk_coverage_at(
+        self,
+        view: crate::specs::mm::virt_mem::MemView,
+        dom: vstd::set::Set<usize>,
+        c: usize,
+    ) -> bool {
+        let pte = Self::walk_pte_at_view(view, c);
+        pte.is_present() && !pte.is_last(self.level) ==> dom.contains(frame_to_index(pte.paddr()))
+    }
+
+    /// Instantiate [`walk_coverage_from_view`]'s forall at one cursor.
+    pub proof fn lemma_coverage_at(
+        self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        view: crate::specs::mm::virt_mem::MemView,
+        dom: vstd::set::Set<usize>,
+        c: usize,
+    )
+        requires
+            self.walk_coverage_from_view(reader, view, dom),
+            reader.cursor.vaddr <= c,
+            c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
+            (c - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
+        ensures
+            self.walk_coverage_at(view, dom, c),
+    {
+        assert(Self::walk_pte_at_view(view, c) == Self::walk_pte_at_view(view, c));
+    }
+
+    /// Instantiate [`walk_uniqueness_from_view`]'s forall at one cursor pair.
+    pub proof fn lemma_uniqueness_at_pair(
+        self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        view: crate::specs::mm::virt_mem::MemView,
+        c1: usize,
+        c2: usize,
+    )
+        requires
+            self.walk_uniqueness_from_view(reader, view),
+            reader.cursor.vaddr <= c1,
+            c1 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
+            (c1 - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
+            reader.cursor.vaddr <= c2,
+            c2 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
+            (c2 - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
+            c1 != c2,
+            Self::walk_pte_at_view(view, c1).is_present(),
+            !Self::walk_pte_at_view(view, c1).is_last(self.level),
+            Self::walk_pte_at_view(view, c2).is_present(),
+            !Self::walk_pte_at_view(view, c2).is_last(self.level),
+        ensures
+            Self::walk_pte_at_view(view, c1).paddr() != Self::walk_pte_at_view(view, c2).paddr(),
+    {
+    }
+
+    /// Caller-side dom-membership obligation: every present non-last PTE
+    /// position in the walk (over `view`) has its child-frame index in
+    /// `dom`. Phrased over a frozen `(view, dom)` pair so the body can
+    /// carry it as a loop invariant against an entry-state snapshot
+    /// while `args.vm_io_owner` advances per iteration.
+    pub open spec fn walk_coverage_from_view(
+        self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        view: crate::specs::mm::virt_mem::MemView,
+        dom: vstd::set::Set<usize>,
+    ) -> bool {
+        forall|c: usize|
+            #![trigger Self::walk_pte_at_view(view, c)]
+            reader.cursor.vaddr <= c && c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr
+                + reader.remain_spec() && (c - reader.cursor.vaddr) % core::mem::size_of::<
+                C::E,
+            >() as int == 0 ==> {
+                let pte = Self::walk_pte_at_view(view, c);
+                pte.is_present() && !pte.is_last(self.level) ==> dom.contains(
+                    frame_to_index(pte.paddr()),
+                )
+            }
+    }
+
+    /// Caller-side uniqueness obligation: distinct cursor positions with
+    /// present non-last PTEs (in `view`) map to distinct paddrs.
+    pub open spec fn walk_uniqueness_from_view(
+        self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        view: crate::specs::mm::virt_mem::MemView,
+    ) -> bool {
+        forall|c1: usize, c2: usize|
+            #![trigger Self::walk_pte_at_view(view, c1), Self::walk_pte_at_view(view, c2)]
+            reader.cursor.vaddr <= c1 && c1 + core::mem::size_of::<C::E>() <= reader.cursor.vaddr
+                + reader.remain_spec() && (c1 - reader.cursor.vaddr) % core::mem::size_of::<
+                C::E,
+            >() as int == 0 && reader.cursor.vaddr <= c2 && c2 + core::mem::size_of::<C::E>()
+                <= reader.cursor.vaddr + reader.remain_spec() && (c2 - reader.cursor.vaddr)
+                % core::mem::size_of::<C::E>() as int == 0 && c1 != c2 ==> {
+                let pte1 = Self::walk_pte_at_view(view, c1);
+                let pte2 = Self::walk_pte_at_view(view, c2);
+                pte1.is_present() && !pte1.is_last(self.level) && pte2.is_present()
+                    && !pte2.is_last(self.level) ==> pte1.paddr() != pte2.paddr()
+            }
+    }
+
+    /// Caller-side shape obligation: every paddr in `child_perms.dom()`
+    /// has a slot perm matching the shape `from_raw` + `VerifiedDrop::drop`
+    /// expect (init, alignment, refcount within bounds, last-reference
+    /// shape when refcount == 1).
+    pub open spec fn child_perms_embedding(args: crate::mm::frame::meta::OnDropArgs) -> bool {
+        forall|paddr: crate::mm::Paddr|
+            #![trigger args.child_perms.dom().contains(frame_to_index(paddr))]
+            args.child_perms.dom().contains(frame_to_index(paddr)) ==> {
+                let idx = frame_to_index(paddr);
+                let so = args.regions.slot_owners[idx];
+                &&& args.regions.slot_owners.contains_key(idx)
+                &&& <Frame<Self>>::from_raw_requires_safety(args.regions, paddr)
+                &&& so.raw_count <= 1
+                &&& args.child_perms[idx].is_init()
+                &&& args.child_perms[idx].addr() == frame_to_meta(paddr)
+                &&& args.child_perms[idx].value().wf(
+                    so,
+                )
+                // Live frame: refcount in [1, REF_COUNT_MAX]. Needed for
+                // `Drop::drop_requires` after `from_raw` reconstructs the
+                // child Frame.
+                &&& so.inner_perms.ref_count.value() > 0
+                &&& so.inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                &&& so.inner_perms.ref_count.value()
+                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                // If refcount == 1, the child is in last-reference shape
+                // (drop will tear it down). PT-children at drop time have
+                // refcount == 1 (only the parent's PTE holds them).
+                &&& so.inner_perms.ref_count.value() == 1 ==> {
+                    &&& so.inner_perms.storage.is_init()
+                    &&& so.inner_perms.in_list.value() == 0
+                    &&& so.paths_in_pt.is_empty()
+                }
+            }
+    }
 }
 
 } // verus!
-/* TODO: Come back after VMReader
-// FIXME: The safe APIs in the `page_table/node` module allow `Child::Frame`s with
-// arbitrary addresses to be stored in the page table nodes. Therefore, they may not
-// be valid `C::Item`s. The soundness of the following `on_drop` implementation must
-// be reasoned in conjunction with the `page_table/cursor` implementation.
-unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
-    fn on_drop(&mut self, reader: &mut VmReader<Infallible>) {
-        let nr_children = self.nr_children.get_mut();
-        if *nr_children == 0 {
-            return;
-        }
-
-        let level = self.level;
-        let range = if level == C::NR_LEVELS() {
-            C::TOP_LEVEL_INDEX_RANGE.clone()
-        } else {
-            0..nr_subpage_per_huge::<C>()
-        };
-
-        // Drop the children.
-        reader.skip(range.start * size_of::<C::E>());
-        for _ in range {
-            // Non-atomic read is OK because we have mutable access.
-            let pte = reader.read_once::<C::E>().unwrap();
-            if pte.is_present() {
-                let paddr = pte.paddr();
-                // As a fast path, we can ensure that the type of the child frame
-                // is `Self` if the PTE points to a child page table. Then we don't
-                // need to check the vtable for the drop method.
-                if !pte.is_last(level) {
-                    // SAFETY: The PTE points to a page table node. The ownership
-                    // of the child is transferred to the child then dropped.
-                    drop(unsafe { Frame::<Self>::from_raw(paddr) });
-                } else {
-                    // SAFETY: The PTE points to a mapped item. The ownership
-                    // of the item is transferred here then dropped.
-                    drop(unsafe { C::item_from_raw(paddr, level, pte.prop()) });
-                }
-            }
-        }
-    }
-}*/

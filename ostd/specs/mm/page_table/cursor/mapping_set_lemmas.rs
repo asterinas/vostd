@@ -45,21 +45,21 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.inv(),
             self.all_some(),
         ensures
-            self.take_child_spec().1.view_mappings() == self.view_mappings() - self.view_mappings_take_child_spec()
+            self.take_child().1.view_mappings() == self.view_mappings() - self.view_mappings_take_child_spec()
     {
         self.inv_children_unroll_all();
-        let def = self.take_child_spec().1.view_mappings();
+        let def = self.take_child().1.view_mappings();
         let diff = self.view_mappings() - self.view_mappings_take_child_spec();
         assert forall |m: Mapping| diff.contains(m) implies def.contains(m) by {
             let i = choose|i: int| 0 <= i < self.children.len() && #[trigger] self.children[i] is Some &&
                 PageTableOwner(self.children[i].unwrap()).view_rec(self.path().push_tail(i as usize)).contains(m);
             assert(i != self.idx);
-            assert(self.take_child_spec().1.children[i] is Some);
+            assert(self.take_child().1.children[i] is Some);
         };
         assert forall |m: Mapping|
         #![trigger def.contains(m)]
         def.contains(m) implies diff.contains(m) by {
-            let left = self.take_child_spec().1;
+            let left = self.take_child().1;
             assert(left.view_mappings().contains(m));
             if self.view_mappings_take_child_spec().contains(m) {
                 assert(PageTableOwner(self.children[self.idx as int].unwrap())
@@ -92,19 +92,19 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             child.inv(),
             self.all_but_index_some(),
         ensures
-            self.put_child_spec(child).view_mappings() == self.view_mappings() + PageTableOwner(child).view_rec(self.path().push_tail(self.idx as usize))
+            self.put_child(child).view_mappings() == self.view_mappings() + PageTableOwner(child).view_rec(self.path().push_tail(self.idx as usize))
     {
-        let def = self.put_child_spec(child).view_mappings();
+        let def = self.put_child(child).view_mappings();
         let sum = self.view_mappings() + PageTableOwner(child).view_rec(self.path().push_tail(self.idx as usize));
         assert forall |m: Mapping| sum.contains(m) implies def.contains(m) by {
             if self.view_mappings().contains(m) {
                 let i = choose|i: int| 0 <= i < self.children.len() && #[trigger] self.children[i] is Some &&
                     PageTableOwner(self.children[i].unwrap()).view_rec(self.path().push_tail(i as usize)).contains(m);
                 assert(i != self.idx);
-                assert(self.put_child_spec(child).children[i] == self.children[i]);
+                assert(self.put_child(child).children[i] == self.children[i]);
             } else {
                 assert(PageTableOwner(child).view_rec(self.path().push_tail(self.idx as usize)).contains(m));
-                assert(self.put_child_spec(child).children[self.idx as int] == Some(child));
+                assert(self.put_child(child).children[self.idx as int] == Some(child));
             }
         };
     }
@@ -643,7 +643,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.view_mappings_put_child(c2.as_subtree());
             c3.as_subtree_restore(c2);
 
-            let l4 = c3.restore_spec(c2).0;
+            let l4 = c3.restore(c2).0;
             assert(l4.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
                     if i == c3.idx as int {
@@ -693,7 +693,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c2.view_mappings_put_child(c1.as_subtree());
             c2.as_subtree_restore(c1);
 
-            let l3 = c2.restore_spec(c1).0;
+            let l3 = c2.restore(c1).0;
             assert(l3.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l3.children[i] is Some by {
                     if i == c2.idx as int {
@@ -729,7 +729,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.as_subtree_restore(l3);
             c3.view_mappings_put_child(l3.as_subtree());
 
-            let l4 = c3.restore_spec(l3).0;
+            let l4 = c3.restore(l3).0;
             assert(l4.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
                     if i == c3.idx as int {
@@ -779,7 +779,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c0.as_subtree_inv();
             c1.view_mappings_put_child(c0.as_subtree());
             c1.as_subtree_restore(c0);
-            let l2 = c1.restore_spec(c0).0;
+            let l2 = c1.restore(c0).0;
             assert(l2.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l2.children[i] is Some by {
                     if i == c1.idx as int {
@@ -813,7 +813,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             l2.as_subtree_inv();
             c2.view_mappings_put_child(l2.as_subtree());
             c2.as_subtree_restore(l2);
-            let l3 = c2.restore_spec(l2).0;
+            let l3 = c2.restore(l2).0;
             assert(l3.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l3.children[i] is Some by {
                     if i == c2.idx as int {
@@ -846,7 +846,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             l3.as_subtree_inv();
             c3.view_mappings_put_child(l3.as_subtree());
             c3.as_subtree_restore(l3);
-            let l4 = c3.restore_spec(l3).0;
+            let l4 = c3.restore(l3).0;
             assert(l4.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
                     if i == c3.idx as int {

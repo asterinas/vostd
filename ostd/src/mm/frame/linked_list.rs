@@ -209,7 +209,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     )]
     pub fn push_front(&mut self, frame: UniqueFrame<Link<M>>) {
         let current = self.front;
-        let tracked mut cursor_own = CursorOwner::front_owner(*owner);
+        let tracked mut cursor_own = CursorOwner::tracked_front_owner(*owner);
         let mut cursor = CursorMut { list: self, current };
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
@@ -249,7 +249,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     pub fn pop_front(&mut self) -> Option<(UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>)> {
         assert(owner.list.len() > 0 ==> owner.inv_at(0));
 
-        let tracked mut cursor_own = CursorOwner::front_owner(owner);
+        let tracked mut cursor_own = CursorOwner::tracked_front_owner(owner);
         let current = self.front;
         let mut cursor = CursorMut { list: self, current };
 
@@ -299,7 +299,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     )]
     pub fn push_back(&mut self, frame: UniqueFrame<Link<M>>) {
         let current = self.back;
-        let tracked mut cursor_own = CursorOwner::back_owner(*owner);
+        let tracked mut cursor_own = CursorOwner::tracked_back_owner(*owner);
         let mut cursor = CursorMut { list: self, current };
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
@@ -341,7 +341,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         assert(owner.list.len() > 0 ==> owner.inv_at(owner.list.len() - 1));
 
         let current = self.back;
-        let tracked mut cursor_own = CursorOwner::back_owner(owner);
+        let tracked mut cursor_own = CursorOwner::tracked_back_owner(owner);
         let mut cursor = CursorMut { list: self, current };
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own))]
@@ -456,7 +456,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
                 let ghost link = owner.list.filter(|link: LinkOwner| link.paddr == frame).first();
                 let ghost index = owner.list.index_of(link);
-                let tracked cursor_owner = CursorOwner::cursor_mut_at_owner(owner, index);
+                let tracked cursor_owner = CursorOwner::tracked_cursor_mut_at_owner(owner, index);
 
                 proof_with!(|= Tracked(Some(cursor_owner)));
                 Some(CursorMut { list: self, current: Some(MetadataAsLink::cast_from_metadata(meta_ptr)) })
@@ -486,7 +486,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// ## Postconditions
     /// - The cursor is well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects. The list invariants are preserved.
-    /// - See [`CursorOwner::front_owner_spec`] for the precise specification.
+    /// - See [`CursorOwner::front_owner`] for the precise specification.
     /// ## Safety
     /// - This function only uses the list permission, so there are no illegal memory accesses.
     /// - No data races are possible.
@@ -499,12 +499,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         ensures
             r.0.wf(r.1@),
             r.1@.inv(),
-            r.1@ == CursorOwner::front_owner_spec(owner),
+            r.1@ == CursorOwner::front_owner(owner),
     )]
     pub fn cursor_front_mut(&mut self) -> (CursorMut<'_, M>, Tracked<CursorOwner<M>>) {
         let current = self.front;
 
-        (CursorMut { list: self, current }, Tracked(CursorOwner::front_owner(owner)))
+        (CursorMut { list: self, current }, Tracked(CursorOwner::tracked_front_owner(owner)))
     }
 
     /// Gets a cursor at the back that can mutate the linked list links.
@@ -517,7 +517,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// ## Postconditions
     /// - The cursor is well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects. The list invariants are preserved.
-    /// See [`CursorOwner::back_owner_spec`] for the precise specification.
+    /// See [`CursorOwner::back_owner`] for the precise specification.
     /// ## Safety
     /// - This function only uses the list permission, so there are no illegal memory accesses.
     /// - No data races are possible.
@@ -532,11 +532,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         ensures
             res.0.wf(res.1@),
             res.1@.inv(),
-            res.1@ == CursorOwner::back_owner_spec(owner),
+            res.1@ == CursorOwner::back_owner(owner),
     {
         let current = self.back;
 
-        (CursorMut { list: self, current }, Tracked(CursorOwner::back_owner(owner)))
+        (CursorMut { list: self, current }, Tracked(CursorOwner::tracked_back_owner(owner)))
     }
 
     /// Gets a cursor at the "ghost" non-element that can mutate the linked list links.
@@ -1347,8 +1347,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M>
 {
-    fn on_drop(&mut self, reader: &mut crate::mm::VmReader<crate::mm::Infallible>) {
-        self.meta.on_drop(reader);
+    open spec fn on_drop_pre(
+        &self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        args: crate::mm::frame::meta::OnDropArgs,
+    ) -> bool {
+        self.meta.on_drop_pre(reader, args)
+    }
+
+    fn on_drop(
+        &mut self,
+        reader: &mut crate::mm::VmReader<crate::mm::Infallible>,
+        args: Tracked<&mut crate::mm::frame::meta::OnDropArgs>,
+    ) {
+        self.meta.on_drop(reader, args);
     }
 
     fn is_untyped(&self) -> bool {

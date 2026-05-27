@@ -250,11 +250,23 @@ pub tracked struct MetaSlotOwner {
 
 impl Inv for MetaSlotOwner {
     open spec fn inv(self) -> bool {
+        // A managed slot at `REF_COUNT_UNUSED` is free — it has no live
+        // PTE mapping, since a mapping is itself a reference that would
+        // keep the count above the unused sentinel. Hence `paths_in_pt`
+        // is empty. Maintained by the teardown path: the sole transition
+        // *into* `UNUSED` is `drop_last_in_place`, whose
+        // `drop_last_in_place_safety_cond` requires an empty
+        // `paths_in_pt`. MMIO slots are excluded — they are not
+        // ref-counted as ordinary frames (an MMIO region may sit at the
+        // `UNUSED` sentinel while still mapped), exactly as the embedding
+        // accounting and the huge-page split loop invariant scope out
+        // `usage == MMIO`.
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNUSED ==> {
             &&& self.raw_count == 0
             &&& self.inner_perms.storage.is_uninit()
             &&& self.inner_perms.vtable_ptr.is_uninit()
             &&& self.inner_perms.in_list.value() == 0
+            &&& (self.usage != PageUsage::MMIO ==> self.paths_in_pt.is_empty())
         }
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNIQUE ==> {
             &&& self.inner_perms.vtable_ptr.is_init()
@@ -270,6 +282,12 @@ impl Inv for MetaSlotOwner {
         }
         &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
         &&& self.self_addr % META_SLOT_SIZE == 0
+        // `paths_in_pt` is built by finitely many `.insert(path)` (map +
+        // huge-page split) and `.remove(path)` (unmap, Stage 2) from an
+        // empty initial set — universally finite. Needed wherever
+        // `paths_in_pt.len()` is meaningful (e.g. exact ref-count
+        // accounting).
+        &&& self.paths_in_pt.finite()
     }
 }
 
@@ -353,7 +371,7 @@ impl MetaSlotOwner {
         ensures *final(self) == (Self { inner_perms: *inner_perms, ..*old(self) });
 }
 
-pub struct Metadata<M: AnyFrameMeta> {
+pub struct Metadata<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
     pub metadata: M,
     pub ref_count: u64,
     pub vtable_ptr: MemContents<usize>,

@@ -55,7 +55,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         self.children[self.idx as int].unwrap()
     }
 
-    pub open spec fn take_child_spec(self) -> (OwnerSubtree<C>, Self) {
+    pub open spec fn take_child(self) -> (OwnerSubtree<C>, Self) {
         let child = self.children[self.idx as int].unwrap();
         let cont = Self {
             children: self.children.remove(self.idx as int).insert(self.idx as int, None),
@@ -64,15 +64,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         (child, cont)
     }
 
-    #[verifier::returns(proof)]
-    pub proof fn take_child(tracked &mut self) -> (res: OwnerSubtree<C>)
+    pub proof fn tracked_take_child(tracked &mut self) -> (tracked res: OwnerSubtree<C>)
         requires
             old(self).inv(),
             old(self).idx < old(self).children.len(),
             old(self).children[old(self).idx as int] is Some,
         ensures
-            res == old(self).take_child_spec().0,
-            *final(self) == old(self).take_child_spec().1,
+            res == old(self).take_child().0,
+            *final(self) == old(self).take_child().1,
             res.inv()
     {
         self.inv_children_unroll(self.idx as int);
@@ -81,20 +80,19 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         child
     }
 
-    pub open spec fn put_child_spec(self, child: OwnerSubtree<C>) -> Self {
+    pub open spec fn put_child(self, child: OwnerSubtree<C>) -> Self {
         Self {
             children: self.children.remove(self.idx as int).insert(self.idx as int, Some(child)),
             ..self
         }
     }
 
-    #[verifier::returns(proof)]
-    pub proof fn put_child(tracked &mut self, tracked child: OwnerSubtree<C>)
+    pub proof fn tracked_put_child(tracked &mut self, tracked child: OwnerSubtree<C>)
         requires
             old(self).idx < old(self).children.len(),
             old(self).children[old(self).idx as int] is None,
         ensures
-            *final(self) == old(self).put_child_spec(child)
+            *final(self) == old(self).put_child(child)
     {
         let _ = self.children.tracked_remove(old(self).idx as int);
         self.children.tracked_insert(old(self).idx as int, Some(child));
@@ -105,14 +103,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.idx < self.children.len(),
             self.children[self.idx as int] is Some,
         ensures
-            self.take_child_spec().1.put_child_spec(self.take_child_spec().0) == self,
+            self.take_child().1.put_child(self.take_child().0) == self,
     {
-        let child = self.take_child_spec().0;
-        let cont = self.take_child_spec().1;
-        assert(cont.put_child_spec(child).children == self.children);
+        let child = self.take_child().0;
+        let cont = self.take_child().1;
+        assert(cont.put_child(child).children == self.children);
     }
 
-    pub open spec fn make_cont_spec(self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (Self, Self) {
+    pub open spec fn make_cont(self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (Self, Self) {
         let child = Self {
             entry_own: self.children[self.idx as int].unwrap().value,
             tree_level: (self.tree_level + 1) as nat,
@@ -128,17 +126,16 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         (child, cont)
     }
 
-    #[verifier::returns(proof)]
-    pub axiom fn make_cont(tracked &mut self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (res: Self)
+    pub axiom fn tracked_make_cont(tracked &mut self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (tracked res: Self)
         requires
             old(self).all_some(),
             old(self).idx < NR_ENTRIES,
             idx < NR_ENTRIES,
         ensures
-            res == old(self).make_cont_spec(idx, guard).0,
-            *final(self) == old(self).make_cont_spec(idx, guard).1;
+            res == old(self).make_cont(idx, guard).0,
+            *final(self) == old(self).make_cont(idx, guard).1;
 
-    pub open spec fn restore_spec(self, child: Self) -> (Self, PageTableGuard<'rcu, C>) {
+    pub open spec fn restore(self, child: Self) -> (Self, PageTableGuard<'rcu, C>) {
         let child_node = OwnerSubtree {
             value: child.entry_own,
             level: child.tree_level,
@@ -147,13 +144,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         (Self { children: self.children.update(self.idx as int, Some(child_node)), ..self }, child.guard)
     }
 
-    #[verifier::returns(proof)]
-    pub axiom fn restore(tracked &mut self, tracked child: Self) -> (tracked guard: PageTableGuard<'rcu, C>)
+    pub axiom fn tracked_restore(tracked &mut self, tracked child: Self) -> (tracked guard: PageTableGuard<'rcu, C>)
         ensures
-            *final(self) == old(self).restore_spec(child).0,
-            guard == old(self).restore_spec(child).1;
+            *final(self) == old(self).restore(child).0,
+            guard == old(self).restore(child).1;
 
-    pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard: PageTableGuard<'rcu, C>) -> Self {
+    pub open spec fn new(owner_subtree: OwnerSubtree<C>, idx: usize, guard: PageTableGuard<'rcu, C>) -> Self {
         Self {
             entry_own: owner_subtree.value,
             idx: idx,
@@ -164,10 +160,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         }
     }
 
-    pub axiom fn new(tracked owner_subtree: OwnerSubtree<C>, idx: usize, guard: PageTableGuard<'rcu, C>)
+    pub axiom fn tracked_new(tracked owner_subtree: OwnerSubtree<C>, idx: usize, guard: PageTableGuard<'rcu, C>)
     -> (tracked res: Self)
         ensures
-            res == Self::new_spec(owner_subtree, idx, guard);
+            res == Self::new(owner_subtree, idx, guard);
 
     pub open spec fn map_children(self, f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) -> bool {
         forall |i: int|
@@ -526,12 +522,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
-            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, is_tracked).set_in_scope(false),
+            res.value == EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, is_tracked).set_in_scope(false),
             res.inv(),
             res.level == self.tree_level + 1,
             res == OwnerSubtree::new_val(res.value, res.level as nat),
     {
-        let tracked mut owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, is_tracked);
+        let tracked mut owner = EntryOwner::<C>::tracked_new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, is_tracked);
         owner.in_scope = false;
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
     }
@@ -594,7 +590,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // The cursor stays within the same canonical half of the address
         // space as its prefix — so `leading_bits` agrees throughout traversal.
         &&& self.va.leading_bits == self.prefix.leading_bits
-        // Established at construction (new_spec initializes both va and
+        // Established at construction (new initializes both va and
         // prefix with LEADING_BITS_spec()) and preserved by cursor ops.
         &&& self.prefix.leading_bits == C::LEADING_BITS_spec() as int
         // The cursor's VA shares upper indices with the prefix when the
@@ -896,18 +892,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn as_page_table_owner(self) -> PageTableOwner<C> {
         if self.level == 1 {
             let l1 = self.continuations[0];
-            let l2 = self.continuations[1].restore_spec(l1).0;
-            let l3 = self.continuations[2].restore_spec(l2).0;
-            let l4 = self.continuations[3].restore_spec(l3).0;
+            let l2 = self.continuations[1].restore(l1).0;
+            let l3 = self.continuations[2].restore(l2).0;
+            let l4 = self.continuations[3].restore(l3).0;
             l4.as_page_table_owner()
         } else if self.level == 2 {
             let l2 = self.continuations[1];
-            let l3 = self.continuations[2].restore_spec(l2).0;
-            let l4 = self.continuations[3].restore_spec(l3).0;
+            let l3 = self.continuations[2].restore(l2).0;
+            let l4 = self.continuations[3].restore(l3).0;
             l4.as_page_table_owner()
         } else if self.level == 3 {
             let l3 = self.continuations[2];
-            let l4 = self.continuations[3].restore_spec(l3).0;
+            let l4 = self.continuations[3].restore(l3).0;
             l4.as_page_table_owner()
         } else {
             let l4 = self.continuations[3];
@@ -2385,7 +2381,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // which is part of metaregion_sound.
     }
 
-    pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard: PageTableGuard<'rcu, C>) -> Self {
+    pub open spec fn new(owner_subtree: OwnerSubtree<C>, idx: usize, guard: PageTableGuard<'rcu, C>) -> Self {
         let va = AbstractVaddr {
             offset: 0,
             index: Map::new(|i: int| 0 <= i < NR_LEVELS, |i: int| 0).insert(NR_LEVELS - 1, idx as int),
@@ -2398,7 +2394,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         Self {
             level: NR_LEVELS as PagingLevel,
-            continuations: Map::empty().insert(NR_LEVELS - 1 as int, CursorContinuation::new_spec(owner_subtree, idx, guard)),
+            continuations: Map::empty().insert(NR_LEVELS - 1 as int, CursorContinuation::new(owner_subtree, idx, guard)),
             va,
             guard_level: NR_LEVELS as PagingLevel,
             prefix: va,
@@ -2406,10 +2402,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub axiom fn new(tracked owner_subtree: OwnerSubtree<C>, idx: usize, guard: PageTableGuard<'rcu, C>)
+    pub axiom fn tracked_new(tracked owner_subtree: OwnerSubtree<C>, idx: usize, guard: PageTableGuard<'rcu, C>)
     -> (tracked res: Self)
         ensures
-            res == Self::new_spec(owner_subtree, idx, guard);
+            res == Self::new(owner_subtree, idx, guard);
 }
 
 pub ghost struct CursorView<C: PageTableConfig> {

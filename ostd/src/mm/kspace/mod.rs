@@ -244,6 +244,14 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
 
+    axiom fn axiom_pte_size_eq_size_of();
+
+    axiom fn axiom_pte_walk_fills_page();
+
+    axiom fn axiom_top_level_index_range_within_nr_entries();
+
+    axiom fn axiom_pte_align_divides_size();
+
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 
     open spec fn tracked(item: Self::Item) -> bool {

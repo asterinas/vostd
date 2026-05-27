@@ -348,10 +348,10 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
 
     #[verus_spec(obj_ptr =>
         with
-            -> ghost_ref_perm: Tracked<Option<RcuReadToken<P>>>,
+            -> tracked_ref_perm: Tracked<Option<RcuReadToken<P>>>,
         ensures
-            !self.is_nullable() ==> ghost_ref_perm@ is Some,
-            match ghost_ref_perm@ {
+            !self.is_nullable() ==> tracked_ref_perm@ is Some,
+            match tracked_ref_perm@ {
                 Some(perm) => {
                     &&& !obj_ptr.is_null()
                     &&& P::ptr_perm_match(obj_ptr, perm.resource())
@@ -363,7 +363,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     )]
     fn load_read_token(&self) -> *mut <P as NonNullPtr>::Target {
         proof_decl! {
-            let tracked mut ghost_ref_perm: Option<RcuReadToken<P>> = None;
+            let tracked mut tracked_ref_perm: Option<RcuReadToken<P>> = None;
         }
         proof {
             use_type_invariant(self);
@@ -391,14 +391,14 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                     let tracked token = perm.split_one();
                     assert(perm@ == perm_snapshot);
                     assert(token.frac() == 1);
-                    ghost_ref_perm = Some(token);
+                    tracked_ref_perm = Some(token);
                     g.current = Some(perm);
                 } else {
                 }
                 assert(retired_pools_inv::<P>(g.retired));
             }
         };
-        proof_with! { |= Tracked(ghost_ref_perm) }
+        proof_with! { |= Tracked(tracked_ref_perm) }
         obj_ptr
     }
 
@@ -406,20 +406,20 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         ensures
             r.type_inv(),
             r.rcu.is_nullable() == self.is_nullable(),
-            !self.is_nullable() ==> r.ghost_ref_perm@ is Some,
+            !self.is_nullable() ==> r.tracked_ref_perm@ is Some,
     )]
     fn read(&self) -> RcuReadGuardInner<'_, P> {
         let guard = disable_preempt();
         proof_decl! {
-            let tracked mut ghost_ref_perm: Option<RcuReadToken<P>> = None;
+            let tracked mut tracked_ref_perm: Option<RcuReadToken<P>> = None;
         }
-        let obj_ptr = #[verus_spec(with => Tracked(ghost_ref_perm))]
+        let obj_ptr = #[verus_spec(with => Tracked(tracked_ref_perm))]
         self.load_read_token();
         RcuReadGuardInner {
             obj_ptr,
             rcu: self,
             _inner_guard: guard,
-            ghost_ref_perm: Tracked(ghost_ref_perm),
+            tracked_ref_perm: Tracked(tracked_ref_perm),
         }
     }
 
@@ -429,33 +429,40 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         _guard: &'a A,  // &'a dyn InAtomicMode is not well-supported in Verus.
     ) -> Option<<P as NonNullPtrRef<'a>>::Ref> where P: NonNullPtrRef<'a> {
         proof_decl! {
-            let tracked mut ghost_ref_perm: Option<RcuReadToken<P>> = None;
+            let tracked mut tracked_ref_perm: Option<RcuReadToken<P>> = None;
         }
-        let obj_ptr = #[verus_spec(with => Tracked(ghost_ref_perm))]
+        let obj_ptr = #[verus_spec(with => Tracked(tracked_ref_perm))]
         self.load_read_token();
         if obj_ptr.is_null() {
             return None;
         }
-        // NonNull::new(obj_ptr).map(|ptr| unsafe { P::raw_as_ref(ptr) })
-
-        let ptr = NonNull::new(obj_ptr).unwrap();
         proof_decl! {
             // `read_with` returns only the reference and has no guard object to
             // store the read token. For this temporary skeleton, leak the
             // verification-only token so the returned ref can borrow it for
             // `'a`. The final RCU proof should attach this token to the
             // atomic-mode/CPU epoch state instead.
-            let tracked ghost_ref_perm = ghost_ref_perm.tracked_unwrap();
-            let tracked ghost_ref_perm = tracked_static_ref(ghost_ref_perm);
-            let tracked ghost_ref_perm: <P as NonNullPtrRef<'a>>::RefPermission =
-                P::borrow_perm_as_ref_perm(ghost_ref_perm.borrow());
+            let tracked tracked_ref_perm = tracked_ref_perm.tracked_unwrap();
+            let tracked tracked_ref_perm = tracked_static_ref(tracked_ref_perm);
+            let tracked tracked_ref_perm: <P as NonNullPtrRef<'a>>::RefPermission =
+                P::borrow_perm_as_ref_perm(tracked_ref_perm.borrow());
         }
         // SAFETY:
         // 1. This pointer is not NULL.
         // 2. The `_guard` guarantees atomic mode for the duration of lifetime
         //    `'a`, the pointer is valid because other writers won't release the
         //    allocation until this task passes the quiescent state.
-        Some(unsafe { P::raw_as_ref(ptr, Tracked(ghost_ref_perm)) })
+        NonNull::new(obj_ptr).map(
+            |ptr|
+                requires
+                    P::ptr_perm_match(
+                        ptr.view_ptr_mut(),
+                        P::ref_perm_view_permission(tracked_ref_perm),
+                    ),
+                {
+                    unsafe { P::raw_as_ref(ptr, Tracked(tracked_ref_perm)) }
+                },
+        )
     }
 }
 
@@ -480,7 +487,7 @@ struct RcuReadGuardInner<'a, P: NonNullPtr> {
     obj_ptr: *mut <P as NonNullPtr>::Target,
     rcu: &'a RcuInner<P>,
     _inner_guard: DisabledPreemptGuard,
-    ghost_ref_perm: Tracked<Option<RcuReadToken<P>>>,
+    tracked_ref_perm: Tracked<Option<RcuReadToken<P>>>,
 }
 
 #[verus_verify]
@@ -488,28 +495,34 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
     #[inline]
     #[verus_spec(r =>
         ensures
-            self.ghost_ref_perm@ is Some ==> r is Some,
+            self.tracked_ref_perm@ is Some ==> r is Some,
     )]
     fn get<'b>(&'b self) -> Option<<P as NonNullPtrRef<'b>>::Ref> where P: NonNullPtrRef<'b> {
         proof {
             use_type_invariant(self);
         }
+
         // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
         // outlives the lifetime of `&self`. Additionally, during this period,
         // it is impossible to create a mutable reference to `P`.
-        let Some(ptr) = NonNull::new(self.obj_ptr) else {
-            return None;
-        };
-
-        proof_decl! {
-            let tracked ghost_ref_perm: <P as NonNullPtrRef<'b>>::RefPermission =
-                match self.ghost_ref_perm.borrow() {
-                    Some(perm) => P::borrow_perm_as_ref_perm(perm.borrow()),
-                    None => proof_from_false(),
-                };
-        }
-
-        Some(unsafe { P::raw_as_ref(ptr, Tracked(ghost_ref_perm)) })
+        NonNull::new(self.obj_ptr).map(
+            |ptr|
+                requires
+                    self.tracked_ref_perm@ is Some,
+                    P::ptr_perm_match(ptr.view_ptr_mut(), self.tracked_ref_perm->0.resource()),
+                {
+                    unsafe {
+                        P::raw_as_ref(
+                            ptr,
+                            Tracked(
+                                P::borrow_perm_as_ref_perm(
+                                    self.tracked_ref_perm.tracked_borrow().borrow(),
+                                ),
+                            ),
+                        )
+                    }
+                },
+        )
     }
 
     #[verus_spec(r =>
@@ -525,7 +538,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             use_type_invariant(self.rcu);
         }
         proof_decl! {
-            let tracked mut ghost_ref_perm = self.ghost_ref_perm.get();
+            let tracked mut tracked_ref_perm = self.tracked_ref_perm.get();
             let ghost new_ptr_is_some = new_ptr is Some;
             let tracked mut old_perm: Option<RcuReadPool<P>> = None;
             let tracked mut err_new_perm: Option<Option<<P as NonNullPtr>::Permission>> = None;
@@ -567,8 +580,8 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                 } else {
                     err_new_perm = Some(new_perm);
                 }
-                if ghost_ref_perm is Some {
-                    let tracked token = ghost_ref_perm.tracked_unwrap();
+                if tracked_ref_perm is Some {
+                    let tracked token = tracked_ref_perm.tracked_unwrap();
                     let ghost id = token.id();
                     if g.retired.contains_key(id) {
                         let tracked entry = g.retired.tracked_remove(id);
@@ -627,15 +640,15 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             use_type_invariant(rcu);
         }
         proof_decl! {
-            let tracked mut ghost_ref_perm = self.ghost_ref_perm.get();
+            let tracked mut tracked_ref_perm = self.tracked_ref_perm.get();
         }
         atomic_with_ghost! {
             rcu.ptr => load();
             update prev -> _next;
             returning _loaded;
             ghost g => {
-                if ghost_ref_perm is Some {
-                    let tracked token = ghost_ref_perm.tracked_unwrap();
+                if tracked_ref_perm is Some {
+                    let tracked token = tracked_ref_perm.tracked_unwrap();
                     let ghost id = token.id();
                     if g.current is Some {
                         let tracked mut pool = g.current.tracked_unwrap();
@@ -846,15 +859,12 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
     /// [the ABA problem](https://en.wikipedia.org/wiki/ABA_problem).
     #[inline]
     pub fn compare_exchange(self, new_ptr: P) -> Result<(), P> {
-        match self.0.compare_exchange(Some(new_ptr)) {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                proof {
-                    assert(err is Some);
-                }
-                Err(err.unwrap())
-            },
-        }
+        self.0.compare_exchange(Some(new_ptr)).map_err(
+            |err|
+                requires
+                    err is Some,
+                { err.unwrap() },
+        )
     }
 }
 
@@ -945,7 +955,6 @@ unsafe fn delay_drop<P: NonNullPtr + Send>(pointer: NonNull<<P as NonNullPtr>::T
 ///
 /// [`RcuDrop<T>`] is guaranteed to have the same layout as `T`. You can also
 /// access the inner value safely via [`RcuDrop<T>`].
-// #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RcuDrop<T: Send + 'static> {
@@ -1083,7 +1092,7 @@ impl<'a, P: NonNullPtr> RcuReadGuard<'a, P> {
     closed spec fn type_inv(self) -> bool {
         &&& self.0.type_inv()
         &&& !self.0.rcu.is_nullable()
-        &&& self.0.ghost_ref_perm@ is Some
+        &&& self.0.tracked_ref_perm@ is Some
     }
 }
 
@@ -1098,7 +1107,7 @@ impl<'a, P: NonNullPtr> RcuOptionReadGuard<'a, P> {
 impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        match self.ghost_ref_perm@ {
+        match self.tracked_ref_perm@ {
             Some(perm) => {
                 &&& !self.obj_ptr.is_null()
                 &&& P::ptr_perm_match(self.obj_ptr, perm.resource())

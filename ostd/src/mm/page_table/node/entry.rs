@@ -702,6 +702,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// - **Safety Invariants**: The node allocated in place of the split page satisfies the safety invariants.
     /// - **Safety**: All other nodes have their invariants preserved.
     #[verifier::spinoff_prover]
+    #[verifier::rlimit(80)]
     #[verus_spec(res =>
         with Tracked(owner) : Tracked<&mut OwnerSubtree<C>>,
             Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
@@ -961,7 +962,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             assert(small_pa % PAGE_SIZE == 0);
 
-            let tracked child_owner = EntryOwner::new_frame(
+            let tracked child_owner = EntryOwner::tracked_new_frame(
                 small_pa,
                 new_owner.value.path.push_tail(i as usize),
                 (level - 1) as PagingLevel,

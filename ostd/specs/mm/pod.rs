@@ -100,6 +100,26 @@ pub broadcast axiom fn axiom_pod_bytes_injective<T: Pod>(v1: T, v2: T)
         #[trigger] pod_bytes(v1) == #[trigger] pod_bytes(v2) ==> v1 == v2,
 ;
 
+/// The Pod value whose byte representation equals `bytes` (when one exists).
+///
+/// Defined via `choose` over the injective [`pod_bytes`]; if no Pod value
+/// maps to `bytes`, the result is arbitrary. Callers should establish
+/// existence before relying on the returned value.
+pub open spec fn decode_pod<T: Pod>(bytes: Seq<u8>) -> T {
+    choose|v: T| pod_bytes::<T>(v) == bytes
+}
+
+/// Round-trip: `decode_pod(pod_bytes(v)) == v` by injectivity.
+pub broadcast proof fn lemma_decode_pod_inverse<T: Pod>(v: T)
+    ensures
+        #[trigger] decode_pod::<T>(pod_bytes::<T>(v)) == v,
+{
+    let bytes = pod_bytes::<T>(v);
+    let chosen: T = choose|w: T| pod_bytes::<T>(w) == bytes;
+    assert(pod_bytes::<T>(chosen) == bytes);
+    broadcast use axiom_pod_bytes_injective;
+}
+
 } // verus!
 
 macro_rules! impl_pod_for_primitive {

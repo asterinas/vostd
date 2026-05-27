@@ -32,18 +32,23 @@ use crate::mm::PagingConstsTrait;
 use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::arch::PagingConsts;
 use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_index_spec};
-use crate::specs::mm::frame::meta_owners::{is_mmio_paddr, PageUsage, REF_COUNT_MAX};
+use crate::specs::mm::frame::meta_owners::{
+    is_mmio_paddr, MetaSlotStorage, PageUsage, REF_COUNT_MAX,
+};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};
 use crate::specs::mm::page_table::*;
 use crate::specs::task::InAtomicMode;
+use vstd_extra::cast_ptr::Repr;
 
 //static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
 
 verus! {
 
 /// Spec representation of Frame<T> as DynFrame (used when the actual conversion is opaque).
-pub open spec fn frame_as_dynframe<T: AnyFrameMeta>(frame: Frame<T>) -> DynFrame {
+pub open spec fn frame_as_dynframe<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
+    frame: Frame<T>,
+) -> DynFrame {
     DynFrame { ptr: frame.ptr, _marker: PhantomData }
 }
 
@@ -60,7 +65,7 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
 
 /// Spec function: the entry owner correctly matches the frame and property for mapping.
 #[allow(private_interfaces)]
-pub open spec fn frame_entry_wf<T: AnyFrameMeta>(
+pub open spec fn frame_entry_wf<T: AnyFrameMeta + Repr<MetaSlotStorage>>(
     frame: Frame<T>,
     prop: PageProperty,
     entry_owner: EntryOwner<KernelPtConfig>,
@@ -971,11 +976,11 @@ impl KVirtArea {
 
                 // Reinsert a fresh owner for this paddr so later iterations on the
                 // same frame reuse it. `new_frame` fabricates an `EntryOwner` with
-                // the correct `new_frame_spec` shape for the paddr/level/prop;
+                // the correct `new_frame` shape for the paddr/level/prop;
                 // `frame_entry_wf` holds for any future frame at the same paddr.
                 // Note: `new_frame` returns with `in_scope = true`; clear it for
                 // `inv()` to hold (which requires `!in_scope`).
-                let tracked mut fresh = EntryOwner::<KernelPtConfig>::new_frame(
+                let tracked mut fresh = EntryOwner::<KernelPtConfig>::tracked_new_frame(
                     cur_mapped_pa,
                     cur_path,
                     cur_parent_level,

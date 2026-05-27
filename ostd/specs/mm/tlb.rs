@@ -32,7 +32,7 @@ impl Inv for TlbModel {
 }
 
 impl TlbModel {
-    pub open spec fn update_spec(self, pt: PageTableView, va: Vaddr) -> Self
+    pub open spec fn update(self, pt: PageTableView, va: Vaddr) -> Self
     {
         let m = pt.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).choose();
         TlbModel {
@@ -41,15 +41,15 @@ impl TlbModel {
         }
     }
 
-    pub axiom fn update(&mut self, pt: PageTableView, va: Vaddr)
+    pub axiom fn tracked_update(&mut self, pt: PageTableView, va: Vaddr)
         requires
             old(self).inv(),
             forall|m: Mapping| old(self).mappings has m ==> !(m.va_range.start <= va < m.va_range.end),
             exists|m: Mapping| pt.mappings has m ==> m.va_range.start <= va < m.va_range.end,
         ensures
-            *final(self) == old(self).update_spec(pt, va);
+            *final(self) == old(self).update(pt, va);
 
-    pub open spec fn flush_spec(self, va: Vaddr) -> Self
+    pub open spec fn flush(self, va: Vaddr) -> Self
     {
         let m = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
         TlbModel {
@@ -58,11 +58,11 @@ impl TlbModel {
         }
     }
 
-    pub axiom fn flush(&mut self, va: Vaddr)
+    pub axiom fn tracked_flush(&mut self, va: Vaddr)
         requires
             old(self).inv(),
         ensures
-            *final(self) == old(self).flush_spec(va);
+            *final(self) == old(self).flush(va);
 
     pub open spec fn consistent_with_pt(self, pt: PageTableView) -> bool {
         self.mappings <= pt.mappings
@@ -72,7 +72,7 @@ impl TlbModel {
         requires
             self.inv(),
         ensures
-            self.flush_spec(va).inv()
+            self.flush(va).inv()
     { }
 
     pub proof fn lemma_update_preserves_consistent(self, pt: PageTableView, va: Vaddr)
@@ -82,7 +82,7 @@ impl TlbModel {
             self.consistent_with_pt(pt),
             exists|m: Mapping| pt.mappings has m && m.va_range.start <= va < m.va_range.end,
         ensures
-            self.update_spec(pt, va).consistent_with_pt(pt),
+            self.update(pt, va).consistent_with_pt(pt),
     {
         let filtered = pt.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
         let m = filtered.choose();
@@ -107,7 +107,7 @@ impl TlbModel {
             self.inv()
     { }
 
-    pub open spec fn issue_tlb_flush_spec(self, op: TlbFlushOp) -> Self
+    pub open spec fn issue_tlb_flush(self, op: TlbFlushOp) -> Self
     {
         TlbModel {
             pending: self.pending.push(op),
@@ -115,11 +115,11 @@ impl TlbModel {
         }
     }
 
-    pub proof fn issue_tlb_flush(tracked &mut self, tracked op: TlbFlushOp)
+    pub proof fn tracked_issue_tlb_flush(tracked &mut self, tracked op: TlbFlushOp)
         requires
             old(self).inv(),
         ensures
-            *final(self) == old(self).issue_tlb_flush_spec(op),
+            *final(self) == old(self).issue_tlb_flush(op),
             final(self).inv()
         {
             self.pending.tracked_push(op);
@@ -134,8 +134,8 @@ impl TlbModel {
         };
         match op {
             TlbFlushOp::All => popped,
-            TlbFlushOp::Address(va) => popped.flush_spec(va),
-            TlbFlushOp::Range(range) => popped.flush_spec(range.start),
+            TlbFlushOp::Address(va) => popped.flush(va),
+            TlbFlushOp::Range(range) => popped.flush(range.start),
         }
     }
 
