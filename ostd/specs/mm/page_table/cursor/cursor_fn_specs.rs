@@ -15,7 +15,6 @@ use core::ops::Range;
 verus! {
 
 // ─── Cursor specs ─────────────────────────────────────────────────────────────
-
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     pub open spec fn cursor_new_success_conditions(va: &Range<Vaddr>) -> bool {
         &&& va.start < va.end
@@ -97,8 +96,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// `node_start == nat_align_down(self.va, page_size(lv + 1))` and
     /// `node_size == page_size(lv + 1)`).
     pub open spec fn jump_node_holds(self, lv: PagingLevel, va: Vaddr) -> bool {
-        let nstart =
-            nat_align_down(self.va as nat, page_size((lv + 1) as PagingLevel) as nat);
+        let nstart = nat_align_down(self.va as nat, page_size((lv + 1) as PagingLevel) as nat);
         &&& nstart <= va as nat
         &&& (va as nat) - nstart < page_size((lv + 1) as PagingLevel) as nat
     }
@@ -114,11 +112,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// reach `va` via a shared ancestor node does **not** satisfy it.
     pub open spec fn jump_panic_condition(self, va: Vaddr) -> bool {
         ||| va % PAGE_SIZE != 0
-        ||| (self.barrier_va.start <= va < self.barrier_va.end
-             && forall|lv: PagingLevel|
-                 #![trigger self.jump_node_holds(lv, va)]
-                 self.level <= lv <= self.guard_level
-                     ==> !self.jump_node_holds(lv, va))
+        ||| (self.barrier_va.start <= va < self.barrier_va.end && forall|lv: PagingLevel|
+            #![trigger self.jump_node_holds(lv, va)]
+            self.level <= lv <= self.guard_level ==> !self.jump_node_holds(lv, va))
     }
 
     pub open spec fn find_next_panic_condition(self, len: usize) -> bool {
@@ -128,7 +124,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 }
 
 // ─── CursorMut specs ──────────────────────────────────────────────────────────
-
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     // TODO: trace the `level >= guard_level` panic to its actual location in `pop_level`
     // (unwrap of None path entry). The lock treatment of the invariant has now been
@@ -164,21 +159,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let (pa, level, prop) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
         &&& regions.slots.contains_key(idx)
-        &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+            != REF_COUNT_UNUSED
         // Tracked items hold a refcount; untracked (MMIO) don't.
-        &&& C::tracked(item) ==>
-            regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+        &&& C::tracked(item) ==> regions.slot_owners[idx].inner_perms.ref_count.value()
+            > 0
         // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
         &&& level > 1 ==> {
-            forall |j: usize| #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
+            forall|j: usize|
+                #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
                 0 < j < page_size(level) / PAGE_SIZE ==> {
-                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                &&& regions.slots.contains_key(sub_idx)
-                &&& C::tracked(item) ==>
-                    regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& C::tracked(item) ==>
-                    regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-            }
+                    let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                    &&& regions.slots.contains_key(sub_idx)
+                    &&& C::tracked(item)
+                        ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                    &&& C::tracked(item)
+                        ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                }
         }
     }
 

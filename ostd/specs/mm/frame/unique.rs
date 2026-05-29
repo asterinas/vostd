@@ -71,7 +71,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> ModelOf for UniqueFrame<
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
-
     pub open spec fn perm_inv(self, perm: vstd::simple_pptr::PointsTo<MetaSlot>) -> bool {
         &&& perm.is_init()
         &&& perm.addr() == self.meta_perm.addr()
@@ -103,10 +102,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& res.meta_perm.addr() == frame_to_meta(paddr)
         &&& res.meta_perm.value().metadata == metadata
         &&& regions.slots == old_regions.slots.remove(frame_to_index(paddr))
-        &&& regions.slot_owners[frame_to_index(paddr)].raw_count == old_regions.slot_owners[frame_to_index(paddr)].raw_count
-        &&& regions.slot_owners[frame_to_index(paddr)].usage == old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
-        &&& forall|i: usize| i != frame_to_index(paddr) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
+        &&& regions.slot_owners[frame_to_index(paddr)].raw_count
+            == old_regions.slot_owners[frame_to_index(paddr)].raw_count
+        &&& regions.slot_owners[frame_to_index(paddr)].usage
+            == old_regions.slot_owners[frame_to_index(paddr)].usage
+        &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt
+            == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
+        &&& forall|i: usize|
+            i != frame_to_index(paddr) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& regions.inv()
     }
 
@@ -115,9 +118,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         paddr: Paddr,
         meta_perm: PointsTo<MetaSlot, Metadata<M>>,
     ) -> (tracked res: Self)
-    ensures
-        Self::from_unused_owner(*old(regions), paddr, meta_perm.value().metadata, res, *final(regions));
-    /* {
+        ensures
+            Self::from_unused_owner(
+                *old(regions),
+                paddr,
+                meta_perm.value().metadata,
+                res,
+                *final(regions),
+            ),
+    ;/* {
         let tracked perm = regions.slots.tracked_remove(frame_to_index(paddr));
         UniqueFrameOwner::<M> {
             meta_own: regions.slot_owners[frame_to_index(paddr)],
@@ -125,6 +134,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
             slot_index: frame_to_index(paddr)
         }
     }*/
+
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFrame<M> {
@@ -133,14 +143,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0
-        &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& s.slot_owners[frame_to_index(
+            meta_to_frame(self.ptr.addr()),
+        )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
         &&& s.inv()
     }
 
     open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 1
-        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
+                == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.inv()
     }
@@ -160,12 +174,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0
-        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
+                == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.inv()
     }
-
 }
 
-}
+} // verus!

@@ -11,7 +11,6 @@
 //! as correctness of low-level virtual memory operations that are used by them.
 //!
 //! [`VmSpace`]: crate::mm::vm_space::VmSpace
-
 use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 
@@ -78,7 +77,6 @@ impl Inv for FrameContents {
     }
 }
 
-
 /// A local virtual-memory view used in proofs.
 ///
 /// A [`MemView`] pairs:
@@ -95,7 +93,7 @@ pub tracked struct MemView {
     /// Virtual-to-physical mapping set used for address translation.
     pub mappings: Set<Mapping>,
     /// Physical frame contents for mapped pages referenced by [`Self::mappings`].
-    pub memory: Map<Paddr, FrameContents>
+    pub memory: Map<Paddr, FrameContents>,
 }
 
 impl MemView {
@@ -127,10 +125,16 @@ impl MemView {
     pub open spec fn write(self, va: usize, x: u8) -> Self {
         let (pa, off) = self.addr_transl(va)->0;
         MemView {
-            memory: self.memory.insert(pa, FrameContents {
-                contents: self.memory[pa].contents.update(off as int, raw_ptr::MemContents::Init(x)),
-                ..self.memory[pa]
-            }),
+            memory: self.memory.insert(
+                pa,
+                FrameContents {
+                    contents: self.memory[pa].contents.update(
+                        off as int,
+                        raw_ptr::MemContents::Init(x),
+                    ),
+                    ..self.memory[pa]
+                },
+            ),
             ..self
         }
     }
@@ -159,9 +163,7 @@ impl MemView {
         if len == 0 {
             Seq::empty()
         } else {
-            seq![self.read(va).value()].add(
-                self.read_bytes((va + 1) as usize, (len - 1) as usize),
-            )
+            seq![self.read(va).value()].add(self.read_bytes((va + 1) as usize, (len - 1) as usize))
         }
     }
 
@@ -180,12 +182,7 @@ impl MemView {
     }
 
     /// Lemma: [`Self::write_bytes`] preserves [`Self::addr_transl`] at every address.
-    pub proof fn lemma_write_bytes_addr_transl(
-        self,
-        va: usize,
-        bytes: Seq<u8>,
-        query: usize,
-    )
+    pub proof fn lemma_write_bytes_addr_transl(self, va: usize, bytes: Seq<u8>, query: usize)
         ensures
             self.write_bytes(va, bytes).addr_transl(query) == self.addr_transl(query),
         decreases bytes.len(),
@@ -234,8 +231,7 @@ impl MemView {
 
         let valid_pas = Set::new(
             |pa: usize|
-                exists |va: usize|
-                    vaddr <= va < range_end && #[trigger] self.is_mapped(va, pa),
+                exists|va: usize| vaddr <= va < range_end && #[trigger] self.is_mapped(va, pa),
         );
 
         MemView {
@@ -270,8 +266,7 @@ impl MemView {
         let right_mappings = self.mappings.filter(|m: Mapping| m.va_range.end > split_end);
 
         let left_pas = Set::new(
-            |pa: usize|
-                exists|va: usize| vaddr <= va < split_end && self.is_mapped(va, pa),
+            |pa: usize| exists|va: usize| vaddr <= va < split_end && self.is_mapped(va, pa),
         );
         let right_pas = Set::new(
             |pa: usize| exists|va: usize| va >= split_end && self.is_mapped(va, pa),
@@ -296,7 +291,6 @@ impl MemView {
     {
         unimplemented!()
     }
-
 
     /// Tracked wrapper of [`Self::split`].
     ///
@@ -360,8 +354,9 @@ impl MemView {
             );
 
             assert(l_mappings <= o_mappings);
-            assert forall|m: Mapping| #[trigger]
-                o_mappings.contains(m) implies l_mappings.contains(m) by {
+            assert forall|m: Mapping| #[trigger] o_mappings.contains(m) implies l_mappings.contains(
+                m,
+            ) by {
                 assert(left.mappings.contains(m));
             };
             assert(o_mappings <= l_mappings);
@@ -439,10 +434,10 @@ impl MemView {
     )
         requires
             this.split(vaddr, len) == (lhs, rhs),
-            forall|m: Mapping|
-                #[trigger] this.mappings.contains(m) ==> vaddr <= m.va_range.start < m.va_range.end,
-            forall|pa: Paddr|
-                #[trigger] this.memory.contains_key(pa) ==> exists |va: usize|
+            forall|m: Mapping| #[trigger]
+                this.mappings.contains(m) ==> vaddr <= m.va_range.start < m.va_range.end,
+            forall|pa: Paddr| #[trigger]
+                this.memory.contains_key(pa) ==> exists|va: usize|
                     vaddr <= va && #[trigger] this.is_mapped(va, pa),
         ensures
             this.mappings == lhs.join(rhs).mappings,
@@ -470,11 +465,9 @@ impl MemView {
         ensures
             forall|va: usize|
                 #![trigger original.read(va)]
-                va >= vaddr + len
-                && original.addr_transl(va) is Some
-                && original.memory.contains_key(
-                    original.addr_transl(va).unwrap().0
-                ) ==> original.read(va) == right.read(va),
+                va >= vaddr + len && original.addr_transl(va) is Some
+                    && original.memory.contains_key(original.addr_transl(va).unwrap().0)
+                    ==> original.read(va) == right.read(va),
     {
         Self::lemma_split_preserves_transl(original, vaddr, len, left, right);
         let split_end = vaddr + len;
@@ -483,10 +476,8 @@ impl MemView {
         );
         assert(right.memory =~= original.memory.restrict(right_pas));
         assert forall|va: usize|
-            va >= split_end
-            && original.addr_transl(va) is Some
-            && original.memory.contains_key(
-                original.addr_transl(va).unwrap().0
+            va >= split_end && original.addr_transl(va) is Some && original.memory.contains_key(
+                original.addr_transl(va).unwrap().0,
             ) implies #[trigger] original.read(va) == right.read(va) by {
             assert(original.addr_transl(va) == right.addr_transl(va));
             let pa = original.addr_transl(va).unwrap().0;
@@ -497,12 +488,7 @@ impl MemView {
     }
 
     /// Lemma: pointwise [`Self::read`] equality implies [`Self::read_bytes`] equality.
-    pub proof fn lemma_read_bytes_eq_pointwise(
-        a: MemView,
-        b: MemView,
-        va: usize,
-        n: usize,
-    )
+    pub proof fn lemma_read_bytes_eq_pointwise(a: MemView, b: MemView, va: usize, n: usize)
         requires
             forall|i: usize| va <= i < va + n ==> a.read(i) == b.read(i),
             va + n <= usize::MAX,
@@ -541,8 +527,7 @@ impl Copy for VirtPtr {
 impl VirtPtr {
     /// Creates a pointer at `vaddr` with logical range `[vaddr, vaddr + len)`.
     #[vstd::contrib::auto_spec]
-    pub fn new(vaddr: Vaddr, len: usize) -> Self
-    {
+    pub fn new(vaddr: Vaddr, len: usize) -> Self {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }
 
@@ -575,7 +560,9 @@ impl VirtPtr {
     pub fn read(self, Tracked(mem): Tracked<&MemView>) -> u8
         requires
             mem.addr_transl(self.vaddr) is Some,
-            mem.memory[mem.addr_transl(self.vaddr).unwrap().0].contents[mem.addr_transl(self.vaddr).unwrap().1 as int] is Init,
+            mem.memory[mem.addr_transl(self.vaddr).unwrap().0].contents[mem.addr_transl(
+                self.vaddr,
+            ).unwrap().1 as int] is Init,
             self.is_valid(),
         returns
             mem.read(self.vaddr).value(),
@@ -628,7 +615,9 @@ impl VirtPtr {
                 self.vaddr <= i < self.vaddr + core::mem::size_of::<T>() ==> {
                     &&& mem.addr_transl(i) is Some
                     &&& mem.memory.contains_key(mem.addr_transl(i).unwrap().0)
-                    &&& mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(i).unwrap().1 as int] is Init
+                    &&& mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(
+                        i,
+                    ).unwrap().1 as int] is Init
                 },
         ensures
             pod_bytes(val) == mem.read_bytes(self.vaddr, core::mem::size_of::<T>()),
@@ -708,7 +697,9 @@ impl VirtPtr {
 
             0 <= old(self).vaddr + n < usize::MAX,
         ensures
-            *final(self) == old(self).add_spec(n),
+            *final(self) == old(self).add_spec(
+                n,
+            ),
     // If we take option 1, we can also ensure:
     // self.is_defined()
 
@@ -748,7 +739,8 @@ impl VirtPtr {
     /// Returns a new pointer whose address is `self.vaddr` advanced by `n`
     /// bytes using wrapping arithmetic.
     pub fn wrapping_add(self, n: usize) -> (res: Self)
-        returns self.wrapping_add_spec(n),
+        returns
+            self.wrapping_add_spec(n),
     {
         VirtPtr { vaddr: self.vaddr.wrapping_add(n), range: self.range }
     }
@@ -791,7 +783,11 @@ impl VirtPtr {
             self.vaddr + n < usize::MAX,
             self.range@.start <= self.vaddr + n < self.range@.end,
             mem.addr_transl((self.vaddr + n) as usize) is Some,
-            mem.memory[mem.addr_transl((self.vaddr + n) as usize).unwrap().0].contents[mem.addr_transl((self.vaddr + n) as usize).unwrap().1 as int] is Init,
+            mem.memory[mem.addr_transl(
+                (self.vaddr + n) as usize,
+            ).unwrap().0].contents[mem.addr_transl(
+                (self.vaddr + n) as usize,
+            ).unwrap().1 as int] is Init,
         returns
             self.read_offset_spec(*mem, n),
     {
@@ -826,7 +822,13 @@ impl VirtPtr {
         tmp.write(Tracked(mem), x)
     }
 
-    pub open spec fn copy_offset_spec(src: Self, dst: Self, mem_src: MemView, mem_dst: MemView, n: usize) -> MemView {
+    pub open spec fn copy_offset_spec(
+        src: Self,
+        dst: Self,
+        mem_src: MemView,
+        mem_dst: MemView,
+        n: usize,
+    ) -> MemView {
         let x = src.read_offset_spec(mem_src, n);
         dst.write_offset_spec(mem_dst, n, x)
     }
@@ -847,7 +849,13 @@ impl VirtPtr {
     /// - `*mem_dst == Self::copy_offset_spec(*src, *dst, *mem_src, *old(mem_dst), n)`.
     /// - `mem_dst.mappings == old(mem_dst).mappings`.
     /// - `mem_dst.memory.dom() == old(mem_dst).memory.dom()`.
-    pub fn copy_offset(src: &Self, dst: &Self, Tracked(mem_src): Tracked<&MemView>, Tracked(mem_dst): Tracked<&mut MemView>, n: usize)
+    pub fn copy_offset(
+        src: &Self,
+        dst: &Self,
+        Tracked(mem_src): Tracked<&MemView>,
+        Tracked(mem_dst): Tracked<&mut MemView>,
+        n: usize,
+    )
         requires
             src.inv(),
             dst.inv(),
@@ -856,8 +864,11 @@ impl VirtPtr {
             src.range@.start <= src.vaddr + n < src.range@.end,
             mem_src.addr_transl((src.vaddr + n) as usize) is Some,
             mem_src.memory.contains_key(mem_src.addr_transl((src.vaddr + n) as usize).unwrap().0),
-            mem_src.memory[mem_src.addr_transl((src.vaddr + n) as usize).unwrap().0].contents[mem_src.addr_transl((src.vaddr + n) as usize).unwrap().1 as int] is Init,
-
+            mem_src.memory[mem_src.addr_transl(
+                (src.vaddr + n) as usize,
+            ).unwrap().0].contents[mem_src.addr_transl(
+                (src.vaddr + n) as usize,
+            ).unwrap().1 as int] is Init,
             dst.range@.start <= dst.vaddr + n < dst.range@.end,
             old(mem_dst).addr_transl((dst.vaddr + n) as usize) is Some,
         ensures
@@ -869,7 +880,13 @@ impl VirtPtr {
         dst.write_offset(Tracked(mem_dst), n, x)
     }
 
-    pub open spec fn memcpy_spec(src: Self, dst: Self, mem_src: MemView, mem_dst: MemView, n: usize) -> MemView
+    pub open spec fn memcpy_spec(
+        src: Self,
+        dst: Self,
+        mem_src: MemView,
+        mem_dst: MemView,
+        n: usize,
+    ) -> MemView
         decreases n,
     {
         if n == 0 {
@@ -917,7 +934,9 @@ impl VirtPtr {
                 src.vaddr <= i < src.vaddr + n ==> {
                     &&& mem_src.addr_transl(i) is Some
                     &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
-                    &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
+                    &&& mem_src.memory[mem_src.addr_transl(
+                        i,
+                    ).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
                 },
             dst.range@.start <= dst.vaddr,
             dst.vaddr + n <= dst.range@.end,
@@ -934,11 +953,11 @@ impl VirtPtr {
                 #![trigger final(mem_dst).addr_transl(i)]
                 dst.vaddr <= i < dst.vaddr + n ==> {
                     &&& final(mem_dst).addr_transl(i) is Some
-            },
+                },
         decreases n,
     {
         if n == 0 {
-            return ;
+            return;
         } else {
             let ghost mem0 = *mem_dst;
 
@@ -946,9 +965,8 @@ impl VirtPtr {
 
             proof {
                 assert(forall|i: usize|
-                    dst.vaddr <= i < dst.vaddr + n - 1 ==>
-                    mem_dst.addr_transl(i) == #[trigger] mem0.addr_transl(i)
-                );
+                    dst.vaddr <= i < dst.vaddr + n - 1 ==> mem_dst.addr_transl(i)
+                        == #[trigger] mem0.addr_transl(i));
                 assert forall|i: usize|
                     dst.vaddr <= i < dst.vaddr + n - 1 implies mem_dst.addr_transl(i) is Some by {
                     assert(mem_dst.addr_transl(i) == mem0.addr_transl(i));
@@ -1025,7 +1043,8 @@ impl VirtPtr {
     }
 
     pub fn addr(&self) -> Vaddr
-        returns self.vaddr
+        returns
+            self.vaddr,
     {
         self.vaddr
     }
@@ -1041,24 +1060,25 @@ pub tracked struct GlobalMemView {
 }
 
 impl Inv for GlobalMemView {
-
     open spec fn inv(self) -> bool {
-        &&& forall |m: Mapping| #![auto] self.tlb_mappings.contains(m) ==> {
-            &&& m.inv()
-            &&& forall|pa: Paddr| m.pa_range.start <= pa < m.pa_range.end ==> {
-                &&& self.memory.dom().contains(pa)
+        &&& forall|m: Mapping|
+            #![auto]
+            self.tlb_mappings.contains(m) ==> {
+                &&& m.inv()
+                &&& forall|pa: Paddr|
+                    m.pa_range.start <= pa < m.pa_range.end ==> {
+                        &&& self.memory.dom().contains(pa)
+                    }
+                &&& self.memory.contains_key(m.pa_range.start)
+                &&& self.memory[m.pa_range.start].size == m.page_size
+                &&& self.memory[m.pa_range.start].inv()
             }
-            &&& self.memory.contains_key(m.pa_range.start)
-            &&& self.memory[m.pa_range.start].size == m.page_size
-            &&& self.memory[m.pa_range.start].inv()
-        }
-        &&& forall |m: Mapping|
-            forall |n: Mapping| #![auto]
-            self.tlb_mappings.contains(m) ==>
-            self.tlb_mappings.contains(n) ==>
-            m != n ==>
-            #[trigger]
-            m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
+        &&& forall|m: Mapping|
+            forall|n: Mapping|
+                #![auto]
+                self.tlb_mappings.contains(m) ==> self.tlb_mappings.contains(n) ==> m != n
+                    ==> #[trigger] m.va_range.end <= n.va_range.start || n.va_range.end
+                    <= m.va_range.start
         &&& self.tlb_mappings.finite()
         &&& self.pt_mappings.finite()
         &&& self.memory.dom().finite()
@@ -1069,9 +1089,10 @@ impl Inv for GlobalMemView {
 }
 
 impl GlobalMemView {
-
     pub open spec fn addr_transl(self, va: usize) -> Option<(usize, usize)> {
-        let mappings = self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
+        let mappings = self.tlb_mappings.filter(
+            |m: Mapping| m.va_range.start <= va < m.va_range.end,
+        );
         if 0 < mappings.len() {
             let m = mappings.choose();  // In a well-formed TLB there will only be one, but if malformed this is non-deterministic!
             let off = va - m.va_range.start;
@@ -1087,41 +1108,41 @@ impl GlobalMemView {
 
     pub open spec fn all_pas_accounted_for(self) -> bool {
         forall|pa: Paddr|
-            0 <= pa < MAX_PADDR ==>
-            #[trigger] self.is_mapped(pa) || #[trigger] self.unmapped_pas.contains(pa)
+            0 <= pa < MAX_PADDR ==> #[trigger] self.is_mapped(pa)
+                || #[trigger] self.unmapped_pas.contains(pa)
     }
 
     pub open spec fn pas_uniquely_mapped(self) -> bool {
         forall|m1: Mapping, m2: Mapping|
-             #![trigger self.tlb_mappings.contains(m1), self.tlb_mappings.contains(m2)]
-             self.tlb_mappings.contains(m1) && self.tlb_mappings.contains(m2) && m1 != m2 ==>
-            m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
+            #![trigger self.tlb_mappings.contains(m1), self.tlb_mappings.contains(m2)]
+            self.tlb_mappings.contains(m1) && self.tlb_mappings.contains(m2) && m1 != m2
+                ==> m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
     }
 
     pub open spec fn unmapped_correct(self) -> bool {
-        forall|pa: Paddr|
-            #![auto]
-            self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa)
+        forall|pa: Paddr| #![auto] self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa)
     }
 
     pub open spec fn take_view(self, vaddr: usize, len: usize) -> (Self, MemView) {
         let range_end = vaddr + len;
 
         let leave_mappings: Set<Mapping> = self.tlb_mappings.filter(
-            |m: Mapping| m.va_range.end <= vaddr || m.va_range.start > range_end
+            |m: Mapping| m.va_range.end <= vaddr || m.va_range.start > range_end,
         );
 
         let take_mappings = self.tlb_mappings.filter(
-            |m: Mapping| m.va_range.start < range_end && m.va_range.end > vaddr
+            |m: Mapping| m.va_range.start < range_end && m.va_range.end > vaddr,
         );
 
         let leave_pas = Set::new(
             |pa: usize|
-                exists|m: Mapping| leave_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
+                exists|m: Mapping|
+                    leave_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end,
         );
         let take_pas = Set::new(
             |pa: usize|
-                exists|m: Mapping| take_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
+                exists|m: Mapping|
+                    take_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end,
         );
 
         (
@@ -1134,10 +1155,12 @@ impl GlobalMemView {
         )
     }
 
-    pub axiom fn tracked_take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view: MemView)
+    pub axiom fn tracked_take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view:
+        MemView)
         ensures
             *final(self) == old(self).take_view(vaddr, len).0,
-            view == old(self).take_view(vaddr, len).1;
+            view == old(self).take_view(vaddr, len).1,
+    ;
 
     pub open spec fn return_view(self, view: MemView) -> Self {
         GlobalMemView {
@@ -1149,31 +1172,29 @@ impl GlobalMemView {
 
     pub axiom fn tracked_return_view(&mut self, view: MemView)
         ensures
-            *final(self) == old(self).return_view(view);
+            *final(self) == old(self).return_view(view),
+    ;
 
     pub open spec fn tlb_flush_vaddr(self, vaddr: Vaddr) -> Self {
         let tlb_mappings = self.tlb_mappings.filter(
-            |m: Mapping| m.va_range.end <= vaddr || vaddr < m.va_range.start
+            |m: Mapping| m.va_range.end <= vaddr || vaddr < m.va_range.start,
         );
-        GlobalMemView {
-            tlb_mappings,
-            ..self
-        }
+        GlobalMemView { tlb_mappings, ..self }
     }
 
     pub axiom fn tracked_tlb_flush_vaddr(&mut self, vaddr: Vaddr)
         requires
-            old(self).inv()
+            old(self).inv(),
         ensures
             *final(self) == old(self).tlb_flush_vaddr(vaddr),
-            final(self).inv();
+            final(self).inv(),
+    ;
 
     pub open spec fn tlb_soft_fault(self, vaddr: Vaddr) -> Self {
-        let mapping = self.pt_mappings.filter(|m: Mapping| m.va_range.start <= vaddr < m.va_range.end).choose();
-        GlobalMemView {
-            tlb_mappings: self.tlb_mappings.insert(mapping),
-            ..self
-        }
+        let mapping = self.pt_mappings.filter(
+            |m: Mapping| m.va_range.start <= vaddr < m.va_range.end,
+        ).choose();
+        GlobalMemView { tlb_mappings: self.tlb_mappings.insert(mapping), ..self }
     }
 
     pub axiom fn tracked_tlb_soft_fault(tracked &mut self, vaddr: Vaddr)
@@ -1182,48 +1203,42 @@ impl GlobalMemView {
             old(self).addr_transl(vaddr) is None,
         ensures
             *final(self) == old(self).tlb_soft_fault(vaddr),
-            final(self).inv();
+            final(self).inv(),
+    ;
 
     pub open spec fn pt_map(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.insert(m);
         let unmapped_pas = self.unmapped_pas.difference(
-            Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end)
+            Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end),
         );
-        GlobalMemView {
-            pt_mappings,
-            unmapped_pas,
-            ..self
-        }
+        GlobalMemView { pt_mappings, unmapped_pas, ..self }
     }
 
     pub axiom fn tracked_pt_map(&mut self, m: Mapping)
         requires
             forall|pa: Paddr|
-                m.pa_range.start <= pa < m.pa_range.end ==>
-                old(self).unmapped_pas.contains(pa),
-            old(self).inv()
+                m.pa_range.start <= pa < m.pa_range.end ==> old(self).unmapped_pas.contains(pa),
+            old(self).inv(),
         ensures
-            *final(self) == old(self).pt_map(m);
+            *final(self) == old(self).pt_map(m),
+    ;
 
     pub open spec fn pt_unmap(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.remove(m);
         let unmapped_pas = self.unmapped_pas.union(
-            Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end)
+            Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end),
         );
-        GlobalMemView {
-            pt_mappings,
-            unmapped_pas,
-            ..self
-        }
+        GlobalMemView { pt_mappings, unmapped_pas, ..self }
     }
 
     pub axiom fn tracked_pt_unmap(&mut self, m: Mapping)
         requires
             old(self).pt_mappings.contains(m),
-            old(self).inv()
+            old(self).inv(),
         ensures
             *final(self) == old(self).pt_unmap(m),
-            final(self).inv();
+            final(self).inv(),
+    ;
 
     pub proof fn lemma_va_mapping_unique(self, va: usize)
         requires
@@ -1231,7 +1246,9 @@ impl GlobalMemView {
             // Some mapping must cover `va` for the filter to be non-empty.
             self.addr_transl(va) is Some,
         ensures
-            self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).is_singleton(),
+            self.tlb_mappings.filter(
+                |m: Mapping| m.va_range.start <= va < m.va_range.end,
+            ).is_singleton(),
     {
         let f = self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
         // addr_transl is Some iff the filter is non-empty.

@@ -166,7 +166,8 @@ impl MetaSlot {
             == REF_COUNT_UNIQUE)
         &&& owner.inner_perms.storage.is_init()
         &&& owner.inner_perms.in_list.value() == 0
-        &&& owner.raw_count == 0
+        &&& owner.raw_count
+            == 0
         // The slot is torn down to `REF_COUNT_UNUSED`; the strengthened
         // `MetaSlotOwner::inv` UNUSED branch requires an empty
         // `paths_in_pt`, and `drop_last_in_place` does not touch

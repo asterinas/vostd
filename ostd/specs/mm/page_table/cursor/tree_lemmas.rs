@@ -27,9 +27,7 @@ use core::ops::Range;
 verus! {
 
 // ─── Tree predicate lifting (CursorContinuation) ───────────────────
-
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
-
     /// Lift map_children(f) to map_children(g) when implies(f, g).
     pub proof fn map_children_lift(
         self,
@@ -46,15 +44,16 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
-                && self.children[j] is Some implies
-                self.children[j].unwrap().tree_predicate_map(
-                    self.path().push_tail(j as usize), g)
-        by {
+                && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
+            self.path().push_tail(j as usize),
+            g,
+        ) by {
             self.inv_children_unroll(j);
             OwnerSubtree::map_implies(
                 self.children[j].unwrap(),
                 self.path().push_tail(j as usize),
-                f, g,
+                f,
+                g,
             );
         };
     }
@@ -76,27 +75,31 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             cont0.map_children(f),
             self.path() == cont0.path(),
             self.children.len() == cont0.children.len(),
-            forall|j: int| #![auto]
-                0 <= j < NR_ENTRIES && j != idx ==>
-                self.children[j] == cont0.children[j],
-            self.children[idx] is Some ==>
-                self.children[idx].unwrap().tree_predicate_map(
-                    self.path().push_tail(idx as usize), g),
+            forall|j: int|
+                #![auto]
+                0 <= j < NR_ENTRIES && j != idx ==> self.children[j] == cont0.children[j],
+            self.children[idx] is Some ==> self.children[idx].unwrap().tree_predicate_map(
+                self.path().push_tail(idx as usize),
+                g,
+            ),
         ensures
             self.map_children(g),
     {
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
-                && self.children[j] is Some implies
-                self.children[j].unwrap().tree_predicate_map(
-                    self.path().push_tail(j as usize), g)
-        by {
+                && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
+            self.path().push_tail(j as usize),
+            g,
+        ) by {
             if j != idx {
                 cont0.inv_children_unroll(j);
                 OwnerSubtree::map_implies(
                     cont0.children[j].unwrap(),
-                    cont0.path().push_tail(j as usize), f, g);
+                    cont0.path().push_tail(j as usize),
+                    f,
+                    g,
+                );
             }
         };
     }
@@ -108,53 +111,55 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.all_but_index_some(),
             child.all_some(),
         ensures
-            self.restore(child).0.as_subtree() ==
-            self.put_child(child.as_subtree()).as_subtree(),
+            self.restore(child).0.as_subtree() == self.put_child(child.as_subtree()).as_subtree(),
     {
-        assert(self.put_child(child.as_subtree()).children ==
-        self.children.update(self.idx as int, Some(child.as_subtree())));
+        assert(self.put_child(child.as_subtree()).children == self.children.update(
+            self.idx as int,
+            Some(child.as_subtree()),
+        ));
     }
 }
 
 // ─── Tree predicate lifting (CursorOwner) ──────────────────────────
-
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-
     pub proof fn map_children_implies(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
         g: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
     )
-    requires
-        self.inv(),
-        OwnerSubtree::implies(f, g),
-        forall|i: int|
-            #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS ==>
-                    self.continuations[i].map_children(f),
-    ensures
-        forall|i: int|
-            #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==>
-                self.continuations[i].map_children(g),
+        requires
+            self.inv(),
+            OwnerSubtree::implies(f, g),
+            forall|i: int|
+                #![trigger self.continuations[i]]
+                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(f),
+        ensures
+            forall|i: int|
+                #![trigger self.continuations[i]]
+                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(g),
     {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
-                let cont = self.continuations[i];
-                reveal(CursorContinuation::inv_children);
-                assert forall|j: int|
-                    #![trigger cont.children[j]]
-                    0 <= j < cont.children.len() && cont.children[j] is Some
-                        implies cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
-                            cont.inv_children_unroll(j);
-                            OwnerSubtree::map_implies(cont.children[j].unwrap(), cont.path().push_tail(j as usize), f, g);
-                    }
+            let cont = self.continuations[i];
+            reveal(CursorContinuation::inv_children);
+            assert forall|j: int|
+                #![trigger cont.children[j]]
+                0 <= j < cont.children.len()
+                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+            cont.path().push_tail(j as usize), g) by {
+                cont.inv_children_unroll(j);
+                OwnerSubtree::map_implies(
+                    cont.children[j].unwrap(),
+                    cont.path().push_tail(j as usize),
+                    f,
+                    g,
+                );
             }
+        }
     }
 
     // ─── Tree entry level constraints ──────────────────────────
-
     pub proof fn cur_entry_node_implies_level_gt_1(self)
         requires
             self.inv(),
@@ -167,7 +172,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let child = self.cur_subtree();
         assert(child.level < INC_LEVELS - 1);
         assert(cont.level() == self.level) by {
-            if self.level == 1 {} else if self.level == 2 {} else if self.level == 3 {} else {}
+            if self.level == 1 {
+            } else if self.level == 2 {
+            } else if self.level == 3 {
+            } else {
+            }
         };
     }
 
@@ -191,14 +200,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // cur_va is the cursor's current VA (from the call site: cur_va == self.va).
             cur_va == self.cur_va(),
             // Definition: cur_entry_fits_range iff cur_va is at start of entry AND entry end <= end.
-            cur_entry_fits_range == (
-                cur_va == self.cur_va_range().start.to_vaddr()
+            cur_entry_fits_range == (cur_va == self.cur_va_range().start.to_vaddr()
                 && self.cur_va_range().end.to_vaddr() <= end),
             // cur_va and end are PAGE_SIZE-aligned
             cur_va as nat % PAGE_SIZE as nat == 0,
             end as nat % PAGE_SIZE as nat == 0,
         ensures
-            self.level > 1
+            self.level > 1,
     {
         // At level 1, page_size(1) == PAGE_SIZE. cursor inv gives va.offset == 0,
         // so align_down(va, PAGE_SIZE) == va. The range is [va, va + PAGE_SIZE).
@@ -216,10 +224,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     // ─── Tree membership & tracking ────────────────────────────
-
     pub open spec fn not_in_tree(self, owner: EntryOwner<C>) -> bool {
-        self.map_full_tree(|owner0: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner0.meta_slot_paddr_neq(owner))
+        self.map_full_tree(
+            |owner0: EntryOwner<C>, path: TreePath<NR_ENTRIES>| owner0.meta_slot_paddr_neq(owner),
+        )
     }
 
     pub proof fn absent_not_in_tree(self, owner: EntryOwner<C>)
@@ -233,25 +241,27 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(owner);
         let nsp = PageTableOwner::<C>::not_in_scope_pred();
         assert(OwnerSubtree::implies(nsp, g)) by {
-            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+            assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                 entry.inv() && !entry.in_scope implies #[trigger] g(entry, path) by {};
         };
-        assert forall |i: int| #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g)
-        by {
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
-            assert forall |j: int| 0 <= j < NR_ENTRIES
-                && #[trigger] cont.children[j] is Some implies
-                cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g)
-            by {
+            assert forall|j: int|
+                0 <= j < NR_ENTRIES
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+            cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);
-                PageTableOwner::tree_not_in_scope(cont.children[j].unwrap(), cont.path().push_tail(j as usize));
+                PageTableOwner::tree_not_in_scope(
+                    cont.children[j].unwrap(),
+                    cont.path().push_tail(j as usize),
+                );
                 cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), nsp, g);
             };
         };
     }
-
 }
 
 } // verus!

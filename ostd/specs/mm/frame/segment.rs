@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Spec/proof companion for [`crate::mm::frame::segment`].
-
 use vstd::prelude::*;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
@@ -46,7 +45,6 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         true
     }
-
 }
 
 /// A [`SegmentOwner<M>`] holds the permission tokens for all frames in the
@@ -108,13 +106,16 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
             0 <= i < seg_nframes(self.range) ==> {
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
-                &&& regions.slot_owners.contains_key(idx)
+                &&& regions.slot_owners.contains_key(
+                    idx,
+                )
                 // Design B: the slot perm is canonical in `regions.slots`
                 // (borrowable), NOT owned by the segment.
                 &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners[idx].raw_count == 1
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                    > 0
                 // Segment frames are shared (never `UNIQUE`); the upper
                 // bound also keeps post-`fetch_sub` out of the forbidden
                 // `(REF_COUNT_MAX, REF_COUNT_UNIQUE)` zone.
@@ -130,9 +131,9 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
                 frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-            0 <= i < j < seg_nframes(self.range) ==>
-                frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
-                    != frame_to_index((self.range.start + j * PAGE_SIZE) as usize)
+            0 <= i < j < seg_nframes(self.range) ==> frame_to_index(
+                (self.range.start + i * PAGE_SIZE) as usize,
+            ) != frame_to_index((self.range.start + j * PAGE_SIZE) as usize)
     }
 
     /// Manually instantiates the [`relate_regions`] forall at a specific index.
@@ -168,8 +169,9 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
             self.relate_regions(regions),
             0 <= i < j < seg_nframes(self.range),
         ensures
-            frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
-                != frame_to_index((self.range.start + j * PAGE_SIZE) as usize),
+            frame_to_index((self.range.start + i * PAGE_SIZE) as usize) != frame_to_index(
+                (self.range.start + j * PAGE_SIZE) as usize,
+            ),
     {
         // Trigger the distinctness forall at `(i, j)`.
         let _ = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);

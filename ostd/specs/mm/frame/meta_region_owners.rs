@@ -193,7 +193,8 @@ impl MetaRegionOwners {
         ensures
             perm.points_to == old(self).slots[index],
             final(self).slots == old(self).slots.remove(index),
-            final(self).slot_owners == old(self).slot_owners;
+            final(self).slot_owners == old(self).slot_owners,
+    ;
 
     /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
     /// Used by `Frame::from_raw` after the migration to typed slot perms — the perm being
@@ -206,7 +207,8 @@ impl MetaRegionOwners {
     )
         ensures
             final(self).slots == old(self).slots.insert(index, *perm),
-            final(self).slot_owners == old(self).slot_owners;
+            final(self).slot_owners == old(self).slot_owners,
+    ;
 }
 
 } // verus!

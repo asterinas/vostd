@@ -45,7 +45,6 @@
 //!   We assume that branch (i.e., the axioms commit to
 //!   `read_view_initialized()` / `has_write_view()` unconditionally) —
 //!   formally a slight strengthening pending kernel-VA modeling.
-
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
@@ -60,7 +59,6 @@ verus! {
 // =============================================================================
 // _embedded axioms
 // =============================================================================
-
 /// Mirror of [`crate::mm::vm_space::VmSpace::reader`].
 ///
 /// Exec ensures `reader_owner@.unwrap().mem_view is None` ([vm_space.rs:323](crate::mm::vm_space)).
@@ -97,8 +95,8 @@ pub axiom fn vm_space_writer_embedded<'a>(
 /// the produced owner satisfies `read_view_initialized()`. We
 /// instantiate the axiom on that branch — the resulting entry is
 /// pre-activated as a Reader.
-pub axiom fn vm_reader_from_kernel_space_embedded(vaddr: Vaddr, len: usize)
-    -> (tracked res: VmIoOwner)
+pub axiom fn vm_reader_from_kernel_space_embedded(vaddr: Vaddr, len: usize) -> (tracked res:
+    VmIoOwner)
     ensures
         res.inv(),
         res.read_view_initialized(),
@@ -109,8 +107,8 @@ pub axiom fn vm_reader_from_kernel_space_embedded(vaddr: Vaddr, len: usize)
 /// Exec ensures (line 787-795) that with `fallible = false` and under
 /// the kernel-VA range guard, the produced owner satisfies
 /// `has_write_view()`. Pre-activated as a Writer.
-pub axiom fn vm_writer_from_kernel_space_embedded(vaddr: Vaddr, len: usize)
-    -> (tracked res: VmIoOwner)
+pub axiom fn vm_writer_from_kernel_space_embedded(vaddr: Vaddr, len: usize) -> (tracked res:
+    VmIoOwner)
     ensures
         res.inv(),
         res.has_write_view(),
@@ -233,7 +231,6 @@ pub axiom fn vm_writer_skip_embedded(tracked owner: &mut VmIoOwner, nbytes: usiz
 // =============================================================================
 // dispatch tags + step proofs
 // =============================================================================
-
 /// Dispatch tag for [`vm_io_method_step`] (single-owner mutator methods).
 pub enum VmIoMethod {
     ReaderLimit(usize),
@@ -256,6 +253,7 @@ pub(super) proof fn new_vm_io_step<'a>(
     requires
         vm_space.inv(),
         vs is Some,  // Fallible creation always has a VmSpace parent.
+
     ensures
         res matches Some(e) ==> e.inv(),
         res matches Some(e) ==> e.kind == kind,
@@ -281,11 +279,8 @@ pub(super) proof fn new_vm_io_step<'a>(
 /// `from_kernel_space` ensures `read_view_initialized()` /
 /// `has_write_view()` directly (under the kernel-VA range guard), so
 /// the produced entry satisfies its `inv()` for kernel kind.
-pub(super) proof fn new_kernel_vm_io_step(
-    vaddr: Vaddr,
-    len: usize,
-    kind: VmIoKind,
-) -> (tracked res: VmIoEntry)
+pub(super) proof fn new_kernel_vm_io_step(vaddr: Vaddr, len: usize, kind: VmIoKind) -> (tracked res:
+    VmIoEntry)
     ensures
         res.inv(),
         res.kind == kind,
@@ -310,10 +305,7 @@ pub(super) proof fn drop_vm_io_step(tracked _entry: VmIoEntry) {
 /// All methods here preserve `mem_view` exactly (limit/skip don't
 /// touch the owner; fill_zeros preserves the WriteView), so
 /// `VmIoEntry::inv` is preserved automatically.
-pub(super) proof fn vm_io_method_step(
-    tracked entry: &mut VmIoEntry,
-    method: VmIoMethod,
-)
+pub(super) proof fn vm_io_method_step(tracked entry: &mut VmIoEntry, method: VmIoMethod)
     requires
         old(entry).inv(),
     ensures
@@ -363,22 +355,13 @@ pub(super) proof fn read_step(
         res.vm_space is None,
 {
     let tracked val_owner = vm_reader_read_embedded(&mut source.owner, &mut dest.owner);
-    axiom_vm_io_entry_new(
-        Option::<VmSpaceId>::None,
-        VmIoKind::Writer,
-        0usize,
-        0usize,
-        val_owner,
-    )
+    axiom_vm_io_entry_new(Option::<VmSpaceId>::None, VmIoKind::Writer, 0usize, 0usize, val_owner)
 }
 
 /// Per-op step for `Op::Write` (Infallible `VmWriter::write`). Mutates
 /// both owners; the exec no longer surfaces `consumed_w`, so no fresh
 /// entry is produced.
-pub(super) proof fn write_step(
-    tracked source: &mut VmIoEntry,
-    tracked dest: &mut VmIoEntry,
-)
+pub(super) proof fn write_step(tracked source: &mut VmIoEntry, tracked dest: &mut VmIoEntry)
     requires
         old(source).inv(),
         old(dest).inv(),

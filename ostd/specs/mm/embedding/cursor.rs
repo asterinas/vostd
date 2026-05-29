@@ -43,7 +43,6 @@
 //!   closure `op: impl FnOnce(PageProperty) -> PageProperty` with
 //!   `forall |p| op.requires((p,))` plus a trackedness-preservation
 //!   constraint. Our `Op::ProtectNext` doesn't carry the closure.
-
 use core::ops::Range;
 
 use vstd::prelude::*;
@@ -67,7 +66,6 @@ verus! {
 // =============================================================================
 // _embedded axioms
 // =============================================================================
-
 /// Mirror of [`crate::mm::vm_space::VmSpace::cursor`].
 ///
 /// The exec method mutates `&mut Guards` (adding locks for the new
@@ -99,23 +97,25 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: opening a cursor only allocates fresh PT nodes —
         // every *changed* slot was UNUSED before and becomes a
         // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
         // from this single clause.
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
-                        == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage != PageUsage::Frame
             },
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some((c, g)) ==> {
             &&& c.inv()
@@ -145,23 +145,25 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: opening a cursor only allocates fresh PT nodes —
         // every *changed* slot was UNUSED before and becomes a
         // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
         // from this single clause.
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
-                        == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage != PageUsage::Frame
             },
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some((c, g)) ==> {
             &&& c.inv()
@@ -211,11 +213,14 @@ pub axiom fn cursor_query_embedded<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
@@ -253,11 +258,14 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
@@ -300,11 +308,14 @@ pub axiom fn cursor_jump_embedded<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
@@ -335,10 +346,13 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         old(owner).nodes_locked(*old(guards)),
         old(owner).metaregion_sound(*old(regions)),
         !old(owner).popped_too_high,
-        old(tlb_model).inv(),
-        // MODEL GAP: `item_wf(frame, prop, entry_owner, regions)`
-        // depends on a separate `EntryOwner<UserPtConfig>` arg we don't
-        // model. The exec call assumes the caller supplies one.
+        old(
+            tlb_model,
+        ).inv(),
+// MODEL GAP: `item_wf(frame, prop, entry_owner, regions)`
+// depends on a separate `EntryOwner<UserPtConfig>` arg we don't
+// model. The exec call assumes the caller supplies one.
+
     ensures
         final(owner).inv(),
         final(regions).inv(),
@@ -355,11 +369,14 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
@@ -402,11 +419,14 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
@@ -430,8 +450,11 @@ pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
         old(owner).children_not_locked(*old(guards)),
         old(owner).nodes_locked(*old(guards)),
         old(owner).metaregion_sound(*old(regions)),
-        !old(owner).popped_too_high,
-        // MODEL GAP: closure preconditions on `op`.
+        !old(
+            owner,
+        ).popped_too_high,
+// MODEL GAP: closure preconditions on `op`.
+
     ensures
         final(owner).inv(),
         final(regions).inv(),
@@ -447,18 +470,20 @@ pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
 // =============================================================================
 // dispatch tags + step proofs
 // =============================================================================
-
 /// Internal: dispatch tag for [`cursor_method_step`] (cursor-only methods).
 pub enum CursorMethod {
     Query,
@@ -505,23 +530,25 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: opening a cursor only allocates fresh PT nodes —
         // every *changed* slot was UNUSED before and becomes a
         // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
         // from this single clause.
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
-                        == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage != PageUsage::Frame
             },
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some(e) ==> e.inv(),
         res matches Some(e) ==> e.owner.metaregion_sound(*final(regions)),
@@ -532,8 +559,7 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
     let tracked owner_opt = vm_space_cursor_embedded(vm_space, regions, va);
     match owner_opt {
         Option::Some((owner, guards)) => {
-            let tracked entry =
-                axiom_cursor_entry_new(vs, CursorKind::ReadOnly, va, owner, guards);
+            let tracked entry = axiom_cursor_entry_new(vs, CursorKind::ReadOnly, va, owner, guards);
             Option::Some(entry)
         },
         Option::None => Option::None,
@@ -555,19 +581,21 @@ pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
     ensures
         final(regions).inv(),
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
-                        == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage != PageUsage::Frame
             },
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
         res matches Some(e) ==> e.inv(),
         res matches Some(e) ==> e.owner.metaregion_sound(*final(regions)),
@@ -578,8 +606,7 @@ pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
     let tracked owner_opt = vm_space_cursor_mut_embedded(vm_space, regions, va);
     match owner_opt {
         Option::Some((owner, guards)) => {
-            let tracked entry =
-                axiom_cursor_entry_new(vs, CursorKind::Mutable, va, owner, guards);
+            let tracked entry = axiom_cursor_entry_new(vs, CursorKind::Mutable, va, owner, guards);
             Option::Some(entry)
         },
         Option::None => Option::None,
@@ -623,22 +650,36 @@ pub(super) proof fn cursor_method_step<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
     match method {
-        CursorMethod::Query =>
-            cursor_query_embedded(&mut entry.owner, regions, &mut entry.guards),
-        CursorMethod::FindNext(len) =>
-            cursor_find_next_embedded(&mut entry.owner, regions, &mut entry.guards, len),
-        CursorMethod::Jump(va) =>
-            cursor_jump_embedded(&mut entry.owner, regions, &mut entry.guards, va),
-        CursorMethod::ProtectNext(len) =>
-            cursor_mut_protect_next_embedded(&mut entry.owner, regions, &mut entry.guards, len),
+        CursorMethod::Query => cursor_query_embedded(&mut entry.owner, regions, &mut entry.guards),
+        CursorMethod::FindNext(len) => cursor_find_next_embedded(
+            &mut entry.owner,
+            regions,
+            &mut entry.guards,
+            len,
+        ),
+        CursorMethod::Jump(va) => cursor_jump_embedded(
+            &mut entry.owner,
+            regions,
+            &mut entry.guards,
+            va,
+        ),
+        CursorMethod::ProtectNext(len) => cursor_mut_protect_next_embedded(
+            &mut entry.owner,
+            regions,
+            &mut entry.guards,
+            len,
+        ),
     }
 }
 
@@ -672,17 +713,19 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
     match method {
         CursorMutRegionsMethod::Unmap(len) => {
-            cursor_mut_unmap_embedded(
-                &mut entry.owner, regions, &mut entry.guards, tlb_model, len);
+            cursor_mut_unmap_embedded(&mut entry.owner, regions, &mut entry.guards, tlb_model, len);
         },
     }
 }
@@ -723,15 +766,17 @@ pub(super) proof fn map_step<'rcu>(
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
-        forall|c: CursorOwner<'rcu, UserPtConfig>| #![auto]
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
+        forall|c: CursorOwner<'rcu, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    cursor_mut_map_embedded(
-        &mut entry.owner, regions, &mut entry.guards, tlb_model, frame, prop);
+    cursor_mut_map_embedded(&mut entry.owner, regions, &mut entry.guards, tlb_model, frame, prop);
 }
 
 } // verus!

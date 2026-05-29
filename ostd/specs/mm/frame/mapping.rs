@@ -36,7 +36,8 @@ pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_page_aligned()
 
 pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_large_enough()
     ensures
-        #[trigger] FRAME_METADATA_RANGE.end >= FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE,
+        #[trigger] FRAME_METADATA_RANGE.end >= FRAME_METADATA_RANGE.start + MAX_NR_PAGES
+            * META_SLOT_SIZE,
 {
 }
 

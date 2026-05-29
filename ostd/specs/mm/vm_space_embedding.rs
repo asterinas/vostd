@@ -25,7 +25,6 @@
 //! Internal helpers that don't mirror an exec function (e.g. `axiom_*`
 //! lemmas about `fresh_id`) keep the `axiom_` prefix to avoid being
 //! confused with the soundness-boundary axioms.
-
 use core::ops::Range;
 
 use vstd::prelude::*;
@@ -103,21 +102,20 @@ impl<'a, 'rcu> VmStore<'rcu> {
     /// consistency (every cursor and every VmIo refers to a live VmSpace).
     pub open spec fn inv(self) -> bool {
         &&& self.regions.inv()
-        &&& forall|id: VmSpaceId|
-                #[trigger] self.vm_spaces.dom().contains(id)
-                    ==> self.vm_spaces[id].inv()
-        &&& forall|id: CursorId|
-                #[trigger] self.cursors.dom().contains(id)
-                    ==> self.cursors[id].owner.inv()
-        &&& forall|id: CursorId|
-                #[trigger] self.cursors.dom().contains(id)
-                    ==> self.vm_spaces.dom().contains(self.cursors[id].vm_space)
-        &&& forall|id: VmIoId|
-                #[trigger] self.vm_ios.dom().contains(id)
-                    ==> self.vm_ios[id].owner.inv()
-        &&& forall|id: VmIoId|
-                #[trigger] self.vm_ios.dom().contains(id)
-                    ==> self.vm_spaces.dom().contains(self.vm_ios[id].vm_space)
+        &&& forall|id: VmSpaceId| #[trigger]
+            self.vm_spaces.dom().contains(id) ==> self.vm_spaces[id].inv()
+        &&& forall|id: CursorId| #[trigger]
+            self.cursors.dom().contains(id) ==> self.cursors[id].owner.inv()
+        &&& forall|id: CursorId| #[trigger]
+            self.cursors.dom().contains(id) ==> self.vm_spaces.dom().contains(
+                self.cursors[id].vm_space,
+            )
+        &&& forall|id: VmIoId| #[trigger]
+            self.vm_ios.dom().contains(id) ==> self.vm_ios[id].owner.inv()
+        &&& forall|id: VmIoId| #[trigger]
+            self.vm_ios.dom().contains(id) ==> self.vm_spaces.dom().contains(
+                self.vm_ios[id].vm_space,
+            )
     }
 }
 
@@ -172,14 +170,13 @@ pub enum Op {
 // Soundness-boundary axioms: each mirrors a public exec function's `ensures`.
 // Convention: `<exec_function_path>_embedded`.
 // =============================================================================
-
 /// Mirror of [`crate::mm::vm_space::VmSpace::new`].
 ///
 /// Real exec ensures: `regions.inv()` is preserved; new owner satisfies its
 /// invariant. Stage 1 axiomatizes only this; later stages may strengthen
 /// to capture the new owner's `page_table_owner` content.
-pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners)
-    -> (tracked res: VmSpaceOwner)
+pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -> (tracked res:
+    VmSpaceOwner)
     requires
         old(regions).inv(),
     ensures
@@ -223,9 +220,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
 /// Mirror of [`crate::mm::vm_space::Cursor::query`] /
 /// [`crate::mm::vm_space::CursorMut::query`]. The exec method internally
 /// advances the cursor; we model the position update as opaque.
-pub axiom fn cursor_query_embedded<'rcu>(
-    tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
-)
+pub axiom fn cursor_query_embedded<'rcu>(tracked owner: &mut CursorOwner<'rcu, UserPtConfig>)
     requires
         old(owner).inv(),
     ensures
@@ -257,7 +252,6 @@ pub axiom fn cursor_jump_embedded<'rcu>(
 ;
 
 // `Cursor::virt_addr` / `CursorMut::virt_addr` are pure reads; no axiom.
-
 /// Mirror of [`crate::mm::vm_space::CursorMut::map`].
 ///
 /// Modifies both the cursor owner and `MetaRegionOwners`.
@@ -334,7 +328,6 @@ pub axiom fn vm_space_writer_embedded<'a>(
 // =============================================================================
 // One-step soundness theorem and per-op proofs.
 // =============================================================================
-
 /// One-step soundness theorem.
 pub proof fn step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
     requires
@@ -351,7 +344,8 @@ pub proof fn step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
         Op::Query { c } => cursor_method_step(s, c, CursorMethod::Query),
         Op::FindNext { c, len } => cursor_method_step(s, c, CursorMethod::FindNext(len)),
         Op::Jump { c, va } => cursor_method_step(s, c, CursorMethod::Jump(va)),
-        Op::VirtAddr { c: _ } => {} // pure read; no state change
+        Op::VirtAddr { c: _ } => {}  // pure read; no state change
+        ,
         Op::Map { c, frame, prop } => map_step(s, c, frame, prop),
         Op::Unmap { c, len } => cursor_mut_regions_step(s, c, CursorMutRegionsMethod::Unmap(len)),
         Op::ProtectNext { c, len } => cursor_method_step(s, c, CursorMethod::ProtectNext(len)),
@@ -390,18 +384,14 @@ pub open spec fn fresh_cursor_id<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>) -> C
 
 /// Witnesses that [`fresh_vm_space_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
-pub axiom fn axiom_fresh_vm_space_id_not_in_dom<'a>(
-    m: Map<VmSpaceId, VmSpaceOwner>,
-)
+pub axiom fn axiom_fresh_vm_space_id_not_in_dom<'a>(m: Map<VmSpaceId, VmSpaceOwner>)
     ensures
         !m.dom().contains(fresh_vm_space_id(m)),
 ;
 
 /// Witnesses that [`fresh_cursor_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
-pub axiom fn axiom_fresh_cursor_id_not_in_dom<'rcu>(
-    m: Map<CursorId, CursorEntry<'rcu>>,
-)
+pub axiom fn axiom_fresh_cursor_id_not_in_dom<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>)
     ensures
         !m.dom().contains(fresh_cursor_id(m)),
 ;
@@ -458,10 +448,8 @@ proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
     axiom_fresh_vm_space_id_not_in_dom(s.vm_spaces);
     s.vm_spaces.tracked_insert(id, owner);
     assert(final(s).inv()) by {
-        assert forall|j: VmSpaceId|
-            #[trigger] final(s).vm_spaces.dom().contains(j)
-            implies final(s).vm_spaces[j].inv()
-        by {
+        assert forall|j: VmSpaceId| #[trigger]
+            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
             if j == id {
                 assert(final(s).vm_spaces[j] == owner);
             } else {
@@ -470,18 +458,16 @@ proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
         };
         // cursor/vm_io->vm_space refs are still valid since we only added,
         // never removed, vm_spaces.
-        assert forall|j: CursorId|
-            #[trigger] final(s).cursors.dom().contains(j)
-            implies final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-        by {
+        assert forall|j: CursorId| #[trigger]
+            final(s).cursors.dom().contains(j) implies final(s).vm_spaces.dom().contains(
+            final(s).cursors[j].vm_space,
+        ) by {
             assert(old(s).cursors.dom().contains(j));
             assert(old(s).vm_spaces.dom().contains(old(s).cursors[j].vm_space));
         };
-        assert forall|j: VmIoId|
-            #[trigger] final(s).vm_ios.dom().contains(j)
-            implies final(s).vm_ios[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-        by {
+        assert forall|j: VmIoId| #[trigger]
+            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
             assert(old(s).vm_ios.dom().contains(j));
             assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
         };
@@ -497,35 +483,27 @@ proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpace
     // Real Rust drop only fires when the value exists, AND only when no
     // outstanding cursor or VmIo borrows the VmSpace. To preserve cross-
     // store referential integrity we make the step a no-op otherwise.
-    if s.vm_spaces.dom().contains(vs)
-        && (forall|c: CursorId|
-            #[trigger] s.cursors.dom().contains(c)
-                ==> s.cursors[c].vm_space != vs)
-        && (forall|v: VmIoId|
-            #[trigger] s.vm_ios.dom().contains(v)
-                ==> s.vm_ios[v].vm_space != vs)
-    {
+    if s.vm_spaces.dom().contains(vs) && (forall|c: CursorId| #[trigger]
+        s.cursors.dom().contains(c) ==> s.cursors[c].vm_space != vs) && (forall|v: VmIoId|
+     #[trigger]
+        s.vm_ios.dom().contains(v) ==> s.vm_ios[v].vm_space != vs) {
         let _ = s.vm_spaces.tracked_remove(vs);
     }
     assert(final(s).inv()) by {
-        assert forall|j: VmSpaceId|
-            #[trigger] final(s).vm_spaces.dom().contains(j)
-            implies final(s).vm_spaces[j].inv()
-        by {
+        assert forall|j: VmSpaceId| #[trigger]
+            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
             assert(old(s).vm_spaces.dom().contains(j));
         };
-        assert forall|j: CursorId|
-            #[trigger] final(s).cursors.dom().contains(j)
-            implies final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-        by {
+        assert forall|j: CursorId| #[trigger]
+            final(s).cursors.dom().contains(j) implies final(s).vm_spaces.dom().contains(
+            final(s).cursors[j].vm_space,
+        ) by {
             assert(old(s).cursors.dom().contains(j));
             assert(final(s).cursors[j] == old(s).cursors[j]);
         };
-        assert forall|j: VmIoId|
-            #[trigger] final(s).vm_ios.dom().contains(j)
-            implies final(s).vm_ios[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-        by {
+        assert forall|j: VmIoId| #[trigger]
+            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
             assert(old(s).vm_ios.dom().contains(j));
             assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
         };
@@ -556,22 +534,18 @@ proof fn open_cursor_step<'a, 'rcu>(
                 let tracked entry = axiom_cursor_entry_new(vs, kind, owner);
                 s.cursors.tracked_insert(id, entry);
                 assert(final(s).inv()) by {
-                    assert forall|j: CursorId|
-                        #[trigger] final(s).cursors.dom().contains(j)
-                        implies final(s).cursors[j].owner.inv()
-                            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-                    by {
+                    assert forall|j: CursorId| #[trigger]
+                        final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
+                        && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
                         if j == id {
                             assert(final(s).cursors[j] == entry);
                         } else {
                             assert(old(s).cursors.dom().contains(j));
                         }
                     };
-                    assert forall|j: VmIoId|
-                        #[trigger] final(s).vm_ios.dom().contains(j)
-                        implies final(s).vm_ios[j].owner.inv()
-                            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-                    by {
+                    assert forall|j: VmIoId| #[trigger]
+                        final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+                        && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
                         assert(old(s).vm_ios.dom().contains(j));
                         assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
                     };
@@ -594,19 +568,15 @@ proof fn drop_cursor_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
         let _ = s.cursors.tracked_remove(c);
     }
     assert(final(s).inv()) by {
-        assert forall|j: CursorId|
-            #[trigger] final(s).cursors.dom().contains(j)
-            implies final(s).cursors[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-        by {
+        assert forall|j: CursorId| #[trigger]
+            final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
             assert(final(s).cursors[j] == old(s).cursors[j]);
         };
-        assert forall|j: VmIoId|
-            #[trigger] final(s).vm_ios.dom().contains(j)
-            implies final(s).vm_ios[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-        by {
+        assert forall|j: VmIoId| #[trigger]
+            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
             assert(old(s).vm_ios.dom().contains(j));
             assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
         };
@@ -631,18 +601,19 @@ proof fn cursor_method_step<'a, 'rcu>(
             CursorMethod::Query => cursor_query_embedded(&mut entry.owner),
             CursorMethod::FindNext(len) => cursor_find_next_embedded(&mut entry.owner, len),
             CursorMethod::Jump(va) => cursor_jump_embedded(&mut entry.owner, va),
-            CursorMethod::ProtectNext(len) => cursor_mut_protect_next_embedded(&mut entry.owner, len),
+            CursorMethod::ProtectNext(len) => cursor_mut_protect_next_embedded(
+                &mut entry.owner,
+                len,
+            ),
         }
         assert(entry.vm_space == old_vm_space);
         assert(entry.kind == old_kind);
         s.cursors.tracked_insert(c, entry);
     }
     assert(final(s).inv()) by {
-        assert forall|j: CursorId|
-            #[trigger] final(s).cursors.dom().contains(j)
-            implies final(s).cursors[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-        by {
+        assert forall|j: CursorId| #[trigger]
+            final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
             if j == c {
                 // entry's owner.inv() comes from the axiom; vm_space is preserved.
@@ -650,11 +621,9 @@ proof fn cursor_method_step<'a, 'rcu>(
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };
-        assert forall|j: VmIoId|
-            #[trigger] final(s).vm_ios.dom().contains(j)
-            implies final(s).vm_ios[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-        by {
+        assert forall|j: VmIoId| #[trigger]
+            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
             assert(old(s).vm_ios.dom().contains(j));
             assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
         };
@@ -684,18 +653,14 @@ proof fn cursor_mut_regions_step<'a, 'rcu>(
     }
     assert(final(s).inv()) by {
         // vm_spaces unchanged.
-        assert forall|j: VmSpaceId|
-            #[trigger] final(s).vm_spaces.dom().contains(j)
-            implies final(s).vm_spaces[j].inv()
-        by {
+        assert forall|j: VmSpaceId| #[trigger]
+            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
             assert(old(s).vm_spaces.dom().contains(j));
             assert(final(s).vm_spaces[j] == old(s).vm_spaces[j]);
         };
-        assert forall|j: CursorId|
-            #[trigger] final(s).cursors.dom().contains(j)
-            implies final(s).cursors[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-        by {
+        assert forall|j: CursorId| #[trigger]
+            final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
             if j == c {
                 // entry's owner.inv() comes from the axiom; vm_space preserved.
@@ -703,11 +668,9 @@ proof fn cursor_mut_regions_step<'a, 'rcu>(
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };
-        assert forall|j: VmIoId|
-            #[trigger] final(s).vm_ios.dom().contains(j)
-            implies final(s).vm_ios[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-        by {
+        assert forall|j: VmIoId| #[trigger]
+            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
             assert(old(s).vm_ios.dom().contains(j));
             assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
         };
@@ -733,18 +696,14 @@ proof fn map_step<'a, 'rcu>(
         s.cursors.tracked_insert(c, entry);
     }
     assert(final(s).inv()) by {
-        assert forall|j: VmSpaceId|
-            #[trigger] final(s).vm_spaces.dom().contains(j)
-            implies final(s).vm_spaces[j].inv()
-        by {
+        assert forall|j: VmSpaceId| #[trigger]
+            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
             assert(old(s).vm_spaces.dom().contains(j));
             assert(final(s).vm_spaces[j] == old(s).vm_spaces[j]);
         };
-        assert forall|j: CursorId|
-            #[trigger] final(s).cursors.dom().contains(j)
-            implies final(s).cursors[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-        by {
+        assert forall|j: CursorId| #[trigger]
+            final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
             if j == c {
                 // entry's owner.inv() comes from the axiom; vm_space preserved.
@@ -752,11 +711,9 @@ proof fn map_step<'a, 'rcu>(
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };
-        assert forall|j: VmIoId|
-            #[trigger] final(s).vm_ios.dom().contains(j)
-            implies final(s).vm_ios[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-        by {
+        assert forall|j: VmIoId| #[trigger]
+            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
             assert(old(s).vm_ios.dom().contains(j));
             assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
         };
@@ -788,26 +745,22 @@ proof fn new_vm_io_step<'a, 'rcu>(
                 let tracked entry = axiom_vm_io_entry_new(vs, kind, owner);
                 s.vm_ios.tracked_insert(id, entry);
                 assert(final(s).inv()) by {
-                    assert forall|j: VmSpaceId|
-                        #[trigger] final(s).vm_spaces.dom().contains(j)
-                        implies final(s).vm_spaces[j].inv()
-                    by {
+                    assert forall|j: VmSpaceId| #[trigger]
+                        final(s).vm_spaces.dom().contains(
+                            j,
+                        ) implies final(s).vm_spaces[j].inv() by {
                         assert(old(s).vm_spaces.dom().contains(j));
                         assert(final(s).vm_spaces[j] == old(s).vm_spaces[j]);
                     };
-                    assert forall|j: CursorId|
-                        #[trigger] final(s).cursors.dom().contains(j)
-                        implies final(s).cursors[j].owner.inv()
-                            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-                    by {
+                    assert forall|j: CursorId| #[trigger]
+                        final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
+                        && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
                         assert(old(s).cursors.dom().contains(j));
                         assert(final(s).cursors[j] == old(s).cursors[j]);
                     };
-                    assert forall|j: VmIoId|
-                        #[trigger] final(s).vm_ios.dom().contains(j)
-                        implies final(s).vm_ios[j].owner.inv()
-                            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-                    by {
+                    assert forall|j: VmIoId| #[trigger]
+                        final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+                        && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
                         if j == id {
                             assert(final(s).vm_ios[j] == entry);
                         } else {
@@ -858,26 +811,20 @@ proof fn drop_vm_io_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId)
         let _ = s.vm_ios.tracked_remove(vio);
     }
     assert(final(s).inv()) by {
-        assert forall|j: VmSpaceId|
-            #[trigger] final(s).vm_spaces.dom().contains(j)
-            implies final(s).vm_spaces[j].inv()
-        by {
+        assert forall|j: VmSpaceId| #[trigger]
+            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
             assert(old(s).vm_spaces.dom().contains(j));
             assert(final(s).vm_spaces[j] == old(s).vm_spaces[j]);
         };
-        assert forall|j: CursorId|
-            #[trigger] final(s).cursors.dom().contains(j)
-            implies final(s).cursors[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space)
-        by {
+        assert forall|j: CursorId| #[trigger]
+            final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
             assert(final(s).cursors[j] == old(s).cursors[j]);
         };
-        assert forall|j: VmIoId|
-            #[trigger] final(s).vm_ios.dom().contains(j)
-            implies final(s).vm_ios[j].owner.inv()
-                && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space)
-        by {
+        assert forall|j: VmIoId| #[trigger]
+            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
+            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
             assert(old(s).vm_ios.dom().contains(j));
             assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
         };

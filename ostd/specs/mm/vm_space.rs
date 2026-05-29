@@ -336,44 +336,46 @@ impl<'a> VmSpaceOwner {
                 (old(owner_r).range.end - old(owner_r).range.start) as usize,
             ))),
     )]
-    pub proof fn activate_reader(tracked &'a mut self, reader: &'a VmReader<'a>, tracked owner_r: &'a mut VmIoOwner) {
-            let tracked mv = match self.mem_view {
-                Some(ref mv) => mv,
-                _ => { proof_from_false() },
-            };
-            let tracked borrowed_mv = mv.tracked_borrow_at(
-                owner_r.range.start,
-                (owner_r.range.end - owner_r.range.start) as usize,
-            );
+    pub proof fn activate_reader(
+        tracked &'a mut self,
+        reader: &'a VmReader<'a>,
+        tracked owner_r: &'a mut VmIoOwner,
+    ) {
+        let tracked mv = match self.mem_view {
+            Some(ref mv) => mv,
+            _ => { proof_from_false() },
+        };
+        let tracked borrowed_mv = mv.tracked_borrow_at(
+            owner_r.range.start,
+            (owner_r.range.end - owner_r.range.start) as usize,
+        );
 
-            owner_r.mem_view = Some(VmIoMemView::ReadView(borrowed_mv));
+        owner_r.mem_view = Some(VmIoMemView::ReadView(borrowed_mv));
 
-            assert forall|va: usize|
-                #![auto]
-                owner_r.range.start <= va < owner_r.range.end implies borrowed_mv.addr_transl(
-                va,
-            ) is Some by {
-                if owner_r.range.start <= va && va < owner_r.range.end {
-                    assert(borrowed_mv.mappings =~= mv.mappings.filter(
-                        |m: Mapping|
-                            m.va_range.start < (owner_r.range.end) && m.va_range.end
-                                > owner_r.range.start,
-                    ));
-                    let o_borrow_mv = borrowed_mv.mappings.filter(
-                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
-                    let o_mv = mv.mappings.filter(
-                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
-                    assert(mv.addr_transl(va) is Some);
-                    assert(o_mv.len() > 0);
-                    let m = o_mv.choose();
-                    vstd::set::axiom_set_choose_len(o_mv);
-                    assert(o_mv.contains(m));
-                    assert(o_borrow_mv.contains(m));
-                    assert(o_borrow_mv.len() > 0);
-                }
+        assert forall|va: usize|
+            #![auto]
+            owner_r.range.start <= va < owner_r.range.end implies borrowed_mv.addr_transl(
+            va,
+        ) is Some by {
+            if owner_r.range.start <= va && va < owner_r.range.end {
+                assert(borrowed_mv.mappings =~= mv.mappings.filter(
+                    |m: Mapping|
+                        m.va_range.start < (owner_r.range.end) && m.va_range.end
+                            > owner_r.range.start,
+                ));
+                let o_borrow_mv = borrowed_mv.mappings.filter(
+                    |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                );
+                let o_mv = mv.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
+                assert(mv.addr_transl(va) is Some);
+                assert(o_mv.len() > 0);
+                let m = o_mv.choose();
+                vstd::set::axiom_set_choose_len(o_mv);
+                assert(o_mv.contains(m));
+                assert(o_borrow_mv.contains(m));
+                assert(o_borrow_mv.len() > 0);
             }
+        }
 
     }
 
@@ -412,45 +414,48 @@ impl<'a> VmSpaceOwner {
                 (old(owner_w).range.end - old(owner_w).range.start) as usize,
             ).0)),
     )]
-    pub proof fn activate_writer(tracked &mut self, writer: &'a VmWriter<'a>, tracked owner_w: &'a mut VmIoOwner) {
-            let tracked mut mv = self.mem_view.tracked_take();
-            let ghost old_mv = mv;
-            let tracked (lhs, rhs) = mv.tracked_split(
-                owner_w.range.start,
-                (owner_w.range.end - owner_w.range.start) as usize,
-            );
+    pub proof fn activate_writer(
+        tracked &mut self,
+        writer: &'a VmWriter<'a>,
+        tracked owner_w: &'a mut VmIoOwner,
+    ) {
+        let tracked mut mv = self.mem_view.tracked_take();
+        let ghost old_mv = mv;
+        let tracked (lhs, rhs) = mv.tracked_split(
+            owner_w.range.start,
+            (owner_w.range.end - owner_w.range.start) as usize,
+        );
 
-            owner_w.mem_view = Some(VmIoMemView::WriteView(lhs));
-            self.mem_view = Some(rhs);
+        owner_w.mem_view = Some(VmIoMemView::WriteView(lhs));
+        self.mem_view = Some(rhs);
 
-            assert forall|va: usize|
-                #![auto]
-                owner_w.range.start <= va < owner_w.range.end implies lhs.addr_transl(
-                va,
-            ) is Some by {
-                if owner_w.range.start <= va && va < owner_w.range.end {
-                    assert(lhs.mappings =~= old_mv.mappings.filter(
-                        |m: Mapping|
-                            m.va_range.start < (owner_w.range.end) && m.va_range.end
-                                > owner_w.range.start,
-                    ));
-                    let o_lhs = lhs.mappings.filter(
-                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
-                    let o_mv = old_mv.mappings.filter(
-                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
+        assert forall|va: usize|
+            #![auto]
+            owner_w.range.start <= va < owner_w.range.end implies lhs.addr_transl(va) is Some by {
+            if owner_w.range.start <= va && va < owner_w.range.end {
+                assert(lhs.mappings =~= old_mv.mappings.filter(
+                    |m: Mapping|
+                        m.va_range.start < (owner_w.range.end) && m.va_range.end
+                            > owner_w.range.start,
+                ));
+                let o_lhs = lhs.mappings.filter(
+                    |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                );
+                let o_mv = old_mv.mappings.filter(
+                    |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                );
 
-                    assert(old_mv.addr_transl(va) is Some);
-                    assert(o_mv.len() > 0);
-                    broadcast use vstd::set::axiom_set_choose_len;
-                    let m = o_mv.choose();
-                    assert(o_mv.contains(m));
-                    assert(m.va_range.start <= va < m.va_range.end);
-                    assert(o_lhs.contains(m));
-                    assert(o_lhs.len() > 0);
-                }
+                assert(old_mv.addr_transl(va) is Some);
+                assert(o_mv.len() > 0);
+                broadcast use vstd::set::axiom_set_choose_len;
+
+                let m = o_mv.choose();
+                assert(o_mv.contains(m));
+                assert(m.va_range.start <= va < m.va_range.end);
+                assert(o_lhs.contains(m));
+                assert(o_lhs.len() > 0);
             }
+        }
 
     }
 
@@ -477,7 +482,6 @@ impl<'a> VmSpaceOwner {
     {
         self.readers.tracked_remove(idx);
     }
-
 
     /// Removes the given writer from the active writers list.
     ///
@@ -610,7 +614,9 @@ impl<'a> VmSpaceOwner {
             final(self).inv(),
             final(self).active == old(self).active,
             final(self).shared_reader == old(self).shared_reader,
-            owner.range.start < owner.range.end ==> final(self).readers == old(self).readers.push(owner),
+            owner.range.start < owner.range.end ==> final(self).readers == old(self).readers.push(
+                owner,
+            ),
     {
         if owner.range.start < owner.range.end {
             // Return the memory view back to the vm space owner.
@@ -655,7 +661,9 @@ impl<'a> VmSpaceOwner {
             final(self).inv(),
             final(self).active == old(self).active,
             final(self).shared_reader == old(self).shared_reader,
-            owner.range.start < owner.range.end ==> final(self).writers == old(self).writers.push(owner),
+            owner.range.start < owner.range.end ==> final(self).writers == old(self).writers.push(
+                owner,
+            ),
     {
         // If the writer has consumed all the memory, nothing to do;
         // just discard the writer and return the permission back to
@@ -744,7 +752,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& self.pt_cursor.0.va + page_size(level) <= self.pt_cursor.0.barrier_va.end
         &&& entry_owner.inv()
         &&& self.pt_cursor.0.va % page_size(level) == 0
-        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(item, regions)
+        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
+            item,
+            regions,
+        )
     }
 
     pub open spec fn map_item_ensures(
@@ -760,4 +771,4 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     }
 }
 
-}
+} // verus!
