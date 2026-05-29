@@ -15,9 +15,9 @@ use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
-use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
+use crate::specs::mm::frame::mapping::{frame_to_index_spec, meta_to_frame_spec, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
-use crate::specs::mm::frame::meta_owners::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 verus! {
@@ -260,6 +260,87 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& self.list[i].in_list == self.list_id
     }
 
+    /// Bridges the list's owned typed permissions to the global region.
+    /// For each link, the slot index derived from its meta-slot address keys a
+    /// region slot whose outer pointer-permission and inner perms equal the
+    /// list's `perms[i]`. This lets read accessors borrow the perm from
+    /// `MetaRegionOwners` (via `borrow_typed_perm`) instead of `perms`.
+    pub open spec fn relate_regions(self, regions: MetaRegionOwners) -> bool {
+        forall|i: int| #![trigger self.perms[i]]
+            0 <= i < self.list.len() ==> {
+                let idx = frame_to_index_spec(meta_to_frame_spec(self.list[i].paddr));
+                &&& regions.slots.contains_key(idx)
+                &&& regions.slot_owners.contains_key(idx)
+                &&& self.perms[i].points_to == regions.slots[idx]
+                &&& self.perms[i].inner_perms == regions.slot_owners[idx].inner_perms
+            }
+    }
+
+    /// The region slot index keyed by the `i`-th link's meta-slot address.
+    pub open spec fn slot_index_at(self, i: int) -> usize {
+        frame_to_index_spec(meta_to_frame_spec(self.list[i].paddr))
+    }
+
+    /// The typed permission for the `i`-th link, reconstructed from the region:
+    /// the outer pointer-perm `regions.slots[idx]` paired with the inner perms
+    /// `regions.slot_owners[idx].inner_perms`.
+    pub open spec fn meta_perm_of(
+        self,
+        regions: MetaRegionOwners,
+        i: int,
+    ) -> vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>> {
+        let idx = self.slot_index_at(i);
+        vstd_extra::cast_ptr::PointsTo::new_spec(
+            regions.slots[idx],
+            regions.slot_owners[idx].inner_perms,
+        )
+    }
+
+    /// The per-link invariant expressed over the *region* permission
+    /// (`meta_perm_of`) rather than the list's owned `perms[i]`. This is the
+    /// `inv_at` analog that connects each list element to its region slot, so
+    /// accessors can reason about the link's metadata without bringing the
+    /// list's `perms[i]` into scope (which would conflict — two permissions at
+    /// the same address).
+    pub open spec fn relate_region_at(self, regions: MetaRegionOwners, i: int) -> bool {
+        let idx = self.slot_index_at(i);
+        let perm = self.meta_perm_of(regions, i);
+        &&& regions.slots.contains_key(idx)
+        &&& regions.slot_owners.contains_key(idx)
+        &&& perm.addr() == self.list[i].paddr
+        &&& perm.points_to.addr() == self.list[i].paddr
+        &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        &&& perm.wf(&perm.inner_perms)
+        &&& perm.addr() % META_SLOT_SIZE == 0
+        &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
+            + MAX_NR_PAGES * META_SLOT_SIZE
+        &&& perm.is_init()
+        &&& perm.value().metadata.wf(self.list[i])
+        &&& i == 0 <==> perm.value().metadata.prev is None
+        &&& i == self.list.len() - 1 <==> perm.value().metadata.next is None
+        &&& 0 < i ==> {
+            &&& perm.value().metadata.prev is Some
+            &&& perm.value().metadata.prev.unwrap().addr() == self.meta_perm_of(regions, i - 1).addr()
+            &&& perm.value().metadata.prev.unwrap().ptr
+                == self.meta_perm_of(regions, i - 1).points_to.pptr()
+        }
+        &&& i < self.list.len() - 1 ==> {
+            &&& perm.value().metadata.next is Some
+            &&& perm.value().metadata.next.unwrap().addr() == self.meta_perm_of(regions, i + 1).addr()
+            &&& perm.value().metadata.next.unwrap().ptr
+                == self.meta_perm_of(regions, i + 1).points_to.pptr()
+        }
+        &&& self.list[i].inv()
+        &&& self.list[i].in_list == self.list_id
+    }
+
+    /// The list-wide region relation: every link satisfies `relate_region_at`.
+    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
+        forall|i: int| #![trigger self.list[i]]
+            0 <= i < self.list.len() ==> self.relate_region_at(regions, i)
+    }
+
+
     pub open spec fn view_helper(owners: Seq<LinkOwner>) -> Seq<LinkModel>
         decreases owners.len(),
     {
@@ -462,6 +543,42 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for CursorMut<'a, M> {
     }
 }
 
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
+    /// Region-based analog of [`LinkedList::wf`]: the front/back pointer facts
+    /// are stated over `owner.meta_perm_of(regions, _)` instead of the list's
+    /// owned `perms`. Used by accessors that source link permissions from
+    /// `regions` and so must not bring `perms[i]` into scope.
+    pub open spec fn wf_region(self, owner: LinkedListOwner<M>, regions: MetaRegionOwners) -> bool {
+        &&& self.front is None <==> owner.list.len() == 0
+        &&& self.back is None <==> owner.list.len() == 0
+        &&& owner.list.len() > 0 ==> self.front is Some && self.front.unwrap().addr()
+            == owner.list[0].paddr && owner.meta_perm_of(regions, 0).pptr().addr()
+            == self.front.unwrap().addr() && self.front.unwrap().ptr
+            == owner.meta_perm_of(regions, 0).points_to.pptr() && self.back is Some
+            && self.back.unwrap().addr() == owner.list[owner.list.len() - 1].paddr
+            && owner.meta_perm_of(regions, owner.list.len() - 1).pptr().addr()
+            == self.back.unwrap().addr() && self.back.unwrap().ptr
+            == owner.meta_perm_of(regions, owner.list.len() - 1).points_to.pptr()
+        &&& self.size == owner.list.len()
+        &&& self.list_id == owner.list_id
+    }
+}
+
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
+    /// Region-based analog of [`CursorMut::wf`]: the current-link pointer facts
+    /// are stated over `owner.list_own.meta_perm_of(regions, index)`.
+    pub open spec fn wf_region(self, owner: CursorOwner<M>, regions: MetaRegionOwners) -> bool {
+        &&& 0 <= owner.index < owner.length() ==> self.current.is_some()
+            && self.current.unwrap().addr() == owner.list_own.list[owner.index].paddr
+            && owner.list_own.meta_perm_of(regions, owner.index).pptr().addr()
+                == self.current.unwrap().addr()
+            && self.current.unwrap().ptr
+                == owner.list_own.meta_perm_of(regions, owner.index).points_to.pptr()
+        &&& owner.index == owner.list_own.list.len() ==> self.current.is_none()
+        &&& (*self.list).wf_region(owner.list_own, regions)
+    }
+}
+
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> ModelOf for CursorMut<'a, M> {
 
 }
@@ -479,6 +596,14 @@ impl CursorModel {
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     pub open spec fn length(self) -> int {
         self.list_own.list.len() as int
+    }
+
+    /// Region-based analog of [`CursorOwner::inv`]: replaces `list_own.inv()`
+    /// (over the owned `perms`) with `list_own.relate_region(regions)` (over
+    /// the region permissions).
+    pub open spec fn inv_region(self, regions: MetaRegionOwners) -> bool {
+        &&& 0 <= self.index <= self.length()
+        &&& self.list_own.relate_region(regions)
     }
 
     pub open spec fn current(self) -> Option<LinkOwner> {

@@ -17,7 +17,6 @@ verus! {
 
 pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
     pub meta_own: M::Owner,
-    pub meta_perm: PointsTo<MetaSlot, Metadata<M>>,
     pub ghost slot_index: usize,
 }
 
@@ -27,15 +26,7 @@ pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlotStorage> + Owne
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
     open spec fn inv(self) -> bool {
-        &&& self.meta_perm.is_init()
-        &&& self.meta_perm.wf(&self.meta_perm.inner_perms)
-        &&& self.slot_index == frame_to_index(meta_to_frame(self.meta_perm.addr()))
         &&& self.slot_index < max_meta_slots()
-        &&& (self.slot_index - FRAME_METADATA_RANGE.start) as usize % META_SLOT_SIZE == 0
-        &&& self.meta_perm.addr() < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
-        &&& self.meta_perm.addr() == meta_addr(self.slot_index)
-        &&& self.meta_perm.addr() == self.meta_perm.points_to.addr()
-        &&& self.meta_perm.value().metadata.wf(self.meta_own)
     }
 }
 
@@ -62,7 +53,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> OwnerOf for UniqueFrame<
     type Owner = UniqueFrameOwner<M>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.ptr.addr() == owner.meta_perm.addr()
+        &&& self.ptr.addr() == meta_addr(owner.slot_index)
     }
 }
 
@@ -72,24 +63,43 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> ModelOf for UniqueFrame<
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
 
-    pub open spec fn perm_inv(self, perm: vstd::simple_pptr::PointsTo<MetaSlot>) -> bool {
-        &&& perm.is_init()
-        &&& perm.addr() == self.meta_perm.addr()
+    /// The typed permission for this frame, reconstructed from the region: the
+    /// outer pointer-perm `regions.slots[slot_index]` paired with the inner
+    /// perms `regions.slot_owners[slot_index].inner_perms`. Borrow-model analog
+    /// of the owned `meta_perm` field; meaningful where `slots.contains_key`.
+    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> PointsTo<MetaSlot, Metadata<M>> {
+        PointsTo::new_spec(
+            regions.slots[self.slot_index],
+            regions.slot_owners[self.slot_index].inner_perms,
+        )
     }
 
+    pub open spec fn perm_inv(self, perm: vstd::simple_pptr::PointsTo<MetaSlot>) -> bool {
+        &&& perm.is_init()
+        &&& perm.addr() == meta_addr(self.slot_index)
+    }
+
+    /// Borrow-model global invariant: the frame's permission is parked in
+    /// `regions.slots[slot_index]` (NOT owned by the frame), and the
+    /// reconstructed `meta_perm_of` is well-formed and decodes to metadata
+    /// matching `meta_own`.
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
-        &&& !regions.slots.contains_key(self.slot_index)
+        let perm = self.meta_perm_of(regions);
+        &&& regions.slots.contains_key(self.slot_index)
         &&& regions.slot_owners.contains_key(self.slot_index)
-        &&& regions.slot_owners[self.slot_index].inner_perms == self.meta_perm.inner_perms
-        &&& self.meta_perm.addr() == regions.slot_owners[self.slot_index].self_addr
+        &&& perm.is_init()
+        &&& perm.wf(&perm.inner_perms)
+        &&& perm.addr() == meta_addr(self.slot_index)
+        &&& perm.addr() == perm.points_to.addr()
+        &&& perm.value().metadata.wf(self.meta_own)
+        &&& regions.slot_owners[self.slot_index].self_addr == meta_addr(self.slot_index)
     }
 
     pub proof fn from_raw_owner(
         owner: M::Owner,
         index: Ghost<usize>,
-        perm: PointsTo<MetaSlot, Metadata<M>>,
     ) -> Self {
-        UniqueFrameOwner::<M> { meta_own: owner, meta_perm: perm, slot_index: index@ }
+        UniqueFrameOwner::<M> { meta_own: owner, slot_index: index@ }
     }
 
     pub open spec fn from_unused_owner(
@@ -100,9 +110,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         regions: MetaRegionOwners,
     ) -> bool {
         &&& <M as OwnerOf>::wf(metadata, res.meta_own)
-        &&& res.meta_perm.addr() == frame_to_meta(paddr)
-        &&& res.meta_perm.value().metadata == metadata
-        &&& regions.slots == old_regions.slots.remove(frame_to_index(paddr))
+        &&& res.slot_index == frame_to_index(paddr)
+        &&& res.meta_perm_of(regions).addr() == frame_to_meta(paddr)
+        &&& res.meta_perm_of(regions).value().metadata == metadata
+        // Borrow model: the slot permission STAYS parked in `regions.slots`.
+        &&& regions.slots == old_regions.slots
         &&& regions.slot_owners[frame_to_index(paddr)].raw_count == old_regions.slot_owners[frame_to_index(paddr)].raw_count
         &&& regions.slot_owners[frame_to_index(paddr)].usage == old_regions.slot_owners[frame_to_index(paddr)].usage
         &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
@@ -113,18 +125,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     pub axiom fn tracked_from_unused_owner(
         tracked regions: &mut MetaRegionOwners,
         paddr: Paddr,
-        meta_perm: PointsTo<MetaSlot, Metadata<M>>,
     ) -> (tracked res: Self)
     ensures
-        Self::from_unused_owner(*old(regions), paddr, meta_perm.value().metadata, res, *final(regions));
-    /* {
-        let tracked perm = regions.slots.tracked_remove(frame_to_index(paddr));
-        UniqueFrameOwner::<M> {
-            meta_own: regions.slot_owners[frame_to_index(paddr)],
-            meta_perm: perm,
-            slot_index: frame_to_index(paddr)
-        }
-    }*/
+        Self::from_unused_owner(
+            *old(regions),
+            paddr,
+            res.meta_perm_of(*final(regions)).value().metadata,
+            res,
+            *final(regions),
+        );
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFrame<M> {

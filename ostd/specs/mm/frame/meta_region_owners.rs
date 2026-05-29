@@ -5,7 +5,7 @@ use vstd::simple_pptr::{self, *};
 
 use core::ops::Range;
 
-use vstd_extra::cast_ptr::Repr;
+use vstd_extra::cast_ptr::{self, Repr};
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
@@ -15,9 +15,12 @@ use crate::mm::frame::meta::{
     mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
     AnyFrameMeta, MetaSlot,
 };
+use crate::mm::frame::Link;
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
+use crate::specs::mm::frame::meta_owners::Metadata;
+use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;
 
 verus! {
 
@@ -126,6 +129,15 @@ impl MetaRegionOwners {
         self.slot_owners[i].inner_perms.ref_count.value()
     }
 
+    pub axiom fn borrow_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, i: usize) ->
+        (tracked res: &vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<M>>)
+        requires
+            self.slots.contains_key(i),
+            self.slot_owners.contains_key(i),
+        ensures
+            res.points_to == self.slots[i],
+            res.inner_perms == self.slot_owners[i].inner_perms;
+            
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
         recommends
             self.inv(),

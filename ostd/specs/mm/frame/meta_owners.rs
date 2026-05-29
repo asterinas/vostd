@@ -271,7 +271,6 @@ impl Inv for MetaSlotOwner {
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNIQUE ==> {
             &&& self.inner_perms.vtable_ptr.is_init()
             &&& self.inner_perms.storage.is_init()
-            &&& self.inner_perms.in_list.value() == 0
         }
         // A SHARED slot (`0 < rc <= REF_COUNT_MAX`) is genuinely in use:
         // metadata storage is written, `vtable_ptr` resolves the

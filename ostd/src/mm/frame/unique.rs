@@ -71,18 +71,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         } else {
             let (ptr, Tracked(slot_perm)) = from_unused.unwrap();
             let idx = frame_to_index(paddr);
-            // Bridge: `get_from_unused` now returns a `simple_pptr::PointsTo<MetaSlot>`
-            // (Phase 1 of the inner_perms migration), but `UniqueFrameOwner.meta_perm`
-            // remains a typed `cast_ptr::PointsTo<MetaSlot, Metadata<M>>` (Option 3).
-            // We cast back to typed here, threading slot_owner.inner_perms through
-            // the unsound take/sync pair retained for unique/linked-list/page-table.
+            // Borrow model: re-park the slot permission in `regions.slots`
+            // (it is NOT owned by the frame) and build the owner from the
+            // slot index. `get_from_unused` left it well-formed against the
+            // slot owner, so re-parking re-establishes `regions.inv()`.
             proof_decl! {
-                let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
-                let tracked inner_perms_taken = slot_own.take_inner_perms();
-                let tracked typed_perm = MetaSlot::cast_perm::<M>(slot_perm, inner_perms_taken);
-                slot_own.sync_inner(&typed_perm.inner_perms);
-                regions.slot_owners.tracked_insert(idx, slot_own);
-                let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(regions, paddr, typed_perm);
+                regions.slots.tracked_insert(idx, slot_perm);
+                let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(regions, paddr);
             }
             proof_with!(|= Tracked(Some(owner)));
             Ok(Self { ptr, _marker: PhantomData })
@@ -128,6 +123,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             owner.global_inv(*old(regions)),
             old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr()))),
             old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
+            // A frame being repurposed is not in a list. (Previously this
+            // followed from `MetaSlotOwner::inv`'s UNIQUE branch, which no
+            // longer pins `in_list == 0` now that unique in-list frames exist.)
+            old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.in_list.value() == 0,
             old(regions).inv(),
         ensures
             res.wf(new_owner@),
@@ -210,21 +209,25 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     #[verus_spec(l =>
         with
             Tracked(owner): Tracked<&'a UniqueFrameOwner<M>>,
+            Tracked(regions): Tracked<&'a MetaRegionOwners>,
         requires
             owner.inv(),
             self.wf(*owner),
+            owner.global_inv(*regions),
         ensures
-            owner.meta_perm.mem_contents().value().metadata == l,
+            owner.meta_perm_of(*regions).mem_contents().value().metadata == l,
     )]
     pub fn meta<'a>(&self) -> &'a M {
+        let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
         // SAFETY: The type is tracked by the type system.
-        #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
+        #[verus_spec(with Tracked(outer))]
         let slot = self.slot();
 
-        #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
+        #[verus_spec(with Tracked(outer))]
         let ptr = slot.as_meta_ptr();
 
-        &ptr.borrow(Tracked(&owner.meta_perm)).metadata
+        let tracked tp = regions.borrow_typed_perm::<M>(owner.slot_index);
+        &ptr.borrow(Tracked(tp)).metadata
     }
 
     /// Gets the mutable metadata of this page.
@@ -239,21 +242,24 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     #[verus_spec(res =>
         with
             Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
+            Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             owner.inv(),
             old(self).wf(*owner),
+            owner.global_inv(*regions),
         ensures
             res.addr() == final(self).ptr.addr(),
             res.ptr.addr() == final(self).ptr.addr(),
             *final(self) == *old(self),
     )]
     pub fn meta_mut(&mut self) -> ReprPtr<MetaSlot, Metadata<M>> {
+        let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
         // SAFETY: The type is tracked by the type system.
         // And we have the exclusive access to the metadata.
-        #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
+        #[verus_spec(with Tracked(outer))]
         let slot = self.slot();
 
-        #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
+        #[verus_spec(with Tracked(outer))]
         slot.as_meta_ptr()
     }
 }
@@ -264,17 +270,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     #[verus_spec(
         with
             Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
+            Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             owner.inv(),
             self.wf(*owner),
+            regions.inv(),
+            regions.slots.contains_key(owner.slot_index),
         returns
             meta_to_frame(self.ptr.addr()),
     )]
     pub fn start_paddr(&self) -> Paddr {
-        #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
+        let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
+        #[verus_spec(with Tracked(outer))]
         let slot = self.slot();
 
-        #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
+        #[verus_spec(with Tracked(outer))]
         slot.frame_paddr()
     }
 
