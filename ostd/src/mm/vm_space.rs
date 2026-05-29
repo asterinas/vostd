@@ -1643,7 +1643,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) -> Self::Item;
 
     #[verifier::external_body]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
         let frame = unsafe { UFrame::from_raw(paddr) };
         MappedItem { frame, prop }
     }

@@ -313,7 +313,7 @@ impl<M: AnyUFrameMeta + ?Sized> DmaCoherent<M> {
             self.inner.wf(),
             r@.inv(),
     )]
-    pub fn read_inner(&self) -> RwLockReadGuard<DmaCoherentInnerAtomic<M>, PreemptDisabled> {
+    pub fn read_inner(&self) -> RwLockReadGuard<'_, DmaCoherentInnerAtomic<M>, PreemptDisabled> {
         self.inner.read()
     }
 }

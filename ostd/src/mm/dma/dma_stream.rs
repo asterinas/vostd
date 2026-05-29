@@ -696,7 +696,7 @@ impl<M: AnyUFrameMeta + ?Sized> DmaStream<M> {
             self.inner.wf(),
             r@.inv(),
     )]
-    pub fn read_inner(&self) -> RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled> {
+    pub fn read_inner(&self) -> RwLockReadGuard<'_, DmaStreanInnerAtomic<M>, PreemptDisabled> {
         self.inner.read()
     }
 }

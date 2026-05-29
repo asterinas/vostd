@@ -359,6 +359,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
                 // Every mapping of this child subtree is in self@.mappings.
                 assert forall|m: Mapping|
+                    #![trigger self@.mappings.contains(m)]
                     PageTableOwner(child).view_rec(child_path).contains(
                         m,
                     ) implies self@.mappings.contains(m) by {

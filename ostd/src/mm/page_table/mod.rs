@@ -274,7 +274,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     spec fn item_from_raw_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
 
     #[verifier::when_used_as_spec(item_from_raw_spec)]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item
         returns
             Self::item_from_raw_spec(paddr, level, prop),
     ;

@@ -624,8 +624,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     // For page table configs that require the `AVAIL1` flag to be kept
                     // (currently, only kernel page tables), the callers of the unsafe
                     // `protect_next` method uphold this invariant.
-                    let item =   /*ManuallyDrop::new(unsafe {*/
-                    C::item_from_raw(pa, level, prop)  /*})*/
+                    let item =   /*ManuallyDrop::new(*/
+                    unsafe { C::item_from_raw(pa, level, prop) }  /*)*/
                     ;
 
                     proof {
@@ -3451,6 +3451,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     owner_before_replace.level);
                 };
                 assert forall|mm: Mapping|
+                    #![trigger owner_final@.mappings.contains(mm)]
                     owner_final@.mappings.contains(mm) implies mm.va_range.start != sv by {
                     if mm.va_range.start == sv {
                         assert(owner_before_replace@.mappings.contains(mm));
@@ -4126,7 +4127,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // For page table configs that require the `AVAIL1` flag to be kept
                 // (currently, only kernel page tables), the callers of the unsafe
                 // `protect_next` method uphold this invariant.
-                let item = C::item_from_raw(pa, level, prop);
+                let item = unsafe { C::item_from_raw(pa, level, prop) };
                 proof {
                     C::item_roundtrip(item, pa, level, prop);
                 }
