@@ -64,11 +64,6 @@ impl Inv for MetaRegionOwners {
             // All accessible slots are within the valid address range.
             forall|i: usize| i < max_meta_slots() <==> #[trigger] self.slot_owners.contains_key(i)
         }
-        // Payoff of the borrow-model migration: every page-table slot's
-        // perm is parked in `slots`. PT nodes use the reparked alloc spec,
-        // so their perms always stay in regions.slots. (Frames can still
-        // extract via `into_raw`; that pattern is being phased out for
-        // `into_raw_borrowing`.)
         &&& { forall|i: usize| #[trigger] self.slot_owners.contains_key(i)
                 && self.slot_owners[i].usage
                     == crate::specs::mm::frame::meta_owners::PageUsage::PageTable
@@ -162,20 +157,15 @@ impl MetaRegionOwners {
             old(self).slots.contains_key(i),
             old(self).slot_owners.contains_key(i),
         ensures
-            // Initial: res mirrors self at i.
             res.points_to == old(self).slots[i],
             res.inner_perms == old(self).slot_owners[i].inner_perms,
-            // Post-borrow: self at i reflects final *res.
             final(self).slots.dom() == old(self).slots.dom(),
             final(self).slot_owners.dom() == old(self).slot_owners.dom(),
             final(self).slots[i] == final(res).points_to,
             final(self).slot_owners[i].inner_perms == final(res).inner_perms,
-            // Every other slot is fully preserved.
             forall|k: usize| k != i ==> #[trigger] final(self).slots[k] == old(self).slots[k],
             forall|k: usize| k != i ==> #[trigger] final(self).slot_owners[k]
                 == old(self).slot_owners[k],
-            // Other fields of slot_owners[i] are untouched (only inner_perms is
-            // re-paired with the cast_ptr).
             final(self).slot_owners[i].raw_count == old(self).slot_owners[i].raw_count,
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,

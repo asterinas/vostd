@@ -413,7 +413,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
         ensures
             Self::metadata_from_inner_perms(Self::inner_perms_from_metadata(m, base)) == m,
             Self::inner_perms_from_metadata(m, base).id() == base.id(),
-            // Writing a metadata value `m` initializes the storage cell.
             Self::inner_perms_from_metadata(m, base).is_init();
 
     pub axiom fn inner_perms_from_metadata_roundtrip(

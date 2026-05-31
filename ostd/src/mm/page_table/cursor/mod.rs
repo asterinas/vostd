@@ -1973,9 +1973,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
 
         proof {
-            // Discharge `node.entry`'s parked-perm requirement via the
-            // cursor's tree-level metaregion_sound. The continuation's entry
-            // is_node implies regions.slots.contains_key(slot_index).
             assert(regions.inv());
             assert(cont0.entry_own.is_node());
             assert(cont0.entry_own.metaregion_sound(*regions));
@@ -2625,7 +2622,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 assert(eo.inv() && eo.is_node());
                                 assert(eo.metaregion_sound(regions_after_ref));
                                 let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
-                                // Via NodeOwner::inv's roundtrip clause.
                                 assert(eo_idx == eo.node.unwrap().slot_index);
                                 assert(regions_after_ref.slot_owners[eo_idx].inner_perms.ref_count.value()
                                     != REF_COUNT_UNUSED);
@@ -2634,7 +2630,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     == regions_after_ref.slot_owners[eo_idx]);
                                 assert(regions.slots[eo_idx]
                                     == regions_after_ref.slots[eo_idx]);
-                                // meta_perm_of equality: both halves preserved.
                                 assert(eo.node.unwrap().meta_perm_of(*regions)
                                     == eo.node.unwrap().meta_perm_of(regions_after_ref));
                             };
@@ -3721,10 +3716,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     cont0.entry_own.node.unwrap(),
                 );
             };
-            // Discharge `protect_preserves_cursor_inv_metaregion`'s
-            // metaregion_sound precondition for the new cont's entry_own.
-            // protect doesn't change regions (it borrows immutably), and the
-            // frame entry's path/slot/storage are all preserved.
             assert(owner.continuations[owner.level - 1].entry_own.metaregion_sound(*regions));
             owner0.protect_preserves_cursor_inv_metaregion(*owner, *regions);
         }
@@ -4101,9 +4092,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         assert(g_sound(eo, owner0.continuations[i].path()));
                     }
                     // Old child absent/frame: regions unchanged at eo's slot.
-                    // meta_perm_of equality: both halves preserved across replace.
                     let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
-                    // Via NodeOwner::inv's roundtrip clause.
                     assert(eo_idx == eo.node.unwrap().slot_index);
                     assert(eo.node.unwrap().meta_perm_of(*regions)
                         == eo.node.unwrap().meta_perm_of(regions0));

@@ -140,7 +140,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
                 i != frame_to_index(raw) ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
             final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
-            // Slots fully preserved: perm stays parked in regions.
             final(regions).slots == old(regions).slots,
     )]
     pub(in crate::mm) unsafe fn borrow_paddr_borrowing(raw: Paddr) -> Self {

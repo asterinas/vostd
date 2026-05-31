@@ -350,8 +350,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         let mut cursor = CursorMut { list: self, current };
 
         proof {
-            // Discharge take_current's slot_owners.contains_key requirement
-            // via relate_region_at(*regions, last) on the back position.
             if owner.list.len() > 0 {
                 let _ = owner.list[owner.list.len() - 1];
                 owner.relate_region_at_facts(*regions, owner.list.len() - 1);
@@ -678,8 +676,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let ghost old_self = *self;
 
         proof {
-            // Region-based discharge: expose the relate_region_at clauses for
-            // the current and previous positions (if they exist).
             if self.current is Some {
                 let _ = owner.list_own.list[owner.index];
                 owner.list_own.relate_region_at_facts(*regions, owner.index);
@@ -861,16 +857,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             res.is_some() ==> final(owner).index == old(owner).index,
             res.is_some() ==> final(owner).list_own.list
                 == old(owner).list_own.list.remove(old(owner).index),
-            // Preserve list_id so LinkedList::drop's loop invariant can be
-            // re-established after each take_current call.
             final(owner).list_own.list_id == old(owner).list_own.list_id,
-            // Slot effects: from_raw decrements the popped slot's raw_count by 1.
-            // The set of parked slot permissions (domain) is unchanged — the
-            // borrow model keeps every permission parked in `regions.slots`
-            // (the popped frame borrows it on demand rather than owning it).
-            // The popped slot's inner_perms are cleaned for `UniqueFrame::drop`:
-            // ref_count stays UNIQUE, in_list value is 0 (frame-clear), and
-            // storage/vtable_ptr remain init (the link metadata cleared in place).
             res.is_some() ==> {
                 let paddr = old(self).current.unwrap().addr();
                 let idx = frame_to_index(meta_to_frame(paddr));
@@ -886,10 +873,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt
             },
-            // Every slot other than the popped one keeps its globally-visible
-            // accounting (raw_count/usage/self_addr/paths). Note: a neighbor's
-            // `inner_perms` DOES change (we rewire its link pointer), so this is
-            // deliberately weaker than full `slot_owners[j]` equality.
             res.is_some() ==> forall|j: usize| #![trigger final(regions).slot_owners[j]]
                 j != frame_to_index(meta_to_frame(old(self).current.unwrap().addr()))
                 ==> {
@@ -916,9 +899,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let current = self.current?;
         let current_md = MetadataAsLink::cast_to_metadata(current);
 
-        // `current` is Some, so the cursor is on an element: 0 <= index < len.
-        // Expose the region facts for this link and its neighbors via the
-        // focused facts lemma (keeps the opaque `relate_region_at` localized).
         proof {
             assert(0 <= owner.index < owner.list_own.list.len());
             let _ = owner.list_own.list[owner.index];
@@ -941,9 +921,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         assert(current.addr() == owner.list_own.list[owner.index].paddr);
         assert(idx == owner.list_own.slot_index_at(owner.index));
 
-        // Read the popped link's own next/prev pointers from the parked perm,
-        // and connect them to `meta_perm_of(index)` so the relate_region chain
-        // (already exposed by `relate_region_at_facts`) applies to them.
         let next_ptr;
         let prev_ptr;
         {
@@ -962,12 +939,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         }
 
 
-        // Update the previous neighbor's `next` to skip the popped link.
         if let Some(prev_link) = prev_ptr {
             let prev = MetadataAsLink::cast_to_metadata(prev_link);
             let prev_idx = frame_to_index(meta_to_frame(prev.addr()));
             proof {
-                // prev is Some => index > 0; prev points to the link at index-1.
                 assert(owner.index > 0);
                 assert(prev.addr() == owner.list_own.list[owner.index - 1].paddr);
                 assert(prev_idx == owner.list_own.slot_index_at(owner.index - 1));
@@ -989,8 +964,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     prev_so.take_inner_perms(),
                 );
             proof {
-                // The reconstructed perm equals the snapshot's `meta_perm_of`,
-                // carrying its is_init/wf/value facts (from relate_region_at_facts).
                 assert(prev_perm.points_to
                     == owner.list_own.meta_perm_of(regions0, owner.index - 1).points_to);
                 assert(prev_perm.inner_perms
@@ -1001,11 +974,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             update_field!(prev => metadata.next <- next_ptr; prev_perm);
             let ghost v = prev_perm.value();
             proof {
-                // The write changed only the Link's `next`; ref_count/in_list/
-                // vtable values are unchanged, so those perm cells are identical
-                // (perm_u64_with/pptr_usize_with of their own value); the storage
-                // cell is re-initialized with the new metadata. Hence the slot
-                // owner's `inv()` and the slot's `wf` survive.
                 assert(v.ref_count == old_inner.ref_count.value());
                 assert(v.in_list == old_inner.in_list.value());
                 assert(v.vtable_ptr == old_inner.vtable_ptr.mem_contents());
@@ -1020,12 +988,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 regions.slots.tracked_insert(prev_idx, po);
                 regions.slot_owners.tracked_insert(prev_idx, prev_so);
                 assert(regions.inv());
-                // Slot-effect invariant `S`: every slot except the popped `idx`
-                // keeps its accounting fields (raw_count/usage/self_addr/paths)
-                // equal to entry (`regions0`); only `inner_perms` at the
-                // neighbor `prev_idx != idx` was rewritten. The popped slot and
-                // the parked-perm domain stay untouched. This is carried as a
-                // hypothesis through the remaining blocks.
                 assert(regions.slot_owners[idx] == regions0.slot_owners[idx]);
                 assert(regions.slots.dom() =~= regions0.slots.dom());
                 assert forall|j: usize| j != idx implies {
@@ -1055,12 +1017,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         }
 
-        // Update the next neighbor's `prev` to skip the popped link.
         if let Some(next_link) = next_ptr {
             let next = MetadataAsLink::cast_to_metadata(next_link);
             let next_idx = frame_to_index(meta_to_frame(next.addr()));
             proof {
-                // next is Some => index < len-1; next points to the link at index+1.
                 assert(owner.index < owner.list_own.list.len() - 1);
                 assert(next.addr() == owner.list_own.list[owner.index + 1].paddr);
                 assert(next_idx == owner.list_own.slot_index_at(owner.index + 1));
@@ -1081,10 +1041,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             update_field!(next => metadata.prev <- prev_ptr; next_perm);
             let ghost vn = next_perm.value();
             proof {
-                // Same identity argument as the prev neighbor: the write only
-                // touched the Link's `prev`; ref_count/in_list/vtable values are
-                // unchanged so their perm cells are identical, the storage cell
-                // is re-initialized. Hence the slot owner's `inv()` survives.
                 assert(vn.ref_count == old_inner_n.ref_count.value());
                 assert(vn.in_list == old_inner_n.in_list.value());
                 assert(vn.vtable_ptr == old_inner_n.vtable_ptr.mem_contents());
@@ -1099,10 +1055,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 regions.slots.tracked_insert(next_idx, po);
                 regions.slot_owners.tracked_insert(next_idx, next_so);
                 assert(regions.inv());
-                // Re-establish `S` after rewriting the next neighbor (`next_idx
-                // != idx`). For `j == next_idx` the fields are preserved by
-                // take_inner_perms/sync_inner; for other `j != idx` they follow
-                // from the `S` carried out of the prev block.
                 assert(regions.slot_owners[idx] == regions0.slot_owners[idx]);
                 assert(regions.slots.dom() =~= regions0.slots.dom());
                 assert forall|j: usize| j != idx implies {
@@ -1134,22 +1086,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         }
 
-        // The popped link's `LinkOwner` becomes the frame's `meta_own`.
         let tracked mut cur_own = owner.list_own.list.tracked_remove(owner.index);
 
-        // Borrow model: the permission STAYS parked in `regions.slots`; the
-        // returned `UniqueFrame` borrows it on demand.
         #[verus_spec(with Tracked(regions), Tracked(cur_own))]
         let (frame, frame_own) = UniqueFrame::<Link<M>>::from_raw(paddr);
         let frame = frame;
         let tracked frame_own = frame_own.get();
 
         proof {
-            // from_raw decremented `idx`'s raw_count and left every other slot
-            // owner untouched (its strengthened `forall i != idx` ensures); its
-            // `slots` are unchanged. So `S` survives (for `j != idx`), the
-            // domain is preserved, and `idx`'s raw_count is now `regions0 - 1`
-            // (using `S`'s `regions_pre[idx] == regions0[idx]`).
             assert(regions.slots.dom() =~= regions0.slots.dom());
             assert(regions.slot_owners[idx].raw_count
                 == regions0.slot_owners[idx].raw_count - 1);
@@ -1160,15 +1104,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
             } by {
             }
-            // Pin paths_in_pt preservation at the popped slot. The prev/next
-            // blocks didn't touch `idx`, and from_raw's strengthened ensures
-            // preserve paths_in_pt at the popped slot.
             assert(regions.slot_owners[idx].paths_in_pt
                 == regions0.slot_owners[idx].paths_in_pt);
         }
 
-        // Clear the popped link's own next/prev and reset `in_list` to 0. Its
-        // permission is parked at `idx`; mutate via take/put and re-park.
         let tracked frame_outer = regions.slots.tracked_remove(idx);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
         let tracked mut frame_perm =
@@ -1182,12 +1121,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         update_field!(current_md => metadata.prev <- None; frame_perm);
         let ghost vf = frame_perm.value();
         proof {
-            // The two writes only touched the Link's next/prev; the ref_count,
-            // in_list, and vtable values are unchanged across both, so those
-            // perm cells are identical (perm_u64_with/pptr_usize_with of their
-            // own value). The storage cell is re-initialized by each write, so
-            // the FINAL storage is `inner_perms_from_metadata` based at the
-            // storage *after the first write* (`mid_inner_f.storage`).
             crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner_f.ref_count);
             crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner_f.in_list);
             crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner_f.vtable_ptr);
@@ -1203,19 +1136,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list), 0);
         proof {
-            // `in_list` is now 0; the slot is UNIQUE (ref_count == REF_COUNT_UNIQUE),
-            // whose `inv()` only requires storage/vtable init (both hold), and
-            // the store preserves the cell id so the slot's `wf` survives.
             frame_so.sync_inner(&fip);
             regions.slots.tracked_insert(idx, fpo);
             regions.slot_owners.tracked_insert(idx, frame_so);
             assert(regions.inv());
-            // The frame block only rewrote `idx` (its `inner_perms` was cleared
-            // and `in_list` zeroed; `raw_count` is preserved by take_inner_perms/
-            // sync_inner). So `S` survives for `j != idx`, the domain is
-            // preserved, and `idx`'s raw_count is still `regions0 - 1`. These
-            // discharge the `slot effects` and `frame for other slots`
-            // postconditions.
             assert(regions.slots.dom() =~= regions0.slots.dom());
             assert(regions.slot_owners[idx].raw_count
                 == regions0.slot_owners[idx].raw_count - 1);
@@ -1234,12 +1158,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             owner0.remove_owner_spec_implies_model_spec(*owner);
-            // Discharge `relate_region` via the pop-surgery lemma. The in-block
-            // facts (`prev_idx == slot_index_at(index-1)`, the rewired values,
-            // distinctness) survive to here, so the lemma precondition is proven
-            // at end-of-body: for every surviving old position `p != index`, the
-            // reconstructed perm matches `regions0`'s except at the two neighbors
-            // whose link pointer was rewired.
             let ghost oldl = owner0.list_own;
             let ghost nn = owner0.index as int;
             assert forall|p: int| #![trigger oldl.slot_index_at(p)]
@@ -1325,14 +1243,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(*old(regions)),
             old(owner).length() < usize::MAX,
-            // The incoming frame is uniquely owned (not yet forgotten).
             old(regions).slot_owners[old(frame_own).slot_index].raw_count == 0,
             old(regions).slot_owners[old(frame_own).slot_index].inner_perms.ref_count.value()
                 == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE,
             old(regions).slot_owners[old(frame_own).slot_index].inner_perms.in_list.is_for(
                 old(regions).slots[old(frame_own).slot_index].value().in_list,
             ),
-            // The frame's slot is fresh: not already a list element.
             forall|p: int| #![trigger old(owner).list_own.slot_index_at(p)]
                 0 <= p < old(owner).list_own.list.len()
                 ==> old(owner).list_own.slot_index_at(p) != old(frame_own).slot_index,
@@ -1356,8 +1272,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let ghost regions0 = *regions;
         let ghost nn = owner.index as int;
 
-        // Pin facts at the neighbor positions (n-1 and n). These survive to
-        // end-of-body for the discharge.
         proof {
             if nn > 0 {
                 let _ = owner.list_own.list[nn - 1];
@@ -1369,9 +1283,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         }
 
-        // Get the frame's metadata pointer (used as the prev/next pointer for
-        // neighbors). `meta_mut` only borrows; the frame remains valid until
-        // `into_raw` consumes it at the end.
         #[verus_spec(with Tracked(&*frame_own), Tracked(&*regions))]
         let frame_ptr = frame.meta_mut();
         let frame_ptr_as_link = MetadataAsLink::cast_from_metadata(frame_ptr);
@@ -1464,7 +1375,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         assert(regions.inv());
                     }
                 }
-                // Pin frame-slot metadata facts for the end-of-body discharge.
                 proof {
                     let fpn_local = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(
                         regions.slots[frame_idx_g],
@@ -1530,7 +1440,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
 
                 self.list.front = Some(frame_ptr_as_link);
-                // Pin frame-slot metadata facts for the end-of-body discharge.
                 proof {
                     let fpn_local = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(
                         regions.slots[frame_idx_g],
@@ -1615,7 +1524,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 // EMPTY list: just point both ends at the inserted frame.
                 self.list.front = Some(frame_ptr_as_link);
                 self.list.back = Some(frame_ptr_as_link);
-                // Pin frame-slot metadata facts for the end-of-body discharge.
                 proof {
                     let fpn_local = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(
                         regions.slots[frame_idx_g],
@@ -1649,8 +1557,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let _ = frame.into_raw();
 
         proof {
-            // `self.list.size` is the list's element count, unchanged by the
-            // tracked/proof ops above; bounded by `owner.length() < usize::MAX`.
             assert(self.list.size == owner.list_own.list.len());
             assert(owner.list_own.list.len() == owner0.list_own.list.len());
             assert(owner0.list_own.list.len() < usize::MAX);
@@ -1854,20 +1760,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         proof_decl! {
             let tracked mut list_own: LinkedListOwner<M>;
         }
-        // Capture original list/regions BEFORE tracked_take, while `s.0` still
-        // refers to the entry value. This lets the drop_requires foralls (which
-        // trigger on `s.0.list[i]`) be re-stated in terms of `original_list[j]`,
-        // since `original_list == s.0` here, and `list_own == old(s.0)` after
-        // tracked_take — so SMT will identify `original_list` with `list_own.list`.
         let ghost original_list = s.0.list;
         let ghost original_list_id = s.0.list_id;
         let ghost n = original_list.len();
         let ghost original_regions = s.1;
         proof {
-            // Re-state drop_requires's per-element facts using `original_list[j]`
-            // as the trigger. We discharge each clause by mentioning `s.0.list[j]`,
-            // which IS the drop_requires trigger and at this point equals
-            // `original_list[j]` because `original_list` was just bound from `s.0`.
             assert forall|j: int| #![trigger original_list[j]]
                 0 <= j < n implies ({
                     let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
@@ -1889,9 +1786,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         let cursor_pair = this.cursor_front_mut();
         let (mut cursor, Tracked(mut cursor_own)) = cursor_pair;
 
-        // Bridge: from drop_requires's `relate_region` + the cursor's perms wf,
-        // expose the region-based front/back/current facts via the facts lemma
-        // so wf_region/inv_region hold at loop entry.
         proof {
             if n > 0 {
                 let _ = cursor_own.list_own.list[0];
@@ -1925,11 +1819,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         regions.slot_owners[idx].raw_count
                             == original_regions.slot_owners[idx].raw_count - 1
                     },
-                // Slots not in the original list keep their globally-visible
-                // accounting (raw_count/usage/self_addr/paths_in_pt). Inner perms
-                // and storage are NOT preserved across iterations: take_current
-                // rewires the next neighbor's link pointer and clears the popped
-                // slot's metadata storage, both of which modify slot_owners /
                 // slots values inside the original_list.
                 forall|idx: usize| #![trigger regions.slot_owners[idx]]
                     (forall|j: int| #![trigger original_list[j]]
@@ -1946,8 +1835,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                             == original_regions.slot_owners[idx].paths_in_pt
                     },
                 regions.slots.dom() =~= original_regions.slots.dom(),
-                // Elements not yet processed have original raw_count and
-                // paths_in_pt (the latter is needed for `frame.drop`'s
                 // `paths_in_pt.is_empty()` precondition).
                 forall|j: int| #![trigger original_list[j]]
                     k <= j < n ==> {
@@ -1967,10 +1854,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                     0 <= i < j < n ==>
                         frame_to_index(meta_to_frame(original_list[i].paddr))
                             != frame_to_index(meta_to_frame(original_list[j].paddr)),
-                // Per-element drop_requires facts re-stated on `original_list[j]`
-                // as the trigger. These are about `original_regions` (constant)
-                // and are established once before the loop via the `s.0.list[j]`
-                // trigger, then carried forward as a loop fact.
                 forall|j: int| #![trigger original_list[j]]
                     0 <= j < n ==> {
                         let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
@@ -1989,9 +1872,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
             proof {
                 if cursor.current.is_some() {
                     assert(cursor_own.length() > 0);
-                    // Region-based: trigger the relate_region_at_facts at index 0
-                    // (current) to expose `meta_perm_of(*regions, 0).addr() ==
-                    // list[0].paddr`, which connects to the cursor's current.
                     let _ = cursor_own.list_own.list[0];
                     cursor_own.list_own.relate_region_at_facts(*regions, 0);
                     let ghost _trigger = original_list[k as int];
@@ -2013,9 +1893,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                     let ghost _trig = original_list[k as int];
                     assert(cur_addr == original_list[k].paddr);
                     assert(cur_idx == frame_to_index(meta_to_frame(original_list[k].paddr)));
-                    // From drop_requires, the original list element had
-                    // raw_count == 1 and paths_in_pt empty; take_current
-                    // decremented to 0 and preserved paths_in_pt.
                     assert(original_regions.slot_owners[cur_idx].raw_count == 1);
                     assert(original_regions.slot_owners[cur_idx].paths_in_pt.is_empty());
                     assert(regions.slot_owners[cur_idx].raw_count == 0);
@@ -2023,8 +1900,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                     assert(frame_own.slot_index == cur_idx);
                 }
 
-                // Snapshot the post-take/pre-drop region so we can invoke
-                // `relate_region_preserved_external_change` after frame.drop.
                 let ghost regions_pre_drop = *regions;
 
                 // Drop the frame, returning its slot to regions
@@ -2032,12 +1907,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 frame.drop();
 
                 proof {
-                    // Carry `cursor_own.inv_region(*regions)` through frame.drop.
-                    // frame.drop preserves `regions.slots` fully and
-                    // `regions.slot_owners[i]` for `i != cur_idx`. The cursor's
-                    // remaining list has slot indices == frame_to_index of
-                    // original_list[k+1..n], all distinct from `cur_idx`
-                    // (= frame_to_index of original_list[k]) by distinctness.
                     assert forall|i: int| #![trigger cursor_own.list_own.list[i]]
                         0 <= i < cursor_own.list_own.list.len() implies ({
                             let idx = cursor_own.list_own.slot_index_at(i);
@@ -2046,7 +1915,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                                 == regions_pre_drop.slot_owners[idx]
                         }) by {
                             let idx = cursor_own.list_own.slot_index_at(i);
-                            // Tie the cursor's list[i] back to original_list[i+k+1].
                             let _ = cursor_own.list_own.list[i];
                             let ghost _trig_k = original_list[k as int];
                             let ghost _trig_ik = original_list[i + k + 1];

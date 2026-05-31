@@ -260,7 +260,6 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& cont.entry_own.is_node()
             &&& cont.entry_own.inv()
             &&& cont.entry_own.node.unwrap().relate_guard(cont.guard)
-            // Borrow-model bridge: the subtree root's slot is parked.
             &&& cont.entry_own.metaregion_sound(*final(regions))
         },
         // The subtree root is lock_held in guards.

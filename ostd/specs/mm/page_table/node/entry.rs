@@ -163,8 +163,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         &&& parent_owner1.slot_index == parent_owner0.slot_index
         &&& parent_owner1.level == parent_owner0.level
         &&& parent_owner1.tree_level == parent_owner0.tree_level
-        // meta_own.nr_children may change in value (via writes); its id is
-        // preserved. stray is fully preserved (replace doesn't touch it).
         &&& parent_owner1.meta_own.nr_children.id()
                 == parent_owner0.meta_own.nr_children.id()
         &&& parent_owner1.meta_own.stray == parent_owner0.meta_own.stray

@@ -133,7 +133,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     ) -> UniqueFrame<M1> {
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
-        // Borrow model: the outer permission is parked in `regions.slots`.
         let tracked perm_ref = regions.slots.tracked_borrow(idx);
 
         #[verus_spec(with Tracked(perm_ref))]
@@ -323,7 +322,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         &&& regions.inv()
         &&& regions.slots =~= old_regions.slots
         &&& regions.slot_owners[frame_to_index(r)].raw_count == 1
-        // Body only mutates raw_count; everything else at the popped slot is preserved.
         &&& regions.slot_owners[frame_to_index(r)].inner_perms
             == old_regions.slot_owners[frame_to_index(r)].inner_perms
         &&& regions.slot_owners[frame_to_index(r)].self_addr
@@ -503,7 +501,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).slot_owners.contains_key(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].raw_count == 0,
             old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
-            // Borrow model: the permission is parked in `regions.slots`.
             old(regions).slots.contains_key(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).slot_owners[owner.slot_index].inner_perms.in_list.value() == 0,
@@ -518,8 +515,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         ensures
             final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
-            // Body only mutates the dropped slot's slot_owner and reads from
-            // slots[owner.slot_index]; every other entry is preserved.
             final(regions).slots =~= old(regions).slots,
             forall|i: usize| #![trigger final(regions).slot_owners[i]]
                 i != owner.slot_index ==> final(regions).slot_owners[i]

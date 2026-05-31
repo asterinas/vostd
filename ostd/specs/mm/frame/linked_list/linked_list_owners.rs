@@ -278,8 +278,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& perm.addr() == self.list[i].paddr
         &&& perm.points_to.addr() == self.list[i].paddr
         &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-        // In-list frames are `into_raw`'d on insertion, so their slot carries a
-        // positive raw_count (needed by `from_raw` on the pop path).
         &&& regions.slot_owners[idx].raw_count > 0
         &&& perm.wf(&perm.inner_perms)
         &&& perm.addr() % META_SLOT_SIZE == 0
@@ -423,9 +421,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     )
         requires
             self.relate_region(regions1),
-            // Slots are fully preserved (frame.drop's ensures).
             regions2.slots == regions1.slots,
-            // slot_owners contain every list slot and agree there.
             forall|i: int| #![trigger self.list[i]]
                 0 <= i < self.list.len() ==> {
                     let idx = self.slot_index_at(i);
@@ -508,7 +504,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         let nlen = new.list.len() as int;
         assert(nlen == old.list.len() - 1);
 
-        // New position `k` corresponds to old position `pmap(k)`.
         assert forall|k: int| #![trigger new.slot_index_at(k)] 0 <= k < nlen implies {
             let p = if k < n { k } else { k + 1 };
             &&& new.list[k] == old.list[p]
@@ -517,7 +512,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             assert(new.list[k] == old.list.remove(n)[k]);
         }
 
-        // Distinctness transfers via the injection `k |-> pmap(k)`.
         assert forall|a: int, b: int|
             #![trigger new.slot_index_at(a), new.slot_index_at(b)]
             0 <= a < nlen && 0 <= b < nlen && a != b implies new.slot_index_at(a)
@@ -529,8 +523,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             assert(new.slot_index_at(b) == old.slot_index_at(pb));
         }
 
-        // Address/pointer correspondence for every new position (used to match
-        // the rewired pointer targets against the new neighbors' perms).
         assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies {
             let pm = if m < n { m } else { m + 1 };
             &&& new.meta_perm_of(fr, m).addr() == old.meta_perm_of(r0, pm).addr()
@@ -542,14 +534,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             old.relate_region_at_facts(r0, pm);
         }
 
-        // Each new position satisfies `relate_region_at(fr, _)`.
         assert forall|k: int| #![trigger new.relate_region_at(fr, k)]
             0 <= k < nlen implies new.relate_region_at(fr, k) by {
             let p = if k < n { k } else { k + 1 };
-            // Old facts at `p` and at every old position referenced by the
-            // (possibly bridged) neighbors of `k`. Each `old.list[_]` reference
-            // triggers `old.relate_region(r0)`'s per-link forall so the opaque
-            // `relate_region_at(r0, _)` precondition of the facts lemma holds.
             let _ = old.list[p];
             old.relate_region_at_facts(r0, p);
             let _ = old.list[n];
@@ -603,10 +590,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.list == old.list.insert(n, link),
             new.list_id == old.list_id,
             link.in_list == old.list_id,
-            // The inserted link's slot is fresh (not already a list slot).
             forall|p: int| #![trigger old.slot_index_at(p)]
                 (0 <= p < old.list.len()) ==> old.slot_index_at(p) != new.slot_index_at(n),
-            // Inserted link at new position `n`, slot `ins = new.slot_index_at(n)`.
             ({
                 let ins = new.slot_index_at(n);
                 let fpn = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(
@@ -639,7 +624,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                         == r0.slots[old.slot_index_at(n)].pptr()
                 })
             }),
-            // Survivors: old positions `p`, slot `idx(p)`.
             forall|p: int| #![trigger old.slot_index_at(p)]
                 (0 <= p < old.list.len()) ==> ({
                     let i = old.slot_index_at(p);
@@ -660,7 +644,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
                         + MAX_NR_PAGES * META_SLOT_SIZE
                     &&& fp.is_init()
-                    // `next` rewired to the inserted link iff p == n-1.
                     &&& (p == n - 1 ==> {
                         &&& fp.value().metadata.next is Some
                         &&& fp.value().metadata.next.unwrap().addr() == link.paddr
@@ -668,7 +651,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     })
                     &&& (p != n - 1 ==> fp.value().metadata.next
                         == old.meta_perm_of(r0, p).value().metadata.next)
-                    // `prev` rewired to the inserted link iff p == n.
                     &&& (p == n ==> {
                         &&& fp.value().metadata.prev is Some
                         &&& fp.value().metadata.prev.unwrap().addr() == link.paddr
@@ -684,8 +666,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         assert(nlen == old.list.len() + 1);
         let ins = new.slot_index_at(n);
 
-        // New position `k` maps to: old `k` (k<n), the inserted link (k==n),
-        // old `k-1` (k>n).
         assert forall|k: int| #![trigger new.slot_index_at(k)] 0 <= k < nlen implies ({
             &&& (k < n ==> new.list[k] == old.list[k] && new.slot_index_at(k) == old.slot_index_at(k))
             &&& (k == n ==> new.list[k] == link && new.slot_index_at(k) == ins)
@@ -695,8 +675,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             assert(new.list[k] == old.list.insert(n, link)[k]);
         }
 
-        // Distinctness transfers via the injection `k |-> pmap(k)` plus the
-        // freshness of the inserted slot.
         assert forall|a: int, b: int|
             #![trigger new.slot_index_at(a), new.slot_index_at(b)]
             0 <= a < nlen && 0 <= b < nlen && a != b implies new.slot_index_at(a)
@@ -713,7 +691,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             }
         }
 
-        // Address/pointer correspondence for every new position.
         assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies ({
             &&& (m < n ==> new.meta_perm_of(fr, m).addr() == old.meta_perm_of(r0, m).addr()
                 && new.meta_perm_of(fr, m).points_to.pptr()
@@ -732,7 +709,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             }
         }
 
-        // Each new position satisfies `relate_region_at(fr, _)`.
         assert forall|k: int| #![trigger new.relate_region_at(fr, k)]
             0 <= k < nlen implies new.relate_region_at(fr, k) by {
             if k < n {

@@ -338,7 +338,6 @@ impl<M> Frame<M> {
             old(regions).slot_owners[frame_to_index(paddr)].raw_count <= 1,
         ensures
             Self::from_raw_ensures(*old(regions), *final(regions), paddr, r),
-            // Slots fully preserved: the perm stays parked in regions.
             final(regions).slots == old(regions).slots,
             debt@.frame_index == frame_to_index(paddr),
             debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
@@ -352,7 +351,6 @@ impl<M> Frame<M> {
 
         proof {
             let index = frame_to_index(paddr);
-            // No `sync_slot_perm`: perm already parked in regions.slots.
             let tracked mut slot_own = regions.slot_owners.tracked_remove(index);
             slot_own.raw_count = 0usize;
             regions.slot_owners.tracked_insert(index, slot_own);
@@ -730,10 +728,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             old(regions).slots.contains_key(self.index()),
             self.inv(),
             old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-            // The slot must be a Frame slot (not a PT node) — into_raw is
-            // Frame's API. Required for the strengthened `regions.inv()`
-            // post: slot is removed from `slots`, so its `usage` must
-            // certify the new "PT-node ⊆ slots" invariant.
             old(regions).slot_owners[self.index()].usage
                 != crate::specs::mm::frame::meta_owners::PageUsage::PageTable,
         ensures
@@ -788,7 +782,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             r == self.paddr(),
             final(regions).slot_owners[self.index()].raw_count
                 == (old(regions).slot_owners[self.index()].raw_count + 1) as usize,
-            // Slots fully preserved: the perm stays parked in regions.
             final(regions).slots == old(regions).slots,
             self.into_raw_post_noninterference(*old(regions), *final(regions)),
     )]
@@ -807,7 +800,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         assert(self.constructor_requires(*regions));
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
-        // No `copy_perm`: the perm stays parked in regions.slots.
         paddr
     }
 

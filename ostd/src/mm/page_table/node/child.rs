@@ -83,10 +83,6 @@ impl<C: PageTableConfig> Child<C> {
                 let ghost node_owner = owner.node.unwrap();
                 let ghost node_index = frame_to_index(meta_to_frame(node.ptr.addr()));
 
-                // Borrow-model: source the slot perm from `regions.slots[idx]`
-                // via the bridge in `metaregion_sound`'s node branch (carried
-                // here through `owner.invariants` / `pte_invariants`-style
-                // preconditions) instead of from `owner.node.meta_perm.points_to`.
                 let tracked node_slot_perm = regions.slots.tracked_borrow(node_index);
                 #[verus_spec(with Tracked(node_slot_perm))]
                 let paddr = node.start_paddr();

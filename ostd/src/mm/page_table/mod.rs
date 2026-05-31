@@ -1387,8 +1387,6 @@ impl PageTable<KernelPtConfig> {
                 // The new node owner's invariants and guard relation.
                 new_node_owner.inv(),
                 new_node_owner.relate_guard(new_node),
-                // Borrow-model: the new node's slot perm is parked in regions
-                // (preserved across the loop body operations).
                 regions.slots.contains_key(new_node_owner.slot_index),
             decreases KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end - i,
         {
@@ -1491,8 +1489,6 @@ impl PageTable<KernelPtConfig> {
             let pte = PageTableEntry::new_pt(pt_addr);
 
             proof {
-                // Discharge `write_pte`'s parked-perm requirement: new_node
-                // was just allocated, alloc's ensures parks the perm.
                 assert(regions.slots.contains_key(new_node_owner.slot_index));
             }
             #[verus_spec(with Tracked(&mut new_node_owner), Tracked(&*regions))]

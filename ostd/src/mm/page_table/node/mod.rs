@@ -525,12 +525,6 @@ impl<C: PageTableConfig> PageTableNode<C> {
             allocated_empty_node_grandchildren_none(owner@),
             res.ptr.addr() == owner@.value.node.unwrap().meta_addr_self(),
             guards.unlocked(owner@.value.node.unwrap().meta_addr_self()),
-            // Borrow-model: use the reparked variant so the slot perm stays
-            // in `regions.slots[idx]` after alloc rather than being removed.
-            // The original spec (`get_from_unused_spec`) had
-            // `post.slots == pre.slots.remove(idx)` which is incompatible
-            // with the parked-perm clauses below — alloc cannot both remove
-            // the slot AND leave a parked perm in it.
             MetaSlot::get_from_unused_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
             // Allocator trust boundary: PT-node allocations come from the regular
@@ -539,25 +533,11 @@ impl<C: PageTableConfig> PageTableNode<C> {
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 meta_to_frame(owner@.value.node.unwrap().meta_addr_self())),
             owner@.value.metaregion_sound(*final(regions)),
-            // Note: `owner@.value.in_scope` was previously asserted here, but
-            // `allocated_empty_node_owner` already requires `owner.inv()`, which
-            // through `EntryOwner::inv` forces `!in_scope`. Asserting both was
-            // an unsoundness that allowed `assert(false)` post-alloc.
-            //
-            // Disjointness: the alloc'd slot's idx is different from any
-            // previously-active slot's idx. Derived from the unused pre-state
-            // (`pre.slot_owners[new_alloc_idx].ref_count == UNUSED` per
-            // `get_from_unused_spec`). Stated as an explicit ensures so it's
-            // easy to trigger from split/alloc_if_none loop invariants.
             forall|i: usize|
                 #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 ==> i != frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self())),
             owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self())), level as PagingLevel),
             *final(parent_owner) == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
-            // Borrow-model postcondition: the freshly-allocated node's
-            // metadata perm is parked in `regions.slots[slot_index]`. The
-            // duplicate-perm claim is sound only because `alloc` is
-            // `external_body`.
             final(regions).slots.contains_key(owner@.value.node.unwrap().slot_index),
             owner@.value.node.unwrap().metaregion_sound_node(*final(regions)),
     )]
@@ -829,8 +809,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             pte == owner.children_perm.value()[idx as int],
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
-        // Borrow-model: source the slot perm from `regions.slots[idx]`
-        // (parked at alloc time) instead of `owner.meta_perm.points_to`.
         let tracked owner_slot_perm = regions.slots.tracked_borrow(owner.slot_index);
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
             paddr_to_vaddr(
@@ -880,7 +858,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             *final(self) == *old(self),
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
-        // Borrow-model: source the slot perm from regions.slots[idx].
         let tracked owner_slot_perm = regions.slots.tracked_borrow(owner.slot_index);
         #[verusfmt::skip]
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(

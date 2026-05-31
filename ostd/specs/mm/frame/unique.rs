@@ -26,10 +26,6 @@ pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlotStorage> + Owne
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
     open spec fn inv(self) -> bool {
-        // `slot_index < MAX_NR_PAGES` is the meaningful invariant: a unique
-        // frame's slot corresponds to a physical frame at paddr < MAX_PADDR ==
-        // MAX_NR_PAGES * PAGE_SIZE. Implies `< max_meta_slots()` since
-        // FRAME_METADATA_RANGE is large enough for `MAX_NR_PAGES` slots.
         &&& self.slot_index < MAX_NR_PAGES
         &&& self.slot_index < max_meta_slots()
     }
@@ -154,7 +150,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
 
     open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 1
-        // Body only mutates raw_count; everything else at the popped slot is preserved.
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].self_addr

@@ -101,10 +101,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
                 < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(meta_addr(self.slot_index)) < MAX_PADDR
         &&& meta_to_frame(meta_addr(self.slot_index)) == self.children_perm.addr()
-        // Roundtrip: frame_to_index ∘ meta_to_frame ∘ meta_addr = id. Stated
-        // explicitly so the verifier can derive `slot_index` from the path
-        // through `meta_slot_paddr()` without unfolding group_page_meta
-        // arithmetic at every call site.
         &&& self.slot_index
                 == frame_to_index(meta_to_frame(meta_addr(self.slot_index)))
     }

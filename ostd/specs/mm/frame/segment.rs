@@ -138,9 +138,6 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 // precondition (`ref_count == 1 ==> paths_in_pt empty`)
                 // in the per-frame teardown loop.
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                // Segment frames are Frame-usage slots — required so that
-                // tracked_remove of the slot perm doesn't violate the
-                // strengthened `regions.inv()` clause "PT slots are parked".
                 &&& regions.slot_owners[idx].usage
                     == crate::specs::mm::frame::meta_owners::PageUsage::Frame
             }

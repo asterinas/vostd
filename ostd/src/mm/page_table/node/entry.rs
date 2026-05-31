@@ -147,8 +147,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             self.invariants(*owner, *old(regions)),
             self.node_matching(*owner, *parent_owner, *self.node),
             !owner.in_scope,
-            // Borrow-model: parent's slot perm parked in regions (bridge
-            // facts for the migrated `level()` callee below).
             parent_owner.metaregion_sound_node(*old(regions)),
         ensures
             res.invariants(*owner, *final(regions)),
@@ -312,8 +310,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(self).node_matching(*old(owner), *old(parent_owner), *old(self).node),
             old(self).new_owner_compatible(new_child, *old(owner), *old(new_owner), *old(regions)),
             !old(owner).in_scope,
-            // Borrow-model: parent's slot perm parked in regions (with the
-            // bridge facts needed by `borrow_typed_perm`'s callers below).
             old(parent_owner).metaregion_sound_node(*old(regions)),
         ensures
             final(self).invariants(*final(new_owner), *final(regions)),
@@ -339,9 +335,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 C,
             >::path_tracked_pred(*final(regions))(*final(new_owner), final(new_owner).path),
             final(self).parent_perms_preserved(*old(parent_owner), *final(parent_owner)),
-            // Borrow-model: parent's slot perm is still parked in regions
-            // after replace (the operation touches the parent's slot only
-            // for paths_in_pt; storage/level/nr_children are preserved).
             final(parent_owner).metaregion_sound_node(*final(regions)),
             // paths_in_pt changes when new owner is a node; preserved otherwise.
             forall|idx: usize|
@@ -366,20 +359,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 final(regions).slot_owners[idx].inner_perms.ref_count.value() == old(
                     regions,
                 ).slot_owners[idx].inner_perms.ref_count.value(),
-            // Inner_perms (full perm structure) preserved per-slot. The
-            // surgical updates above only touch raw_count/paths_in_pt; all
-            // perm fields (storage, ref_count, vtable_ptr, in_list) at every
-            // slot are identical to old. This is what makes `meta_perm_of`
-            // equality hold across replace for non-new-owner slots.
             forall|idx: usize|
                 #![trigger final(regions).slot_owners[idx].inner_perms]
                 final(regions).slot_owners[idx].inner_perms
                     == old(regions).slot_owners[idx].inner_perms,
-            // Slots fully preserved. `from_pte_regions_spec` and
-            // `into_pte_regions_spec` both leave slots unchanged; `write_pte`
-            // only borrows regions immutably. So `meta_perm_of` (which reads
-            // slots[idx] for points_to and slot_owners[idx].inner_perms) is
-            // identical for every node slot across replace.
             final(regions).slots == old(regions).slots,
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
@@ -550,7 +533,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(owner).inv(),
             old(self).node_matching(old(owner).value, *old(parent_owner), *old(self).node),
             old(owner).level < INC_LEVELS - 1,
-            // Borrow-model: parent's slot perm parked in regions.
             old(parent_owner).metaregion_sound_node(*old(regions)),
         ensures
             final(self).invariants(final(owner).value, *final(regions)),
@@ -614,10 +596,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // slots keys: the new PT node was removed then re-inserted, so all old keys preserved.
                 &&& forall|i: usize| old(regions).slots.contains_key(i)
                     ==> (#[trigger] final(regions).slots.contains_key(i))
-                // slots VALUES at non-allocated indices are preserved. Needed
-                // by the borrow model: active nodes' parked-perm equality at
-                // `regions.slots[node.slot_index]` must survive a sibling
-                // alloc that touches only the newly-allocated slot.
                 &&& forall|i: usize| #![trigger final(regions).slots[i]]
                     i != frame_to_index(final(owner).value.meta_slot_paddr().unwrap())
                         && old(regions).slots.contains_key(i)
@@ -670,9 +648,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(!pte.is_last_spec(level as PagingLevel));
             }
 
-            // Borrow-model: source the slot perm from `regions.slots[idx]`
-            // (parked via metaregion_sound's node-branch bridge) instead of
-            // `new_node_owner.value.node...meta_perm.points_to`.
             let ghost new_node_slot_idx = new_node_owner.value.node.unwrap().slot_index;
             let tracked new_node_slot_perm = regions.slots.tracked_borrow(new_node_slot_idx);
             #[verus_spec(with Tracked(new_node_slot_perm))]
@@ -777,8 +752,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(parent_owner).inv(),
             old(parent_owner).level == old(owner).value.parent_level,
             old(parent_owner).level < NR_LEVELS,
-            // Borrow-model: parent's slot perm parked in regions (bridge
-            // facts needed by migrated `level()` callee below).
             old(parent_owner).metaregion_sound_node(*old(regions)),
             // Frame entries being split must have `metaregion_sound` for
             // their slot — provides `regions.slots.contains_key(pa_idx)` and
@@ -995,8 +968,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0
                 },
                 new_page.ptr.addr() == new_owner_meta_addr,
-                // Borrow-model: the freshly-allocated PT node's perm is parked
-                // in `regions.slots` (carried from alloc through the loop).
                 new_owner.value.node.unwrap().metaregion_sound_node(*regions),
         {
             proof {
@@ -1043,9 +1014,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             );
 
             proof {
-                // Discharge `pt_lock_guard.entry`'s parked-perm requirement
-                // via the just-allocated `new_owner.value`'s `metaregion_sound`
-                // (set up by `PageTableNode::alloc`'s ensures).
                 assert(regions.slots.contains_key(new_owner_node.slot_index));
             }
             #[verus_spec(with Tracked(&new_owner_node), Tracked(&new_owner.children.tracked_borrow(i as int).tracked_borrow().value), Tracked(&*regions))]
@@ -1220,7 +1188,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
 
             proof {
-                // Discharge `replace`'s parked-perm + bridge precondition.
                 assert(new_owner_node.metaregion_sound_node(*regions));
             }
             #[verus_spec(with Tracked(regions),

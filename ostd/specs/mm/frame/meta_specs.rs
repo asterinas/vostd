@@ -90,9 +90,6 @@ impl MetaSlot {
         let idx = frame_to_index(paddr);
         {
             &&& post.slots.dom() =~= pre.slots.dom()
-            // Slots at every key OTHER than `idx` are preserved value-for-value.
-            // Needed by the borrow model where active nodes / frames depend on
-            // `regions.slots[k]` remaining stable across allocations elsewhere.
             &&& forall|k: usize| #![trigger post.slots[k]]
                 k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
             &&& MetaSlot::get_from_unused_inner_perms_spec(
