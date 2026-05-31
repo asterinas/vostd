@@ -642,7 +642,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
                 let tracked meta_perm = regions.borrow_typed_perm::<Link<M>>(idx);
 
-                borrow_field!(current_md => metadata.next, meta_perm)
+                borrow_field!(current_md => next, Meta(meta_perm))
             },
             None => self.list.front,
         };
@@ -700,7 +700,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
                 let tracked meta_perm = regions.borrow_typed_perm::<Link<M>>(idx);
 
-                borrow_field!(current_md => metadata.prev, meta_perm)
+                borrow_field!(current_md => prev, Meta(meta_perm))
             },
             None => self.list.back,
         };
@@ -928,8 +928,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(*tp =~= owner.list_own.meta_perm_of(*regions, owner.index));
             }
-            next_ptr = borrow_field!(current_md => metadata.next, tp);
-            prev_ptr = borrow_field!(current_md => metadata.prev, tp);
+            next_ptr = borrow_field!(current_md => next, Meta(tp));
+            prev_ptr = borrow_field!(current_md => prev, Meta(tp));
             proof {
                 assert(next_ptr == owner.list_own.meta_perm_of(*regions, owner.index)
                     .value().metadata.next);
@@ -941,52 +941,23 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         if let Some(prev_link) = prev_ptr {
             let prev = MetadataAsLink::cast_to_metadata(prev_link);
-            let prev_idx = frame_to_index(meta_to_frame(prev.addr()));
             proof {
                 assert(owner.index > 0);
                 assert(prev.addr() == owner.list_own.list[owner.index - 1].paddr);
-                assert(prev_idx == owner.list_own.slot_index_at(owner.index - 1));
-                assert(prev_idx != idx);  // distinctness (index-1 != index)
-                assert(regions.slots[prev_idx].pptr() == prev.ptr);
+                assert(frame_to_index(meta_to_frame(prev.addr()))
+                    == owner.list_own.slot_index_at(owner.index - 1));
+                assert(frame_to_index(meta_to_frame(prev.addr())) != idx);  // distinctness
+                assert(regions.slots[frame_to_index(meta_to_frame(prev.addr()))].pptr() == prev.ptr);
+            }
+            // Surgical write: only `prev`'s `next` pointer changes; the
+            // storage cell is re-encoded and ref_count/in_list/vtable_ptr
+            // perms are untouched.
+            {
+                let tracked prev_perm = regions.borrow_mut_typed_perm::<Link<M>>(
+                    frame_to_index(meta_to_frame(prev.addr())));
+                update_field!(prev => next <- next_ptr, Meta(prev_perm));
             }
             proof {
-                assert(*regions =~= regions0);
-            }
-            let tracked prev_outer = regions.slots.tracked_remove(prev_idx);
-            let tracked mut prev_so = regions.slot_owners.tracked_remove(prev_idx);
-            proof {
-                assert(prev_outer == regions0.slots[prev_idx]);
-                assert(prev_so == regions0.slot_owners[prev_idx]);
-            }
-            let tracked mut prev_perm =
-                vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                    prev_outer,
-                    prev_so.take_inner_perms(),
-                );
-            proof {
-                assert(prev_perm.points_to
-                    == owner.list_own.meta_perm_of(regions0, owner.index - 1).points_to);
-                assert(prev_perm.inner_perms
-                    == owner.list_own.meta_perm_of(regions0, owner.index - 1).inner_perms);
-                assert(prev_perm =~= owner.list_own.meta_perm_of(regions0, owner.index - 1));
-            }
-            let ghost old_inner = prev_perm.inner_perms;
-            update_field!(prev => metadata.next <- next_ptr; prev_perm);
-            let ghost v = prev_perm.value();
-            proof {
-                assert(v.ref_count == old_inner.ref_count.value());
-                assert(v.in_list == old_inner.in_list.value());
-                assert(v.vtable_ptr == old_inner.vtable_ptr.mem_contents());
-                crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.ref_count);
-                crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.in_list);
-                crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner.vtable_ptr);
-                Metadata::<Link<M>>::metadata_perms_inverse(v.metadata, old_inner.storage);
-
-                let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } =
-                    prev_perm;
-                prev_so.sync_inner(&ip);
-                regions.slots.tracked_insert(prev_idx, po);
-                regions.slot_owners.tracked_insert(prev_idx, prev_so);
                 assert(regions.inv());
                 assert(regions.slot_owners[idx] == regions0.slot_owners[idx]);
                 assert(regions.slots.dom() =~= regions0.slots.dom());
@@ -996,7 +967,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {
-                    if j == prev_idx {
+                    if j == frame_to_index(meta_to_frame(prev.addr())) {
                     }
                 }
             }
@@ -1019,41 +990,21 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         if let Some(next_link) = next_ptr {
             let next = MetadataAsLink::cast_to_metadata(next_link);
-            let next_idx = frame_to_index(meta_to_frame(next.addr()));
             proof {
                 assert(owner.index < owner.list_own.list.len() - 1);
                 assert(next.addr() == owner.list_own.list[owner.index + 1].paddr);
-                assert(next_idx == owner.list_own.slot_index_at(owner.index + 1));
-                assert(next_idx != idx);  // distinctness (index+1 != index)
-                assert(regions.slots[next_idx].pptr() == next.ptr);
+                assert(frame_to_index(meta_to_frame(next.addr()))
+                    == owner.list_own.slot_index_at(owner.index + 1));
+                assert(frame_to_index(meta_to_frame(next.addr())) != idx);  // distinctness
+                assert(regions.slots[frame_to_index(meta_to_frame(next.addr()))].pptr() == next.ptr);
             }
-            let tracked next_outer = regions.slots.tracked_remove(next_idx);
-            let tracked mut next_so = regions.slot_owners.tracked_remove(next_idx);
-            let tracked mut next_perm =
-                vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                    next_outer,
-                    next_so.take_inner_perms(),
-                );
-            proof {
-                assert(next_perm =~= owner.list_own.meta_perm_of(regions0, owner.index + 1));
+            // Surgical write: only `next`'s `prev` pointer changes.
+            {
+                let tracked next_perm = regions.borrow_mut_typed_perm::<Link<M>>(
+                    frame_to_index(meta_to_frame(next.addr())));
+                update_field!(next => prev <- prev_ptr, Meta(next_perm));
             }
-            let ghost old_inner_n = next_perm.inner_perms;
-            update_field!(next => metadata.prev <- prev_ptr; next_perm);
-            let ghost vn = next_perm.value();
             proof {
-                assert(vn.ref_count == old_inner_n.ref_count.value());
-                assert(vn.in_list == old_inner_n.in_list.value());
-                assert(vn.vtable_ptr == old_inner_n.vtable_ptr.mem_contents());
-                crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner_n.ref_count);
-                crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner_n.in_list);
-                crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner_n.vtable_ptr);
-                Metadata::<Link<M>>::metadata_perms_inverse(vn.metadata, old_inner_n.storage);
-
-                let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } =
-                    next_perm;
-                next_so.sync_inner(&ip);
-                regions.slots.tracked_insert(next_idx, po);
-                regions.slot_owners.tracked_insert(next_idx, next_so);
                 assert(regions.inv());
                 assert(regions.slot_owners[idx] == regions0.slot_owners[idx]);
                 assert(regions.slots.dom() =~= regions0.slots.dom());
@@ -1063,7 +1014,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {
-                    if j == next_idx {
+                    if j == frame_to_index(meta_to_frame(next.addr())) {
                     }
                 }
             }
@@ -1108,36 +1059,28 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 == regions0.slot_owners[idx].paths_in_pt);
         }
 
-        let tracked frame_outer = regions.slots.tracked_remove(idx);
-        let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
-        let tracked mut frame_perm =
-            vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                frame_outer,
-                frame_so.take_inner_perms(),
-            );
-        let ghost old_inner_f = frame_perm.inner_perms;
-        update_field!(current_md => metadata.next <- None; frame_perm);
-        let ghost mid_inner_f = frame_perm.inner_perms;
-        update_field!(current_md => metadata.prev <- None; frame_perm);
-        let ghost vf = frame_perm.value();
-        proof {
-            crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner_f.ref_count);
-            crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner_f.in_list);
-            crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner_f.vtable_ptr);
-            crate::specs::mm::frame::meta_owners::perm_u64_with_identity(mid_inner_f.ref_count);
-            crate::specs::mm::frame::meta_owners::perm_u64_with_identity(mid_inner_f.in_list);
-            crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(mid_inner_f.vtable_ptr);
-            Metadata::<Link<M>>::metadata_perms_inverse(vf.metadata, mid_inner_f.storage);
+        // Surgical clear of the popped link's own next/prev. Only the
+        // storage cell is touched.
+        {
+            let tracked frame_perm = regions.borrow_mut_typed_perm::<Link<M>>(idx);
+            update_field!(current_md => next <- None, Meta(frame_perm));
+        }
+        {
+            let tracked frame_perm = regions.borrow_mut_typed_perm::<Link<M>>(idx);
+            update_field!(current_md => prev <- None, Meta(frame_perm));
         }
 
-        let tracked vstd_extra::cast_ptr::PointsTo { points_to: fpo, inner_perms: mut fip, .. } =
-            frame_perm;
-        #[verus_spec(with Tracked(&fpo))]
+        // Atomic `in_list = 0` — uses the `in_list` perm cell directly,
+        // no Metadata roundtrip.
+        let tracked frame_outer = regions.slots.tracked_remove(idx);
+        let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
+        let tracked mut fip = frame_so.take_inner_perms();
+        #[verus_spec(with Tracked(&frame_outer))]
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list), 0);
         proof {
             frame_so.sync_inner(&fip);
-            regions.slots.tracked_insert(idx, fpo);
+            regions.slots.tracked_insert(idx, frame_outer);
             regions.slot_owners.tracked_insert(idx, frame_so);
             assert(regions.inv());
             assert(regions.slots.dom() =~= regions0.slots.dom());
@@ -1291,90 +1234,33 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         if let Some(current) = self.current {
             let current_md = MetadataAsLink::cast_to_metadata(current);
-            let cur_idx_exec = frame_to_index(meta_to_frame(current.addr()));
 
             // Read current's prev pointer.
             let opt_prev_link: Option<ReprPtr<MetaSlot, MetadataAsLink<M>>>;
             {
-                let tracked tp = regions.borrow_typed_perm::<Link<M>>(cur_idx_exec);
-                opt_prev_link = borrow_field!(current_md => metadata.prev, tp);
+                let tracked tp = regions.borrow_typed_perm::<Link<M>>(
+                    frame_to_index(meta_to_frame(current.addr())));
+                opt_prev_link = borrow_field!(current_md => prev, Meta(tp));
             }
 
             if let Some(prev_link) = opt_prev_link {
-                // MID case: n > 0; insert between prev and current.
+
                 let prev = MetadataAsLink::cast_to_metadata(prev_link);
-                let prev_idx_exec = frame_to_index(meta_to_frame(prev.addr()));
 
-                // (1) prev.next <- Some(frame_ptr_as_link)
-                {
-                    let tracked outer = regions.slots.tracked_remove(prev_idx_exec);
-                    let tracked mut so = regions.slot_owners.tracked_remove(prev_idx_exec);
-                    let tracked mut perm = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                        outer, so.take_inner_perms());
-                    let ghost old_inner = perm.inner_perms;
-                    update_field!(prev => metadata.next <- Some(frame_ptr_as_link); perm);
-                    let ghost v = perm.value();
-                    proof {
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.ref_count);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.in_list);
-                        crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner.vtable_ptr);
-                        Metadata::<Link<M>>::metadata_perms_inverse(v.metadata, old_inner.storage);
-                        let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } = perm;
-                        so.sync_inner(&ip);
-                        regions.slots.tracked_insert(prev_idx_exec, po);
-                        regions.slot_owners.tracked_insert(prev_idx_exec, so);
-                        assert(regions.inv());
-                    }
-                }
+                let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
+                    frame_to_index(meta_to_frame(prev.addr())));
+                update_field!(prev => next <- Some(frame_ptr_as_link), Meta(perm));
 
-                // (2+3) frame.prev <- Some(prev_link); frame.next <- Some(current)
-                {
-                    let tracked outer = regions.slots.tracked_remove(frame_idx_g);
-                    let tracked mut so = regions.slot_owners.tracked_remove(frame_idx_g);
-                    let tracked mut perm = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                        outer, so.take_inner_perms());
-                    let ghost old_inner = perm.inner_perms;
-                    update_field!(frame_ptr => metadata.prev <- Some(prev_link); perm);
-                    let ghost mid_inner = perm.inner_perms;
-                    update_field!(frame_ptr => metadata.next <- Some(current); perm);
-                    let ghost v = perm.value();
-                    proof {
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.ref_count);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.in_list);
-                        crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner.vtable_ptr);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(mid_inner.ref_count);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(mid_inner.in_list);
-                        crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(mid_inner.vtable_ptr);
-                        Metadata::<Link<M>>::metadata_perms_inverse(v.metadata, mid_inner.storage);
-                        let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } = perm;
-                        so.sync_inner(&ip);
-                        regions.slots.tracked_insert(frame_idx_g, po);
-                        regions.slot_owners.tracked_insert(frame_idx_g, so);
-                        assert(regions.inv());
-                    }
-                }
+                let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
+                update_field!(frame_ptr => prev <- Some(prev_link), Meta(perm));
 
-                // (4) current.prev <- Some(frame_ptr_as_link)
-                {
-                    let tracked outer = regions.slots.tracked_remove(cur_idx_exec);
-                    let tracked mut so = regions.slot_owners.tracked_remove(cur_idx_exec);
-                    let tracked mut perm = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                        outer, so.take_inner_perms());
-                    let ghost old_inner = perm.inner_perms;
-                    update_field!(current_md => metadata.prev <- Some(frame_ptr_as_link); perm);
-                    let ghost v = perm.value();
-                    proof {
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.ref_count);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.in_list);
-                        crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner.vtable_ptr);
-                        Metadata::<Link<M>>::metadata_perms_inverse(v.metadata, old_inner.storage);
-                        let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } = perm;
-                        so.sync_inner(&ip);
-                        regions.slots.tracked_insert(cur_idx_exec, po);
-                        regions.slot_owners.tracked_insert(cur_idx_exec, so);
-                        assert(regions.inv());
-                    }
-                }
+                let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
+                update_field!(frame_ptr => next <- Some(current), Meta(perm));
+
+                let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
+                    frame_to_index(meta_to_frame(current.addr())));
+                update_field!(current_md => prev <- Some(frame_ptr_as_link), Meta(perm));
+
                 proof {
                     let fpn_local = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(
                         regions.slots[frame_idx_g],
@@ -1394,50 +1280,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
                 }
             } else {
-                // FRONT-with-current case: n == 0; insert before the first element.
-                // (1) frame.next <- Some(current)
-                {
-                    let tracked outer = regions.slots.tracked_remove(frame_idx_g);
-                    let tracked mut so = regions.slot_owners.tracked_remove(frame_idx_g);
-                    let tracked mut perm = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                        outer, so.take_inner_perms());
-                    let ghost old_inner = perm.inner_perms;
-                    update_field!(frame_ptr => metadata.next <- Some(current); perm);
-                    let ghost v = perm.value();
-                    proof {
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.ref_count);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.in_list);
-                        crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner.vtable_ptr);
-                        Metadata::<Link<M>>::metadata_perms_inverse(v.metadata, old_inner.storage);
-                        let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } = perm;
-                        so.sync_inner(&ip);
-                        regions.slots.tracked_insert(frame_idx_g, po);
-                        regions.slot_owners.tracked_insert(frame_idx_g, so);
-                        assert(regions.inv());
-                    }
-                }
+                let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
+                update_field!(frame_ptr => next <- Some(current), Meta(perm));
 
-                // (2) current.prev <- Some(frame_ptr_as_link)
-                {
-                    let tracked outer = regions.slots.tracked_remove(cur_idx_exec);
-                    let tracked mut so = regions.slot_owners.tracked_remove(cur_idx_exec);
-                    let tracked mut perm = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                        outer, so.take_inner_perms());
-                    let ghost old_inner = perm.inner_perms;
-                    update_field!(current_md => metadata.prev <- Some(frame_ptr_as_link); perm);
-                    let ghost v = perm.value();
-                    proof {
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.ref_count);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.in_list);
-                        crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner.vtable_ptr);
-                        Metadata::<Link<M>>::metadata_perms_inverse(v.metadata, old_inner.storage);
-                        let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } = perm;
-                        so.sync_inner(&ip);
-                        regions.slots.tracked_insert(cur_idx_exec, po);
-                        regions.slot_owners.tracked_insert(cur_idx_exec, so);
-                        assert(regions.inv());
-                    }
-                }
+                let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
+                    frame_to_index(meta_to_frame(current.addr())));
+                update_field!(current_md => prev <- Some(frame_ptr_as_link), Meta(perm));
 
                 self.list.front = Some(frame_ptr_as_link);
                 proof {
@@ -1459,52 +1307,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             if let Some(back) = self.list.back {
                 // BACK case: n == len; insert after the last element.
                 let back_md = MetadataAsLink::cast_to_metadata(back);
-                let back_idx_exec = frame_to_index(meta_to_frame(back.addr()));
 
-                // (1) back.next <- Some(frame_ptr_as_link)
-                {
-                    let tracked outer = regions.slots.tracked_remove(back_idx_exec);
-                    let tracked mut so = regions.slot_owners.tracked_remove(back_idx_exec);
-                    let tracked mut perm = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                        outer, so.take_inner_perms());
-                    let ghost old_inner = perm.inner_perms;
-                    update_field!(back_md => metadata.next <- Some(frame_ptr_as_link); perm);
-                    let ghost v = perm.value();
-                    proof {
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.ref_count);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.in_list);
-                        crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner.vtable_ptr);
-                        Metadata::<Link<M>>::metadata_perms_inverse(v.metadata, old_inner.storage);
-                        let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } = perm;
-                        so.sync_inner(&ip);
-                        regions.slots.tracked_insert(back_idx_exec, po);
-                        regions.slot_owners.tracked_insert(back_idx_exec, so);
-                        assert(regions.inv());
-                    }
-                }
+                let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
+                    frame_to_index(meta_to_frame(back.addr())));
+                update_field!(back_md => next <- Some(frame_ptr_as_link), Meta(perm));
 
-                // (2) frame.prev <- Some(back)
-                {
-                    let tracked outer = regions.slots.tracked_remove(frame_idx_g);
-                    let tracked mut so = regions.slot_owners.tracked_remove(frame_idx_g);
-                    let tracked mut perm = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new(
-                        outer, so.take_inner_perms());
-                    let ghost old_inner = perm.inner_perms;
-                    update_field!(frame_ptr => metadata.prev <- Some(back); perm);
-                    let ghost v = perm.value();
-                    proof {
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.ref_count);
-                        crate::specs::mm::frame::meta_owners::perm_u64_with_identity(old_inner.in_list);
-                        crate::specs::mm::frame::meta_owners::pptr_usize_with_identity(old_inner.vtable_ptr);
-                        Metadata::<Link<M>>::metadata_perms_inverse(v.metadata, old_inner.storage);
-                        let tracked vstd_extra::cast_ptr::PointsTo { points_to: po, inner_perms: ip, .. } = perm;
-                        so.sync_inner(&ip);
-                        regions.slots.tracked_insert(frame_idx_g, po);
-                        regions.slot_owners.tracked_insert(frame_idx_g, so);
-                        assert(regions.inv());
-                    }
-                }
-
+                let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
+                update_field!(frame_ptr => prev <- Some(back), Meta(perm));
+ 
                 self.list.back = Some(frame_ptr_as_link);
                 proof {
                     let fpn_local = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(
