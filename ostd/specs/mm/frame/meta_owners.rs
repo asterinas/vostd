@@ -153,7 +153,7 @@ pub enum MetaSlotStorage {
 /// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
 /// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
 /// it can then be used to stand in for `dyn AnyFrameMeta`.
-impl AnyFrameMeta for MetaSlotStorage {
+unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
 }
 

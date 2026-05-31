@@ -582,8 +582,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     // SAFETY: The `pt` must be locked and no other guards exist.
 
-                    #[verus_spec(with Tracked(&child_node), Tracked(guards))]
-                    let guard = pt.make_guard_unchecked(rcu_guard);
+                    let guard = unsafe {
+                        #[verus_spec(with Tracked(&child_node), Tracked(guards))]
+                        pt.make_guard_unchecked(rcu_guard)
+                    };
 
                     proof {
                         child_owner.value.node = Some(child_node);
@@ -1107,8 +1109,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     let ghost guards0 = *guards;
 
                     // SAFETY: The `pt` must be locked and no other guards exist.
-                    #[verus_spec(with Tracked(&child_node_owner), Tracked(guards))]
-                    let mut pt_guard = pt.make_guard_unchecked(rcu_guard);
+                    let mut pt_guard = unsafe {
+                        #[verus_spec(with Tracked(&child_node_owner), Tracked(guards))]
+                        pt.make_guard_unchecked(rcu_guard)
+                    };
 
                     #[verus_spec(with Tracked(&mut child_node_owner))]
                     let nr_children = pt_guard.nr_children();
@@ -2308,8 +2312,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked mut child_node = child_owner.value.node.tracked_take();
 
         // SAFETY: The `pt` must be locked and no other guards exist.
-        #[verus_spec(with Tracked(&child_node), Tracked(guards))]
-        let pt_guard = pt.make_guard_unchecked(rcu_guard);
+        let pt_guard = unsafe {
+            #[verus_spec(with Tracked(&child_node), Tracked(guards))]
+            pt.make_guard_unchecked(rcu_guard)
+        };
 
         proof {
             child_owner.value.node = Some(child_node);
@@ -2871,7 +2877,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.barrier_va == old(self).0.barrier_va,
     )]
     #[verifier::rlimit(1200)]
-    pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
+    pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
@@ -4158,8 +4164,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let ghost guards0 = *guards;
 
-                #[verus_spec(with Tracked(&old_node_owner), Tracked(guards))]
-                let locked_pt = borrow_pt.make_guard_unchecked(rcu_guard);
+                let locked_pt = unsafe {
+                    #[verus_spec(with Tracked(&old_node_owner), Tracked(guards))]
+                    borrow_pt.make_guard_unchecked(rcu_guard)
+                };
 
                 proof {
                     owner.map_children_implies(
@@ -4176,8 +4184,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 //  - We checked that we are not unmapping shared kernel page table nodes.
                 //  - We must have locked the entire sub-tree since the range is locked.
                 let ghost subtree_count = PageTableOwner::<C>(owner0.cur_subtree())@.mappings.len();
-                #[verus_spec(with Tracked(owner), Tracked(guards), Ghost(locked_addr), Ghost(subtree_count))]
-                let num_frames = locking::dfs_mark_stray_and_unlock(rcu_guard, &locked_pt);
+                let num_frames = unsafe {
+                    #[verus_spec(with Tracked(owner), Tracked(guards), Ghost(locked_addr), Ghost(subtree_count))]
+                    locking::dfs_mark_stray_and_unlock(rcu_guard, &locked_pt)
+                };
 
                 proof {
                     owner.map_children_implies(

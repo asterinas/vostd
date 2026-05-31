@@ -821,9 +821,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         assert(self.pt_cursor.item_wf(item, entry_owner)) by {};
 
         // SAFETY: It is safe to map untyped memory into the userspace.
-        let Err(frag) = (
-        #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
-        self.pt_cursor.map(item)) else {
+        let Err(frag) = (unsafe {
+            #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
+            self.pt_cursor.map(item)
+        }) else {
             return;  // No mapping exists at the current address.
         };
 

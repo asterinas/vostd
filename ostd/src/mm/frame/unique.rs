@@ -170,8 +170,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
 
         // SAFETY: We are the sole owner and the metadata is initialized.
-        #[verus_spec(with Tracked(&mut slot_own))]
-        slot.drop_meta_in_place();
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own))]
+            slot.drop_meta_in_place()
+        };
 
         // After drop_meta_in_place, slot_own.inner_perms has uninit storage+vtable.
         // Extract them for write_meta, which requires uninit vtable_ptr.
@@ -189,11 +191,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         // Write the new metadata into the slot.
         let slot = self.ptr.borrow(Tracked(&slot_perm));
 
-        #[verus_spec(with
-            Tracked(&mut inner_perms.storage),
-            Tracked(&mut inner_perms.vtable_ptr)
-        )]
-        slot.write_meta(metadata);
+        unsafe {
+            #[verus_spec(with
+                Tracked(&mut inner_perms.storage),
+                Tracked(&mut inner_perms.vtable_ptr)
+            )]
+            slot.write_meta(metadata)
+        };
 
         // Re-sync slot_own with the updated inner_perms (now storage+vtable are init).
         proof {
@@ -403,8 +407,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
         // SAFETY: We are the sole owner and the reference count is 0.
         // The slot is initialized.
-        #[verus_spec(with Tracked(&mut slot_own))]
-        slot.drop_last_in_place();
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own))]
+            slot.drop_last_in_place()
+        };
 
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);
@@ -468,7 +474,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
                 regions,
             ).slot_owners[frame_to_index(paddr)].raw_count - 1,
     )]
-    pub(crate) fn from_raw(paddr: Paddr) -> (Self, Tracked<UniqueFrameOwner<M>>) {
+    pub(crate) unsafe fn from_raw(paddr: Paddr) -> (Self, Tracked<UniqueFrameOwner<M>>) {
         let vaddr = frame_to_meta(paddr);
         let ptr = vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(vaddr);
 
@@ -566,8 +572,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         #[verus_spec(with Tracked(&perm))]
         let slot = self.slot();
 
-        #[verus_spec(with Tracked(&mut slot_own))]
-        slot.drop_last_in_place();
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own))]
+            slot.drop_last_in_place()
+        };
 
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);

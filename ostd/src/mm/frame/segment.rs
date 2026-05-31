@@ -301,8 +301,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                 assert(paddr + PAGE_SIZE <= MAX_PADDR);
             }
 
-            #[verus_spec(with Tracked(perm))]
-            crate::mm::frame::inc_frame_ref_count(paddr);
+            unsafe {
+                #[verus_spec(with Tracked(perm))]
+                crate::mm::frame::inc_frame_ref_count(paddr)
+            };
 
             paddr = paddr + PAGE_SIZE;
         }
@@ -883,8 +885,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             // `inc_ref_count` via `ptr.borrow`. Disjoint from the
             // `slot_owners` `tracked_remove` above (distinct map fields) —
             // same pattern as `Frame::inc_frame_ref_count`.
-            #[verus_spec(with Tracked(&mut inner_perms.ref_count))]
-            ptr.borrow(Tracked(regions.slots.tracked_borrow(slot_idx))).inc_ref_count();
+            unsafe {
+                #[verus_spec(with Tracked(&mut inner_perms.ref_count))]
+                ptr.borrow(Tracked(regions.slots.tracked_borrow(slot_idx))).inc_ref_count()
+            };
 
             proof {
                 assert(old_regions.slot_owners[slot_idx].inner_perms.ref_count.value()

@@ -1480,8 +1480,10 @@ impl PageTable<KernelPtConfig> {
             let pt_addr = pt.start_paddr();
             let pte = PageTableEntry::new_pt(pt_addr);
 
-            #[verus_spec(with Tracked(&mut new_node_owner))]
-            new_node.write_pte(i, pte);
+            unsafe {
+                #[verus_spec(with Tracked(&mut new_node_owner))]
+                new_node.write_pte(i, pte)
+            };
 
             i = i + 1;
         }
@@ -1851,7 +1853,7 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
     returns
         perm.value()[ptr.index as int],
 )]
-pub fn load_pte<E: PageTableEntryTrait>(
+pub unsafe fn load_pte<E: PageTableEntryTrait>(
     ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
     ordering: Ordering,
 ) -> (pte: E) {
@@ -1883,7 +1885,7 @@ pub fn load_pte<E: PageTableEntryTrait>(
         final(perm).addr() == old(perm).addr(),
         final(perm).is_init_all(),
 )]
-pub fn store_pte<E: PageTableEntryTrait>(
+pub unsafe fn store_pte<E: PageTableEntryTrait>(
     ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
     new_val: E,
     ordering: Ordering,

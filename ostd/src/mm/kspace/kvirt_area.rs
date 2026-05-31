@@ -893,8 +893,10 @@ impl KVirtArea {
                     assert(may_panic());
                 }
             }
-            #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
-            let res = cursor.map(item);
+            let res = unsafe {
+                #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
+                cursor.map(item)
+            };
 
             // `item_slot_in_regions` preservation for the remaining frames
             // follows from cursor.map's strengthened ensures: ref_count is
@@ -1249,8 +1251,10 @@ impl KVirtArea {
                         *regions,
                     ));
                 }
-                #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
-                let _ = cursor.map(item);
+                let _ = unsafe {
+                    #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
+                    cursor.map(item)
+                };
 
                 proof {
                     cursor_owner.va.reflect_prop(cursor.0.va);

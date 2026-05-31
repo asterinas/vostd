@@ -666,8 +666,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
     fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self {
         let paddr = meta_to_frame(self.ptr.addr());
 
-        #[verus_spec(with Tracked(perm))]
-        inc_frame_ref_count(paddr);
+        unsafe {
+            #[verus_spec(with Tracked(perm))]
+            inc_frame_ref_count(paddr)
+        };
 
         Self { ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0), _marker: PhantomData }
     }
@@ -845,8 +847,10 @@ impl<M: ?Sized> Drop for Frame<M> {
                 assert(MetaSlot::drop_last_in_place_safety_cond(slot_own));
                 assert(slot.ref_count.id() == slot_own.inner_perms.ref_count.id());
             }
-            #[verus_spec(with Tracked(&mut slot_own))]
-            slot.drop_last_in_place();
+            unsafe {
+                #[verus_spec(with Tracked(&mut slot_own))]
+                slot.drop_last_in_place()
+            };
 
             proof {
                 // last-ref teardown: slot is UNUSED, identity preserved
@@ -1072,7 +1076,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
             ).slot_owners[i]),
         final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
 )]
-pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr) {
+pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
     let tracked perm = regions.slots.tracked_borrow(frame_to_index(paddr));
     let tracked mut inner_perms = slot_own.take_inner_perms();
@@ -1082,8 +1086,10 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr) {
     // an immutable reference to it is always safe.
     let slot = PPtr::<MetaSlot>::from_addr(vaddr);
 
-    #[verus_spec(with Tracked(&mut inner_perms.ref_count))]
-    slot.borrow(Tracked(perm)).inc_ref_count();
+    unsafe {
+        #[verus_spec(with Tracked(&mut inner_perms.ref_count))]
+        slot.borrow(Tracked(perm)).inc_ref_count()
+    };
 
     proof {
         let idx = frame_to_index(paddr);

@@ -334,7 +334,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         //    (2) all child nodes cannot be recycled because we're in the RCU critical section.
         //  - The index is inside the bound, so the page table entry is valid.
         //  - All page table entries are aligned and accessed with atomic operations only.
-        let cur_pte = load_pte(cur_pt_ptr.add(start_idx), Ordering::Acquire);
+        let cur_pte = unsafe { load_pte(cur_pt_ptr.add(start_idx), Ordering::Acquire) };
 
         if cur_pte.is_present() {
             if cur_pte.is_last(end - cur_level + 1) {
@@ -556,8 +556,10 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         match child.to_ref() {
             ChildRef::PageTable(pt) => {
                 // SAFETY: The caller ensures that the node is locked and the new guard is unique.
-                #[verus_spec(with Tracked(entry_own.node.tracked_borrow()), Tracked(guards))]
-                let mut child_node = pt.make_guard_unchecked(guard);
+                let mut child_node = unsafe {
+                    #[verus_spec(with Tracked(entry_own.node.tracked_borrow()), Tracked(guards))]
+                    pt.make_guard_unchecked(guard)
+                };
                 let child_node_va = cur_node_va + (end - i) * page_size(cur_level);
                 let child_node_va_end = child_node_va + page_size(cur_level);
                 let va_start = va_range.start.max(child_node_va);
@@ -629,7 +631,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         forall |addr: usize| addr != locked_addr && old(guards).lock_held(addr) ==> final(guards).lock_held(addr),
 )]
 #[verifier::external_body]
-pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
+pub unsafe fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
     rcu_guard: &A,
     sub_tree: &PageTableGuard<'a, C>,
 ) -> usize {
@@ -659,10 +661,10 @@ pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
         match child.to_ref() {
             ChildRef::PageTable(pt) => {
                 // SAFETY: The caller ensures that the node is locked and the new guard is unique.
-                let locked_pt = pt.make_guard_unchecked(rcu_guard);
+                let locked_pt = unsafe { pt.make_guard_unchecked(rcu_guard) };
                 // SAFETY: The caller ensures that all the nodes in the sub-tree are locked and all
                 // guards are forgotten.
-                num_frames += dfs_mark_stray_and_unlock(rcu_guard, locked_pt);
+                num_frames += unsafe { dfs_mark_stray_and_unlock(rcu_guard, locked_pt) };
             },
             ChildRef::None | ChildRef::Frame(_, _, _) => {},
         }

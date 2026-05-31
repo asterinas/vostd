@@ -131,7 +131,7 @@ impl<C: PageTableConfig> Child<C> {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(entry_own): Tracked<&mut EntryOwner<C>>,
     )]
-    pub fn from_pte(pte: C::E, level: PagingLevel) -> (res: Self)
+    pub unsafe fn from_pte(pte: C::E, level: PagingLevel) -> (res: Self)
         requires
             old(entry_own).pte_invariants(pte, *old(regions)),
             level == old(entry_own).parent_level,
@@ -223,7 +223,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(entry_owner): Tracked<&EntryOwner<C>>
     )]
-    pub fn from_pte(pte: &C::E, level: PagingLevel) -> (res: Self)
+    pub unsafe fn from_pte(pte: &C::E, level: PagingLevel) -> (res: Self)
         requires
             entry_owner.pte_invariants(*pte, *old(regions)),
             level == entry_owner.parent_level,

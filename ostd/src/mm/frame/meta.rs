@@ -139,7 +139,7 @@ pub tracked struct OnDropArgs {
 /// because it's only used statically (the runtime vtable pointer lives on
 /// the slot, not on the instance). Sites that need `Repr<MetaSlotStorage>`
 /// must spell it out — it was previously a supertrait.
-pub trait AnyFrameMeta {
+pub unsafe trait AnyFrameMeta {
     /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
     /// reader/region/child-perm invariants) override this; the trait
@@ -386,8 +386,10 @@ impl MetaSlot {
         // SAFETY: The slot now has a reference count of `0`, other threads will
         // not access the metadata slot so it is safe to have a mutable reference.
 
-        #[verus_spec(with Tracked(&mut slot_own.inner_perms.storage), Tracked(&mut slot_own.inner_perms.vtable_ptr))]
-        slot.borrow(Tracked(&slot_perm)).write_meta(metadata);
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own.inner_perms.storage), Tracked(&mut slot_own.inner_perms.vtable_ptr))]
+            slot.borrow(Tracked(&slot_perm)).write_meta(metadata)
+        };
 
         if as_unique_ptr {
             // No one can create a `Frame` instance directly from the page
@@ -732,7 +734,7 @@ impl MetaSlot {
             old(rc_perm).value() < REF_COUNT_MAX,
             final(rc_perm).id() == old(rc_perm).id(),
     )]
-    pub(super) fn inc_ref_count(&self) {
+    pub(super) unsafe fn inc_ref_count(&self) {
         let last_ref_cnt = self.ref_count.fetch_add(Tracked(rc_perm), 1);
 
         if last_ref_cnt >= REF_COUNT_MAX {
@@ -855,7 +857,7 @@ impl MetaSlot {
             Metadata::<M>::metadata_from_inner_perms(*final(meta_perm)) == metadata,
     )]
     #[verifier::external_body]
-    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         &self,
         metadata: M,
     ) {
@@ -910,12 +912,14 @@ impl MetaSlot {
             final(owner).raw_count == old(owner).raw_count,
             final(owner).paths_in_pt == old(owner).paths_in_pt,
     )]
-    pub(super) fn drop_last_in_place(&self) {
+    pub(super) unsafe fn drop_last_in_place(&self) {
         // This should be guaranteed as a safety requirement.
         //        debug_assert_eq!(self.ref_count.load(Tracked(&*rc_perm)), 0);
         // SAFETY: The caller ensures safety.
-        #[verus_spec(with Tracked(owner))]
-        self.drop_meta_in_place();
+        unsafe {
+            #[verus_spec(with Tracked(owner))]
+            self.drop_meta_in_place()
+        };
 
         // `Release` pairs with the `Acquire` in `Frame::from_unused` and ensures
         // `drop_meta_in_place` won't be reordered after this memory store.
@@ -960,7 +964,7 @@ impl MetaSlot {
             final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
     )]
     #[verifier::external_body]
-    pub(super) fn drop_meta_in_place(&self) {
+    pub(super) unsafe fn drop_meta_in_place(&self) {
         // Smoke test for the dyn-dispatch shape — body kept `external_body`
         // because (a) the args bundle isn't threaded through the call chain
         // yet (Tracked::assume_new forges it here), (b) `VmReader`,
