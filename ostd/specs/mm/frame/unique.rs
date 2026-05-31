@@ -26,6 +26,11 @@ pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlotStorage> + Owne
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
     open spec fn inv(self) -> bool {
+        // `slot_index < MAX_NR_PAGES` is the meaningful invariant: a unique
+        // frame's slot corresponds to a physical frame at paddr < MAX_PADDR ==
+        // MAX_NR_PAGES * PAGE_SIZE. Implies `< max_meta_slots()` since
+        // FRAME_METADATA_RANGE is large enough for `MAX_NR_PAGES` slots.
+        &&& self.slot_index < MAX_NR_PAGES
         &&& self.slot_index < max_meta_slots()
     }
 }
@@ -113,8 +118,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& res.slot_index == frame_to_index(paddr)
         &&& res.meta_perm_of(regions).addr() == frame_to_meta(paddr)
         &&& res.meta_perm_of(regions).value().metadata == metadata
-        // Borrow model: the slot permission STAYS parked in `regions.slots`.
         &&& regions.slots == old_regions.slots
+        &&& regions.slot_owners[frame_to_index(paddr)].inner_perms
+            == old_regions.slot_owners[frame_to_index(paddr)].inner_perms
         &&& regions.slot_owners[frame_to_index(paddr)].raw_count == old_regions.slot_owners[frame_to_index(paddr)].raw_count
         &&& regions.slot_owners[frame_to_index(paddr)].usage == old_regions.slot_owners[frame_to_index(paddr)].usage
         &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
@@ -148,6 +154,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
 
     open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 1
+        // Body only mutates raw_count; everything else at the popped slot is preserved.
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
+            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].self_addr
+            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].self_addr
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
+            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt
+            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt
         &&& forall|i: usize| #![trigger s1.slot_owners[i]]
             i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots

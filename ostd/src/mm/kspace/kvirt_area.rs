@@ -206,13 +206,13 @@ pub(crate) fn get_kernel_page_table<'rcu>(
         final(kernel_owner)@ is Some,
         final(kernel_owner)@.unwrap().inv(),
         final(kernel_owner)@.unwrap().0.value.node is Some,
-        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_perm.addr(),
+        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_addr_self(),
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
             final(kernel_owner)@.unwrap().0.value.node.unwrap(),
         ),
         final(kernel_owner)@.unwrap().0.value.metaregion_sound(*regions),
         final(kernel_owner)@.unwrap().metaregion_sound(*regions),
-        guards_k.unlocked(final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_perm.addr()),
+        guards_k.unlocked(final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_addr_self()),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }

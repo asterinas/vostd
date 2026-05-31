@@ -23,10 +23,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub open spec fn node_matching(self, owner: EntryOwner<C>, parent_owner: NodeOwner<C>, guard: PageTableGuard<'rcu, C>) -> bool {
         &&& parent_owner.level == owner.parent_level
         &&& parent_owner.inv()
-        &&& guard.inner.inner@.ptr.addr() == parent_owner.meta_perm.points_to.addr()
+        &&& guard.inner.inner@.ptr.addr() == parent_owner.meta_addr_self()
         &&& guard.inner.inner@.wf(parent_owner)
-        &&& parent_owner.meta_perm.is_init()
-        &&& parent_owner.meta_perm.wf(&parent_owner.meta_perm.inner_perms)
         &&& owner.match_pte(parent_owner.children_perm.value()[self.idx as int], owner.parent_level)
     }
 
@@ -162,10 +160,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     -> bool {
         &&& forall|i: int| 0 <= i < NR_ENTRIES ==> i != self.idx ==>
             parent_owner0.children_perm.value()[i] == parent_owner1.children_perm.value()[i]
-        // meta_perm is unchanged: only children_perm and meta_own are modified by entry operations.
-        &&& parent_owner1.meta_perm.addr() == parent_owner0.meta_perm.addr()
-        &&& parent_owner1.meta_perm.points_to == parent_owner0.meta_perm.points_to
-        &&& parent_owner1.meta_perm.inner_perms == parent_owner0.meta_perm.inner_perms
+        &&& parent_owner1.slot_index == parent_owner0.slot_index
+        &&& parent_owner1.level == parent_owner0.level
+        &&& parent_owner1.tree_level == parent_owner0.tree_level
+        // meta_own.nr_children may change in value (via writes); its id is
+        // preserved. stray is fully preserved (replace doesn't touch it).
+        &&& parent_owner1.meta_own.nr_children.id()
+                == parent_owner0.meta_own.nr_children.id()
+        &&& parent_owner1.meta_own.stray == parent_owner0.meta_own.stray
     }
 }
 

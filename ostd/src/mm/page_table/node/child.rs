@@ -71,7 +71,7 @@ impl<C: PageTableConfig> Child<C> {
             *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
             *final(owner) == old(owner).into_pte_owner_spec(),
             old(owner).node is Some ==> res == C::E::new_pt_spec(
-                meta_to_frame(old(owner).node.unwrap().meta_perm.addr()),
+                meta_to_frame(old(owner).node.unwrap().meta_addr_self()),
             ),
     {
         proof {
@@ -81,11 +81,15 @@ impl<C: PageTableConfig> Child<C> {
         match self {
             Child::PageTable(node) => {
                 let ghost node_owner = owner.node.unwrap();
-
-                #[verus_spec(with Tracked(&owner.node.tracked_borrow().meta_perm.points_to))]
-                let paddr = node.start_paddr();
-
                 let ghost node_index = frame_to_index(meta_to_frame(node.ptr.addr()));
+
+                // Borrow-model: source the slot perm from `regions.slots[idx]`
+                // via the bridge in `metaregion_sound`'s node branch (carried
+                // here through `owner.invariants` / `pte_invariants`-style
+                // preconditions) instead of from `owner.node.meta_perm.points_to`.
+                let tracked node_slot_perm = regions.slots.tracked_borrow(node_index);
+                #[verus_spec(with Tracked(node_slot_perm))]
+                let paddr = node.start_paddr();
 
                 let _ = ManuallyDrop::new(node, Tracked(regions));
 
@@ -162,10 +166,9 @@ impl<C: PageTableConfig> Child<C> {
 
             let node = unsafe {
                 proof_with!(
-                    Tracked(regions),
-                    Tracked(&entry_own.node.tracked_borrow().meta_perm.points_to) => Tracked(from_raw_debt)
+                    Tracked(regions) => Tracked(from_raw_debt)
                 );
-                PageTableNode::from_raw(paddr)
+                PageTableNode::from_raw_borrowing(paddr)
             };
 
             proof {
@@ -253,8 +256,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             }
 
             let node = unsafe {
-                #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm.points_to))]
-                PageTableNodeRef::borrow_paddr(paddr)
+                #[verus_spec(with Tracked(regions))]
+                PageTableNodeRef::borrow_paddr_borrowing(paddr)
             };
 
             proof {

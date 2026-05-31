@@ -109,6 +109,62 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
 
         Self { inner: ManuallyDrop::new(frame, Tracked(regions)), _marker: PhantomData }
     }
+
+    /// Borrow-model variant of [`Self::borrow_paddr`]: the slot perm is already
+    /// parked in `regions.slots[idx]`, so the caller doesn't pass a separate
+    /// perm. Pairs with [`Frame::from_raw_borrowing`] and
+    /// [`Frame::into_raw_borrowing`].
+    #[verus_spec(r =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        requires
+            Frame::<M>::from_raw_requires_safety(*old(regions), raw),
+            old(regions).slots.contains_key(frame_to_index(raw)),
+            old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,
+            old(regions).slot_owners[frame_to_index(raw)].inner_perms.ref_count.value()
+                != crate::mm::frame::meta::REF_COUNT_UNUSED,
+        ensures
+            final(regions).inv(),
+            r.inner.0.ptr.addr() == frame_to_meta(raw),
+            final(regions).slot_owners[frame_to_index(raw)].raw_count == 1,
+            final(regions).slot_owners[frame_to_index(raw)].inner_perms
+                == old(regions).slot_owners[frame_to_index(raw)].inner_perms,
+            final(regions).slot_owners[frame_to_index(raw)].self_addr
+                == old(regions).slot_owners[frame_to_index(raw)].self_addr,
+            final(regions).slot_owners[frame_to_index(raw)].usage
+                == old(regions).slot_owners[frame_to_index(raw)].usage,
+            final(regions).slot_owners[frame_to_index(raw)].paths_in_pt
+                == old(regions).slot_owners[frame_to_index(raw)].paths_in_pt,
+            forall |i: usize|
+                #![trigger final(regions).slot_owners[i]]
+                i != frame_to_index(raw) ==> final(regions).slot_owners[i]
+                    == old(regions).slot_owners[i],
+            final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
+            // Slots fully preserved: perm stays parked in regions.
+            final(regions).slots == old(regions).slots,
+    )]
+    pub(in crate::mm) unsafe fn borrow_paddr_borrowing(raw: Paddr) -> Self {
+        proof {
+            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
+            old(regions).inv_implies_correct_addr(raw);
+        }
+
+        proof_decl! {
+            let tracked debt: BorrowDebt;
+        }
+
+        let frame = unsafe {
+            proof_with!(Tracked(regions) => Tracked(debt));
+            Frame::from_raw_borrowing(raw)
+        };
+
+        proof {
+            Frame::lemma_from_raw_manuallydrop_general(raw, frame, *old(regions), *regions, debt);
+        }
+
+        Self { inner: ManuallyDrop::new(frame, Tracked(regions)), _marker: PhantomData }
+    }
 }
 
 // TODO: I moved this here to avoid having to pull the rest of `sync` into the verification.

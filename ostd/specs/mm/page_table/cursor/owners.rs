@@ -690,15 +690,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             owner.is_node() ==>
-            guards.unlocked(owner.node.unwrap().meta_perm.addr())
+            guards.unlocked(owner.node.unwrap().meta_addr_self())
     }
 
     pub open spec fn node_unlocked_except(guards: Guards<'rcu, C>, addr: usize) ->
         (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             owner.is_node() ==>
-            owner.node.unwrap().meta_perm.addr() != addr ==>
-            guards.unlocked(owner.node.unwrap().meta_perm.addr())
+            owner.node.unwrap().meta_addr_self() != addr ==>
+            guards.unlocked(owner.node.unwrap().meta_addr_self())
     }
 
     pub open spec fn map_full_tree(self, f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) -> bool {
@@ -721,7 +721,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn only_current_locked(self, guards: Guards<'rcu, C>) -> bool {
-        self.map_only_children(Self::node_unlocked_except(guards, self.cur_entry_owner().node.unwrap().meta_perm.addr()))
+        self.map_only_children(Self::node_unlocked_except(guards, self.cur_entry_owner().node.unwrap().meta_addr_self()))
     }
 
     pub proof fn never_drop_restores_children_not_locked(
@@ -737,11 +737,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // The dropped guard is for the current entry's node (from pop_level).
         self.cur_entry_owner().is_node(),
         guard.inner.inner@.ptr.addr()
-            == self.cur_entry_owner().node.unwrap().meta_perm.addr(),
+            == self.cur_entry_owner().node.unwrap().meta_addr_self(),
     ensures
         self.children_not_locked(guards1),
     {
-        let current_addr = self.cur_entry_owner().node.unwrap().meta_perm.addr();
+        let current_addr = self.cur_entry_owner().node.unwrap().meta_addr_self();
         let f = Self::node_unlocked_except(guards0, current_addr);
         let g = Self::node_unlocked(guards1);
         assert(OwnerSubtree::implies(f, g));

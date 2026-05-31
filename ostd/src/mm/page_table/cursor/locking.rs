@@ -145,7 +145,10 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     // Once we have locked the sub-tree that is not stray, we won't read any
     // stray nodes in the following traversal since we must lock before reading.
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
-    #[verus_spec(with Tracked(&cont.entry_own.node.tracked_borrow().meta_perm))]
+    let ghost cont_slot_idx = cont.entry_own.node.tracked_borrow().slot_index;
+    let tracked cont_meta_perm =
+        regions.borrow_typed_perm::<PageTablePageMeta<C>>(cont_slot_idx);
+    #[verus_spec(with Tracked(cont_meta_perm))]
     let guard_level = subtree_root.level();
     proof {
         cursor_own.guard_level = guard_level;
@@ -257,11 +260,13 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& cont.entry_own.is_node()
             &&& cont.entry_own.inv()
             &&& cont.entry_own.node.unwrap().relate_guard(cont.guard)
+            // Borrow-model bridge: the subtree root's slot is parked.
+            &&& cont.entry_own.metaregion_sound(*final(regions))
         },
         // The subtree root is lock_held in guards.
         final(guards).lock_held(
             final(cursor_own).continuations[(final(cursor_own).level - 1) as int]
-                .entry_own.node.unwrap().meta_perm.addr()),
+                .entry_own.node.unwrap().meta_addr_self()),
         // regions invariant preserved
         final(regions).inv(),
         // Locking only allocates fresh page-table nodes from UNUSED slots;
@@ -373,7 +378,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
         let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
         let tracked node_owner = cont.entry_own.node.tracked_take();
-        #[verus_spec(with Tracked(&node_owner.meta_perm))]
+        let tracked node_meta_perm =
+            regions.borrow_typed_perm::<PageTablePageMeta<C>>(node_owner.slot_index);
+        #[verus_spec(with Tracked(node_meta_perm))]
         let stray = pt_guard.stray_mut();
         let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
 
@@ -447,7 +454,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let tracked node_owner = cont.entry_own.node.tracked_take();
-    #[verus_spec(with Tracked(&node_owner.meta_perm))]
+    let tracked node_meta_perm =
+        regions.borrow_typed_perm::<PageTablePageMeta<C>>(node_owner.slot_index);
+    #[verus_spec(with Tracked(node_meta_perm))]
     let stray = pt_guard.stray_mut();
     let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
 
@@ -477,16 +486,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         entry_own.is_node(),
         entry_own.inv(),
         entry_own.node.unwrap().relate_guard(*cur_node),
-        old(guards).lock_held(entry_own.node.unwrap().meta_perm.addr()),
+        old(guards).lock_held(entry_own.node.unwrap().meta_addr_self()),
         cur_node_va <= va_range.start,
         va_range.start < va_range.end,
         old(regions).inv(),
     ensures
         // The root node is still lock_held (not ManuallyDrop'd by this fn).
-        final(guards).lock_held(entry_own.node.unwrap().meta_perm.addr()),
+        final(guards).lock_held(entry_own.node.unwrap().meta_addr_self()),
         // All other locks are preserved: addresses not in this subtree are unchanged.
         forall |addr: usize|
-            addr != entry_own.node.unwrap().meta_perm.addr()
+            addr != entry_own.node.unwrap().meta_addr_self()
             && old(guards).guards.contains_key(addr) ==>
             #[trigger] final(guards).guards[addr] == old(guards).guards[addr]
             && final(guards).guards.contains_key(addr),

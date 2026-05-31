@@ -239,7 +239,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
         &&& pte.is_present() && !pte.is_last(parent_level) ==> {
             &&& self.is_node()
-            &&& meta_to_frame(self.node.unwrap().meta_perm.addr()) == pte.paddr()
+            &&& meta_to_frame(self.node.unwrap().meta_addr_self()) == pte.paddr()
         }
         &&& pte.is_present() && pte.is_last(parent_level) ==> {
             &&& self.is_frame()
@@ -490,10 +490,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& regions.slot_owners[idx].raw_count == self.expected_raw_count()
-            &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_perm.addr()
-            &&& self.node.unwrap().meta_perm.points_to.value().wf(regions.slot_owners[idx])
+            &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_addr_self()
+            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             // Node path tracking: ensures no two tree nodes share the same slot index.
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
+            // Borrow-model: the parked perm + level/nr_children equality
+            // (these used to live in NodeOwner::inv() via the now-removed
+            // meta_perm field).
+            &&& self.node.unwrap().metaregion_sound_node(regions)
         } else if self.is_frame() {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
             &&& regions.slots.contains_key(idx)
@@ -539,7 +543,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn meta_slot_paddr(self) -> Option<Paddr> {
         if self.is_node() {
-            Some(meta_to_frame(self.node.unwrap().meta_perm.addr()))
+            Some(meta_to_frame(self.node.unwrap().meta_addr_self()))
         } else if self.is_frame() {
             Some(self.frame.unwrap().mapped_pa)
         } else {
@@ -558,6 +562,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// must be preserved, which holds when `slots` is a superset with values unchanged.
     pub proof fn metaregion_sound_slot_owners_only(self, r0: MetaRegionOwners, r1: MetaRegionOwners)
         requires
+            self.inv(),
             self.metaregion_sound(r0),
             r0.slot_owners == r1.slot_owners,
             forall |k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
@@ -565,12 +570,22 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             self.metaregion_sound(r1),
     {
+        if self.is_node() {
+            let slot_idx = self.node.unwrap().slot_index;
+            // metaregion_sound_node clauses follow because slots[slot_idx] and
+            // slot_owners[slot_idx].inner_perms are both preserved, hence
+            // meta_perm_of(r1) is identical to meta_perm_of(r0).
+            assert(r0.slots.contains_key(slot_idx));
+            assert(self.node.unwrap().meta_perm_of(r1)
+                == self.node.unwrap().meta_perm_of(r0));
+        }
     }
 
     /// If `metaregion_sound(r0)` holds and `r1` differs from `r0` only at one slot index
     /// that this entry does not reference, then `metaregion_sound(r1)` also holds.
     pub proof fn metaregion_sound_one_slot_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners, changed_idx: usize)
         requires
+            self.inv(),
             self.metaregion_sound(r0),
             forall |i: usize| #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
@@ -601,6 +616,19 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             self.metaregion_sound(r1),
     {
+        if self.is_node() {
+            let slot_idx = self.node.unwrap().slot_index;
+            let outer_idx = frame_to_index(self.meta_slot_paddr().unwrap());
+            // outer_idx == slot_idx (from NodeOwner::inv's roundtrip clause).
+            // outer_idx != changed_idx (from the requires for nodes).
+            // slot_owners[slot_idx] preserved entirely. With slots[slot_idx]
+            // preserved, meta_perm_of is identical.
+            assert(r0.slots.contains_key(slot_idx));
+            assert(slot_idx != changed_idx);
+            assert(r1.slot_owners[slot_idx] == r0.slot_owners[slot_idx]);
+            assert(self.node.unwrap().meta_perm_of(r1)
+                == self.node.unwrap().meta_perm_of(r0));
+        }
     }
 
     /// `metaregion_sound` is preserved when only `paths_in_pt` changes at a slot,
@@ -789,10 +817,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             other.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(other.meta_slot_paddr().unwrap())].paths_in_pt == set![other.path],
             self.path != other.path,
         ensures
-            self.node.unwrap().meta_perm.addr() != other.node.unwrap().meta_perm.addr(),
+            self.node.unwrap().meta_addr_self() != other.node.unwrap().meta_addr_self(),
     {
-        let self_addr = self.node.unwrap().meta_perm.addr();
-        let other_addr = other.node.unwrap().meta_perm.addr();
+        let self_addr = self.node.unwrap().meta_addr_self();
+        let other_addr = other.node.unwrap().meta_addr_self();
         let self_idx = frame_to_index(meta_to_frame(self_addr));
         let other_idx = frame_to_index(meta_to_frame(other_addr));
 
@@ -915,7 +943,7 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                     map_va: vaddr(self.path) as int,
                     //                    frame_pa: self.base_addr as int,
                     //                    in_frame_index: self.index as int,
-                    map_to_pa: meta_to_frame(node.meta_perm.addr()) as int,
+                    map_to_pa: meta_to_frame(node.meta_addr_self()) as int,
                     level: self.path.len() as u8,
                     phantom: PhantomData,
                 },

@@ -13,6 +13,7 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
+use crate::mm::frame::meta::mapping::{max_meta_slots, meta_addr};
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -74,32 +75,72 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
-    pub meta_perm: MetaPerm<PageTablePageMeta<C>>,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub level: PagingLevel,
     pub tree_level: int,
+    /// Borrow-model handle for the node's metadata slot: identifies the slot
+    /// in `MetaRegionOwners` where the perm is parked. Consumers source the
+    /// perm via `regions.borrow_typed_perm(slot_index)`.
+    pub slot_index: usize,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
-        &&& self.meta_perm.points_to.is_init()
-        &&& self.meta_perm.addr() == self.meta_perm.points_to.addr()
         &&& self.meta_own.inv()
-        &&& self.meta_perm.value().metadata.wf(self.meta_own)
-        &&& self.meta_perm.is_init()
-        &&& self.meta_perm.wf(&self.meta_perm.inner_perms)
-        &&& FRAME_METADATA_RANGE.start <= self.meta_perm.addr() < FRAME_METADATA_RANGE.end
-        &&& self.meta_perm.addr() % META_SLOT_SIZE == 0
-        &&& meta_to_frame(self.meta_perm.addr()) < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
-        &&& meta_to_frame(self.meta_perm.addr()) < MAX_PADDR
-        &&& meta_to_frame(self.meta_perm.addr()) == self.children_perm.addr()
-        &&& self.meta_own.nr_children.id() == self.meta_perm.value().metadata.nr_children.id()
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.children_perm.is_init_all()
-        &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(self.meta_perm.addr()))
-        &&& self.level == self.meta_perm.value().metadata.level
+        &&& self.children_perm.addr()
+                == paddr_to_vaddr(meta_to_frame(meta_addr(self.slot_index)))
         &&& self.tree_level == INC_LEVELS - self.level - 1
+        &&& self.slot_index < max_meta_slots() as usize
+        &&& FRAME_METADATA_RANGE.start <= meta_addr(self.slot_index)
+                < FRAME_METADATA_RANGE.end
+        &&& meta_addr(self.slot_index) % META_SLOT_SIZE == 0
+        &&& meta_to_frame(meta_addr(self.slot_index))
+                < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
+        &&& meta_to_frame(meta_addr(self.slot_index)) < MAX_PADDR
+        &&& meta_to_frame(meta_addr(self.slot_index)) == self.children_perm.addr()
+        // Roundtrip: frame_to_index ∘ meta_to_frame ∘ meta_addr = id. Stated
+        // explicitly so the verifier can derive `slot_index` from the path
+        // through `meta_slot_paddr()` without unfolding group_page_meta
+        // arithmetic at every call site.
+        &&& self.slot_index
+                == frame_to_index(meta_to_frame(meta_addr(self.slot_index)))
+    }
+}
+
+impl<C: PageTableConfig> NodeOwner<C> {
+    /// The meta address of this node's slot, computed from `slot_index`.
+    /// Always equals `self.meta_perm.addr()` under `inv()`.
+    pub open spec fn meta_addr_self(self) -> Vaddr {
+        meta_addr(self.slot_index)
+    }
+
+    /// Reconstructs a metadata cast_ptr from `regions` at `self.slot_index`.
+    /// The borrow-model home of the node's metadata perm.
+    pub open spec fn meta_perm_of(
+        self,
+        regions: MetaRegionOwners,
+    ) -> vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>> {
+        vstd_extra::cast_ptr::PointsTo::new_spec(
+            regions.slots[self.slot_index],
+            regions.slot_owners[self.slot_index].inner_perms,
+        )
+    }
+
+    /// Regions-tied invariants that used to live in `NodeOwner::inv()` via
+    /// the now-removed `meta_perm` field. Establishes the bridge between
+    /// the NodeOwner and the slot perm parked in regions.
+    pub open spec fn metaregion_sound_node(self, regions: MetaRegionOwners) -> bool {
+        let idx = self.slot_index;
+        &&& regions.slots.contains_key(idx)
+        &&& self.meta_perm_of(regions).is_init()
+        &&& self.meta_perm_of(regions).wf(&self.meta_perm_of(regions).inner_perms)
+        &&& self.meta_perm_of(regions).value().metadata.wf(self.meta_own)
+        &&& self.level == self.meta_perm_of(regions).value().metadata.level
+        &&& self.meta_own.nr_children.id()
+                == self.meta_perm_of(regions).value().metadata.nr_children.id()
     }
 }
 
@@ -115,8 +156,8 @@ impl<C: PageTableConfig> NodeOwner<C> {
             idx < NR_ENTRIES,
         ensures
             self.set_children_perm(idx, pte).inv(),
-            self.set_children_perm(idx, pte).meta_perm == self.meta_perm,
             self.set_children_perm(idx, pte).meta_own == self.meta_own,
+            self.set_children_perm(idx, pte).slot_index == self.slot_index,
             self.set_children_perm(idx, pte).level == self.level,
             self.set_children_perm(idx, pte).tree_level == self.tree_level,
             self.set_children_perm(idx, pte).children_perm.addr() == self.children_perm.addr(),
@@ -156,15 +197,14 @@ impl<C: PageTableConfig> NodeOwner<C> {
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
 
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.meta_perm.points_to.addr()
+        &&& guard.inner.inner@.ptr.addr() == self.meta_addr_self()
         &&& guard.inner.inner@.wf(self)
-        &&& self.meta_perm.is_init()
-        &&& self.meta_perm.wf(&self.meta_perm.inner_perms)
     }
 }
 
 pub ghost struct NodeModel<C: PageTableConfig> {
-    pub meta: PageTablePageMeta<C>,
+    pub level: PagingLevel,
+    pub _phantom: core::marker::PhantomData<C>,
 }
 
 impl<C: PageTableConfig> Inv for NodeModel<C> {
@@ -177,7 +217,7 @@ impl<C: PageTableConfig> View for NodeOwner<C> {
     type V = NodeModel<C>;
 
     open spec fn view(&self) -> <Self as View>::V {
-        NodeModel { meta: self.meta_perm.value().metadata }
+        NodeModel { level: self.level, _phantom: core::marker::PhantomData }
     }
 }
 
@@ -190,7 +230,7 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
     type Owner = NodeOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.ptr.addr() == owner.meta_perm.addr()
+        &&& self.ptr.addr() == owner.meta_addr_self()
     }
 }
 

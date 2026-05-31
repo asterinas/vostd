@@ -122,7 +122,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     assert(f(subtree.value, path));
     assert(g(subtree.value, path));
     if subtree.value.is_node() {
-        if subtree.value.node.unwrap().meta_perm.addr() == excepted_addr {
+        if subtree.value.node.unwrap().meta_addr_self() == excepted_addr {
             // addr == excepted_addr contradicts path != excepted_path
             // via metaregion_sound's singleton paths_in_pt.
             let idx = frame_to_index(meta_to_frame(excepted_addr));
@@ -840,7 +840,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let (child_cont, modified_cont) = old_cont.make_cont(self.va.index[self.level - 2] as usize, guard);
 
         let cur_entry = self.cur_entry_owner();
-        let cur_entry_addr = cur_entry.node.unwrap().meta_perm.addr();
+        let cur_entry_addr = cur_entry.node.unwrap().meta_addr_self();
         let cur_entry_path = old_cont.path().push_tail(old_cont.idx as usize);
         self.cont_entries_metaregion(regions);
 
@@ -854,8 +854,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if cont_i.guard.inner.inner@.ptr.addr()
                 == guard.inner.inner@.ptr.addr()
             {
-                let addr = cont_i.entry_own.node.unwrap().meta_perm.addr();
-                assert(addr == cur_entry.node.unwrap().meta_perm.addr());
+                let addr = cont_i.entry_own.node.unwrap().meta_addr_self();
+                assert(addr == cur_entry.node.unwrap().meta_addr_self());
                 let idx = frame_to_index(meta_to_frame(addr));
                 assert(regions.slot_owners[idx].paths_in_pt == set![cont_i.path()]);
                 assert(regions.slot_owners[idx].paths_in_pt == set![cur_entry_path]);
@@ -1353,7 +1353,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
         };
 
-        let child_addr = child.entry_own.node.unwrap().meta_perm.addr();
+        let child_addr = child.entry_own.node.unwrap().meta_addr_self();
         let child_subtree = child.as_subtree();
 
         assert forall |j: int| 0 <= j < NR_ENTRIES implies
@@ -1821,6 +1821,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases self.level,
     {}
 
+    #[verifier::rlimit(4)]
+    #[verifier::spinoff_prover]
     pub proof fn move_forward_va_is_align_up(self)
         requires
             self.inv(),

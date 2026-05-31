@@ -177,6 +177,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// and `end` are BASE_PAGE_SIZE-aligned and `cur_va < end`, we have
     /// `cur_va + page_size(1) <= end`, so a level-1 frame always fits. Therefore
     /// `!cur_entry_fits_range` implies `level > 1`.
+    #[verifier::rlimit(4)]
+    #[verifier::spinoff_prover]
     pub proof fn frame_not_fits_implies_level_gt_1(
         self,
         cur_entry_fits_range: bool,

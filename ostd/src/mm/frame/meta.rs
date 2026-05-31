@@ -322,24 +322,13 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            // Weakened from an unconditional `slots.contains_key`: an
-            // out-of-bound / misaligned `paddr` is *not* a precondition
-            // violation — `get_slot` returns `Err` before `regions` is
-            // touched (no panic). The slot perm is only needed on the
-            // in-bound (`has_safe_slot`) path, where the unconditional
-            // `tracked_remove` is actually reached.
             has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
             final(regions).inv(),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
-            // Design B: the returned perm is well-formed against the
-            // (post) slot owner. This lets callers re-park the perm into
-            // `regions.slots` and re-establish `regions.inv()` (the
-            // Arc-style `Segment` path needs this).
             res matches Ok((res, perm)) ==> perm@.value().wf(
                 final(regions).slot_owners[frame_to_index(paddr)]),
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
-            // If we can make the failure conditions exhaustive, we can add this as a liveness condition.
             !has_safe_slot(paddr) ==> res is Err,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -350,10 +339,6 @@ impl MetaSlot {
         let slot = get_slot(paddr)?;
 
         proof {
-            // `get_slot` ensures `has_safe_slot(paddr) <==> res is Ok`;
-            // the `?` continued, so `has_safe_slot(paddr)`. This fires
-            // the (now `has_safe_slot`-guarded) `slots.contains_key`
-            // precondition and supplies `slot_owners.contains_key`.
             assert(has_safe_slot(paddr));
             regions.inv_implies_correct_addr(paddr);
         }
@@ -391,18 +376,11 @@ impl MetaSlot {
         slot.borrow(Tracked(&slot_perm)).write_meta(metadata);
 
         if as_unique_ptr {
-            // No one can create a `Frame` instance directly from the page
-            // address, so `Relaxed` is fine here. Stored through a shared
-            // borrow of the slot (the `MetaSlot` value is unchanged) so the
-            // slot permission is only ever shared-borrowed — a prerequisite
-            // for the permanent-borrow refactor of meta-slot permissions.
             slot.borrow(Tracked(&slot_perm)).ref_count.store(
                 Tracked(&mut slot_own.inner_perms.ref_count),
                 REF_COUNT_UNIQUE,
             );
         } else {
-            // `Release` is used to ensure that the metadata initialization
-            // won't be reordered after this memory store.
             slot.borrow(Tracked(&slot_perm)).ref_count.store(
                 Tracked(&mut slot_own.inner_perms.ref_count),
                 1,
@@ -411,11 +389,6 @@ impl MetaSlot {
 
         proof {
             slot_own.usage = PageUsage::Frame;
-            // wf is purely an id/pptr equality between the slot's cell
-            // handles and `slot_own.inner_perms`; CAS / `write_meta` /
-            // `store` mutate values but preserve those ids, so the perm
-            // stays well-formed against the final slot owner. Exposed via
-            // the strengthened `ensures` for Design-B re-park callers.
             assert(slot_perm.value().wf(slot_own));
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
             assert(regions.inv());
@@ -505,18 +478,6 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            // Refcount saturation propagated as `value >= REF_COUNT_MAX ==>
-            // may_panic()` (matches `get_from_in_use_loop` + `inc_ref_count`):
-            // on saturation, `get_from_in_use_loop` `panic_diverge`s (the
-            // real Rust panic); on non-saturation it propagates
-            // `Ok ==> ref_count <= REF_COUNT_MAX` and `MetaSlotOwner::inv`
-            // is re-established.
-            //
-            // All slot-perm facts are `has_safe_slot`-guarded: an
-            // out-of-bound / misaligned `paddr` is not a precondition
-            // violation (`get_slot` returns `Err` before `regions` is
-            // touched — no panic). The perm is only needed on the
-            // in-bound path, where `tracked_remove`/`tracked_borrow` run.
             has_safe_slot(paddr) ==> {
                 &&& old(regions).slots.contains_key(frame_to_index(paddr))
                 &&& old(regions).slot_owners.contains_key(frame_to_index(paddr))
@@ -622,16 +583,6 @@ impl MetaSlot {
 
                         assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
 
-                        // Without the old `!panic_cond` precondition,
-                        // `pre` may be `REF_COUNT_UNIQUE`/`UNUSED`
-                        // (sentinels > REF_COUNT_MAX): then
-                        // `get_from_in_use_loop` returns `Err` and leaves
-                        // the slot untouched, so `slot_own == orig` and
-                        // `slot_own.inv()` follows from `orig.inv()`. The
-                        // in-use derivation only applies on `Ok`, where
-                        // the loop's `Ok ==> ref_count <= REF_COUNT_MAX`
-                        // postcondition pins `orig.ref_count = pre` into
-                        // `[1, REF_COUNT_MAX - 1]`.
                         if res is Ok {
                             assert(slot_own.inner_perms.ref_count.value() == pre + 1);
                             assert(slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX);
