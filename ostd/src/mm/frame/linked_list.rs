@@ -1803,17 +1803,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M>
     open spec fn on_drop_pre(
         &self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
-        args: crate::mm::frame::meta::OnDropArgs,
+        regions: crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
+        vm_io_owner: crate::specs::mm::io::VmIoOwner,
     ) -> bool {
-        self.meta.on_drop_pre(reader, args)
+        self.meta.on_drop_pre(reader, regions, vm_io_owner)
     }
 
     fn on_drop(
         &mut self,
         reader: &mut crate::mm::VmReader<crate::mm::Infallible>,
-        args: Tracked<&mut crate::mm::frame::meta::OnDropArgs>,
+        regions: Tracked<&mut crate::specs::mm::frame::meta_region_owners::MetaRegionOwners>,
+        vm_io_owner: Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     ) {
-        self.meta.on_drop(reader, args);
+        self.meta.on_drop(reader, regions, vm_io_owner);
     }
 
     fn is_untyped(&self) -> bool {

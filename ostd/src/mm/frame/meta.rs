@@ -147,22 +147,6 @@ pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
     PPtr(slot, PhantomData::<MetaSlot>)
 }
 
-/// Tracked argument bundle for [`AnyFrameMeta::on_drop`]. Erased (non-generic,
-/// non-associated) so the trait stays dyn-compatible. Carries every permission
-/// any impl might need: the `MetaRegionOwners` consulted when dropping child
-/// frames, the `VmIoOwner` backing the reader, the `nr_children` PCell
-/// perm for the PT-node early-exit optimization, and a per-child slot-perm
-/// map for impls (like `PageTablePageMeta`) that need to reconstruct child
-/// `Frame`s via `from_raw` during their drop walk. Impls that don't need a
-/// given field simply ignore it.
-pub tracked struct OnDropArgs {
-    pub regions: MetaRegionOwners,
-    pub vm_io_owner: crate::specs::mm::io::VmIoOwner,
-    pub nr_children_perm: pcell_maybe_uninit::PointsTo<u16>,
-    /// Pre-extracted slot perms keyed by `frame_to_index(child_paddr)`.
-    pub child_perms: Map<usize, vstd::simple_pptr::PointsTo<MetaSlot>>,
-}
-
 /// Space-holder of the AnyFrameMeta virtual table.
 ///
 /// Dyn-compatible: no `Self`-by-value, no associated types on dispatched
@@ -173,19 +157,34 @@ pub tracked struct OnDropArgs {
 pub trait AnyFrameMeta {
     /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
-    /// reader/region/child-perm invariants) override this; the trait
-    /// method's `requires` clause calls it.
-    open spec fn on_drop_pre(&self, reader: VmReader<'_, Infallible>, args: OnDropArgs) -> bool {
+    /// reader/region invariants) override this; the trait method's
+    /// `requires` clause calls it.
+    open spec fn on_drop_pre(
+        &self,
+        reader: VmReader<'_, Infallible>,
+        regions: MetaRegionOwners,
+        vm_io_owner: crate::specs::mm::io::VmIoOwner,
+    ) -> bool {
         true
     }
 
     exec fn on_drop(
         &mut self,
         _reader: &mut VmReader<'_, Infallible>,
-        Tracked(_args): Tracked<&mut OnDropArgs>,
+        Tracked(_regions): Tracked<&mut MetaRegionOwners>,
+        Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     )
         requires
-            old(self).on_drop_pre(*old(_reader), *old(_args)),
+            old(_regions).inv(),
+            old(_reader).inv(),
+            old(_vm_io_owner).inv(),
+            old(_reader).wf(*old(_vm_io_owner)),
+            old(self).on_drop_pre(*old(_reader), *old(_regions), *old(_vm_io_owner)),
+        ensures
+            final(_regions).inv(),
+            final(_reader).inv(),
+            final(_vm_io_owner).inv(),
+            final(_reader).wf(*final(_vm_io_owner)),
     {
     }
 
@@ -940,10 +939,11 @@ impl MetaSlot {
         // SAFETY: `ptr` points to the metadata storage which is valid to be
         // mutably borrowed under `vtable_ptr` because the metadata is valid,
         // the vtable is correct, and we have exclusive access.
-        let args: Tracked<&mut OnDropArgs> = Tracked::assume_new();
+        let regions: Tracked<&mut MetaRegionOwners> = Tracked::assume_new();
+        let vm_io_owner: Tracked<&mut crate::specs::mm::io::VmIoOwner> = Tracked::assume_new();
         unsafe {
             // Invoke the custom `on_drop` handler.
-            (*meta_ptr).on_drop(&mut reader, args);
+            (*meta_ptr).on_drop(&mut reader, regions, vm_io_owner);
             // Drop the frame metadata.
             core::ptr::drop_in_place(meta_ptr);
         }
