@@ -6,6 +6,7 @@ use vstd::simple_pptr::{self, *};
 use core::ops::Range;
 
 use vstd_extra::cast_ptr::{self, Repr};
+use vstd_extra::drop_tracking::{DropObligation, HasObligations};
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
@@ -51,6 +52,18 @@ pub struct MetaRegion;
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
+    /// Outstanding "must drop" obligations, currently scoped to `Segment<M>`
+    /// keyed by `Range<Paddr>` as the pilot. As more resource types migrate to
+    /// the linear-drop pattern, generalize this to a sum-type key.
+    pub obligations: Set<Range<Paddr>>,
+}
+
+impl HasObligations for MetaRegionOwners {
+    type Key = Range<Paddr>;
+
+    open spec fn obligations(self) -> Set<Range<Paddr>> {
+        self.obligations
+    }
 }
 
 pub ghost struct MetaRegionModel {
@@ -169,7 +182,8 @@ impl MetaRegionOwners {
             final(self).slot_owners[i].raw_count == old(self).slot_owners[i].raw_count,
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
-            final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt;
+            final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
+            final(self).obligations =~= old(self).obligations;
             
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
         recommends
@@ -238,7 +252,8 @@ impl MetaRegionOwners {
         ensures
             perm.points_to == old(self).slots[index],
             final(self).slots == old(self).slots.remove(index),
-            final(self).slot_owners == old(self).slot_owners;
+            final(self).slot_owners == old(self).slot_owners,
+            final(self).obligations =~= old(self).obligations;
 
     /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
     /// Used by `Frame::from_raw` after the migration to typed slot perms — the perm being
@@ -251,7 +266,58 @@ impl MetaRegionOwners {
     )
         ensures
             final(self).slots == old(self).slots.insert(index, *perm),
-            final(self).slot_owners == old(self).slot_owners;
+            final(self).slot_owners == old(self).slot_owners,
+            final(self).obligations =~= old(self).obligations;
+
+    // ----------------------------------------------------------------------
+    // Linear-drop pilot: obligation ledger machinery.
+    // ----------------------------------------------------------------------
+
+    /// "Clean" boundary invariant: standard invariant plus an empty
+    /// obligation ledger. Functions that should leave no outstanding
+    /// `Segment` undropped (e.g., top-of-call-stack entry points, or any
+    /// helper that opens a fresh segment locally) should require this in
+    /// their postcondition instead of the plain `inv()`.
+    pub open spec fn clean_inv(self) -> bool {
+        &&& self.inv()
+        &&& self.obligations.is_empty()
+    }
+
+    /// Pairs the production of a [`DropObligation`] token with an insert
+    /// into the ledger. The token + ledger pair is the linear-drop primitive
+    /// — see [`DropObligation`]. The `range` here is the segment's address
+    /// range used as the obligation key.
+    ///
+    /// This is an axiom: callers must only invoke it on a freshly
+    /// constructed segment (where the `range` is unique among outstanding
+    /// obligations). The `range` is required not to already be in the
+    /// ledger so that obligations stay 1:1 with live segments.
+    pub axiom fn tracked_mint_obligation(
+        tracked &mut self,
+        range: Range<Paddr>,
+    ) -> (tracked obl: DropObligation<Range<Paddr>>)
+        requires
+            !old(self).obligations.contains(range),
+        ensures
+            obl.value() == range,
+            final(self).slots == old(self).slots,
+            final(self).slot_owners == old(self).slot_owners,
+            final(self).obligations =~= old(self).obligations.insert(range);
+
+    /// Consumes a [`DropObligation`] token and removes its key from the
+    /// ledger. The token's `value()` must match the key being redeemed,
+    /// preventing callers from using a token issued for one segment to
+    /// discharge another.
+    pub axiom fn tracked_redeem_obligation(
+        tracked &mut self,
+        tracked obl: DropObligation<Range<Paddr>>,
+    )
+        requires
+            old(self).obligations.contains(obl.value()),
+        ensures
+            final(self).slots == old(self).slots,
+            final(self).slot_owners == old(self).slot_owners,
+            final(self).obligations =~= old(self).obligations.remove(obl.value());
 }
 
 } // verus!

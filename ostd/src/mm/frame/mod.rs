@@ -133,6 +133,9 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
                 == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
+        // Linear-drop pilot: minting a `Frame` (bumping `raw_count`) does
+        // not affect the segment obligation ledger.
+        &&& s1.obligations =~= s0.obligations
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) {
@@ -204,6 +207,9 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
             == REF_COUNT_UNUSED
         &&& so0.inner_perms.ref_count.value() > 1 ==> so1.inner_perms.ref_count.value() == (
         so0.inner_perms.ref_count.value() - 1) as u64
+        // Linear-drop pilot: `Frame::drop` doesn't redeem segment-level
+        // obligations, so the ledger is preserved.
+        &&& s1.obligations =~= s0.obligations
     }
 }
 
@@ -892,6 +898,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
                 regions,
             ).slot_owners[i]),
         final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
+        // Linear-drop pilot: refcount bump doesn't touch the segment ledger.
+        final(regions).obligations =~= old(regions).obligations,
 )]
 pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr) {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));

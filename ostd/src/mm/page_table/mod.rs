@@ -78,6 +78,9 @@ pub trait RCClone: Sized {
             final(perm).inv(),
             final(perm).slots =~= old(perm).slots,
             final(perm).slot_owners.dom() =~= old(perm).slot_owners.dom(),
+            // Linear-drop pilot: `RCClone::clone` doesn't mint/redeem
+            // segment obligations.
+            final(perm).obligations =~= old(perm).obligations,
     ;
 }
 

@@ -263,6 +263,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             !C::tracked(*item) ==> final(regions).slot_owners[frame_to_index(pa)] == old(
                 regions,
             ).slot_owners[frame_to_index(pa)],
+            // Linear-drop pilot: `clone_item` doesn't mint or redeem segment
+            // obligations.
+            final(regions).obligations =~= old(regions).obligations,
     {
         let res = item.clone(Tracked(regions));
         proof {

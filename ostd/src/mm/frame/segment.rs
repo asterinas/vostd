@@ -897,12 +897,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
     /// Verified drop: iterates over each frame in the segment, decrements its
     /// reference count, and (when last ref) tears down the metadata.
     ///
-    /// Custom drop method (not an impl of [`vstd_extra::drop_tracking::Drop`]):
-    /// `regions` flows through [`TrackDrop::State`] (= [`MetaRegionOwners`])
-    /// so `ManuallyDrop::new(self, Tracked(regions))` stays callable, while
-    /// `owner` is threaded in separately via `verus_spec`.
+    /// Linear-drop pilot: the drop additionally consumes a
+    /// [`DropObligation<Range<Paddr>>`] token bound to `self.range`. The
+    /// matching ledger entry was added by `Segment::from_unused` and is
+    /// redeemed at the end of this body. Skipping this call leaves
+    /// `regions.obligations` non-empty and breaks
+    /// [`MetaRegionOwners::clean_inv`] at the enclosing function's exit.
     #[verus_spec(
         with Tracked(owner): Tracked<SegmentOwner<M>>,
+            Tracked(obligation): Tracked<DropObligation<Range<Paddr>>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             self.inv(),
@@ -910,6 +913,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             owner.inv(),
             old(regions).inv(),
             owner.relate_regions(*old(regions)),
+            // Linear-drop pilot preconditions.
+            obligation.value() == self.range,
+            old(regions).obligations.contains(self.range),
             forall|i: int|
                 #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
                 0 <= i < crate::specs::mm::frame::segment::seg_nframes(self.range) ==> {
@@ -921,6 +927,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                 },
         ensures
             final(regions).inv(),
+            final(regions).obligations =~= old(regions).obligations.remove(self.range),
     )]
     pub fn drop(self) {
         let tracked owner = owner;
@@ -946,6 +953,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
         loop
             invariant
                 regions.inv(),
+                // Linear-drop pilot: the per-frame loop body neither mints
+                // nor redeems segment obligations (the `slots`/`slot_owners`
+                // axioms preserve `obligations` verbatim, as do
+                // `Frame::from_raw` and `Frame::drop`).
+                regions.obligations =~= old(regions).obligations,
                 self.inv(),
                 self.range.start <= paddr <= self.range.end,
                 paddr == (self.range.start + k * PAGE_SIZE) as usize,
@@ -1042,6 +1054,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             }
         }
 
+        // Linear-drop pilot: redeem the obligation, removing `self.range`
+        // from `regions.obligations`. Skipping this would leave the ledger
+        // non-empty and any caller requiring `clean_inv()` would fail.
+        proof {
+            regions.tracked_redeem_obligation(obligation);
+        }
     }
 }
 
@@ -1083,6 +1101,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                 self.inv(),
                 perm.slots =~= old_perm.slots,
                 perm.slot_owners.dom() =~= old_perm.slot_owners.dom(),
+                // Linear-drop pilot: cloning a Segment doesn't mint or
+                // redeem its obligation — the per-frame ref-count bump is
+                // an Arc-style operation.
+                perm.obligations =~= old_perm.obligations,
                 self.range.start <= paddr <= self.range.end,
                 paddr % PAGE_SIZE == 0,
                 paddr <= MAX_PADDR,

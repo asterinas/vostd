@@ -118,6 +118,9 @@ impl<'a, M: ?Sized> Frame<M> {
         // and within FRAME_METADATA_RANGE. Provable from `r.ptr.addr() == frame_to_meta(paddr)`
         // (above) plus the existing `lemma_frame_to_meta_soundness`.
         &&& r.inv()
+        // Linear-drop pilot: `from_raw` doesn't mint or redeem segment-level
+        // obligations, so the ledger is preserved verbatim.
+        &&& new_regions.obligations =~= old_regions.obligations
     }
 
 

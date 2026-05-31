@@ -564,6 +564,9 @@ impl MetaSlot {
                 // regions state: slot_owners has idx removed; slots borrowed (unchanged)
                 regions.slot_owners == regions0.slot_owners.remove(frame_to_index(paddr)),
                 regions.slots == regions0.slots,
+                // Linear-drop pilot: this path doesn't mint/redeem segment
+                // obligations, so the ledger is invariant.
+                regions.obligations =~= regions0.obligations,
         {
             match #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms))]
             Self::get_from_in_use_loop(slot) {
