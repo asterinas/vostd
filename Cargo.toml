@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "verified_bitflags",
     "vstd_extra",
     "ostd",
     "ostd/libs/align_ext",
