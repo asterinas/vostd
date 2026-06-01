@@ -4,6 +4,12 @@
 //! Rust atomics with `external_body`, while proofs rely only on the ghost specs
 //! below.  The first concrete wrapper is `AtomicUsizeW`; pointer atomics and CAS
 //! should be layered on top after the view/history model stabilizes.
+//!
+//! We focus on the repaired C11/RC11-style memory model, where relaxed behavior
+//! is modeled as reading from previously written messages in a location’s modi-
+//! fication history, subject to coherence. In particular, relaxed reads may ob-
+//! serve stale writes, but a thread’s view prevents it from going backwards,
+//! and reads do not observe future writes that have not been added to the history.
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use vstd::invariant::{AtomicInvariant, InvariantPredicate};
@@ -124,7 +130,10 @@ impl<V> HistAuth<V> {
         self.len
     }
 
-    pub closed spec fn history(self) -> History<V> {
+    pub closed spec fn history(self) -> History<V>
+        recommends
+            self.wf(),
+    {
         Seq::new(self.len(), |i: int| self.map()[i as nat])
     }
 
@@ -344,7 +353,7 @@ impl<K, V, G> WeakAtomicInvariantPredicate<K, V, G> for TrueWeakAtomicInv {
 
 /// Similar to Verus' macro [`atomic_with_ghost!`] for atomics with ghost state,
 /// but for weak-memory atomics with per-thread view tokens and message histories.
-/// 
+///
 /// The macro opens the atomic invariant, performs the specified operation, and
 /// provides the previous history, new history, and operation snapshot to the user-
 /// provided proof block. The user can then write proofs about the effects of the
@@ -352,6 +361,64 @@ impl<K, V, G> WeakAtomicInvariantPredicate<K, V, G> for TrueWeakAtomicInv {
 /// authoritative history.
 #[macro_export]
 macro_rules! weak_atomic_with_ghost {
+    (
+        $atomic:expr => load_acquire($tv:expr);
+        returning $ret:ident;
+        timestamp $ts:ident;
+        message $msg:ident;
+        history $history:ident;
+        ghost $g:ident => $b:block
+    ) => {
+            ::vstd::prelude::verus_exec_expr! {{
+            let result;
+            let atomic = &($atomic);
+            ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
+                #[allow(unused_mut)]
+                let tracked (hist, mut $g) = pair;
+                let ghost $history = hist.history();
+                result = atomic.atomic.load_acquire(Tracked(&hist), $tv);
+                let ghost $ret = result.0;
+                let ghost $ts = result.1@;
+                let ghost $msg = hist.msg_at($ts);
+
+                proof { $b }
+
+                proof {
+                    pair = (hist, $g);
+                }
+            });
+            result
+        }}
+    };
+    (
+        $atomic:expr => load_relaxed($tv:expr);
+        returning $ret:ident;
+        timestamp $ts:ident;
+        message $msg:ident;
+        history $history:ident;
+        ghost $g:ident => $b:block
+    ) => {
+            ::vstd::prelude::verus_exec_expr! {{
+            let result;
+            let atomic = &($atomic);
+            ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
+                #[allow(unused_mut)]
+                let tracked (hist, mut $g) = pair;
+                let ghost $history = hist.history();
+                result = atomic.atomic.load_relaxed(Tracked(&hist), $tv);
+                let ghost $ret = result.0;
+                let ghost $ts = result.1@;
+                let ghost $msg = hist.msg_at($ts);
+
+                proof { $b }
+
+                proof {
+                    pair = (hist, $g);
+                }
+            });
+            result
+        }}
+    };
     (
         $atomic:expr => store_release($value:expr, $tv:expr);
         update $prev:ident -> $next:ident;
@@ -623,6 +690,30 @@ fn smoke_test_weak_atomic_with_ghost() {
             assert(snap.msg().value == 2);
         }
     }
+    let _ =
+        weak_atomic_with_ghost! {
+        atomic => load_acquire(Tracked(&mut tv));
+        returning ret;
+        timestamp ts;
+        message msg;
+        history history;
+        ghost g => {
+            assert(ret == msg.value);
+            assert(ts < history.len());
+        }
+    };
+    let _ =
+        weak_atomic_with_ghost! {
+        atomic => load_relaxed(Tracked(&mut tv));
+        returning ret;
+        timestamp ts;
+        message msg;
+        history history;
+        ghost g => {
+            assert(ret == msg.value);
+            assert(ts < history.len());
+        }
+    };
 }
 
 } // verus!
