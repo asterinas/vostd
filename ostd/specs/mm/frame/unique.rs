@@ -144,6 +144,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFrame<M> {
     type State = MetaRegionOwners;
+    /// Trivial: `UniqueFrame`'s lifecycle is enforced by `raw_count`
+    /// (`UNIQUE` is exclusive). The token is a no-op pass-through.
+    type Key = ();
+
+    open spec fn key(self) -> Self::Key { () }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
@@ -154,7 +159,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         &&& s.inv()
     }
 
-    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 1
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
@@ -172,11 +177,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         &&& s1.inv()
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+    proof fn constructor_spec(self, tracked s: &mut Self::State)
+        -> (tracked obl: DropObligation<Self::Key>)
+    {
         let index = frame_to_index(meta_to_frame(self.ptr.addr()));
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         slot_own.raw_count = 1;
         s.slot_owners.tracked_insert(index, slot_own);
+        DropObligation::tracked_mint(())
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
@@ -185,7 +193,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         &&& s.inv()
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
@@ -193,6 +201,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
                 == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.inv()
+    }
+
+    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool { true }
+
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+        s0 =~= s1
+    }
+
+    proof fn consume_obligation(
+        self,
+        tracked s: &mut Self::State,
+        tracked obl: DropObligation<Self::Key>,
+    ) {
+        // No-op: trivial `Key = ()` for now.
     }
 }
 

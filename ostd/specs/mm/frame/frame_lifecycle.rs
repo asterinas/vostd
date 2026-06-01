@@ -34,9 +34,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             debt.frame_index == frame_to_index(raw),
             debt.raw_count_at_issue == regions0.slot_owners[frame_to_index(raw)].raw_count,
         ensures
-            forall|regions2: MetaRegionOwners|
-                #![trigger regions2.slot_owners[frame_to_index(raw)]]
-                <Self as TrackDrop>::constructor_ensures(frame, regions1, regions2) ==> {
+            forall|regions2: MetaRegionOwners, obl_key: usize|
+                #![trigger <Self as TrackDrop>::constructor_ensures(frame, regions1, regions2, obl_key)]
+                <Self as TrackDrop>::constructor_ensures(frame, regions1, regions2, obl_key) ==> {
                     &&& regions2.slot_owners[frame_to_index(raw)].raw_count == 1
                     &&& regions2.slot_owners[frame_to_index(raw)].inner_perms
                         == regions0.slot_owners[frame_to_index(raw)].inner_perms
@@ -62,12 +62,13 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         assert(frame.paddr() == raw);
         assert(regions0.slot_owners.dom() =~= regions1.slot_owners.dom());
 
-        assert forall|regions2: MetaRegionOwners|
-            #![trigger regions2.inv()]
+        assert forall|regions2: MetaRegionOwners, obl_key: usize|
+            #![trigger <Self as TrackDrop>::constructor_ensures(frame, regions1, regions2, obl_key)]
             <Self as TrackDrop>::constructor_ensures(
                 frame,
                 regions1,
                 regions2,
+                obl_key,
             ) implies regions2.slot_owners[idx].raw_count == 1
             && regions2.slot_owners[idx].inner_perms == regions0.slot_owners[idx].inner_perms
             && regions2.slot_owners[idx].self_addr == regions0.slot_owners[idx].self_addr

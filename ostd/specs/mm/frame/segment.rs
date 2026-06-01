@@ -17,33 +17,58 @@ use crate::specs::mm::virt_mem::MemView;
 verus! {
 
 impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
-    /// Mirroring [`crate::mm::frame::UniqueFrame`]'s pattern, the tracked
-    /// state for `ManuallyDrop` purposes is just the global
-    /// [`MetaRegionOwners`]. The [`SegmentOwner<M>`] that holds the per-frame
-    /// perms is threaded into the custom drop method via `verus_spec` rather
-    /// than via this trait state — so that
-    /// `ManuallyDrop::new(self, Tracked(regions))` can be called without
-    /// combining a `&mut MetaRegionOwners` borrow with an owned
-    /// `SegmentOwner` into a single tracked tuple.
+    /// The tracked state for `ManuallyDrop` purposes is the global
+    /// [`MetaRegionOwners`]. The [`SegmentOwner<M>`] is threaded in
+    /// separately via `verus_spec`, and the *real* per-segment obligation
+    /// (with the segment-range ledger entry) is held on `SegmentOwner`
+    /// itself — not via this `TrackDrop` impl. That keeps
+    /// `ManuallyDrop::new(self, Tracked(regions))` callable in places like
+    /// `Segment::split` / `Segment::into_raw` where the segment is
+    /// "temporarily forgotten" without an actual ledger event.
     type State = MetaRegionOwners;
+    /// `()` because the `ManuallyDrop::new(segment, ..)` step is a no-op
+    /// on `regions.obligations`; the real Segment-level ledger key
+    /// (`Range<Paddr>`) lives on `SegmentOwner<M>`.
+    type Key = ();
+
+    open spec fn key(self) -> Self::Key { () }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         true
     }
 
-    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         s0 =~= s1
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+    proof fn constructor_spec(self, tracked s: &mut Self::State)
+        -> (tracked obl: DropObligation<Self::Key>)
+    {
+        DropObligation::tracked_mint(())
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
         s.inv()
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         true
+    }
+
+    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool { true }
+
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+        s0 =~= s1
+    }
+
+    proof fn consume_obligation(
+        self,
+        tracked s: &mut Self::State,
+        tracked obl: DropObligation<Self::Key>,
+    ) {
+        // No-op: Segment's `Key = ()` is trivial; the real segment-range
+        // ledger lives on `SegmentOwner` and is redeemed by
+        // `Segment::drop` directly, not via this hook.
     }
 }
 
@@ -67,6 +92,11 @@ pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     /// canonical in `regions.slots[idx]` and is *borrowed* on drop/next;
     /// the segment merely contributes one (forgotten) reference per frame.
     pub ghost range: Range<Paddr>,
+    /// Linear-drop pilot: the obligation token bound to `range`. Travels
+    /// with the owner so every operation that consumes/produces a
+    /// `SegmentOwner` automatically transports the obligation. The token's
+    /// `value()` is pinned to `range` by [`SegmentOwner::inv`].
+    pub tracked obligation: DropObligation<Range<Paddr>>,
     pub _marker: core::marker::PhantomData<M>,
 }
 
@@ -78,10 +108,13 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
     /// - each permission's address corresponds to the meta slot of its frame
     ///   (so consecutive permissions are spaced by `META_SLOT_SIZE`);
     /// - each permission is initialized and individually well-formed.
+    /// - the bundled obligation token is keyed to this owner's `range`.
     open spec fn inv(self) -> bool {
         &&& self.range.start % PAGE_SIZE == 0
         &&& self.range.end % PAGE_SIZE == 0
         &&& self.range.start <= self.range.end <= MAX_PADDR
+        // Linear-drop pilot.
+        &&& self.obligation.value() == self.range
     }
 }
 
@@ -102,6 +135,10 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     /// [`crate::specs::mm::frame::unique::UniqueFrameOwner::global_inv`] but
     /// spanning all frames in a segment.
     pub open spec fn relate_regions(self, regions: MetaRegionOwners) -> bool {
+        // Linear-drop pilot: the ledger has an entry for this owner's range.
+        // Combined with the inv()-pinned `obligation.value() == range`, this
+        // gates `Segment::drop`'s redeem against a genuine outstanding entry.
+        &&& regions.obligations.contains(self.range)
         &&& forall|i: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
             0 <= i < seg_nframes(self.range) ==> {

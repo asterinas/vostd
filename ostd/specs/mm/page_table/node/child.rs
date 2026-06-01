@@ -141,6 +141,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             MetaRegionOwners {
                 slots: regions.slots,
                 slot_owners: regions.slot_owners.insert(index, new_slot),
+                // `ManuallyDrop::new(node, ..)` mints a Frame obligation
+                // at the node's slot index. Permanent ledger entry — PT
+                // nodes are leaked into the PTE for the table's lifetime.
+                frame_obligations: regions.frame_obligations.insert(index),
                 ..regions
             }
         } else {

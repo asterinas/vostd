@@ -128,8 +128,9 @@ impl<'a, M: ?Sized> Frame<M> {
         // (above) plus the existing `lemma_frame_to_meta_soundness`.
         &&& r.inv()
         // Linear-drop pilot: `from_raw` doesn't mint or redeem segment-level
-        // obligations, so the ledger is preserved verbatim.
+        // or frame-level obligations, so both ledgers are preserved verbatim.
         &&& new_regions.obligations =~= old_regions.obligations
+        &&& new_regions.frame_obligations =~= old_regions.frame_obligations
     }
 
     // ── into_raw precondition predicates ──

@@ -38,6 +38,7 @@ pub mod unique;
 pub mod untyped;
 
 mod frame_ref;
+pub mod obligation_demo;
 
 #[cfg(ktest)]
 mod test;
@@ -121,13 +122,24 @@ pub struct Frame<M: ?Sized> {
 /// and `from_raw` may only be called when the counter is 1.
 impl<M: ?Sized> TrackDrop for Frame<M> {
     type State = MetaRegionOwners;
+    /// Slot index. Lets the obligation token identify *which* slot it
+    /// belongs to — `Drop::drop`'s precondition then refuses a token
+    /// from one slot being used to drop a Frame at another slot.
+    /// (Full per-instance ledger enforcement is a follow-up; for now
+    /// `consume_obligation` is a no-op so the token's identity is
+    /// documentary rather than gated against a multiset.)
+    type Key = usize;
+
+    open spec fn key(self) -> Self::Key {
+        frame_to_index(meta_to_frame(self.ptr.addr()))
+    }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s.inv()
     }
 
-    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == MetaSlotOwner {
             raw_count: (slot_own.raw_count + 1) as usize,
@@ -142,14 +154,23 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // Linear-drop pilot: minting a `Frame` (bumping `raw_count`) does
         // not affect the segment obligation ledger.
         &&& s1.obligations =~= s0.obligations
+        // Frame-side ledger: `constructor_spec` adds one entry at the
+        // slot index via the paired mint axiom (multiset semantics).
+        &&& s1.frame_obligations =~= s0.frame_obligations.insert(obl_key)
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+    proof fn constructor_spec(self, tracked s: &mut Self::State)
+        -> (tracked obl: DropObligation<Self::Key>)
+    {
         let meta_addr = self.ptr.addr();
         let index = frame_to_index(meta_to_frame(meta_addr));
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         slot_own.raw_count = (slot_own.raw_count + 1) as usize;
         s.slot_owners.tracked_insert(index, slot_own);
+        // Paired mint axiom: produces the token AND adds its Loc to
+        // `frame_obligations`. Replaces the prior ledger-less
+        // `DropObligation::tracked_mint(index)`.
+        s.tracked_mint_frame_obligation(index)
     }
 
     // It is unsound to drop a `Frame` while raw paddrs to it remain
@@ -188,7 +209,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         }
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let so0 = s0.slot_owners[idx];
         let so1 = s1.slot_owners[idx];
@@ -217,8 +238,39 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         &&& so0.inner_perms.ref_count.value() > 1 ==> so1.inner_perms.ref_count.value() == (
         so0.inner_perms.ref_count.value() - 1) as u64
         // Linear-drop pilot: `Frame::drop` doesn't redeem segment-level
-        // obligations, so the ledger is preserved.
+        // obligations, so the segment ledger is preserved.
         &&& s1.obligations =~= s0.obligations
+        // Frame-side ledger: routed through `consume_obligation` (called
+        // by Drop::drop's body first), the count at `obl_key` shrinks
+        // by 1.
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
+    }
+
+    /// `ConsumeDrop::new` / `Drop::drop` require the ledger to contain
+    /// at least one entry at this slot — preventing a forged token
+    /// from being used to "consume" a non-existent obligation.
+    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
+        s.frame_obligations.count(obl_key) > 0
+    }
+
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+        // Multiset count at the slot shrinks by 1; everything else
+        // (slots, slot_owners, segment ledger) is preserved.
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
+        &&& s1.slots =~= s0.slots
+        &&& s1.slot_owners =~= s0.slot_owners
+        &&& s1.obligations =~= s0.obligations
+    }
+
+    proof fn consume_obligation(
+        self,
+        tracked s: &mut Self::State,
+        tracked obl: DropObligation<Self::Key>,
+    ) {
+        // Paired redeem axiom: removes one entry at `obl.value()` from
+        // `frame_obligations`. Leaves `slot_owners` (including
+        // `raw_count`) untouched — the deliberate-leak semantic.
+        s.tracked_redeem_frame_obligation(obl);
     }
 }
 
@@ -369,8 +421,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             r is Ok ==> MetaSlot::get_from_unused_reparked_spec(paddr, false, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> r is Err,
             // Linear-drop pilot: minting a Frame from an unused slot doesn't
-            // mint or redeem segment obligations on any path.
+            // mint or redeem segment or frame obligations on any path.
             final(regions).obligations =~= old(regions).obligations,
+            final(regions).frame_obligations =~= old(regions).frame_obligations,
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         let ghost pre = *regions;
@@ -812,7 +865,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
 }
 
 impl<M: ?Sized> Drop for Frame<M> {
-    fn drop(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) {
+    fn drop(
+        self,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        Tracked(obl): Tracked<DropObligation<usize>>,
+    ) {
+        // Single redeem path: route through `consume_obligation` before
+        // running the destructor body. For Frame's current
+        // ledger-less `Key = usize`, this is a no-op on state; for
+        // future ledger-enforcing variants, this is where the ledger
+        // entry is removed.
+        proof { self.consume_obligation(regions, obl); }
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let ghost old_regions = *regions;
 
@@ -1084,8 +1147,10 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
                 regions,
             ).slot_owners[i]),
         final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
-        // Linear-drop pilot: refcount bump doesn't touch the segment ledger.
+        // Linear-drop pilot: refcount bump doesn't touch segment or frame
+        // obligation ledgers.
         final(regions).obligations =~= old(regions).obligations,
+        final(regions).frame_obligations =~= old(regions).frame_obligations,
 )]
 pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));

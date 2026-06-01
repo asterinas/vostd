@@ -10,7 +10,7 @@ use vstd::seq_lib::*;
 use vstd::simple_pptr::*;
 
 use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::{Drop, TrackDrop};
+use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
 use vstd_extra::ownership::*;
 use vstd_extra::trans_macros::*;
 
@@ -1465,16 +1465,24 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
     type State = (LinkedListOwner<M>, MetaRegionOwners);
+    /// Trivial: per-list ledger enforcement not yet added; the token is a
+    /// no-op pass-through.
+    type Key = ();
+
+    open spec fn key(self) -> Self::Key { () }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         true
     }
 
-    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         s0 =~= s1
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+    proof fn constructor_spec(self, tracked s: &mut Self::State)
+        -> (tracked obl: DropObligation<Self::Key>)
+    {
+        DropObligation::tracked_mint(())
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
@@ -1513,7 +1521,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         &&& s.0.relate_region(s.1)
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         &&& s1.0.list.len() == 0
         &&& forall|i: int| #![trigger s0.0.list[i]]
             0 <= i < s0.0.list.len() ==> {
@@ -1535,13 +1543,34 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         &&& s1.1.inv()
     }
 
+    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool { true }
+
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+        s0 =~= s1
+    }
+
+    proof fn consume_obligation(
+        self,
+        tracked s: &mut Self::State,
+        tracked obl: DropObligation<Self::Key>,
+    ) {
+        // No-op: trivial `Key = ()`.
+    }
+
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
     #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
-    fn drop(self, Tracked(s): Tracked<&mut Self::State>)
+    fn drop(
+        self,
+        Tracked(s): Tracked<&mut Self::State>,
+        Tracked(obl): Tracked<DropObligation<()>>,
+    )
     {
+        // Single redeem path: route through `consume_obligation` before
+        // running the destructor body.
+        proof { self.consume_obligation(s, obl); }
         // Pull the tuple components out from behind the `&mut`. We can't
         // move directly (E0507) and `cursor_front_mut` requires owned
         // `LinkedListOwner`. `tracked_take` swaps `s.0` with a fresh-empty

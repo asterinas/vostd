@@ -40,25 +40,47 @@ impl<'rcu> Guards<'rcu> {
 
 impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     type State = Guards<'rcu>;
+    /// Trivial: lifecycle is enforced by the per-node `Guards` set.
+    /// The token is a no-op pass-through.
+    type Key = ();
+
+    open spec fn key(self) -> Self::Key { () }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         s.lock_held(self.inner.inner@.ptr.addr())
     }
 
-    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+    proof fn constructor_spec(self, tracked s: &mut Self::State)
+        -> (tracked obl: DropObligation<Self::Key>)
+    {
         s.guards = s.guards.remove(self.inner.inner@.ptr.addr());
+        DropObligation::tracked_mint(())
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
         s.unlocked(self.inner.inner@.ptr.addr())
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
         s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr())
+    }
+
+    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool { true }
+
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+        s0 =~= s1
+    }
+
+    proof fn consume_obligation(
+        self,
+        tracked s: &mut Self::State,
+        tracked obl: DropObligation<Self::Key>,
+    ) {
+        // No-op: trivial `Key = ()`.
     }
 }
 

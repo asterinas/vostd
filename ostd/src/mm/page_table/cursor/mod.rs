@@ -264,8 +264,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 regions,
             ).slot_owners[frame_to_index(pa)],
             // Linear-drop pilot: `clone_item` doesn't mint or redeem segment
-            // obligations.
+            // or frame obligations.
             final(regions).obligations =~= old(regions).obligations,
+            final(regions).frame_obligations =~= old(regions).frame_obligations,
     {
         let res = item.clone(Tracked(regions));
         proof {
@@ -1840,10 +1841,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
 
-        let _ = ManuallyDrop::new(taken, Tracked(guards));
+        let md = ManuallyDrop::new(taken, Tracked(guards));
 
         proof {
-            owner.never_drop_restores_children_not_locked(guard, guards0, *guards);
+            let ghost obl_key = md.1@.value();
+            owner.never_drop_restores_children_not_locked(guard, guards0, *guards, obl_key);
             let ghost pre_pop = *old(owner);
             let ghost dropped_addr = guard.inner.inner@.ptr.addr();
             assert forall|i: int|
@@ -1851,7 +1853,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.level - 1 <= i
                     < NR_LEVELS implies owner.continuations[i].guard.inner.inner@.ptr.addr()
                 != dropped_addr by {};
-            owner.never_drop_restores_nodes_locked(guard, guards0, *guards);
+            owner.never_drop_restores_nodes_locked(guard, guards0, *guards, obl_key);
         }
 
         self.level = self.level + 1;

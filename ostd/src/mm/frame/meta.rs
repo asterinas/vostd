@@ -336,8 +336,9 @@ impl MetaSlot {
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> res is Err,
             // Linear-drop pilot: claiming an unused slot doesn't mint or
-            // redeem segment obligations on any path.
+            // redeem segment or frame obligations on any path.
             final(regions).obligations =~= old(regions).obligations,
+            final(regions).frame_obligations =~= old(regions).frame_obligations,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         paddr: Paddr,
@@ -564,6 +565,7 @@ impl MetaSlot {
                 // Linear-drop pilot: this path doesn't mint/redeem segment
                 // obligations, so the ledger is invariant.
                 regions.obligations =~= regions0.obligations,
+                regions.frame_obligations =~= regions0.frame_obligations,
         {
             match #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms))]
             Self::get_from_in_use_loop(slot) {

@@ -42,7 +42,7 @@ use vstd::atomic::PAtomicU8;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::Drop as VerifiedDrop;
+use vstd_extra::drop_tracking::{Drop as VerifiedDrop, TrackDrop};
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
@@ -433,7 +433,11 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         #[verus_spec(with Tracked(regions) => _debt)]
                         Frame::<Self>::from_raw(paddr)
                     };
-                    VerifiedDrop::drop(frame, Tracked(regions));
+                    let tracked frame_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+                    proof {
+                        frame_obl = regions.tracked_mint_frame_obligation(frame.key());
+                    }
+                    VerifiedDrop::drop(frame, Tracked(regions), Tracked(frame_obl));
                 } else {
                     // SAFETY: The PTE points to a mapped item. The ownership
                     // of the item is transferred here then dropped.
