@@ -1041,6 +1041,7 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexUpgradeableGuard<'_, T> {
     }
 }
 
+#[verifier::bit_vector]
 proof fn lemma_consts_properties()
     ensures
         0 & WRITER == 0,
@@ -1085,52 +1086,9 @@ proof fn lemma_consts_properties()
         (WRITER | UPGRADEABLE_READER) & MAX_READER_MASK == 0,
         (WRITER | UPGRADEABLE_READER) & MAX_READER == 0,
 {
-    assert(0 & WRITER == 0) by (compute_only);
-    assert(0 & UPGRADEABLE_READER == 0) by (compute_only);
-    assert(0 & BEING_UPGRADED == 0) by (compute_only);
-    assert(0 & READER_MASK == 0) by (compute_only);
-    assert(0 & MAX_READER == 0) by (compute_only);
-    assert(0 & MAX_READER_MASK == 0) by (compute_only);
-    assert(0 & READER == 0) by (compute_only);
-    assert(WRITER == 0x8000_0000_0000_0000) by (compute_only);
-    assert(UPGRADEABLE_READER == 0x4000_0000_0000_0000) by (compute_only);
-    assert(BEING_UPGRADED == 0x2000_0000_0000_0000) by (compute_only);
-    assert(READER_MASK == 0x0FFF_FFFF_FFFF_FFFF) by (compute_only);
-    assert(MAX_READER == 0x1000_0000_0000_0000) by (compute_only);
-    assert(MAX_READER_MASK == 0x1FFF_FFFF_FFFF_FFFF) by (compute_only);
-    assert(WRITER & WRITER == WRITER) by (compute_only);
-    assert(WRITER & !WRITER == 0) by (compute_only);
-    assert(WRITER & BEING_UPGRADED == 0) by (compute_only);
-    assert(WRITER & READER_MASK == 0) by (compute_only);
-    assert(WRITER & MAX_READER_MASK == 0) by (compute_only);
-    assert(WRITER & MAX_READER == 0) by (compute_only);
-    assert(WRITER & UPGRADEABLE_READER == 0) by (compute_only);
-    assert(BEING_UPGRADED & WRITER == 0) by (compute_only);
-    assert(BEING_UPGRADED & UPGRADEABLE_READER == 0) by (compute_only);
-    assert(UPGRADEABLE_READER & BEING_UPGRADED == 0) by (compute_only);
-    assert(UPGRADEABLE_READER & READER_MASK == 0) by (compute_only);
-    assert(UPGRADEABLE_READER & MAX_READER_MASK == 0) by (compute_only);
-    assert(UPGRADEABLE_READER & MAX_READER == 0) by (compute_only);
-    assert(BEING_UPGRADED & READER_MASK == 0) by (compute_only);
-    assert(BEING_UPGRADED & MAX_READER_MASK == 0) by (compute_only);
-    assert(BEING_UPGRADED & MAX_READER == 0) by (compute_only);
-    assert((UPGRADEABLE_READER | BEING_UPGRADED) & WRITER == 0) by (compute_only);
-    assert((UPGRADEABLE_READER | BEING_UPGRADED) & UPGRADEABLE_READER == UPGRADEABLE_READER)
-        by (compute_only);
-    assert((UPGRADEABLE_READER | BEING_UPGRADED) & BEING_UPGRADED == BEING_UPGRADED)
-        by (compute_only);
-    assert((UPGRADEABLE_READER | BEING_UPGRADED) & READER_MASK == 0) by (compute_only);
-    assert((UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER_MASK == 0) by (compute_only);
-    assert((UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER == 0) by (compute_only);
-    assert((WRITER | UPGRADEABLE_READER) & WRITER == WRITER) by (compute_only);
-    assert((WRITER | UPGRADEABLE_READER) & UPGRADEABLE_READER == UPGRADEABLE_READER)
-        by (compute_only);
-    assert((WRITER | UPGRADEABLE_READER) & BEING_UPGRADED == 0) by (compute_only);
-    assert((WRITER | UPGRADEABLE_READER) & READER_MASK == 0) by (compute_only);
-    assert((WRITER | UPGRADEABLE_READER) & MAX_READER_MASK == 0) by (compute_only);
-    assert((WRITER | UPGRADEABLE_READER) & MAX_READER == 0) by (compute_only);
 }
 
+#[verifier::bit_vector]
 proof fn lemma_consts_properties_value(prev: usize)
     ensures
         no_max_reader_overflow(prev) ==> prev + READER <= usize::MAX,
@@ -1155,69 +1113,9 @@ proof fn lemma_consts_properties_value(prev: usize)
             ||| prev & (WRITER | UPGRADEABLE_READER) == WRITER
         },
 {
-    if no_max_reader_overflow(prev) {
-        assert(prev + READER <= usize::MAX) by (bit_vector)
-            requires
-                prev & MAX_READER_MASK < MAX_READER_MASK,
-        ;
-    }
-    if prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
-        assert(prev & WRITER == 0) by (bit_vector)
-            requires
-                prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0,
-        ;
-        assert(prev & BEING_UPGRADED == 0) by (bit_vector)
-            requires
-                prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0,
-        ;
-        assert(prev & MAX_READER == 0) by (bit_vector)
-            requires
-                prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0,
-        ;
-    }
-    if prev & (WRITER | UPGRADEABLE_READER) == 0 {
-        assert(prev & WRITER == 0) by (bit_vector)
-            requires
-                prev & (WRITER | UPGRADEABLE_READER) == 0,
-        ;
-        assert(prev & UPGRADEABLE_READER == 0) by (bit_vector)
-            requires
-                prev & (WRITER | UPGRADEABLE_READER) == 0,
-        ;
-    }
-    if prev & MAX_READER == 0 {
-        assert(prev & READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
-            requires
-                prev & MAX_READER == 0,
-        ;
-    }
-    if prev & MAX_READER != 0 {
-        assert(prev & MAX_READER_MASK >= MAX_READER) by (bit_vector)
-            requires
-                prev & MAX_READER != 0,
-        ;
-    }
-    if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
-        assert(prev & UPGRADEABLE_READER == 0 && prev & WRITER == WRITER) by (bit_vector)
-            requires
-                prev & (WRITER | UPGRADEABLE_READER) == WRITER,
-        ;
-    }
-    if prev & UPGRADEABLE_READER != 0 {
-        assert(prev >= UPGRADEABLE_READER) by (bit_vector)
-            requires
-                prev & UPGRADEABLE_READER != 0,
-        ;
-    }
-    if prev & UPGRADEABLE_READER == 0 {
-        assert(prev & (WRITER | UPGRADEABLE_READER) == 0 || prev & (WRITER | UPGRADEABLE_READER)
-            == WRITER) by (bit_vector)
-            requires
-                prev & UPGRADEABLE_READER == 0,
-        ;
-    }
 }
 
+#[verifier::bit_vector]
 proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
     ensures
         prev & READER_MASK < MAX_READER,
@@ -1292,215 +1190,6 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
             &&& next & BEING_UPGRADED == prev & BEING_UPGRADED
         },
 {
-    assert(prev & READER_MASK < MAX_READER) by (bit_vector);
-    if next == UPGRADEABLE_READER && prev == WRITER {
-        assert(next & WRITER == 0) by (bit_vector)
-            requires
-                next == UPGRADEABLE_READER && prev == WRITER,
-        ;
-        assert(next & UPGRADEABLE_READER == UPGRADEABLE_READER) by (bit_vector)
-            requires
-                next == UPGRADEABLE_READER && prev == WRITER,
-        ;
-        assert(next & READER_MASK == 0) by (bit_vector)
-            requires
-                next == UPGRADEABLE_READER && prev == WRITER,
-        ;
-        assert(next & MAX_READER_MASK == 0) by (bit_vector)
-            requires
-                next == UPGRADEABLE_READER && prev == WRITER,
-        ;
-        assert(next & MAX_READER == 0) by (bit_vector)
-            requires
-                next == UPGRADEABLE_READER && prev == WRITER,
-        ;
-        assert(next & BEING_UPGRADED == 0) by (bit_vector)
-            requires
-                next == UPGRADEABLE_READER && prev == WRITER,
-        ;
-    }
-    if next == prev | UPGRADEABLE_READER {
-        assert(next & UPGRADEABLE_READER != 0) by (bit_vector)
-            requires
-                next == prev | UPGRADEABLE_READER,
-        ;
-        assert(next & WRITER == prev & WRITER) by (bit_vector)
-            requires
-                next == prev | UPGRADEABLE_READER,
-        ;
-        assert(next & READER_MASK == prev & READER_MASK) by (bit_vector)
-            requires
-                next == prev | UPGRADEABLE_READER,
-        ;
-        assert(next & MAX_READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
-            requires
-                next == prev | UPGRADEABLE_READER,
-        ;
-        assert(next & MAX_READER == prev & MAX_READER) by (bit_vector)
-            requires
-                next == prev | UPGRADEABLE_READER,
-        ;
-        assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
-            requires
-                next == prev | UPGRADEABLE_READER,
-        ;
-    }
-    if next == prev | BEING_UPGRADED {
-        assert(next & BEING_UPGRADED != 0) by (bit_vector)
-            requires
-                next == prev | BEING_UPGRADED,
-        ;
-        assert(next & WRITER == prev & WRITER) by (bit_vector)
-            requires
-                next == prev | BEING_UPGRADED,
-        ;
-        assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
-            requires
-                next == prev | BEING_UPGRADED,
-        ;
-        assert(next & READER_MASK == prev & READER_MASK) by (bit_vector)
-            requires
-                next == prev | BEING_UPGRADED,
-        ;
-        assert(next & MAX_READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
-            requires
-                next == prev | BEING_UPGRADED,
-        ;
-        assert(next & MAX_READER == prev & MAX_READER) by (bit_vector)
-            requires
-                next == prev | BEING_UPGRADED,
-        ;
-    }
-    if next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0 {
-        assert(next & UPGRADEABLE_READER == 0) by (bit_vector)
-            requires
-                next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0,
-        ;
-        assert(next & WRITER == prev & WRITER) by (bit_vector)
-            requires
-                next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0,
-        ;
-        assert(next & READER_MASK == prev & READER_MASK) by (bit_vector)
-            requires
-                next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0,
-        ;
-        assert(next & MAX_READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
-            requires
-                next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0,
-        ;
-        assert(next & MAX_READER == prev & MAX_READER) by (bit_vector)
-            requires
-                next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0,
-        ;
-        assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
-            requires
-                next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0,
-        ;
-    }
-    if next == prev - READER && prev & READER_MASK != 0 {
-        assert(next & READER_MASK == (prev & READER_MASK) - READER) by (bit_vector)
-            requires
-                next == prev - READER && prev & READER_MASK != 0,
-        ;
-        assert(next & MAX_READER_MASK == (prev & MAX_READER_MASK) - READER) by (bit_vector)
-            requires
-                next == prev - READER && prev & READER_MASK != 0,
-        ;
-        assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
-            requires
-                next == prev - READER && prev & READER_MASK != 0,
-        ;
-        assert(next & WRITER == prev & WRITER) by (bit_vector)
-            requires
-                next == prev - READER && prev & READER_MASK != 0,
-        ;
-        assert(next & MAX_READER == prev & MAX_READER) by (bit_vector)
-            requires
-                next == prev - READER && prev & READER_MASK != 0,
-        ;
-        assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
-            requires
-                next == prev - READER && prev & READER_MASK != 0,
-        ;
-    }
-    if next == prev - READER && prev & MAX_READER_MASK != 0 {
-        assert(next & MAX_READER_MASK == (prev & MAX_READER_MASK) - READER) by (bit_vector)
-            requires
-                next == prev - READER && prev & MAX_READER_MASK != 0,
-        ;
-        assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
-            requires
-                next == prev - READER && prev & MAX_READER_MASK != 0,
-        ;
-        assert(next & WRITER == prev & WRITER) by (bit_vector)
-            requires
-                next == prev - READER && prev & MAX_READER_MASK != 0,
-        ;
-        assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
-            requires
-                next == prev - READER && prev & MAX_READER_MASK != 0,
-        ;
-    }
-    if next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK {
-        assert(next & READER_MASK == if prev & READER_MASK == MAX_READER - READER {
-            0
-        } else {
-            (prev & READER_MASK) + READER
-        }) by (bit_vector)
-            requires
-                next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK,
-        ;
-        assert(next & MAX_READER_MASK == (prev & MAX_READER_MASK) + READER) by (bit_vector)
-            requires
-                next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK,
-        ;
-        assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
-            requires
-                next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK,
-        ;
-        assert(next & WRITER == prev & WRITER) by (bit_vector)
-            requires
-                next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK,
-        ;
-        assert(next & MAX_READER == if (prev & READER_MASK) + READER == MAX_READER {
-            MAX_READER
-        } else {
-            prev & MAX_READER
-        }) by (bit_vector)
-            requires
-                next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK,
-        ;
-        assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
-            requires
-                next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK,
-        ;
-    }
-    if next == prev & !WRITER {
-        assert(next & WRITER == 0) by (bit_vector)
-            requires
-                next == prev & !WRITER,
-        ;
-        assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
-            requires
-                next == prev & !WRITER,
-        ;
-        assert(next & READER_MASK == prev & READER_MASK) by (bit_vector)
-            requires
-                next == prev & !WRITER,
-        ;
-        assert(next & MAX_READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
-            requires
-                next == prev & !WRITER,
-        ;
-        assert(next & MAX_READER == prev & MAX_READER) by (bit_vector)
-            requires
-                next == prev & !WRITER,
-        ;
-        assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
-            requires
-                next == prev & !WRITER,
-        ;
-    }
 }
 
 } // verus!

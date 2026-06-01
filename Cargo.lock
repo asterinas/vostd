@@ -547,6 +547,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "verified_bitflags"
+version = "0.1.0"
+dependencies = [
+ "vstd",
+]
+
+[[package]]
 name = "verus_builtin"
 version = "0.0.0-2026-05-17-0151"
 
