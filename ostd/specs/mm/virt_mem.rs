@@ -465,11 +465,9 @@ impl MemView {
         ensures
             forall|va: usize|
                 #![trigger original.read(va)]
-                va >= vaddr + len
-                && original.addr_transl(va) is Some
-                && original.memory.contains_key(
-                    original.addr_transl(va).unwrap().0
-                ) ==> original.read(va) == right.read(va),
+                va >= vaddr + len && original.addr_transl(va) is Some
+                    && original.memory.contains_key(original.addr_transl(va).unwrap().0)
+                    ==> original.read(va) == right.read(va),
     {
         Self::lemma_split_preserves_transl(original, vaddr, len, left, right);
         let split_end = vaddr + len;
@@ -478,10 +476,8 @@ impl MemView {
         );
         assert(right.memory =~= original.memory.restrict(right_pas));
         assert forall|va: usize|
-            va >= split_end
-            && original.addr_transl(va) is Some
-            && original.memory.contains_key(
-                original.addr_transl(va).unwrap().0
+            va >= split_end && original.addr_transl(va) is Some && original.memory.contains_key(
+                original.addr_transl(va).unwrap().0,
             ) implies #[trigger] original.read(va) == right.read(va) by {
             assert(original.addr_transl(va) == right.addr_transl(va));
             let pa = original.addr_transl(va).unwrap().0;
@@ -492,12 +488,7 @@ impl MemView {
     }
 
     /// Lemma: pointwise [`Self::read`] equality implies [`Self::read_bytes`] equality.
-    pub proof fn lemma_read_bytes_eq_pointwise(
-        a: MemView,
-        b: MemView,
-        va: usize,
-        n: usize,
-    )
+    pub proof fn lemma_read_bytes_eq_pointwise(a: MemView, b: MemView, va: usize, n: usize)
         requires
             forall|i: usize| va <= i < va + n ==> a.read(i) == b.read(i),
             va + n <= usize::MAX,

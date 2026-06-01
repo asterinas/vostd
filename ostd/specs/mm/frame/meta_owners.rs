@@ -295,7 +295,8 @@ impl Inv for MetaSlotOwner {
             &&& self.inner_perms.in_list.value() == 0
         }
         &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
-        &&& self.self_addr % META_SLOT_SIZE == 0
+        &&& self.self_addr % META_SLOT_SIZE
+            == 0
         // `paths_in_pt` is built by finitely many `.insert(path)` (map +
         // huge-page split) and `.remove(path)` (unmap, Stage 2) from an
         // empty initial set — universally finite. Needed wherever
@@ -417,13 +418,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
         ensures
             Self::metadata_from_inner_perms(Self::inner_perms_from_metadata(m, base)) == m,
             Self::inner_perms_from_metadata(m, base).id() == base.id(),
-            Self::inner_perms_from_metadata(m, base).is_init();
+            Self::inner_perms_from_metadata(m, base).is_init(),
+    ;
 
     pub axiom fn inner_perms_from_metadata_roundtrip(
         perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     )
         ensures
-            Self::inner_perms_from_metadata(Self::metadata_from_inner_perms(perm), perm) == perm;
+            Self::inner_perms_from_metadata(Self::metadata_from_inner_perms(perm), perm) == perm,
+    ;
 
     /// Exec-level write primitive: writing `metadata` into the storage cell
     /// yields a perm whose `metadata_from_inner_perms` interpretation is
@@ -489,7 +492,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
             old(perm).is_init(),
             old(perm).wf(&old(perm).inner_perms),
         ensures
-            // Initial: the lent `M` is the current value's `metadata`.
+    // Initial: the lent `M` is the current value's `metadata`.
+
             *res == old(perm).value().metadata,
             // Outer perm shape preserved.
             final(perm).pptr() == old(perm).pptr(),
@@ -511,8 +515,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
             final(perm).inner_perms.in_list == old(perm).inner_perms.in_list,
             final(perm).inner_perms.vtable_ptr == old(perm).inner_perms.vtable_ptr,
             // Storage cell is re-encoded for the final `M`.
-            final(perm).inner_perms.storage
-                == Self::inner_perms_from_metadata(*final(res), old(perm).inner_perms.storage),
+            final(perm).inner_perms.storage == Self::inner_perms_from_metadata(
+                *final(res),
+                old(perm).inner_perms.storage,
+            ),
     {
         unimplemented!()
     }

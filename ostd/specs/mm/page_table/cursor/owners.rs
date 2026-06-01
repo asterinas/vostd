@@ -752,20 +752,22 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
 }
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-
-    pub open spec fn node_unlocked(guards: Guards<'rcu>) ->
-        (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
+    pub open spec fn node_unlocked(guards: Guards<'rcu>) -> (spec_fn(
+        EntryOwner<C>,
+        TreePath<NR_ENTRIES>,
+    ) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner.is_node() ==>
-            guards.unlocked(owner.node.unwrap().meta_addr_self())
+            owner.is_node() ==> guards.unlocked(owner.node.unwrap().meta_addr_self())
     }
 
-    pub open spec fn node_unlocked_except(guards: Guards<'rcu>, addr: usize) ->
-        (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
+    pub open spec fn node_unlocked_except(guards: Guards<'rcu>, addr: usize) -> (spec_fn(
+        EntryOwner<C>,
+        TreePath<NR_ENTRIES>,
+    ) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner.is_node() ==>
-            owner.node.unwrap().meta_addr_self() != addr ==>
-            guards.unlocked(owner.node.unwrap().meta_addr_self())
+            owner.is_node() ==> owner.node.unwrap().meta_addr_self() != addr ==> guards.unlocked(
+                owner.node.unwrap().meta_addr_self(),
+            )
     }
 
     pub open spec fn map_full_tree(
@@ -791,25 +793,30 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn only_current_locked(self, guards: Guards<'rcu>) -> bool {
-        self.map_only_children(Self::node_unlocked_except(guards, self.cur_entry_owner().node.unwrap().meta_addr_self()))
+        self.map_only_children(
+            Self::node_unlocked_except(
+                guards,
+                self.cur_entry_owner().node.unwrap().meta_addr_self(),
+            ),
+        )
     }
 
     pub proof fn never_drop_restores_children_not_locked(
         self,
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
-        guards1: Guards<'rcu>)
-    requires
-        self.inv(),
-        self.only_current_locked(guards0),
-        <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-        <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
-        // The dropped guard is for the current entry's node (from pop_level).
-        self.cur_entry_owner().is_node(),
-        guard.inner.inner@.ptr.addr()
-            == self.cur_entry_owner().node.unwrap().meta_addr_self(),
-    ensures
-        self.children_not_locked(guards1),
+        guards1: Guards<'rcu>,
+    )
+        requires
+            self.inv(),
+            self.only_current_locked(guards0),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
+            // The dropped guard is for the current entry's node (from pop_level).
+            self.cur_entry_owner().is_node(),
+            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node.unwrap().meta_addr_self(),
+        ensures
+            self.children_not_locked(guards1),
     {
         let current_addr = self.cur_entry_owner().node.unwrap().meta_addr_self();
         let f = Self::node_unlocked_except(guards0, current_addr);
@@ -854,7 +861,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// is trusted to hold from the tracked restore operations in the caller.
     // protect_preserves_cursor_inv_metaregion moved to cursor_fn_lemmas.rs.
     // map_children_implies moved to tree_lemmas.rs.
-
     pub open spec fn nodes_locked(self, guards: Guards<'rcu>) -> bool {
         // Only the subtree rooted at `guard_level` and its descendants down to
         // `level` are actually locked (see `locking.rs`). The ghost

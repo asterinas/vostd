@@ -36,23 +36,25 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
         // partial) keeps `VmStore::inv`'s coverage clauses chainable.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
         // nodes — every *changed* slot was UNUSED before and becomes a
         // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
         // from this single clause.
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
-                        == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage != PageUsage::Frame
             },
-        forall|c: CursorOwner<'a, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'a, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
@@ -76,23 +78,25 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
         // partial) keeps `VmStore::inv`'s coverage clauses chainable.
         final(regions).slots =~= old(regions).slots,
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-            && final(regions).slot_owners[i].inner_perms.in_list
-                == old(regions).slot_owners[i].inner_perms.in_list,
+                && final(regions).slot_owners[i].inner_perms.in_list == old(
+                regions,
+            ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
         // nodes — every *changed* slot was UNUSED before and becomes a
         // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
         // from this single clause.
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
-                &&& old(regions).slot_owners[i].inner_perms.ref_count.value()
-                        == REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
+                &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].usage != PageUsage::Frame
             },
-        forall|c: CursorOwner<'a, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'a, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
     vm_space_new_embedded(regions)

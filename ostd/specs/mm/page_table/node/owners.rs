@@ -90,19 +90,16 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.children_perm.is_init_all()
-        &&& self.children_perm.addr()
-                == paddr_to_vaddr(meta_to_frame(meta_addr(self.slot_index)))
+        &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(meta_addr(self.slot_index)))
         &&& self.tree_level == INC_LEVELS - self.level - 1
         &&& self.slot_index < max_meta_slots() as usize
-        &&& FRAME_METADATA_RANGE.start <= meta_addr(self.slot_index)
-                < FRAME_METADATA_RANGE.end
+        &&& FRAME_METADATA_RANGE.start <= meta_addr(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& meta_addr(self.slot_index) % META_SLOT_SIZE == 0
-        &&& meta_to_frame(meta_addr(self.slot_index))
-                < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
+        &&& meta_to_frame(meta_addr(self.slot_index)) < VMALLOC_BASE_VADDR
+            - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(meta_addr(self.slot_index)) < MAX_PADDR
         &&& meta_to_frame(meta_addr(self.slot_index)) == self.children_perm.addr()
-        &&& self.slot_index
-                == frame_to_index(meta_to_frame(meta_addr(self.slot_index)))
+        &&& self.slot_index == frame_to_index(meta_to_frame(meta_addr(self.slot_index)))
     }
 }
 
@@ -135,8 +132,9 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& self.meta_perm_of(regions).wf(&self.meta_perm_of(regions).inner_perms)
         &&& self.meta_perm_of(regions).value().metadata.wf(self.meta_own)
         &&& self.level == self.meta_perm_of(regions).value().metadata.level
-        &&& self.meta_own.nr_children.id()
-                == self.meta_perm_of(regions).value().metadata.nr_children.id()
+        &&& self.meta_own.nr_children.id() == self.meta_perm_of(
+            regions,
+        ).value().metadata.nr_children.id()
     }
 }
 

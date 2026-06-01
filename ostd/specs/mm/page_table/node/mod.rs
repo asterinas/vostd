@@ -49,8 +49,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State)
-    {
+    proof fn constructor_spec(self, tracked s: &mut Self::State) {
         s.guards = s.guards.remove(self.inner.inner@.ptr.addr());
     }
 

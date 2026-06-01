@@ -124,10 +124,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let index = frame_to_index(self.meta_slot_paddr().unwrap());
             let old_slot = regions.slot_owners[index];
             let new_slot = MetaSlotOwner { raw_count: 0usize, ..old_slot };
-            MetaRegionOwners {
-                slot_owners: regions.slot_owners.insert(index, new_slot),
-                ..regions
-            }
+            MetaRegionOwners { slot_owners: regions.slot_owners.insert(index, new_slot), ..regions }
         } else {
             regions
         }

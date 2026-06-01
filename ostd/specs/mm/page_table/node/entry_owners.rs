@@ -547,7 +547,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& regions.slot_owners[idx].raw_count == self.expected_raw_count()
             &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_addr_self()
-            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
+            &&& regions.slots[idx].value().wf(
+                regions.slot_owners[idx],
+            )
             // Node path tracking: ensures no two tree nodes share the same slot index.
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node.unwrap().metaregion_sound_node(regions)
@@ -631,8 +633,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         if self.is_node() {
             let slot_idx = self.node.unwrap().slot_index;
             assert(r0.slots.contains_key(slot_idx));
-            assert(self.node.unwrap().meta_perm_of(r1)
-                == self.node.unwrap().meta_perm_of(r0));
+            assert(self.node.unwrap().meta_perm_of(r1) == self.node.unwrap().meta_perm_of(r0));
         }
     }
 
@@ -682,8 +683,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             assert(r0.slots.contains_key(slot_idx));
             assert(slot_idx != changed_idx);
             assert(r1.slot_owners[slot_idx] == r0.slot_owners[slot_idx]);
-            assert(self.node.unwrap().meta_perm_of(r1)
-                == self.node.unwrap().meta_perm_of(r0));
+            assert(self.node.unwrap().meta_perm_of(r1) == self.node.unwrap().meta_perm_of(r0));
         }
     }
 

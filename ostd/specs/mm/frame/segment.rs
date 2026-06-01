@@ -106,7 +106,9 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
             0 <= i < seg_nframes(self.range) ==> {
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
-                &&& regions.slot_owners.contains_key(idx)
+                &&& regions.slot_owners.contains_key(
+                    idx,
+                )
                 // Design B: the slot perm is canonical in `regions.slots`
                 // (borrowable), NOT owned by the segment.
                 &&& regions.slots.contains_key(idx)
@@ -131,9 +133,9 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
                 frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-            0 <= i < j < seg_nframes(self.range) ==>
-                frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
-                    != frame_to_index((self.range.start + j * PAGE_SIZE) as usize)
+            0 <= i < j < seg_nframes(self.range) ==> frame_to_index(
+                (self.range.start + i * PAGE_SIZE) as usize,
+            ) != frame_to_index((self.range.start + j * PAGE_SIZE) as usize)
     }
 
     /// Manually instantiates the [`relate_regions`] forall at a specific index.
@@ -171,8 +173,9 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
             self.relate_regions(regions),
             0 <= i < j < seg_nframes(self.range),
         ensures
-            frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
-                != frame_to_index((self.range.start + j * PAGE_SIZE) as usize),
+            frame_to_index((self.range.start + i * PAGE_SIZE) as usize) != frame_to_index(
+                (self.range.start + j * PAGE_SIZE) as usize,
+            ),
     {
         // Trigger the distinctness forall at `(i, j)`.
         let _ = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);

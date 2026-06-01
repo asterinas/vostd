@@ -1001,10 +1001,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// trees; callers that need it for an arbitrary `pt_inv` subtree
     /// (including the leaf/frame-rooted child subtrees of a cursor
     /// continuation) need a standalone form not gated on `value.is_node()`.
-    pub proof fn pt_inv_implies_path_correct(
-        subtree: OwnerSubtree<C>,
-        path: TreePath<NR_ENTRIES>,
-    )
+    pub proof fn pt_inv_implies_path_correct(subtree: OwnerSubtree<C>, path: TreePath<NR_ENTRIES>)
         requires
             PageTableOwner(subtree).pt_inv(),
             subtree.value.path == path,
@@ -1016,21 +1013,18 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         // Root: path_correct_pred(value, path) == (value.path == path).
         assert(Self::path_correct_pred()(subtree.value, path));
         if subtree.level < INC_LEVELS - 1 {
-            assert forall |i: int|
-                0 <= i < subtree.children.len()
-                && (#[trigger] subtree.children[i]) is Some
-            implies
-                subtree.children[i].unwrap().tree_predicate_map(
-                    path.push_tail(i as usize), Self::path_correct_pred())
-            by {
+            assert forall|i: int|
+                0 <= i < subtree.children.len() && (
+                #[trigger] subtree.children[i]) is Some implies subtree.children[i].unwrap().tree_predicate_map(
+            path.push_tail(i as usize), Self::path_correct_pred()) by {
                 if subtree.value.is_node() {
                     PageTableOwner(subtree).pt_inv_unroll(i);
                     // pt_edge_at: child.value.path == subtree.value.path.push_tail(i)
-                    assert(subtree.children[i].unwrap().value.path
-                        == path.push_tail(i as usize));
+                    assert(subtree.children[i].unwrap().value.path == path.push_tail(i as usize));
                     Self::pt_inv_implies_path_correct(
                         subtree.children[i].unwrap(),
-                        path.push_tail(i as usize));
+                        path.push_tail(i as usize),
+                    );
                 } else {
                     // Non-node ⟹ children all None, contradicts `is Some`.
                     PageTableOwner(subtree).pt_inv_non_node(i);
@@ -1062,16 +1056,18 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.value.parent_level == (INC_LEVELS - self.0.level) as PagingLevel,
             self.0.value.path == path,
             self.0.tree_predicate_map(path, Self::path_correct_pred()),
-            forall |mm: Mapping| #![trigger self.view_rec(path).contains(mm)]
+            forall|mm: Mapping|
+                #![trigger self.view_rec(path).contains(mm)]
                 self.view_rec(path).contains(mm) ==> ambient.contains(mm),
-            forall |mm: Mapping| #![trigger ambient.contains(mm)]
-                ambient.contains(mm)
-                ==> mm.va_range.start != vaddr_of::<C>(removed_path) as int,
+            forall|mm: Mapping|
+                #![trigger ambient.contains(mm)]
+                ambient.contains(mm) ==> mm.va_range.start != vaddr_of::<C>(removed_path) as int,
         ensures
             self.0.tree_predicate_map(
                 path,
                 |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                    e.is_frame() ==> e.path != removed_path),
+                    e.is_frame() ==> e.path != removed_path,
+            ),
         decreases INC_LEVELS - path.len(),
     {
         let g = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -1106,28 +1102,25 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         assert(g(self.0.value, path));
 
         if self.0.level < INC_LEVELS - 1 {
-            assert forall |i: int|
-                0 <= i < self.0.children.len()
-                && (#[trigger] self.0.children[i]) is Some
-            implies
-                self.0.children[i].unwrap().tree_predicate_map(
-                    path.push_tail(i as usize), g)
-            by {
+            assert forall|i: int|
+                0 <= i < self.0.children.len() && (
+                #[trigger] self.0.children[i]) is Some implies self.0.children[i].unwrap().tree_predicate_map(
+            path.push_tail(i as usize), g) by {
                 if self.0.value.is_node() {
                     self.pt_inv_unroll(i);
                     let child = PageTableOwner(self.0.children[i].unwrap());
                     path.push_tail_preserves_inv(i as usize);
                     path.push_tail_property_len(i as usize);
                     // child.view_rec ⊆ self.view_rec(path) ⊆ ambient
-                    assert forall |mm: Mapping|
-                        child.view_rec(path.push_tail(i as usize)).contains(mm)
-                    implies ambient.contains(mm) by {
+                    assert forall|mm: Mapping|
+                        child.view_rec(path.push_tail(i as usize)).contains(
+                            mm,
+                        ) implies ambient.contains(mm) by {
                         assert(self.view_rec(path).contains(mm));
                     };
                     // path-correctness passes to the child.
                     self.0.map_unroll_once(path, Self::path_correct_pred(), i);
-                    child.no_frame_with_path_rec(
-                        path.push_tail(i as usize), removed_path, ambient);
+                    child.no_frame_with_path_rec(path.push_tail(i as usize), removed_path, ambient);
                 } else {
                     PageTableOwner(self.0).pt_inv_non_node(i);
                 }
@@ -1136,7 +1129,12 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         assert(self.0.tree_predicate_map(path, g));
     }
 
-    pub proof fn view_rec_disjoint_vaddrs(self, path: TreePath<NR_ENTRIES>, m1: Mapping, m2: Mapping)
+    pub proof fn view_rec_disjoint_vaddrs(
+        self,
+        path: TreePath<NR_ENTRIES>,
+        m1: Mapping,
+        m2: Mapping,
+    )
         requires
             self.pt_inv(),
             path.inv(),

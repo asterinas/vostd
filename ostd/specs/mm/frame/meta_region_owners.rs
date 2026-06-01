@@ -64,8 +64,10 @@ impl Inv for MetaRegionOwners {
             // All accessible slots are within the valid address range.
             forall|i: usize| i < max_meta_slots() <==> #[trigger] self.slot_owners.contains_key(i)
         }
-        &&& { forall|i: usize| #[trigger] self.slot_owners.contains_key(i)
-                ==> self.slots.contains_key(i) }
+        &&& {
+            forall|i: usize| #[trigger]
+                self.slot_owners.contains_key(i) ==> self.slots.contains_key(i)
+        }
         &&& { forall|i: usize| #[trigger] self.slots.contains_key(i) ==> i < max_meta_slots() }
         &&& {
             forall|i: usize| #[trigger]
@@ -131,14 +133,17 @@ impl MetaRegionOwners {
         self.slot_owners[i].inner_perms.ref_count.value()
     }
 
-    pub axiom fn borrow_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, i: usize) ->
-        (tracked res: &vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<M>>)
+    pub axiom fn borrow_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+        &self,
+        i: usize,
+    ) -> (tracked res: &vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<M>>)
         requires
             self.slots.contains_key(i),
             self.slot_owners.contains_key(i),
         ensures
             res.points_to == self.slots[i],
-            res.inner_perms == self.slot_owners[i].inner_perms;
+            res.inner_perms == self.slot_owners[i].inner_perms,
+    ;
 
     /// Mutable analog of [`borrow_typed_perm`]. Lends out a `&'a mut cast_ptr`
     /// reconstructed from `slots[i]` (outer simple-pptr) and
@@ -162,12 +167,13 @@ impl MetaRegionOwners {
             final(self).slots[i] == final(res).points_to,
             final(self).slot_owners[i].inner_perms == final(res).inner_perms,
             forall|k: usize| k != i ==> #[trigger] final(self).slots[k] == old(self).slots[k],
-            forall|k: usize| k != i ==> #[trigger] final(self).slot_owners[k]
-                == old(self).slot_owners[k],
+            forall|k: usize|
+                k != i ==> #[trigger] final(self).slot_owners[k] == old(self).slot_owners[k],
             final(self).slot_owners[i].raw_count == old(self).slot_owners[i].raw_count,
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
-            final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt;
+            final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
+    ;
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
         recommends
@@ -250,7 +256,8 @@ impl MetaRegionOwners {
     )
         ensures
             final(self).slots == old(self).slots.insert(index, *perm),
-            final(self).slot_owners == old(self).slot_owners;
+            final(self).slot_owners == old(self).slot_owners,
+    ;
 }
 
 } // verus!

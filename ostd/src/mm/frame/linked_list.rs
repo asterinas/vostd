@@ -960,7 +960,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(frame_to_index(meta_to_frame(prev.addr())) != idx);  // distinctness
                 assert(regions.slots[frame_to_index(meta_to_frame(prev.addr()))].pptr() == prev.ptr);
             }
-            
+
             let tracked prev_perm = regions.borrow_mut_typed_perm::<Link<M>>(
                 frame_to_index(meta_to_frame(prev.addr())));
             update_field!(prev => next <- next_ptr, Meta(prev_perm));

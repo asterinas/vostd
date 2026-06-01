@@ -883,7 +883,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     }
 
-    pub proof fn push_level_owner_preserves_invs(self, guard: PageTableGuard<'rcu, C>, regions: MetaRegionOwners, guards: Guards<'rcu>)
+    pub proof fn push_level_owner_preserves_invs(
+        self,
+        guard: PageTableGuard<'rcu, C>,
+        regions: MetaRegionOwners,
+        guards: Guards<'rcu>,
+    )
         requires
             self.inv(),
             self.level > 1,
@@ -929,9 +934,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             != guard.inner.inner@.ptr.addr() by {
             let cont_i = self.continuations[i];
 
-            if cont_i.guard.inner.inner@.ptr.addr()
-                == guard.inner.inner@.ptr.addr()
-            {
+            if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
                 let addr = cont_i.entry_own.node.unwrap().meta_addr_self();
                 assert(addr == cur_entry.node.unwrap().meta_addr_self());
                 let idx = frame_to_index(meta_to_frame(addr));
@@ -1464,7 +1467,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
     }
 
-    pub proof fn pop_level_owner_preserves_invs(self, guards: Guards<'rcu>, regions: MetaRegionOwners)
+    pub proof fn pop_level_owner_preserves_invs(
+        self,
+        guards: Guards<'rcu>,
+        regions: MetaRegionOwners,
+    )
         requires
             self.inv(),
             self.level < NR_LEVELS,

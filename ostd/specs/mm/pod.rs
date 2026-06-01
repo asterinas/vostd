@@ -118,10 +118,10 @@ pub broadcast proof fn lemma_decode_pod_inverse<T: Pod>(v: T)
     let chosen: T = choose|w: T| pod_bytes::<T>(w) == bytes;
     assert(pod_bytes::<T>(chosen) == bytes);
     broadcast use axiom_pod_bytes_injective;
+
 }
 
 } // verus!
-
 macro_rules! impl_pod_for_primitive {
     ($($ty:ty),* $(,)?) => {
         $(

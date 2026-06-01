@@ -63,12 +63,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> ModelOf for UniqueFrame<
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
-
     /// The typed permission for this frame, reconstructed from the region: the
     /// outer pointer-perm `regions.slots[slot_index]` paired with the inner
     /// perms `regions.slot_owners[slot_index].inner_perms`. Borrow-model analog
     /// of the owned `meta_perm` field; meaningful where `slots.contains_key`.
-    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> PointsTo<MetaSlot, Metadata<M>> {
+    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> PointsTo<
+        MetaSlot,
+        Metadata<M>,
+    > {
         PointsTo::new_spec(
             regions.slots[self.slot_index],
             regions.slot_owners[self.slot_index].inner_perms,
@@ -96,10 +98,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slot_owners[self.slot_index].self_addr == meta_addr(self.slot_index)
     }
 
-    pub proof fn from_raw_owner(
-        owner: M::Owner,
-        index: Ghost<usize>,
-    ) -> Self {
+    pub proof fn from_raw_owner(owner: M::Owner, index: Ghost<usize>) -> Self {
         UniqueFrameOwner::<M> { meta_own: owner, slot_index: index@ }
     }
 
@@ -117,10 +116,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slots == old_regions.slots
         &&& regions.slot_owners[frame_to_index(paddr)].inner_perms
             == old_regions.slot_owners[frame_to_index(paddr)].inner_perms
-        &&& regions.slot_owners[frame_to_index(paddr)].raw_count == old_regions.slot_owners[frame_to_index(paddr)].raw_count
-        &&& regions.slot_owners[frame_to_index(paddr)].usage == old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
-        &&& forall|i: usize| i != frame_to_index(paddr) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
+        &&& regions.slot_owners[frame_to_index(paddr)].raw_count
+            == old_regions.slot_owners[frame_to_index(paddr)].raw_count
+        &&& regions.slot_owners[frame_to_index(paddr)].usage
+            == old_regions.slot_owners[frame_to_index(paddr)].usage
+        &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt
+            == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
+        &&& forall|i: usize|
+            i != frame_to_index(paddr) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& regions.inv()
     }
 
@@ -128,14 +131,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         tracked regions: &mut MetaRegionOwners,
         paddr: Paddr,
     ) -> (tracked res: Self)
-    ensures
-        Self::from_unused_owner(
-            *old(regions),
-            paddr,
-            res.meta_perm_of(*final(regions)).value().metadata,
-            res,
-            *final(regions),
-        );
+        ensures
+            Self::from_unused_owner(
+                *old(regions),
+                paddr,
+                res.meta_perm_of(*final(regions)).value().metadata,
+                res,
+                *final(regions),
+            ),
+    ;
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFrame<M> {
@@ -160,8 +164,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt
-        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
+                == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.inv()
     }

@@ -91,7 +91,8 @@ impl MetaSlot {
         let idx = frame_to_index(paddr);
         {
             &&& post.slots.dom() =~= pre.slots.dom()
-            &&& forall|k: usize| #![trigger post.slots[k]]
+            &&& forall|k: usize|
+                #![trigger post.slots[k]]
                 k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
             &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
             &&& MetaSlot::get_from_unused_inner_perms_spec(
@@ -170,7 +171,8 @@ impl MetaSlot {
             == REF_COUNT_UNIQUE)
         &&& owner.inner_perms.storage.is_init()
         &&& owner.inner_perms.in_list.value() == 0
-        &&& owner.raw_count == 0
+        &&& owner.raw_count
+            == 0
         // The slot is torn down to `REF_COUNT_UNUSED`; the strengthened
         // `MetaSlotOwner::inv` UNUSED branch requires an empty
         // `paths_in_pt`, and `drop_last_in_place` does not touch

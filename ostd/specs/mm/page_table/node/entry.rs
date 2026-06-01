@@ -170,15 +170,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub open spec fn parent_perms_preserved(
         self,
         parent_owner0: NodeOwner<C>,
-        parent_owner1: NodeOwner<C>)
-    -> bool {
-        &&& forall|i: int| 0 <= i < NR_ENTRIES ==> i != self.idx ==>
-            parent_owner0.children_perm.value()[i] == parent_owner1.children_perm.value()[i]
+        parent_owner1: NodeOwner<C>,
+    ) -> bool {
+        &&& forall|i: int|
+            0 <= i < NR_ENTRIES ==> i != self.idx ==> parent_owner0.children_perm.value()[i]
+                == parent_owner1.children_perm.value()[i]
         &&& parent_owner1.slot_index == parent_owner0.slot_index
         &&& parent_owner1.level == parent_owner0.level
         &&& parent_owner1.tree_level == parent_owner0.tree_level
-        &&& parent_owner1.meta_own.nr_children.id()
-                == parent_owner0.meta_own.nr_children.id()
+        &&& parent_owner1.meta_own.nr_children.id() == parent_owner0.meta_own.nr_children.id()
         &&& parent_owner1.meta_own.stray == parent_owner0.meta_own.stray
     }
 }

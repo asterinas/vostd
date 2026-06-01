@@ -272,19 +272,19 @@ impl VmIoOwner {
             old(self).read_view_initialized() ==> final(self).read_view_initialized(),
             // Byte preservation on the un-advanced sub-range — lets
             // `read_once` loops chain byte-level facts across iterations.
-            old(self).mem_view matches Some(VmIoMemView::ReadView(_)) ==>
-                forall|va: usize|
-                    #![trigger final(self).read_view_of().read(va)]
-                    old(self).range.start + nbytes <= va < old(self).range.end
-                    && old(self).read_view_of().addr_transl(va) is Some
-                    && old(self).read_view_of().memory.contains_key(
-                        old(self).read_view_of().addr_transl(va).unwrap().0
-                    ) ==> {
-                        &&& old(self).read_view_of().addr_transl(va)
-                            == final(self).read_view_of().addr_transl(va)
-                        &&& old(self).read_view_of().read(va)
-                            == final(self).read_view_of().read(va)
-                    },
+            old(self).mem_view matches Some(VmIoMemView::ReadView(_)) ==> forall|va: usize|
+                #![trigger final(self).read_view_of().read(va)]
+                old(self).range.start + nbytes <= va < old(self).range.end && old(
+                    self,
+                ).read_view_of().addr_transl(va) is Some && old(
+                    self,
+                ).read_view_of().memory.contains_key(
+                    old(self).read_view_of().addr_transl(va).unwrap().0,
+                ) ==> {
+                    &&& old(self).read_view_of().addr_transl(va)
+                        == final(self).read_view_of().addr_transl(va)
+                    &&& old(self).read_view_of().read(va) == final(self).read_view_of().read(va)
+                },
     {
         let ghost old_start = self.range.start;
         let ghost old_end = self.range.end;

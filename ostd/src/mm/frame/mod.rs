@@ -978,15 +978,18 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         }
     }
 }*/
+
 /*impl<M: AnyFrameMeta> From<UFrame> for Frame<M> {
     fn from(frame: UFrame) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute(frame) }
     }
 }*/
+
 /*impl TryFrom<Frame<FrameMeta>> for UFrame {
     type Error = Frame<FrameMeta>;
 }*/
+
 #[verifier::external]
 impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
     fn from(frame: Frame<M>) -> Self {
