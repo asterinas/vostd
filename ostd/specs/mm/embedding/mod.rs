@@ -583,7 +583,7 @@ pub tracked struct CursorEntry<'rcu> {
     pub kind: CursorKind,
     pub va: Range<Vaddr>,
     pub owner: CursorOwner<'rcu, UserPtConfig>,
-    pub guards: Guards<'rcu, UserPtConfig>,
+    pub guards: Guards<'rcu>,
 }
 
 impl<'rcu> CursorEntry<'rcu> {
@@ -4349,7 +4349,7 @@ pub axiom fn axiom_cursor_entry_new<'rcu>(
     kind: CursorKind,
     va: Range<Vaddr>,
     tracked owner: CursorOwner<'rcu, UserPtConfig>,
-    tracked guards: Guards<'rcu, UserPtConfig>,
+    tracked guards: Guards<'rcu>,
 ) -> (tracked res: CursorEntry<'rcu>)
     ensures
         res.vm_space == vm_space,

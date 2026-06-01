@@ -34,7 +34,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
     with Tracked(pt_own): Tracked<PageTableOwner<C>>,
         Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        Tracked(guards): Tracked<&mut Guards<'rcu>>
     requires
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
         va.start < va.end,
@@ -234,7 +234,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
 #[verus_spec(r =>
     with Tracked(cursor_own): Tracked<&mut CursorOwner<'rcu, C>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        Tracked(guards): Tracked<&mut Guards<'rcu>>
     requires
         old(cursor_own).level == NR_LEVELS,
         old(cursor_own).continuations[(NR_LEVELS - 1) as int].all_some(),
@@ -479,7 +479,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
         Tracked(guard_ref): Tracked<&PageTableGuard<'rcu, C>>,
-        Tracked(guards): Tracked<&mut Guards<'rcu, C>>,
+        Tracked(guards): Tracked<&mut Guards<'rcu>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>
     requires
         entry_own.is_node(),
@@ -495,14 +495,13 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         // All other locks are preserved: addresses not in this subtree are unchanged.
         forall |addr: usize|
             addr != entry_own.node.unwrap().meta_addr_self()
-            && old(guards).guards.contains_key(addr) ==>
-            #[trigger] final(guards).guards[addr] == old(guards).guards[addr]
-            && final(guards).guards.contains_key(addr),
+            && old(guards).guards.contains(addr) ==>
+            #[trigger] final(guards).guards.contains(addr),
         // Addresses not in old guards don't appear in final guards
-        // (acquire + ManuallyDrop is a no-op on the guards map for child addrs).
+        // (acquire + ManuallyDrop is a no-op on the guards set for child addrs).
         forall |addr: usize|
-            !old(guards).guards.contains_key(addr) ==>
-            !#[trigger] final(guards).guards.contains_key(addr),
+            !old(guards).guards.contains(addr) ==>
+            !#[trigger] final(guards).guards.contains(addr),
         // regions preserved
         final(regions).inv(),
         final(regions).slot_owners =~= old(regions).slot_owners,
@@ -544,7 +543,7 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// and all guards are forgotten.
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
-        Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        Tracked(guards): Tracked<&mut Guards<'rcu>>
 )]
 #[verifier::external_body]
 unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
@@ -596,7 +595,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// top level nodes that the kernel space and user space share.
 #[verus_spec(res =>
     with Tracked(owner): Tracked<&mut CursorOwner<'a, C>>,
-        Tracked(guards): Tracked<&mut Guards<'a, C>>,
+        Tracked(guards): Tracked<&mut Guards<'a>>,
         Ghost(locked_addr): Ghost<usize>,
         Ghost(subtree_mappings_count): Ghost<nat>
     requires

@@ -88,7 +88,7 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
     tracked vm_space: &VmSpaceOwner,
     tracked regions: &mut MetaRegionOwners,
     va: Range<Vaddr>,
-) -> (tracked res: Option<(CursorOwner<'rcu, UserPtConfig>, Guards<'rcu, UserPtConfig>)>)
+) -> (tracked res: Option<(CursorOwner<'rcu, UserPtConfig>, Guards<'rcu>)>)
     requires
         vm_space.inv(),
         old(regions).inv(),
@@ -134,7 +134,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
     tracked vm_space: &VmSpaceOwner,
     tracked regions: &mut MetaRegionOwners,
     va: Range<Vaddr>,
-) -> (tracked res: Option<(CursorOwner<'rcu, UserPtConfig>, Guards<'rcu, UserPtConfig>)>)
+) -> (tracked res: Option<(CursorOwner<'rcu, UserPtConfig>, Guards<'rcu>)>)
     requires
         vm_space.inv(),
         old(regions).inv(),
@@ -203,7 +203,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
 pub axiom fn cursor_query_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu, UserPtConfig>,
+    tracked guards: &mut Guards<'rcu>,
 ) -> (res: Option<Paddr>)
     requires
         old(owner).inv(),
@@ -271,7 +271,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
 pub axiom fn cursor_find_next_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu, UserPtConfig>,
+    tracked guards: &mut Guards<'rcu>,
     len: usize,
 )
     requires
@@ -315,7 +315,7 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
 pub axiom fn cursor_jump_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu, UserPtConfig>,
+    tracked guards: &mut Guards<'rcu>,
     va: Vaddr,
 )
     requires
@@ -357,7 +357,7 @@ pub axiom fn cursor_jump_embedded<'rcu>(
 pub axiom fn cursor_mut_map_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu, UserPtConfig>,
+    tracked guards: &mut Guards<'rcu>,
     tracked tlb_model: &mut TlbModel,
     paddr: Paddr,
     prop: PageProperty,
@@ -466,7 +466,7 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
 pub axiom fn cursor_mut_unmap_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu, UserPtConfig>,
+    tracked guards: &mut Guards<'rcu>,
     tracked tlb_model: &mut TlbModel,
     len: usize,
 )
@@ -564,7 +564,7 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
 pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu, UserPtConfig>,
+    tracked guards: &mut Guards<'rcu>,
     len: usize,
 )
     requires

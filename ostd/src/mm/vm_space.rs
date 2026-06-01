@@ -153,14 +153,13 @@ impl<'a> VmSpace<'a> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards_k): Tracked<&mut Guards<'static, KernelPtConfig>>,
-            Tracked(guards_u): Tracked<&mut Guards<'static, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
             old(regions).inv(),
     )]
     #[allow(private_interfaces)]
-    pub fn default() -> Self {
-        proof_with!(Tracked(regions), Tracked(guards_k), Tracked(guards_u));
+    pub fn default<'rcu>() -> Self {
+        proof_with!(Tracked(regions), Tracked(guards));
         Self::new()
     }
 
@@ -178,28 +177,27 @@ impl<'a> VmSpace<'a> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards_k): Tracked<&mut Guards<'static, KernelPtConfig>>,
-            Tracked(guards_u): Tracked<&mut Guards<'static, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
             old(regions).inv(),
         ensures
             final(regions).inv(),
     )]
     #[allow(private_interfaces)]
-    pub fn new() -> Self {
+    pub fn new<'rcu>() -> Self {
         proof_decl! {
             let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;
         }
         let kpt = crate::mm::kspace::kvirt_area::get_kernel_page_table(
             Tracked(&mut kernel_owner_opt),
             Tracked(regions),
-            Tracked(guards_k),
+            Tracked(guards),
         );
         proof_decl! {
             let tracked kernel_owner = kernel_owner_opt.tracked_take();
         }
         let pt = {
-            #[verus_spec(with Tracked(kernel_owner), Tracked(regions), Tracked(guards_k), Tracked(guards_u))]
+            #[verus_spec(with Tracked(kernel_owner), Tracked(regions), Tracked(guards))]
             kpt.create_user_page_table::<crate::specs::task::AnyAtomicGuard>()
         };
         Self { pt, cpus: AtomicCpuSet::new(CpuSet::new_empty()), _marker: PhantomData }
@@ -225,7 +223,7 @@ impl<'a> VmSpace<'a> {
         with
             Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'a>>,
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             owner.inv(),
@@ -283,7 +281,7 @@ impl<'a> VmSpace<'a> {
         with
             Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a>>
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             owner.inv(),
@@ -461,7 +459,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // Out-of-range is a graceful `Err`; the sole panic is cloning
@@ -517,7 +515,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).0.find_next_panic_condition(len) ==> may_panic(),
@@ -562,7 +560,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
@@ -633,7 +631,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'a>>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // Out-of-range → graceful `Err`; the sole panic is cloning the
@@ -684,7 +682,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'a>>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
@@ -729,7 +727,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a>>
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             // `CursorMut::jump` diverges on a misaligned `va` and may panic
@@ -797,7 +795,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'a>>,
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             old(tlb_model).inv(),
@@ -888,7 +886,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'a>>,
             Tracked(tlb_model): Tracked<&mut TlbModel>,
         requires
             old(self).pt_cursor.0.invariants(*old(cursor_owner), *old(regions), *old(guards)),
@@ -1524,7 +1522,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+            Tracked(guards): Tracked<&mut Guards<'a>>,
         requires
             old(self).pt_cursor.0.invariants(*old(owner), *old(regions), *old(guards)),
             forall |p: PageProperty| op.requires((p,)),

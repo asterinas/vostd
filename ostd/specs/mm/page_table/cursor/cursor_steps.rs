@@ -89,7 +89,7 @@ pub proof fn push_tail_increases_length(
 pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     subtree: OwnerSubtree<C>,
     path: TreePath<NR_ENTRIES>,
-    guards: Guards<'rcu, C>,
+    guards: Guards<'rcu>,
     regions: MetaRegionOwners,
     excepted_addr: usize,
     excepted_path: TreePath<NR_ENTRIES>,
@@ -808,7 +808,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     }
 
-    pub proof fn push_level_owner_preserves_invs(self, guard: PageTableGuard<'rcu, C>, regions: MetaRegionOwners, guards: Guards<'rcu, C>)
+    pub proof fn push_level_owner_preserves_invs(self, guard: PageTableGuard<'rcu, C>, regions: MetaRegionOwners, guards: Guards<'rcu>)
         requires
             self.inv(),
             self.level > 1,
@@ -1311,7 +1311,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
     }
 
-    pub proof fn pop_level_owner_preserves_invs(self, guards: Guards<'rcu, C>, regions: MetaRegionOwners)
+    pub proof fn pop_level_owner_preserves_invs(self, guards: Guards<'rcu>, regions: MetaRegionOwners)
         requires
             self.inv(),
             self.level < NR_LEVELS,

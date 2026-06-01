@@ -280,7 +280,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         with Tracked(pt_own): Tracked<PageTableOwner<C>>,
             Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             pt_own.inv(),
             // Per-config tightening: e.g. `KernelPtConfig` overrides
@@ -416,7 +416,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             // Precise panic characterization: `query` clones the specific
@@ -812,7 +812,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
     )]
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
@@ -893,7 +893,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             // The runtime `assert!`s diverge unless `len` is page-aligned and
@@ -1496,7 +1496,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             old(self).jump_panic_condition(va) ==> may_panic(),
@@ -1613,7 +1613,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
     )]
     fn move_forward(&mut self)
         requires
@@ -1777,7 +1777,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
     )]
     fn pop_level(&mut self)
         requires
@@ -1873,7 +1873,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&MetaRegionOwners>,
-            Tracked(guards): Tracked<&Guards<'rcu, C>>
+            Tracked(guards): Tracked<&Guards<'rcu>>
     )]
     fn push_level(&mut self, child_pt: PageTableGuard<'rcu, C>)
         requires
@@ -2071,7 +2071,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         with Tracked(pt_own): Tracked<PageTableOwner<C>>,
             Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             pt_own.inv(),
             // Per-config tightening; see `Cursor::new`.
@@ -2162,7 +2162,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
     )]
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
@@ -2205,7 +2205,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
     )]
     pub fn jump(&mut self, va: Vaddr) -> (res: Result<(), PageTableError>)
         requires
@@ -2259,7 +2259,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             // `in_locked_range` not required — delegates to the relaxed
@@ -2288,7 +2288,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
@@ -2347,7 +2347,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
@@ -2825,7 +2825,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(entry_owner): Tracked<EntryOwner<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).item_wf(item, entry_owner),
@@ -3194,7 +3194,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).0.find_next_panic_condition(len) ==> may_panic(),
@@ -3627,7 +3627,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             forall |p: PageProperty| op.requires((p,)),
@@ -3762,7 +3762,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(new_owner): Tracked<OwnerSubtree<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
     )]
     #[verifier::rlimit(10000)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> (res: Option<PageTableFrag<C>>)

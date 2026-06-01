@@ -500,7 +500,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     #[verus_spec(res =>
         with Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&Guards<'rcu, C>>,
+            Tracked(guards): Tracked<&Guards<'rcu>>,
             Ghost(idx): Ghost<usize>,
         -> owner: Tracked<OwnerSubtree<C>>
         requires
@@ -607,12 +607,12 @@ impl<C: PageTableConfig> PageTableNode<C> {
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub open spec fn locks_preserved_except<'rcu>(
         addr: usize,
-        guards0: Guards<'rcu, C>,
-        guards1: Guards<'rcu, C>,
+        guards0: Guards<'rcu>,
+        guards1: Guards<'rcu>,
     ) -> bool {
         &&& OwnerSubtree::implies(
-            CursorOwner::node_unlocked(guards0),
-            CursorOwner::node_unlocked_except(guards1, addr),
+            CursorOwner::<'rcu, C>::node_unlocked(guards0),
+            CursorOwner::<'rcu, C>::node_unlocked_except(guards1, addr),
         )
         &&& forall|i: usize| guards0.lock_held(i) ==> guards1.lock_held(i)
         &&& forall|i: usize| guards0.unlocked(i) && i != addr ==> guards1.unlocked(i)
@@ -629,7 +629,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     #[verifier::external_body]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             self.inner@.invariants(*owner),
             old(guards).unlocked(owner.meta_addr_self()),
@@ -654,7 +654,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// unless that guard was already forgotten.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             self.inner@.invariants(*owner),
             old(guards).unlocked(owner.meta_addr_self()),
@@ -671,7 +671,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
         proof {
             let ghost guards0 = *guards;
-            guards.guards.tracked_insert(owner.meta_addr_self(), None);
+            guards.guards = guards.guards.insert(owner.meta_addr_self());
             assert(owner.relate_guard(guard));
 
             assert(forall|other: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
