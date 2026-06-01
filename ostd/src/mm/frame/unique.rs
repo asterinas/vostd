@@ -328,8 +328,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             == old_regions.slot_owners[frame_to_index(r)].inner_perms
         &&& regions.slot_owners[frame_to_index(r)].self_addr
             == old_regions.slot_owners[frame_to_index(r)].self_addr
-        &&& regions.slot_owners[frame_to_index(r)].usage
-            == old_regions.slot_owners[frame_to_index(r)].usage
+        &&& regions.slot_owners[frame_to_index(r)].usage == old_regions.slot_owners[frame_to_index(
+            r,
+        )].usage
         &&& regions.slot_owners[frame_to_index(r)].paths_in_pt
             == old_regions.slot_owners[frame_to_index(r)].paths_in_pt
         &&& forall|i: usize|
@@ -462,10 +463,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
         }
 
-        let tracked owner = UniqueFrameOwner {
-            meta_own,
-            slot_index: frame_to_index(paddr),
-        };
+        let tracked owner = UniqueFrameOwner { meta_own, slot_index: frame_to_index(paddr) };
 
         (Self { ptr, _marker: PhantomData }, Tracked(owner))
     }

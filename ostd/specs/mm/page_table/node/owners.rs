@@ -4,6 +4,7 @@ use vstd::prelude::*;
 use vstd::cell;
 use vstd::simple_pptr::*;
 
+use crate::mm::frame::meta::mapping::{max_meta_slots, meta_addr};
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR};
 use crate::mm::paddr_to_vaddr;
@@ -13,7 +14,6 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
-use crate::mm::frame::meta::mapping::{max_meta_slots, meta_addr};
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

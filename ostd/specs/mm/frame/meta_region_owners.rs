@@ -19,8 +19,8 @@ use crate::mm::frame::Link;
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::Metadata;
 use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;
+use crate::specs::mm::frame::meta_owners::Metadata;
 
 verus! {
 
@@ -168,7 +168,7 @@ impl MetaRegionOwners {
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
             final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt;
-            
+
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
         recommends
             self.inv(),

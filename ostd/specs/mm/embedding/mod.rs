@@ -194,10 +194,10 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::{has_safe_slot, MetaSlot, UFrame};
 use crate::mm::page_prop::PageProperty;
-use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::{Paddr, Vaddr, MAX_USERSPACE_VADDR};
+use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index_spec, index_to_frame_spec, max_meta_slots};
 use crate::specs::mm::frame::meta_owners::{
     PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,

@@ -139,11 +139,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         &&& vm_io_owner.read_view_initialized()
         &&& regions.inv()
         &&& Self::child_perms_embedding(regions, vstd::set::Set::empty())
-        &&& self.walk_coverage_from_view(
-            reader,
-            vm_io_owner.read_view_of(),
-            regions.slots.dom(),
-        )
+        &&& self.walk_coverage_from_view(reader, vm_io_owner.read_view_of(), regions.slots.dom())
         &&& self.walk_uniqueness_from_view(reader, vm_io_owner.read_view_of())
     }
 
@@ -154,7 +150,9 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     fn on_drop(
         &mut self,
         reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>,
-        Tracked(regions): Tracked<&mut crate::specs::mm::frame::meta_region_owners::MetaRegionOwners>,
+        Tracked(regions): Tracked<
+            &mut crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
+        >,
         Tracked(vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     ) {
         let level = self.level;
@@ -180,8 +178,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost align_of_e: int = core::mem::align_of::<C::E>() as int;
         let ghost pre_skip_cursor: int = reader.cursor.vaddr as int;
 
-        let ghost initial_view: crate::specs::mm::virt_mem::MemView =
-            vm_io_owner.read_view_of();
+        let ghost initial_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
         let ghost initial_dom: vstd::set::Set<usize> = regions.slots.dom();
         let ghost initial_reader: crate::mm::VmReader<'_, crate::mm::Infallible> = *reader;
 
@@ -275,8 +272,9 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 forall|va: usize|
                     #![trigger vm_io_owner.read_view_of().read(va)]
                     reader.cursor.vaddr <= va < initial_reader.end.vaddr ==> {
-                        &&& initial_view.addr_transl(va)
-                            == vm_io_owner.read_view_of().addr_transl(va)
+                        &&& initial_view.addr_transl(va) == vm_io_owner.read_view_of().addr_transl(
+                            va,
+                        )
                         &&& initial_view.read(va) == vm_io_owner.read_view_of().read(va)
                     },
                 removed_indices.subset_of(initial_dom),
@@ -314,8 +312,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 );
             }
             let ghost cursor_pre_read: usize = reader.cursor.vaddr;
-            let ghost pre_view: crate::specs::mm::virt_mem::MemView =
-                vm_io_owner.read_view_of();
+            let ghost pre_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
             proof {
                 crate::specs::mm::virt_mem::MemView::lemma_read_bytes_eq_pointwise(
                     pre_view,
@@ -640,7 +637,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     )]
     pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
         'a: 'rcu,
-    {
+     {
         unimplemented!()
     }
 
@@ -748,8 +745,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         returns
             owner.meta_own.nr_children.value(),
     {
-        let tracked owner_meta_perm =
-            regions.borrow_typed_perm::<PageTablePageMeta<C>>(owner.slot_index);
+        let tracked owner_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+            owner.slot_index,
+        );
         #[verus_spec(with Tracked(owner_meta_perm))]
         let meta = self.meta();
 
@@ -1025,8 +1023,9 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     ) -> bool {
         forall|paddr: crate::mm::Paddr|
             #![trigger regions.slot_owners[frame_to_index(paddr)]]
-            regions.slots.dom().contains(frame_to_index(paddr))
-                && !excluded.contains(frame_to_index(paddr)) ==> {
+            regions.slots.dom().contains(frame_to_index(paddr)) && !excluded.contains(
+                frame_to_index(paddr),
+            ) ==> {
                 let idx = frame_to_index(paddr);
                 let so = regions.slot_owners[idx];
                 &&& <Frame<Self>>::from_raw_requires_safety(regions, paddr)

@@ -154,10 +154,13 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // the slot is in the SHARED rc range. `wf_state` carries the
         // slot identity + pointer agreement + `rc ∈ (0, MAX] ∧ ≠ UNIQUE`
         // bounds.
-        &&& self.wf_state(s)
+        &&& self.wf_state(
+            s,
+        )
         // Outstanding raw paddrs must be drained before drop; otherwise
         // a `from_raw` after teardown would resurrect a dead slot.
-        &&& slot_own.raw_count == 0
+        &&& slot_own.raw_count
+            == 0
         // At `ref_count == 1` the teardown branch of `drop_last_in_place`
         // runs, requiring an empty `paths_in_pt` (the strengthened
         // `MetaSlotOwner::inv` UNUSED branch demands it post-teardown,
@@ -355,7 +358,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
             let ghost idx = frame_to_index(paddr);
             proof {
-                assert(frame_to_index_spec(paddr) < crate::mm::frame::meta::mapping::max_meta_slots());
+                assert(frame_to_index_spec(paddr)
+                    < crate::mm::frame::meta::mapping::max_meta_slots());
                 assert(pre.slot_owners.contains_key(idx));
                 assert(pre.slots.contains_key(idx));
                 regions.sync_slot_perm(idx, &perm);

@@ -2628,8 +2628,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 assert(eo_idx != new_pt_idx);
                                 assert(regions.slot_owners[eo_idx]
                                     == regions_after_ref.slot_owners[eo_idx]);
-                                assert(regions.slots[eo_idx]
-                                    == regions_after_ref.slots[eo_idx]);
+                                assert(regions.slots[eo_idx] == regions_after_ref.slots[eo_idx]);
                                 assert(eo.node.unwrap().meta_perm_of(*regions)
                                     == eo.node.unwrap().meta_perm_of(regions_after_ref));
                             };
@@ -4092,10 +4091,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         assert(g_sound(eo, owner0.continuations[i].path()));
                     }
                     // Old child absent/frame: regions unchanged at eo's slot.
+
                     let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
                     assert(eo_idx == eo.node.unwrap().slot_index);
-                    assert(eo.node.unwrap().meta_perm_of(*regions)
-                        == eo.node.unwrap().meta_perm_of(regions0));
+                    assert(eo.node.unwrap().meta_perm_of(*regions) == eo.node.unwrap().meta_perm_of(
+                        regions0,
+                    ));
                 };
             };
 
@@ -4166,9 +4167,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let ghost regions_before_borrow = *regions;
 
-                let tracked old_node_meta_perm =
-                    regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-                        old_node_owner.slot_index);
+                let tracked old_node_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+                    old_node_owner.slot_index,
+                );
                 #[verus_spec(with Tracked(regions), Tracked(old_node_meta_perm))]
                 let borrow_pt = pt.borrow();
 

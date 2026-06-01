@@ -1221,9 +1221,9 @@ impl PageTable<KernelPtConfig> {
         }
         let ghost regions_before_self_borrow: MetaRegionOwners = *regions;
         let mut root_node = {
-            let tracked root_meta_perm =
-                regions.borrow_typed_perm::<PageTablePageMeta<KernelPtConfig>>(
-                    root_owner.slot_index);
+            let tracked root_meta_perm = regions.borrow_typed_perm::<
+                PageTablePageMeta<KernelPtConfig>,
+            >(root_owner.slot_index);
             #[verus_spec(with Tracked(regions), Tracked(root_meta_perm))]
             let root_ref = self.root.borrow();
             #[verus_spec(with Tracked(root_owner), Tracked(guards))]
@@ -1231,9 +1231,9 @@ impl PageTable<KernelPtConfig> {
         };
         let ghost regions_after_kroot_borrow: MetaRegionOwners = *regions;
         let mut new_node: PageTableGuard<'rcu, UserPtConfig> = {
-            let tracked new_node_meta_perm =
-                regions.borrow_typed_perm::<PageTablePageMeta<UserPtConfig>>(
-                    new_node_owner.slot_index);
+            let tracked new_node_meta_perm = regions.borrow_typed_perm::<
+                PageTablePageMeta<UserPtConfig>,
+            >(new_node_owner.slot_index);
             #[verus_spec(with Tracked(regions), Tracked(new_node_meta_perm))]
             let new_ref = new_root.borrow();
             #[verus_spec(with Tracked(&new_node_owner), Tracked(guards))]
@@ -1481,8 +1481,7 @@ impl PageTable<KernelPtConfig> {
             };
 
             let ghost entry_node_slot_idx = entry_owner.node.tracked_borrow().slot_index;
-            let tracked entry_node_slot_perm =
-                regions.slots.tracked_borrow(entry_node_slot_idx);
+            let tracked entry_node_slot_perm = regions.slots.tracked_borrow(entry_node_slot_idx);
             #[verus_spec(with Tracked(entry_node_slot_perm))]
             let pt_addr = pt.start_paddr();
             let pte = PageTableEntry::new_pt(pt_addr);

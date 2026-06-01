@@ -1315,7 +1315,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
                 update_field!(frame_ptr => prev <- Some(back), Meta(perm));
- 
+
                 self.list.back = Some(frame_ptr_as_link);
                 proof {
                     let fpn_local = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(

@@ -146,8 +146,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     // stray nodes in the following traversal since we must lock before reading.
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let ghost cont_slot_idx = cont.entry_own.node.tracked_borrow().slot_index;
-    let tracked cont_meta_perm =
-        regions.borrow_typed_perm::<PageTablePageMeta<C>>(cont_slot_idx);
+    let tracked cont_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(cont_slot_idx);
     #[verus_spec(with Tracked(cont_meta_perm))]
     let guard_level = subtree_root.level();
     proof {
@@ -377,8 +376,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
         let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
         let tracked node_owner = cont.entry_own.node.tracked_take();
-        let tracked node_meta_perm =
-            regions.borrow_typed_perm::<PageTablePageMeta<C>>(node_owner.slot_index);
+        let tracked node_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+            node_owner.slot_index,
+        );
         #[verus_spec(with Tracked(node_meta_perm))]
         let stray = pt_guard.stray_mut();
         let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
@@ -453,8 +453,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let tracked node_owner = cont.entry_own.node.tracked_take();
-    let tracked node_meta_perm =
-        regions.borrow_typed_perm::<PageTablePageMeta<C>>(node_owner.slot_index);
+    let tracked node_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+        node_owner.slot_index,
+    );
     #[verus_spec(with Tracked(node_meta_perm))]
     let stray = pt_guard.stray_mut();
     let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
