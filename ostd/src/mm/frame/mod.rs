@@ -368,6 +368,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             r matches Ok(res) ==> res.ptr.addr() == frame_to_meta(paddr),
             r is Ok ==> MetaSlot::get_from_unused_reparked_spec(paddr, false, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> r is Err,
+            // Linear-drop pilot: minting a Frame from an unused slot doesn't
+            // mint or redeem segment obligations on any path.
+            final(regions).obligations =~= old(regions).obligations,
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         let ghost pre = *regions;
@@ -740,83 +743,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     }
 }
 
-/// Increases the reference count of the frame by one.
-///
-/// # Verified Properties
-/// ## Preconditions
-/// - **Safety Invariant**: Metaslot region invariants must hold.
-/// - **Safety**: The physical address must represent a valid frame.
-/// ## Postconditions
-/// - **Safety Invariant**: Metaslot region invariants hold after the call.
-/// - **Correctness**: The reference count of the frame is increased by one.
-/// - **Safety**: Frames other than this one are not affected by the call.
-/// ## Safety
-/// We enforce the safety requirements that `paddr` represents a valid frame and the caller has already held a reference to the it.
-/// It is safe to require these as preconditions because the function is internal, so the caller must obey the preconditions.
-#[verus_spec(
-    with
-        Tracked(regions): Tracked<&mut MetaRegionOwners>,
-    requires
-        old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index(paddr)),
-        has_safe_slot(paddr),
-        // The caller holds a reference, so rc > 0, and the slot must be live
-        // (not the UNUSED sentinel). Saturation is caught at runtime by
-        // `inc_ref_count`'s Arc-style abort.
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
-            != REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
-            >= REF_COUNT_MAX ==> may_panic(),
-    ensures
-        final(regions).inv(),
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id() == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id(),
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.storage,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.in_list,
-        final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].paths_in_pt,
-        final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].self_addr,
-        final(regions).slot_owners[frame_to_index(paddr)].raw_count == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].raw_count,
-        final(regions).slot_owners[frame_to_index(paddr)].usage == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].usage,
-        final(regions).slots =~= old(regions).slots,
-        forall|i: usize|
-            i != frame_to_index(paddr) ==> (#[trigger] final(regions).slot_owners[i] == old(
-                regions,
-            ).slot_owners[i]),
-        final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
-        // Linear-drop pilot: refcount bump doesn't touch the segment ledger.
-        final(regions).obligations =~= old(regions).obligations,
-)]
-pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr) {
-    let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-    let tracked perm = regions.slots.tracked_borrow(frame_to_index(paddr));
-    let tracked mut inner_perms = slot_own.take_inner_perms();
-
-        Self {
-            ptr: self.ptr,
-            _marker: PhantomData,
-        }
-    }
-}
 
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
@@ -1158,6 +1084,8 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
                 regions,
             ).slot_owners[i]),
         final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
+        // Linear-drop pilot: refcount bump doesn't touch the segment ledger.
+        final(regions).obligations =~= old(regions).obligations,
 )]
 pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));

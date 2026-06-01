@@ -335,6 +335,9 @@ impl MetaSlot {
             res matches Ok((_, perm)) ==> perm@ == old(regions).slots[frame_to_index(paddr)],
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> res is Err,
+            // Linear-drop pilot: claiming an unused slot doesn't mint or
+            // redeem segment obligations on any path.
+            final(regions).obligations =~= old(regions).obligations,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         paddr: Paddr,

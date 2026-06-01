@@ -126,6 +126,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                 self.inv(),
                 perm.slots =~= old_perm.slots,
                 perm.slot_owners.dom() =~= old_perm.slot_owners.dom(),
+                // Linear-drop pilot: cloning a Segment doesn't mint or
+                // redeem its obligation — the per-frame ref-count bump is
+                // an Arc-style operation.
+                perm.obligations =~= old_perm.obligations,
                 self.range.start <= paddr <= self.range.end,
                 paddr % PAGE_SIZE == 0,
                 paddr <= MAX_PADDR,
@@ -194,9 +198,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-                -> owner: Tracked<Option<SegmentOwner<M>>>,
+                -> owner_and_obl: Tracked<Option<(SegmentOwner<M>, DropObligation<Range<Paddr>>)>>,
         requires
             old(regions).inv(),
+            // Linear-drop pilot: the freshly-constructed segment's range
+            // must not collide with an outstanding obligation, otherwise
+            // we'd have two live `SegmentOwner`s claiming the same range.
+            !old(regions).obligations.contains(range),
             forall|paddr_in: Paddr|
                 (range.start <= paddr_in < range.end && paddr_in % PAGE_SIZE == 0) ==> {
                     &&& metadata_fn.requires((paddr_in,))
@@ -213,6 +221,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             !(range.end <= MAX_PADDR ==> range.start < range.end) ==> may_panic(),
         ensures
             final(regions).inv(),
+            // Linear-drop pilot: on any error path, the ledger is unchanged
+            // (no obligation was minted). On Ok, the ledger gains `range`.
+            r is Err ==> final(regions).obligations =~= old(regions).obligations,
             (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0)
                 ==> r == Err::<Self, _>(GetFrameError::NotAligned),
             (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end > MAX_PADDR)
@@ -223,9 +234,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& r.start_paddr() == range.start
                 &&& r.end_paddr() == range.end
                 &&& r.start_paddr() < r.end_paddr()
-                &&& owner@ matches Some(owner) && {
+                &&& final(regions).obligations =~= old(regions).obligations.insert(range)
+                &&& owner_and_obl@ matches Some((owner, obl)) && {
                     &&& r.inv()
                     &&& r.wf(&owner)
+                    &&& obl.value() == range
                     // Design B: the slot perms stay canonical in
                     // `regions.slots` (borrowable), so they are *present*.
                     &&& forall|paddr: Paddr|
@@ -238,19 +251,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
         Result<Self, GetFrameError>) {
         proof_decl! {
-            let tracked mut owner: Option<SegmentOwner<M>> = None;
+            let tracked mut owner_and_obl:
+                Option<(SegmentOwner<M>, DropObligation<Range<Paddr>>)> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
         }
 
         if range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0 {
             return {
-                proof_with!(|= Tracked(owner));
+                proof_with!(|= Tracked(owner_and_obl));
                 Err(GetFrameError::NotAligned)
             };
         }
         if range.end > MAX_PADDR {
             return {
-                proof_with!(|= Tracked(owner));
+                proof_with!(|= Tracked(owner_and_obl));
                 Err(GetFrameError::OutOfBound)
             };
         }
@@ -312,6 +326,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& addrs[j] == range.start + (j as u64) * PAGE_SIZE
                     },
                 regions.inv(),
+                // Linear-drop pilot: the per-frame setup neither mints
+                // nor redeems the segment-level obligation; the mint
+                // happens once after the loop.
+                regions.obligations =~= old(regions).obligations,
                 segment.range.start == range.start,
                 segment.range.end == range.start + i * PAGE_SIZE,
             ensures
@@ -327,7 +345,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 Ok(f) => f,
                 Err(e) => {
                     return {
-                        proof_with!(|= Tracked(owner));
+                        proof_with!(|= Tracked(owner_and_obl));
                         Err(e)
                     };
                 },
@@ -343,7 +361,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         }
 
         proof {
-            owner = Some(SegmentOwner { range, _marker: core::marker::PhantomData });
+            // Linear-drop pilot: mint the obligation token now that the
+            // segment is fully constructed. The token + ledger insert are
+            // produced atomically by the axiom.
+            let tracked obl = regions.tracked_mint_obligation(range);
+            let tracked seg_owner =
+                SegmentOwner { range, _marker: core::marker::PhantomData };
+            owner_and_obl = Some((seg_owner, obl));
 
             // Every frame in `range` had its perm re-parked into
             // `regions.slots` (Design B), so the slot key is present. Each
@@ -360,7 +384,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             }
         }
 
-        proof_with!(|= Tracked(owner));
+        proof_with!(|= Tracked(owner_and_obl));
         Ok(segment)
     }
 
