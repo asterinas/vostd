@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 //! A verified version of the [`bitflags`](https://docs.rs/bitflags/latest/bitflags/) crate.
 //!
 //! The macro [`bitflags!`] generates a single `struct` whose layout matches
@@ -31,7 +32,6 @@ use vstd::arithmetic::power::*;
 use vstd::arithmetic::power2::*;
 use vstd::bits::*;
 use vstd::prelude::*;
-use vstd::std_specs::ops::*;
 
 /// A macro wrapper for quickly defining bitflags with verified
 /// properties in Verus. It only supports literal values for the bits.
@@ -65,11 +65,11 @@ macro_rules! bitflags {
 
         $($t:tt)*
     ) => {
-        verus! {
+        paste::paste! { verus! {
 
             $(#[$outer])*
             #[repr(transparent)]
-            #[derive(Copy, Clone, PartialEq, Eq)]
+            #[derive(Copy, Clone, Debug, PartialEq, Eq)]
             $vis struct $name {
                 /// The raw bits backing this flags value.
                 bits: $T,
@@ -77,10 +77,15 @@ macro_rules! bitflags {
 
             impl $name {
                 $(
+                    pub closed spec fn [< $Flag _spec >]() -> Self {
+                        Self { bits: ($value) as $T }
+                    }
+
                     $(#[$inner $($args)*])*
-                    #[allow(non_snake_case)]
+                    #[verifier::when_used_as_spec([< $Flag _spec >])]
                     pub const fn $Flag() -> (r: Self)
                         ensures r.bits() == ($value),
+                        returns Self::[< $Flag _spec >](),
                     {
                         Self { bits: ($value) as $T }
                     }
@@ -237,7 +242,7 @@ macro_rules! bitflags {
                 }
             }
 
-            impl BitOrSpecImpl for $name {
+            impl vstd::std_specs::ops::BitOrSpecImpl for $name {
                 open spec fn obeys_bitor_spec() -> bool { true }
 
                 open spec fn bitor_req(self, rhs: Self) -> bool { true }
@@ -257,7 +262,7 @@ macro_rules! bitflags {
                 }
             }
 
-            impl BitAndSpecImpl for $name {
+            impl vstd::std_specs::ops::BitAndSpecImpl for $name {
                 open spec fn obeys_bitand_spec() -> bool { true }
 
                 open spec fn bitand_req(self, rhs: Self) -> bool { true }
@@ -277,7 +282,7 @@ macro_rules! bitflags {
                 }
             }
 
-            impl BitXorSpecImpl for $name {
+            impl vstd::std_specs::ops::BitXorSpecImpl for $name {
                 open spec fn obeys_bitxor_spec() -> bool { true }
 
                 open spec fn bitxor_req(self, rhs: Self) -> bool { true }
@@ -297,7 +302,7 @@ macro_rules! bitflags {
                 }
             }
 
-            impl NotSpecImpl for $name {
+            impl vstd::std_specs::ops::NotSpecImpl for $name {
                 open spec fn obeys_not_spec() -> bool { true }
 
                 open spec fn not_req(self) -> bool { true }
@@ -317,7 +322,7 @@ macro_rules! bitflags {
                 }
             }
 
-        } // verus!
+        } } // verus! paste!
     };
 }
 
@@ -396,6 +401,7 @@ fn _bitflags_smoke_test() {
     let abc = Flags::ABC();
 
     assert(a.bits() == 0b001u32);
+    assert(a.bits() == Flags::A().bits());
     assert(b.bits() == 0b010u32);
     assert(c.bits() == 0b100u32);
     assert(abc.bits() == 0b111u32);
