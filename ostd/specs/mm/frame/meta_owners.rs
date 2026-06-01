@@ -421,6 +421,27 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
         ensures
             Self::inner_perms_from_metadata(Self::metadata_from_inner_perms(perm), perm) == perm;
 
+    /// Exec-level write primitive: writing `metadata` into the storage cell
+    /// yields a perm whose `metadata_from_inner_perms` interpretation is
+    /// exactly `metadata`. Sits at the same trust boundary as
+    /// [`Self::metadata_perms_inverse`] / [`Self::inner_perms_from_metadata_roundtrip`]
+    /// — the exec analog of `inner_perms_from_metadata(metadata, base)`.
+    #[verifier::external_body]
+    pub exec fn write_metadata_into_storage(
+        cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
+        Tracked(perm): Tracked<&mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+        metadata: M,
+    )
+        requires
+            cell.id() == old(perm).id(),
+        ensures
+            final(perm).id() == old(perm).id(),
+            final(perm).is_init(),
+            Self::metadata_from_inner_perms(*final(perm)) == metadata,
+    {
+        unimplemented!()
+    }
+
     /// Read-only mirror of [`borrow_meta_mut`]: yields a shared `&M` into the
     /// storage cell, with no perm-roundtrip noise. Lifetime is tied to the
     /// shared `&` perm borrow.

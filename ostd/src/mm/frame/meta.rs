@@ -510,14 +510,10 @@ impl MetaSlot {
         }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-        // Design B: the shared `Frame` path *borrows* the slot permission
-        // from `regions.slots` — it is never moved out (an in-use frame is
-        // Arc-like and `get_from_in_use` only bumps the refcount).
         let tracked slot_perm = regions.slots.tracked_borrow(frame_to_index(paddr));
 
         let ghost pre = slot_own.inner_perms.ref_count.value();
 
-        // Try to increase the reference count for an in-use frame. Otherwise fail.
         loop
             invariant
                 has_safe_slot(paddr),
@@ -525,16 +521,11 @@ impl MetaSlot {
                 slot_perm.is_init(),
                 slot_perm.value().ref_count.id() == slot_own.inner_perms.ref_count.id(),
                 slot_own.inner_perms.ref_count.value() == pre,
-                // Carry the may_panic implication into the loop so
-                // `get_from_in_use_loop`'s saturation precondition is
-                // dischargeable per-iteration (mirrors the `P ==> may_panic`
-                // loop-invariant pattern used by `map_frames` / `jump`).
                 slot_own.inner_perms.ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
                 regions0.slots.contains_key(frame_to_index(paddr)),
                 regions0.slot_owners.contains_key(frame_to_index(paddr)),
                 regions0.inv(),
                 regions0.slots[frame_to_index(paddr)] == *slot_perm,
-                // Preserved fields of slot_own for inv() and wf() proofs
                 slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
                 slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
                 slot_own.raw_count == regions0.slot_owners[frame_to_index(paddr)].raw_count,
@@ -542,11 +533,9 @@ impl MetaSlot {
                 FRAME_METADATA_RANGE.start <= slot_own.self_addr < FRAME_METADATA_RANGE.end,
                 slot_own.self_addr % META_SLOT_SIZE == 0,
                 slot_own.self_addr == slot_perm.addr(),
-                // wf relation: slot cell ids match inner_perms ids
                 slot_perm.value().storage.id() == slot_own.inner_perms.storage.id(),
                 slot_perm.value().vtable_ptr == slot_own.inner_perms.vtable_ptr.pptr(),
                 slot_perm.value().in_list.id() == slot_own.inner_perms.in_list.id(),
-                // inner_perms fields preserved across loop iterations
                 slot_own.inner_perms.ref_count.id() == regions0.slot_owners[frame_to_index(
                     paddr,
                 )].inner_perms.ref_count.id(),
@@ -810,24 +799,21 @@ impl MetaSlot {
             final(vtable_perm).is_init(),
             Metadata::<M>::metadata_from_inner_perms(*final(meta_perm)) == metadata,
     )]
-    #[verifier::external_body]
     pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         &self,
         metadata: M,
     ) {
-        //        const { assert!(size_of::<M>() <= FRAME_METADATA_MAX_SIZE) };
-        //        const { assert!(align_of::<M>() <= FRAME_METADATA_MAX_ALIGN) };
         // SAFETY: Caller ensures that the access to the fields are exclusive.
         //        let vtable_ptr = unsafe { &mut *self.vtable_ptr.get() };
         //        vtable_ptr.write(core::ptr::metadata(&metadata as &dyn AnyFrameMeta));
-        let ptr = &self.storage;
+        self.vtable_ptr.put(Tracked(vtable_perm), 0);
 
         // SAFETY:
         // 1. `ptr` points to the metadata storage.
         // 2. The size and the alignment of the metadata storage is large enough to hold `M`
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
-        //ReprPtr::<MetaSlot, M>::new_borrowed(ptr).put(Tracked(slot_own.storage.borrow_mut()), &metadata);
+        Metadata::<M>::write_metadata_into_storage(&self.storage, Tracked(meta_perm), metadata);
     }
 
     /// Drops the metadata and deallocates the frame.
