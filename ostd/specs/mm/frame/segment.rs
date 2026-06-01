@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Spec/proof companion for [`crate::mm::frame::segment`].
-
 use vstd::prelude::*;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
@@ -46,7 +45,6 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         true
     }
-
 }
 
 /// A [`SegmentOwner<M>`] holds the permission tokens for all frames in the
@@ -70,18 +68,6 @@ pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     /// the segment merely contributes one (forgotten) reference per frame.
     pub ghost range: Range<Paddr>,
     pub _marker: core::marker::PhantomData<M>,
-}
-
-impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
-    /// The invariant of a [`Segment`]:
-    ///
-    /// - the physical addresses of the frames are aligned and within bounds.
-    /// - the range is well-formed, i.e., the start is less than or equal to the end.
-    open spec fn inv(self) -> bool {
-        &&& self.range.start % PAGE_SIZE == 0
-        &&& self.range.end % PAGE_SIZE == 0
-        &&& self.range.start <= self.range.end <= MAX_PADDR
-    }
 }
 
 impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
@@ -126,7 +112,8 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners[idx].raw_count == 1
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                    > 0
                 // Segment frames are shared (never `UNIQUE`); the upper
                 // bound also keeps post-`fetch_sub` out of the forbidden
                 // `(REF_COUNT_MAX, REF_COUNT_UNIQUE)` zone.
@@ -222,8 +209,8 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         &&& view.mappings_are_disjoint()
         &&& forall|vaddr: Vaddr|
             #![trigger view.addr_transl(vaddr)]
-            paddr_to_vaddr(self.range.start) <= vaddr < paddr_to_vaddr(self.range.start)
-                + self.range.end - self.range.start ==> {
+            paddr_to_vaddr(self.start_paddr()) <= vaddr < paddr_to_vaddr(self.start_paddr())
+                + self.end_paddr() - self.start_paddr() ==> {
                 &&& view.addr_transl(vaddr) is Some
                 &&& view.memory.contains_key(view.addr_transl(vaddr).unwrap().0)
                 &&& view.memory[view.addr_transl(vaddr).unwrap().0].inv()
@@ -233,7 +220,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             }
         &&& forall|paddr: Paddr|
             #![trigger paddr_to_vaddr(paddr)]
-            self.range.start <= paddr < self.range.end ==> {
+            self.start_paddr() <= paddr < self.end_paddr() ==> {
                 let vaddr = paddr_to_vaddr(paddr);
                 &&& view.addr_transl(vaddr) is Some
                 &&& view.addr_transl(vaddr).unwrap().0 <= paddr

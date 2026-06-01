@@ -31,7 +31,6 @@ use crate::specs::mm::page_table::Mapping;
 verus! {
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-
     /// Tree-wide predicate: no page-table node in either the cursor's tree
     /// children or its continuation path has metadata slot index `idx`.
     /// Used as the "sanity" precondition of the path-insert preservation
@@ -42,13 +41,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn no_node_at_idx(self, idx: usize) -> bool {
         &&& self.map_full_tree(
             |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                e.is_node() && e.meta_slot_paddr() is Some
-                    ==> frame_to_index(e.meta_slot_paddr().unwrap()) != idx)
-        &&& forall |i: int| #![trigger self.continuations[i]]
+                e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
+                    e.meta_slot_paddr().unwrap(),
+                ) != idx,
+        )
+        &&& forall|i: int|
+            #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
-                e.is_node() && e.meta_slot_paddr() is Some
-                    ==> frame_to_index(e.meta_slot_paddr().unwrap()) != idx
+                e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
+                    e.meta_slot_paddr().unwrap(),
+                ) != idx
             }
     }
 
@@ -67,29 +70,29 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.map_full_tree(f),
             self.map_full_tree(guard),
         ensures
-            self.map_full_tree(
-                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p)),
+            self.map_full_tree(|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p)),
     {
-        let combined = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-            f(e, p) && guard(e, p);
-        assert forall |i: int| #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS
-        implies
-            self.continuations[i].map_children(combined)
-        by {
+        let combined = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p);
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(
+            combined,
+        ) by {
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
-            assert forall |j: int| #![trigger cont.children[j]]
-                0 <= j < cont.children.len() && cont.children[j] is Some
-            implies
-                cont.children[j].unwrap()
-                    .tree_predicate_map(cont.path().push_tail(j as usize), combined)
-            by {
+            assert forall|j: int|
+                #![trigger cont.children[j]]
+                0 <= j < cont.children.len()
+                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+            cont.path().push_tail(j as usize), combined) by {
                 cont.inv_children_unroll(j);
                 OwnerSubtree::map_implies_and(
                     cont.children[j].unwrap(),
                     cont.path().push_tail(j as usize),
-                    f, guard, combined);
+                    f,
+                    guard,
+                    combined,
+                );
             };
         };
     }
@@ -106,11 +109,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// (e.g., `map` and the huge-page split) use this helper to
     /// satisfy the precondition of
     /// [`Self::metaregion_preserved_under_path_insert`].
-    pub proof fn no_node_at_idx_from_slot_key(
-        self,
-        regions: MetaRegionOwners,
-        changed_idx: usize,
-    )
+    pub proof fn no_node_at_idx_from_slot_key(self, regions: MetaRegionOwners, changed_idx: usize)
         requires
             self.inv(),
             regions.inv(),
@@ -121,32 +120,31 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let msp = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let target = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-            e.is_node() && e.meta_slot_paddr() is Some
-                ==> frame_to_index(e.meta_slot_paddr().unwrap()) != changed_idx;
+            e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
+                e.meta_slot_paddr().unwrap(),
+            ) != changed_idx;
 
         assert(OwnerSubtree::implies(msp, target)) by {
-            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.inv() && msp(entry, path)
-            implies #[trigger] target(entry, path) by {
+            assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && msp(entry, path) implies #[trigger] target(entry, path) by {
                 if entry.is_node() && entry.meta_slot_paddr() is Some {
-                    EntryOwner::<C>::active_entry_not_in_free_pool(
-                        entry, regions, changed_idx);
+                    EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions, changed_idx);
                 }
             };
         };
         self.map_children_implies(msp, target);
 
-        assert forall |i: int| #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS
-        implies {
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS implies {
             let e = self.continuations[i].entry_own;
-            e.is_node() && e.meta_slot_paddr() is Some
-                ==> frame_to_index(e.meta_slot_paddr().unwrap()) != changed_idx
+            e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
+                e.meta_slot_paddr().unwrap(),
+            ) != changed_idx
         } by {
             let entry = self.continuations[i].entry_own;
             if entry.is_node() && entry.meta_slot_paddr() is Some {
-                EntryOwner::<C>::active_entry_not_in_free_pool(
-                    entry, regions, changed_idx);
+                EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions, changed_idx);
             }
         };
     }
@@ -168,7 +166,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.slot_owners.contains_key(changed_idx),
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
-            forall |i: usize| #![trigger regions1.slot_owners[i]]
+            forall|i: usize|
+                #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,
@@ -176,8 +175,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == regions0.slot_owners[changed_idx].self_addr,
             regions1.slot_owners[changed_idx].raw_count
                 == regions0.slot_owners[changed_idx].raw_count,
-            regions1.slot_owners[changed_idx].usage
-                == regions0.slot_owners[changed_idx].usage,
+            regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt.insert(new_path),
             self.no_node_at_idx(changed_idx),
@@ -187,15 +185,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-            entry.is_node() && entry.meta_slot_paddr() is Some
-                ==> frame_to_index(entry.meta_slot_paddr().unwrap()) != changed_idx;
+            entry.is_node() && entry.meta_slot_paddr() is Some ==> frame_to_index(
+                entry.meta_slot_paddr().unwrap(),
+            ) != changed_idx;
         let f_strong = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             f(entry, path) && guard(entry, path);
 
         assert(OwnerSubtree::implies(f_strong, g)) by {
-            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.inv() && f_strong(entry, path)
-            implies #[trigger] g(entry, path) by {
+            assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && f_strong(entry, path) implies #[trigger] g(entry, path) by {
                 if entry.meta_slot_paddr() is Some {
                     let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
                     if eidx != changed_idx {
@@ -207,20 +205,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         assert(entry.is_frame() && entry.parent_level > 1 ==> {
                             let pa = entry.frame.unwrap().mapped_pa;
                             let nr_pages = page_size(entry.parent_level) / PAGE_SIZE;
-                            forall |j: usize| 0 < j < nr_pages ==> {
-                                let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
-                                sub_idx != changed_idx
-                                || regions1.slot_owners[sub_idx].usage
+                            forall|j: usize|
+                                0 < j < nr_pages ==> {
+                                    let sub_idx = #[trigger] frame_to_index(
+                                        (pa + j * PAGE_SIZE) as usize,
+                                    );
+                                    sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
                                         == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                                || (
-                                    regions1.slots.contains_key(sub_idx)
-                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                                )
-                            }
+                                        || (regions1.slots.contains_key(sub_idx)
+                                        && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                        != REF_COUNT_UNUSED
+                                        && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                        > 0)
+                                }
                         });
-                        entry.metaregion_sound_one_slot_changed(
-                            regions0, regions1, changed_idx);
+                        entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
                     } else {
                         assert(!entry.is_node());
                         assert(entry.is_frame());
@@ -235,31 +234,28 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.and_map_full_tree(f, guard);
         self.map_children_implies(f_strong, g);
 
-        assert forall |i: int| #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS
-        implies
-            self.continuations[i].entry_own.metaregion_sound(regions1)
-        by {
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i
+                < NR_LEVELS implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 // Same sub-page bridge as above (continuations branch).
                 assert(cont_entry.is_frame() && cont_entry.parent_level > 1 ==> {
                     let pa = cont_entry.frame.unwrap().mapped_pa;
                     let nr_pages = page_size(cont_entry.parent_level) / PAGE_SIZE;
-                    forall |j: usize| 0 < j < nr_pages ==> {
-                        let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
-                        sub_idx != changed_idx
-                        || regions1.slot_owners[sub_idx].usage
-                                == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                        || (
+                    forall|j: usize|
+                        0 < j < nr_pages ==> {
+                            let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
+                            sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
+                                == crate::specs::mm::frame::meta_owners::PageUsage::MMIO || (
                             regions1.slots.contains_key(sub_idx)
-                            && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                            && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                        )
-                    }
+                                && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                != REF_COUNT_UNUSED
+                                && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0)
+                        }
                 });
-                cont_entry.metaregion_sound_one_slot_changed(
-                    regions0, regions1, changed_idx);
+                cont_entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
             }
         };
     }
@@ -280,14 +276,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ) -> bool {
         &&& self.map_full_tree(
             |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                e.meta_slot_paddr() is Some
-                    && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
-                    ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path))
-        &&& forall |i: int| #![trigger self.continuations[i]]
+                e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                    ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path),
+        )
+        &&& forall|i: int|
+            #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
-                e.meta_slot_paddr() is Some
-                    && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
                     ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
             }
     }
@@ -298,14 +294,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// (`== removed_path`) is absent, so by tree-path correctness no
     /// frame entry can carry that path. This is the one structural
     /// residual of the `paths_in_pt`-removal refactor.
-    pub open spec fn no_frame_with_path(
-        self,
-        removed_path: TreePath<NR_ENTRIES>,
-    ) -> bool {
+    pub open spec fn no_frame_with_path(self, removed_path: TreePath<NR_ENTRIES>) -> bool {
         &&& self.map_full_tree(
-            |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                e.is_frame() ==> e.path != removed_path)
-        &&& forall |i: int| #![trigger self.continuations[i]]
+            |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>| e.is_frame() ==> e.path != removed_path,
+        )
+        &&& forall|i: int|
+            #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
                 e.is_frame() ==> e.path != removed_path
@@ -325,15 +319,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// `vaddr_of(removed_path)` into `self@.mappings` — exactly what the
     /// hypothesis forbids. Continuation *entries* are nodes, so the
     /// continuations conjunct is vacuous.
-    pub proof fn no_frame_with_path_from_no_view_mapping(
-        self,
-        removed_path: TreePath<NR_ENTRIES>,
-    )
+    pub proof fn no_frame_with_path_from_no_view_mapping(self, removed_path: TreePath<NR_ENTRIES>)
         requires
             self.inv(),
-            forall |m: Mapping| #![trigger self@.mappings.contains(m)]
-                self@.mappings.contains(m)
-                    ==> m.va_range.start != vaddr_of::<C>(removed_path) as int,
+            forall|m: Mapping|
+                #![trigger self@.mappings.contains(m)]
+                self@.mappings.contains(m) ==> m.va_range.start != vaddr_of::<C>(
+                    removed_path,
+                ) as int,
         ensures
             self.no_frame_with_path(removed_path),
     {
@@ -342,16 +335,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         // map_full_tree(g): each continuation child subtree is pt_inv,
         // path-correct, and its mappings sit inside self@.mappings.
-        assert forall |i: int| #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS
-        implies self.continuations[i].map_children(g) by {
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
             self.inv_continuation(i);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
-            assert forall |j: int| #![trigger cont.children[j]]
-                0 <= j < cont.children.len() && cont.children[j] is Some
-            implies cont.children[j].unwrap().tree_predicate_map(
-                cont.path().push_tail(j as usize), g) by {
+            assert forall|j: int|
+                #![trigger cont.children[j]]
+                0 <= j < cont.children.len()
+                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+            cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);
                 cont.pt_inv_children_unroll(j);
                 cont.inv_children_rel_unroll(j);
@@ -364,22 +358,27 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // L1: pt_inv ⟹ tree-wide path correctness.
                 PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
                 // Every mapping of this child subtree is in self@.mappings.
-                assert forall |m: Mapping|
-                    PageTableOwner(child).view_rec(child_path).contains(m)
-                implies self@.mappings.contains(m) by {
+                assert forall|m: Mapping|
+                    #![trigger self@.mappings.contains(m)]
+                    PageTableOwner(child).view_rec(child_path).contains(
+                        m,
+                    ) implies self@.mappings.contains(m) by {
                     assert(cont.view_mappings().contains(m));
                     assert(self.view_mappings().contains(m));
                 };
                 // L-rec: no frame entry in this subtree carries removed_path.
                 PageTableOwner(child).no_frame_with_path_rec(
-                    child_path, removed_path, self@.mappings);
+                    child_path,
+                    removed_path,
+                    self@.mappings,
+                );
             };
         };
 
         // Continuation entries are page-table nodes ⟹ not frames.
-        assert forall |i: int| #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS
-        implies {
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS implies {
             let e = self.continuations[i].entry_own;
             e.is_frame() ==> e.path != removed_path
         } by {
@@ -408,34 +407,38 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.path_removable_at_idx(idx, removed_path),
     {
         let nn = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-            e.is_node() && e.meta_slot_paddr() is Some
-                ==> frame_to_index(e.meta_slot_paddr().unwrap()) != idx;
+            e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
+                e.meta_slot_paddr().unwrap(),
+            ) != idx;
         let nf = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
             e.is_frame() ==> e.path != removed_path;
         let r = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-            e.meta_slot_paddr() is Some
-                && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+            e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
                 ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path);
 
         // Pointwise: nn(e) && nf(e) ==> r(e).
         assert(OwnerSubtree::implies(
-            |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| nn(e, p) && nf(e, p), r)) by {
-            assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+            |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| nn(e, p) && nf(e, p),
+            r,
+        )) by {
+            assert forall|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
                 e.inv() && nn(e, p) && nf(e, p) implies #[trigger] r(e, p) by {}
         };
         // map_full_tree halves -> combined -> r.
         self.and_map_full_tree(nn, nf);
         self.map_children_implies(
-            |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| nn(e, p) && nf(e, p), r);
+            |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| nn(e, p) && nf(e, p),
+            r,
+        );
 
         // Continuation-entry halves combine directly.
-        assert forall |i: int| #![trigger self.continuations[i]]
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies {
-                let e = self.continuations[i].entry_own;
-                e.meta_slot_paddr() is Some
-                    && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
-                    ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
-            } by {
+            let e = self.continuations[i].entry_own;
+            e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
+        } by {
             let e = self.continuations[i].entry_own;
             assert(nn(e, e.path));
             assert(nf(e, e.path));
@@ -465,7 +468,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.slot_owners.contains_key(changed_idx),
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
-            forall |i: usize| #![trigger regions1.slot_owners[i]]
+            forall|i: usize|
+                #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,
@@ -473,8 +477,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == regions0.slot_owners[changed_idx].self_addr,
             regions1.slot_owners[changed_idx].raw_count
                 == regions0.slot_owners[changed_idx].raw_count,
-            regions1.slot_owners[changed_idx].usage
-                == regions0.slot_owners[changed_idx].usage,
+            regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt.remove(removed_path),
             self.path_removable_at_idx(changed_idx, removed_path),
@@ -484,16 +487,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-            entry.meta_slot_paddr() is Some
-                && frame_to_index(entry.meta_slot_paddr().unwrap()) == changed_idx
-                ==> !entry.is_node() && (entry.is_frame() ==> entry.path != removed_path);
+            entry.meta_slot_paddr() is Some && frame_to_index(entry.meta_slot_paddr().unwrap())
+                == changed_idx ==> !entry.is_node() && (entry.is_frame() ==> entry.path
+                != removed_path);
         let f_strong = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             f(entry, path) && guard(entry, path);
 
         assert(OwnerSubtree::implies(f_strong, g)) by {
-            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.inv() && f_strong(entry, path)
-            implies #[trigger] g(entry, path) by {
+            assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && f_strong(entry, path) implies #[trigger] g(entry, path) by {
                 if entry.meta_slot_paddr() is Some {
                     let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
                     if eidx != changed_idx {
@@ -504,20 +506,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         assert(entry.is_frame() && entry.parent_level > 1 ==> {
                             let pa = entry.frame.unwrap().mapped_pa;
                             let nr_pages = page_size(entry.parent_level) / PAGE_SIZE;
-                            forall |j: usize| 0 < j < nr_pages ==> {
-                                let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
-                                sub_idx != changed_idx
-                                || regions1.slot_owners[sub_idx].usage
+                            forall|j: usize|
+                                0 < j < nr_pages ==> {
+                                    let sub_idx = #[trigger] frame_to_index(
+                                        (pa + j * PAGE_SIZE) as usize,
+                                    );
+                                    sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
                                         == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                                || (
-                                    regions1.slots.contains_key(sub_idx)
-                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                                )
-                            }
+                                        || (regions1.slots.contains_key(sub_idx)
+                                        && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                        != REF_COUNT_UNUSED
+                                        && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                        > 0)
+                                }
                         });
-                        entry.metaregion_sound_one_slot_changed(
-                            regions0, regions1, changed_idx);
+                        entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
                     } else {
                         // eidx == changed_idx: guard ⇒ not a node. If a
                         // frame, its path ≠ removed_path so the shrunk
@@ -528,12 +531,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         assert(!entry.is_node());
                         if entry.is_frame() {
                             assert(entry.path != removed_path);
-                            assert(regions0.slot_owners[changed_idx].paths_in_pt
-                                .contains(entry.path));
-                            assert(regions1.slot_owners[changed_idx].paths_in_pt
-                                .contains(entry.path));
-                            entry.frame_sub_pages_valid_preserved_at_own_slot(
-                                regions0, regions1);
+                            assert(regions0.slot_owners[changed_idx].paths_in_pt.contains(
+                                entry.path,
+                            ));
+                            assert(regions1.slot_owners[changed_idx].paths_in_pt.contains(
+                                entry.path,
+                            ));
+                            entry.frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
                         }
                         assert(entry.metaregion_sound(regions1));
                     }
@@ -544,11 +548,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.and_map_full_tree(f, guard);
         self.map_children_implies(f_strong, g);
 
-        assert forall |i: int| #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS
-        implies
-            self.continuations[i].entry_own.metaregion_sound(regions1)
-        by {
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i
+                < NR_LEVELS implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 let eidx = frame_to_index(cont_entry.meta_slot_paddr().unwrap());
@@ -556,36 +559,39 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(cont_entry.is_frame() && cont_entry.parent_level > 1 ==> {
                         let pa = cont_entry.frame.unwrap().mapped_pa;
                         let nr_pages = page_size(cont_entry.parent_level) / PAGE_SIZE;
-                        forall |j: usize| 0 < j < nr_pages ==> {
-                            let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
-                            sub_idx != changed_idx
-                            || regions1.slot_owners[sub_idx].usage
-                                    == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                            || (
+                        forall|j: usize|
+                            0 < j < nr_pages ==> {
+                                let sub_idx = #[trigger] frame_to_index(
+                                    (pa + j * PAGE_SIZE) as usize,
+                                );
+                                sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
+                                    == crate::specs::mm::frame::meta_owners::PageUsage::MMIO || (
                                 regions1.slots.contains_key(sub_idx)
-                                && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                                && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                            )
-                        }
+                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                    != REF_COUNT_UNUSED
+                                    && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                    > 0)
+                            }
                     });
-                    cont_entry.metaregion_sound_one_slot_changed(
-                        regions0, regions1, changed_idx);
+                    cont_entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
                 } else {
                     assert(!cont_entry.is_node());
                     if cont_entry.is_frame() {
                         assert(cont_entry.path != removed_path);
-                        assert(regions0.slot_owners[changed_idx].paths_in_pt
-                            .contains(cont_entry.path));
-                        assert(regions1.slot_owners[changed_idx].paths_in_pt
-                            .contains(cont_entry.path));
-                        cont_entry.frame_sub_pages_valid_preserved_at_own_slot(
-                            regions0, regions1);
+                        assert(regions0.slot_owners[changed_idx].paths_in_pt.contains(
+                            cont_entry.path,
+                        ));
+                        assert(regions1.slot_owners[changed_idx].paths_in_pt.contains(
+                            cont_entry.path,
+                        ));
+                        cont_entry.frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
                     }
                     assert(cont_entry.metaregion_sound(regions1));
                 }
             }
         };
     }
+
 }
 
 } // verus!

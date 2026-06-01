@@ -34,7 +34,6 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
     }
 }
 
-
 impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
     type Owner = EntryOwner<C>;
 
@@ -55,7 +54,6 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
 }
 
 impl<C: PageTableConfig> Child<C> {
-
     pub open spec fn get_node(self) -> Option<PageTableNode<C>> {
         match self {
             Self::PageTable(node) => Some(node),
@@ -75,13 +73,15 @@ impl<C: PageTableConfig> Child<C> {
         C::E::new_page_spec(paddr, level, prop)
     }
 
-
     pub open spec fn into_pte_none_spec(self) -> C::E {
         C::E::new_absent_spec()
     }
 
-
-    pub open spec fn from_pte_spec(pte: C::E, level: PagingLevel, regions: MetaRegionOwners) -> Self {
+    pub open spec fn from_pte_spec(
+        pte: C::E,
+        level: PagingLevel,
+        regions: MetaRegionOwners,
+    ) -> Self {
         if !pte.is_present() {
             Self::None
         } else if pte.is_last(level) {
@@ -94,7 +94,6 @@ impl<C: PageTableConfig> Child<C> {
     pub open spec fn from_pte_frame_spec(pte: C::E, level: PagingLevel) -> Self {
         Self::Frame(pte.paddr(), level, pte.prop())
     }
-
 
     pub open spec fn from_pte_pt_spec(paddr: Paddr, regions: MetaRegionOwners) -> Self {
         Self::PageTable(PageTableNode::from_raw_spec(paddr))
@@ -120,15 +119,11 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
-
     pub open spec fn from_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
         if self.is_node() {
             let index = frame_to_index(self.meta_slot_paddr().unwrap());
             let old_slot = regions.slot_owners[index];
-            let new_slot = MetaSlotOwner {
-                raw_count: 0usize,
-                ..old_slot
-            };
+            let new_slot = MetaSlotOwner { raw_count: 0usize, ..old_slot };
             MetaRegionOwners {
                 slot_owners: regions.slot_owners.insert(index, new_slot),
                 ..regions
@@ -157,17 +152,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn into_pte_owner_spec(self) -> EntryOwner<C> {
-        EntryOwner {
-            in_scope: false,
-            ..self
-        }
+        EntryOwner { in_scope: false, ..self }
     }
 
     pub open spec fn from_pte_owner_spec(self) -> EntryOwner<C> {
-        EntryOwner {
-            in_scope: true,
-            ..self
-        }
+        EntryOwner { in_scope: true, ..self }
     }
 
     /// This is equivalent to the other `invariants` relations, combining the `inv` predicates for each
@@ -179,7 +168,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& self.metaregion_sound(regions)
         &&& !self.in_scope
     }
-
 }
 
 } // verus!

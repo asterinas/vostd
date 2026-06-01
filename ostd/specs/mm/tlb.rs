@@ -12,57 +12,54 @@ verus! {
 
 pub ghost struct TlbModel {
     pub pending: Seq<TlbFlushOp>,
-    pub mappings: Set<Mapping>
+    pub mappings: Set<Mapping>,
 }
 
 impl Inv for TlbModel {
     open spec fn inv(self) -> bool {
         &&& forall|m: Mapping| #![auto] self.mappings has m ==> m.inv()
-        &&& forall|m: Mapping, n:Mapping| #![auto]
-            self.mappings has m ==>
-            self.mappings has n ==>
-            m != n ==>
-            Mapping::disjoint_vaddrs(m, n)
-        &&& forall|m: Mapping, n:Mapping| #![auto]
-            self.mappings has m ==>
-            self.mappings has n ==>
-            m != n ==>
-            Mapping::disjoint_paddrs(m, n)
+        &&& forall|m: Mapping, n: Mapping|
+            #![auto]
+            self.mappings has m ==> self.mappings has n ==> m != n ==> Mapping::disjoint_vaddrs(
+                m,
+                n,
+            )
+        &&& forall|m: Mapping, n: Mapping|
+            #![auto]
+            self.mappings has m ==> self.mappings has n ==> m != n ==> Mapping::disjoint_paddrs(
+                m,
+                n,
+            )
     }
 }
 
 impl TlbModel {
-    pub open spec fn update(self, pt: PageTableView, va: Vaddr) -> Self
-    {
+    pub open spec fn update(self, pt: PageTableView, va: Vaddr) -> Self {
         let m = pt.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).choose();
-        TlbModel {
-            pending: self.pending,
-            mappings: self.mappings.insert(m),
-        }
+        TlbModel { pending: self.pending, mappings: self.mappings.insert(m) }
     }
 
     pub axiom fn tracked_update(&mut self, pt: PageTableView, va: Vaddr)
         requires
             old(self).inv(),
-            forall|m: Mapping| old(self).mappings has m ==> !(m.va_range.start <= va < m.va_range.end),
+            forall|m: Mapping|
+                old(self).mappings has m ==> !(m.va_range.start <= va < m.va_range.end),
             exists|m: Mapping| pt.mappings has m ==> m.va_range.start <= va < m.va_range.end,
         ensures
-            *final(self) == old(self).update(pt, va);
+            *final(self) == old(self).update(pt, va),
+    ;
 
-    pub open spec fn flush(self, va: Vaddr) -> Self
-    {
+    pub open spec fn flush(self, va: Vaddr) -> Self {
         let m = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
-        TlbModel {
-            pending: self.pending,
-            mappings: self.mappings - m,
-        }
+        TlbModel { pending: self.pending, mappings: self.mappings - m }
     }
 
     pub axiom fn tracked_flush(&mut self, va: Vaddr)
         requires
             old(self).inv(),
         ensures
-            *final(self) == old(self).flush(va);
+            *final(self) == old(self).flush(va),
+    ;
 
     pub open spec fn consistent_with_pt(self, pt: PageTableView) -> bool {
         self.mappings <= pt.mappings
@@ -72,8 +69,9 @@ impl TlbModel {
         requires
             self.inv(),
         ensures
-            self.flush(va).inv()
-    { }
+            self.flush(va).inv(),
+    {
+    }
 
     pub proof fn lemma_update_preserves_consistent(self, pt: PageTableView, va: Vaddr)
         requires
@@ -87,7 +85,8 @@ impl TlbModel {
         let filtered = pt.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
         let m = filtered.choose();
 
-        let witness: Mapping = choose|a: Mapping| pt.mappings has a && a.va_range.start <= va < a.va_range.end;
+        let witness: Mapping = choose|a: Mapping|
+            pt.mappings has a && a.va_range.start <= va < a.va_range.end;
         assert(filtered.contains(witness));
 
         if self.mappings.contains(m) {
@@ -104,15 +103,12 @@ impl TlbModel {
             self.consistent_with_pt(pt),
             pt.inv(),
         ensures
-            self.inv()
-    { }
-
-    pub open spec fn issue_tlb_flush(self, op: TlbFlushOp) -> Self
+            self.inv(),
     {
-        TlbModel {
-            pending: self.pending.push(op),
-            mappings: self.mappings,
-        }
+    }
+
+    pub open spec fn issue_tlb_flush(self, op: TlbFlushOp) -> Self {
+        TlbModel { pending: self.pending.push(op), mappings: self.mappings }
     }
 
     pub proof fn tracked_issue_tlb_flush(tracked &mut self, tracked op: TlbFlushOp)
@@ -120,13 +116,12 @@ impl TlbModel {
             old(self).inv(),
         ensures
             *final(self) == old(self).issue_tlb_flush(op),
-            final(self).inv()
-        {
-            self.pending.tracked_push(op);
-        }
-
-    pub open spec fn dispatch_tlb_flush_spec(self) -> Self
+            final(self).inv(),
     {
+        self.pending.tracked_push(op);
+    }
+
+    pub open spec fn dispatch_tlb_flush_spec(self) -> Self {
         let op = self.pending.last();
         let popped = TlbModel {
             pending: self.pending.take(self.pending.len() - 1),
@@ -138,7 +133,6 @@ impl TlbModel {
             TlbFlushOp::Range(range) => popped.flush(range.start),
         }
     }
-
 }
 
-}
+} // verus!

@@ -170,8 +170,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         // SAFETY:
         //  - The PTE outlives the reference (since we have `&self`).
         //  - The level matches the current node.
-        #[verus_spec(with Tracked(regions), Tracked(owner))]
-        let res = ChildRef::from_pte(&self.pte, level);
+        let res = unsafe {
+            #[verus_spec(with Tracked(regions), Tracked(owner))]
+            ChildRef::from_pte(&self.pte, level)
+        };
 
         res
     }
@@ -268,8 +270,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         //  2. We replace the PTE with a new one, which differs only in
         //     `PageProperty`, so the level still matches the current
         //     page table node.
-        #[verus_spec(with Tracked(parent_owner), Tracked(regions))]
-        self.node.write_pte(self.idx, self.pte);
+        unsafe {
+            #[verus_spec(with Tracked(parent_owner), Tracked(regions))]
+            self.node.write_pte(self.idx, self.pte)
+        };
 
         proof {
             let tracked mut frame_owner = owner.frame.tracked_take();
@@ -406,8 +410,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         #[verus_spec(with Tracked(parent_meta_perm))]
         let level = self.node.level();
 
-        #[verus_spec(with Tracked(regions), Tracked(owner))]
-        let old_child = Child::from_pte(self.pte, level);
+        let old_child = unsafe {
+            #[verus_spec(with Tracked(regions), Tracked(owner))]
+            Child::from_pte(self.pte, level)
+        };
 
         let ghost regions_after_from = *regions;
 
@@ -455,8 +461,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         //  1. The index is within the bounds.
         //  2. The new PTE is a valid child whose level matches the current page table node.
         //  3. The ownership of the child is passed to the page table node.
-        #[verus_spec(with Tracked(parent_owner), Tracked(&*regions))]
-        self.node.write_pte(self.idx, new_pte);
+        unsafe {
+            #[verus_spec(with Tracked(parent_owner), Tracked(&*regions))]
+            self.node.write_pte(self.idx, new_pte)
+        };
 
         self.pte = new_pte;
 
@@ -692,8 +700,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             //  1. The index is within the bounds.
             //  2. The new PTE is a child in `C` and at the correct paging level.
             //  3. The ownership of the child is passed to the page table node.
-            #[verus_spec(with Tracked(parent_owner), Tracked(&*regions))]
-            self.node.write_pte(self.idx, self.pte);
+            unsafe {
+                #[verus_spec(with Tracked(parent_owner), Tracked(&*regions))]
+                self.node.write_pte(self.idx, self.pte)
+            };
 
             let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
                 parent_owner.slot_index,
@@ -1232,8 +1242,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         //  1. The index is within the bounds.
         //  2. The new PTE is a child in `C` and at the correct paging level.
         //  3. The ownership of the child is passed to the page table node.
-        #[verus_spec(with Tracked(&mut node_owner), Tracked(&*regions))]
-        self.node.write_pte(self.idx, self.pte);
+        unsafe {
+            #[verus_spec(with Tracked(&mut node_owner), Tracked(&*regions))]
+            self.node.write_pte(self.idx, self.pte)
+        };
 
         proof {
             owner.value.node = Some(node_owner);
@@ -1262,7 +1274,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             Tracked(parent_owner): Tracked<&NodeOwner<C>>,
             Tracked(regions): Tracked<&MetaRegionOwners>,
     )]
-    pub(in crate::mm) fn new_at(guard: &'a mut PageTableGuard<'rcu, C>, idx: usize) -> (res: Self)
+    pub(in crate::mm) unsafe fn new_at(guard: &'a mut PageTableGuard<'rcu, C>, idx: usize) -> (res:
+        Self)
         requires
             owner.inv(),
             !owner.in_scope,

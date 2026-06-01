@@ -923,8 +923,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         let tracked mut cur_own = owner.list_own.list.tracked_remove(owner.index);
 
-        #[verus_spec(with Tracked(regions), Tracked(cur_own))]
-        let (frame, frame_own) = UniqueFrame::<Link<M>>::from_raw(paddr);
+        let (frame, frame_own) = unsafe {
+            #[verus_spec(with Tracked(regions), Tracked(cur_own))]
+            UniqueFrame::<Link<M>>::from_raw(paddr)
+        };
         let frame = frame;
         let tracked frame_own = frame_own.get();
 
@@ -1777,7 +1779,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
 
 // SAFETY: If `M::on_drop` reads the page using the provided `VmReader`,
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M>
+unsafe impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M>
 {
     open spec fn on_drop_pre(
         &self,

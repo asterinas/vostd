@@ -61,7 +61,6 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr())
     }
-
 }
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
@@ -114,7 +113,9 @@ impl StoredPageTablePageMeta {
     }
 }
 
-pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<PageTablePageMeta<C>>;
+pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(
+    _page: Frame<PageTablePageMeta<C>>,
+) -> Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     type Perm = ();
@@ -158,7 +159,10 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
         match r {
             MetaSlotStorage::PTNode(node) => {
                 assert(Self::from_repr_spec(r, perm) == node.into_spec::<C>());
-                assert(Self::from_repr_spec(r, perm).to_repr_spec(perm) == (MetaSlotStorage::PTNode(node), ()));
+                assert(Self::from_repr_spec(r, perm).to_repr_spec(perm) == (
+                    MetaSlotStorage::PTNode(node),
+                    (),
+                ));
             },
             _ => {
                 assert(false);

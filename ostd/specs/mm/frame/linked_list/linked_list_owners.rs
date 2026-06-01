@@ -53,20 +53,25 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
         }
     }
 
-    open spec fn to_repr_spec(self, perm: LinkInnerPerms<M>) -> (MetaSlotStorage, LinkInnerPerms<M>) {
+    open spec fn to_repr_spec(self, perm: LinkInnerPerms<M>) -> (
+        MetaSlotStorage,
+        LinkInnerPerms<M>,
+    ) {
         let (slot, storage) = self.meta.to_repr_spec(perm.storage);
         (
-            MetaSlotStorage::FrameLink(StoredLink {
-                next: match self.next {
-                    Some(ptr) => Some(ptr.ptr.addr()),
-                    None => None,
+            MetaSlotStorage::FrameLink(
+                StoredLink {
+                    next: match self.next {
+                        Some(ptr) => Some(ptr.ptr.addr()),
+                        None => None,
+                    },
+                    prev: match self.prev {
+                        Some(ptr) => Some(ptr.ptr.addr()),
+                        None => None,
+                    },
+                    slot,
                 },
-                prev: match self.prev {
-                    Some(ptr) => Some(ptr.ptr.addr()),
-                    None => None,
-                },
-                slot,
-            }),
+            ),
             LinkInnerPerms {
                 storage,
                 next_ptr: match self.next {
@@ -90,17 +95,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
         match r {
             MetaSlotStorage::FrameLink(link) => Link {
                 next: match link.next {
-                    Some(addr) => Some(ReprPtr {
-                        ptr: perm.next_ptr.unwrap(),
-                        _T: PhantomData,
-                    }),
+                    Some(addr) => Some(ReprPtr { ptr: perm.next_ptr.unwrap(), _T: PhantomData }),
                     None => None,
                 },
                 prev: match link.prev {
-                    Some(addr) => Some(ReprPtr {
-                        ptr: perm.prev_ptr.unwrap(),
-                        _T: PhantomData,
-                    }),
+                    Some(addr) => Some(ReprPtr { ptr: perm.prev_ptr.unwrap(), _T: PhantomData }),
                     None => None,
                 },
                 meta: M::from_repr_spec(link.slot, perm.storage),
@@ -119,7 +118,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a LinkInnerPerms<M>>) -> &'a Self {
+    fn from_borrowed<'a>(
+        r: &'a MetaSlotStorage,
+        Tracked(perm): Tracked<&'a LinkInnerPerms<M>>,
+    ) -> &'a Self {
         unimplemented!()
     }
 
@@ -781,9 +783,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     {
         Self::view_preserves_len(owners);
         Self::view_preserves_len(owners.remove(i));
-        assert forall |j: int| 0 <= j < Self::view_helper(owners.remove(i)).len() implies
-            Self::view_helper(owners.remove(i))[j] == Self::view_helper(owners).remove(i)[j]
-        by {
+        assert forall|j: int|
+            0 <= j < Self::view_helper(owners.remove(i)).len() implies Self::view_helper(
+            owners.remove(i),
+        )[j] == Self::view_helper(owners).remove(i)[j] by {
             Self::view_helper_index(owners.remove(i), j);
             if j < i {
                 Self::view_helper_index(owners, j);
@@ -799,13 +802,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         requires
             0 <= i <= owners.len(),
         ensures
-            Self::view_helper(owners.insert(i, v)) =~= Self::view_helper(owners).insert(i, v.view()),
+            Self::view_helper(owners.insert(i, v)) =~= Self::view_helper(owners).insert(
+                i,
+                v.view(),
+            ),
     {
         Self::view_preserves_len(owners);
         Self::view_preserves_len(owners.insert(i, v));
-        assert forall |j: int| 0 <= j < Self::view_helper(owners.insert(i, v)).len() implies
-            #[trigger] Self::view_helper(owners.insert(i, v))[j] == Self::view_helper(owners).insert(i, v.view())[j]
-        by {
+        assert forall|j: int|
+            0 <= j < Self::view_helper(
+                owners.insert(i, v),
+            ).len() implies #[trigger] Self::view_helper(owners.insert(i, v))[j]
+            == Self::view_helper(owners).insert(i, v.view())[j] by {
             Self::view_helper_index(owners.insert(i, v), j);
             if j < i {
                 Self::view_helper_index(owners, j);
@@ -1023,34 +1031,35 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         ensures
             final(link).paddr == old(link).paddr,
             final(link).in_list == final(cursor).list_own.list_id,
-            final(cursor).list_own.list == old(cursor).list_own.list.insert(old(cursor).index, *final(link)),
+            final(cursor).list_own.list == old(cursor).list_own.list.insert(
+                old(cursor).index,
+                *final(link),
+            ),
             final(cursor).list_own.list_id == old(cursor).list_own.list_id,
             final(cursor).index == old(cursor).index + 1;
 
-    pub open spec fn front_owner(
-        list_own: LinkedListOwner<M>,
-    ) -> Self {
+    pub open spec fn front_owner(list_own: LinkedListOwner<M>) -> Self {
         CursorOwner::<M> { list_own: list_own, index: 0 }
     }
 
-    pub open spec fn cursor_mut_at_owner(
-        list_own: LinkedListOwner<M>,
-        index: int,
-    ) -> Self {
+    pub open spec fn cursor_mut_at_owner(list_own: LinkedListOwner<M>, index: int) -> Self {
         CursorOwner::<M> { list_own: list_own, index: index }
     }
 
-    pub axiom fn tracked_cursor_mut_at_owner(list_own: LinkedListOwner<M>, index: int) -> (tracked res: Self)
-        ensures res == Self::cursor_mut_at_owner(list_own, index);
-
-    pub axiom fn tracked_front_owner(
+    pub axiom fn tracked_cursor_mut_at_owner(
         list_own: LinkedListOwner<M>,
+        index: int,
     ) -> (tracked res: Self)
         ensures
-            res == Self::front_owner(list_own);
-    pub open spec fn back_owner(
-        list_own: LinkedListOwner<M>,
-    ) -> Self {
+            res == Self::cursor_mut_at_owner(list_own, index),
+    ;
+
+    pub axiom fn tracked_front_owner(list_own: LinkedListOwner<M>) -> (tracked res: Self)
+        ensures
+            res == Self::front_owner(list_own),
+    ;
+
+    pub open spec fn back_owner(list_own: LinkedListOwner<M>) -> Self {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
@@ -1062,9 +1071,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     }
 
     #[verifier::external_body]
-    pub proof fn tracked_back_owner(
-        list_own: LinkedListOwner<M>,
-    ) -> (tracked res: Self)
+    pub proof fn tracked_back_owner(list_own: LinkedListOwner<M>) -> (tracked res: Self)
         ensures
             res == Self::back_owner(list_own),
     {
@@ -1078,26 +1085,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
-    pub open spec fn ghost_owner(
-        list_own: LinkedListOwner<M>,
-    ) -> Self {
-        CursorOwner::<M> {
-            list_own: list_own,
-            index: list_own.list.len() as int,
-        }
+    pub open spec fn ghost_owner(list_own: LinkedListOwner<M>) -> Self {
+        CursorOwner::<M> { list_own: list_own, index: list_own.list.len() as int }
     }
 
     #[verifier::external_body]
-    pub proof fn tracked_ghost_owner(
-        list_own: LinkedListOwner<M>,
-    ) -> (tracked res: Self)
+    pub proof fn tracked_ghost_owner(list_own: LinkedListOwner<M>) -> (tracked res: Self)
         ensures
             res == Self::ghost_owner(list_own),
     {
-        CursorOwner::<M> {
-            list_own: list_own,
-            index: list_own.list.len() as int,
-        }
+        CursorOwner::<M> { list_own: list_own, index: list_own.list.len() as int }
     }
 }
 
@@ -1131,6 +1128,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
             perm,
         )
     }
+
     #[verifier::external_body]
     fn to_repr(self, Tracked(perm): Tracked<&mut MetadataInnerPerms>) -> MetaSlot {
         unimplemented!()
@@ -1148,7 +1146,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlot, Tracked(perm): Tracked<&'a MetadataInnerPerms>) -> &'a Self {
+    fn from_borrowed<'a>(
+        r: &'a MetaSlot,
+        Tracked(perm): Tracked<&'a MetadataInnerPerms>,
+    ) -> &'a Self {
         unimplemented!()
     }
 
@@ -1171,7 +1172,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
         <Metadata<Link<M>> as Repr<MetaSlot>>::to_repr_wf(md, perm);
         <Metadata<Link<M>> as Repr<MetaSlot>>::from_to_repr(md, perm);
     }
-
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> FromSpecImpl<Metadata<Link<M>>> for MetadataAsLink<M> {
@@ -1263,7 +1263,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> From<MetadataAsLink<M>> for Metadata
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> MetadataAsLink<M> {
-    pub fn cast_to_metadata(ptr: ReprPtr<MetaSlot, Self>) -> (res: ReprPtr<MetaSlot, Metadata<Link<M>>>)
+    pub fn cast_to_metadata(ptr: ReprPtr<MetaSlot, Self>) -> (res: ReprPtr<
+        MetaSlot,
+        Metadata<Link<M>>,
+    >)
         ensures
             res.addr() == ptr.addr(),
             res.ptr == ptr.ptr,
@@ -1271,14 +1274,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> MetadataAsLink<M> {
         ReprPtr { ptr: ptr.ptr, _T: PhantomData }
     }
 
-    pub fn cast_from_metadata(ptr: ReprPtr<MetaSlot, Metadata<Link<M>>>) -> (res: ReprPtr<MetaSlot, Self>)
+    pub fn cast_from_metadata(ptr: ReprPtr<MetaSlot, Metadata<Link<M>>>) -> (res: ReprPtr<
+        MetaSlot,
+        Self,
+    >)
         ensures
             res.addr() == ptr.addr(),
             res.ptr == ptr.ptr,
     {
         ReprPtr { ptr: ptr.ptr, _T: PhantomData }
     }
-
 }
 
 } // verus!

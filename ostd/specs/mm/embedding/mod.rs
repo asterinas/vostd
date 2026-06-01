@@ -213,7 +213,6 @@ verus! {
 // =============================================================================
 // Types
 // =============================================================================
-
 /// Logical identifier for a [`VmSpaceOwner`] in the store.
 pub type VmSpaceId = int;
 
@@ -894,7 +893,6 @@ impl<'a, 'rcu> VmStore<'rcu> {
 // =============================================================================
 // Op enum + per-op precondition
 // =============================================================================
-
 /// Public exec API of `ostd::mm::vm_space` and `ostd::mm::io`, lifted
 /// to data.
 pub enum Op {
@@ -1057,14 +1055,10 @@ pub enum Op {
 pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
     match op {
         Op::NewVmSpace => true,
-        Op::DropVmSpace { vs } =>
-            s.vm_spaces.dom().contains(vs)
-            && (forall|c: CursorId|
-                #[trigger] s.cursors.dom().contains(c)
-                    ==> s.cursors[c].vm_space != vs)
-            && (forall|v: VmIoId|
-                #[trigger] s.vm_ios.dom().contains(v)
-                    ==> s.vm_ios[v].vm_space != Some(vs)),
+        Op::DropVmSpace { vs } => s.vm_spaces.dom().contains(vs) && (forall|c: CursorId| #[trigger]
+            s.cursors.dom().contains(c) ==> s.cursors[c].vm_space != vs) && (forall|v: VmIoId|
+         #[trigger]
+            s.vm_ios.dom().contains(v) ==> s.vm_ios[v].vm_space != Some(vs)),
         Op::OpenCursor { vs, va: _ } => s.vm_spaces.dom().contains(vs),
         Op::OpenCursorMut { vs, va: _ } => s.vm_spaces.dom().contains(vs),
         Op::DropCursor { c } => s.cursors.dom().contains(c),
@@ -1189,7 +1183,6 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
 // Store helpers: extract / insert. These are the *only* functions that
 // have preconditions about store membership; per-op steps don't.
 // =============================================================================
-
 impl<'rcu> VmStore<'rcu> {
     /// Removes the VmSpaceOwner at `vs` from the store and returns it.
     /// Requires no cursor or VmIo refers to `vs`, and no activated
@@ -1199,12 +1192,10 @@ impl<'rcu> VmStore<'rcu> {
         requires
             old(self).inv(),
             old(self).vm_spaces.dom().contains(vs),
-            forall|c: CursorId|
-                #[trigger] old(self).cursors.dom().contains(c)
-                    ==> old(self).cursors[c].vm_space != vs,
-            forall|v: VmIoId|
-                #[trigger] old(self).vm_ios.dom().contains(v)
-                    ==> old(self).vm_ios[v].vm_space != Some(vs),
+            forall|c: CursorId| #[trigger]
+                old(self).cursors.dom().contains(c) ==> old(self).cursors[c].vm_space != vs,
+            forall|v: VmIoId| #[trigger]
+                old(self).vm_ios.dom().contains(v) ==> old(self).vm_ios[v].vm_space != Some(vs),
         ensures
             final(self).regions == old(self).regions,
             final(self).tlb_model == old(self).tlb_model,
@@ -1221,11 +1212,7 @@ impl<'rcu> VmStore<'rcu> {
 
     /// Inserts a VmSpaceOwner at the given fresh id. Requires the id is
     /// not already used and the owner satisfies its invariant.
-    pub proof fn insert_vm_space(
-        tracked &mut self,
-        vs: VmSpaceId,
-        tracked owner: VmSpaceOwner,
-    )
+    pub proof fn insert_vm_space(tracked &mut self, vs: VmSpaceId, tracked owner: VmSpaceOwner)
         requires
             old(self).inv(),
             !old(self).vm_spaces.dom().contains(vs),
@@ -1244,8 +1231,7 @@ impl<'rcu> VmStore<'rcu> {
     }
 
     /// Removes the cursor entry at `c` from the store and returns it.
-    pub proof fn extract_cursor(tracked &mut self, c: CursorId)
-        -> (tracked res: CursorEntry<'rcu>)
+    pub proof fn extract_cursor(tracked &mut self, c: CursorId) -> (tracked res: CursorEntry<'rcu>)
         requires
             old(self).inv(),
             old(self).cursors.dom().contains(c),
@@ -1267,11 +1253,7 @@ impl<'rcu> VmStore<'rcu> {
     /// not already used, the entry satisfies its inv, the entry's
     /// `vm_space` is in the store, and the entry's owner is sound w.r.t.
     /// the store's regions.
-    pub proof fn insert_cursor(
-        tracked &mut self,
-        c: CursorId,
-        tracked entry: CursorEntry<'rcu>,
-    )
+    pub proof fn insert_cursor(tracked &mut self, c: CursorId, tracked entry: CursorEntry<'rcu>)
         requires
             old(self).inv(),
             !old(self).cursors.dom().contains(c),
@@ -1292,8 +1274,7 @@ impl<'rcu> VmStore<'rcu> {
     }
 
     /// Removes the VmIo entry at `vio` from the store and returns it.
-    pub proof fn extract_vm_io(tracked &mut self, vio: VmIoId)
-        -> (tracked res: VmIoEntry)
+    pub proof fn extract_vm_io(tracked &mut self, vio: VmIoId) -> (tracked res: VmIoEntry)
         requires
             old(self).inv(),
             old(self).vm_ios.dom().contains(vio),
@@ -1318,20 +1299,14 @@ impl<'rcu> VmStore<'rcu> {
     /// activated) its owner range is disjoint from every existing
     /// activated entry's owner range (preserves the pairwise-disjoint
     /// invariant in [`VmStore::inv`]).
-    pub proof fn insert_vm_io(
-        tracked &mut self,
-        vio: VmIoId,
-        tracked entry: VmIoEntry,
-    )
+    pub proof fn insert_vm_io(tracked &mut self, vio: VmIoId, tracked entry: VmIoEntry)
         requires
             old(self).inv(),
             !old(self).vm_ios.dom().contains(vio),
             entry.inv(),
-            entry.vm_space matches Some(vs)
-                ==> old(self).vm_spaces.dom().contains(vs),
-            entry.vm_space is Some
-                ==> (entry.vaddr as nat) + (entry.len as nat)
-                        <= MAX_USERSPACE_VADDR as nat,
+            entry.vm_space matches Some(vs) ==> old(self).vm_spaces.dom().contains(vs),
+            entry.vm_space is Some ==> (entry.vaddr as nat) + (entry.len as nat)
+                <= MAX_USERSPACE_VADDR as nat,
         ensures
             final(self).regions == old(self).regions,
             final(self).tlb_model == old(self).tlb_model,
@@ -1460,7 +1435,6 @@ impl<'rcu> VmStore<'rcu> {
 // =============================================================================
 // One-step soundness theorem.
 // =============================================================================
-
 /// One-step soundness theorem.
 ///
 /// `op_pre(*old(s), op)` is the per-op precondition. Each match arm
@@ -1489,25 +1463,34 @@ pub proof fn step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
         Op::ProtectNext { c, len } => step_protect_next(s, c, len),
         Op::NewReader { vs, vaddr, len } => step_new_vm_io(s, vs, vaddr, len, VmIoKind::Reader),
         Op::NewWriter { vs, vaddr, len } => step_new_vm_io(s, vs, vaddr, len, VmIoKind::Writer),
-        Op::NewKernelReader { vaddr, len } => step_new_kernel_vm_io(s, vaddr, len, VmIoKind::Reader),
-        Op::NewKernelWriter { vaddr, len } => step_new_kernel_vm_io(s, vaddr, len, VmIoKind::Writer),
+        Op::NewKernelReader { vaddr, len } => step_new_kernel_vm_io(
+            s,
+            vaddr,
+            len,
+            VmIoKind::Reader,
+        ),
+        Op::NewKernelWriter { vaddr, len } => step_new_kernel_vm_io(
+            s,
+            vaddr,
+            len,
+            VmIoKind::Writer,
+        ),
         Op::DropReader { vio } => step_drop_vm_io(s, vio),
         Op::DropWriter { vio } => step_drop_vm_io(s, vio),
         // Fallible variants: handle-only, no embedding state changes.
         Op::ReaderReadVal { source: _ } => {},
         Op::ReaderCollect { source: _ } => {},
         Op::WriterWriteVal { writer: _ } => {},
-        Op::ReaderLimit { vio, max } =>
-            step_vm_io_method(s, vio, io::VmIoMethod::ReaderLimit(max)),
-        Op::ReaderSkip { vio, n } =>
-            step_vm_io_method(s, vio, io::VmIoMethod::ReaderSkip(n)),
+        Op::ReaderLimit { vio, max } => step_vm_io_method(s, vio, io::VmIoMethod::ReaderLimit(max)),
+        Op::ReaderSkip { vio, n } => step_vm_io_method(s, vio, io::VmIoMethod::ReaderSkip(n)),
         Op::ReaderQuery { vio: _ } => {},
-        Op::WriterFillZeros { vio, len } =>
-            step_vm_io_method(s, vio, io::VmIoMethod::WriterFillZeros(len)),
-        Op::WriterLimit { vio, max } =>
-            step_vm_io_method(s, vio, io::VmIoMethod::WriterLimit(max)),
-        Op::WriterSkip { vio, n } =>
-            step_vm_io_method(s, vio, io::VmIoMethod::WriterSkip(n)),
+        Op::WriterFillZeros { vio, len } => step_vm_io_method(
+            s,
+            vio,
+            io::VmIoMethod::WriterFillZeros(len),
+        ),
+        Op::WriterLimit { vio, max } => step_vm_io_method(s, vio, io::VmIoMethod::WriterLimit(max)),
+        Op::WriterSkip { vio, n } => step_vm_io_method(s, vio, io::VmIoMethod::WriterSkip(n)),
         Op::WriterQuery { vio: _ } => {},
         // Infallible `read`: produces a fresh activated-Writer val_owner.
         Op::Read { source, dest } => step_read(s, source, dest),
@@ -1525,7 +1508,6 @@ pub proof fn step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
 }
 
 // --- Per-arm proof helpers (kept individually so SMT context stays small) ---
-
 /// Stage 5.3: [`accounting_inv`] survives a step that only allocates
 /// fresh page-table nodes. `VmSpace::new` / `VmSpace::cursor*` mutate
 /// `regions` solely by spinning up PT nodes — their `_embedded` axioms
@@ -1686,8 +1668,10 @@ proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(
 }
 
 proof fn step_new_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>)
-    requires old(s).inv()
-    ensures final(s).inv()
+    requires
+        old(s).inv(),
+    ensures
+        final(s).inv(),
 {
     let ghost s_before = *s;
     let tracked owner = vm_space::new_vm_space_step(&mut s.regions);
@@ -1703,13 +1687,12 @@ proof fn step_drop_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId)
     requires
         old(s).inv(),
         old(s).vm_spaces.dom().contains(vs),
-        forall|c: CursorId|
-            #[trigger] old(s).cursors.dom().contains(c)
-                ==> old(s).cursors[c].vm_space != vs,
-        forall|v: VmIoId|
-            #[trigger] old(s).vm_ios.dom().contains(v)
-                ==> old(s).vm_ios[v].vm_space != Some(vs),
-    ensures final(s).inv()
+        forall|c: CursorId| #[trigger]
+            old(s).cursors.dom().contains(c) ==> old(s).cursors[c].vm_space != vs,
+        forall|v: VmIoId| #[trigger]
+            old(s).vm_ios.dom().contains(v) ==> old(s).vm_ios[v].vm_space != Some(vs),
+    ensures
+        final(s).inv(),
 {
     let tracked owner = s.extract_vm_space(vs);
     vm_space::drop_vm_space_step(owner);
@@ -1723,7 +1706,8 @@ proof fn step_open_cursor<'rcu>(
     requires
         old(s).inv(),
         old(s).vm_spaces.dom().contains(vs),
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let ghost s_before = *s;
     let tracked vm_space_ref = s.vm_spaces.tracked_borrow(vs);
@@ -1771,7 +1755,8 @@ proof fn step_drop_cursor<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let tracked entry = s.extract_cursor(c);
     cursor::drop_cursor_step(entry);
@@ -1929,7 +1914,8 @@ proof fn step_find_next<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: u
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let tracked mut entry = s.extract_cursor(c);
     cursor::cursor_find_next_step(&mut entry, &mut s.regions, len);
@@ -2180,7 +2166,8 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
@@ -2377,7 +2364,8 @@ proof fn step_new_vm_io<'rcu>(
     requires
         old(s).inv(),
         old(s).vm_spaces.dom().contains(vs),
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let tracked vm_space_ref = s.vm_spaces.tracked_borrow(vs);
     let tracked res = io::new_vm_io_step(vm_space_ref, Some(vs), vaddr, len, kind);
@@ -2397,8 +2385,10 @@ proof fn step_new_kernel_vm_io<'rcu>(
     len: usize,
     kind: VmIoKind,
 )
-    requires old(s).inv()
-    ensures final(s).inv()
+    requires
+        old(s).inv(),
+    ensures
+        final(s).inv(),
 {
     let tracked entry = io::new_kernel_vm_io_step(vaddr, len, kind);
     let ghost id = fresh_vm_io_id(s.vm_ios);
@@ -2410,32 +2400,26 @@ proof fn step_drop_vm_io<'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId)
     requires
         old(s).inv(),
         old(s).vm_ios.dom().contains(vio),
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let tracked entry = s.extract_vm_io(vio);
     io::drop_vm_io_step(entry);
 }
 
-proof fn step_vm_io_method<'rcu>(
-    tracked s: &mut VmStore<'rcu>,
-    vio: VmIoId,
-    method: io::VmIoMethod,
-)
+proof fn step_vm_io_method<'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId, method: io::VmIoMethod)
     requires
         old(s).inv(),
         old(s).vm_ios.dom().contains(vio),
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let tracked mut entry = s.extract_vm_io(vio);
     io::vm_io_method_step(&mut entry, method);
     s.insert_vm_io(vio, entry);
 }
 
-proof fn step_read<'rcu>(
-    tracked s: &mut VmStore<'rcu>,
-    source: VmIoId,
-    dest: VmIoId,
-)
+proof fn step_read<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: VmIoId)
     requires
         old(s).inv(),
         old(s).vm_ios.dom().contains(source),
@@ -2445,7 +2429,8 @@ proof fn step_read<'rcu>(
         old(s).vm_ios[source].kind == VmIoKind::Reader,
         old(s).vm_ios[dest].vm_space is None,
         old(s).vm_ios[dest].kind == VmIoKind::Writer,
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let tracked mut src = s.extract_vm_io(source);
     let tracked mut dst = s.extract_vm_io(dest);
@@ -2457,11 +2442,7 @@ proof fn step_read<'rcu>(
     s.insert_vm_io(id, val);
 }
 
-proof fn step_write<'rcu>(
-    tracked s: &mut VmStore<'rcu>,
-    source: VmIoId,
-    dest: VmIoId,
-)
+proof fn step_write<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: VmIoId)
     requires
         old(s).inv(),
         old(s).vm_ios.dom().contains(source),
@@ -2471,7 +2452,8 @@ proof fn step_write<'rcu>(
         old(s).vm_ios[source].kind == VmIoKind::Reader,
         old(s).vm_ios[dest].vm_space is None,
         old(s).vm_ios[dest].kind == VmIoKind::Writer,
-    ensures final(s).inv()
+    ensures
+        final(s).inv(),
 {
     let tracked mut src = s.extract_vm_io(source);
     let tracked mut dst = s.extract_vm_io(dest);
@@ -4297,7 +4279,6 @@ pub proof fn lemma_segment_cover_remove_outside(
 // =============================================================================
 // Internal helpers: fresh-id picking and tracked entry constructors.
 // =============================================================================
-
 /// Picks an id not currently in `m.dom()`. Since the key type is `int`,
 /// an unused id always exists.
 pub open spec fn fresh_vm_space_id<'a>(m: Map<VmSpaceId, VmSpaceOwner>) -> VmSpaceId {
@@ -4319,16 +4300,12 @@ pub open spec fn fresh_frame_id(m: Map<FrameId, FrameEntry>) -> FrameId {
     choose|id: FrameId| !m.dom().contains(id)
 }
 
-pub axiom fn axiom_fresh_vm_space_id_not_in_dom<'a>(
-    m: Map<VmSpaceId, VmSpaceOwner>,
-)
+pub axiom fn axiom_fresh_vm_space_id_not_in_dom<'a>(m: Map<VmSpaceId, VmSpaceOwner>)
     ensures
         !m.dom().contains(fresh_vm_space_id(m)),
 ;
 
-pub axiom fn axiom_fresh_cursor_id_not_in_dom<'rcu>(
-    m: Map<CursorId, CursorEntry<'rcu>>,
-)
+pub axiom fn axiom_fresh_cursor_id_not_in_dom<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>)
     ensures
         !m.dom().contains(fresh_cursor_id(m)),
 ;

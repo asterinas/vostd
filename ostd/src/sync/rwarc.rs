@@ -49,7 +49,7 @@ impl<T> RwArc<T> {
         self.wf()
     }
 
-    pub closed spec fn wf(self) -> bool {
+    pub closed spec fn wf(&self) -> bool {
         &&& self.0.wf()
         &&& self.0.num_rw.well_formed()
     }
@@ -111,11 +111,8 @@ impl<T> RwArc<T> {
 
 #[verus_verify]
 impl<T> Clone for RwArc<T> {
-    #[verus_spec]
-    fn clone(&self) -> Self
-        returns
-            self,
-    {
+    #[verus_spec(returns self)]
+    fn clone(&self) -> Self {
         proof!{
             use_type_invariant(self);
         }
@@ -125,7 +122,13 @@ impl<T> Clone for RwArc<T> {
         // inner.num_rw.fetch_add(1, Ordering::Relaxed);
         atomic_with_ghost! {
             inner.num_rw => fetch_add(1);
+            update prev -> next;
             ghost g => {
+                assert(InvariantPredicate_auto_Inner_num_rw::atomic_inv(
+                    self.0.num_rw.constant(),
+                    prev as usize,
+                    g,
+                ));
                 assume(g < usize::MAX);
                 g = g + 1;
             }

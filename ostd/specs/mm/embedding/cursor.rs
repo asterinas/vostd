@@ -43,7 +43,6 @@
 //!   closure `op: impl FnOnce(PageProperty) -> PageProperty` with
 //!   `forall |p| op.requires((p,))` plus a trackedness-preservation
 //!   constraint. Our `Op::ProtectNext` doesn't carry the closure.
-
 use core::ops::Range;
 
 use vstd::prelude::*;
@@ -70,7 +69,6 @@ verus! {
 // =============================================================================
 // _embedded axioms
 // =============================================================================
-
 /// Mirror of [`crate::mm::vm_space::VmSpace::cursor`].
 ///
 /// The exec method mutates `&mut Guards` (adding locks for the new
@@ -573,8 +571,11 @@ pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
         old(owner).children_not_locked(*old(guards)),
         old(owner).nodes_locked(*old(guards)),
         old(owner).metaregion_sound(*old(regions)),
-        !old(owner).popped_too_high,
-        // MODEL GAP: closure preconditions on `op`.
+        !old(
+            owner,
+        ).popped_too_high,
+// MODEL GAP: closure preconditions on `op`.
+
     ensures
         final(owner).inv(),
         final(regions).inv(),
@@ -937,8 +938,7 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
 {
     match method {
         CursorMutRegionsMethod::Unmap(len) => {
-            cursor_mut_unmap_embedded(
-                &mut entry.owner, regions, &mut entry.guards, tlb_model, len);
+            cursor_mut_unmap_embedded(&mut entry.owner, regions, &mut entry.guards, tlb_model, len);
         },
     }
 }

@@ -200,8 +200,8 @@ impl ProgramState {
     pub open spec fn mutual_exclusion(self) -> bool {
         forall|i: Tid, j: Tid|
             #![trigger self.in_ProcSet(i), self.in_ProcSet(j)]
-            (self.in_ProcSet(i) && self.in_ProcSet(j) && i != j) ==> !(
-            self.pc[i] == Label::cs && self.pc[j] == Label::cs)
+            (self.in_ProcSet(i) && self.in_ProcSet(j) && i != j) ==> !(self.pc[i] == Label::cs
+                && self.pc[j] == Label::cs)
     }
 
     pub open spec fn inv_unchanged(self, n: nat) -> bool {

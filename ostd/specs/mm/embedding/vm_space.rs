@@ -4,7 +4,6 @@
 //! no preconditions on store membership, no `if`-guards. The store-side
 //! extract / insert and id-management lives in
 //! [`super::VmStore`]'s methods and the [`super::step`] dispatcher.
-
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
@@ -19,14 +18,13 @@ verus! {
 // =============================================================================
 // _embedded axiom
 // =============================================================================
-
 /// Mirror of [`crate::mm::vm_space::VmSpace::new`].
 ///
 /// `metaregion_sound_preserves`: any `CursorOwner` sound w.r.t. the
 /// old `regions` is still sound w.r.t. the new `regions`. Mirrors the
 /// underlying `create_user_page_table` regions-preservation property.
-pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners)
-    -> (tracked res: VmSpaceOwner)
+pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -> (tracked res:
+    VmSpaceOwner)
     requires
         old(regions).inv(),
     ensures
@@ -61,13 +59,12 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners)
 // =============================================================================
 // step proofs
 // =============================================================================
-
 /// Per-op step for `Op::NewVmSpace`. Produces a fresh tracked
 /// `VmSpaceOwner` from the regions; the caller (the dispatcher in
 /// [`super::step`]) is responsible for inserting it into the store
 /// under a fresh id.
-pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners)
-    -> (tracked res: VmSpaceOwner)
+pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners) -> (tracked res:
+    VmSpaceOwner)
     requires
         old(regions).inv(),
     ensures

@@ -34,6 +34,23 @@ pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
     pub _marker: PhantomData<M>,
 }
 
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Send> Send for UniqueFrame<M> {
+
+}
+
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + Sync> Sync for UniqueFrame<M> {
+
+}
+
+/*
+impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for UniqueFrame<M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "UniqueFrame({:#x})", self.start_paddr())
+    }
+}*/
+
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// Gets a [`UniqueFrame`] with a specific usage from a raw, unused page.
@@ -144,8 +161,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
 
         // SAFETY: We are the sole owner and the metadata is initialized.
-        #[verus_spec(with Tracked(&mut slot_own))]
-        slot.drop_meta_in_place();
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own))]
+            slot.drop_meta_in_place()
+        };
 
         let tracked mut inner_perms = slot_own.take_inner_perms();
 
@@ -155,11 +174,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 
         let slot = self.ptr.borrow(Tracked(perm_ref));
 
-        #[verus_spec(with
-            Tracked(&mut inner_perms.storage),
-            Tracked(&mut inner_perms.vtable_ptr)
-        )]
-        slot.write_meta(metadata);
+        unsafe {
+            #[verus_spec(with
+                Tracked(&mut inner_perms.storage),
+                Tracked(&mut inner_perms.vtable_ptr)
+            )]
+            slot.write_meta(metadata)
+        };
 
         proof {
             slot_own.sync_inner(&inner_perms);
@@ -380,8 +401,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
         // SAFETY: We are the sole owner and the reference count is 0.
         // The slot is initialized.
-        #[verus_spec(with Tracked(&mut slot_own))]
-        slot.drop_last_in_place();
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own))]
+            slot.drop_last_in_place()
+        };
 
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);
@@ -453,7 +476,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
     )]
-    pub(crate) fn from_raw(paddr: Paddr) -> (Self, Tracked<UniqueFrameOwner<M>>) {
+    pub(crate) unsafe fn from_raw(paddr: Paddr) -> (Self, Tracked<UniqueFrameOwner<M>>) {
         let vaddr = frame_to_meta(paddr);
         let ptr = vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(vaddr);
 
@@ -486,6 +509,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
     }
 }
+
+/*
+impl<M: AnyFrameMeta + ?Sized> Drop for UniqueFrame<M> {
+    fn drop(&mut self) {
+        self.slot().ref_count.store(0, Ordering::Relaxed);
+        // SAFETY: We are the sole owner and the reference count is 0.
+        // The slot is initialized.
+        unsafe { self.slot().drop_last_in_place() };
+
+        super::allocator::get_global_frame_allocator().dealloc(self.start_paddr(), PAGE_SIZE);
+    }
+} */
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
     #[verus_spec(
@@ -527,8 +562,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         #[verus_spec(with Tracked(perm_ref))]
         let slot = self.slot();
 
-        #[verus_spec(with Tracked(&mut slot_own))]
-        slot.drop_last_in_place();
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own))]
+            slot.drop_last_in_place()
+        };
 
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);

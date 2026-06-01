@@ -1,21 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 //! A contiguous range of frames.
 use vstd::prelude::*;
-
-use core::{fmt::Debug, ops::Range};
-
-use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
-use crate::mm::page_table::RCClone;
-
 use vstd::simple_pptr;
 use vstd_extra::assert;
 use vstd_extra::cast_ptr::*;
+use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 use vstd_extra::panic::may_panic;
-use vstd_extra::seq_extra::seq_tracked_split_at;
+use vstd_extra::prelude::*;
 
-use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
-use super::{AnyFrameMeta, GetFrameError, MetaSlot};
+use crate::mm::page_table::RCClone;
 use crate::mm::{paddr_to_vaddr, Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
@@ -23,7 +17,12 @@ use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::segment::*;
 use crate::specs::mm::virt_mem::MemView;
-use vstd_extra::drop_tracking::*;
+
+use core::{fmt::Debug, /*mem::ManuallyDrop,*/ ops::Range};
+
+use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
+use super::{AnyFrameMeta, GetFrameError, MetaSlot};
+use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
 
 verus! {
 
@@ -47,6 +46,24 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
     pub _marker: core::marker::PhantomData<M>,
 }
 
+/*
+impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Segment({:#x}..{:#x})", self.range.start, self.range.end)
+    }
+}
+*/
+
+/*impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
+    fn drop(&mut self) {
+        for paddr in self.range.clone().step_by(PAGE_SIZE) {
+            // SAFETY: for each frame there would be a forgotten handle
+            // when creating the `Segment` object.
+            drop(unsafe { Frame::<M>::from_raw(paddr) });
+        }
+    }
+}*/
+
 /// A contiguous range of homogeneous untyped physical memory frames that have any metadata.
 ///
 /// In other words, the metadata of the frames are of the same type, and they
@@ -56,97 +73,99 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 /// The usage of this frame will not be changed while this object is alive.
 pub type USegment = Segment<dyn AnyUFrameMeta>;
 
+/* impl<M: AnyFrameMeta + ?Sized> Clone for Segment<M> {
+    fn clone(&self) -> Self {
+        for paddr in self.range.clone().step_by(PAGE_SIZE) {
+            // SAFETY: for each frame there would be a forgotten handle
+            // when creating the `Segment` object, so we already have
+            // reference counts for the frames.
+            unsafe { inc_frame_ref_count(paddr) };
+        }
+        Self {
+            range: self.range.clone(),
+            _marker: core::marker::PhantomData,
+        }
+    }
+} */
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
+    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
+        &&& self.inv()
+        &&& perm.inv()
+        &&& forall|pa: Paddr|
+            #![trigger frame_to_index(pa)]
+            (self.start_paddr() <= pa < self.end_paddr() && pa % PAGE_SIZE == 0) ==> {
+                let idx = frame_to_index(pa);
+                &&& perm.slots.contains_key(idx)
+                &&& has_safe_slot(pa)
+                &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
+                    < super::meta::REF_COUNT_MAX
+                &&& !MetaSlot::inc_ref_count_panic_cond(perm.slot_owners[idx].inner_perms.ref_count)
+            }
+    }
+
+    open spec fn clone_ensures(
+        self,
+        old_perm: MetaRegionOwners,
+        new_perm: MetaRegionOwners,
+        res: Self,
+    ) -> bool {
+        &&& res.range() == self.range()
+        &&& res.inv()
+        &&& new_perm.inv()
+    }
+
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self) {
+        let mut paddr = self.range.start;
+
+        let ghost old_perm = *perm;
+        loop
+            invariant
+                perm.inv(),
+                self.inv(),
+                perm.slots =~= old_perm.slots,
+                perm.slot_owners.dom() =~= old_perm.slot_owners.dom(),
+                self.range.start <= paddr <= self.range.end,
+                paddr % PAGE_SIZE == 0,
+                paddr <= MAX_PADDR,
+                forall|pa: Paddr|
+                    #![trigger frame_to_index(pa)]
+                    (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
+                        let idx = frame_to_index(pa);
+                        &&& perm.slots.contains_key(idx)
+                        &&& has_safe_slot(pa)
+                        &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
+                        &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
+                            < super::meta::REF_COUNT_MAX
+                        &&& !MetaSlot::inc_ref_count_panic_cond(
+                            perm.slot_owners[idx].inner_perms.ref_count,
+                        )
+                    },
+            decreases self.range.end - paddr,
+        {
+            if paddr >= self.range.end {
+                break;
+            }
+            proof {
+                assert(paddr + PAGE_SIZE <= self.range.end);
+                assert(paddr + PAGE_SIZE <= MAX_PADDR);
+            }
+
+            unsafe {
+                #[verus_spec(with Tracked(perm))]
+                crate::mm::frame::inc_frame_ref_count(paddr)
+            };
+
+            paddr = paddr + PAGE_SIZE;
+        }
+
+        Self { range: self.range.start..self.range.end, _marker: core::marker::PhantomData }
+    }
+}
+
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
-    /// Returns the starting physical address of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn start_paddr_spec(&self) -> Paddr
-        recommends
-            self.inv(),
-    {
-        self.range.start
-    }
-
-    /// Returns the ending physical address of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn end_paddr_spec(&self) -> Paddr
-        recommends
-            self.inv(),
-    {
-        self.range.end
-    }
-
-    /// Returns the length in bytes of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn size_spec(&self) -> usize
-        recommends
-            self.inv(),
-    {
-        (self.range.end - self.range.start) as usize
-    }
-
-    /// Returns the number of pages of the contiguous frames.
-    #[verifier::inline]
-    pub open spec fn nrpage_spec(&self) -> usize
-        recommends
-            self.inv(),
-    {
-        self.size_spec() / PAGE_SIZE
-    }
-
-    /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
-    pub open spec fn split_spec(self, offset: usize) -> (Self, Self)
-        recommends
-            self.inv(),
-            offset % PAGE_SIZE == 0,
-            0 < offset < self.size_spec(),
-    {
-        let at = (self.range.start + offset) as usize;
-        let idx = at / PAGE_SIZE;
-        (
-            Self { range: self.range.start..at, _marker: core::marker::PhantomData },
-            Self { range: at..self.range.end, _marker: core::marker::PhantomData },
-        )
-    }
-
-    /// Gets the start physical address of the contiguous frames.
-    #[inline(always)]
-    #[verifier::when_used_as_spec(start_paddr_spec)]
-    pub fn start_paddr(&self) -> (res: Paddr)
-        requires
-            self.inv(),
-        returns
-            self.start_paddr_spec(),
-    {
-        self.range.start
-    }
-
-    /// Gets the end physical address of the contiguous frames.
-    #[inline(always)]
-    #[verifier::when_used_as_spec(end_paddr_spec)]
-    #[verus_spec(
-        requires
-            self.inv(),
-        returns
-            self.end_paddr_spec(),
-    )]
-    pub fn end_paddr(&self) -> Paddr {
-        self.range.end
-    }
-
-    /// Gets the length in bytes of the contiguous frames.
-    #[inline(always)]
-    #[verifier::when_used_as_spec(size_spec)]
-    #[verus_spec(r =>
-        requires
-            self.inv(),
-        returns
-            self.size_spec()
-    )]
-    pub fn size(&self) -> usize {
-        self.range.end - self.range.start
-    }
-
     /// Creates a new [`Segment`] from unused frames.
     ///
     /// The caller must provide a closure to initialize metadata for all the frames.
@@ -201,9 +220,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             r is Ok ==> range.end <= MAX_PADDR ==> range.start < range.end,
             r matches Ok(r) ==> {
                 &&& final(regions).inv()
-                &&& r.range.start == range.start
-                &&& r.range.end == range.end
-                &&& r.range.start < r.range.end
+                &&& r.start_paddr() == range.start
+                &&& r.end_paddr() == range.end
+                &&& r.start_paddr() < r.end_paddr()
                 &&& owner@ matches Some(owner) && {
                     &&& r.inv()
                     &&& r.wf(&owner)
@@ -345,6 +364,92 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         Ok(segment)
     }
 
+    /// Restores the [`Segment`] from the raw physical address range.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - the meta region must satisfy its invariant;
+    /// - the segment-to-be (with the supplied `range`) must satisfy its invariant
+    ///   ([`Self::inv`]) and the well-formedness relation with `owner` ([`Self::wf`]);
+    /// - `owner` must relate correctly to `regions`.
+    ///
+    /// Following the [`UniqueFrame::from_raw`] pattern, the contract here ties
+    /// `range` and `owner` together up front so that the postcondition can
+    /// directly advertise `r.inv()` and `r.wf(&owner)` for the caller.
+    ///
+    /// ## Postconditions
+    /// - the returned segment satisfies its invariant and is well-formed with `owner`;
+    /// - the returned segment has the same physical address range as the input;
+    /// - the meta region is unchanged (preserving the relation with `owner`).
+    ///
+    /// # Safety
+    ///
+    /// The range must be a forgotten [`Segment`] that matches the type `M`.
+    /// The caller must provide the permissions that were returned by [`Self::into_raw`].
+    #[verus_spec(r =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(owner): Tracked<SegmentOwner<M>>,
+        requires
+            old(regions).inv(),
+            owner.inv(),
+            range == owner.range,
+            owner.relate_regions(*old(regions)),
+        ensures
+            r.range() == range,
+            r.inv(),
+            r.wf(&owner),
+            final(regions).inv(),
+            *final(regions) =~= *old(regions),
+    )]
+    pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
+        Self { range, _marker: core::marker::PhantomData }
+    }
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta + ?Sized> Segment<M> {
+    /// Gets the start physical address of the contiguous frames.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(
+        returns
+            self.start_paddr(),
+    )]
+    pub fn start_paddr(&self) -> Paddr {
+        self.range.start
+    }
+
+    /// Gets the end physical address of the contiguous frames.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(
+        returns
+            self.end_paddr(),
+    )]
+    pub fn end_paddr(&self) -> Paddr {
+        self.range.end
+    }
+
+    /// Gets the length in bytes of the contiguous frames.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(r =>
+        requires
+            self.inv(),
+        ensures
+            r == self.end_paddr() - self.start_paddr(),
+        returns
+            self.size()
+    )]
+    pub fn size(&self) -> usize {
+        self.range.end - self.range.start
+    }
+
+    pub open spec fn range(&self) -> Range<Paddr> {
+        self.start_paddr()..self.end_paddr()
+    }
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// Splits the frames into two at the given byte offset from the start.
     ///
     /// The resulting frames cannot be empty. So the offset cannot be neither
@@ -397,8 +502,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         let old = ManuallyDrop::new(self, Tracked(regions));
         let at = old.range.start + offset;
 
-        let ghost old_start = old@.range.start;
-        let ghost old_end = old@.range.end;
+        let ghost old_start = old@.start_paddr();
+        let ghost old_end = old@.end_paddr();
 
         // Design B: no owned perms to split — the two halves are just
         // sub-ranges; their `relate_regions` follows from the original
@@ -480,88 +585,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         )
     }
 
-    /// Forgets the [`Segment`] and gets a raw range of physical addresses.
-    ///
-    /// The segment's permissions are returned to the caller via `frame_perms`.
-    /// The caller is responsible for holding onto the permissions and providing
-    /// them back when restoring the segment with [`Self::from_raw`].
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - the segment must satisfy the invariant with the owner;
-    /// - the meta region in `regions` must satisfy the invariant;
-    /// - the owner must relate correctly to `regions`.
-    ///
-    /// ## Postconditions
-    /// - the returned physical address range matches the segment's range;
-    /// - the meta region is unchanged (preserving the relation with the returned owner).
-    #[verus_spec(r =>
-        with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(owner): Tracked<SegmentOwner<M>>,
-                -> frame_perms: Tracked<SegmentOwner<M>>,
-        requires
-            self.inv(),
-            self.wf(&owner),
-            old(regions).inv(),
-            owner.inv(),
-            owner.relate_regions(*old(regions)),
-        ensures
-            r == self.range,
-            final(regions).inv(),
-            *final(regions) =~= *old(regions),
-            frame_perms@ == owner,
-    )]
-    pub(crate) fn into_raw(self) -> Range<Paddr> {
-        let range = self.range.clone();
-        let _ = ManuallyDrop::new(self, Tracked(regions));
-
-        proof_with!(|= Tracked(owner));
-        range
-    }
-
-    /// Restores the [`Segment`] from the raw physical address range.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - the meta region must satisfy its invariant;
-    /// - the segment-to-be (with the supplied `range`) must satisfy its invariant
-    ///   ([`Self::inv`]) and the well-formedness relation with `owner` ([`Self::wf`]);
-    /// - `owner` must relate correctly to `regions`.
-    ///
-    /// Following the [`UniqueFrame::from_raw`] pattern, the contract here ties
-    /// `range` and `owner` together up front so that the postcondition can
-    /// directly advertise `r.inv()` and `r.wf(&owner)` for the caller.
-    ///
-    /// ## Postconditions
-    /// - the returned segment satisfies its invariant and is well-formed with `owner`;
-    /// - the returned segment has the same physical address range as the input;
-    /// - the meta region is unchanged (preserving the relation with `owner`).
-    ///
-    /// # Safety
-    ///
-    /// The range must be a forgotten [`Segment`] that matches the type `M`.
-    /// The caller must provide the permissions that were returned by [`Self::into_raw`].
-    #[verus_spec(r =>
-        with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(owner): Tracked<SegmentOwner<M>>,
-        requires
-            old(regions).inv(),
-            owner.inv(),
-            (Segment::<M> { range, _marker: core::marker::PhantomData }).wf(&owner),
-            owner.relate_regions(*old(regions)),
-        ensures
-            r.range == range,
-            r.inv(),
-            r.wf(&owner),
-            final(regions).inv(),
-            *final(regions) =~= *old(regions),
-    )]
-    pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
-        Self { range, _marker: core::marker::PhantomData }
-    }
-
     /// Precise panic condition for [`Self::slice`]. `slice` diverges iff:
     ///  - the slice range is misaligned, reversed, or out of the segment's
     ///    bounds (the diverging `assert!`s at the top of `slice`), or
@@ -580,7 +603,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
             (range.start as int) / (PAGE_SIZE as int) <= j < (range.end as int) / (PAGE_SIZE as int)
                 && regions.slot_owners[frame_to_index(
-                (self.range.start + j * PAGE_SIZE) as usize,
+                (self.start_paddr() + j * PAGE_SIZE) as usize,
             )].inner_perms.ref_count.value() >= REF_COUNT_MAX
     }
 
@@ -621,24 +644,22 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             self.range.start as int + range.end as int <= self.range.end as int,
             !self.page_in_range_saturated(range, *old(regions)),
             r.inv(),
-            r.range.start == self.range.start + range.start,
-            r.range.end == self.range.start + range.end,
-            r.range.end <= self.range.end,
+            r.start_paddr() == self.start_paddr() + range.start,
+            r.end_paddr() == self.start_paddr() + range.end,
+            r.end_paddr() <= self.end_paddr(),
             final(regions).inv(),
             final(regions).slots =~= old(regions).slots,
             final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
     )]
     #[verifier::rlimit(8000)]
     pub fn slice(&self, range: &Range<usize>) -> Self {
-        assert!(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0);
-
-        // KNOWN BUG: potential overflows
+        // KNOWN BUG: potential overflows https://github.com/asterinas/asterinas/issues/3165
         assume(self.range.start + range.start <= usize::MAX);
         assume(self.range.start + range.end <= usize::MAX);
 
+        assert!(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0);
         let start = self.range.start + range.start;
         let end = self.range.start + range.end;
-        assert!(start <= end && end <= self.range.end);
         assert!(start <= end && end <= self.range.end);
 
         let mut paddr = start;
@@ -704,8 +725,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 assert(regions.slot_owners[slot_idx] == old_regions.slot_owners[slot_idx]);
             }
 
-            #[verus_spec(with Tracked(regions))]
-            crate::mm::frame::inc_frame_ref_count(paddr);
+            unsafe {
+                #[verus_spec(with Tracked(regions))]
+                crate::mm::frame::inc_frame_ref_count(paddr)
+            };
 
             paddr = paddr + PAGE_SIZE;
 
@@ -725,6 +748,46 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         }
 
         Self { range: start..end, _marker: core::marker::PhantomData }
+    }
+
+    /// Forgets the [`Segment`] and gets a raw range of physical addresses.
+    ///
+    /// The segment's permissions are returned to the caller via `frame_perms`.
+    /// The caller is responsible for holding onto the permissions and providing
+    /// them back when restoring the segment with [`Self::from_raw`].
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - the segment must satisfy the invariant with the owner;
+    /// - the meta region in `regions` must satisfy the invariant;
+    /// - the owner must relate correctly to `regions`.
+    ///
+    /// ## Postconditions
+    /// - the returned physical address range matches the segment's range;
+    /// - the meta region is unchanged (preserving the relation with the returned owner).
+    #[verus_spec(r =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(owner): Tracked<SegmentOwner<M>>,
+                -> frame_perms: Tracked<SegmentOwner<M>>,
+        requires
+            self.inv(),
+            self.wf(&owner),
+            old(regions).inv(),
+            owner.inv(),
+            owner.relate_regions(*old(regions)),
+        ensures
+            r == self.range(),
+            final(regions).inv(),
+            *final(regions) =~= *old(regions),
+            frame_perms@ == owner,
+    )]
+    pub(crate) fn into_raw(self) -> Range<Paddr> {
+        let range = self.range.clone();
+        let _ = ManuallyDrop::new(self, Tracked(regions));
+
+        proof_with!(|= Tracked(owner));
+        range
     }
 
     /// Gets the next frame in the segment.
@@ -764,10 +827,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             final(self).inv(),
             final(owner).relate_regions(*final(regions)),
             match res {
-                None => final(self).range.start == old(self).range.end,
+                None => final(self).start_paddr() == old(self).end_paddr(),
                 Some(f) => {
-                    &&& final(self).range.start == old(self).range.start + PAGE_SIZE
-                    &&& f.paddr() == old(self).range.start
+                    &&& final(self).start_paddr() == old(self).start_paddr() + PAGE_SIZE
+                    &&& f.paddr() == old(self).start_paddr()
                     &&& final(regions).slots.contains_key(frame_to_index(f.paddr()))
                     &&& final(regions).slot_owners[frame_to_index(f.paddr())].raw_count == 0
                 },
@@ -833,6 +896,30 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         } else {
             None
         }
+    }
+
+    /// Returns the number of pages of the contiguous frames.
+    #[verifier::inline]
+    pub open spec fn nrpage_spec(&self) -> usize
+        recommends
+            self.inv(),
+    {
+        self.size() / PAGE_SIZE
+    }
+
+    /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
+    pub closed spec fn split_spec(self, offset: usize) -> (Self, Self)
+        recommends
+            self.inv(),
+            offset % PAGE_SIZE == 0,
+            0 < offset < self.size(),
+    {
+        let at = (self.start_paddr() + offset) as usize;
+        let idx = at / PAGE_SIZE;
+        (
+            Self { range: self.start_paddr()..at, _marker: core::marker::PhantomData },
+            Self { range: at..self.end_paddr(), _marker: core::marker::PhantomData },
+        )
     }
 }
 
@@ -1024,81 +1111,81 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                 k = k + 1;
             }
         }
-
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
-    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
-        &&& self.inv()
-        &&& perm.inv()
-        &&& forall|pa: Paddr|
-            #![trigger frame_to_index(pa)]
-            (self.range.start <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
-                let idx = frame_to_index(pa);
-                &&& perm.slots.contains_key(idx)
-                &&& has_safe_slot(pa)
-                &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
-                &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
-                    < super::meta::REF_COUNT_MAX
-                &&& !MetaSlot::inc_ref_count_panic_cond(perm.slot_owners[idx].inner_perms.ref_count)
-            }
-    }
+/*impl<M: AnyFrameMeta> TryFrom<Segment<dyn AnyFrameMeta>> for Segment<M> {
+    type Error = Segment<dyn AnyFrameMeta>;
 
-    open spec fn clone_ensures(
-        self,
-        old_perm: MetaRegionOwners,
-        new_perm: MetaRegionOwners,
-        res: Self,
-    ) -> bool {
-        &&& res.range == self.range
-        &&& res.inv()
-        &&& new_perm.inv()
-    }
-
-    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self) {
-        let mut paddr = self.range.start;
-
-        let ghost old_perm = *perm;
-        loop
-            invariant
-                perm.inv(),
-                self.inv(),
-                perm.slots =~= old_perm.slots,
-                perm.slot_owners.dom() =~= old_perm.slot_owners.dom(),
-                self.range.start <= paddr <= self.range.end,
-                paddr % PAGE_SIZE == 0,
-                paddr <= MAX_PADDR,
-                forall|pa: Paddr|
-                    #![trigger frame_to_index(pa)]
-                    (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
-                        let idx = frame_to_index(pa);
-                        &&& perm.slots.contains_key(idx)
-                        &&& has_safe_slot(pa)
-                        &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
-                        &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
-                            < super::meta::REF_COUNT_MAX
-                        &&& !MetaSlot::inc_ref_count_panic_cond(
-                            perm.slot_owners[idx].inner_perms.ref_count,
-                        )
-                    },
-            decreases self.range.end - paddr,
-        {
-            if paddr >= self.range.end {
-                break;
-            }
-            proof {
-                assert(paddr + PAGE_SIZE <= self.range.end);
-                assert(paddr + PAGE_SIZE <= MAX_PADDR);
-            }
-
-            #[verus_spec(with Tracked(perm))]
-            crate::mm::frame::inc_frame_ref_count(paddr);
-
-            paddr = paddr + PAGE_SIZE;
+    fn try_from(seg: Segment<dyn AnyFrameMeta>) -> core::result::Result<Self, Self::Error> {
+        // SAFETY: for each page there would be a forgotten handle
+        // when creating the `Segment` object.
+        let first_frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(seg.range.start) };
+        let first_frame = ManuallyDrop::new(first_frame);
+        if !(first_frame.dyn_meta() as &dyn core::any::Any).is::<M>() {
+            return Err(seg);
         }
+        // Since segments are homogeneous, we can safely assume that the rest
+        // of the frames are of the same type. We just debug-check here.
+        #[cfg(debug_assertions)]
+        {
+            for paddr in seg.range.clone().step_by(PAGE_SIZE) {
+                let frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
+                let frame = ManuallyDrop::new(frame);
+                debug_assert!((frame.dyn_meta() as &dyn core::any::Any).is::<M>());
+            }
+        }
+        // SAFETY: The metadata is coerceable and the struct is transmutable.
+        Ok(unsafe { core::mem::transmute::<Segment<dyn AnyFrameMeta>, Segment<M>>(seg) })
+    }
+}
 
-        Self { range: self.range.start..self.range.end, _marker: core::marker::PhantomData }
+impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
+    fn from(seg: Segment<M>) -> Self {
+        // SAFETY: The metadata is coerceable and the struct is transmutable.
+        unsafe { core::mem::transmute(seg) }
+    }
+}
+
+impl TryFrom<Segment<dyn AnyFrameMeta>> for USegment {
+    type Error = Segment<dyn AnyFrameMeta>;
+
+    /// Try converting a [`Segment<dyn AnyFrameMeta>`] into [`USegment`].
+    ///
+    /// If the usage of the page is not the same as the expected usage, it will
+    /// return the dynamic page itself as is.
+    fn try_from(seg: Segment<dyn AnyFrameMeta>) -> core::result::Result<Self, Self::Error> {
+        // SAFETY: for each page there would be a forgotten handle
+        // when creating the `Segment` object.
+        let first_frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(seg.range.start) };
+        let first_frame = ManuallyDrop::new(first_frame);
+        if !first_frame.dyn_meta().is_untyped() {
+            return Err(seg);
+        }
+        // Since segments are homogeneous, we can safely assume that the rest
+        // of the frames are of the same type. We just debug-check here.
+        #[cfg(debug_assertions)]
+        {
+            for paddr in seg.range.clone().step_by(PAGE_SIZE) {
+                let frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
+                let frame = ManuallyDrop::new(frame);
+                debug_assert!(frame.dyn_meta().is_untyped());
+            }
+        }
+        // SAFETY: The metadata is coerceable and the struct is transmutable.
+        Ok(unsafe { core::mem::transmute::<Segment<dyn AnyFrameMeta>, USegment>(seg) })
+    }
+} */
+
+impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
+    /// The invariant of a [`Segment`]:
+    ///
+    /// - the physical addresses of the frames are aligned and within bounds.
+    /// - the range is well-formed, i.e., the start is less than or equal to the end.
+    open spec fn inv(self) -> bool {
+        &&& self.start_paddr() % PAGE_SIZE == 0
+        &&& self.end_paddr() % PAGE_SIZE == 0
+        &&& self.start_paddr() <= self.end_paddr() <= MAX_PADDR
     }
 }
 

@@ -25,12 +25,15 @@ impl CpuSet {
     #[verifier::external_body]
     #[verifier::when_used_as_spec(new_empty_spec)]
     pub fn new_empty() -> Self
-        returns Self::new_empty_spec()
+        returns
+            Self::new_empty_spec(),
     {
         unimplemented!()
     }
 }
 
-pub trait PinCurrentCpu { }
+pub trait PinCurrentCpu {
+
+}
 
 } // verus!

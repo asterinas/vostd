@@ -819,9 +819,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         assert(self.pt_cursor.item_wf(item, entry_owner)) by {};
 
         // SAFETY: It is safe to map untyped memory into the userspace.
-        let Err(frag) = (
-        #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
-        self.pt_cursor.map(item)) else {
+        let Err(frag) = (unsafe {
+            #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
+            self.pt_cursor.map(item)
+        }) else {
             return;  // No mapping exists at the current address.
         };
 
@@ -1641,7 +1642,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) -> Self::Item;
 
     #[verifier::external_body]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
         let frame = unsafe { UFrame::from_raw(paddr) };
         MappedItem { frame, prop }
     }

@@ -2,9 +2,10 @@
 use core::{marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
-
+use vstd::simple_pptr::PPtr;
+use vstd_extra::cast_ptr::Repr;
 use vstd_extra::drop_tracking::*;
-use vstd_extra::ownership::*;
+use vstd_extra::prelude::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
 use crate::mm::frame::meta::{has_safe_slot, AnyFrameMeta, MetaSlot};
@@ -14,11 +15,8 @@ use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::frame_specs::BorrowDebt;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use vstd_extra::cast_ptr::Repr;
 
 use super::Frame;
-
-use vstd::simple_pptr::PPtr;
 
 verus! {
 

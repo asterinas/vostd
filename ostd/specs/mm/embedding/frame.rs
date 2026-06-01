@@ -26,7 +26,6 @@
 //!   `storage.is_init`, `in_list.value() == 0`). We model this by
 //!   carrying the relevant precondition into the drop axiom but
 //!   leaving the post-state uncommitted on those fields.
-
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
@@ -47,7 +46,6 @@ verus! {
 // =============================================================================
 // _embedded axioms
 // =============================================================================
-
 /// Mirror of [`crate::mm::frame::Frame::from_unused`] (non-unique branch:
 /// `as_unique = false`) **including the Design-B caller re-park**. On
 /// `Some`, the slot at `paddr` transitions from `REF_COUNT_UNUSED` to
@@ -91,7 +89,8 @@ pub axiom fn frame_from_unused_embedded(
         ),
         // Non-interference: failure leaves `regions` unchanged.
         res is None ==> *final(regions) == *old(regions),
-        forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'_, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
@@ -169,10 +168,7 @@ pub axiom fn frame_from_in_use_embedded(
 /// the slot SHARED. (Not provable from `drop_ensures` alone, but sound
 /// to assert here — same epistemic status as the other `_embedded`
 /// axioms reflecting real exec behavior.)
-pub axiom fn frame_drop_embedded(
-    tracked regions: &mut MetaRegionOwners,
-    paddr: Paddr,
-)
+pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: Paddr)
     requires
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index_spec(paddr)),
@@ -196,12 +192,14 @@ pub axiom fn frame_drop_embedded(
             &&& old(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty()
         },
     ensures
-        // ---- mirrors strengthened `Frame::drop_ensures` ----
+// ---- mirrors strengthened `Frame::drop_ensures` ----
+
         final(regions).inv(),
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index_spec(paddr)
-                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+            i != frame_to_index_spec(paddr) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         final(regions).slots =~= old(regions).slots,
         final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
         final(regions).slot_owners[frame_to_index_spec(paddr)].raw_count
@@ -227,8 +225,16 @@ pub axiom fn frame_drop_embedded(
         final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list
             == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list,
         old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() == 1
-            ==> final(regions).slot_owners[frame_to_index_spec(paddr)]
-                .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+            ==> final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty(),
+        // `drop` never touches the free-list `in_list` field (the
+        // decrement branch leaves it; `drop_last_in_place` preserves
+        // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
+        final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list == old(
+            regions,
+        ).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list,
+        old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() == 1
+            ==> final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value()
+            == REF_COUNT_UNUSED,
         old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() > 1
             ==> final(regions).slot_owners[frame_to_index_spec(paddr)]
                 .inner_perms.ref_count.value()
@@ -243,14 +249,14 @@ pub axiom fn frame_drop_embedded(
             ==> final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage
                 == old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.storage,
         // ---- embedding inv chaining ----
-        forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'_, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
 // =============================================================================
 // step proofs
 // =============================================================================
-
 /// Per-op step for `Op::FrameFromUnused`. On success, allocates a
 /// `FrameEntry { paddr }` for the dispatcher to register.
 pub(super) proof fn from_unused_step(
@@ -271,7 +277,8 @@ pub(super) proof fn from_unused_step(
             *final(regions),
         ),
         res is None ==> *final(regions) == *old(regions),
-        forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
+        forall|c: CursorOwner<'_, UserPtConfig>|
+            #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
     let tracked outcome = frame_from_unused_embedded(regions, paddr);
@@ -341,10 +348,7 @@ pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
 /// the entry from the store. One drop; the single axiom's
 /// refcount-keyed postcondition gives decrement (`> 1`) or
 /// UNUSED-teardown (`== 1`) — no branching here.
-pub(super) proof fn drop_step(
-    tracked regions: &mut MetaRegionOwners,
-    tracked entry: FrameEntry,
-)
+pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked entry: FrameEntry)
     requires
         old(regions).inv(),
         drop_pre(*old(regions), entry.paddr),

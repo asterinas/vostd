@@ -19,7 +19,6 @@ verus! {
 // =============================================================================
 // Trust-boundary axioms
 // =============================================================================
-
 /// AXIOM: every `&[u8]` reaching ostd refers to kernel-space memory.
 ///
 /// `ostd` is only ever called from kernel code, so any "native" Rust slice it
@@ -31,10 +30,9 @@ verus! {
 /// [`VirtPtr`]: crate::specs::mm::virt_mem::VirtPtr
 pub axiom fn axiom_slice_in_kernel(slice: &[u8])
     ensures
-        ::vstd_extra::external::slice::as_ptr_spec(slice) as usize
-            >= KERNEL_BASE_VADDR,
-        ::vstd_extra::external::slice::as_ptr_spec(slice) as usize
-            + slice.len() <= KERNEL_END_VADDR,
+        ::vstd_extra::external::slice::as_ptr_spec(slice) as usize >= KERNEL_BASE_VADDR,
+        ::vstd_extra::external::slice::as_ptr_spec(slice) as usize + slice.len()
+            <= KERNEL_END_VADDR,
 ;
 
 /// AXIOM: a fresh `MemView` covering a kernel-VA range exists.
@@ -64,7 +62,6 @@ pub axiom fn axiom_kernel_mem_view(range: Range<usize>) -> (tracked mv: MemView)
 // =============================================================================
 // Tracked ownership types
 // =============================================================================
-
 /// The memory view used for VM I/O operations.
 ///
 /// The readers can think of this as a wrapped permission tokens for operating with a certain
@@ -91,13 +88,13 @@ pub tracked enum VmIoMemView {
 /// validity of the memory range and memory view tracked by this struct.
 pub tracked struct VmIoOwner {
     /// The unique identifier of this owner.
-    pub id: Ghost<nat>,
+    pub ghost id: nat,
     /// The virtual address range owned by this owner.
-    pub range: Ghost<Range<usize>>,
+    pub ghost range: Range<usize>,
     /// Whether this reader is fallible.
-    pub is_fallible: bool,
+    pub ghost is_fallible: bool,
     /// Whether this owner is for kernel space.
-    pub is_kernel: bool,
+    pub ghost is_kernel: bool,
     /// The mem view associated with this owner.
     pub mem_view: Option<VmIoMemView>,
 }
@@ -106,7 +103,7 @@ impl VmIoOwner {
     /// Structural well-formedness: the range is ordered.
     /// Always holds after construction.
     pub open spec fn inv_wf(self) -> bool {
-        self.range@.start <= self.range@.end
+        self.range.start <= self.range.end
     }
 }
 
@@ -119,7 +116,7 @@ impl Inv for VmIoOwner {
                 &&& mv.mappings.finite()
                 &&& mv.mappings_are_disjoint()
                 &&& forall|va: usize|
-                    self.range@.start <= va < self.range@.end ==> {
+                    self.range.start <= va < self.range.end ==> {
                         &&& #[trigger] mv.addr_transl(va) is Some
                     }
             },
@@ -127,7 +124,7 @@ impl Inv for VmIoOwner {
                 &&& mv.mappings.finite()
                 &&& mv.mappings_are_disjoint()
                 &&& forall|va: usize|
-                    self.range@.start <= va < self.range@.end ==> {
+                    self.range.start <= va < self.range.end ==> {
                         &&& #[trigger] mv.addr_transl(va) is Some
                     }
             },
@@ -168,7 +165,7 @@ impl VmIoOwner {
             Some(VmIoMemView::ReadView(mem_src)) => {
                 forall|i: usize|
                     #![trigger mem_src.addr_transl(i)]
-                    self.range@.start <= i < self.range@.end ==> {
+                    self.range.start <= i < self.range.end ==> {
                         &&& mem_src.addr_transl(i) is Some
                         &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
                         &&& mem_src.memory[mem_src.addr_transl(
@@ -188,14 +185,14 @@ impl VmIoOwner {
 
     #[verifier::inline]
     pub open spec fn overlaps_with_range(self, range: Range<usize>) -> bool {
-        &&& self.range@.start <= range.end
-        &&& range.start <= self.range@.end
+        &&& self.range.start <= range.end
+        &&& range.start <= self.range.end
     }
 
     /// Checks whether this owner is disjoint with another owner.
     #[verifier::inline]
     pub open spec fn disjoint(self, other: VmIoOwner) -> bool {
-        &&& !self.overlaps_with_range(other.range@)
+        &&& !self.overlaps_with_range(other.range)
         &&& match (self.mem_view, other.mem_view) {
             (Some(lhs), Some(rhs)) => match (lhs, rhs) {
                 (VmIoMemView::WriteView(lmv), VmIoMemView::WriteView(rmv)) => {
@@ -217,7 +214,7 @@ impl VmIoOwner {
 
     #[verifier::inline]
     pub open spec fn params_eq(self, other: VmIoOwner) -> bool {
-        &&& self.range@ == other.range@
+        &&& self.range == other.range
         &&& self.is_fallible == other.is_fallible
     }
 
@@ -260,23 +257,25 @@ impl VmIoOwner {
         requires
             old(self).inv(),
             old(self).mem_view is Some,
-            nbytes <= old(self).range@.end - old(self).range@.start,
+            nbytes <= old(self).range.end - old(self).range.start,
         ensures
             final(self).inv(),
-            final(self).range@.start == old(self).range@.start + nbytes,
-            final(self).range@.end == old(self).range@.end,
+            final(self).range.start == old(self).range.start + nbytes,
+            final(self).range.end == old(self).range.end,
             final(self).is_fallible == old(self).is_fallible,
             final(self).id == old(self).id,
             final(self).is_kernel == old(self).is_kernel,
-            old(self).mem_view matches Some(VmIoMemView::ReadView(_)) ==> final(self).mem_view matches Some(VmIoMemView::ReadView(_)),
-            old(self).mem_view matches Some(VmIoMemView::WriteView(_)) ==> final(self).mem_view matches Some(VmIoMemView::WriteView(_)),
+            old(self).mem_view matches Some(VmIoMemView::ReadView(_))
+                ==> final(self).mem_view matches Some(VmIoMemView::ReadView(_)),
+            old(self).mem_view matches Some(VmIoMemView::WriteView(_))
+                ==> final(self).mem_view matches Some(VmIoMemView::WriteView(_)),
             old(self).read_view_initialized() ==> final(self).read_view_initialized(),
             // Byte preservation on the un-advanced sub-range — lets
             // `read_once` loops chain byte-level facts across iterations.
             old(self).mem_view matches Some(VmIoMemView::ReadView(_)) ==>
                 forall|va: usize|
                     #![trigger final(self).read_view_of().read(va)]
-                    old(self).range@.start + nbytes <= va < old(self).range@.end
+                    old(self).range.start + nbytes <= va < old(self).range.end
                     && old(self).read_view_of().addr_transl(va) is Some
                     && old(self).read_view_of().memory.contains_key(
                         old(self).read_view_of().addr_transl(va).unwrap().0
@@ -287,8 +286,8 @@ impl VmIoOwner {
                             == final(self).read_view_of().read(va)
                     },
     {
-        let ghost old_start = self.range@.start;
-        let ghost old_end = self.range@.end;
+        let ghost old_start = self.range.start;
+        let ghost old_end = self.range.end;
         let ghost old_view_g = self.mem_view;
         let ghost split_end = old_start + nbytes;
 
@@ -302,8 +301,8 @@ impl VmIoOwner {
                 assert(right.mappings_are_disjoint()) by {
                     assert(right.mappings <= view_g.mappings);
                 };
-                assert forall|va: usize| split_end <= va < old_end implies
-                    #[trigger] right.addr_transl(va) is Some by {
+                assert forall|va: usize|
+                    split_end <= va < old_end implies #[trigger] right.addr_transl(va) is Some by {
                     assert(view_g.addr_transl(va) is Some);
                     assert(view_g.addr_transl(va) == right.addr_transl(va));
                 };
@@ -319,30 +318,30 @@ impl VmIoOwner {
                 assert(right.mappings_are_disjoint()) by {
                     assert(right.mappings <= view_g.mappings);
                 };
-                assert forall|va: usize| split_end <= va < old_end implies
-                    #[trigger] right.addr_transl(va) is Some by {
+                assert forall|va: usize|
+                    split_end <= va < old_end implies #[trigger] right.addr_transl(va) is Some by {
                     assert(view_g.addr_transl(va) is Some);
                     assert(view_g.addr_transl(va) == right.addr_transl(va));
                 };
                 // If the old view was initialized, the right half stays initialized on its range.
-                if old_view_g matches Some(VmIoMemView::ReadView(mv0))
-                    && (forall|i: usize|
-                        #![trigger mv0.addr_transl(i)]
-                        old_start <= i < old_end ==> {
-                            &&& mv0.addr_transl(i) is Some
-                            &&& mv0.memory.contains_key(mv0.addr_transl(i).unwrap().0)
-                            &&& mv0.memory[mv0.addr_transl(i).unwrap().0].contents
-                                [mv0.addr_transl(i).unwrap().1 as int] is Init
-                        })
-                {
+                if old_view_g matches Some(VmIoMemView::ReadView(mv0)) && (forall|i: usize|
+                    #![trigger mv0.addr_transl(i)]
+                    old_start <= i < old_end ==> {
+                        &&& mv0.addr_transl(i) is Some
+                        &&& mv0.memory.contains_key(mv0.addr_transl(i).unwrap().0)
+                        &&& mv0.memory[mv0.addr_transl(i).unwrap().0].contents[mv0.addr_transl(
+                            i,
+                        ).unwrap().1 as int] is Init
+                    }) {
                     assert forall|i: usize|
                         #![trigger right.addr_transl(i)]
                         split_end <= i < old_end implies {
-                            &&& right.addr_transl(i) is Some
-                            &&& right.memory.contains_key(right.addr_transl(i).unwrap().0)
-                            &&& right.memory[right.addr_transl(i).unwrap().0].contents
-                                [right.addr_transl(i).unwrap().1 as int] is Init
-                        } by {
+                        &&& right.addr_transl(i) is Some
+                        &&& right.memory.contains_key(right.addr_transl(i).unwrap().0)
+                        &&& right.memory[right.addr_transl(
+                            i,
+                        ).unwrap().0].contents[right.addr_transl(i).unwrap().1 as int] is Init
+                    } by {
                         assert(view_g.addr_transl(i) == right.addr_transl(i));
                         let pa = right.addr_transl(i).unwrap().0;
                         assert(view_g.memory.contains_key(pa));
@@ -356,7 +355,7 @@ impl VmIoOwner {
                 VmIoMemView::ReadView(left)
             },
         };
-        self.range = Ghost(Range { start: split_end as usize, end: old_end });
+        self.range = Range { start: split_end as usize, end: old_end };
         res
     }
 
@@ -379,17 +378,17 @@ impl VmIoOwner {
         requires
             old(self).inv(),
             old(self).mem_view is Some,
-            nbytes <= old(self).range@.end - old(self).range@.start,
+            nbytes <= old(self).range.end - old(self).range.start,
         ensures
             r.inv(),
-            r.range@.start == old(self).range@.start,
-            r.range@.end == old(self).range@.start + nbytes,
+            r.range.start == old(self).range.start,
+            r.range.end == old(self).range.start + nbytes,
             r.is_fallible == old(self).is_fallible,
             r.is_kernel == old(self).is_kernel,
             r.mem_view is Some,
             final(self).inv(),
-            final(self).range@.start == old(self).range@.start + nbytes,
-            final(self).range@.end == old(self).range@.end,
+            final(self).range.start == old(self).range.start + nbytes,
+            final(self).range.end == old(self).range.end,
             final(self).is_fallible == old(self).is_fallible,
             final(self).id == old(self).id,
             final(self).is_kernel == old(self).is_kernel,
@@ -407,8 +406,8 @@ impl VmIoOwner {
                 &&& final(self).read_view_initialized()
             },
     {
-        let ghost old_start = self.range@.start;
-        let ghost old_end = self.range@.end;
+        let ghost old_start = self.range.start;
+        let ghost old_end = self.range.end;
         let ghost old_view_g = self.mem_view;
         let ghost split_end = old_start + nbytes;
 
@@ -423,8 +422,8 @@ impl VmIoOwner {
                 assert(left.mappings_are_disjoint()) by {
                     assert(left.mappings <= view_g.mappings);
                 };
-                assert forall|va: usize| old_start <= va < split_end implies
-                    #[trigger] left.addr_transl(va) is Some by {
+                assert forall|va: usize|
+                    old_start <= va < split_end implies #[trigger] left.addr_transl(va) is Some by {
                     assert(view_g.addr_transl(va) is Some);
                     assert(view_g.addr_transl(va) == left.addr_transl(va));
                 };
@@ -432,8 +431,8 @@ impl VmIoOwner {
                 assert(right.mappings_are_disjoint()) by {
                     assert(right.mappings <= view_g.mappings);
                 };
-                assert forall|va: usize| split_end <= va < old_end implies
-                    #[trigger] right.addr_transl(va) is Some by {
+                assert forall|va: usize|
+                    split_end <= va < old_end implies #[trigger] right.addr_transl(va) is Some by {
                     assert(view_g.addr_transl(va) is Some);
                     assert(view_g.addr_transl(va) == right.addr_transl(va));
                 };
@@ -448,8 +447,8 @@ impl VmIoOwner {
                 assert(left.mappings_are_disjoint()) by {
                     assert(left.mappings <= view_g.mappings);
                 };
-                assert forall|va: usize| old_start <= va < split_end implies
-                    #[trigger] left.addr_transl(va) is Some by {
+                assert forall|va: usize|
+                    old_start <= va < split_end implies #[trigger] left.addr_transl(va) is Some by {
                     assert(view_g.addr_transl(va) is Some);
                     assert(view_g.addr_transl(va) == left.addr_transl(va));
                 };
@@ -457,31 +456,31 @@ impl VmIoOwner {
                 assert(right.mappings_are_disjoint()) by {
                     assert(right.mappings <= view_g.mappings);
                 };
-                assert forall|va: usize| split_end <= va < old_end implies
-                    #[trigger] right.addr_transl(va) is Some by {
+                assert forall|va: usize|
+                    split_end <= va < old_end implies #[trigger] right.addr_transl(va) is Some by {
                     assert(view_g.addr_transl(va) is Some);
                     assert(view_g.addr_transl(va) == right.addr_transl(va));
                 };
                 // If the original read view was fully initialized, both halves
                 // remain initialized on their respective ranges.
-                if old_view_g matches Some(VmIoMemView::ReadView(mv0))
-                    && (forall|i: usize|
-                        #![trigger mv0.addr_transl(i)]
-                        old_start <= i < old_end ==> {
-                            &&& mv0.addr_transl(i) is Some
-                            &&& mv0.memory.contains_key(mv0.addr_transl(i).unwrap().0)
-                            &&& mv0.memory[mv0.addr_transl(i).unwrap().0].contents
-                                [mv0.addr_transl(i).unwrap().1 as int] is Init
-                        })
-                {
+                if old_view_g matches Some(VmIoMemView::ReadView(mv0)) && (forall|i: usize|
+                    #![trigger mv0.addr_transl(i)]
+                    old_start <= i < old_end ==> {
+                        &&& mv0.addr_transl(i) is Some
+                        &&& mv0.memory.contains_key(mv0.addr_transl(i).unwrap().0)
+                        &&& mv0.memory[mv0.addr_transl(i).unwrap().0].contents[mv0.addr_transl(
+                            i,
+                        ).unwrap().1 as int] is Init
+                    }) {
                     assert forall|i: usize|
                         #![trigger left.addr_transl(i)]
                         old_start <= i < split_end implies {
-                            &&& left.addr_transl(i) is Some
-                            &&& left.memory.contains_key(left.addr_transl(i).unwrap().0)
-                            &&& left.memory[left.addr_transl(i).unwrap().0].contents
-                                [left.addr_transl(i).unwrap().1 as int] is Init
-                        } by {
+                        &&& left.addr_transl(i) is Some
+                        &&& left.memory.contains_key(left.addr_transl(i).unwrap().0)
+                        &&& left.memory[left.addr_transl(i).unwrap().0].contents[left.addr_transl(
+                            i,
+                        ).unwrap().1 as int] is Init
+                    } by {
                         assert(view_g.addr_transl(i) == left.addr_transl(i));
                         let pa = left.addr_transl(i).unwrap().0;
                         assert(view_g.memory.contains_key(pa));
@@ -492,11 +491,12 @@ impl VmIoOwner {
                     assert forall|i: usize|
                         #![trigger right.addr_transl(i)]
                         split_end <= i < old_end implies {
-                            &&& right.addr_transl(i) is Some
-                            &&& right.memory.contains_key(right.addr_transl(i).unwrap().0)
-                            &&& right.memory[right.addr_transl(i).unwrap().0].contents
-                                [right.addr_transl(i).unwrap().1 as int] is Init
-                        } by {
+                        &&& right.addr_transl(i) is Some
+                        &&& right.memory.contains_key(right.addr_transl(i).unwrap().0)
+                        &&& right.memory[right.addr_transl(
+                            i,
+                        ).unwrap().0].contents[right.addr_transl(i).unwrap().1 as int] is Init
+                    } by {
                         assert(view_g.addr_transl(i) == right.addr_transl(i));
                         let pa = right.addr_transl(i).unwrap().0;
                         assert(view_g.memory.contains_key(pa));
@@ -509,11 +509,11 @@ impl VmIoOwner {
                 VmIoMemView::ReadView(left)
             },
         };
-        self.range = Ghost(Range { start: split_end as usize, end: old_end });
+        self.range = Range { start: split_end as usize, end: old_end };
 
         let tracked left_owner = VmIoOwner {
-            id: Ghost(arbitrary()),
-            range: Ghost(Range { start: old_start, end: split_end as usize }),
+            id: arbitrary(),
+            range: Range { start: old_start, end: split_end as usize },
             is_fallible: self.is_fallible,
             is_kernel: self.is_kernel,
             mem_view: Some(left_view),
@@ -575,13 +575,13 @@ impl VmIoOwner {
             old(self).mem_view matches Some(VmIoMemView::WriteView(_)),
         ensures
             final(self).inv(),
-            final(self).range@ == old(self).range@,
+            final(self).range == old(self).range,
             final(self).is_fallible == old(self).is_fallible,
             final(self).is_kernel == old(self).is_kernel,
             final(self).id == old(self).id,
             final(self).mem_view matches Some(VmIoMemView::ReadView(_)),
-            old(self).mem_view matches Some(VmIoMemView::WriteView(mv)) ==>
-                final(self).mem_view matches Some(VmIoMemView::ReadView(rv)) && rv == mv,
+            old(self).mem_view matches Some(VmIoMemView::WriteView(mv))
+                ==> final(self).mem_view matches Some(VmIoMemView::ReadView(rv)) && rv == mv,
     {
         let tracked old_view = self.mem_view.tracked_take();
         let tracked mv = match old_view {
@@ -595,7 +595,6 @@ impl VmIoOwner {
 // =============================================================================
 // wf/inv relating exec readers/writers to their ghost owners
 // =============================================================================
-
 impl<Fallibility> VmWriter<'_, Fallibility> {
     /// Structural well-formedness: cursor and end share the same ghost range.
     pub open spec fn inv_wf(self) -> bool {
@@ -605,12 +604,12 @@ impl<Fallibility> VmWriter<'_, Fallibility> {
     /// Relates a concrete writer to its ghost owner.
     pub open spec fn wf(self, owner: VmIoOwner) -> bool {
         &&& owner.inv()
-        &&& owner.range@.start == self.cursor.vaddr
-        &&& owner.range@.end == self.end.vaddr
-        &&& owner.id == self.ghost_id
+        &&& owner.range.start == self.cursor.vaddr
+        &&& owner.range.end == self.end.vaddr
+        &&& owner.id == self.ghost_id@
         &&& owner.mem_view matches Some(VmIoMemView::WriteView(mv)) ==> {
             forall|va: usize|
-                owner.range@.start <= va < owner.range@.end ==> {
+                owner.range.start <= va < owner.range.end ==> {
                     &&& #[trigger] mv.addr_transl(va) is Some
                 }
         }
@@ -635,12 +634,12 @@ impl<Fallibility> VmReader<'_, Fallibility> {
     /// Relates a concrete reader to its ghost owner.
     pub open spec fn wf(self, owner: VmIoOwner) -> bool {
         &&& owner.inv()
-        &&& owner.range@.start == self.cursor.vaddr
-        &&& owner.range@.end == self.end.vaddr
-        &&& owner.id == self.ghost_id
+        &&& owner.range.start == self.cursor.vaddr
+        &&& owner.range.end == self.end.vaddr
+        &&& owner.id == self.ghost_id@
         &&& owner.mem_view matches Some(VmIoMemView::ReadView(mv)) ==> {
             forall|va: usize|
-                owner.range@.start <= va < owner.range@.end ==> {
+                owner.range.start <= va < owner.range.end ==> {
                     &&& #[trigger] mv.addr_transl(va) is Some
                 }
         }

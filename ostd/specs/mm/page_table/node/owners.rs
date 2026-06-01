@@ -158,7 +158,8 @@ impl<C: PageTableConfig> NodeOwner<C> {
             self.set_children_perm(idx, pte).tree_level == self.tree_level,
             self.set_children_perm(idx, pte).children_perm.addr() == self.children_perm.addr(),
             self.set_children_perm(idx, pte).children_perm.value()
-                == self.children_perm.value().update(idx as int, pte);
+                == self.children_perm.value().update(idx as int, pte),
+    ;
 
     /// If any slot in `children_perm` holds a non-present PTE, then
     /// `nr_children < NR_ENTRIES`.
@@ -176,7 +177,8 @@ impl<C: PageTableConfig> NodeOwner<C> {
             idx < NR_ENTRIES,
             !self.children_perm.value()[idx as int].is_present(),
         ensures
-            self.meta_own.nr_children.value() < NR_ENTRIES;
+            self.meta_own.nr_children.value() < NR_ENTRIES,
+    ;
 
     /// If any slot in `children_perm` holds a present PTE, then
     /// `nr_children > 0`. Dual of [`Self::nr_children_absent_slot_bound`];
@@ -187,11 +189,11 @@ impl<C: PageTableConfig> NodeOwner<C> {
             idx < NR_ENTRIES,
             self.children_perm.value()[idx as int].is_present(),
         ensures
-            self.meta_own.nr_children.value() > 0;
+            self.meta_own.nr_children.value() > 0,
+    ;
 }
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
-
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
         &&& guard.inner.inner@.ptr.addr() == self.meta_addr_self()
         &&& guard.inner.inner@.wf(self)
@@ -233,10 +235,13 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
 impl<C: PageTableConfig> PageTableNode<C> {
     pub open spec fn invariants(self, owner: NodeOwner<C>) -> bool {
         &&& owner.inv()
-        &&& self.wf(owner)
-//        &&& owner.meta_perm.wf(&owner.meta_perm.inner_perms)
-//        &&& owner.meta_perm.addr() == self.ptr.addr()
-//        &&& owner.meta_perm.addr() == self.ptr.addr()
+        &&& self.wf(
+            owner,
+        )
+        //        &&& owner.meta_perm.wf(&owner.meta_perm.inner_perms)
+        //        &&& owner.meta_perm.addr() == self.ptr.addr()
+        //        &&& owner.meta_perm.addr() == self.ptr.addr()
+
     }
 }
 

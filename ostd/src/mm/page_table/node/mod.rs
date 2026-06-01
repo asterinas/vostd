@@ -105,7 +105,7 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 /// [`PageTableGuard`].
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
-impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
+unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     /// Caller invariants the PT-node `on_drop` body relies on:
     /// - Reader well-formedness + `vm_io_owner` matching + read view
     ///   initialized + at least `PAGE_SIZE` bytes remaining for the
@@ -660,10 +660,10 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Self::locks_preserved_except(owner.meta_addr_self(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<
-        'rcu,
-        C,
-    > where 'a: 'rcu {
+    pub unsafe fn make_guard_unchecked<'rcu, A: InAtomicMode>(
+        self,
+        _guard: &'rcu A,
+    ) -> PageTableGuard<'rcu, C> where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
 
         proof {
@@ -721,8 +721,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // Entry::new_at's `*res.node == *old(guard)` ensures says the wrapped
         // node equals the input guard's value, and the reborrow makes
         // `*final(self) == *res.node`.
-        #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(regions))]
-        Entry::new_at(self, idx)
+        unsafe {
+            #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(regions))]
+            Entry::new_at(self, idx)
+        }
     }
 
     /// Gets the number of valid PTEs in a page table node.
@@ -787,7 +789,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with Tracked(owner): Tracked<&NodeOwner<C>>,
             Tracked(regions): Tracked<&MetaRegionOwners>,
     )]
-    pub fn read_pte(&self, idx: usize) -> (pte: C::E)
+    pub unsafe fn read_pte(&self, idx: usize) -> (pte: C::E)
         requires
             self.inner.inner@.invariants(*owner),
             regions.inv(),
@@ -808,8 +810,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // SAFETY:
         // - The page table node is alive. The index is inside the bound, so the page table entry is valid.
         // - All page table entries are aligned and accessed with atomic operations only.
-        #[verus_spec(with Tracked(&owner.children_perm))]
-        load_pte(ptr.add(idx), Ordering::Relaxed)
+        unsafe {
+            #[verus_spec(with Tracked(&owner.children_perm))]
+            load_pte(ptr.add(idx), Ordering::Relaxed)
+        }
     }
 
     /// Writes a page table entry at a given index.
@@ -828,7 +832,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with Tracked(owner): Tracked<&mut NodeOwner<C>>,
             Tracked(regions): Tracked<&MetaRegionOwners>,
     )]
-    pub fn write_pte(&mut self, idx: usize, pte: C::E)
+    pub unsafe fn write_pte(&mut self, idx: usize, pte: C::E)
         requires
             old(self).inner.inner@.invariants(*old(owner)),
             regions.inv(),
@@ -858,8 +862,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // SAFETY:
         // - The page table node is alive. The index is inside the bound, so the page table entry is valid.
         // - All page table entries are aligned and accessed with atomic operations only.
-        #[verus_spec(with Tracked(&mut owner.children_perm))]
-        store_pte(ptr.add(idx), pte, Ordering::Release)
+        unsafe {
+            #[verus_spec(with Tracked(&mut owner.children_perm))]
+            store_pte(ptr.add(idx), pte, Ordering::Release)
+        }
     }
 
     /// Gets the mutable reference to the number of valid PTEs in the node.

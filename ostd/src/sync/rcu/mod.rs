@@ -184,7 +184,7 @@ struct RcuInner<P: NonNullPtr> {
     // We want to implement Send and Sync explicitly.
     // Having a pointer field prevents them from being implemented
     // automatically by the compiler.
-    _marker: PhantomData<*const P::Target>,
+    _marker: PhantomData<*const <P as NonNullPtr>::Target>,
     ghost_nullable: Ghost<bool>,
 }
 
