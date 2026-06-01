@@ -484,7 +484,6 @@ impl MetaSlot {
         requires
             old(regions).inv(),
             has_safe_slot(paddr) ==> {
-                &&& old(regions).slots.contains_key(frame_to_index(paddr))
                 &&& old(regions).slot_owners.contains_key(frame_to_index(paddr))
                 &&& old(regions).slots[frame_to_index(paddr)].addr() == frame_to_meta(paddr)
                 &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id()

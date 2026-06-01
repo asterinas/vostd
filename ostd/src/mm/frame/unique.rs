@@ -257,11 +257,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             owner.inv(),
             self.wf(*owner),
             regions.inv(),
-            regions.slots.contains_key(owner.slot_index),
         returns
             meta_to_frame(self.ptr.addr()),
     )]
     pub fn start_paddr(&self) -> Paddr {
+        proof {
+            assert(regions.slot_owners.contains_key(owner.slot_index));
+        }
         let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
         #[verus_spec(with Tracked(outer))]
         let slot = self.slot();
@@ -357,7 +359,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).slot_owners.contains_key(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].raw_count == 0,
             old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
-            old(regions).slots.contains_key(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).slot_owners[owner.slot_index].inner_perms.in_list.value() == 0,
             old(regions).slot_owners[owner.slot_index].inner_perms.storage.is_init(),
@@ -398,7 +399,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).inv(),
             old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0,
             old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-            old(regions).slots.contains_key(owner.slot_index),
         ensures
             Self::into_raw_ensures(self, *old(regions), *final(regions), r),
             final(regions).inv(),
@@ -429,7 +429,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).inv(),
             old(regions).slot_owners.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners[frame_to_index(paddr)].raw_count > 0,
-            old(regions).slots.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
         ensures
             res.0.ptr.addr() == frame_to_meta(paddr),
@@ -501,7 +500,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).slot_owners.contains_key(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].raw_count == 0,
             old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
-            old(regions).slots.contains_key(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).slot_owners[owner.slot_index].inner_perms.in_list.value() == 0,
             old(regions).slot_owners[owner.slot_index].inner_perms.storage.is_init(),
@@ -556,7 +554,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             unique.wf(owner),
             owner.inv(),
             old(regions).inv(),
-            old(regions).slots.contains_key(owner.slot_index),
             old(regions).slot_owners.contains_key(owner.slot_index),
             old(regions).slots[owner.slot_index].pptr() == unique.ptr,
             old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.id() == old(
@@ -599,7 +596,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         requires
             frame.inv(),
             old(regions).inv(),
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(frame.ptr.addr()))),
             old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(frame.ptr.addr()))),
             old(regions).slots[frame_to_index(meta_to_frame(frame.ptr.addr()))].pptr() == frame.ptr,
             old(regions).slot_owners[frame_to_index(

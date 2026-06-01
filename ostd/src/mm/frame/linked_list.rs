@@ -236,7 +236,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             old(regions).inv(),
             old(self).wf_region(owner, *old(regions)),
             owner.relate_region(*old(regions)),
-            old(regions).slots.contains_key(frame_to_index(owner.list[0].paddr)),
         ensures
             owner.list.len() == 0 ==> r.is_none(),
             r.is_some() ==> r.unwrap().0.model(r.unwrap().1@).meta == owner.list[0]@,
@@ -338,7 +337,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             old(regions).inv(),
             old(self).wf_region(owner, *old(regions)),
             owner.relate_region(*old(regions)),
-            old(regions).slots.contains_key(frame_to_index(owner.list[owner.list.len() - 1].paddr)),
         ensures
             owner.list.len() == 0 ==> r.is_none(),
             r.is_some() ==> r.unwrap().0.model(r.unwrap().1@).meta == owner.list[owner.list.len() - 1]@,
@@ -381,7 +379,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         requires
             slot_own.inv(),
             old(regions).inv(),
-            old(regions).slots.contains_key(frame_to_index(frame)),
             old(regions).slots[frame_to_index(frame)].is_init(),
             old(regions).slot_owners.contains_key(frame_to_index(frame)),
             old(regions).slot_owners[frame_to_index(frame)].inner_perms.in_list.is_for(
