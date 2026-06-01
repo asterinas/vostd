@@ -6,6 +6,7 @@
 //! should be layered on top after the view/history model stabilizes.
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use vstd::invariant::{AtomicInvariant, InvariantPredicate};
 use vstd::prelude::*;
 use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo};
 use vstd::resource::Loc;
@@ -89,14 +90,22 @@ pub ghost struct Msg<V> {
 
 pub type History<V> = Seq<Msg<V>>;
 
+/// User-supplied invariant predicate for a weak-memory atomic.
+///
+/// This mirrors `vstd::atomic_ghost::AtomicInvariantPredicate`, except the
+/// predicate is over the whole message history rather than one current value.
+pub trait WeakAtomicInvariantPredicate<K, V, G> {
+    spec fn atomic_inv(k: K, history: History<V>, g: G) -> bool;
+}
+
 /// Authoritative ghost state for one atomic object's history.
 ///
 /// This is intentionally a thin wrapper around vstd's map resource algebra:
 /// [`GhostMapAuth`] owns the authoritative timestamp-to-message map, while `len`
 /// records that the domain is the contiguous range `0..len`.
 ///
-/// In the next layer this token should live inside an invariant next to the
-/// executable atomic. This file intentionally keeps that glue out of scope.
+/// The proof-facing atomic wrapper below stores this token inside an
+/// `AtomicInvariant` next to the executable atomic.
 pub tracked struct HistAuth<V> {
     auth: GhostMapAuth<Timestamp, Msg<V>>,
     pub ghost len: nat,
@@ -218,6 +227,185 @@ impl<V> MsgSnap<V> {
         self.snap.agree(&auth.auth);
         assert(auth.map().contains_pair(self.ts(), self.msg()));
     }
+}
+
+/// Predicate adapter stored inside `AtomicInvariant`.
+///
+/// The invariant contains the authoritative history and user ghost state. The
+/// constant pairs the user key `K` with the logical atomic id.
+pub struct WeakAtomicPredUsize<Pred> {
+    p: Pred,
+}
+
+impl<K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<usize>, G)> for WeakAtomicPredUsize<
+    Pred,
+> where Pred: WeakAtomicInvariantPredicate<K, usize, G> {
+    open spec fn inv(k_id: (K, AtomicId), hist_g: (HistAuth<usize>, G)) -> bool {
+        let (k, id) = k_id;
+        let (hist, g) = hist_g;
+        &&& hist.id() == id
+        &&& hist.wf()
+        &&& Pred::atomic_inv(k, hist.history(), g)
+    }
+}
+
+/// A weak-memory atomic with an `atomic_ghost`-style invariant.
+///
+/// `AtomicUsizeW` remains the TCB executable wrapper. This type is the proof
+/// facing wrapper: it stores the authoritative history in an `AtomicInvariant`
+/// and exposes `well_formed`/`type_inv` predicates tying that history to the
+/// executable atomic id. As in `vstd::atomic_ghost`, outer data structures put
+/// this predicate in their own `#[verifier::type_invariant]`.
+pub struct WeakAtomicUsize<K, G, Pred> {
+    #[doc(hidden)]
+    pub atomic: AtomicUsizeW,
+    #[doc(hidden)]
+    pub atomic_inv: Tracked<
+        AtomicInvariant<(K, AtomicId), (HistAuth<usize>, G), WeakAtomicPredUsize<Pred>>,
+    >,
+}
+
+impl<K, G, Pred> WeakAtomicUsize<K, G, Pred> {
+    pub closed spec fn constant(&self) -> K {
+        self.atomic_inv@.constant().0
+    }
+
+    pub closed spec fn well_formed(&self) -> bool {
+        self.atomic_inv@.constant().1 == self.atomic.id()
+    }
+
+    pub closed spec fn type_inv(&self) -> bool {
+        self.well_formed()
+    }
+}
+
+impl<K, G, Pred> WeakAtomicUsize<K, G, Pred> where Pred: WeakAtomicInvariantPredicate<K, usize, G> {
+    #[inline(always)]
+    pub const fn new(Ghost(k): Ghost<K>, init: usize, Tracked(g): Tracked<G>) -> (res: Self)
+        requires
+            Pred::atomic_inv(k, seq![Msg { value: init, view: WmView::empty() }], g),
+        ensures
+            res.well_formed(),
+            res.constant() == k,
+    {
+        let (atomic, Tracked(hist)) = AtomicUsizeW::new(init);
+        let tracked pair = (hist, g);
+        assert(WeakAtomicPredUsize::<Pred>::inv((k, atomic.id()), pair));
+        let tracked atomic_inv = AtomicInvariant::new((k, atomic.id()), pair, 0);
+        WeakAtomicUsize { atomic, atomic_inv: Tracked(atomic_inv) }
+    }
+
+    #[inline(always)]
+    pub fn load_relaxed(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+        usize,
+        Ghost<Timestamp>,
+    ))
+        requires
+            self.well_formed(),
+    {
+        let result;
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (hist, g) = pair;
+            result = self.atomic.load_relaxed(Tracked(&hist), Tracked(tv));
+            proof {
+                pair = (hist, g);
+            }
+        });
+        result
+    }
+
+    #[inline(always)]
+    pub fn load_acquire(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+        usize,
+        Ghost<Timestamp>,
+    ))
+        requires
+            self.well_formed(),
+    {
+        let result;
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (hist, g) = pair;
+            result = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
+            proof {
+                pair = (hist, g);
+            }
+        });
+        result
+    }
+}
+
+pub struct TrueWeakAtomicInv;
+
+impl<K, V, G> WeakAtomicInvariantPredicate<K, V, G> for TrueWeakAtomicInv {
+    open spec fn atomic_inv(k: K, history: History<V>, g: G) -> bool {
+        true
+    }
+}
+
+/// Similar to Verus' macro [`atomic_with_ghost!`] for atomics with ghost state,
+/// but for weak-memory atomics with per-thread view tokens and message histories.
+/// 
+/// The macro opens the atomic invariant, performs the specified operation, and
+/// provides the previous history, new history, and operation snapshot to the user-
+/// provided proof block. The user can then write proofs about the effects of the
+/// operation on the history and thread view, using the snapshot to connect to the
+/// authoritative history.
+#[macro_export]
+macro_rules! weak_atomic_with_ghost {
+    (
+        $atomic:expr => store_release($value:expr, $tv:expr);
+        update $prev:ident -> $next:ident;
+        snapshot $snap:ident;
+        ghost $g:ident => $b:block
+    ) => {
+            ::vstd::prelude::verus_exec_expr! {{
+            let atomic = &($atomic);
+            let value = $value;
+            ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
+                #[allow(unused_mut)]
+                let tracked (mut hist, mut $g) = pair;
+                let ghost $prev = hist.history();
+                let snap_tracked = atomic.atomic.store_release(Tracked(&mut hist), $tv, value);
+                let ghost $next = hist.history();
+
+                proof {
+                    let tracked $snap = snap_tracked.get();
+                    $b
+                }
+
+                proof {
+                    pair = (hist, $g);
+                }
+            });
+        }}
+    };
+    (
+        $atomic:expr => store_relaxed($value:expr, $tv:expr);
+        update $prev:ident -> $next:ident;
+        snapshot $snap:ident;
+        ghost $g:ident => $b:block
+    ) => {
+            ::vstd::prelude::verus_exec_expr! {{
+            let atomic = &($atomic);
+            let value = $value;
+            ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
+                #[allow(unused_mut)]
+                let tracked (mut hist, mut $g) = pair;
+                let ghost $prev = hist.history();
+                let snap_tracked = atomic.atomic.store_relaxed(Tracked(&mut hist), $tv, value);
+                let ghost $next = hist.history();
+
+                proof {
+                    let tracked $snap = snap_tracked.get();
+                    $b
+                }
+
+                proof {
+                    pair = (hist, $g);
+                }
+            });
+        }}
+    };
 }
 
 /// Explicit per-thread view token.
@@ -408,6 +596,32 @@ impl AtomicUsizeW {
     {
         self.value.store(value, Ordering::Release);
         Tracked::assume_new()
+    }
+}
+
+#[cfg(verus_keep_ghost)]
+fn smoke_test_weak_atomic_with_ghost() {
+    let atomic = WeakAtomicUsize::<(), (), TrueWeakAtomicInv>::new(Ghost(()), 0, Tracked(()));
+    let tracked mut tv = ThreadView::new();
+    weak_atomic_with_ghost! {
+        atomic => store_release(1, Tracked(&mut tv));
+        update prev -> next;
+        snapshot snap;
+        ghost g => {
+            assert(next == prev.push(snap.msg()));
+            assert(snap.ts() == prev.len());
+            assert(snap.msg().value == 1);
+        }
+    }
+    weak_atomic_with_ghost! {
+        atomic => store_relaxed(2, Tracked(&mut tv));
+        update prev -> next;
+        snapshot snap;
+        ghost g => {
+            assert(next == prev.push(snap.msg()));
+            assert(snap.ts() == prev.len());
+            assert(snap.msg().value == 2);
+        }
     }
 }
 
