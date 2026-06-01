@@ -434,7 +434,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                     }
                     let frame = unsafe {
                         #[verus_spec(with Tracked(regions) => _debt)]
-                        Frame::<Self>::from_raw_borrowing(paddr)
+                        Frame::<Self>::from_raw(paddr)
                     };
                     VerifiedDrop::drop(frame, Tracked(regions));
                 } else {

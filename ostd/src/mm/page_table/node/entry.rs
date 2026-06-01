@@ -670,7 +670,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             let pt_ref = unsafe {
                 #[verus_spec(with Tracked(regions))]
-                PageTableNodeRef::borrow_paddr_borrowing(paddr)
+                PageTableNodeRef::borrow_paddr(paddr)
             };
 
             // Lock before writing the PTE, so no one else can operate on it.
@@ -884,7 +884,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         let pt_ref = unsafe {
             #[verus_spec(with Tracked(regions))]
-            PageTableNodeRef::borrow_paddr_borrowing(paddr)
+            PageTableNodeRef::borrow_paddr(paddr)
         };
 
         // Lock before writing the PTE, so no one else can operate on it.

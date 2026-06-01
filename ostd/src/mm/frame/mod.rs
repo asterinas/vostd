@@ -284,53 +284,6 @@ impl<M> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
-            -> debt: Tracked<BorrowDebt>,
-        requires
-            Self::from_raw_requires_safety(*old(regions), paddr),
-            old(regions).slot_owners[frame_to_index(paddr)].raw_count <= 1,
-            perm.is_init(),
-            perm.addr() == frame_to_meta(paddr),
-            perm.value().wf(old(regions).slot_owners[frame_to_index(paddr)]),
-        ensures
-            Self::from_raw_ensures(*old(regions), *final(regions), paddr, r),
-            final(regions).slots == old(regions).slots.insert(frame_to_index(paddr), *perm),
-            debt@.frame_index == frame_to_index(paddr),
-            debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
-    )]
-    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self {
-        let vaddr = frame_to_meta(paddr);
-        let ptr = PPtr::from_addr(vaddr);
-
-        let ghost idx = frame_to_index(paddr);
-        let ghost old_raw_count = regions.slot_owners[idx].raw_count;
-
-        proof {
-            let index = frame_to_index(paddr);
-            regions.sync_slot_perm(index, perm);
-
-            let tracked mut slot_own = regions.slot_owners.tracked_remove(index);
-            slot_own.raw_count = 0usize;
-            regions.slot_owners.tracked_insert(index, slot_own);
-        }
-
-        proof_with!(|= Tracked(BorrowDebt { frame_index: idx, raw_count_at_issue: old_raw_count }));
-        Self { ptr, _marker: PhantomData }
-    }
-
-    /// Borrow-model variant of [`Self::from_raw`]: the slot perm is already
-    /// parked in `regions.slots[idx]`, so the caller doesn't pass a separate
-    /// perm. Used by sites like `from_pte` whose perm-flow has been migrated
-    /// to leave the perm in `regions` throughout (rather than extracting via
-    /// `into_raw` and re-inserting via `from_raw`).
-    ///
-    /// # Safety
-    ///
-    /// Same as [`Self::from_raw`] — the caller must have previously bumped
-    /// raw_count via `into_raw`-style operations, and must restore at most once.
-    #[verus_spec(r =>
-        with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
             -> debt: Tracked<BorrowDebt>,
         requires
             Self::from_raw_requires_safety(*old(regions), paddr),
@@ -342,7 +295,7 @@ impl<M> Frame<M> {
             debt@.frame_index == frame_to_index(paddr),
             debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
     )]
-    pub(in crate::mm) unsafe fn from_raw_borrowing(paddr: Paddr) -> Self {
+    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);
         let ptr = PPtr::from_addr(vaddr);
 
@@ -384,33 +337,29 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>
-            -> perm: Tracked<Option<vstd::simple_pptr::PointsTo<MetaSlot>>>
         requires
             old(regions).inv(),
-            // `has_safe_slot`-guarded (see `MetaSlot::get_from_unused`):
-            // an out-of-bound / misaligned `paddr` returns `Err` without
-            // touching `regions`, so it is not a precondition violation.
-            has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
             final(regions).inv(),
-            r matches Ok(res) ==> perm@ is Some && MetaSlot::get_from_unused_perm_spec(paddr, metadata, false, res.ptr, perm@.unwrap()),
-            // Design B: expose the perm's well-formedness against the post
-            // slot owner so callers (Arc-style `Segment`) can re-park the
-            // perm into `regions.slots` and re-establish `regions.inv()`.
-            r matches Ok(res) ==> perm@ is Some && perm@.unwrap().value().wf(
-                final(regions).slot_owners[frame_to_index(paddr)]),
-            r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
+            r matches Ok(res) ==> res.ptr.addr() == frame_to_meta(paddr),
+            r is Ok ==> MetaSlot::get_from_unused_reparked_spec(paddr, false, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> r is Err,
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
+        let ghost pre = *regions;
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
-            proof_with!(|= Tracked(None));
             Err(err)
         } else {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
-            proof_with!(|= Tracked(Some(perm)));
+            let ghost idx = frame_to_index(paddr);
+            proof {
+                assert(frame_to_index_spec(paddr) < crate::mm::frame::meta::mapping::max_meta_slots());
+                assert(pre.slot_owners.contains_key(idx));
+                assert(pre.slots.contains_key(idx));
+                regions.sync_slot_perm(idx, &perm);
+            }
             Ok(Self { ptr, _marker: PhantomData })
         }
     }
@@ -691,7 +640,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         // SAFETY: Both the lifetime and the type matches `self`.
 
         unsafe {
-            #[verus_spec(with Tracked(regions), Tracked(&perm.points_to))]
+            #[verus_spec(with Tracked(regions))]
             FrameRef::borrow_paddr(
                 #[verus_spec(with Tracked(&perm.points_to))]
                 self.start_paddr(),
@@ -722,7 +671,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-                -> frame_perm: Tracked<MetaPerm<M>>,
         requires
             old(regions).inv(),
             old(regions).slots.contains_key(self.index()),
@@ -733,59 +681,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         ensures
             final(regions).inv(),
             r == self.paddr(),
-            frame_perm@.points_to == old(regions).slots[self.index()],
             final(regions).slot_owners[self.index()].raw_count
                 == (old(regions).slot_owners[self.index()].raw_count + 1) as usize,
             final(regions).slot_owners[self.index()].usage
                 == old(regions).slot_owners[self.index()].usage,
             self.into_raw_post_noninterference(*old(regions), *final(regions)),
+            final(regions).slots == old(regions).slots,
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
-        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
-        let tracked perm = regions.slots.tracked_borrow(self.index());
-
-        assert(perm.addr() == self.ptr.addr()) by {
-            assert(frame_to_meta(meta_to_frame(self.ptr.addr())) == self.ptr.addr());
-        };
-
-        #[verus_spec(with Tracked(perm))]
-        let paddr = self.start_paddr();
-
-        let ghost index = self.index();
-
-        assert(self.constructor_requires(*regions));
-        let _ = ManuallyDrop::new(self, Tracked(regions));
-
-        assert(regions.slots.contains_key(index));
-        let tracked meta_perm = regions.copy_perm::<M>(index);
-
-        proof_with!(|= Tracked(meta_perm));
-        paddr
-    }
-
-    /// Borrow-model variant of [`Self::into_raw`]: the slot perm stays parked
-    /// in `regions.slots[idx]` instead of being extracted. The caller doesn't
-    /// receive a separate `MetaPerm<M>`; the perm continues to live in
-    /// `regions` until [`Self::from_raw_borrowing`] is called with the same
-    /// `paddr`. Used by sites whose perm-flow has been migrated to leave the
-    /// perm in `regions` throughout (mirrors `UniqueFrame::into_raw`).
-    #[verus_spec(r =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        requires
-            old(regions).inv(),
-            old(regions).slots.contains_key(self.index()),
-            self.inv(),
-            old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-        ensures
-            final(regions).inv(),
-            r == self.paddr(),
-            final(regions).slot_owners[self.index()].raw_count
-                == (old(regions).slot_owners[self.index()].raw_count + 1) as usize,
-            final(regions).slots == old(regions).slots,
-            self.into_raw_post_noninterference(*old(regions), *final(regions)),
-    )]
-    pub(in crate::mm) fn into_raw_borrowing(self) -> Paddr {
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
 
         let tracked perm = regions.slots.tracked_borrow(self.index());

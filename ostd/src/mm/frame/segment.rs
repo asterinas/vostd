@@ -193,6 +193,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 },
             !(range.end <= MAX_PADDR ==> range.start < range.end) ==> may_panic(),
         ensures
+            final(regions).inv(),
             (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0)
                 ==> r == Err::<Self, _>(GetFrameError::NotAligned),
             (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end > MAX_PADDR)
@@ -220,7 +221,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
-            let tracked mut perm_opt: Option<simple_pptr::PointsTo<MetaSlot>>;
         }
 
         if range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0 {
@@ -302,7 +302,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             let paddr_in = range.start + i * PAGE_SIZE;
             let (paddr, meta) = metadata_fn(paddr_in);
 
-            let res = #[verus_spec(with Tracked(regions) => Tracked(perm_opt))]
+            let res = #[verus_spec(with Tracked(regions))]
             Frame::<M>::from_unused(paddr, meta);
             let frame = match res {
                 Ok(f) => f,
@@ -313,16 +313,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     };
                 },
             };
-
-            proof {
-                let tracked frame_perm = perm_opt.tracked_unwrap();
-                // Design B: re-park the slot perm canonically in
-                // `regions.slots` so drop/next can *borrow* it (Arc-style),
-                // rather than the segment owning it. `regions.inv()` is
-                // re-established from the strengthened `Frame::from_unused`
-                // ensures (`frame_perm.value().wf(slot_owners[idx])`).
-                regions.slots.tracked_insert(frame_to_index(paddr), frame_perm);
-            }
 
             let _ = ManuallyDrop::new(frame, Tracked(regions));
             segment.range.end = paddr + PAGE_SIZE;
@@ -790,18 +780,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 // forgotten with `raw_count == 1`, live refcount).
                 owner.relate_regions_at(*old(regions), 0);
             }
-            // Design B: the slot perm is canonical in `regions.slots`.
-            // Take it out as an owned local and hand it to the (unchanged)
-            // `from_raw`, whose `sync_slot_perm` re-parks it — net no-op on
-            // `slots`, no borrow conflict.
-            let tracked perm = regions.slots.tracked_remove(frame_to_index(self.range.start));
-
             proof_decl! {
                 let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
             }
 
             let frame = unsafe {
-                #[verus_spec(with Tracked(regions), Tracked(&perm) => Tracked(from_raw_debt))]
+                #[verus_spec(with Tracked(regions) => Tracked(from_raw_debt))]
                 Frame::<M>::from_raw(self.range.start)
             };
 
@@ -998,7 +982,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                 old_owner.relate_regions_at(*old(regions), k);
             }
 
-            let tracked slot_perm = regions.slots.tracked_remove(frame_to_index(paddr));
             proof_decl! {
                 let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
             }
@@ -1008,7 +991,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             // reclaims; the subsequent `frame.drop` decrements `ref_count`
             // and (when last ref) tears down the metadata.
             let frame = unsafe {
-                #[verus_spec(with Tracked(regions), Tracked(&slot_perm) => Tracked(from_raw_debt))]
+                #[verus_spec(with Tracked(regions) => Tracked(from_raw_debt))]
                 Frame::<M>::from_raw(paddr)
             };
 

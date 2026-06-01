@@ -55,68 +55,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
-        requires
-            Frame::<M>::from_raw_requires_safety(*old(regions), raw),
-            old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,
-            old(regions).slot_owners[frame_to_index(raw)].inner_perms.ref_count.value()
-                != crate::mm::frame::meta::REF_COUNT_UNUSED,
-            perm.is_init(),
-            perm.addr() == frame_to_meta(raw),
-            perm.value().wf(old(regions).slot_owners[frame_to_index(raw)]),
-        ensures
-            final(regions).inv(),
-            r.inner.0.ptr.addr() == frame_to_meta(raw),
-            // raw_count is always 1 after borrow (from_raw → 0, ManuallyDrop::new → 1)
-            final(regions).slot_owners[frame_to_index(raw)].raw_count == 1,
-            // All other fields of this slot are preserved
-            final(regions).slot_owners[frame_to_index(raw)].inner_perms
-                == old(regions).slot_owners[frame_to_index(raw)].inner_perms,
-            final(regions).slot_owners[frame_to_index(raw)].self_addr
-                == old(regions).slot_owners[frame_to_index(raw)].self_addr,
-            final(regions).slot_owners[frame_to_index(raw)].usage
-                == old(regions).slot_owners[frame_to_index(raw)].usage,
-            final(regions).slot_owners[frame_to_index(raw)].paths_in_pt
-                == old(regions).slot_owners[frame_to_index(raw)].paths_in_pt,
-            // Other slots are unchanged
-            forall |i: usize|
-                #![trigger final(regions).slot_owners[i]]
-                i != frame_to_index(raw) ==> final(regions).slot_owners[i]
-                    == old(regions).slot_owners[i],
-            final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
-            // Slots: from_raw inserts perm, ManuallyDrop::new preserves
-            final(regions).slots == old(regions).slots.insert(frame_to_index(raw), *perm),
-    )]
-    pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
-        proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
-            old(regions).inv_implies_correct_addr(raw);
-        }
-
-        proof_decl! {
-            let tracked debt: BorrowDebt;
-        }
-
-        let frame = unsafe {
-            proof_with!(Tracked(regions), Tracked(perm) => Tracked(debt));
-            Frame::from_raw(raw)
-        };
-
-        proof {
-            Frame::lemma_from_raw_manuallydrop_general(raw, frame, *old(regions), *regions, debt);
-        }
-
-        Self { inner: ManuallyDrop::new(frame, Tracked(regions)), _marker: PhantomData }
-    }
-
-    /// Borrow-model variant of [`Self::borrow_paddr`]: the slot perm is already
-    /// parked in `regions.slots[idx]`, so the caller doesn't pass a separate
-    /// perm. Pairs with [`Frame::from_raw_borrowing`] and
-    /// [`Frame::into_raw_borrowing`].
-    #[verus_spec(r =>
-        with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
             old(regions).slots.contains_key(frame_to_index(raw)),
@@ -142,7 +80,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
             final(regions).slots == old(regions).slots,
     )]
-    pub(in crate::mm) unsafe fn borrow_paddr_borrowing(raw: Paddr) -> Self {
+    pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
 
@@ -155,7 +93,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
 
         let frame = unsafe {
             proof_with!(Tracked(regions) => Tracked(debt));
-            Frame::from_raw_borrowing(raw)
+            Frame::from_raw(raw)
         };
 
         proof {

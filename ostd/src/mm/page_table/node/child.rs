@@ -164,7 +164,7 @@ impl<C: PageTableConfig> Child<C> {
                 proof_with!(
                     Tracked(regions) => Tracked(from_raw_debt)
                 );
-                PageTableNode::from_raw_borrowing(paddr)
+                PageTableNode::from_raw(paddr)
             };
 
             proof {
@@ -253,7 +253,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
             let node = unsafe {
                 #[verus_spec(with Tracked(regions))]
-                PageTableNodeRef::borrow_paddr_borrowing(paddr)
+                PageTableNodeRef::borrow_paddr(paddr)
             };
 
             proof {

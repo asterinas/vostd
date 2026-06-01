@@ -65,8 +65,6 @@ impl Inv for MetaRegionOwners {
             forall|i: usize| i < max_meta_slots() <==> #[trigger] self.slot_owners.contains_key(i)
         }
         &&& { forall|i: usize| #[trigger] self.slot_owners.contains_key(i)
-                && self.slot_owners[i].usage
-                    == crate::specs::mm::frame::meta_owners::PageUsage::PageTable
                 ==> self.slots.contains_key(i) }
         &&& { forall|i: usize| #[trigger] self.slots.contains_key(i) ==> i < max_meta_slots() }
         &&& {

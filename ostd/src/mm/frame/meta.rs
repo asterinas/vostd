@@ -321,12 +321,19 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
-            final(regions).inv(),
+            // Helper: on success, `regions.slots` loses the extracted slot
+            // (caller is responsible for re-parking it via `sync_slot_perm`
+            // to restore `regions.inv()`). On Err, regions is left intact
+            // and the inv is preserved.
+            res is Err ==> final(regions).inv(),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
             res matches Ok((res, perm)) ==> perm@.value().wf(
                 final(regions).slot_owners[frame_to_index(paddr)]),
+            // The returned perm is exactly the slot perm that was extracted
+            // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
+            // and recover `final.slots == old.slots`.
+            res matches Ok((_, perm)) ==> perm@ == old(regions).slots[frame_to_index(paddr)],
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> res is Err,
     )]
@@ -390,7 +397,6 @@ impl MetaSlot {
             slot_own.usage = PageUsage::Frame;
             assert(slot_perm.value().wf(slot_own));
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
-            assert(regions.inv());
         }
 
         Ok((slot, Tracked(slot_perm)))
