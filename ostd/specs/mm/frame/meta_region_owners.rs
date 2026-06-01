@@ -140,9 +140,14 @@ impl MetaRegionOwners {
         requires
             self.slots.contains_key(i),
             self.slot_owners.contains_key(i),
+            vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<M>>::new_spec(
+                self.slots[i],
+                self.slot_owners[i].inner_perms,
+            ).wf(&self.slot_owners[i].inner_perms),
         ensures
             res.points_to == self.slots[i],
             res.inner_perms == self.slot_owners[i].inner_perms,
+            res.wf(&res.inner_perms),
     ;
 
     /// Mutable analog of [`borrow_typed_perm`]. Lends out a `&'a mut cast_ptr`
@@ -159,9 +164,14 @@ impl MetaRegionOwners {
         requires
             old(self).slots.contains_key(i),
             old(self).slot_owners.contains_key(i),
+            vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<M>>::new_spec(
+                old(self).slots[i],
+                old(self).slot_owners[i].inner_perms,
+            ).wf(&old(self).slot_owners[i].inner_perms),
         ensures
             res.points_to == old(self).slots[i],
             res.inner_perms == old(self).slot_owners[i].inner_perms,
+            res.wf(&res.inner_perms),
             final(self).slots.dom() == old(self).slots.dom(),
             final(self).slot_owners.dom() == old(self).slot_owners.dom(),
             final(self).slots[i] == final(res).points_to,
