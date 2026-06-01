@@ -30,7 +30,8 @@ pub open spec fn PHYSICAL_BASE_ADDRESS_SPEC() -> usize {
 }
 
 pub open spec fn pa_is_valid_kernel_address(pa: int) -> bool {
-    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE * MAX_NR_PAGES as int
+    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE
+        * MAX_NR_PAGES as int
 }
 
 pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {
@@ -115,8 +116,7 @@ pub ghost enum EntryView<C: PageTableConfig> {
 
 impl<C: PageTableConfig> Inv for EntryView<C> {
     open spec fn inv(self) -> bool {
-        true
-        /*
+        true/*
         match self {
             Self::Leaf { leaf: _ } => self->leaf.inv(),
             Self::Intermediate { node: _ } => self->node.inv(),
@@ -124,6 +124,7 @@ impl<C: PageTableConfig> Inv for EntryView<C> {
             Self::Absent => true,
         }
         */
+
     }
 }
 

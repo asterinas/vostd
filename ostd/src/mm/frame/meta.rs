@@ -13,7 +13,14 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
+use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
+use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
+use vstd::simple_pptr::{self, PPtr};
+use vstd_extra::cast_ptr::*;
+use vstd_extra::ownership::*;
+use vstd_extra::panic::{may_panic, panic_diverge};
+use vstd_extra::prelude::*;
 
 pub mod mapping;
 
@@ -21,14 +28,6 @@ use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, MET
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-
-use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
-use vstd::cell::pcell_maybe_uninit;
-
-use vstd::simple_pptr::{self, PPtr};
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::{may_panic, panic_diverge};
 
 use core::{
     alloc::Layout,
@@ -41,7 +40,7 @@ use core::{
     sync::atomic::{AtomicU64, AtomicU8, Ordering},
 };
 
-//use align_ext::AlignExt;
+use align_ext::AlignExt;
 //use log::info;
 
 use crate::{
@@ -147,22 +146,6 @@ pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
     PPtr(slot, PhantomData::<MetaSlot>)
 }
 
-/// Tracked argument bundle for [`AnyFrameMeta::on_drop`]. Erased (non-generic,
-/// non-associated) so the trait stays dyn-compatible. Carries every permission
-/// any impl might need: the `MetaRegionOwners` consulted when dropping child
-/// frames, the `VmIoOwner` backing the reader, the `nr_children` PCell
-/// perm for the PT-node early-exit optimization, and a per-child slot-perm
-/// map for impls (like `PageTablePageMeta`) that need to reconstruct child
-/// `Frame`s via `from_raw` during their drop walk. Impls that don't need a
-/// given field simply ignore it.
-pub tracked struct OnDropArgs {
-    pub regions: MetaRegionOwners,
-    pub vm_io_owner: crate::specs::mm::io::VmIoOwner,
-    pub nr_children_perm: pcell_maybe_uninit::PointsTo<u16>,
-    /// Pre-extracted slot perms keyed by `frame_to_index(child_paddr)`.
-    pub child_perms: Map<usize, vstd::simple_pptr::PointsTo<MetaSlot>>,
-}
-
 /// Space-holder of the AnyFrameMeta virtual table.
 ///
 /// Dyn-compatible: no `Self`-by-value, no associated types on dispatched
@@ -170,22 +153,37 @@ pub tracked struct OnDropArgs {
 /// because it's only used statically (the runtime vtable pointer lives on
 /// the slot, not on the instance). Sites that need `Repr<MetaSlotStorage>`
 /// must spell it out — it was previously a supertrait.
-pub trait AnyFrameMeta {
+pub unsafe trait AnyFrameMeta {
     /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
-    /// reader/region/child-perm invariants) override this; the trait
-    /// method's `requires` clause calls it.
-    open spec fn on_drop_pre(&self, reader: VmReader<'_, Infallible>, args: OnDropArgs) -> bool {
+    /// reader/region invariants) override this; the trait method's
+    /// `requires` clause calls it.
+    open spec fn on_drop_pre(
+        &self,
+        reader: VmReader<'_, Infallible>,
+        regions: MetaRegionOwners,
+        vm_io_owner: crate::specs::mm::io::VmIoOwner,
+    ) -> bool {
         true
     }
 
     exec fn on_drop(
         &mut self,
         _reader: &mut VmReader<'_, Infallible>,
-        Tracked(_args): Tracked<&mut OnDropArgs>,
+        Tracked(_regions): Tracked<&mut MetaRegionOwners>,
+        Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     )
         requires
-            old(self).on_drop_pre(*old(_reader), *old(_args)),
+            old(_regions).inv(),
+            old(_reader).inv(),
+            old(_vm_io_owner).inv(),
+            old(_reader).wf(*old(_vm_io_owner)),
+            old(self).on_drop_pre(*old(_reader), *old(_regions), *old(_vm_io_owner)),
+        ensures
+            final(_regions).inv(),
+            final(_reader).inv(),
+            final(_vm_io_owner).inv(),
+            final(_reader).wf(*final(_vm_io_owner)),
     {
     }
 
@@ -322,12 +320,19 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
-            final(regions).inv(),
+            // Helper: on success, `regions.slots` loses the extracted slot
+            // (caller is responsible for re-parking it via `sync_slot_perm`
+            // to restore `regions.inv()`). On Err, regions is left intact
+            // and the inv is preserved.
+            res is Err ==> final(regions).inv(),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
             res matches Ok((res, perm)) ==> perm@.value().wf(
                 final(regions).slot_owners[frame_to_index(paddr)]),
+            // The returned perm is exactly the slot perm that was extracted
+            // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
+            // and recover `final.slots == old.slots`.
+            res matches Ok((_, perm)) ==> perm@ == old(regions).slots[frame_to_index(paddr)],
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> res is Err,
     )]
@@ -372,8 +377,10 @@ impl MetaSlot {
         // SAFETY: The slot now has a reference count of `0`, other threads will
         // not access the metadata slot so it is safe to have a mutable reference.
 
-        #[verus_spec(with Tracked(&mut slot_own.inner_perms.storage), Tracked(&mut slot_own.inner_perms.vtable_ptr))]
-        slot.borrow(Tracked(&slot_perm)).write_meta(metadata);
+        unsafe {
+            #[verus_spec(with Tracked(&mut slot_own.inner_perms.storage), Tracked(&mut slot_own.inner_perms.vtable_ptr))]
+            slot.borrow(Tracked(&slot_perm)).write_meta(metadata)
+        };
 
         if as_unique_ptr {
             slot.borrow(Tracked(&slot_perm)).ref_count.store(
@@ -391,7 +398,6 @@ impl MetaSlot {
             slot_own.usage = PageUsage::Frame;
             assert(slot_perm.value().wf(slot_own));
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
-            assert(regions.inv());
         }
 
         Ok((slot, Tracked(slot_perm)))
@@ -479,7 +485,6 @@ impl MetaSlot {
         requires
             old(regions).inv(),
             has_safe_slot(paddr) ==> {
-                &&& old(regions).slots.contains_key(frame_to_index(paddr))
                 &&& old(regions).slot_owners.contains_key(frame_to_index(paddr))
                 &&& old(regions).slots[frame_to_index(paddr)].addr() == frame_to_meta(paddr)
                 &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id()
@@ -506,14 +511,10 @@ impl MetaSlot {
         }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-        // Design B: the shared `Frame` path *borrows* the slot permission
-        // from `regions.slots` — it is never moved out (an in-use frame is
-        // Arc-like and `get_from_in_use` only bumps the refcount).
         let tracked slot_perm = regions.slots.tracked_borrow(frame_to_index(paddr));
 
         let ghost pre = slot_own.inner_perms.ref_count.value();
 
-        // Try to increase the reference count for an in-use frame. Otherwise fail.
         loop
             invariant
                 has_safe_slot(paddr),
@@ -521,16 +522,11 @@ impl MetaSlot {
                 slot_perm.is_init(),
                 slot_perm.value().ref_count.id() == slot_own.inner_perms.ref_count.id(),
                 slot_own.inner_perms.ref_count.value() == pre,
-                // Carry the may_panic implication into the loop so
-                // `get_from_in_use_loop`'s saturation precondition is
-                // dischargeable per-iteration (mirrors the `P ==> may_panic`
-                // loop-invariant pattern used by `map_frames` / `jump`).
                 slot_own.inner_perms.ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
                 regions0.slots.contains_key(frame_to_index(paddr)),
                 regions0.slot_owners.contains_key(frame_to_index(paddr)),
                 regions0.inv(),
                 regions0.slots[frame_to_index(paddr)] == *slot_perm,
-                // Preserved fields of slot_own for inv() and wf() proofs
                 slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
                 slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
                 slot_own.raw_count == regions0.slot_owners[frame_to_index(paddr)].raw_count,
@@ -538,11 +534,9 @@ impl MetaSlot {
                 FRAME_METADATA_RANGE.start <= slot_own.self_addr < FRAME_METADATA_RANGE.end,
                 slot_own.self_addr % META_SLOT_SIZE == 0,
                 slot_own.self_addr == slot_perm.addr(),
-                // wf relation: slot cell ids match inner_perms ids
                 slot_perm.value().storage.id() == slot_own.inner_perms.storage.id(),
                 slot_perm.value().vtable_ptr == slot_own.inner_perms.vtable_ptr.pptr(),
                 slot_perm.value().in_list.id() == slot_own.inner_perms.in_list.id(),
-                // inner_perms fields preserved across loop iterations
                 slot_own.inner_perms.ref_count.id() == regions0.slot_owners[frame_to_index(
                     paddr,
                 )].inner_perms.ref_count.id(),
@@ -687,7 +681,7 @@ impl MetaSlot {
             old(rc_perm).value() < REF_COUNT_MAX,
             final(rc_perm).id() == old(rc_perm).id(),
     )]
-    pub(super) fn inc_ref_count(&self) {
+    pub(super) unsafe fn inc_ref_count(&self) {
         let last_ref_cnt = self.ref_count.fetch_add(Tracked(rc_perm), 1);
 
         if last_ref_cnt >= REF_COUNT_MAX {
@@ -809,24 +803,21 @@ impl MetaSlot {
             final(vtable_perm).is_init(),
             Metadata::<M>::metadata_from_inner_perms(*final(meta_perm)) == metadata,
     )]
-    #[verifier::external_body]
     pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         &self,
         metadata: M,
     ) {
-        //        const { assert!(size_of::<M>() <= FRAME_METADATA_MAX_SIZE) };
-        //        const { assert!(align_of::<M>() <= FRAME_METADATA_MAX_ALIGN) };
         // SAFETY: Caller ensures that the access to the fields are exclusive.
         //        let vtable_ptr = unsafe { &mut *self.vtable_ptr.get() };
         //        vtable_ptr.write(core::ptr::metadata(&metadata as &dyn AnyFrameMeta));
-        let ptr = &self.storage;
+        self.vtable_ptr.put(Tracked(vtable_perm), 0);
 
         // SAFETY:
         // 1. `ptr` points to the metadata storage.
         // 2. The size and the alignment of the metadata storage is large enough to hold `M`
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
-        //ReprPtr::<MetaSlot, M>::new_borrowed(ptr).put(Tracked(slot_own.storage.borrow_mut()), &metadata);
+        Metadata::<M>::write_metadata_into_storage(&self.storage, Tracked(meta_perm), metadata);
     }
 
     /// Drops the metadata and deallocates the frame.
@@ -865,12 +856,14 @@ impl MetaSlot {
             final(owner).raw_count == old(owner).raw_count,
             final(owner).paths_in_pt == old(owner).paths_in_pt,
     )]
-    pub(super) fn drop_last_in_place(&self) {
+    pub(super) unsafe fn drop_last_in_place(&self) {
         // This should be guaranteed as a safety requirement.
         //        debug_assert_eq!(self.ref_count.load(Tracked(&*rc_perm)), 0);
         // SAFETY: The caller ensures safety.
-        #[verus_spec(with Tracked(owner))]
-        self.drop_meta_in_place();
+        unsafe {
+            #[verus_spec(with Tracked(owner))]
+            self.drop_meta_in_place()
+        };
 
         // `Release` pairs with the `Acquire` in `Frame::from_unused` and ensures
         // `drop_meta_in_place` won't be reordered after this memory store.
@@ -943,10 +936,11 @@ impl MetaSlot {
         // SAFETY: `ptr` points to the metadata storage which is valid to be
         // mutably borrowed under `vtable_ptr` because the metadata is valid,
         // the vtable is correct, and we have exclusive access.
-        let args: Tracked<&mut OnDropArgs> = Tracked::assume_new();
+        let regions: Tracked<&mut MetaRegionOwners> = Tracked::assume_new();
+        let vm_io_owner: Tracked<&mut crate::specs::mm::io::VmIoOwner> = Tracked::assume_new();
         unsafe {
             // Invoke the custom `on_drop` handler.
-            (*meta_ptr).on_drop(&mut reader, args);
+            (*meta_ptr).on_drop(&mut reader, regions, vm_io_owner);
             // Drop the frame metadata.
             core::ptr::drop_in_place(meta_ptr);
         }

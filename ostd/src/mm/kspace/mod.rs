@@ -228,7 +228,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     //#[verifier::when_used_as_spec(item_from_raw_spec)]
     #[verifier::external_body]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self::Item)
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res:
+        Self::Item)
         ensures
             res == Self::item_from_raw_spec(paddr, level, prop),
     {

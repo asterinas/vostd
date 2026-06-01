@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use core::marker::PhantomData;
 
 use vstd::{predicate::Predicate, prelude::*};
@@ -10,8 +9,11 @@ use crate::{
     error::Error,
     mm::{
         dma::{dma_type, Daddr, DmaType},
-        frame::{segment::SegmentOwner, untyped::AnyUFrameMeta, Segment},
-        io::{VmIo, VmIoMemView, VmIoOnce, VmIoOwner, VmReader, VmWriter},
+        frame::{untyped::AnyUFrameMeta, Segment},
+        io::{
+            axiom_kernel_mem_view, FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmIoMemView,
+            VmIoOnce, VmIoOwner, VmReader, VmWriter,
+        },
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr, HasPaddr, Paddr,
     },
@@ -20,8 +22,9 @@ use crate::{
             kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
             PAGE_SIZE,
         },
+        mm::frame::segment::SegmentOwner,
         mm::pod::PodOnce,
-        mm::virt_mem_newer::VirtPtr,
+        mm::virt_mem::VirtPtr,
     },
     sync::{AtomicDataWithOwner, PreemptDisabled, RwArc, RwLockReadGuard},
 };
@@ -63,8 +66,10 @@ pub tracked struct DmaCoherentInnerOwner<M: AnyUFrameMeta + ?Sized> {
     pub segment_owner: SegmentOwner<M>,
 }
 
-pub type DmaCoherentInnerAtomic<M> =
-    AtomicDataWithOwner<DmaCoherentInner<M>, DmaCoherentInnerOwner<M>>;
+pub type DmaCoherentInnerAtomic<M> = AtomicDataWithOwner<
+    DmaCoherentInner<M>,
+    DmaCoherentInnerOwner<M>,
+>;
 
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherent<M> {
     open spec fn inv(self) -> bool {
@@ -96,7 +101,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             Tracked(segment_owner): Tracked<SegmentOwner<M>>,
         requires
             segment.inv(),
-            segment.inv_with(&segment_owner),
+            segment.wf(&segment_owner),
         ensures
             r matches Ok(r) ==> r.inner.wf(),
     )]
@@ -107,7 +112,6 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
         if !check_and_insert_dma_mapping(start_paddr, frame_count) {
             return Err(DmaError::AlreadyMapped);
         }
-
         let start_daddr = match dma_type() {
             DmaType::Direct => {
                 // TODO: restore TDX GPA sharing once the arch hook is verified.
@@ -126,6 +130,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                         frame_count - i,
                 )]
                 while i < frame_count {
+                    assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
                     let _paddr = start_paddr + i * PAGE_SIZE;
                     // TODO: restore iommu::map once the IOMMU API is verified.
                     i += 1;
@@ -137,10 +142,12 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
 
         let tracked inner_owner = DmaCoherentInnerOwner { segment_owner };
 
-        let inner = RwArc::new(AtomicDataWithOwner::new(
-            DmaCoherentInner { segment, start_daddr, is_cache_coherent },
-            Tracked(inner_owner),
-        ));
+        let inner = RwArc::new(
+            AtomicDataWithOwner::new(
+                DmaCoherentInner { segment, start_daddr, is_cache_coherent },
+                Tracked(inner_owner),
+            ),
+        );
 
         Ok(DmaCoherent { inner })
     }
@@ -197,7 +204,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> reader_owner: Tracked<VmIoOwner<'a>>,
+            -> reader_owner: Tracked<VmIoOwner>,
         requires
             this@.inv(),
         ensures
@@ -212,14 +219,14 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
     )]
     fn reader_inner<'a>(
         this: RwLockReadGuard<'a, DmaCoherentInnerAtomic<M>, PreemptDisabled>,
-    ) -> VmReader<'a> {
+    ) -> VmReader<'a, Infallible> {
         proof_decl! {
             let ghost id: nat;
-            let tracked mut reader_owner: VmIoOwner<'a>;
+            let tracked mut reader_owner: VmIoOwner;
         }
         proof {
             lemma_max_paddr_range();
-            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr_spec());
+            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr());
         }
 
         let vaddr = paddr_to_vaddr(this.segment.start_paddr());
@@ -238,9 +245,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             VmReader::from_kernel_space(ptr, len)
         };
         proof {
-            let tracked inner = this.tracked_borrow();
-            let tracked owner = inner.permission.borrow();
-            let tracked mem_view = owner.segment_owner.borrow_kernel_mem_view(this@.data.segment);
+            let tracked mem_view = axiom_kernel_mem_view(range);
             reader_owner.mem_view = Some(VmIoMemView::ReadView(mem_view));
         }
         proof_with!(|= Tracked(reader_owner));
@@ -251,7 +256,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> writer_owner: Tracked<VmIoOwner<'a>>,
+            -> writer_owner: Tracked<VmIoOwner>,
         requires
             this@.inv(),
         ensures
@@ -265,14 +270,14 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
     )]
     fn writer_inner<'a>(
         this: RwLockReadGuard<'a, DmaCoherentInnerAtomic<M>, PreemptDisabled>,
-    ) -> VmWriter<'a> {
+    ) -> VmWriter<'a, Infallible> {
         proof_decl! {
             let ghost id: nat;
-            let tracked mut writer_owner: VmIoOwner<'a>;
+            let tracked mut writer_owner: VmIoOwner;
         }
         proof {
             lemma_max_paddr_range();
-            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr_spec());
+            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr());
         }
 
         let vaddr = paddr_to_vaddr(this.segment.start_paddr());
@@ -291,9 +296,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             VmWriter::from_kernel_space(ptr, len)
         };
         proof {
-            let tracked inner = this.tracked_borrow();
-            let tracked owner = inner.permission.borrow();
-            let tracked mem_view = owner.segment_owner.produce_kernel_mem_view(this@.data.segment);
+            let tracked mem_view = axiom_kernel_mem_view(range);
             writer_owner.mem_view = Some(VmIoMemView::WriteView(mem_view));
         }
         proof_with!(|= Tracked(writer_owner));
@@ -306,13 +309,11 @@ impl<M: AnyUFrameMeta + ?Sized> DmaCoherent<M> {
     #[inline(always)]
     #[verifier::external_body]
     #[verus_spec(r =>
-        requires
-            self.inner.wf(),
         ensures
             self.inner.wf(),
             r@.inv(),
     )]
-    pub fn read_inner(&self) -> RwLockReadGuard<DmaCoherentInnerAtomic<M>, PreemptDisabled> {
+    pub fn read_inner(&self) -> RwLockReadGuard<'_, DmaCoherentInnerAtomic<M>, PreemptDisabled> {
         self.inner.read()
     }
 }
@@ -375,7 +376,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> reader_perm: Tracked<VmIoOwner<'a>>,
+            -> reader_perm: Tracked<VmIoOwner>,
         requires
             self.inner.wf(),
         ensures
@@ -388,19 +389,24 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             KERNEL_BASE_VADDR <= r.cursor.range@.start,
             r.cursor.range@.end <= KERNEL_END_VADDR,
     )]
-    pub fn reader<'a>(&'a self) -> VmReader<'a> {
+    pub fn reader<'a>(&'a self) -> VmReader<'a, Infallible> {
         let inner = self.read_inner();
         proof_with!(=> Tracked(reader_perm));
         let reader = Self::reader_inner(inner);
         proof_with!(|= Tracked(reader_perm));
-        VmReader { id: reader.id, cursor: reader.cursor, end: reader.end, phantom: PhantomData }
+        VmReader {
+            ghost_id: reader.ghost_id,
+            cursor: reader.cursor,
+            end: reader.end,
+            phantom: PhantomData,
+        }
     }
 
     /// Returns a writer to write data into it.
     #[inline(always)]
     #[verus_spec(r =>
         with
-            -> writer_perm: Tracked<VmIoOwner<'a>>,
+            -> writer_perm: Tracked<VmIoOwner>,
         requires
             self.inner.wf(),
         ensures
@@ -411,12 +417,17 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             writer_perm@.has_write_view(),
             r.wf(writer_perm@),
     )]
-    pub fn writer<'a>(&'a self) -> VmWriter<'a> {
+    pub fn writer<'a>(&'a self) -> VmWriter<'a, Infallible> {
         let inner = self.read_inner();
         proof_with!(=> Tracked(writer_perm));
         let writer = Self::writer_inner(inner);
         proof_with!(|= Tracked(writer_perm));
-        VmWriter { id: writer.id, cursor: writer.cursor, end: writer.end, phantom: PhantomData }
+        VmWriter {
+            ghost_id: writer.ghost_id,
+            cursor: writer.cursor,
+            end: writer.end,
+            phantom: PhantomData,
+        }
     }
 }
 
@@ -425,17 +436,17 @@ impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaCoherentInner<M>> for DmaCoherentIn
     open spec fn predicate(&self, v: DmaCoherentInner<M>) -> bool {
         &&& self.inv()
         &&& v.inv()
-        &&& v.segment.inv_with(&self.segment_owner)
+        &&& v.segment.wf(&self.segment_owner)
     }
 }
 
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized> Clone for DmaCoherent<M> {
-    #[verus_spec]
-    fn clone(&self) -> Self
-        returns
-            DmaCoherent { inner: self.inner },
-    {
+    #[verus_spec(r =>
+        ensures
+            r == self,
+    )]
+    fn clone(&self) -> Self {
         DmaCoherent { inner: self.inner.clone() }
     }
 }
@@ -443,20 +454,22 @@ impl<M: AnyUFrameMeta + ?Sized> Clone for DmaCoherent<M> {
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf> HasDaddr for DmaCoherent<M> {
     #[inline]
     fn daddr(&self) -> Daddr {
-        self.daddr()
+        let inner = self.read_inner();
+        Self::daddr_inner(&inner)
     }
 }
 
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf> HasPaddr for DmaCoherent<M> {
     #[inline]
     fn paddr(&self) -> Paddr {
-        self.paddr()
+        let inner = self.read_inner();
+        Self::paddr_inner(&inner)
     }
 }
 
-impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwner<M>> for DmaCoherent<
-    M,
-> {
+impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
+    DmaCoherentVmIoOwner<M>,
+> for DmaCoherent<M> {
     closed spec fn obeys_vmio_spec() -> bool {
         true
     }
@@ -470,18 +483,18 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
     }
 
     closed spec fn obeys_vmio_read_spec() -> bool {
-        true
+        false
     }
 
     closed spec fn obeys_vmio_write_spec() -> bool {
-        true
+        false
     }
 
     open spec fn read_requires(
         self,
         offset: usize,
         writer: VmWriter<'_>,
-        writer_own: VmIoOwner<'_>,
+        writer_own: VmIoOwner,
         owner: DmaCoherentVmIoOwner<M>,
     ) -> bool {
         &&& self.inv()
@@ -499,7 +512,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
         self,
         offset: usize,
         reader: VmReader<'_>,
-        reader_own: VmIoOwner<'_>,
+        reader_own: VmIoOwner,
         owner: DmaCoherentVmIoOwner<M>,
     ) -> bool {
         &&& self.inv()
@@ -519,8 +532,8 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
         offset: usize,
         old_writer: VmWriter<'_>,
         new_writer: VmWriter<'_>,
-        old_writer_own: VmIoOwner<'_>,
-        new_writer_own: VmIoOwner<'_>,
+        old_writer_own: VmIoOwner,
+        new_writer_own: VmIoOwner,
         old_owner: DmaCoherentVmIoOwner<M>,
         new_owner: DmaCoherentVmIoOwner<M>,
         r: core::result::Result<(), Error>,
@@ -534,7 +547,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
             Ok(_) => {
                 &&& new_writer.avail_spec() == 0
                 &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
-                &&& new_writer_own.range@.start == old_writer_own.range@.start
+                &&& new_writer_own.range.start == old_writer_own.range.start
                     + old_writer.avail_spec()
             },
             Err(_) => {
@@ -549,8 +562,8 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
         offset: usize,
         old_reader: VmReader<'_>,
         new_reader: VmReader<'_>,
-        old_reader_own: VmIoOwner<'_>,
-        new_reader_own: VmIoOwner<'_>,
+        old_reader_own: VmIoOwner,
+        new_reader_own: VmIoOwner,
         old_owner: DmaCoherentVmIoOwner<M>,
         new_owner: DmaCoherentVmIoOwner<M>,
         r: core::result::Result<(), Error>,
@@ -564,7 +577,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
             Ok(_) => {
                 &&& new_reader.remain_spec() == 0
                 &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
-                &&& new_reader_own.range@.start == old_reader_own.range@.start
+                &&& new_reader_own.range.start == old_reader_own.range.start
                     + old_reader.remain_spec()
             },
             Err(_) => {
@@ -578,9 +591,15 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
         &self,
         offset: usize,
         writer: &mut VmWriter<'_>,
-        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(writer_own): Tracked<&mut VmIoOwner>,
         Tracked(owner): Tracked<&mut DmaCoherentVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
+        proof {
+            assert(Self::obeys_vmio_spec());
+            assert(Self::obeys_vmio_read_requires());
+            assert(!Self::obeys_vmio_read_spec());
+            assert(Self::read_requires(*self, offset, *writer, *writer_own, *owner));
+        }
         proof_decl! {
             let tracked mut reader_own;
         }
@@ -590,9 +609,11 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
             Self::reader_inner(inner)
         };
 
-        let Some(remain) = reader.remain().checked_sub(offset) else {
+        let remain_before_skip = reader.remain();
+        if offset > remain_before_skip {
             return Err(Error::InvalidArgs);
-        };
+        }
+        let remain = remain_before_skip - offset;
         let len = writer.avail();
         if remain < len {
             return Err(Error::InvalidArgs);
@@ -603,38 +624,28 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
             }
             return Ok(());
         }
-        reader.advance(offset);
+        let reader = reader.skip(offset);
         proof {
             reader_own.advance(offset);
-
-            assert(reader.inv());
-            assert(writer.inv());
             assert(reader_own.inv());
             assert(writer_own.inv());
-            assert(reader.wf(reader_own));
-            assert(writer.wf(*writer_own));
             assert(reader_own.mem_view matches Some(VmIoMemView::ReadView(_)));
             assert(reader_own.read_view_initialized());
             assert(writer_own.mem_view matches Some(VmIoMemView::WriteView(_)));
             assert(reader.remain_spec() >= len);
-            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-            assert(reader.cursor.vaddr > 0);
-            assert(writer.cursor.vaddr > 0);
-            assert(writer.cursor.range@.start >= reader.cursor.range@.end
-                || reader.cursor.range@.start >= writer.cursor.range@.end);
         }
 
-        proof_with!(Tracked(&mut reader_own), Tracked(&mut *writer_own));
-        let copied = reader.read(writer);
+        let copied = match reader.read_fallible(writer) {
+            Ok(copied) => copied,
+            Err((err, copied)) => {
+                writer.cursor = writer.cursor.sub(copied);
+                return Err(err);
+            },
+        };
 
         proof {
-            assert(copied == len);
-            assert(len == old(writer).avail_spec());
-            assert(writer.avail_spec() == 0);
-            assert(writer.cursor.vaddr == old(writer).cursor.vaddr + old(writer).avail_spec());
-            assert(writer_own.range@.start == old(writer_own).range@.start + old(
-                writer,
-            ).avail_spec());
+            reader_own.advance(copied);
+            writer_own.advance(copied);
             assert(*owner == *old(owner));
         }
 
@@ -645,9 +656,15 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
         &self,
         offset: usize,
         reader: &mut VmReader<'_>,
-        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(reader_own): Tracked<&mut VmIoOwner>,
         Tracked(owner): Tracked<&mut DmaCoherentVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
+        proof {
+            assert(Self::obeys_vmio_spec());
+            assert(Self::obeys_vmio_write_requires());
+            assert(!Self::obeys_vmio_write_spec());
+            assert(Self::write_requires(*self, offset, *reader, *reader_own, *owner));
+        }
         proof_decl! {
             let tracked mut writer_own;
         }
@@ -657,9 +674,11 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
             Self::writer_inner(inner)
         };
 
-        let Some(avail) = writer.avail().checked_sub(offset) else {
+        let avail_before_skip = writer.avail();
+        if offset > avail_before_skip {
             return Err(Error::InvalidArgs);
-        };
+        }
+        let avail = avail_before_skip - offset;
         let len = reader.remain();
         if avail < len {
             return Err(Error::InvalidArgs);
@@ -670,43 +689,26 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaCoherentVmIoOwne
             }
             return Ok(());
         }
-        writer.advance(offset);
+        let writer = writer.skip(offset);
         proof {
             writer_own.advance(offset);
 
             assert(writer.avail_spec() >= len);
-            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-            assert(writer.cursor.vaddr > 0);
-            assert(writer.cursor.range@.start >= reader.cursor.range@.end
-                || reader.cursor.range@.start >= writer.cursor.range@.end);
         }
-        let copied = {
-            #[verus_spec(with Tracked(&mut writer_own), Tracked(&mut *reader_own))]
-            writer.write(reader)
+        let copied = match writer.write_fallible(reader) {
+            Ok(copied) => copied,
+            Err((err, copied)) => {
+                reader.cursor = reader.cursor.sub(copied);
+                return Err(err);
+            },
         };
         proof {
-            assert(copied == len);
-            assert(len == old(reader).remain_spec());
-            assert(reader.remain_spec() == 0);
-            assert(reader.cursor.vaddr == old(reader).cursor.vaddr + old(reader).remain_spec());
-            assert(reader_own.range@.start == old(reader_own).range@.start + old(
-                reader,
-            ).remain_spec());
+            writer_own.advance(copied);
+            reader_own.advance(copied);
             assert(*owner == *old(owner));
         }
 
         Ok(())
-    }
-
-    #[verifier::external_body]
-    fn read_byte<const N: usize>(
-        &self,
-        offset: usize,
-        bytes: ArrayPtr<u8, N>,
-        Tracked(_bytes_owner): Tracked<&mut PointsToArray<u8, N>>,
-        Tracked(_owner): Tracked<&mut DmaCoherentVmIoOwner<M>>,
-    ) -> core::result::Result<(), Error> {
-        Err(Error::AccessDenied)
     }
 }
 
@@ -733,7 +735,10 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIoOnce for DmaCoherent
     }
 
     #[verifier::external_body]
-    fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> core::result::Result<(), Error> {
+    fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> core::result::Result<
+        (),
+        Error,
+    > {
         self.writer().skip(offset).write_once(new_val)
     }
 }

@@ -37,7 +37,7 @@ pub ghost struct Mapping {
 /// A view of the page table is simply the set of mappings that it contains.
 /// Its [invariant](PageTableView::inv) is a crucial property for memory correctness.
 pub ghost struct PageTableView {
-    pub mappings: Set<Mapping>
+    pub mappings: Set<Mapping>,
 }
 
 impl Mapping {
@@ -58,15 +58,19 @@ impl Mapping {
         &&& self.va_range.start % self.page_size as int == 0
         &&& self.va_range.end % self.page_size as int == 0
         &&& self.va_range.start + self.page_size as int == self.va_range.end
-        &&& 0 <= self.va_range.start <= self.va_range.end
+        &&& 0 <= self.va_range.start
+            <= self.va_range.end
         // VA range fits in the 64-bit addressable space. `va_range.end` may
         // equal `pow2(64)` for a kernel mapping at the top of the canonical
         // high half; `va_range.start` is strictly less than `pow2(64)`
         // because `start + page_size == end <= pow2(64)` and `page_size > 0`.
-        &&& self.va_range.end <= pow2(64)
+        &&& self.va_range.end <= pow2(
+            64,
+        )
         // Per-config VA range bounds are enforced by `CursorView<C>::inv`
         // via `vaddr_range_bounds_spec<C>`, not here — a single
         // config-agnostic `Mapping::inv` cannot express them.
+
     }
 }
 
@@ -77,11 +81,9 @@ impl Mapping {
 impl PageTableView {
     pub open spec fn inv(self) -> bool {
         &&& forall|m: Mapping| #![trigger self.mappings.contains(m)] self.mappings has m ==> m.inv()
-        &&& forall|m: Mapping, n:Mapping|
+        &&& forall|m: Mapping, n: Mapping|
             #![trigger self.mappings.contains(m), self.mappings.contains(n)]
-            self.mappings has m ==>
-            self.mappings has n ==>
-            m != n ==> {
+            self.mappings has m ==> self.mappings has n ==> m != n ==> {
                 &&& m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
                 &&& m.pa_range.end <= n.pa_range.start || n.pa_range.end <= m.pa_range.start
             }

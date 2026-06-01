@@ -29,7 +29,8 @@ pub const MAX_USERSPACE_VADDR: Vaddr = 0x0000_8000_0000_0000_usize - PAGE_SIZE;
 /// The kernel address space.
 /// There are the high canonical addresses defined in most 48-bit width
 /// architectures.
-pub const KERNEL_VADDR_RANGE: Range<Vaddr> = 0xffff_8000_0000_0000_usize..0xffff_ffff_ffff_0000_usize;
+pub const KERNEL_VADDR_RANGE: Range<Vaddr> =
+    0xffff_8000_0000_0000_usize..0xffff_ffff_ffff_0000_usize;
 
 pub uninterp spec fn current_page_table_paddr_spec() -> Paddr;
 

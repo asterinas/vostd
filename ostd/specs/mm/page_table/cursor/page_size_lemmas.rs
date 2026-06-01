@@ -21,6 +21,7 @@ pub proof fn lemma_page_size_spec_level1()
         nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
     );
     broadcast use vstd::arithmetic::power2::lemma_pow2;
+
     vstd::arithmetic::power::lemma_pow0(2int);
 }
 
@@ -155,8 +156,9 @@ pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
     requires
         2 <= level <= NR_LEVELS + 1,
     ensures
-        crate::specs::arch::mm::NR_ENTRIES as int * page_size_spec((level - 1) as PagingLevel) as int
-            == page_size_spec(level) as int,
+        crate::specs::arch::mm::NR_ENTRIES as int * page_size_spec(
+            (level - 1) as PagingLevel,
+        ) as int == page_size_spec(level) as int,
 {
     lemma_page_size_spec_values();
     crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
@@ -172,37 +174,42 @@ pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
 ///   * `0 < big_j < page_size(level) / PAGE_SIZE` so the sub-page forall
 ///     (quantified over `j ∈ (0, page_size(level) / PAGE_SIZE)`) fires.
 ///   * `small_pa == pa + big_j * PAGE_SIZE` so the forall trigger matches.
-pub proof fn lemma_split_sub_page_big_j(
-    pa: Paddr,
-    level: PagingLevel,
-    i: usize,
-) -> (big_j: usize)
+pub proof fn lemma_split_sub_page_big_j(pa: Paddr, level: PagingLevel, i: usize) -> (big_j: usize)
     requires
         2 <= level <= NR_LEVELS,
         0 < i < crate::specs::arch::mm::NR_ENTRIES,
     ensures
         0 < big_j < page_size_spec(level) / PAGE_SIZE,
-        (pa + i * page_size_spec((level - 1) as PagingLevel)) as int
-            == pa as int + big_j as int * PAGE_SIZE as int,
+        (pa + i * page_size_spec((level - 1) as PagingLevel)) as int == pa as int + big_j as int
+            * PAGE_SIZE as int,
         big_j as int == i as int * (page_size_spec((level - 1) as PagingLevel) / PAGE_SIZE) as int,
 {
-    let sub_pages_per_entry: int =
-        (page_size_spec((level - 1) as PagingLevel) / PAGE_SIZE) as int;
+    let sub_pages_per_entry: int = (page_size_spec((level - 1) as PagingLevel) / PAGE_SIZE) as int;
     let big_j_int: int = i as int * sub_pages_per_entry;
     lemma_page_size_spec_values();
     lemma_page_size_div_mul_eq((level - 1) as PagingLevel);
     lemma_page_size_div_mul_eq(level);
     lemma_nr_entries_times_sub_page_size(level);
-    vstd::arithmetic::mul::lemma_mul_strictly_positive(
-        i as int, sub_pages_per_entry);
+    vstd::arithmetic::mul::lemma_mul_strictly_positive(i as int, sub_pages_per_entry);
     vstd::arithmetic::mul::lemma_mul_strict_inequality(
-        i as int, crate::specs::arch::mm::NR_ENTRIES as int, sub_pages_per_entry);
+        i as int,
+        crate::specs::arch::mm::NR_ENTRIES as int,
+        sub_pages_per_entry,
+    );
     vstd::arithmetic::mul::lemma_mul_is_associative(
-        crate::specs::arch::mm::NR_ENTRIES as int, sub_pages_per_entry, PAGE_SIZE as int);
+        crate::specs::arch::mm::NR_ENTRIES as int,
+        sub_pages_per_entry,
+        PAGE_SIZE as int,
+    );
     vstd::arithmetic::div_mod::lemma_div_by_multiple(
-        crate::specs::arch::mm::NR_ENTRIES as int * sub_pages_per_entry, PAGE_SIZE as int);
+        crate::specs::arch::mm::NR_ENTRIES as int * sub_pages_per_entry,
+        PAGE_SIZE as int,
+    );
     vstd::arithmetic::mul::lemma_mul_is_associative(
-        i as int, sub_pages_per_entry, PAGE_SIZE as int);
+        i as int,
+        sub_pages_per_entry,
+        PAGE_SIZE as int,
+    );
     big_j_int as usize
 }
 
@@ -247,10 +254,7 @@ pub proof fn lemma_pa_plus_page_size_no_overflow(pa: Paddr, level: PagingLevel)
 /// 0xffff_ffff_ffff_0000 + 0x4000_0000 = 0x1_0000_0000_3fff_0000 — still overflows.
 /// So this lemma requires va + page_size(level) <= barrier_va.end <= KERNEL_VADDR_RANGE.end,
 /// which is guaranteed by !map_panic_conditions / !find_next_panic_condition.
-pub proof fn lemma_va_plus_page_size_no_overflow(
-    va: Vaddr,
-    len: usize,
-)
+pub proof fn lemma_va_plus_page_size_no_overflow(va: Vaddr, len: usize)
     requires
         va + len <= KERNEL_VADDR_RANGE.end,
     ensures

@@ -21,7 +21,6 @@ use crate::mm::page_table::page_size_spec as page_size;
 verus! {
 
 impl<C: PageTableConfig> CursorView<C> {
-
     /// After `split_if_mapped_huge_spec(new_size)`, a sub-mapping at `cur_va`
     /// still exists.  The witness is `split_index(m, new_size, k)` where
     /// `k = (cur_va - m.va_range.start) / new_size`.
@@ -40,11 +39,14 @@ impl<C: PageTableConfig> CursorView<C> {
         let ps = m.page_size;
 
         assert(v.mappings.contains(m) && m.va_range.start <= cur_va && cur_va < m.va_range.end) by {
-            let f = v.mappings.filter(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end);
+            let f = v.mappings.filter(
+                |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end,
+            );
             assert(f.finite()) by {
                 vstd::set::axiom_set_intersect_finite::<Mapping>(
                     v.mappings,
-                    Set::new(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end));
+                    Set::new(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end),
+                );
             };
             vstd::set::axiom_set_choose_len(f);
         };
@@ -61,7 +63,10 @@ impl<C: PageTableConfig> CursorView<C> {
         assert(ki < ps as int / new_size as int) by {
             if ki >= ps as int / new_size as int {
                 vstd::arithmetic::mul::lemma_mul_inequality(
-                    ps as int / new_size as int, ki, new_size as int);
+                    ps as int / new_size as int,
+                    ki,
+                    new_size as int,
+                );
             }
         };
 
@@ -72,13 +77,18 @@ impl<C: PageTableConfig> CursorView<C> {
         };
         assert((ki + 1) * (new_size as int) <= ps as int) by {
             vstd::arithmetic::mul::lemma_mul_inequality(
-                ki + 1, ps as int / new_size as int, new_size as int);
+                ki + 1,
+                ps as int / new_size as int,
+                new_size as int,
+            );
         };
-        assert(m.va_range.start as int + (ki + 1) * (new_size as int)
-            <= (m.va_range.end as int)) by {
+        assert(m.va_range.start as int + (ki + 1) * (new_size as int) <= (m.va_range.end as int))
+            by {
             vstd::arithmetic::mul::lemma_mul_is_commutative(ki + 1, new_size as int);
             vstd::arithmetic::mul::lemma_mul_is_commutative(
-                ps as int / new_size as int, new_size as int);
+                ps as int / new_size as int,
+                new_size as int,
+            );
         };
 
         assert(ki as usize as int == ki);
@@ -89,27 +99,30 @@ impl<C: PageTableConfig> CursorView<C> {
         assert(cur_va < sub.va_range.end);
 
         let new_self = v.split_if_mapped_huge_spec(new_size);
-        let domain = Set::<int>::new(|n:int| 0 <= n < ps as int / new_size as int);
+        let domain = Set::<int>::new(|n: int| 0 <= n < ps as int / new_size as int);
         assert(domain.contains(ki));
         assert(new_self.mappings.contains(sub));
 
         let new_filter = new_self.mappings.filter(
-            |m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end);
+            |m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end,
+        );
         assert(new_filter.contains(sub));
         assert(new_self.mappings.finite()) by {
             vstd::set::axiom_set_remove_finite(v.mappings, m);
-            let domain = Set::<int>::new(|n:int| 0 <= n < ps as int / new_size as int);
+            let domain = Set::<int>::new(|n: int| 0 <= n < ps as int / new_size as int);
             assert(domain =~= int::range_set(0int, ps as int / new_size as int));
             vstd::set_lib::range_set_properties::<int>(0int, ps as int / new_size as int);
-            domain.lemma_map_finite(|n:int| Self::split_index(m, new_size, n as usize));
+            domain.lemma_map_finite(|n: int| Self::split_index(m, new_size, n as usize));
             vstd::set::axiom_set_union_finite(
                 v.mappings.remove(m),
-                domain.map(|n:int| Self::split_index(m, new_size, n as usize)));
+                domain.map(|n: int| Self::split_index(m, new_size, n as usize)),
+            );
         };
         assert(new_filter.finite()) by {
             vstd::set::axiom_set_intersect_finite::<Mapping>(
                 new_self.mappings,
-                Set::new(|m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end));
+                Set::new(|m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end),
+            );
         };
         vstd::set::axiom_set_contains_len(new_filter, sub);
     }
@@ -129,7 +142,8 @@ impl<C: PageTableConfig> CursorView<C> {
             v.query_mapping().page_size % new_size == 0,
         ensures
             v.split_if_mapped_huge_spec(new_size).present(),
-            v.split_if_mapped_huge_spec(new_size).query_mapping().page_size < v.query_mapping().page_size,
+            v.split_if_mapped_huge_spec(new_size).query_mapping().page_size
+                < v.query_mapping().page_size,
     {
         Self::split_if_mapped_huge_spec_preserves_present(v, new_size);
 
@@ -141,33 +155,38 @@ impl<C: PageTableConfig> CursorView<C> {
 
         assert(v.mappings.contains(m) && m.va_range.start <= cur_va && cur_va < m.va_range.end) by {
             let f = v.mappings.filter(
-                |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end);
+                |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end,
+            );
             assert(f.finite()) by {
                 vstd::set::axiom_set_intersect_finite::<Mapping>(
                     v.mappings,
-                    Set::new(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end));
+                    Set::new(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end),
+                );
             };
             vstd::set::axiom_set_choose_len(f);
         };
 
-        assert(new_self.mappings.contains(m2)
-            && m2.va_range.start <= cur_va && cur_va < m2.va_range.end) by {
+        assert(new_self.mappings.contains(m2) && m2.va_range.start <= cur_va && cur_va
+            < m2.va_range.end) by {
             let f = new_self.mappings.filter(
-                |m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end);
+                |m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end,
+            );
             assert(new_self.mappings.finite()) by {
                 vstd::set::axiom_set_remove_finite(v.mappings, m);
-                let domain = Set::<int>::new(|n:int| 0 <= n < ps as int / new_size as int);
+                let domain = Set::<int>::new(|n: int| 0 <= n < ps as int / new_size as int);
                 assert(domain =~= int::range_set(0int, ps as int / new_size as int));
                 vstd::set_lib::range_set_properties::<int>(0int, ps as int / new_size as int);
-                domain.lemma_map_finite(|n:int| Self::split_index(m, new_size, n as usize));
+                domain.lemma_map_finite(|n: int| Self::split_index(m, new_size, n as usize));
                 vstd::set::axiom_set_union_finite(
                     v.mappings.remove(m),
-                    domain.map(|n:int| Self::split_index(m, new_size, n as usize)));
+                    domain.map(|n: int| Self::split_index(m, new_size, n as usize)),
+                );
             };
             assert(f.finite()) by {
                 vstd::set::axiom_set_intersect_finite::<Mapping>(
                     new_self.mappings,
-                    Set::new(|m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end));
+                    Set::new(|m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end),
+                );
             };
             vstd::set::axiom_set_choose_len(f);
         };
@@ -176,14 +195,17 @@ impl<C: PageTableConfig> CursorView<C> {
             assert(m.va_range.end <= m2.va_range.start || m2.va_range.end <= m.va_range.start);
             assert(false);
         }
-
         assert(!v.mappings.remove(m).contains(m2));
-        let new_mappings = Set::<int>::new(
-            |n:int| 0 <= n < ps as int / new_size as int
-        ).map(|n:int| Self::split_index(m, new_size, n as usize));
+        let new_mappings = Set::<int>::new(|n: int| 0 <= n < ps as int / new_size as int).map(
+            |n: int| Self::split_index(m, new_size, n as usize),
+        );
         assert(new_mappings.contains(m2));
-        let k = choose|k: int| 0 <= k < ps as int / new_size as int
-            && #[trigger] Self::split_index(m, new_size, k as usize) == m2;
+        let k = choose|k: int|
+            0 <= k < ps as int / new_size as int && #[trigger] Self::split_index(
+                m,
+                new_size,
+                k as usize,
+            ) == m2;
         assert(m2.page_size == new_size);
     }
 
@@ -214,11 +236,14 @@ impl<C: PageTableConfig> CursorView<C> {
 
         // --- Establish that m is in v.mappings and covers cur_va ---
         assert(v.mappings.contains(m) && m.va_range.start <= cur_va && cur_va < m.va_range.end) by {
-            let f = v.mappings.filter(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end);
+            let f = v.mappings.filter(
+                |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end,
+            );
             assert(f.finite()) by {
                 vstd::set::axiom_set_intersect_finite::<Mapping>(
                     v.mappings,
-                    Set::new(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end));
+                    Set::new(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end),
+                );
             };
             vstd::set::axiom_set_choose_len(f);
         };
@@ -232,8 +257,7 @@ impl<C: PageTableConfig> CursorView<C> {
             assert(domain =~= int::range_set(0int, count));
             vstd::set_lib::range_set_properties::<int>(0int, count);
             domain.lemma_map_finite(|n: int| Self::split_index(m, new_size, n as usize));
-            vstd::set::axiom_set_union_finite(
-                v.mappings.remove(m), new_mappings);
+            vstd::set::axiom_set_union_finite(v.mappings.remove(m), new_mappings);
         };
 
         // --- Helper: ps == count * ns (no remainder) ---
@@ -242,13 +266,11 @@ impl<C: PageTableConfig> CursorView<C> {
 
         assert(m.va_range.start % new_size as int == 0) by {
             vstd::arithmetic::mul::lemma_mul_is_commutative(count, ns);
-            vstd::arithmetic::div_mod::lemma_mod_mod(
-                m.va_range.start as int, ns, count);
+            vstd::arithmetic::div_mod::lemma_mod_mod(m.va_range.start as int, ns, count);
         };
         assert(m.pa_range.start % new_size == 0) by {
             vstd::arithmetic::mul::lemma_mul_is_commutative(count, ns);
-            vstd::arithmetic::div_mod::lemma_mod_mod(
-                m.pa_range.start as int, ns, count);
+            vstd::arithmetic::div_mod::lemma_mod_mod(m.pa_range.start as int, ns, count);
         };
 
         // --- (3) All mappings satisfy Mapping::inv() ---
@@ -257,8 +279,8 @@ impl<C: PageTableConfig> CursorView<C> {
                 assert(v.mappings.contains(e));
             } else {
                 assert(new_mappings.contains(e));
-                let k = choose|k: int| 0 <= k < count
-                    && #[trigger] Self::split_index(m, new_size, k as usize) == e;
+                let k = choose|k: int|
+                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e;
                 let sub = Self::split_index(m, new_size, k as usize);
 
                 // sub.page_size == new_size ∈ {4096, 2M, 1G}
@@ -268,20 +290,32 @@ impl<C: PageTableConfig> CursorView<C> {
                 // Use lemma_mod_multiples_vanish: (ns * a + b) % ns == b % ns.
                 vstd::arithmetic::mul::lemma_mul_is_commutative(k, ns);
                 vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    k, m.va_range.start as int, ns);
+                    k,
+                    m.va_range.start as int,
+                    ns,
+                );
                 assert(sub.va_range.start % new_size as int == 0);
                 vstd::arithmetic::mul::lemma_mul_is_commutative(k + 1, ns);
                 vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    k + 1, m.va_range.start as int, ns);
+                    k + 1,
+                    m.va_range.start as int,
+                    ns,
+                );
                 assert(sub.va_range.end % new_size as int == 0);
 
                 vstd::arithmetic::mul::lemma_mul_is_commutative(k, ns);
                 vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    k, m.pa_range.start as int, ns);
+                    k,
+                    m.pa_range.start as int,
+                    ns,
+                );
                 assert(sub.pa_range.start % new_size == 0);
                 vstd::arithmetic::mul::lemma_mul_is_commutative(k + 1, ns);
                 vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    k + 1, m.pa_range.start as int, ns);
+                    k + 1,
+                    m.pa_range.start as int,
+                    ns,
+                );
                 assert(sub.pa_range.end % new_size == 0);
 
                 // Range spans exactly new_size.
@@ -304,13 +338,10 @@ impl<C: PageTableConfig> CursorView<C> {
         };
 
         // --- (4) Non-overlapping ---
-        assert forall|e1: Mapping, e2: Mapping|
-            #[trigger] new_self.mappings.contains(e1) &&
-            #[trigger] new_self.mappings.contains(e2) &&
-            e1 != e2
-        implies
-            e1.va_range.end <= e2.va_range.start || e2.va_range.end <= e1.va_range.start
-        by {
+        assert forall|e1: Mapping, e2: Mapping| #[trigger]
+            new_self.mappings.contains(e1) && #[trigger] new_self.mappings.contains(e2) && e1
+                != e2 implies e1.va_range.end <= e2.va_range.start || e2.va_range.end
+            <= e1.va_range.start by {
             if v.mappings.remove(m).contains(e1) && v.mappings.remove(m).contains(e2) {
                 // Both from original: inherit from v.inv().
                 assert(v.mappings.contains(e1));
@@ -319,8 +350,8 @@ impl<C: PageTableConfig> CursorView<C> {
                 // e1 from original (disjoint from m), e2 sub-mapping within m.
                 assert(v.mappings.contains(e1));
                 assert(e1 != m);
-                let k2 = choose|k: int| 0 <= k < count
-                    && #[trigger] Self::split_index(m, new_size, k as usize) == e2;
+                let k2 = choose|k: int|
+                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e2;
                 vstd::arithmetic::mul::lemma_mul_nonnegative(k2, ns);
                 vstd::arithmetic::mul::lemma_mul_inequality(k2 + 1, count, ns);
                 assert(e2.va_range.start >= m.va_range.start);
@@ -329,18 +360,18 @@ impl<C: PageTableConfig> CursorView<C> {
                 // Symmetric case.
                 assert(v.mappings.contains(e2));
                 assert(e2 != m);
-                let k1 = choose|k: int| 0 <= k < count
-                    && #[trigger] Self::split_index(m, new_size, k as usize) == e1;
+                let k1 = choose|k: int|
+                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e1;
                 vstd::arithmetic::mul::lemma_mul_nonnegative(k1, ns);
                 vstd::arithmetic::mul::lemma_mul_inequality(k1 + 1, count, ns);
                 assert(e1.va_range.start >= m.va_range.start);
                 assert(e1.va_range.end <= m.va_range.end);
             } else if new_mappings.contains(e1) && new_mappings.contains(e2) {
                 // Both sub-mappings with different indices.
-                let i = choose|k: int| 0 <= k < count
-                    && #[trigger] Self::split_index(m, new_size, k as usize) == e1;
-                let j = choose|k: int| 0 <= k < count
-                    && #[trigger] Self::split_index(m, new_size, k as usize) == e2;
+                let i = choose|k: int|
+                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e1;
+                let j = choose|k: int|
+                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e2;
                 vstd::arithmetic::mul::lemma_mul_nonnegative(i, ns);
                 vstd::arithmetic::mul::lemma_mul_nonnegative(j, ns);
                 if i < j {
@@ -356,9 +387,17 @@ impl<C: PageTableConfig> CursorView<C> {
 
     /// `split_while_huge` only modifies `mappings`, not `cur_va`.
     pub broadcast proof fn lemma_split_while_huge_preserves_cur_va(self, size: usize)
-        requires self.inv(), size >= PAGE_SIZE,
-        ensures #[trigger] self.split_while_huge(size).cur_va == self.cur_va
-        decreases if self.present() { self.query_mapping().page_size as int } else { 0 }
+        requires
+            self.inv(),
+            size >= PAGE_SIZE,
+        ensures
+            #[trigger] self.split_while_huge(size).cur_va == self.cur_va,
+        decreases
+                if self.present() {
+                    self.query_mapping().page_size as int
+                } else {
+                    0
+                },
     {
         if self.present() {
             let m = self.query_mapping();
@@ -366,21 +405,33 @@ impl<C: PageTableConfig> CursorView<C> {
                 let new_size = m.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 // Establish m.inv() first.
-                let f = self.mappings.filter(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+                let f = self.mappings.filter(
+                    |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+                );
                 vstd::set::axiom_set_intersect_finite::<Mapping>(
-                    self.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+                    self.mappings,
+                    Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+                );
                 vstd::set::axiom_set_choose_len(f);
                 assert(m.inv());
                 assert(NR_ENTRIES == 512usize) by (compute_only);
                 // new_size is a valid page size (case split on m.page_size).
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-                    else if m.page_size == 1073741824 { assert(1073741824usize / 512 == 2097152usize); }
-                    else { assert(4096usize / 512 == 8usize); assert(false); } // 4096 case impossible: 8 not in set
+                    if m.page_size == 2097152 {
+                        assert(2097152usize / 512 == 4096usize);
+                    } else if m.page_size == 1073741824 {
+                        assert(1073741824usize / 512 == 2097152usize);
+                    } else {
+                        assert(4096usize / 512 == 8usize);
+                        assert(false);
+                    }  // 4096 case impossible: 8 not in set
                 };
                 assert(m.page_size % new_size == 0) by {
-                    if m.page_size == 2097152 { assert(2097152usize % 4096 == 0); }
-                    else { assert(1073741824usize % 2097152 == 0); }
+                    if m.page_size == 2097152 {
+                        assert(2097152usize % 4096 == 0);
+                    } else {
+                        assert(1073741824usize % 2097152 == 0);
+                    }
                 };
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
 
@@ -392,9 +443,17 @@ impl<C: PageTableConfig> CursorView<C> {
 
     /// `split_while_huge` preserves `CursorView::inv()`.
     pub proof fn lemma_split_while_huge_preserves_inv(self, size: usize)
-        requires self.inv(), size >= PAGE_SIZE,
-        ensures self.split_while_huge(size).inv(),
-        decreases if self.present() { self.query_mapping().page_size as int } else { 0 }
+        requires
+            self.inv(),
+            size >= PAGE_SIZE,
+        ensures
+            self.split_while_huge(size).inv(),
+        decreases
+                if self.present() {
+                    self.query_mapping().page_size as int
+                } else {
+                    0
+                },
     {
         if self.present() {
             let m = self.query_mapping();
@@ -402,20 +461,32 @@ impl<C: PageTableConfig> CursorView<C> {
                 let new_size = m.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 // Establish m.inv() and call preserves_inv.
-                let f = self.mappings.filter(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+                let f = self.mappings.filter(
+                    |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+                );
                 vstd::set::axiom_set_intersect_finite::<Mapping>(
-                    self.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+                    self.mappings,
+                    Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+                );
                 vstd::set::axiom_set_choose_len(f);
                 assert(m.inv());
                 assert(NR_ENTRIES == 512usize) by (compute_only);
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-                    else if m.page_size == 1073741824 { assert(1073741824usize / 512 == 2097152usize); }
-                    else { assert(4096usize / 512 == 8usize); assert(false); }
+                    if m.page_size == 2097152 {
+                        assert(2097152usize / 512 == 4096usize);
+                    } else if m.page_size == 1073741824 {
+                        assert(1073741824usize / 512 == 2097152usize);
+                    } else {
+                        assert(4096usize / 512 == 8usize);
+                        assert(false);
+                    }
                 };
                 assert(m.page_size % new_size == 0) by {
-                    if m.page_size == 2097152 { assert(2097152usize % 4096 == 0); }
-                    else { assert(1073741824usize % 2097152 == 0); }
+                    if m.page_size == 2097152 {
+                        assert(2097152usize % 4096 == 0);
+                    } else {
+                        assert(1073741824usize % 2097152 == 0);
+                    }
                 };
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
@@ -434,7 +505,12 @@ impl<C: PageTableConfig> CursorView<C> {
             s2 <= s1,
         ensures
             self.split_while_huge(s2) == self.split_while_huge(s1).split_while_huge(s2),
-        decreases if self.present() { self.query_mapping().page_size as int } else { 0 },
+        decreases
+                if self.present() {
+                    self.query_mapping().page_size as int
+                } else {
+                    0
+                },
     {
         if !self.present() {
             return;
@@ -445,20 +521,28 @@ impl<C: PageTableConfig> CursorView<C> {
         }
         let new_size = m.page_size / NR_ENTRIES;
         let f = self.mappings.filter(
-            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+        );
         vstd::set::axiom_set_intersect_finite::<Mapping>(
             self.mappings,
-            Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+            Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+        );
         vstd::set::axiom_set_choose_len(f);
         assert(m.inv());
         assert(NR_ENTRIES == 512usize) by (compute_only);
         assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-            if m.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-            else { assert(1073741824usize / 512 == 2097152usize); }
+            if m.page_size == 2097152 {
+                assert(2097152usize / 512 == 4096usize);
+            } else {
+                assert(1073741824usize / 512 == 2097152usize);
+            }
         };
         assert(m.page_size % new_size == 0) by {
-            if m.page_size == 2097152 { assert(2097152usize % 4096 == 0); }
-            else { assert(1073741824usize % 2097152 == 0); }
+            if m.page_size == 2097152 {
+                assert(2097152usize % 4096 == 0);
+            } else {
+                assert(1073741824usize % 2097152 == 0);
+            }
         };
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
@@ -492,21 +576,31 @@ impl<C: PageTableConfig> CursorView<C> {
         if m.page_size > size {
             let new_size = m.page_size / NR_ENTRIES;
             let f = self.mappings.filter(
-                |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+                |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+            );
             vstd::set::axiom_set_intersect_finite::<Mapping>(
                 self.mappings,
-                Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+                Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+            );
             vstd::set::axiom_set_choose_len(f);
             assert(m.inv());
             assert(NR_ENTRIES == 512usize) by (compute_only);
             assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                if m.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-                else if m.page_size == 1073741824 { assert(1073741824usize / 512 == 2097152usize); }
-                else { assert(4096usize / 512 == 8usize); assert(false); }
+                if m.page_size == 2097152 {
+                    assert(2097152usize / 512 == 4096usize);
+                } else if m.page_size == 1073741824 {
+                    assert(1073741824usize / 512 == 2097152usize);
+                } else {
+                    assert(4096usize / 512 == 8usize);
+                    assert(false);
+                }
             };
             assert(m.page_size % new_size == 0) by {
-                if m.page_size == 2097152 { assert(2097152usize % 4096 == 0); }
-                else { assert(1073741824usize % 2097152 == 0); }
+                if m.page_size == 2097152 {
+                    assert(2097152usize % 4096 == 0);
+                } else {
+                    assert(1073741824usize % 2097152 == 0);
+                }
             };
             Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
             Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
@@ -514,34 +608,44 @@ impl<C: PageTableConfig> CursorView<C> {
             new_self.split_while_huge_refinement(size, m);
             assert(!new_self.mappings.contains(m)) by {
                 let new_mappings = Set::<int>::new(
-                    |n: int| 0 <= n < m.page_size as int / new_size as int
+                    |n: int| 0 <= n < m.page_size as int / new_size as int,
                 ).map(|n: int| Self::split_index(m, new_size, n as usize));
                 if new_mappings.contains(m) {
                     let k = choose|k: int|
                         0 <= k < m.page_size as int / new_size as int
-                        && #[trigger] Self::split_index(m, new_size, k as usize) == m;
+                            && #[trigger] Self::split_index(m, new_size, k as usize) == m;
                 }
             };
-            let p = choose |p: Mapping| #[trigger] new_self.mappings.contains(p)
-                && p.va_range.start <= m.va_range.start
-                && m.va_range.end <= p.va_range.end
-                && m.pa_range.start == (p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
-                && m.property == p.property;
+            let p = choose|p: Mapping| #[trigger]
+                new_self.mappings.contains(p) && p.va_range.start <= m.va_range.start
+                    && m.va_range.end <= p.va_range.end && m.pa_range.start == (p.pa_range.start + (
+                m.va_range.start - p.va_range.start)) as Paddr && m.property == p.property;
             if self.mappings.contains(p) {
                 assert(p.va_range.start <= self.cur_va < p.va_range.end);
             } else {
                 let new_mappings = Set::<int>::new(
-                    |n: int| 0 <= n < m.page_size as int / new_size as int
+                    |n: int| 0 <= n < m.page_size as int / new_size as int,
                 ).map(|n: int| Self::split_index(m, new_size, n as usize));
                 let k = choose|k: int|
-                    0 <= k < m.page_size as int / new_size as int
-                    && #[trigger] Self::split_index(m, new_size, k as usize) == p;
+                    0 <= k < m.page_size as int / new_size as int && #[trigger] Self::split_index(
+                        m,
+                        new_size,
+                        k as usize,
+                    ) == p;
                 vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                    m.page_size as int, new_size as int);
+                    m.page_size as int,
+                    new_size as int,
+                );
                 vstd::arithmetic::mul::lemma_mul_inequality(
-                    (k + 1) as int, m.page_size as int / new_size as int, new_size as int);
+                    (k + 1) as int,
+                    m.page_size as int / new_size as int,
+                    new_size as int,
+                );
                 vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                    new_size as int, k, 1int);
+                    new_size as int,
+                    k,
+                    1int,
+                );
             }
         }
     }
@@ -564,16 +668,17 @@ impl<C: PageTableConfig> CursorView<C> {
             self.query_mapping().page_size % size == 0,
             set![4096usize, 2097152, 1073741824].contains(size),
         ensures
-            self.split_while_huge(size).mappings
-                =~= self.split_if_mapped_huge_spec(size).mappings,
+            self.split_while_huge(size).mappings =~= self.split_if_mapped_huge_spec(size).mappings,
     {
         let m = self.query_mapping();
         let new_size = m.page_size / NR_ENTRIES;
         let f0 = self.mappings.filter(
-            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+        );
         vstd::set::axiom_set_intersect_finite::<Mapping>(
             self.mappings,
-            Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+            Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+        );
         vstd::set::axiom_set_choose_len(f0);
         assert(m.inv());
         assert(NR_ENTRIES == 512usize) by (compute_only);
@@ -585,16 +690,18 @@ impl<C: PageTableConfig> CursorView<C> {
         assert(new_self.query_mapping().page_size == new_size) by {
             let new_m = new_self.query_mapping();
             let f = new_self.mappings.filter(
-                |m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end);
+                |m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end,
+            );
             vstd::set::axiom_set_intersect_finite::<Mapping>(
                 new_self.mappings,
-                Set::new(|m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end));
+                Set::new(|m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end),
+            );
             vstd::set::axiom_set_choose_len(f);
             if self.mappings.contains(new_m) && new_m != m {
                 assert(false);
             }
             let new_mappings = Set::<int>::new(
-                |n: int| 0 <= n < m.page_size as int / new_size as int
+                |n: int| 0 <= n < m.page_size as int / new_size as int,
             ).map(|n: int| Self::split_index(m, new_size, n as usize));
             assert(new_mappings.contains(new_m));
         };
@@ -616,30 +723,42 @@ impl<C: PageTableConfig> CursorView<C> {
     {
         let m = self.query_mapping();
         let size = m.page_size;
-        let new_mappings = Set::<int>::new(|n: int| 0 <= n < size / new_size)
-            .map(|n: int| Self::split_index(m, new_size, n as usize));
+        let new_mappings = Set::<int>::new(|n: int| 0 <= n < size / new_size).map(
+            |n: int| Self::split_index(m, new_size, n as usize),
+        );
 
         // Establish m covers cur_va (from present() + choose semantics).
         let f = self.mappings.filter(
-            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+        );
         assert(f.finite()) by {
             vstd::set::axiom_set_intersect_finite::<Mapping>(
                 self.mappings,
-                Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+                Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+            );
         };
         vstd::set::axiom_set_choose_len(f);
         assert(m.inv());
 
         assert(!new_mappings.contains(m2)) by {
             if new_mappings.contains(m2) {
-                let k = choose|k: int| 0 <= k < size as int / new_size as int
-                    && #[trigger] Self::split_index(m, new_size, k as usize) == m2;
-                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                    size as int, new_size as int);
+                let k = choose|k: int|
+                    0 <= k < size as int / new_size as int && #[trigger] Self::split_index(
+                        m,
+                        new_size,
+                        k as usize,
+                    ) == m2;
+                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size as int, new_size as int);
                 vstd::arithmetic::mul::lemma_mul_inequality(
-                    (k + 1) as int, size as int / new_size as int, new_size as int);
+                    (k + 1) as int,
+                    size as int / new_size as int,
+                    new_size as int,
+                );
                 vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                    new_size as int, k, 1int);
+                    new_size as int,
+                    k,
+                    1int,
+                );
                 vstd::arithmetic::mul::lemma_mul_nonnegative(k, new_size as int);
             }
         };
@@ -660,7 +779,12 @@ impl<C: PageTableConfig> CursorView<C> {
             !(m2.va_range.start <= self.cur_va < m2.va_range.end),
         ensures
             self.split_while_huge(size).mappings.contains(m2),
-        decreases if self.present() { self.query_mapping().page_size as int } else { 0 },
+        decreases
+                if self.present() {
+                    self.query_mapping().page_size as int
+                } else {
+                    0
+                },
     {
         if self.present() {
             let m = self.query_mapping();
@@ -668,11 +792,13 @@ impl<C: PageTableConfig> CursorView<C> {
                 let new_size = m.page_size / NR_ENTRIES;
                 // Establish m covers cur_va.
                 let f = self.mappings.filter(
-                    |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end);
+                    |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end,
+                );
                 assert(f.finite()) by {
                     vstd::set::axiom_set_intersect_finite::<Mapping>(
                         self.mappings,
-                        Set::new(|m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end));
+                        Set::new(|m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end),
+                    );
                 };
                 vstd::set::axiom_set_choose_len(f);
                 assert(self.mappings.contains(m));
@@ -683,14 +809,23 @@ impl<C: PageTableConfig> CursorView<C> {
                 // page_size % new_size == 0
                 assert(NR_ENTRIES == 512usize);
                 assert(m.page_size % new_size == 0) by {
-                    if m.page_size == 4096 { assert(4096usize % (4096usize / 512usize) == 0); }
-                    else if m.page_size == 2097152 { assert(2097152usize % (2097152usize / 512usize) == 0); }
-                    else { assert(1073741824usize % (1073741824usize / 512usize) == 0); }
+                    if m.page_size == 4096 {
+                        assert(4096usize % (4096usize / 512usize) == 0);
+                    } else if m.page_size == 2097152 {
+                        assert(2097152usize % (2097152usize / 512usize) == 0);
+                    } else {
+                        assert(1073741824usize % (1073741824usize / 512usize) == 0);
+                    }
                 };
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-                    else if m.page_size == 1073741824 { assert(1073741824usize / 512 == 2097152usize); }
-                    else { assert(4096usize / 512 == 8usize); assert(false); }
+                    if m.page_size == 2097152 {
+                        assert(2097152usize / 512 == 4096usize);
+                    } else if m.page_size == 1073741824 {
+                        assert(1073741824usize / 512 == 2097152usize);
+                    } else {
+                        assert(4096usize / 512 == 8usize);
+                        assert(false);
+                    }
                 };
                 self.split_if_mapped_huge_spec_locality(new_size, m2);
                 let new_self = self.split_if_mapped_huge_spec(new_size);
@@ -717,7 +852,12 @@ impl<C: PageTableConfig> CursorView<C> {
             self.present() ==> Mapping::disjoint_vaddrs(m2, self.query_mapping()),
         ensures
             !self.split_while_huge(size).mappings.contains(m2),
-        decreases if self.present() { self.query_mapping().page_size as int } else { 0 },
+        decreases
+                if self.present() {
+                    self.query_mapping().page_size as int
+                } else {
+                    0
+                },
     {
         if self.present() {
             let m = self.query_mapping();
@@ -725,11 +865,13 @@ impl<C: PageTableConfig> CursorView<C> {
                 let new_size = m.page_size / NR_ENTRIES;
                 // Establish m covers cur_va and m.inv().
                 let f = self.mappings.filter(
-                    |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end);
+                    |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end,
+                );
                 assert(f.finite()) by {
                     vstd::set::axiom_set_intersect_finite::<Mapping>(
                         self.mappings,
-                        Set::new(|m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end));
+                        Set::new(|m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end),
+                    );
                 };
                 vstd::set::axiom_set_choose_len(f);
                 assert(self.mappings.contains(m));
@@ -742,40 +884,60 @@ impl<C: PageTableConfig> CursorView<C> {
                     assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
                 };
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-                    else if m.page_size == 1073741824 { assert(1073741824usize / 512 == 2097152usize); }
-                    else { assert(4096usize / 512 == 8usize); assert(false); }
+                    if m.page_size == 2097152 {
+                        assert(2097152usize / 512 == 4096usize);
+                    } else if m.page_size == 1073741824 {
+                        assert(1073741824usize / 512 == 2097152usize);
+                    } else {
+                        assert(4096usize / 512 == 8usize);
+                        assert(false);
+                    }
                 };
                 self.split_if_mapped_huge_spec_locality(new_size, m2);
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
                 Self::split_if_mapped_huge_spec_preserves_present(self, new_size);
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
-                assert(new_self.present() ==>
-                    Mapping::disjoint_vaddrs(m2, new_self.query_mapping())) by {
+                assert(new_self.present() ==> Mapping::disjoint_vaddrs(
+                    m2,
+                    new_self.query_mapping(),
+                )) by {
                     if new_self.present() {
                         let new_m = new_self.query_mapping();
                         let nf = new_self.mappings.filter(
-                            |m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end);
+                            |m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end,
+                        );
                         vstd::set::axiom_set_intersect_finite::<Mapping>(
                             new_self.mappings,
-                            Set::new(|m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end));
+                            Set::new(
+                                |m3: Mapping|
+                                    m3.va_range.start <= new_self.cur_va < m3.va_range.end,
+                            ),
+                        );
                         vstd::set::axiom_set_choose_len(nf);
                         if self.mappings.contains(new_m) && new_m != m {
                             assert(false);
                         }
                         let new_mappings = Set::<int>::new(
-                            |n: int| 0 <= n < m.page_size as int / new_size as int
+                            |n: int| 0 <= n < m.page_size as int / new_size as int,
                         ).map(|n: int| Self::split_index(m, new_size, n as usize));
                         let k = choose|k: int|
                             0 <= k < m.page_size as int / new_size as int
-                            && #[trigger] Self::split_index(m, new_size, k as usize) == new_m;
+                                && #[trigger] Self::split_index(m, new_size, k as usize) == new_m;
                         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                            m.page_size as int, new_size as int);
+                            m.page_size as int,
+                            new_size as int,
+                        );
                         vstd::arithmetic::mul::lemma_mul_inequality(
-                            (k + 1) as int, m.page_size as int / new_size as int, new_size as int);
+                            (k + 1) as int,
+                            m.page_size as int / new_size as int,
+                            new_size as int,
+                        );
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                            new_size as int, k, 1int);
+                            new_size as int,
+                            k,
+                            1int,
+                        );
                         vstd::arithmetic::mul::lemma_mul_nonnegative(k, new_size as int);
                     }
                 };
@@ -797,13 +959,13 @@ impl<C: PageTableConfig> CursorView<C> {
             self.query_mapping().page_size % new_size == 0,
             self.split_if_mapped_huge_spec(new_size).mappings.contains(e),
         ensures
-            self.mappings.contains(e)
-            || {
+            self.mappings.contains(e) || {
                 let parent = self.query_mapping();
                 &&& self.mappings.contains(parent)
                 &&& parent.va_range.start <= e.va_range.start
                 &&& e.va_range.end <= parent.va_range.end
-                &&& e.pa_range.start == (parent.pa_range.start + (e.va_range.start - parent.va_range.start)) as Paddr
+                &&& e.pa_range.start == (parent.pa_range.start + (e.va_range.start
+                    - parent.va_range.start)) as Paddr
                 &&& e.property == parent.property
             },
     {
@@ -816,10 +978,13 @@ impl<C: PageTableConfig> CursorView<C> {
         let new_mappings = domain.map(|n: int| Self::split_index(qm, new_size, n as usize));
 
         // Establish qm ∈ self.mappings.
-        let f = self.mappings.filter(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+        let f = self.mappings.filter(
+            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+        );
         vstd::set::axiom_set_intersect_finite::<Mapping>(
             self.mappings,
-            Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+            Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+        );
         vstd::set::axiom_set_choose_len(f);
         assert(self.mappings.contains(qm));
         assert(qm.inv());
@@ -828,8 +993,8 @@ impl<C: PageTableConfig> CursorView<C> {
             assert(self.mappings.contains(e));
         } else {
             assert(new_mappings.contains(e));
-            let k = choose|k: int| 0 <= k < count
-                && #[trigger] Self::split_index(qm, new_size, k as usize) == e;
+            let k = choose|k: int|
+                0 <= k < count && #[trigger] Self::split_index(qm, new_size, k as usize) == e;
 
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
             assert(ps as int == count * ns);
@@ -848,7 +1013,8 @@ impl<C: PageTableConfig> CursorView<C> {
             assert(e.va_range.end <= qm.va_range.end);
             assert(e.pa_range.start as int == qm.pa_range.start as int + k * ns);
             assert(e.va_range.start - qm.va_range.start == k * ns);
-            assert(e.pa_range.start == (qm.pa_range.start + (e.va_range.start - qm.va_range.start)) as Paddr);
+            assert(e.pa_range.start == (qm.pa_range.start + (e.va_range.start
+                - qm.va_range.start)) as Paddr);
             assert(e.property == qm.property);
         }
     }
@@ -859,13 +1025,17 @@ impl<C: PageTableConfig> CursorView<C> {
             size >= PAGE_SIZE,
             self.split_while_huge(size).mappings.contains(m),
         ensures
-            self.mappings.contains(m)
-            || exists |parent: Mapping| #[trigger] self.mappings.contains(parent)
-                && parent.va_range.start <= m.va_range.start
-                && m.va_range.end <= parent.va_range.end
-                && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
-                && m.property == parent.property,
-        decreases if self.present() { self.query_mapping().page_size as int } else { 0 }
+            self.mappings.contains(m) || exists|parent: Mapping| #[trigger]
+                self.mappings.contains(parent) && parent.va_range.start <= m.va_range.start
+                    && m.va_range.end <= parent.va_range.end && m.pa_range.start == (
+                parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
+                    && m.property == parent.property,
+        decreases
+                if self.present() {
+                    self.query_mapping().page_size as int
+                } else {
+                    0
+                },
     {
         if self.present() {
             let qm = self.query_mapping();
@@ -873,21 +1043,32 @@ impl<C: PageTableConfig> CursorView<C> {
                 let new_size = qm.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
 
-                let f = self.mappings.filter(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+                let f = self.mappings.filter(
+                    |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+                );
                 vstd::set::axiom_set_intersect_finite::<Mapping>(
                     self.mappings,
-                    Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+                    Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+                );
                 vstd::set::axiom_set_choose_len(f);
                 assert(qm.inv());
                 assert(NR_ENTRIES == 512usize) by (compute_only);
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if qm.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-                    else if qm.page_size == 1073741824 { assert(1073741824usize / 512 == 2097152usize); }
-                    else { assert(4096usize / 512 == 8usize); assert(false); }
+                    if qm.page_size == 2097152 {
+                        assert(2097152usize / 512 == 4096usize);
+                    } else if qm.page_size == 1073741824 {
+                        assert(1073741824usize / 512 == 2097152usize);
+                    } else {
+                        assert(4096usize / 512 == 8usize);
+                        assert(false);
+                    }
                 };
                 assert(qm.page_size % new_size == 0) by {
-                    if qm.page_size == 2097152 { assert(2097152usize % 4096 == 0); }
-                    else { assert(1073741824usize % 2097152 == 0); }
+                    if qm.page_size == 2097152 {
+                        assert(2097152usize % 4096 == 0);
+                    } else {
+                        assert(1073741824usize % 2097152 == 0);
+                    }
                 };
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
@@ -897,12 +1078,11 @@ impl<C: PageTableConfig> CursorView<C> {
                 if new_self.mappings.contains(m) {
                     self.split_if_mapped_huge_spec_refinement(new_size, m);
                 } else {
-                    let p = choose|p: Mapping|
-                        #[trigger] new_self.mappings.contains(p)
-                        && p.va_range.start <= m.va_range.start
-                        && m.va_range.end <= p.va_range.end
-                        && m.pa_range.start == (p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
-                        && m.property == p.property;
+                    let p = choose|p: Mapping| #[trigger]
+                        new_self.mappings.contains(p) && p.va_range.start <= m.va_range.start
+                            && m.va_range.end <= p.va_range.end && m.pa_range.start == (
+                        p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
+                            && m.property == p.property;
                     self.split_if_mapped_huge_spec_refinement(new_size, p);
                     if !self.mappings.contains(p) {
                         assert(qm.va_range.start <= m.va_range.start);
@@ -918,26 +1098,21 @@ impl<C: PageTableConfig> CursorView<C> {
                         assert(m.va_range.start + m.page_size == m.va_range.end);
                         assert(qm.va_range.start + qm.page_size == qm.va_range.end);
                         // m's va offset within qm: at most qm.page_size - m.page_size <= qm.page_size.
-                        assert(m.va_range.start - qm.va_range.start
-                            <= qm.page_size - m.page_size);
+                        assert(m.va_range.start - qm.va_range.start <= qm.page_size - m.page_size);
                         // pa-side chain in int arithmetic.
                         assert(qm.pa_range.start + qm.page_size == qm.pa_range.end);
                         assert(qm.pa_range.end <= MAX_PADDR);
-                        assert(p.pa_range.start as int
-                            == qm.pa_range.start as int
-                                + (p.va_range.start - qm.va_range.start));
-                        assert(m.pa_range.start as int
-                            == p.pa_range.start as int
-                                + (m.va_range.start - p.va_range.start));
-                        assert(m.pa_range.start as int
-                            == qm.pa_range.start as int
-                                + (m.va_range.start - qm.va_range.start));
+                        assert(p.pa_range.start as int == qm.pa_range.start as int + (
+                        p.va_range.start - qm.va_range.start));
+                        assert(m.pa_range.start as int == p.pa_range.start as int + (
+                        m.va_range.start - p.va_range.start));
+                        assert(m.pa_range.start as int == qm.pa_range.start as int + (
+                        m.va_range.start - qm.va_range.start));
                         // No-overflow: sum <= qm.pa_range.end <= MAX_PADDR <= usize::MAX.
-                        assert(qm.pa_range.start as int
-                            + (m.va_range.start - qm.va_range.start)
+                        assert(qm.pa_range.start as int + (m.va_range.start - qm.va_range.start)
                             <= qm.pa_range.end as int);
-                        assert(m.pa_range.start
-                            == (qm.pa_range.start + (m.va_range.start - qm.va_range.start)) as Paddr);
+                        assert(m.pa_range.start == (qm.pa_range.start + (m.va_range.start
+                            - qm.va_range.start)) as Paddr);
                         assert(m.property == qm.property);
                     }
                 }
@@ -958,17 +1133,23 @@ impl<C: PageTableConfig> CursorView<C> {
         requires
             self.inv(),
             size >= PAGE_SIZE,
-            forall|m: Mapping, x: Mapping|
-                #[trigger] self.mappings.contains(m) && #[trigger] other.contains(x) ==>
-                    Mapping::disjoint_vaddrs(m, x),
+            forall|m: Mapping, x: Mapping| #[trigger]
+                self.mappings.contains(m) && #[trigger] other.contains(x)
+                    ==> Mapping::disjoint_vaddrs(m, x),
         ensures
             self.split_while_huge(size).mappings.disjoint(other),
-        decreases if self.present() { self.query_mapping().page_size as int } else { 0 }
+        decreases
+                if self.present() {
+                    self.query_mapping().page_size as int
+                } else {
+                    0
+                },
     {
         if !self.present() {
             // split_while_huge is a no-op; disjointness is by va-disjoint hypothesis.
-            assert forall |x: Mapping| #![trigger other.contains(x)] other.contains(x)
-                implies !self.split_while_huge(size).mappings.contains(x) by {
+            assert forall|x: Mapping|
+                #![trigger other.contains(x)]
+                other.contains(x) implies !self.split_while_huge(size).mappings.contains(x) by {
                 if self.mappings.contains(x) {
                     assert(Mapping::disjoint_vaddrs(x, x));
                     assert(x.inv());
@@ -978,8 +1159,9 @@ impl<C: PageTableConfig> CursorView<C> {
         }
         let m = self.query_mapping();
         if m.page_size <= size {
-            assert forall |x: Mapping| #![trigger other.contains(x)] other.contains(x)
-                implies !self.split_while_huge(size).mappings.contains(x) by {
+            assert forall|x: Mapping|
+                #![trigger other.contains(x)]
+                other.contains(x) implies !self.split_while_huge(size).mappings.contains(x) by {
                 if self.mappings.contains(x) {
                     assert(Mapping::disjoint_vaddrs(x, x));
                     assert(x.inv());
@@ -991,49 +1173,71 @@ impl<C: PageTableConfig> CursorView<C> {
 
         // Standard scaffolding: m ∈ self.mappings, m covers cur_va, m.inv().
         let f = self.mappings.filter(
-            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
+        );
         vstd::set::axiom_set_intersect_finite::<Mapping>(
             self.mappings,
-            Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+            Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
+        );
         vstd::set::axiom_set_choose_len(f);
         assert(self.mappings.contains(m));
         assert(m.inv());
 
         assert(NR_ENTRIES == 512usize) by (compute_only);
         assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-            if m.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-            else if m.page_size == 1073741824 { assert(1073741824usize / 512 == 2097152usize); }
-            else { assert(4096usize / 512 == 8usize); assert(false); }
+            if m.page_size == 2097152 {
+                assert(2097152usize / 512 == 4096usize);
+            } else if m.page_size == 1073741824 {
+                assert(1073741824usize / 512 == 2097152usize);
+            } else {
+                assert(4096usize / 512 == 8usize);
+                assert(false);
+            }
         };
         assert(m.page_size % new_size == 0) by {
-            if m.page_size == 2097152 { assert(2097152usize % 4096 == 0); }
-            else { assert(1073741824usize % 2097152 == 0); }
+            if m.page_size == 2097152 {
+                assert(2097152usize % 4096 == 0);
+            } else {
+                assert(1073741824usize % 2097152 == 0);
+            }
         };
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
         let new_self = self.split_if_mapped_huge_spec(new_size);
 
         // Recursive call: establish va-disjoint hypothesis for new_self.
-        assert forall |m2: Mapping, x: Mapping|
-            #[trigger] new_self.mappings.contains(m2) && #[trigger] other.contains(x) implies
-            Mapping::disjoint_vaddrs(m2, x) by {
+        assert forall|m2: Mapping, x: Mapping| #[trigger]
+            new_self.mappings.contains(m2) && #[trigger] other.contains(
+                x,
+            ) implies Mapping::disjoint_vaddrs(m2, x) by {
             if self.mappings.contains(m2) {
                 // Existing mapping preserved by split: va-disjoint by hypothesis.
             } else {
                 // m2 is a sub-mapping of m, with va_range ⊆ m.va_range.
                 let new_mappings = Set::<int>::new(
-                    |n: int| 0 <= n < m.page_size as int / new_size as int
+                    |n: int| 0 <= n < m.page_size as int / new_size as int,
                 ).map(|n: int| Self::split_index(m, new_size, n as usize));
                 assert(new_mappings.contains(m2));
                 let k = choose|k: int|
-                    0 <= k < m.page_size as int / new_size as int
-                    && #[trigger] Self::split_index(m, new_size, k as usize) == m2;
+                    0 <= k < m.page_size as int / new_size as int && #[trigger] Self::split_index(
+                        m,
+                        new_size,
+                        k as usize,
+                    ) == m2;
                 vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                    m.page_size as int, new_size as int);
+                    m.page_size as int,
+                    new_size as int,
+                );
                 vstd::arithmetic::mul::lemma_mul_inequality(
-                    (k + 1) as int, m.page_size as int / new_size as int, new_size as int);
+                    (k + 1) as int,
+                    m.page_size as int / new_size as int,
+                    new_size as int,
+                );
                 vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                    new_size as int, k, 1int);
+                    new_size as int,
+                    k,
+                    1int,
+                );
                 vstd::arithmetic::mul::lemma_mul_nonnegative(k, new_size as int);
                 // m2.va_range ⊆ m.va_range; m.va_range va-disjoint from x.va_range.
                 assert(Mapping::disjoint_vaddrs(m, x));
@@ -1044,9 +1248,7 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 }
 
-
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-
     /// When the current entry is a PT node at level `self.level`, any mapping at `cur_va` has
     /// `page_size <= page_size(self.level - 1)`.  Therefore `split_while_huge` at
     /// `page_size(self.level - 1)` does not split anything and is a no-op on the abstract view.
@@ -1061,9 +1263,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(qm),
     {
-        let f = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
+        let f = self@.mappings.filter(
+            |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
+        );
         axiom_set_intersect_finite::<Mapping>(
-            self@.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end));
+            self@.mappings,
+            Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end),
+        );
         axiom_set_choose_len(f);
         self.mapping_covering_cur_va_from_cur_subtree(qm);
     }
@@ -1075,7 +1281,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_node(),
             self.level > 1,
         ensures
-            self@.split_while_huge(page_size((self.level - 1) as PagingLevel)) == self@
+            self@.split_while_huge(page_size((self.level - 1) as PagingLevel)) == self@,
     {
         self.view_preserves_inv();
         if self@.present() {
@@ -1109,7 +1315,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.in_locked_range(),
         ensures
-            self@.split_while_huge(page_size(self.level as PagingLevel)) == self@
+            self@.split_while_huge(page_size(self.level as PagingLevel)) == self@,
     {
         self.view_preserves_inv();
         if self@.present() {
@@ -1147,16 +1353,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             level_before_frame <= NR_LEVELS,
             self.level == (level_before_frame - 1) as u8,
             owner_before_frame@ == owner0@.split_while_huge(
-                page_size(level_before_frame as PagingLevel)),
+                page_size(level_before_frame as PagingLevel),
+            ),
             self@ == owner_before_frame@.split_if_mapped_huge_spec(
-                page_size((level_before_frame - 1) as PagingLevel)),
+                page_size((level_before_frame - 1) as PagingLevel),
+            ),
             // The mapping at cur_va in owner_before_frame is exactly the
             // frame at the level being split: present, with page_size equal
             // to page_size(level_before_frame). Both follow from being in
             // the ChildRef::Frame branch at level `level_before_frame`.
             owner_before_frame@.present(),
-            owner_before_frame@.query_mapping().page_size
-                == page_size(level_before_frame as PagingLevel),
+            owner_before_frame@.query_mapping().page_size == page_size(
+                level_before_frame as PagingLevel,
+            ),
     {
         owner0.view_preserves_inv();
         owner_before_frame.view_preserves_inv();
@@ -1168,7 +1377,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // page_size(L-1) ∈ {4K, 2M, 1G}.
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-            level_before_frame as PagingLevel);
+            level_before_frame as PagingLevel,
+        );
         assert(NR_ENTRIES == 512usize) by (compute_only);
 
         // Compose: owner0.split_while_huge(s_low)
@@ -1183,10 +1393,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// After split_if_mapped_huge + push_level, the mappings equal
     /// `old_view.split_while_huge(page_size(current_level))`.
-    pub proof fn find_next_split_push_equals_split_while_huge(
-        self,
-        old_view: CursorView<C>,
-    )
+    pub proof fn find_next_split_push_equals_split_while_huge(self, old_view: CursorView<C>)
         requires
             self.inv(),
             old_view.inv(),
@@ -1194,30 +1401,35 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.cur_va == old_view.cur_va,
             old_view.present(),
             old_view.query_mapping().page_size > page_size(self.level as PagingLevel),
-            old_view.query_mapping().page_size / NR_ENTRIES
-                == page_size(self.level as PagingLevel),
-            old_view.query_mapping().page_size
-                % page_size(self.level as PagingLevel) == 0,
+            old_view.query_mapping().page_size / NR_ENTRIES == page_size(self.level as PagingLevel),
+            old_view.query_mapping().page_size % page_size(self.level as PagingLevel) == 0,
             self@.mappings =~= old_view.split_if_mapped_huge_spec(
-                page_size(self.level as PagingLevel)).mappings,
+                page_size(self.level as PagingLevel),
+            ).mappings,
         ensures
             self@.mappings =~= old_view.split_while_huge(
-                page_size(self.level as PagingLevel)).mappings,
+                page_size(self.level as PagingLevel),
+            ).mappings,
     {
         let ps = page_size(self.level as PagingLevel);
         let m = old_view.query_mapping();
         let f = old_view.mappings.filter(
-            |m2: Mapping| m2.va_range.start <= old_view.cur_va < m2.va_range.end);
+            |m2: Mapping| m2.va_range.start <= old_view.cur_va < m2.va_range.end,
+        );
         vstd::set::axiom_set_intersect_finite::<Mapping>(
             old_view.mappings,
-            Set::new(|m2: Mapping| m2.va_range.start <= old_view.cur_va < m2.va_range.end));
+            Set::new(|m2: Mapping| m2.va_range.start <= old_view.cur_va < m2.va_range.end),
+        );
         vstd::set::axiom_set_choose_len(f);
         assert(m.inv());
         assert(NR_ENTRIES == 512usize) by (compute_only);
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
         assert(set![4096usize, 2097152, 1073741824].contains(ps)) by {
-            if m.page_size == 2097152 { assert(2097152usize / 512 == 4096usize); }
-            else { assert(1073741824usize / 512 == 2097152usize); }
+            if m.page_size == 2097152 {
+                assert(2097152usize / 512 == 4096usize);
+            } else {
+                assert(1073741824usize / 512 == 2097152usize);
+            }
         };
         old_view.split_while_huge_one_step(ps);
     }
@@ -1240,9 +1452,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             v1.mappings =~= v2.mappings,
             v1.cur_va <= v2.cur_va,
             // No mapping starts in [v1.cur_va, v2.cur_va).
-            v1.mappings.filter(|m: Mapping|
-                v1.cur_va <= m.va_range.start && m.va_range.start < v2.cur_va)
-                =~= Set::<Mapping>::empty(),
+            v1.mappings.filter(
+                |m: Mapping| v1.cur_va <= m.va_range.start && m.va_range.start < v2.cur_va,
+            ) =~= Set::<Mapping>::empty(),
             // When v1 has no mapping at cur_va, any mapping at v2.cur_va is
             // already small enough that split_while_huge is a no-op on it too.
             // (At the call site this follows from: split_while_huge(v1) was a

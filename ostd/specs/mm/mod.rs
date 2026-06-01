@@ -46,7 +46,6 @@ pub tracked struct GlobalMemOwner {
 }
 
 impl GlobalMemOwner {
-
     /// The set of mappings in the page table is determined by
     /// [`PageTableOwner::view_rec`](crate::specs::mm::page_table::owners::PageTableOwner::view_rec).
     pub closed spec fn page_table_mappings(self) -> Set<Mapping> {
@@ -56,48 +55,44 @@ impl GlobalMemOwner {
     /// Top-level property: the page table mappings are disjoint in the virtual address space.
     pub open spec fn page_table_mappings_disjoint_vaddrs(self) -> bool {
         let pt_mappings = self.page_table_mappings();
-        forall |m1: Mapping, m2: Mapping|
-            pt_mappings has m1 &&
-            pt_mappings has m2 &&
-            m1 != m2 ==>
-            Mapping::disjoint_vaddrs(m1, m2)
+        forall|m1: Mapping, m2: Mapping|
+            pt_mappings has m1 && pt_mappings has m2 && m1 != m2 ==> Mapping::disjoint_vaddrs(
+                m1,
+                m2,
+            )
     }
 
     /// Top-level property: the page table mappings are well-formed.
     /// See [`Mapping::inv`](crate::specs::mm::page_table::view::Mapping::inv).
     pub open spec fn page_table_mappings_well_formed(self) -> bool {
         let pt_mappings = self.page_table_mappings();
-        forall |m: Mapping|
-            pt_mappings has m ==>
-            #[trigger] m.inv()
+        forall|m: Mapping| pt_mappings has m ==> #[trigger] m.inv()
     }
 
     /// Top-level property: the TLB mappings are disjoint in the virtual address space.
     pub open spec fn tlb_mappings_disjoint_vaddrs(self) -> bool {
         let tlb_mappings = self.tlb.mappings;
-        forall |m1: Mapping, m2: Mapping|
-            tlb_mappings has m1 &&
-            tlb_mappings has m2 &&
-            m1 != m2 ==>
-            Mapping::disjoint_vaddrs(m1, m2)
+        forall|m1: Mapping, m2: Mapping|
+            tlb_mappings has m1 && tlb_mappings has m2 && m1 != m2 ==> Mapping::disjoint_vaddrs(
+                m1,
+                m2,
+            )
     }
 
     /// Top-level property: the TLB mappings are disjoint in the physical address space.
     pub open spec fn tlb_mappings_disjoint_paddrs(self) -> bool {
         let tlb_mappings = self.tlb.mappings;
-        forall |m1: Mapping, m2: Mapping|
-            tlb_mappings has m1 &&
-            tlb_mappings has m2 &&
-            m1 != m2 ==>
-            Mapping::disjoint_paddrs(m1, m2)
+        forall|m1: Mapping, m2: Mapping|
+            tlb_mappings has m1 && tlb_mappings has m2 && m1 != m2 ==> Mapping::disjoint_paddrs(
+                m1,
+                m2,
+            )
     }
 
     /// Top-level property: the TLB mappings are well-formed.
     pub open spec fn tlb_mappings_well_formed(self) -> bool {
         let tlb_mappings = self.tlb.mappings;
-        forall |m: Mapping|
-            tlb_mappings has m ==>
-            #[trigger] m.inv()
+        forall|m: Mapping| tlb_mappings has m ==> #[trigger] m.inv()
     }
 
     /// Top-level properties: the page table mappings are disjoint in the
@@ -131,11 +126,9 @@ impl GlobalMemOwner {
         let pt = self.pt;
         let root_path = pt.0.value.path;
 
-        assert forall |m1: Mapping, m2: Mapping|
-            self.page_table_mappings() has m1
-            && self.page_table_mappings() has m2
-            && m1 != m2
-        implies #[trigger] Mapping::disjoint_vaddrs(m1, m2) by {
+        assert forall|m1: Mapping, m2: Mapping|
+            self.page_table_mappings() has m1 && self.page_table_mappings() has m2 && m1
+                != m2 implies #[trigger] Mapping::disjoint_vaddrs(m1, m2) by {
             pt.view_rec_disjoint_vaddrs(root_path, m1, m2);
         }
 

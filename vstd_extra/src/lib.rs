@@ -4,6 +4,7 @@
 #![feature(nonzero_internals)]
 #![feature(sized_hierarchy)]
 #![feature(proc_macro_hygiene)]
+#![cfg_attr(verus_keep_ghost, feature(allocator_api))]
 #![allow(non_snake_case)]
 #![allow(unused_parens)]
 #![allow(unused_braces)]

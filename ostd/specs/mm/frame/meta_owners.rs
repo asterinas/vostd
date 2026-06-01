@@ -107,8 +107,10 @@ pub uninterp spec fn is_mmio_paddr(pa: Paddr) -> bool;
 /// with any MMIO mapping.
 pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
     ensures
-        (#[trigger] slot.usage == PageUsage::MMIO)
-            <==> is_mmio_paddr(meta_to_frame(slot.self_addr));
+        (#[trigger] slot.usage == PageUsage::MMIO) <==> is_mmio_paddr(
+            meta_to_frame(slot.self_addr),
+        ),
+;
 
 /// MMIO ranges are aligned to (and closed under) huge-page granularities:
 /// every sub-paddr within a huge frame inherits the huge frame's MMIO-ness.
@@ -125,7 +127,8 @@ pub axiom fn axiom_mmio_paddr_huge_page_closed(
         pa % page_size == 0,
         offset < page_size,
     ensures
-        is_mmio_paddr((pa + offset) as crate::mm::Paddr) == is_mmio_paddr(pa);
+        is_mmio_paddr((pa + offset) as crate::mm::Paddr) == is_mmio_paddr(pa),
+;
 
 pub const REF_COUNT_UNUSED: u64 = u64::MAX;
 
@@ -150,7 +153,7 @@ pub enum MetaSlotStorage {
 /// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
 /// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
 /// it can then be used to stand in for `dyn AnyFrameMeta`.
-impl AnyFrameMeta for MetaSlotStorage {
+unsafe impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
@@ -292,7 +295,8 @@ impl Inv for MetaSlotOwner {
             &&& self.inner_perms.in_list.value() == 0
         }
         &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
-        &&& self.self_addr % META_SLOT_SIZE == 0
+        &&& self.self_addr % META_SLOT_SIZE
+            == 0
         // `paths_in_pt` is built by finitely many `.insert(path)` (map +
         // huge-page split) and `.remove(path)` (unmap, Stage 2) from an
         // empty initial set — universally finite. Needed wherever
@@ -320,9 +324,7 @@ impl Inv for MetaSlotModel {
                 &&& self.in_list == 0
             },
             REF_COUNT_UNIQUE => { &&& self.vtable_ptr.is_init() },
-            0 => {
-                &&& self.in_list == 0
-            },
+            0 => { &&& self.in_list == 0 },
             _ if self.ref_count <= REF_COUNT_MAX => { &&& self.vtable_ptr.is_init() },
             _ => { false },
         }
@@ -351,7 +353,8 @@ impl View for MetaSlotOwner {
 }
 
 impl InvView for MetaSlotOwner {
-    proof fn view_preserves_inv(self) { }
+    proof fn view_preserves_inv(self) {
+    }
 }
 
 impl OwnerOf for MetaSlot {
@@ -376,10 +379,13 @@ impl MetaSlotOwner {
             final(self).self_addr == old(self).self_addr,
             final(self).usage == old(self).usage,
             final(self).raw_count == old(self).raw_count,
-            final(self).paths_in_pt == old(self).paths_in_pt;
+            final(self).paths_in_pt == old(self).paths_in_pt,
+    ;
 
     pub axiom fn sync_inner(tracked &mut self, inner_perms: &MetadataInnerPerms)
-        ensures *final(self) == (Self { inner_perms: *inner_perms, ..*old(self) });
+        ensures
+            *final(self) == (Self { inner_perms: *inner_perms, ..*old(self) }),
+    ;
 }
 
 pub struct Metadata<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
@@ -393,7 +399,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
     /// The metadata value is an abstract function of the inner permissions,
     /// since extracting `M` from `MetaSlotStorage` requires `M::Perm` which
     /// is not stored in `MetadataInnerPerms`.
-    pub uninterp spec fn metadata_from_inner_perms(perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>) -> M;
+    pub uninterp spec fn metadata_from_inner_perms(
+        perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
+    ) -> M;
 
     /// Inverse of [`metadata_from_inner_perms`]: given an `M` and a base
     /// storage permission, produce a new permission with the same cell id
@@ -406,20 +414,40 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
     /// Axiomatic roundtrip laws for the metadata ↔ storage-perm pair. The
     /// conversion is a transmute / reinterpret at exec level, so these laws
     /// live at the `cast_ptr` trust boundary.
-    pub axiom fn metadata_perms_inverse(
-        m: M,
-        base: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-    )
+    pub axiom fn metadata_perms_inverse(m: M, base: pcell_maybe_uninit::PointsTo<MetaSlotStorage>)
         ensures
             Self::metadata_from_inner_perms(Self::inner_perms_from_metadata(m, base)) == m,
             Self::inner_perms_from_metadata(m, base).id() == base.id(),
-            Self::inner_perms_from_metadata(m, base).is_init();
+            Self::inner_perms_from_metadata(m, base).is_init(),
+    ;
 
     pub axiom fn inner_perms_from_metadata_roundtrip(
         perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     )
         ensures
-            Self::inner_perms_from_metadata(Self::metadata_from_inner_perms(perm), perm) == perm;
+            Self::inner_perms_from_metadata(Self::metadata_from_inner_perms(perm), perm) == perm,
+    ;
+
+    /// Exec-level write primitive: writing `metadata` into the storage cell
+    /// yields a perm whose `metadata_from_inner_perms` interpretation is
+    /// exactly `metadata`. Sits at the same trust boundary as
+    /// [`Self::metadata_perms_inverse`] / [`Self::inner_perms_from_metadata_roundtrip`]
+    /// — the exec analog of `inner_perms_from_metadata(metadata, base)`.
+    #[verifier::external_body]
+    pub exec fn write_metadata_into_storage(
+        cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
+        Tracked(perm): Tracked<&mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+        metadata: M,
+    )
+        requires
+            cell.id() == old(perm).id(),
+        ensures
+            final(perm).id() == old(perm).id(),
+            final(perm).is_init(),
+            Self::metadata_from_inner_perms(*final(perm)) == metadata,
+    {
+        unimplemented!()
+    }
 
     /// Read-only mirror of [`borrow_meta_mut`]: yields a shared `&M` into the
     /// storage cell, with no perm-roundtrip noise. Lifetime is tied to the
@@ -464,7 +492,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
             old(perm).is_init(),
             old(perm).wf(&old(perm).inner_perms),
         ensures
-            // Initial: the lent `M` is the current value's `metadata`.
+    // Initial: the lent `M` is the current value's `metadata`.
+
             *res == old(perm).value().metadata,
             // Outer perm shape preserved.
             final(perm).pptr() == old(perm).pptr(),
@@ -486,8 +515,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
             final(perm).inner_perms.in_list == old(perm).inner_perms.in_list,
             final(perm).inner_perms.vtable_ptr == old(perm).inner_perms.vtable_ptr,
             // Storage cell is re-encoded for the final `M`.
-            final(perm).inner_perms.storage
-                == Self::inner_perms_from_metadata(*final(res), old(perm).inner_perms.storage),
+            final(perm).inner_perms.storage == Self::inner_perms_from_metadata(
+                *final(res),
+                old(perm).inner_perms.storage,
+            ),
     {
         unimplemented!()
     }
@@ -503,28 +534,31 @@ pub uninterp spec fn perm_u64_with(p: PermissionU64, v: u64) -> PermissionU64;
 pub axiom fn perm_u64_with_value(p: PermissionU64, v: u64)
     ensures
         perm_u64_with(p, v).value() == v,
-        perm_u64_with(p, v).id() == p.id();
+        perm_u64_with(p, v).id() == p.id(),
+;
 
 /// Setting a `PermissionU64` to its own current value is a no-op.
 pub axiom fn perm_u64_with_identity(p: PermissionU64)
-    ensures perm_u64_with(p, p.value()) == p;
+    ensures
+        perm_u64_with(p, p.value()) == p,
+;
 
 pub uninterp spec fn pptr_usize_with(
     p: vstd::simple_pptr::PointsTo<usize>,
     c: MemContents<usize>,
 ) -> vstd::simple_pptr::PointsTo<usize>;
 
-pub axiom fn pptr_usize_with_value(
-    p: vstd::simple_pptr::PointsTo<usize>,
-    c: MemContents<usize>,
-)
+pub axiom fn pptr_usize_with_value(p: vstd::simple_pptr::PointsTo<usize>, c: MemContents<usize>)
     ensures
         pptr_usize_with(p, c).mem_contents() == c,
-        pptr_usize_with(p, c).pptr() == p.pptr();
+        pptr_usize_with(p, c).pptr() == p.pptr(),
+;
 
 /// Setting a `PointsTo<usize>` to its own contents is a no-op.
 pub axiom fn pptr_usize_with_identity(p: vstd::simple_pptr::PointsTo<usize>)
-    ensures pptr_usize_with(p, p.mem_contents()) == p;
+    ensures
+        pptr_usize_with(p, p.mem_contents()) == p,
+;
 
 /// Reconstruct a [`MetaSlot`] from its underlying cell ids. The exec
 /// implementation is a cast; the laws pin `.id()` / `.pptr()` equalities.
@@ -535,18 +569,17 @@ pub axiom fn meta_slot_from_perm_ids(perm: MetadataInnerPerms)
         meta_slot_from_perm(perm).storage.id() == perm.storage.id(),
         meta_slot_from_perm(perm).ref_count.id() == perm.ref_count.id(),
         meta_slot_from_perm(perm).vtable_ptr == perm.vtable_ptr.pptr(),
-        meta_slot_from_perm(perm).in_list.id() == perm.in_list.id();
+        meta_slot_from_perm(perm).in_list.id() == perm.in_list.id(),
+;
 
 /// A `MetaSlot` is uniquely determined by its cell ids + vtable_ptr address.
 /// This is a structural fact about the opaque atomic/cell primitives — two
 /// `MetaSlot` values whose ids agree on every field are equal.
 pub axiom fn meta_slot_eq_by_ids(a: MetaSlot, b: MetaSlot)
     ensures
-        (a.storage.id() == b.storage.id()
-         && a.ref_count.id() == b.ref_count.id()
-         && a.vtable_ptr == b.vtable_ptr
-         && a.in_list.id() == b.in_list.id())
-        ==> a == b;
+        (a.storage.id() == b.storage.id() && a.ref_count.id() == b.ref_count.id() && a.vtable_ptr
+            == b.vtable_ptr && a.in_list.id() == b.in_list.id()) ==> a == b,
+;
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
     type Perm = MetadataInnerPerms;
@@ -588,7 +621,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlot, Tracked(perm): Tracked<&'a MetadataInnerPerms>) -> &'a Self {
+    fn from_borrowed<'a>(
+        r: &'a MetaSlot,
+        Tracked(perm): Tracked<&'a MetadataInnerPerms>,
+    ) -> &'a Self {
         unimplemented!()
     }
 
@@ -639,6 +675,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
 ///
 /// [`Frame<M>`] the high-level representation of the low-level pointer
 /// to the [`super::meta::MetaSlot`].
-pub type MetaPerm<M/*: AnyFrameMeta + Repr<MetaSlotStorage>*/> = cast_ptr::PointsTo<MetaSlot, Metadata<M>>;
+pub type MetaPerm<M  /*: AnyFrameMeta + Repr<MetaSlotStorage>*/ > =
+    cast_ptr::PointsTo<MetaSlot, Metadata<M>>;
 
 } // verus!

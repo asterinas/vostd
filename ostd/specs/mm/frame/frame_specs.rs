@@ -33,8 +33,10 @@ impl BorrowDebt {
     /// (`raw_count` was 1 at the time of `from_raw`).  This is the zero-cost
     /// path for normal `from_raw` callers.
     pub proof fn discharge_bookkeeping(tracked self)
-        requires self.raw_count_at_issue == 1,
-    {}
+        requires
+            self.raw_count_at_issue == 1,
+    {
+    }
 
     /// Discharge the debt after the `Frame` has been wrapped in
     /// `ManuallyDrop::new`, which increments `raw_count` to 1.
@@ -43,7 +45,8 @@ impl BorrowDebt {
         requires
             regions.slot_owners.contains_key(self.frame_index),
             regions.slot_owners[self.frame_index].raw_count == 1,
-    {}
+    {
+    }
 
     /// Discharge the debt in the proof of
     /// `lemma_from_raw_manuallydrop_general`, where the state observed is
@@ -54,7 +57,8 @@ impl BorrowDebt {
         requires
             regions.slot_owners.contains_key(self.frame_index),
             regions.slot_owners[self.frame_index].raw_count == 0,
-    {}
+    {
+    }
 }
 
 // Unbounded so `from_raw` (which lives in an unbounded `impl Frame<M>` block
@@ -62,14 +66,15 @@ impl BorrowDebt {
 // reference these helpers via `Self::from_raw_*`.
 impl<'a, M: ?Sized> Frame<M> {
     // ── from_raw precondition predicates ──
-
     /// **Safety**: The frame exists and is addressable.  This is sufficient to
     /// call `from_raw` provided the caller will immediately wrap the result in
     /// `ManuallyDrop::new` (i.e., the borrow pattern).
     pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& regions.slot_owners.contains_key(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr)
-        &&& has_safe_slot(paddr) // TODO: this should actually imply the first condition
+        &&& has_safe_slot(
+            paddr,
+        )  // TODO: this should actually imply the first condition
         &&& regions.inv()
     }
 
@@ -79,7 +84,10 @@ impl<'a, M: ?Sized> Frame<M> {
     /// increments `raw_count`).  When this does *not* hold, the caller must
     /// wrap the result in `ManuallyDrop::new` to prevent the `Frame` from
     /// being dropped (`drop_requires` needs `raw_count > 0`).
-    pub open spec fn from_raw_requires_bookkeeping(regions: MetaRegionOwners, paddr: Paddr) -> bool {
+    pub open spec fn from_raw_requires_bookkeeping(
+        regions: MetaRegionOwners,
+        paddr: Paddr,
+    ) -> bool {
         regions.slot_owners[frame_to_index(paddr)].raw_count == 1
     }
 
@@ -99,21 +107,22 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& new_regions.inv()
         &&& new_regions.slots.contains_key(frame_to_index(paddr))
         &&& new_regions.slot_owners[frame_to_index(paddr)].raw_count == 0
-        &&& new_regions.slot_owners[frame_to_index(paddr)].inner_perms ==
-            old_regions.slot_owners[frame_to_index(paddr)].inner_perms
-        &&& new_regions.slot_owners[frame_to_index(paddr)].usage ==
-            old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& new_regions.slot_owners[frame_to_index(paddr)].paths_in_pt ==
-            old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
+        &&& new_regions.slot_owners[frame_to_index(paddr)].inner_perms
+            == old_regions.slot_owners[frame_to_index(paddr)].inner_perms
+        &&& new_regions.slot_owners[frame_to_index(paddr)].usage
+            == old_regions.slot_owners[frame_to_index(paddr)].usage
+        &&& new_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
+            == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
         &&& new_regions.slot_owners[frame_to_index(paddr)].self_addr == r.ptr.addr()
         &&& forall|i: usize|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& forall|i: usize|
-            i != frame_to_index(paddr) ==>
-            new_regions.slots.contains_key(i) == old_regions.slots.contains_key(i)
+            i != frame_to_index(paddr) ==> new_regions.slots.contains_key(i)
+                == old_regions.slots.contains_key(i)
         &&& r.ptr.addr() == frame_to_meta(paddr)
-        &&& r.paddr() == paddr
+        &&& r.paddr()
+            == paddr
         // Structural invariant of the constructed Frame: ptr is META_SLOT_SIZE-aligned
         // and within FRAME_METADATA_RANGE. Provable from `r.ptr.addr() == frame_to_meta(paddr)`
         // (above) plus the existing `lemma_frame_to_meta_soundness`.
@@ -123,9 +132,7 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& new_regions.obligations =~= old_regions.obligations
     }
 
-
     // ── into_raw precondition predicates ──
-
     /// **Safety Invariant**: The frame's structural invariant must hold.
     pub open spec fn into_raw_pre_frame_inv(self) -> bool {
         self.inv()
@@ -137,7 +144,6 @@ impl<'a, M: ?Sized> Frame<M> {
     }
 
     // ── into_raw postcondition predicates ──
-
     /// **Correctness**: The frame's raw count is incremented.
     pub open spec fn into_raw_post_raw_count_incremented(
         self,
@@ -145,8 +151,8 @@ impl<'a, M: ?Sized> Frame<M> {
         new_regions: MetaRegionOwners,
     ) -> bool {
         &&& new_regions.slot_owners.contains_key(self.index())
-        &&& new_regions.slot_owners[self.index()].raw_count
-            == (old_regions.slot_owners[self.index()].raw_count + 1) as usize
+        &&& new_regions.slot_owners[self.index()].raw_count == (
+        old_regions.slot_owners[self.index()].raw_count + 1) as usize
     }
 
     /// **Safety**: Frames other than this one are not affected by the call.
@@ -158,8 +164,8 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& forall|i: usize|
             #![trigger new_regions.slots[i], old_regions.slots[i]]
             i != self.index() && old_regions.slots.contains_key(i)
-                ==> new_regions.slots.contains_key(i)
-                    && new_regions.slots[i] == old_regions.slots[i]
+                ==> new_regions.slots.contains_key(i) && new_regions.slots[i]
+                == old_regions.slots[i]
         &&& forall|i: usize|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != self.index() ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]

@@ -198,7 +198,7 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> (res: alloc::vec::
 pub(crate) fn get_kernel_page_table<'rcu>(
     Tracked(kernel_owner): Tracked<&mut Option<&PageTableOwner<KernelPtConfig>>>,
     Tracked(regions): Tracked<&MetaRegionOwners>,
-    Tracked(guards_k): Tracked<&Guards<'rcu, KernelPtConfig>>,
+    Tracked(guards): Tracked<&Guards<'rcu>>,
 ) -> (r: &'static PageTable<KernelPtConfig>)
     requires
         regions.inv(),
@@ -212,7 +212,7 @@ pub(crate) fn get_kernel_page_table<'rcu>(
         ),
         final(kernel_owner)@.unwrap().0.value.metaregion_sound(*regions),
         final(kernel_owner)@.unwrap().metaregion_sound(*regions),
-        guards_k.unlocked(final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_addr_self()),
+        guards.unlocked(final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_addr_self()),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }
@@ -409,8 +409,8 @@ impl KVirtArea {
     #[verus_spec(r =>
         with Tracked(owner): Tracked<KVirtAreaOwner>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'static, KernelPtConfig>>,
-            Ghost(root_guard): Ghost<PageTableGuard<'static, KernelPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>,
+            Ghost(root_guard): Ghost<PageTableGuard<'rcu, KernelPtConfig>>
         requires
             self.inv(),
             old(regions).inv(),
@@ -428,7 +428,7 @@ impl KVirtArea {
             self.range.start <= addr < self.range.end
     )]
     #[allow(private_interfaces)]
-    pub fn query<A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem> {
+    pub fn query<'rcu, A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem> {
         use align_ext::AlignExt;
         assert!(self.start() <= addr && self.end() > addr);
 
@@ -469,7 +469,7 @@ impl KVirtArea {
             proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
             get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards))
         };
-        let preempt_guard = disable_preempt::<A>();
+        let preempt_guard: &'rcu A = disable_preempt::<A>();
         let (mut cursor, Tracked(mut cursor_owner)) = (
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         page_table.cursor(preempt_guard, &vaddr)).unwrap();
@@ -603,7 +603,7 @@ impl KVirtArea {
             Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
             Tracked(entry_owners): Tracked<&mut Map<Paddr, EntryOwner<KernelPtConfig>>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a>>
     )]
     #[allow(private_interfaces)]
     pub fn map_frames<'a, A: InAtomicMode + 'a>(
@@ -893,8 +893,10 @@ impl KVirtArea {
                     assert(may_panic());
                 }
             }
-            #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
-            let res = cursor.map(item);
+            let res = unsafe {
+                #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
+                cursor.map(item)
+            };
 
             // `item_slot_in_regions` preservation for the remaining frames
             // follows from cursor.map's strengthened ensures: ref_count is
@@ -1049,7 +1051,7 @@ impl KVirtArea {
         with Tracked(owner): Tracked<KVirtAreaOwner>,
             Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a>>
     )]
     #[allow(private_interfaces)]
     pub unsafe fn map_untracked_frames<A: InAtomicMode + 'a, 'a>(
@@ -1249,8 +1251,10 @@ impl KVirtArea {
                         *regions,
                     ));
                 }
-                #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
-                let _ = cursor.map(item);
+                let _ = unsafe {
+                    #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
+                    cursor.map(item)
+                };
 
                 proof {
                     cursor_owner.va.reflect_prop(cursor.0.va);
