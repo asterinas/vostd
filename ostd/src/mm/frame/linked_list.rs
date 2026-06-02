@@ -958,7 +958,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof {
             assert(regions.slots.dom() =~= regions0.slots.dom());
             assert(regions.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count - 1);
-            assert forall|j: usize| j != idx implies {
+            assert forall|j: usize|
+                #![trigger regions.slot_owners[j]]
+                j != idx implies {
                 &&& regions.slot_owners[j].raw_count == regions0.slot_owners[j].raw_count
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                 &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
@@ -996,7 +998,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(regions.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count
                     - 1);
                 assert(regions.slots.dom() =~= regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize|
+                    #![trigger regions.slot_owners[j]]
+                    j != idx implies {
                     &&& regions.slot_owners[j].raw_count == regions0.slot_owners[j].raw_count
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
@@ -1014,7 +1018,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(regions.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count
                     - 1);
                 assert(regions.slots.dom() =~= regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize|
+                    #![trigger regions.slot_owners[j]]
+                    j != idx implies {
                     &&& regions.slot_owners[j].raw_count == regions0.slot_owners[j].raw_count
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
@@ -1046,7 +1052,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(regions.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count
                     - 1);
                 assert(regions.slots.dom() =~= regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize|
+                    #![trigger regions.slot_owners[j]]
+                    j != idx implies {
                     &&& regions.slot_owners[j].raw_count == regions0.slot_owners[j].raw_count
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
@@ -1066,7 +1074,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(regions.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count
                     - 1);
                 assert(regions.slots.dom() =~= regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize|
+                    #![trigger regions.slot_owners[j]]
+                    j != idx implies {
                     &&& regions.slot_owners[j].raw_count == regions0.slot_owners[j].raw_count
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
@@ -1095,7 +1105,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(regions.slots.dom() =~= regions0.slots.dom());
             assert(regions.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count - 1);
             assert(regions.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt);
-            assert forall|j: usize| j != idx implies {
+            assert forall|j: usize|
+                #![trigger regions.slot_owners[j]]
+                j != idx implies {
                 &&& regions.slot_owners[j].raw_count == regions0.slot_owners[j].raw_count
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                 &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
