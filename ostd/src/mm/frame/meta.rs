@@ -13,7 +13,7 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
-use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
+use vstd::atomic::{PAtomicU8, PAtomicU64, PermissionU64};
 use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
@@ -24,7 +24,7 @@ use vstd_extra::prelude::*;
 
 pub mod mapping;
 
-use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE};
+use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -35,9 +35,9 @@ use core::{
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
-    mem::{align_of, size_of, ManuallyDrop, MaybeUninit},
+    mem::{ManuallyDrop, MaybeUninit, align_of, size_of},
     result::Result,
-    sync::atomic::{AtomicU64, AtomicU8, Ordering},
+    sync::atomic::{AtomicU8, AtomicU64, Ordering},
 };
 
 use align_ext::AlignExt;
@@ -47,17 +47,17 @@ use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        //        frame::allocator::{self, EarlyAllocatedFrameMeta},
-        paddr_to_vaddr,
-        //        page_table::boot_pt,
-        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
+        MAX_NR_PAGES,
+        MAX_PADDR,
+        /*VmReader,*/ PAGE_SIZE,
         /*Infallible,*/ Paddr,
         PagingLevel,
         //Segment,
         Vaddr,
-        MAX_NR_PAGES,
-        MAX_PADDR,
-        /*VmReader,*/ PAGE_SIZE,
+        //        frame::allocator::{self, EarlyAllocatedFrameMeta},
+        paddr_to_vaddr,
+        //        page_table::boot_pt,
+        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     },
     specs::arch::kspace::FRAME_METADATA_RANGE,
     //    panic::abort,

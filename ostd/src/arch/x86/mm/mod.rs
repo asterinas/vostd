@@ -10,12 +10,12 @@ pub(crate) use util::{__memcpy_fallible, __memset_fallible};
 
 use crate::{
     mm::{
-        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},
         //        page_table::PageTableEntryTrait,
         Paddr,
         PagingConstsTrait,
         PagingLevel,
         /*PodOnce,*/ Vaddr,
+        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},
     },
     //    Pod,
 };

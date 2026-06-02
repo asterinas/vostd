@@ -4,7 +4,7 @@ use log::warn;
 use spin::Once;
 
 use super::boot::DEVICE_TREE;
-use crate::{bus::pci::PciDeviceLocation, io::IoMem, mm::VmIoOnce, prelude::*, Error};
+use crate::{Error, bus::pci::PciDeviceLocation, io::IoMem, mm::VmIoOnce, prelude::*};
 
 static PCI_BASE_ADDR: Once<IoMem> = Once::new();
 

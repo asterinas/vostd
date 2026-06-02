@@ -48,10 +48,10 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::{has_safe_slot, UFrame};
+use crate::mm::frame::{UFrame, has_safe_slot};
 use crate::mm::page_prop::PageProperty;
-use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
+use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::frame::mapping::frame_to_index_spec;
 use crate::specs::mm::frame::meta_owners::{
@@ -62,7 +62,7 @@ use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::node::Guards;
 use crate::specs::mm::tlb::TlbModel;
 
-use super::{axiom_cursor_entry_new, CursorEntry, CursorKind, VmSpaceId};
+use super::{CursorEntry, CursorKind, VmSpaceId, axiom_cursor_entry_new};
 
 verus! {
 

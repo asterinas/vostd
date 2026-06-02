@@ -54,7 +54,7 @@ use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::MAX_USERSPACE_VADDR;
 pub use crate::specs::mm::io::{
-    axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner,
+    VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
 };
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 

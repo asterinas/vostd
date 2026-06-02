@@ -5,13 +5,13 @@ use bit_field::BitField;
 use cfg_if::cfg_if;
 use log::info;
 use volatile::{
-    access::{ReadWrite, WriteOnly},
     VolatileRef,
+    access::{ReadWrite, WriteOnly},
 };
 
 use crate::{
-    arch::if_tdx_enabled, io::IoMemAllocatorBuilder, mm::paddr_to_vaddr, trap::irq::IrqLine, Error,
-    Result,
+    Error, Result, arch::if_tdx_enabled, io::IoMemAllocatorBuilder, mm::paddr_to_vaddr,
+    trap::irq::IrqLine,
 };
 
 cfg_if! {

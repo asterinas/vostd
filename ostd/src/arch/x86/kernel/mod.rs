@@ -4,4 +4,4 @@ pub(super) mod apic;
 pub(super) mod irq;
 pub(super) mod tsc;
 
-pub use irq::{IrqChip, MappedIrqLine, IRQ_CHIP};
+pub use irq::{IRQ_CHIP, IrqChip, MappedIrqLine};

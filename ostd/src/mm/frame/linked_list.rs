@@ -14,9 +14,9 @@ use vstd_extra::drop_tracking::{Drop, TrackDrop};
 use vstd_extra::ownership::*;
 use vstd_extra::trans_macros::*;
 
-use crate::mm::frame::meta::mapping::frame_to_meta;
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::UniqueFrame;
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
+use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::*;
@@ -34,10 +34,10 @@ use core::{
 use crate::specs::*;
 
 use crate::mm::frame::meta::mapping::{
-    frame_to_index, frame_to_index_spec, max_meta_slots, meta_addr, meta_to_frame,
-    meta_to_frame_spec, META_SLOT_SIZE,
+    META_SLOT_SIZE, frame_to_index, frame_to_index_spec, max_meta_slots, meta_addr, meta_to_frame,
+    meta_to_frame_spec,
 };
-use crate::mm::frame::meta::{get_slot, has_safe_slot, AnyFrameMeta, MetaSlot};
+use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, get_slot, has_safe_slot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 
 verus! {

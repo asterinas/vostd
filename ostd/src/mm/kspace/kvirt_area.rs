@@ -16,24 +16,24 @@ use super::{
     VMALLOC_VADDR_RANGE,
 };
 use crate::mm::{
-    frame::{untyped::AnyUFrameMeta, Frame, Segment},
+    PAGE_SIZE, Paddr, Vaddr,
+    frame::{Frame, Segment, untyped::AnyUFrameMeta},
     kspace::{KernelPtConfig, MappedItem},
     largest_pages,
     page_prop::PageProperty,
-    page_table::{is_valid_range_spec, page_size, Child, CursorMut, PageTable, PageTableConfig},
-    Paddr, Vaddr, PAGE_SIZE,
+    page_table::{Child, CursorMut, PageTable, PageTableConfig, is_valid_range_spec, page_size},
 };
 
+use crate::mm::PagingConstsTrait;
 use crate::mm::frame::DynFrame;
 use crate::mm::kspace::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::PageTableGuard;
-use crate::mm::PagingConstsTrait;
-use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::arch::PagingConsts;
+use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_index_spec};
 use crate::specs::mm::frame::meta_owners::{
-    is_mmio_paddr, MetaSlotStorage, PageUsage, REF_COUNT_MAX,
+    MetaSlotStorage, PageUsage, REF_COUNT_MAX, is_mmio_paddr,
 };
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};

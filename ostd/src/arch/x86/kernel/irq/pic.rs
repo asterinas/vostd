@@ -3,7 +3,7 @@ use log::info;
 
 use crate::{
     arch::device::io_port::WriteOnlyAccess,
-    io::{sensitive_io_port, IoPort},
+    io::{IoPort, sensitive_io_port},
 };
 
 sensitive_io_port! {

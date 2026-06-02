@@ -1,9 +1,9 @@
 //! Exclusive storage protocol resource algebra.
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
+use vstd::resource::Loc;
 use vstd::resource::exclusive::ExclusiveRA;
 use vstd::resource::storage_protocol::*;
-use vstd::resource::Loc;
 
 verus! {
 

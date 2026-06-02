@@ -26,7 +26,7 @@ use crate::mm::{Paddr, Vaddr};
 use crate::prelude::Inv;
 use crate::specs::arch::mm::MAX_PADDR;
 use crate::specs::mm::page_table::Mapping;
-use crate::specs::mm::pod::{pod_bytes, Pod, PodOnce};
+use crate::specs::mm::pod::{Pod, PodOnce, pod_bytes};
 
 verus! {
 

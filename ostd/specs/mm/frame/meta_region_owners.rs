@@ -11,12 +11,12 @@ use vstd_extra::ownership::*;
 
 use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage};
 use super::*;
-use crate::mm::frame::meta::{
-    mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
-    AnyFrameMeta, MetaSlot,
-};
-use crate::mm::frame::Link;
 use crate::mm::Paddr;
+use crate::mm::frame::Link;
+use crate::mm::frame::meta::{
+    AnyFrameMeta, MetaSlot,
+    mapping::{META_SLOT_SIZE, frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr},
+};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;

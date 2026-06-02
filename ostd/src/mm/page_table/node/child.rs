@@ -2,9 +2,9 @@
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
 
+use crate::mm::frame::Frame;
 use crate::mm::frame::meta::has_safe_slot;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
-use crate::mm::frame::Frame;
 use crate::mm::page_table::*;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
@@ -18,7 +18,7 @@ use vstd_extra::ownership::*;
 use crate::specs::*;
 
 use crate::{
-    mm::{page_prop::PageProperty, Paddr, PagingConstsTrait, PagingLevel, Vaddr},
+    mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty},
     //    sync::RcuDrop,
 };
 

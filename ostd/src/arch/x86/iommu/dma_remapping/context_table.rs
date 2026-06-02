@@ -11,10 +11,10 @@ use super::second_stage::IommuPtConfig;
 use crate::{
     bus::pci::PciDeviceLocation,
     mm::{
+        Frame, FrameAllocOptions, PAGE_SIZE, Paddr, PageFlags, PageTable, VmIo,
         dma::Daddr,
         page_prop::{CachePolicy, PageProperty, PrivilegedPageFlags as PrivFlags},
         page_table::PageTableError,
-        Frame, FrameAllocOptions, Paddr, PageFlags, PageTable, VmIo, PAGE_SIZE,
     },
     task::disable_preempt,
 };
@@ -301,9 +301,7 @@ impl ContextTable {
 
         trace!(
             "Mapping Daddr: {:x?} to Paddr: {:x?} for device: {:x?}",
-            daddr,
-            paddr,
-            device
+            daddr, paddr, device
         );
 
         let from = daddr..daddr + PAGE_SIZE;

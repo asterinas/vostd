@@ -226,9 +226,9 @@ impl UserContextApiInternal for UserContext {
                 Trap::MachineError(machine_error) => panic!(
                     "Machine error: {machine_error:?}, badv: {badv:#x?}, badi: {badi:#x?}, era: {era:#x?}"
                 ),
-                Trap::Unknown => panic!(
-                    "Unknown trap, badv: {badv:#x?}, badi: {badi:#x?}, era: {era:#x?}"
-                ),
+                Trap::Unknown => {
+                    panic!("Unknown trap, badv: {badv:#x?}, badi: {badi:#x?}, era: {era:#x?}")
+                }
             }
 
             if has_kernel_event() {

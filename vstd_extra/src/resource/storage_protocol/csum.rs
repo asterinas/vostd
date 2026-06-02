@@ -2,8 +2,8 @@
 use crate::sum::*;
 use vstd::math::add;
 use vstd::prelude::*;
-use vstd::resource::storage_protocol::*;
 use vstd::resource::Loc;
+use vstd::resource::storage_protocol::*;
 
 verus! {
 

@@ -1,8 +1,8 @@
 use vstd::prelude::*;
 
-use crate::mm::frame::meta::MetaSlot;
 use crate::mm::Paddr;
 use crate::mm::Vaddr;
+use crate::mm::frame::meta::MetaSlot;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 

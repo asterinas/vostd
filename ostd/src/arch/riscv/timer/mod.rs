@@ -7,7 +7,7 @@ use core::{
 
 use crate::{
     arch::{self, boot::DEVICE_TREE},
-    cpu::{extension::IsaExtensions, CpuId, PinCurrentCpu},
+    cpu::{CpuId, PinCurrentCpu, extension::IsaExtensions},
     timer::INTERRUPT_CALLBACKS,
     trap,
 };

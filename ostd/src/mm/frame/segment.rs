@@ -10,7 +10,7 @@ use vstd_extra::panic::may_panic;
 use vstd_extra::prelude::*;
 
 use crate::mm::page_table::RCClone;
-use crate::mm::{paddr_to_vaddr, Paddr, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingLevel, Vaddr, paddr_to_vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
@@ -22,7 +22,7 @@ use core::{fmt::Debug, /*mem::ManuallyDrop,*/ ops::Range};
 
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaSlot};
-use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
+use crate::mm::frame::{Frame, has_safe_slot, untyped::AnyUFrameMeta};
 
 verus! {
 

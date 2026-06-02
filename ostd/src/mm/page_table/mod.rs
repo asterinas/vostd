@@ -17,8 +17,9 @@ use core::{
 use crate::mm::frame::meta::MetaSlot;
 
 use super::{
-    kspace::KernelPtConfig, lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge,
-    page_prop::PageProperty, vm_space::UserPtConfig, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
+    lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge, page_prop::PageProperty,
+    vm_space::UserPtConfig,
 };
 
 use crate::specs::mm::page_table::*;
