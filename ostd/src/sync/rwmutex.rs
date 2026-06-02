@@ -335,7 +335,7 @@ impl<T> RwMutex<T> {
 }
 
 #[verus_verify]
-impl<T /*: ?Sized*/> RwMutex<T> {
+impl<T  /*: ?Sized*/ > RwMutex<T> {
     /// Acquires a read mutex and sleep until it can be acquired.
     ///
     /// The calling thread will sleep until there are no writers or upgrading
@@ -411,8 +411,9 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             Some(
                 RwMutexReadGuard {
                     inner: self,
-                    tracked_token: Tracked(read_token.tracked_unwrap())
-            })
+                    tracked_token: Tracked(read_token.tracked_unwrap()),
+                },
+            )
         } else {
             atomic_with_ghost!(
                 self.lock => fetch_sub(READER);
@@ -469,7 +470,11 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             }
         ).is_ok() {
             Some(
-                RwMutexWriteGuard { inner: self , tracked_perm: Tracked(guard_perm.tracked_unwrap()), tracked_token: Tracked(guard_token.tracked_unwrap())}
+                RwMutexWriteGuard {
+                    inner: self,
+                    tracked_perm: Tracked(guard_perm.tracked_unwrap()),
+                    tracked_token: Tracked(guard_token.tracked_unwrap()),
+                },
             )
         } else {
             None
@@ -507,7 +512,10 @@ impl<T /*: ?Sized*/> RwMutex<T> {
 
         if lock == 0 {
             return Some(
-                RwMutexUpgradeableGuard { inner: self, tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()) }
+                RwMutexUpgradeableGuard {
+                    inner: self,
+                    tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()),
+                },
             );
         } else if lock == WRITER {
             atomic_with_ghost!(
@@ -784,11 +792,18 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
             };
             self.inner.queue.wake_all();
             Ok(
-                RwMutexUpgradeableGuard { inner, tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()) }
+                RwMutexUpgradeableGuard {
+                    inner,
+                    tracked_token: Tracked(upgrade_guard_token.tracked_unwrap()),
+                },
             )
         } else {
             Err(
-                RwMutexWriteGuard { inner, tracked_perm: Tracked(err_perm.tracked_unwrap()), tracked_token: Tracked(err_write_guard_token.tracked_unwrap()) }
+                RwMutexWriteGuard {
+                    inner,
+                    tracked_perm: Tracked(err_perm.tracked_unwrap()),
+                    tracked_token: Tracked(err_write_guard_token.tracked_unwrap()),
+                },
             )
         }
     }
@@ -837,14 +852,13 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
 }
 
 #[verus_verify]
-impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
+impl<T  /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
     #[verus_spec(ret =>
         ensures
             final(self).view() == *final(ret),
             old(self).view() == *ret,
     )]
-    fn deref_mut(&mut self) -> (ret: &mut Self::Target)
-    {
+    fn deref_mut(&mut self) -> (ret: &mut Self::Target) {
         proof! {
             use_type_invariant(&*self);
         }
@@ -986,11 +1000,18 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
                 }
             );
             Ok(
-                RwMutexWriteGuard { inner, tracked_perm: Tracked(write_perm.tracked_unwrap()), tracked_token: Tracked(write_guard_token.tracked_unwrap()) }
+                RwMutexWriteGuard {
+                    inner,
+                    tracked_perm: Tracked(write_perm.tracked_unwrap()),
+                    tracked_token: Tracked(write_guard_token.tracked_unwrap()),
+                },
             )
         } else {
             Err(
-                RwMutexUpgradeableGuard { inner: self.inner, tracked_token: Tracked(err_upread_guard_token.tracked_unwrap()) }
+                RwMutexUpgradeableGuard {
+                    inner: self.inner,
+                    tracked_token: Tracked(err_upread_guard_token.tracked_unwrap()),
+                },
             )
         }
     }
@@ -1005,7 +1026,8 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
         proof_decl! {
             let tracked guard_token = self.tracked_token.get();
         }
-        let res = atomic_with_ghost!(
+        let res =
+            atomic_with_ghost!(
             self.inner.lock => fetch_sub(UPGRADEABLE_READER);
             update prev -> next;
             ghost g => {

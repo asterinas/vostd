@@ -127,6 +127,8 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 // precondition (`ref_count == 1 ==> paths_in_pt empty`)
                 // in the per-frame teardown loop.
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
+                &&& regions.slot_owners[idx].usage
+                    == crate::specs::mm::frame::meta_owners::PageUsage::Frame
             }
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
@@ -155,6 +157,8 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
+                &&& regions.slot_owners[idx].usage
+                    == crate::specs::mm::frame::meta_owners::PageUsage::Frame
             }),
     {
         // Trigger the forall at index `i`.
@@ -195,7 +199,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// Interested readers are encouraged to see [`frame_to_index`] and [`meta_addr`] for how
     /// we convert between physical addresses and meta region indices.
     pub open spec fn wf(&self, owner: &SegmentOwner<M>) -> bool {
-        &&& self.range() == owner.range
+        &&& self.range == owner.range
     }
 
     /// Whether a [`MemView`] covers the segment through the kernel direct mapping.

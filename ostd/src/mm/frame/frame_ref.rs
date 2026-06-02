@@ -26,6 +26,15 @@ pub struct FrameRef<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> {
     pub _marker: PhantomData<&'a Frame<M>>,
 }
 
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
+    type Target = Frame<M>;
+
+    #[verus_spec(ensures returns &self.inner.0)]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
@@ -44,21 +53,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
         requires
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
+            old(regions).slots.contains_key(frame_to_index(raw)),
             old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,
             old(regions).slot_owners[frame_to_index(raw)].inner_perms.ref_count.value()
                 != crate::mm::frame::meta::REF_COUNT_UNUSED,
-            perm.is_init(),
-            perm.addr() == frame_to_meta(raw),
-            perm.value().wf(old(regions).slot_owners[frame_to_index(raw)]),
         ensures
             final(regions).inv(),
             r.inner.0.ptr.addr() == frame_to_meta(raw),
-            // raw_count is always 1 after borrow (from_raw → 0, ManuallyDrop::new → 1)
             final(regions).slot_owners[frame_to_index(raw)].raw_count == 1,
-            // All other fields of this slot are preserved
             final(regions).slot_owners[frame_to_index(raw)].inner_perms
                 == old(regions).slot_owners[frame_to_index(raw)].inner_perms,
             final(regions).slot_owners[frame_to_index(raw)].self_addr
@@ -67,14 +71,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
                 == old(regions).slot_owners[frame_to_index(raw)].usage,
             final(regions).slot_owners[frame_to_index(raw)].paths_in_pt
                 == old(regions).slot_owners[frame_to_index(raw)].paths_in_pt,
-            // Other slots are unchanged
             forall |i: usize|
                 #![trigger final(regions).slot_owners[i]]
                 i != frame_to_index(raw) ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
             final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
-            // Slots: from_raw inserts perm, ManuallyDrop::new preserves
-            final(regions).slots == old(regions).slots.insert(frame_to_index(raw), *perm),
+            final(regions).slots == old(regions).slots,
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
@@ -88,7 +90,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
         }
 
         let frame = unsafe {
-            proof_with!(Tracked(regions), Tracked(perm) => Tracked(debt));
+            proof_with!(Tracked(regions) => Tracked(debt));
             Frame::from_raw(raw)
         };
 
@@ -97,15 +99,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
         }
 
         Self { inner: ManuallyDrop::new(frame, Tracked(regions)), _marker: PhantomData }
-    }
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
-    type Target = Frame<M>;
-
-    #[verus_spec(ensures returns &self.inner.0)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
     }
 }
 

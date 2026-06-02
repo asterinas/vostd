@@ -290,6 +290,7 @@ dependencies = [
  "spin",
  "tdx-guest",
  "unwinding",
+ "verified_bitflags",
  "volatile 0.6.1",
  "vstd",
  "vstd_extra",

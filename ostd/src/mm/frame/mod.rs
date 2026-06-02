@@ -56,7 +56,7 @@ use core::{
 };
 
 //pub use allocator::GlobalFrameAllocator;
-use meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 pub use segment::Segment;
 
 // Re-export commonly used types
@@ -113,19 +113,125 @@ pub struct Frame<M: ?Sized> {
     pub _marker: PhantomData<M>,
 }
 
-#[verifier::external]
-unsafe impl<M: AnyFrameMeta  /* + ?Sized */ > Send for Frame<M> {
+/// We need to keep track of when frames are forgotten with `ManuallyDrop`.
+/// We maintain a counter for each frame of how many times it has been forgotten (`raw_count`).
+/// Calling `ManuallyDrop::new` increments the counter. It is technically safe to forget a frame multiple times,
+/// and this will happen with read-only `FrameRef`s. All such references need to be dropped by the time
+/// `from_raw` is called. So, `ManuallyDrop::drop` decrements the counter when the reference is dropped,
+/// and `from_raw` may only be called when the counter is 1.
+impl<M: ?Sized> TrackDrop for Frame<M> {
+    type State = MetaRegionOwners;
 
+    open spec fn constructor_requires(self, s: Self::State) -> bool {
+        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.inv()
+    }
+
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == MetaSlotOwner {
+            raw_count: (slot_own.raw_count + 1) as usize,
+            ..slot_own
+        }
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
+                == s0.slot_owners[i]
+        &&& s1.slots =~= s0.slots
+        &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
+    }
+
+    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+        let meta_addr = self.ptr.addr();
+        let index = frame_to_index(meta_to_frame(meta_addr));
+        let tracked mut slot_own = s.slot_owners.tracked_remove(index);
+        slot_own.raw_count = (slot_own.raw_count + 1) as usize;
+        s.slot_owners.tracked_insert(index, slot_own);
+    }
+
+    // It is unsound to drop a `Frame` while raw paddrs to it remain
+    // outstanding (`raw_count > 0`), since those raw paddrs could be revived
+    // via `from_raw` after the slot has been torn down. Hence the drop is
+    // only permitted when `raw_count == 0`.
+    open spec fn drop_requires(self, s: Self::State) -> bool {
+        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let slot_own = s.slot_owners[idx];
+        // Cross-object validity: this Frame is consistent with `s` and
+        // the slot is in the SHARED rc range. `wf_state` carries the
+        // slot identity + pointer agreement + `rc ∈ (0, MAX] ∧ ≠ UNIQUE`
+        // bounds.
+        &&& self.wf_state(
+            s,
+        )
+        // Outstanding raw paddrs must be drained before drop; otherwise
+        // a `from_raw` after teardown would resurrect a dead slot.
+        &&& slot_own.raw_count
+            == 0
+        // At `ref_count == 1` the teardown branch of `drop_last_in_place`
+        // runs, requiring an empty `paths_in_pt` (the strengthened
+        // `MetaSlotOwner::inv` UNUSED branch demands it post-teardown,
+        // and `drop_last_in_place` doesn't touch paths). Sound: at
+        // `ref_count == 1` the `Frame` being dropped is the sole
+        // reference, so there is no live PTE mapping (a mapping would
+        // be a further reference, forcing `ref_count >= 2`).
+        //
+        // The other `drop_last_in_place_safety_cond` conjuncts
+        // (`storage.is_init`, `in_list == 0`) are subsumed by the
+        // strengthened `MetaSlotOwner::inv` SHARED branch
+        // (`0 < rc <= REF_COUNT_MAX`) — they hold universally for any
+        // in-use slot, not just at `rc == 1`.
+        &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
+            &&& slot_own.paths_in_pt.is_empty()
+        }
+    }
+
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let so0 = s0.slot_owners[idx];
+        let so1 = s1.slot_owners[idx];
+        &&& s1.inv()
+        // `raw_count` is left untouched; only `ref_count` (and possibly
+        // storage/vtable for the last-ref teardown) changes.
+        &&& so1.raw_count == so0.raw_count
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& s1.slots =~= s0.slots
+        &&& s1.slot_owners.dom()
+            =~= s0.slot_owners.dom()
+        // The slot's identity / page-table linkage is preserved by a
+        // drop (it only adjusts refcount and, on teardown, storage).
+        &&& so1.self_addr == so0.self_addr
+        &&& so1.usage == so0.usage
+        &&& so1.paths_in_pt
+            == so0.paths_in_pt
+        // Refcount transition. `drop_requires` guarantees the old value
+        // is in `[1, REF_COUNT_MAX]`, so these cases are exhaustive:
+        //  - last reference (== 1): the slot is torn down to UNUSED.
+        //  - otherwise (> 1): the refcount is decremented by one.
+        &&& so0.inner_perms.ref_count.value() == 1 ==> so1.inner_perms.ref_count.value()
+            == REF_COUNT_UNUSED
+        &&& so0.inner_perms.ref_count.value() > 1 ==> so1.inner_perms.ref_count.value() == (
+        so0.inner_perms.ref_count.value() - 1) as u64
+    }
 }
 
-#[verifier::external]
-unsafe impl<M: AnyFrameMeta  /* + ?Sized */ > Sync for Frame<M> {
-
+/*
+impl<M: ?Sized> Inv for Frame<M> {
+    open spec fn inv(self) -> bool {
+        &&& self.ptr.addr() % META_SLOT_SIZE == 0
+        &&& FRAME_METADATA_RANGE.start <= self.ptr.addr() < FRAME_METADATA_RANGE.start
+            + MAX_NR_PAGES * META_SLOT_SIZE
+    }
 }
 
-/*impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Frame({:#x})", self.start_paddr())
+// Unbounded so the PT-node `on_drop` body can use `Frame::<Self>::from_raw` /
+// `Drop for Frame<Self>` without forcing trait resolution back through the
+// in-flight `AnyFrameMeta for PageTablePageMeta<C>` impl. Body is pure
+// pointer arithmetic — no M-specific machinery.
+impl<M: ?Sized> Frame<M> {
+    pub open spec fn paddr(self) -> usize {
+        meta_to_frame(self.ptr.addr())
     }
 }*/
 
@@ -135,8 +241,96 @@ impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
         self.start_paddr() == other.start_paddr()
     }
 }
+
 impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
 */
+
+impl<M: ?Sized> Frame<M> {
+    /// Cross-object well-formedness predicate: this `Frame` handle and
+    /// the supplied [`MetaRegionOwners`] state are mutually consistent.
+    /// Packages the static "Frame ⟷ state" conjuncts (slot/pointer
+    /// identity, slot in-use range) so that consumer specs
+    /// ([`drop_requires`], [`clone_requires`]) read uniformly.
+    ///
+    /// **Name**: `wf_state` (not just `wf`) to avoid clashing with the
+    /// `OwnerOf::wf(self, Self::Owner)` impl that
+    /// [`PageTableNode<C> = Frame<PageTablePageMeta<C>>`] inherits — the
+    /// two predicates take different argument types and serve different
+    /// purposes (per-handle vs. per-owner well-formedness).
+    ///
+    /// The rc range (`> 0 ∧ ≠ UNUSED ∧ ≠ UNIQUE ∧ ≤ MAX`) captures the
+    /// fact that holding a `Frame<M>` is itself evidence that the slot
+    /// is in the SHARED state — no UNUSED, no UNIQUE (which is reserved
+    /// for [`UniqueFrame`]). Combined with
+    /// [`MetaSlotOwner::inv`]'s SHARED branch (post Item 1), `wf_state`
+    /// implies `storage.is_init`, `in_list == 0`, and `vtable_ptr.is_init`
+    /// at the slot, so consumers don't have to repeat those.
+    ///
+    /// **Not preserved by `drop` for `self`**: dropping `self` releases
+    /// the reference; for *other* handles to the same slot, `wf_state`
+    /// is preserved by `drop`'s `>1` branch (post rc ∈ [1, MAX-1]) and
+    /// vacuous in the `==1` branch (no other handles to break).
+    pub open spec fn wf_state(self, s: MetaRegionOwners) -> bool {
+        let idx = self.index();
+        let slot_own = s.slot_owners[idx];
+        &&& self.inv()
+        &&& s.inv()
+        &&& s.slots.contains_key(idx)
+        &&& s.slots[idx].pptr() == self.ptr
+        &&& s.slot_owners.contains_key(idx)
+        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
+        &&& slot_own.inner_perms.ref_count.value() > 0
+        &&& slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX
+    }
+}
+
+#[verus_verify]
+impl<M> Frame<M> {
+    /// Restores a forgotten [`Frame`] from a physical address.
+    ///
+    /// # Safety
+    ///
+    /// The caller should only restore a `Frame` that was previously forgotten using
+    /// [`Frame::into_raw`].
+    ///
+    /// And the restoring operation should only be done once for a forgotten
+    /// [`Frame`]. Otherwise double-free will happen.
+    ///
+    /// Also, the caller ensures that the usage of the frame is correct. There's
+    /// no checking of the usage in this function.
+    #[verus_spec(r =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            -> debt: Tracked<BorrowDebt>,
+        requires
+            Self::from_raw_requires_safety(*old(regions), paddr),
+            old(regions).slots.contains_key(frame_to_index(paddr)),
+            old(regions).slot_owners[frame_to_index(paddr)].raw_count <= 1,
+        ensures
+            Self::from_raw_ensures(*old(regions), *final(regions), paddr, r),
+            final(regions).slots == old(regions).slots,
+            debt@.frame_index == frame_to_index(paddr),
+            debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
+    )]
+    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self {
+        let vaddr = frame_to_meta(paddr);
+        let ptr = PPtr::from_addr(vaddr);
+
+        let ghost idx = frame_to_index(paddr);
+        let ghost old_raw_count = regions.slot_owners[idx].raw_count;
+
+        proof {
+            let index = frame_to_index(paddr);
+            let tracked mut slot_own = regions.slot_owners.tracked_remove(index);
+            slot_own.raw_count = 0usize;
+            regions.slot_owners.tracked_insert(index, slot_own);
+        }
+
+        proof_with!(|= Tracked(BorrowDebt { frame_index: idx, raw_count_at_issue: old_raw_count }));
+        Self { ptr, _marker: PhantomData }
+    }
+}
 
 #[verus_verify]
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
@@ -161,37 +355,30 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>
-            -> perm: Tracked<Option<vstd::simple_pptr::PointsTo<MetaSlot>>>
         requires
             old(regions).inv(),
-            // `has_safe_slot`-guarded (see `MetaSlot::get_from_unused`):
-            // an out-of-bound / misaligned `paddr` returns `Err` without
-            // touching `regions`, so it is not a precondition violation.
-            has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
             final(regions).inv(),
-            r matches Ok(res) ==> perm@ is Some && MetaSlot::get_from_unused_perm_spec(paddr, metadata, false, res.ptr, perm@.unwrap()),
-            // Design B: expose the perm's well-formedness against the post
-            // slot owner so callers (Arc-style `Segment`) can re-park the
-            // perm into `regions.slots` and re-establish `regions.inv()`.
-            r matches Ok(res) ==> perm@ is Some && perm@.unwrap().value().wf(
-                final(regions).slot_owners[frame_to_index(paddr)]),
-            r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
+            r matches Ok(res) ==> res.ptr.addr() == frame_to_meta(paddr),
+            r is Ok ==> MetaSlot::get_from_unused_reparked_spec(paddr, false, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> r is Err,
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
-        /*Ok(Self {
-            ptr: MetaSlot::get_from_unused(paddr, metadata, false)?,
-            _marker: PhantomData,
-        })*/
+        let ghost pre = *regions;
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
-            proof_with!(|= Tracked(None));
             Err(err)
         } else {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
-            proof_with!(|= Tracked(Some(perm)));
+            let ghost idx = frame_to_index(paddr);
+            proof {
+                assert(frame_to_index_spec(paddr)
+                    < crate::mm::frame::meta::mapping::max_meta_slots());
+                assert(pre.slot_owners.contains_key(idx));
+                assert(pre.slots.contains_key(idx));
+                regions.sync_slot_perm(idx, &perm);
+            }
             Ok(Self { ptr, _marker: PhantomData })
         }
     }
@@ -455,7 +642,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         // SAFETY: Both the lifetime and the type matches `self`.
 
         unsafe {
-            #[verus_spec(with Tracked(regions), Tracked(&perm.points_to))]
+            #[verus_spec(with Tracked(regions))]
             FrameRef::borrow_paddr(
                 #[verus_spec(with Tracked(&perm.points_to))]
                 self.start_paddr(),
@@ -486,19 +673,22 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-                -> frame_perm: Tracked<MetaPerm<M>>,
         requires
             old(regions).inv(),
             old(regions).slots.contains_key(self.index()),
             self.inv(),
             old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            old(regions).slot_owners[self.index()].usage
+                != crate::specs::mm::frame::meta_owners::PageUsage::PageTable,
         ensures
             final(regions).inv(),
             r == self.paddr(),
-            frame_perm@.points_to == old(regions).slots[self.index()],
             final(regions).slot_owners[self.index()].raw_count
                 == (old(regions).slot_owners[self.index()].raw_count + 1) as usize,
+            final(regions).slot_owners[self.index()].usage
+                == old(regions).slot_owners[self.index()].usage,
             self.into_raw_post_noninterference(*old(regions), *final(regions)),
+            final(regions).slots == old(regions).slots,
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
@@ -512,15 +702,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         #[verus_spec(with Tracked(perm))]
         let paddr = self.start_paddr();
 
-        let ghost index = self.index();
-
         assert(self.constructor_requires(*regions));
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
-        assert(regions.slots.contains_key(index));
-        let tracked meta_perm = regions.copy_perm::<M>(index);
-
-        proof_with!(|= Tracked(meta_perm));
         paddr
     }
 
@@ -550,58 +734,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     }
 }
 
-#[verus_verify]
-impl<M> Frame<M> {
-    /// Restores a forgotten [`Frame`] from a physical address.
-    ///
-    /// # Safety
-    ///
-    /// The caller should only restore a `Frame` that was previously forgotten using
-    /// [`Frame::into_raw`].
-    ///
-    /// And the restoring operation should only be done once for a forgotten
-    /// [`Frame`]. Otherwise double-free will happen.
-    ///
-    /// Also, the caller ensures that the usage of the frame is correct. There's
-    /// no checking of the usage in this function.
-    #[verus_spec(r =>
-        with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
-            -> debt: Tracked<BorrowDebt>,
-        requires
-            Self::from_raw_requires_safety(*old(regions), paddr),
-            old(regions).slot_owners[frame_to_index(paddr)].raw_count <= 1,
-            perm.is_init(),
-            perm.addr() == frame_to_meta(paddr),
-            perm.value().wf(old(regions).slot_owners[frame_to_index(paddr)]),
-        ensures
-            Self::from_raw_ensures(*old(regions), *final(regions), paddr, r),
-            final(regions).slots == old(regions).slots.insert(frame_to_index(paddr), *perm),
-            debt@.frame_index == frame_to_index(paddr),
-            debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
-    )]
-    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self {
-        let vaddr = frame_to_meta(paddr);
-        let ptr = PPtr::from_addr(vaddr);
-
-        let ghost idx = frame_to_index(paddr);
-        let ghost old_raw_count = regions.slot_owners[idx].raw_count;
-
-        proof {
-            let index = frame_to_index(paddr);
-            regions.sync_slot_perm(index, perm);
-
-            let tracked mut slot_own = regions.slot_owners.tracked_remove(index);
-            slot_own.raw_count = 0usize;
-            regions.slot_owners.tracked_insert(index, slot_own);
-        }
-
-        proof_with!(|= Tracked(BorrowDebt { frame_index: idx, raw_count_at_issue: old_raw_count }));
-        Self { ptr, _marker: PhantomData }
-    }
-}
-
 /* impl<M: AnyFrameMeta + ?Sized> Clone for Frame<M> {
     fn clone(&self) -> Self {
         // SAFETY: We have already held a reference to the frame.
@@ -618,6 +750,12 @@ impl<M> Frame<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
     open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        // NB: not using [`Frame::wf_state`] here — it'd cascade into the
+        // [`PageTableConfig::clone_requires_concrete`] trait method,
+        // forcing a per-impl bridge for the pointer-agreement +
+        // `rc != UNIQUE` + `rc <= MAX` conjuncts. The drop site uses
+        // `wf_state`; clone keeps the (slightly weaker) explicit
+        // shape that matches the trait method's preconditions.
         &&& self.inv()
         &&& perm.inv()
         &&& perm.slots.contains_key(idx)
@@ -672,131 +810,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         };
 
         Self { ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0), _marker: PhantomData }
-    }
-}
-
-/*
-impl<M: AnyFrameMeta + ?Sized> Drop for Frame<M> {
-    fn drop(&mut self) {
-        let last_ref_cnt = self.slot().ref_count.fetch_sub(1, Ordering::Release);
-        debug_assert!(last_ref_cnt != 0 && last_ref_cnt != REF_COUNT_UNUSED);
-
-        if last_ref_cnt == 1 {
-            // A fence is needed here with the same reasons stated in the implementation of
-            // `Arc::drop`: <https://doc.rust-lang.org/std/sync/struct.Arc.html#method.drop>.
-            core::sync::atomic::fence(Ordering::Acquire);
-
-            // SAFETY: this is the last reference and is about to be dropped.
-            unsafe { self.slot().drop_last_in_place() };
-
-            allocator::get_global_frame_allocator().dealloc(self.start_paddr(), PAGE_SIZE);
-        }
-    }
-}
-*/
-
-/// We need to keep track of when frames are forgotten with `ManuallyDrop`.
-/// We maintain a counter for each frame of how many times it has been forgotten (`raw_count`).
-/// Calling `ManuallyDrop::new` increments the counter. It is technically safe to forget a frame multiple times,
-/// and this will happen with read-only `FrameRef`s. All such references need to be dropped by the time
-/// `from_raw` is called. So, `ManuallyDrop::drop` decrements the counter when the reference is dropped,
-/// and `from_raw` may only be called when the counter is 1.
-impl<M: ?Sized> TrackDrop for Frame<M> {
-    type State = MetaRegionOwners;
-
-    open spec fn constructor_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& s.inv()
-    }
-
-    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
-        let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == MetaSlotOwner {
-            raw_count: (slot_own.raw_count + 1) as usize,
-            ..slot_own
-        }
-        &&& forall|i: usize|
-            #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
-        &&& s1.slots =~= s0.slots
-        &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
-    }
-
-    proof fn constructor_spec(self, tracked s: &mut Self::State) {
-        let meta_addr = self.ptr.addr();
-        let index = frame_to_index(meta_to_frame(meta_addr));
-        let tracked mut slot_own = s.slot_owners.tracked_remove(index);
-        slot_own.raw_count = (slot_own.raw_count + 1) as usize;
-        s.slot_owners.tracked_insert(index, slot_own);
-    }
-
-    // It is unsound to drop a `Frame` while raw paddrs to it remain
-    // outstanding (`raw_count > 0`), since those raw paddrs could be revived
-    // via `from_raw` after the slot has been torn down. Hence the drop is
-    // only permitted when `raw_count == 0`.
-    open spec fn drop_requires(self, s: Self::State) -> bool {
-        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
-        let slot_own = s.slot_owners[idx];
-        &&& self.inv()
-        &&& s.inv()
-        &&& s.slots.contains_key(idx)
-        &&& s.slots[idx].pptr() == self.ptr
-        &&& s.slot_owners.contains_key(idx)
-        &&& slot_own.raw_count == 0
-        &&& slot_own.inner_perms.ref_count.value() > 0
-        &&& slot_own.inner_perms.ref_count.value()
-            != REF_COUNT_UNUSED
-        // Bound the count below `REF_COUNT_MAX` so post-`fetch_sub` we land
-        // outside the `(REF_COUNT_MAX, REF_COUNT_UNIQUE)` forbidden zone that
-        // `MetaSlotOwner::inv` rejects (and away from `REF_COUNT_UNIQUE`,
-        // which is reserved for `UniqueFrame::drop`).
-        &&& slot_own.inner_perms.ref_count.value()
-            <= REF_COUNT_MAX
-        // When this is the last reference (ref_count == 1), we need to be able to
-        // call drop_last_in_place, which requires:
-        &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
-            &&& slot_own.inner_perms.storage.is_init()
-            &&& slot_own.inner_perms.in_list.value()
-                == 0
-            // Strengthened `MetaSlotOwner::inv` UNUSED branch: the
-            // last-ref teardown sets the slot to `REF_COUNT_UNUSED`,
-            // which now demands an empty `paths_in_pt`. Sound: at
-            // `ref_count == 1` the `Frame` being dropped is the sole
-            // reference, so there is no live PTE mapping (a mapping
-            // would be a further reference, forcing `ref_count >= 2`).
-            &&& slot_own.paths_in_pt.is_empty()
-        }
-    }
-
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
-        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
-        let so0 = s0.slot_owners[idx];
-        let so1 = s1.slot_owners[idx];
-        &&& s1.inv()
-        // `raw_count` is left untouched; only `ref_count` (and possibly
-        // storage/vtable for the last-ref teardown) changes.
-        &&& so1.raw_count == so0.raw_count
-        &&& forall|i: usize|
-            #![trigger s1.slot_owners[i]]
-            i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
-        &&& s1.slots =~= s0.slots
-        &&& s1.slot_owners.dom()
-            =~= s0.slot_owners.dom()
-        // The slot's identity / page-table linkage is preserved by a
-        // drop (it only adjusts refcount and, on teardown, storage).
-        &&& so1.self_addr == so0.self_addr
-        &&& so1.usage == so0.usage
-        &&& so1.paths_in_pt
-            == so0.paths_in_pt
-        // Refcount transition. `drop_requires` guarantees the old value
-        // is in `[1, REF_COUNT_MAX]`, so these cases are exhaustive:
-        //  - last reference (== 1): the slot is torn down to UNUSED.
-        //  - otherwise (> 1): the refcount is decremented by one.
-        &&& so0.inner_perms.ref_count.value() == 1 ==> so1.inner_perms.ref_count.value()
-            == REF_COUNT_UNUSED
-        &&& so0.inner_perms.ref_count.value() > 1 ==> so1.inner_perms.ref_count.value() == (
-        so0.inner_perms.ref_count.value() - 1) as u64
     }
 }
 
@@ -866,11 +879,6 @@ impl<M: ?Sized> Drop for Frame<M> {
             // allocator::get_global_frame_allocator().dealloc(paddr, PAGE_SIZE);
         } else {
             proof {
-                // last_ref_cnt > 1, so post-fetch_sub ref_count = last_ref_cnt - 1.
-                // CAS would have caught REF_COUNT_MAX/REF_COUNT_UNIQUE upstream,
-                // so last_ref_cnt is in (1, REF_COUNT_MAX]. New value is in
-                // (0, REF_COUNT_MAX - 1], thus outside the forbidden zone. We
-                // just need `vtable_ptr.is_init()`, preserved from pre-fetch_sub.
                 assert(last_ref_cnt > 1);
                 assert(slot_own.inner_perms.ref_count.value() == last_ref_cnt - 1);
                 assert(slot_own.inner_perms.vtable_ptr.is_init());
@@ -969,15 +977,18 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
             Err(dyn_frame)
         }
     }
-}
+}*/
 
-impl<M: AnyFrameMeta> From<Frame<M>> for Frame<dyn AnyFrameMeta> {
-    fn from(frame: Frame<M>) -> Self {
+/*impl<M: AnyFrameMeta> From<UFrame> for Frame<M> {
+    fn from(frame: UFrame) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute(frame) }
     }
-}
-*/
+}*/
+
+/*impl TryFrom<Frame<FrameMeta>> for UFrame {
+    type Error = Frame<FrameMeta>;
+}*/
 
 #[verifier::external]
 impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
