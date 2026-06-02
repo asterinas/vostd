@@ -166,7 +166,7 @@ macro_rules! bitflags {
 
                 $(
                     pub closed spec fn [< $Flag _spec >]() -> Self {
-                        Self { bits: ($value) as $T }
+                        Self::from_bits_unchecked_spec(($value) as $T)
                     }
 
                     $(#[$inner $($args)*])*
@@ -181,17 +181,16 @@ macro_rules! bitflags {
                     }
                 )*
 
-                /// The bitwise OR of every declared flag (the "all" mask).
-                pub closed spec fn all_spec() -> Self {
-                    Self { bits: ($( ($value) as $T )|*) as $T }
+                /// The bitwise OR of every declared flag (the "all" bits mask).
+                pub open spec fn all_bits_spec() -> $T {
+                    ($( ($value) as $T )|*) as $T
                 }
 
-                #[verifier::when_used_as_spec(all_spec)]
-                pub const fn all() -> (r: Self)
-                    ensures Self::all_spec().bits() == ($( ($value) as $T )|*) as $T,
-                    returns Self::all_spec(),
+                #[verifier::when_used_as_spec(all_bits_spec)]
+                pub const fn all_bits() -> $T
+                    returns Self::all_bits(),
                 {
-                    Self { bits: ($( ($value) as $T )|*) as $T }
+                    $( ($value) as $T )|*
                 }
 
                 /// The raw bits stored inside this flags value.
@@ -351,18 +350,25 @@ macro_rules! bitflags {
                     Self::from_bits_unchecked_spec(bits & Self::all_bits())
                 }
 
-                #[verifier::when_used_as_spec(from_bits_retain_spec)]
-                pub const fn from_bits_retain(bits: $T) -> (r: Self)
-                    ensures r.bits() == bits,
-                    returns Self::from_bits_retain_spec(bits),
-                {
-                    Self { bits }
+                pub closed spec fn from_bits_retain_spec(bits: $T) -> Self {
+                    Self::from_bits_unchecked_spec(bits)
                 }
 
-                #[vstd::contrib::auto_spec]
-                pub const fn from_bits_truncate(bits: $T) -> Self
+                #[verifier::when_used_as_spec(from_bits_retain_spec)]
+                pub const fn from_bits_retain(bits: $T) -> (r: Self)
                     ensures
-                        Self::from_bits_truncate(bits).inv(),
+                        r.bits() == bits,
+                        r.flags_spec() == Self::flags_from_bits(bits),
+                        r.inv(),
+                    returns Self::from_bits_retain(bits),
+                {
+                    Self::from_bits_unchecked(bits)
+                }
+
+                #[verifier::when_used_as_spec(from_bits_truncate_spec)]
+                pub const fn from_bits_truncate(bits: $T) -> (r: Self)
+                    ensures
+                        r.inv(),
                     returns Self::from_bits_truncate(bits),
                 {
                     Self::from_bits_unchecked(bits & Self::all_bits())
@@ -466,6 +472,20 @@ macro_rules! bitflags {
                     Self::from_bits_unchecked(self.bits & other.bits)
                 }
 
+                pub closed spec fn difference_spec(self, other: Self) -> Self {
+                    Self::from_bits_unchecked_spec(self.bits() & !other.bits())
+                }
+
+                #[verifier::when_used_as_spec(difference_spec)]
+                pub const fn difference(self, other: Self) -> (r: Self)
+                    ensures
+                        r.bits() == (self.bits() & !other.bits()),
+                        r.inv(),
+                    returns self.difference(other),
+                {
+                    Self::from_bits_unchecked(self.bits & !other.bits)
+                }
+
                 pub closed spec fn symmetric_difference_spec(self, other: Self) -> Self {
                     Self::from_bits_unchecked_spec(self.bits() ^ other.bits())
                 }
@@ -499,7 +519,7 @@ macro_rules! bitflags {
 
             impl core::cmp::Eq for $name {}
 
-            impl BitOrSpecImpl for $name {
+            impl ::vstd::std_specs::ops::BitOrSpecImpl for $name {
                 open spec fn obeys_bitor_spec() -> bool { true }
 
                 open spec fn bitor_req(self, rhs: Self) -> bool { true }
@@ -575,6 +595,9 @@ macro_rules! bitflags {
             impl core::ops::Sub for $name {
                 type Output = Self;
                 fn sub(self, other: Self) -> (r: Self)
+                    ensures
+                        r.bits() == (self.bits() & !other.bits()),
+                        r.inv(),
                 {
                     self.difference(other)
                 }
