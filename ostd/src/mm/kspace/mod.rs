@@ -204,7 +204,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
             1 <= res.1 <= crate::specs::arch::mm::NR_LEVELS,
             res == Self::item_into_raw_spec(item),
     {
-        match item {
+        /*match item {
             MappedItem::Tracked(frame, mut prop) => {
                 debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
                 prop.flags = prop.flags | PageFlags::AVAIL1();
@@ -217,7 +217,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 prop.flags = prop.flags - PageFlags::AVAIL1();
                 (pa, level, prop)
             },
-        }
+        }*/
+        unimplemented!();
     }
 
     uninterp spec fn item_from_raw_spec(

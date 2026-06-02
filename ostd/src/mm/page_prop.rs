@@ -6,7 +6,8 @@ use vstd::prelude::*;
 
 use core::fmt::Debug;
 
-use bitflags::bitflags;
+use verified_bitflags::bitflags;
+//use bitflags::bitflags;
 
 use core::ops::{Add, BitAnd, BitOr, BitXor, Sub};
 
@@ -106,8 +107,8 @@ pub enum CachePolicy {
     /// and is useful for most software and data stored in system memory (DRAM).
     Writeback,
 }
+}
 
-/* 
 bitflags! {
     /// Page protection permissions and access status.
     pub struct PageFlags: u8 {
@@ -118,12 +119,14 @@ bitflags! {
         /// Executable.
         const X = 0b00000100;
         /// Readable + writable.
-        const RW = Self::R.bits | Self::W.bits;
+        //const RW = Self::R.bits | Self::W.bits;
+        const RW = 0b00000011;
         /// Readable + executable.
-        const RX = Self::R.bits | Self::X.bits;
+        //const RX = Self::R.bits | Self::X.bits;
+        const RX = 0b00000101;
         /// Readable + writable + executable.
-        const RWX = Self::R.bits | Self::W.bits | Self::X.bits;
-
+        //const RWX = Self::R.bits | Self::W.bits | Self::X.bits;
+        const RWX = 0b00000111;
         /// Has the memory page been read or written.
         const ACCESSED  = 0b00001000;
         /// Has the memory page been written.
@@ -135,210 +138,7 @@ bitflags! {
         const AVAIL2    = 0b10000000;
     }
 }
-*/
 
-#[verifier::ext_equal]
-#[repr(transparent)]
-#[derive(Copy, Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-pub struct PageFlags {
-    bits: u8,
-}
-}
-
-#[verus_verify]
-impl PageFlags {
-    #[verus_verify]
-    #[verus_spec(returns self.bits())]
-    pub const fn bits(&self) -> u8 {
-        self.bits
-    }    
-
-    
-    #[verus_spec(ret =>
-        ensures ret.bits() == 0, 
-        returns Self::empty())]
-    pub const fn empty() -> Self {
-        Self { bits: 0 }
-    }
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret => 
-        ensures ret.bits() == 0b00000001,
-        returns Self::R())]
-    pub const fn R() -> Self {
-        Self { bits: 0b00000001 }
-    }
-
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret => 
-        ensures ret.bits() == 0b00000010,
-        returns Self::W())]
-    pub const fn W() -> Self {
-        Self { bits: 0b00000010 }
-    }
-
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret => 
-        ensures ret.bits() == 0b00000100,
-        returns Self::X())]
-    pub const fn X() -> Self {
-        Self { bits: 0b00000100 }
-    }
-
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret => 
-        ensures ret.bits() == Self::R().bits() | Self::W().bits(),
-        returns Self::RW())]
-    pub const fn RW() -> Self {
-        Self { bits: Self::R().bits | Self::W().bits }
-    }
-
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == Self::R().bits() | Self::X().bits(),
-        returns Self::RX())]
-    pub const fn RX() -> Self {
-        Self { bits: Self::R().bits | Self::X().bits }
-    }
-
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == Self::R().bits() | Self::W().bits() | Self::X().bits(),
-        returns Self::RWX())]
-    pub const fn RWX() -> Self {
-        Self { bits: Self::R().bits | Self::W().bits | Self::X().bits }
-    }
-
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == 0b00001000,
-        returns Self::ACCESSED())]
-    pub const fn ACCESSED() -> Self {
-        Self { bits: 0b00001000 }
-    }
-
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == 0b00010000,
-        returns Self::DIRTY())]
-    pub const fn DIRTY() -> Self {
-        Self { bits: 0b00010000 }
-    }
-
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == 0b01000000,
-        returns Self::AVAIL1())]
-    pub const fn AVAIL1() -> Self {
-        Self { bits: 0b01000000 }
-    }
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == 0b10000000,
-        returns Self::AVAIL2())]
-    pub const fn AVAIL2() -> Self {
-        Self { bits: 0b10000000 }
-    }
-
-    #[verus_verify(dual_spec)]
-    #[verus_spec(returns self.contains(other))]
-    pub fn contains(&self, other: Self) -> bool {
-        (self.bits & other.bits) == other.bits
-    }
-
-    #[verus_verify(dual_spec)]
-    #[verus_spec(returns Self::from_bits(bits))]
-    pub fn from_bits(bits: u8) -> Option<Self> {
-        if bits == Self::R().bits() {
-            Some(Self::R())
-        } else if bits == Self::W().bits() {
-            Some(Self::W())
-        } else if bits == Self::X().bits() {
-            Some(Self::X())
-        } else if bits == Self::RW().bits() {
-            Some(Self::RW())
-        } else if bits == Self::RX().bits() {
-            Some(Self::RX())
-        } else if bits == Self::RWX().bits() {
-            Some(Self::RWX())
-        } else if bits == Self::ACCESSED().bits() {
-            Some(Self::ACCESSED())
-        } else if bits == Self::DIRTY().bits() {
-            Some(Self::DIRTY())
-        } else if bits == Self::AVAIL1().bits() {
-            Some(Self::AVAIL1())
-        } else if bits == Self::AVAIL2().bits() {
-            Some(Self::AVAIL2())
-        } else if bits == Self::empty().bits() {
-            Some(Self::empty())
-        } else {
-            None
-        }
-    }
-}
-
-verus!{
-impl Add for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn add(self, other: Self) -> Self {
-        Self { bits: self.bits + other.bits }
-    }
-}
-
-impl Sub for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn sub(self, other: Self) -> Self {
-        Self { bits: self.bits - !other.bits }
-    }
-}
-
-impl BitOr for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn bitor(self, other: Self) -> Self {
-        Self { bits: self.bits | other.bits }
-    }
-}
-
-impl BitAnd for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn bitand(self, other: Self) -> Self {
-        Self { bits: self.bits & other.bits }
-    }
-}
-
-impl BitXor for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn bitxor(self, other: Self) -> Self {
-        Self { bits: self.bits ^ other.bits }
-    }
-}
-
-/*
 bitflags! {
     /// Page property that are only accessible in OSTD.
     pub(crate) struct PrivilegedPageFlags: u8 {
@@ -351,79 +151,5 @@ bitflags! {
         /// Otherwise the page is ensured confidential and not visible outside the guest.
         #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
         const SHARED    = 0b10000000;
-    }
-}
-*/
-
-#[verifier::ext_equal]
-#[repr(transparent)]
-#[derive(Copy, Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-pub struct PrivilegedPageFlags {
-    bits: u8,
-}
-}
-
-#[verus_verify]
-impl PrivilegedPageFlags {
-    #[verus_verify(dual_spec)]
-    #[verus_spec(returns self.bits())]
-    pub const fn bits(&self) -> u8 {
-        self.bits
-    }
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret => 
-        ensures ret.bits() == 0,
-        returns Self::empty())]
-    pub const fn empty() -> Self {
-        Self { bits: 0 }
-    }
-
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(returns Self::from_bits(value))]
-    pub fn from_bits(value: u8) -> Option<Self> {
-        if value == Self::USER().bits() {
-            Some(Self::USER())
-        } else if value == Self::GLOBAL().bits() {
-            Some(Self::GLOBAL())
-        } else if value == Self::SHARED().bits() {
-            Some(Self::SHARED())
-        } else if value == Self::empty().bits() {
-            Some(Self::empty())
-        } else {
-            None
-        }
-    }
-
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == 0b00000001,
-        returns Self::USER())]
-    pub const fn USER() -> Self {
-        Self { bits: 0b00000001 }
-    }
-
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == 0b00000010,
-        returns Self::GLOBAL())]
-    pub const fn GLOBAL() -> Self {
-        Self { bits: 0b00000010 }
-    }
-
-    
-    
-    #[verus_verify(dual_spec)]
-    #[verus_spec(ret =>
-        ensures ret.bits() == 0b10000000,
-        returns Self::SHARED())]
-    pub const fn SHARED() -> Self {
-        Self { bits: 0b10000000 }
     }
 }

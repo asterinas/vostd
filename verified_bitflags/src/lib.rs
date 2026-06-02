@@ -33,6 +33,8 @@ use vstd::arithmetic::power2::*;
 use vstd::bits::*;
 use vstd::prelude::*;
 
+pub use paste;
+
 /// A macro wrapper for quickly defining bitflags with verified
 /// properties in Verus. It only supports literal values for the bits.
 ///
@@ -65,7 +67,7 @@ macro_rules! bitflags {
 
         $($t:tt)*
     ) => {
-        paste::paste! { verus! {
+        $crate::paste::paste! { verus! {
 
             $(#[$outer])*
             #[repr(transparent)]
@@ -378,7 +380,6 @@ macro_rules! bitflags_quick {
 // ---------------------------------------------------------------------------
 
 bitflags! {
-    /// Example flag set, layout-compatible with `bitflags::example_generated::Flags`.
     pub struct Flags: u32 {
         const A = 0b00000001;
         const B = 0b00000010;
@@ -391,10 +392,6 @@ verus! {
 
 #[allow(dead_code)]
 fn _bitflags_smoke_test() {
-    // Each flag is now a `pub const fn` factory (matches the repo's PageFlags
-    // convention) rather than an associated const, because the `bits` field
-    // is private and Verus refuses to expose a constructor through a public
-    // associated constant.
     let a = Flags::A();
     let b = Flags::B();
     let c = Flags::C();
