@@ -3468,6 +3468,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     owner_before_replace.level);
                 };
                 assert forall|mm: Mapping|
+                    #![trigger owner_final@.mappings.contains(mm)]
                     owner_final@.mappings.contains(mm) implies mm.va_range.start != sv by {
                     if mm.va_range.start == sv {
                         assert(owner_before_replace@.mappings.contains(mm));
