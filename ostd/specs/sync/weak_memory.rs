@@ -2,15 +2,21 @@
 //!
 //! This module is a TCB boundary: executable atomic operations are connected to
 //! Rust atomics with `external_body`, while proofs rely only on the ghost specs
-//! below.  The first concrete wrapper is `AtomicUsizeW`; pointer atomics and CAS
-//! should be layered on top after the view/history model stabilizes.
+//! below. Concrete wrappers currently cover Rust integer atomics, `AtomicBoolW`,
+//! and `AtomicPtrW`, all using the same view/history model.
 //!
 //! We focus on the repaired C11/RC11-style memory model, where relaxed behavior
 //! is modeled as reading from previously written messages in a location’s modi-
 //! fication history, subject to coherence. In particular, relaxed reads may ob-
 //! serve stale writes, but a thread’s view prevents it from going backwards,
 //! and reads do not observe future writes that have not been added to the history.
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{
+    AtomicBool, AtomicI16, AtomicI32, AtomicI8, AtomicIsize, AtomicPtr, AtomicU16, AtomicU32,
+    AtomicU8, AtomicUsize, Ordering,
+};
+
+#[cfg(target_has_atomic = "64")]
+use core::sync::atomic::{AtomicI64, AtomicU64};
 
 use vstd::invariant::{AtomicInvariant, InvariantPredicate};
 use vstd::prelude::*;
@@ -238,18 +244,164 @@ impl<V> MsgSnap<V> {
     }
 }
 
-/// Predicate adapter stored inside `AtomicInvariant`.
+} // verus!
+/// Generate the proof-facing wrapper for one concrete weak-memory atomic type.
 ///
-/// The invariant contains the authoritative history and user ghost state. The
-/// constant pairs the user key `K` with the logical atomic id.
-pub struct WeakAtomicPredUsize<Pred> {
+/// The generated type keeps the executable TCB wrapper separate from the
+/// invariant protocol. Adding `AtomicU32W` or `AtomicBoolW` later should require
+/// a new executable wrapper plus one macro invocation, not another copy of the
+/// invariant glue.
+macro_rules! declare_weak_atomic_type {
+    ($weak_atomic:ident, $pred_adapter:ident, $raw_atomic:ident, $value_ty:ty) => {
+        verus! {
+        /// Predicate adapter stored inside `AtomicInvariant`.
+        ///
+        /// The invariant contains the authoritative history and user ghost
+        /// state. The constant pairs the user key `K` with the logical atomic id.
+        pub struct $pred_adapter<Pred> {
+            p: Pred,
+        }
+
+        impl<K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<$value_ty>, G)> for $pred_adapter<
+            Pred,
+        > where Pred: WeakAtomicInvariantPredicate<K, $value_ty, G> {
+            open spec fn inv(k_id: (K, AtomicId), hist_g: (HistAuth<$value_ty>, G)) -> bool {
+                let (k, id) = k_id;
+                let (hist, g) = hist_g;
+                &&& hist.id() == id
+                &&& hist.wf()
+                &&& Pred::atomic_inv(k, hist.history(), g)
+            }
+        }
+
+        /// A weak-memory atomic with an `atomic_ghost`-style invariant.
+        ///
+        /// The executable atomic remains the TCB wrapper. This proof-facing
+        /// wrapper stores the authoritative history in an `AtomicInvariant` and
+        /// exposes `well_formed`/`type_inv` predicates tying that history to the
+        /// executable atomic id. As in `vstd::atomic_ghost`, outer data
+        /// structures put this predicate in their own
+        /// `#[verifier::type_invariant]`.
+        pub struct $weak_atomic<K, G, Pred> {
+            #[doc(hidden)]
+            pub atomic: $raw_atomic,
+            #[doc(hidden)]
+            pub atomic_inv: Tracked<
+                AtomicInvariant<(K, AtomicId), (HistAuth<$value_ty>, G), $pred_adapter<Pred>>,
+            >,
+        }
+
+        impl<K, G, Pred> $weak_atomic<K, G, Pred> {
+            pub closed spec fn constant(&self) -> K {
+                self.atomic_inv@.constant().0
+            }
+
+            pub closed spec fn well_formed(&self) -> bool {
+                self.atomic_inv@.constant().1 == self.atomic.id()
+            }
+
+            pub closed spec fn type_inv(&self) -> bool {
+                self.well_formed()
+            }
+        }
+
+        impl<K, G, Pred> $weak_atomic<K, G, Pred> where
+            Pred: WeakAtomicInvariantPredicate<K, $value_ty, G>,
+        {
+            #[inline(always)]
+            pub const fn new(
+                Ghost(k): Ghost<K>,
+                init: $value_ty,
+                Tracked(g): Tracked<G>,
+            ) -> (res: Self)
+                requires
+                    Pred::atomic_inv(k, seq![Msg { value: init, view: WmView::empty() }], g),
+                ensures
+                    res.well_formed(),
+                    res.constant() == k,
+            {
+                let (atomic, Tracked(hist)) = $raw_atomic::new(init);
+                let tracked pair = (hist, g);
+                assert($pred_adapter::<Pred>::inv((k, atomic.id()), pair));
+                let tracked atomic_inv = AtomicInvariant::new((k, atomic.id()), pair, 0);
+                $weak_atomic { atomic, atomic_inv: Tracked(atomic_inv) }
+            }
+
+            #[inline(always)]
+            pub fn load_relaxed(
+                &self,
+                Tracked(tv): Tracked<&mut ThreadView>,
+            ) -> (res: ($value_ty, Ghost<Timestamp>))
+                requires
+                    self.well_formed(),
+            {
+                let result;
+                vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+                    let tracked (hist, g) = pair;
+                    result = self.atomic.load_relaxed(Tracked(&hist), Tracked(tv));
+                    proof {
+                        pair = (hist, g);
+                    }
+                });
+                result
+            }
+
+            #[inline(always)]
+            pub fn load_acquire(
+                &self,
+                Tracked(tv): Tracked<&mut ThreadView>,
+            ) -> (res: ($value_ty, Ghost<Timestamp>))
+                requires
+                    self.well_formed(),
+            {
+                let result;
+                vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+                    let tracked (hist, g) = pair;
+                    result = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
+                    proof {
+                        pair = (hist, g);
+                    }
+                });
+                result
+            }
+        }
+        }
+    };
+}
+
+declare_weak_atomic_type!(WeakAtomicU8, WeakAtomicPredU8, AtomicU8W, u8);
+declare_weak_atomic_type!(WeakAtomicU16, WeakAtomicPredU16, AtomicU16W, u16);
+declare_weak_atomic_type!(WeakAtomicU32, WeakAtomicPredU32, AtomicU32W, u32);
+declare_weak_atomic_type!(WeakAtomicUsize, WeakAtomicPredUsize, AtomicUsizeW, usize);
+declare_weak_atomic_type!(WeakAtomicBool, WeakAtomicPredBool, AtomicBoolW, bool);
+
+#[cfg(target_has_atomic = "64")]
+declare_weak_atomic_type!(WeakAtomicU64, WeakAtomicPredU64, AtomicU64W, u64);
+
+declare_weak_atomic_type!(WeakAtomicI8, WeakAtomicPredI8, AtomicI8W, i8);
+declare_weak_atomic_type!(WeakAtomicI16, WeakAtomicPredI16, AtomicI16W, i16);
+declare_weak_atomic_type!(WeakAtomicI32, WeakAtomicPredI32, AtomicI32W, i32);
+declare_weak_atomic_type!(WeakAtomicIsize, WeakAtomicPredIsize, AtomicIsizeW, isize);
+
+#[cfg(target_has_atomic = "64")]
+declare_weak_atomic_type!(WeakAtomicI64, WeakAtomicPredI64, AtomicI64W, i64);
+
+verus! {
+
+/// Predicate adapter for weak-memory pointer atomics.
+///
+/// The history stores raw pointer values. This tracks the atomic pointer value
+/// itself; ownership of the pointee must be modeled by the user ghost state `G`.
+pub struct WeakAtomicPredPtr<T, Pred> {
+    t: T,
     p: Pred,
 }
 
-impl<K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<usize>, G)> for WeakAtomicPredUsize<
+impl<T, K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<*mut T>, G)> for WeakAtomicPredPtr<
+    T,
     Pred,
-> where Pred: WeakAtomicInvariantPredicate<K, usize, G> {
-    open spec fn inv(k_id: (K, AtomicId), hist_g: (HistAuth<usize>, G)) -> bool {
+> where Pred: WeakAtomicInvariantPredicate<K, *mut T, G> {
+    open spec fn inv(k_id: (K, AtomicId), hist_g: (HistAuth<*mut T>, G)) -> bool {
         let (k, id) = k_id;
         let (hist, g) = hist_g;
         &&& hist.id() == id
@@ -258,23 +410,23 @@ impl<K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<usize>, G)> for Wea
     }
 }
 
-/// A weak-memory atomic with an `atomic_ghost`-style invariant.
+/// Weak-memory atomic pointer with an `atomic_ghost`-style invariant.
 ///
-/// `AtomicUsizeW` remains the TCB executable wrapper. This type is the proof
-/// facing wrapper: it stores the authoritative history in an `AtomicInvariant`
-/// and exposes `well_formed`/`type_inv` predicates tying that history to the
-/// executable atomic id. As in `vstd::atomic_ghost`, outer data structures put
-/// this predicate in their own `#[verifier::type_invariant]`.
-pub struct WeakAtomicUsize<K, G, Pred> {
+/// This is the pointer analogue of [`WeakAtomicUsize`]. It deliberately models
+/// only the atomic pointer value and its release/acquire synchronization history;
+/// any ownership or validity claim about the pointed-to allocation belongs in
+/// the user-supplied ghost state `G` and invariant predicate.
+#[verifier::accept_recursive_types(T)]
+pub struct WeakAtomicPtr<T, K, G, Pred> {
     #[doc(hidden)]
-    pub atomic: AtomicUsizeW,
+    pub atomic: AtomicPtrW<T>,
     #[doc(hidden)]
     pub atomic_inv: Tracked<
-        AtomicInvariant<(K, AtomicId), (HistAuth<usize>, G), WeakAtomicPredUsize<Pred>>,
+        AtomicInvariant<(K, AtomicId), (HistAuth<*mut T>, G), WeakAtomicPredPtr<T, Pred>>,
     >,
 }
 
-impl<K, G, Pred> WeakAtomicUsize<K, G, Pred> {
+impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> {
     pub closed spec fn constant(&self) -> K {
         self.atomic_inv@.constant().0
     }
@@ -288,25 +440,27 @@ impl<K, G, Pred> WeakAtomicUsize<K, G, Pred> {
     }
 }
 
-impl<K, G, Pred> WeakAtomicUsize<K, G, Pred> where Pred: WeakAtomicInvariantPredicate<K, usize, G> {
+impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> where
+    Pred: WeakAtomicInvariantPredicate<K, *mut T, G>,
+ {
     #[inline(always)]
-    pub const fn new(Ghost(k): Ghost<K>, init: usize, Tracked(g): Tracked<G>) -> (res: Self)
+    pub const fn new(Ghost(k): Ghost<K>, init: *mut T, Tracked(g): Tracked<G>) -> (res: Self)
         requires
             Pred::atomic_inv(k, seq![Msg { value: init, view: WmView::empty() }], g),
         ensures
             res.well_formed(),
             res.constant() == k,
     {
-        let (atomic, Tracked(hist)) = AtomicUsizeW::new(init);
+        let (atomic, Tracked(hist)) = AtomicPtrW::<T>::new(init);
         let tracked pair = (hist, g);
-        assert(WeakAtomicPredUsize::<Pred>::inv((k, atomic.id()), pair));
+        assert(WeakAtomicPredPtr::<T, Pred>::inv((k, atomic.id()), pair));
         let tracked atomic_inv = AtomicInvariant::new((k, atomic.id()), pair, 0);
-        WeakAtomicUsize { atomic, atomic_inv: Tracked(atomic_inv) }
+        WeakAtomicPtr { atomic, atomic_inv: Tracked(atomic_inv) }
     }
 
     #[inline(always)]
     pub fn load_relaxed(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
-        usize,
+        *mut T,
         Ghost<Timestamp>,
     ))
         requires
@@ -325,7 +479,7 @@ impl<K, G, Pred> WeakAtomicUsize<K, G, Pred> where Pred: WeakAtomicInvariantPred
 
     #[inline(always)]
     pub fn load_acquire(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
-        usize,
+        *mut T,
         Ghost<Timestamp>,
     ))
         requires
@@ -361,6 +515,48 @@ impl<K, V, G> WeakAtomicInvariantPredicate<K, V, G> for TrueWeakAtomicInv {
 /// authoritative history.
 #[macro_export]
 macro_rules! weak_atomic_with_ghost {
+    (
+        $atomic:expr => compare_exchange_acqrel_acquire($current:expr, $new:expr, $tv:expr);
+        update $prev:ident -> $next:ident;
+        returning $ret:ident;
+        timestamp $ts:ident;
+        message $msg:ident;
+        snapshot $snap:ident;
+        ghost $g:ident => $b:block
+    ) => {
+            ::vstd::prelude::verus_exec_expr! {{
+            let result;
+            let atomic = &($atomic);
+            let current = $current;
+            let new = $new;
+            ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
+                #[allow(unused_mut)]
+                let tracked (mut hist, mut $g) = pair;
+                let ghost $prev = hist.history();
+                let cas_result = atomic.atomic.compare_exchange_acqrel_acquire(
+                    Tracked(&mut hist),
+                    $tv,
+                    current,
+                    new,
+                );
+                result = (cas_result.0, cas_result.1);
+                let ghost $next = hist.history();
+                let ghost $ret = cas_result.0;
+                let ghost $ts = cas_result.1@;
+                let ghost $msg = $prev[$ts as int];
+
+                proof {
+                    let tracked $snap = cas_result.2.get();
+                    $b
+                }
+
+                proof {
+                    pair = (hist, $g);
+                }
+            });
+            result
+        }}
+    };
     (
         $atomic:expr => load_acquire($tv:expr);
         returning $ret:ident;
@@ -597,6 +793,69 @@ impl AtomicUsizeW {
         (value, Ghost::assume_new())
     }
 
+    /// Strong compare-exchange with `AcqRel` success ordering and `Acquire`
+    /// failure ordering.
+    ///
+    /// This first CAS model is intentionally conservative: the operation reads
+    /// the latest message in the location's modification history. On success it
+    /// appends a new release message; on failure it behaves like an acquire load.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn compare_exchange_acqrel_acquire(
+        &self,
+        Tracked(auth): Tracked<&mut HistAuth<usize>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+        current: usize,
+        new: usize,
+    ) -> (res: (Result<usize, usize>, Ghost<Timestamp>, Tracked<Option<MsgSnap<usize>>>))
+        requires
+            old(auth).id() == self.id(),
+            old(auth).wf(),
+        ensures
+            ({
+                let read_ts = res.1@;
+                let read_msg = old(auth).msg_at(read_ts);
+                let after_read = old(tv)@.observe(self.id(), read_ts).join(read_msg.view);
+                &&& old(auth).readable(old(tv)@, read_ts)
+                &&& read_ts + 1 == old(auth).history().len()
+                &&& match res.0 {
+                    Ok(v) => {
+                        let write_ts = old(auth).history().len();
+                        let write_msg = Msg {
+                            value: new,
+                            view: after_read.observe(self.id(), write_ts),
+                        };
+                        &&& v == current
+                        &&& read_msg.value == current
+                        &&& final(auth).id() == old(auth).id()
+                        &&& final(auth).history() == old(auth).history().push(write_msg)
+                        &&& final(auth).wf()
+                        &&& final(tv)@ == after_read.observe(self.id(), write_ts)
+                        &&& res.2@ is Some
+                        &&& res.2@->Some_0.id() == self.id()
+                        &&& res.2@->Some_0.ts() == write_ts
+                        &&& res.2@->Some_0.msg() == write_msg
+                        &&& res.2@->Some_0.agrees_with(*final(auth))
+                    },
+                    Err(v) => {
+                        &&& v == read_msg.value
+                        &&& read_msg.value != current
+                        &&& final(auth).id() == old(auth).id()
+                        &&& final(auth).history() == old(auth).history()
+                        &&& final(auth).wf()
+                        &&& final(tv)@ == after_read
+                        &&& res.2@ is None
+                    },
+                }
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        let result = self.value.compare_exchange(current, new, Ordering::AcqRel, Ordering::Acquire);
+        (result, Ghost::assume_new(), Tracked::assume_new())
+    }
+
     /// Relaxed store: append a new message whose published view contains only
     /// this store's own timestamp.
     #[inline(always)]
@@ -666,6 +925,674 @@ impl AtomicUsizeW {
     }
 }
 
+} // verus!
+/// Generate a TCB executable wrapper around one Rust integer atomic type.
+///
+/// All integer atomics share the same weak-memory history shape: load chooses a
+/// readable message, stores append a message, and CAS reads the latest message
+/// before either appending a new one or failing as an acquire read.
+macro_rules! declare_integer_atomic_wrapper {
+    ($wrapper:ident, $rust_atomic:ident, $value_ty:ty) => {
+        verus! {
+        #[repr(transparent)]
+        #[verifier::external_body]
+        /// TCB wrapper around a Rust integer atomic.
+        pub struct $wrapper {
+            value: $rust_atomic,
+        }
+
+        impl $wrapper {
+            /// Logical identity of this atomic object.
+            pub uninterp spec fn id(&self) -> AtomicId;
+
+            #[inline(always)]
+            #[verifier::external_body]
+            pub const fn new(init: $value_ty) -> (res: (Self, Tracked<HistAuth<$value_ty>>))
+                ensures
+                    res.1@.id() == res.0.id(),
+                    res.1@.history() == seq![Msg { value: init, view: WmView::empty() }],
+                    res.1@.wf(),
+            {
+                let atomic = $wrapper { value: $rust_atomic::new(init) };
+                (atomic, Tracked::assume_new())
+            }
+
+            #[inline(always)]
+            #[verifier::external_body]
+            #[verifier::atomic]
+            pub fn load_relaxed(
+                &self,
+                Tracked(auth): Tracked<&HistAuth<$value_ty>>,
+                Tracked(tv): Tracked<&mut ThreadView>,
+            ) -> (res: ($value_ty, Ghost<Timestamp>))
+                requires
+                    auth.id() == self.id(),
+                    auth.wf(),
+                ensures
+                    ({
+                        let ts = res.1@;
+                        &&& auth.readable(old(tv)@, ts)
+                        &&& res.0 == auth.msg_at(ts).value
+                        &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+                    }),
+                opens_invariants none
+                no_unwind
+            {
+                let value = self.value.load(Ordering::Relaxed);
+                (value, Ghost::assume_new())
+            }
+
+            #[inline(always)]
+            #[verifier::external_body]
+            #[verifier::atomic]
+            pub fn load_acquire(
+                &self,
+                Tracked(auth): Tracked<&HistAuth<$value_ty>>,
+                Tracked(tv): Tracked<&mut ThreadView>,
+            ) -> (res: ($value_ty, Ghost<Timestamp>))
+                requires
+                    auth.id() == self.id(),
+                    auth.wf(),
+                ensures
+                    ({
+                        let ts = res.1@;
+                        &&& auth.readable(old(tv)@, ts)
+                        &&& res.0 == auth.msg_at(ts).value
+                        &&& final(tv)@ == old(tv)@.observe(self.id(), ts).join(auth.msg_at(ts).view)
+                    }),
+                opens_invariants none
+                no_unwind
+            {
+                let value = self.value.load(Ordering::Acquire);
+                (value, Ghost::assume_new())
+            }
+
+            #[inline(always)]
+            #[verifier::external_body]
+            #[verifier::atomic]
+            pub fn compare_exchange_acqrel_acquire(
+                &self,
+                Tracked(auth): Tracked<&mut HistAuth<$value_ty>>,
+                Tracked(tv): Tracked<&mut ThreadView>,
+                current: $value_ty,
+                new: $value_ty,
+            ) -> (res: (
+                Result<$value_ty, $value_ty>,
+                Ghost<Timestamp>,
+                Tracked<Option<MsgSnap<$value_ty>>>,
+            ))
+                requires
+                    old(auth).id() == self.id(),
+                    old(auth).wf(),
+                ensures
+                    ({
+                        let read_ts = res.1@;
+                        let read_msg = old(auth).msg_at(read_ts);
+                        let after_read = old(tv)@.observe(self.id(), read_ts).join(read_msg.view);
+                        &&& old(auth).readable(old(tv)@, read_ts)
+                        &&& read_ts + 1 == old(auth).history().len()
+                        &&& match res.0 {
+                            Ok(v) => {
+                                let write_ts = old(auth).history().len();
+                                let write_msg = Msg {
+                                    value: new,
+                                    view: after_read.observe(self.id(), write_ts),
+                                };
+                                &&& v == current
+                                &&& read_msg.value == current
+                                &&& final(auth).id() == old(auth).id()
+                                &&& final(auth).history() == old(auth).history().push(write_msg)
+                                &&& final(auth).wf()
+                                &&& final(tv)@ == after_read.observe(self.id(), write_ts)
+                                &&& res.2@ is Some
+                                &&& res.2@->Some_0.id() == self.id()
+                                &&& res.2@->Some_0.ts() == write_ts
+                                &&& res.2@->Some_0.msg() == write_msg
+                                &&& res.2@->Some_0.agrees_with(*final(auth))
+                            },
+                            Err(v) => {
+                                &&& v == read_msg.value
+                                &&& read_msg.value != current
+                                &&& final(auth).id() == old(auth).id()
+                                &&& final(auth).history() == old(auth).history()
+                                &&& final(auth).wf()
+                                &&& final(tv)@ == after_read
+                                &&& res.2@ is None
+                            },
+                        }
+                    }),
+                opens_invariants none
+                no_unwind
+            {
+                let result = self.value.compare_exchange(
+                    current,
+                    new,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+                (result, Ghost::assume_new(), Tracked::assume_new())
+            }
+
+            #[inline(always)]
+            #[verifier::external_body]
+            #[verifier::atomic]
+            pub fn store_relaxed(
+                &self,
+                Tracked(auth): Tracked<&mut HistAuth<$value_ty>>,
+                Tracked(tv): Tracked<&mut ThreadView>,
+                value: $value_ty,
+            ) -> (snap: Tracked<MsgSnap<$value_ty>>)
+                requires
+                    old(auth).id() == self.id(),
+                    old(auth).wf(),
+                ensures
+                    ({
+                        let ts = old(auth).history().len();
+                        let msg = Msg { value, view: WmView::empty().observe(self.id(), ts) };
+                        &&& final(auth).id() == old(auth).id()
+                        &&& final(auth).history() == old(auth).history().push(msg)
+                        &&& final(auth).wf()
+                        &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+                        &&& snap@.id() == self.id()
+                        &&& snap@.ts() == ts
+                        &&& snap@.msg() == msg
+                        &&& snap@.agrees_with(*final(auth))
+                    }),
+                opens_invariants none
+                no_unwind
+            {
+                self.value.store(value, Ordering::Relaxed);
+                Tracked::assume_new()
+            }
+
+            #[inline(always)]
+            #[verifier::external_body]
+            #[verifier::atomic]
+            pub fn store_release(
+                &self,
+                Tracked(auth): Tracked<&mut HistAuth<$value_ty>>,
+                Tracked(tv): Tracked<&mut ThreadView>,
+                value: $value_ty,
+            ) -> (snap: Tracked<MsgSnap<$value_ty>>)
+                requires
+                    old(auth).id() == self.id(),
+                    old(auth).wf(),
+                ensures
+                    ({
+                        let ts = old(auth).history().len();
+                        let msg = Msg { value, view: old(tv)@.observe(self.id(), ts) };
+                        &&& final(auth).id() == old(auth).id()
+                        &&& final(auth).history() == old(auth).history().push(msg)
+                        &&& final(auth).wf()
+                        &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+                        &&& snap@.id() == self.id()
+                        &&& snap@.ts() == ts
+                        &&& snap@.msg() == msg
+                        &&& snap@.agrees_with(*final(auth))
+                    }),
+                opens_invariants none
+                no_unwind
+            {
+                self.value.store(value, Ordering::Release);
+                Tracked::assume_new()
+            }
+        }
+        }
+    };
+}
+
+declare_integer_atomic_wrapper!(AtomicU8W, AtomicU8, u8);
+
+declare_integer_atomic_wrapper!(AtomicU16W, AtomicU16, u16);
+
+declare_integer_atomic_wrapper!(AtomicU32W, AtomicU32, u32);
+
+declare_integer_atomic_wrapper!(AtomicIsizeW, AtomicIsize, isize);
+
+declare_integer_atomic_wrapper!(AtomicI8W, AtomicI8, i8);
+
+declare_integer_atomic_wrapper!(AtomicI16W, AtomicI16, i16);
+
+declare_integer_atomic_wrapper!(AtomicI32W, AtomicI32, i32);
+
+#[cfg(target_has_atomic = "64")]
+declare_integer_atomic_wrapper!(AtomicU64W, AtomicU64, u64);
+
+#[cfg(target_has_atomic = "64")]
+declare_integer_atomic_wrapper!(AtomicI64W, AtomicI64, i64);
+
+verus! {
+
+#[repr(transparent)]
+#[verifier::external_body]
+/// TCB wrapper around Rust's `AtomicBool`.
+///
+/// Bool atomics share the load/store/CAS weak-memory protocol with integer
+/// atomics, but they are not numeric atomics: this wrapper intentionally exposes
+/// no arithmetic or bitwise fetch operations.
+pub struct AtomicBoolW {
+    value: AtomicBool,
+}
+
+impl AtomicBoolW {
+    /// Logical identity of this atomic object.
+    pub uninterp spec fn id(&self) -> AtomicId;
+
+    #[inline(always)]
+    #[verifier::external_body]
+    pub const fn new(init: bool) -> (res: (Self, Tracked<HistAuth<bool>>))
+        ensures
+            res.1@.id() == res.0.id(),
+            res.1@.history() == seq![Msg { value: init, view: WmView::empty() }],
+            res.1@.wf(),
+    {
+        let atomic = AtomicBoolW { value: AtomicBool::new(init) };
+        (atomic, Tracked::assume_new())
+    }
+
+    /// Relaxed load: choose a readable bool message and advance only this
+    /// location's timestamp in the caller's thread view.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn load_relaxed(
+        &self,
+        Tracked(auth): Tracked<&HistAuth<bool>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (bool, Ghost<Timestamp>))
+        requires
+            auth.id() == self.id(),
+            auth.wf(),
+        ensures
+            ({
+                let ts = res.1@;
+                &&& auth.readable(old(tv)@, ts)
+                &&& res.0 == auth.msg_at(ts).value
+                &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        let value = self.value.load(Ordering::Relaxed);
+        (value, Ghost::assume_new())
+    }
+
+    /// Acquire load: same bool choice as relaxed, plus import the release view
+    /// carried by the selected message.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn load_acquire(
+        &self,
+        Tracked(auth): Tracked<&HistAuth<bool>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (bool, Ghost<Timestamp>))
+        requires
+            auth.id() == self.id(),
+            auth.wf(),
+        ensures
+            ({
+                let ts = res.1@;
+                &&& auth.readable(old(tv)@, ts)
+                &&& res.0 == auth.msg_at(ts).value
+                &&& final(tv)@ == old(tv)@.observe(self.id(), ts).join(auth.msg_at(ts).view)
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        let value = self.value.load(Ordering::Acquire);
+        (value, Ghost::assume_new())
+    }
+
+    /// Strong compare-exchange with `AcqRel` success ordering and `Acquire`
+    /// failure ordering.
+    ///
+    /// On success it appends `new`; on failure it only imports the acquired view
+    /// from the message it read.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn compare_exchange_acqrel_acquire(
+        &self,
+        Tracked(auth): Tracked<&mut HistAuth<bool>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+        current: bool,
+        new: bool,
+    ) -> (res: (Result<bool, bool>, Ghost<Timestamp>, Tracked<Option<MsgSnap<bool>>>))
+        requires
+            old(auth).id() == self.id(),
+            old(auth).wf(),
+        ensures
+            ({
+                let read_ts = res.1@;
+                let read_msg = old(auth).msg_at(read_ts);
+                let after_read = old(tv)@.observe(self.id(), read_ts).join(read_msg.view);
+                &&& old(auth).readable(old(tv)@, read_ts)
+                &&& read_ts + 1 == old(auth).history().len()
+                &&& match res.0 {
+                    Ok(v) => {
+                        let write_ts = old(auth).history().len();
+                        let write_msg = Msg {
+                            value: new,
+                            view: after_read.observe(self.id(), write_ts),
+                        };
+                        &&& v == current
+                        &&& read_msg.value == current
+                        &&& final(auth).id() == old(auth).id()
+                        &&& final(auth).history() == old(auth).history().push(write_msg)
+                        &&& final(auth).wf()
+                        &&& final(tv)@ == after_read.observe(self.id(), write_ts)
+                        &&& res.2@ is Some
+                        &&& res.2@->Some_0.id() == self.id()
+                        &&& res.2@->Some_0.ts() == write_ts
+                        &&& res.2@->Some_0.msg() == write_msg
+                        &&& res.2@->Some_0.agrees_with(*final(auth))
+                    },
+                    Err(v) => {
+                        &&& v == read_msg.value
+                        &&& read_msg.value != current
+                        &&& final(auth).id() == old(auth).id()
+                        &&& final(auth).history() == old(auth).history()
+                        &&& final(auth).wf()
+                        &&& final(tv)@ == after_read
+                        &&& res.2@ is None
+                    },
+                }
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        let result = self.value.compare_exchange(current, new, Ordering::AcqRel, Ordering::Acquire);
+        (result, Ghost::assume_new(), Tracked::assume_new())
+    }
+
+    /// Relaxed store: append a bool-valued message whose published view contains
+    /// only this store's own timestamp.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn store_relaxed(
+        &self,
+        Tracked(auth): Tracked<&mut HistAuth<bool>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+        value: bool,
+    ) -> (snap: Tracked<MsgSnap<bool>>)
+        requires
+            old(auth).id() == self.id(),
+            old(auth).wf(),
+        ensures
+            ({
+                let ts = old(auth).history().len();
+                let msg = Msg { value, view: WmView::empty().observe(self.id(), ts) };
+                &&& final(auth).id() == old(auth).id()
+                &&& final(auth).history() == old(auth).history().push(msg)
+                &&& final(auth).wf()
+                &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+                &&& snap@.id() == self.id()
+                &&& snap@.ts() == ts
+                &&& snap@.msg() == msg
+                &&& snap@.agrees_with(*final(auth))
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        self.value.store(value, Ordering::Relaxed);
+        Tracked::assume_new()
+    }
+
+    /// Release store: append a bool-valued message carrying the writer's current
+    /// view, then advance the writer's view for this location.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn store_release(
+        &self,
+        Tracked(auth): Tracked<&mut HistAuth<bool>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+        value: bool,
+    ) -> (snap: Tracked<MsgSnap<bool>>)
+        requires
+            old(auth).id() == self.id(),
+            old(auth).wf(),
+        ensures
+            ({
+                let ts = old(auth).history().len();
+                let msg = Msg { value, view: old(tv)@.observe(self.id(), ts) };
+                &&& final(auth).id() == old(auth).id()
+                &&& final(auth).history() == old(auth).history().push(msg)
+                &&& final(auth).wf()
+                &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+                &&& snap@.id() == self.id()
+                &&& snap@.ts() == ts
+                &&& snap@.msg() == msg
+                &&& snap@.agrees_with(*final(auth))
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        self.value.store(value, Ordering::Release);
+        Tracked::assume_new()
+    }
+}
+
+#[repr(transparent)]
+#[verifier::accept_recursive_types(T)]
+#[verifier::external_body]
+/// TCB wrapper around Rust's `AtomicPtr<T>`.
+///
+/// This wrapper tracks the pointer value in the weak-memory history, but it
+/// does not claim ownership of, or permission to dereference, the pointee. A
+/// higher-level invariant must connect pointer values to `PointsTo`, refcount,
+/// hazard-pointer, RCU, or other ownership ghost state when dereference safety
+/// matters.
+pub struct AtomicPtrW<T> {
+    value: AtomicPtr<T>,
+}
+
+impl<T> AtomicPtrW<T> {
+    /// Logical identity of this atomic pointer object.
+    pub uninterp spec fn id(&self) -> AtomicId;
+
+    #[inline(always)]
+    #[verifier::external_body]
+    pub const fn new(init: *mut T) -> (res: (Self, Tracked<HistAuth<*mut T>>))
+        ensures
+            res.1@.id() == res.0.id(),
+            res.1@.history() == seq![Msg { value: init, view: WmView::empty() }],
+            res.1@.wf(),
+    {
+        let atomic = AtomicPtrW { value: AtomicPtr::new(init) };
+        (atomic, Tracked::assume_new())
+    }
+
+    /// Relaxed load: choose a readable pointer message and advance only this
+    /// location's timestamp in the caller's thread view.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn load_relaxed(
+        &self,
+        Tracked(auth): Tracked<&HistAuth<*mut T>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (*mut T, Ghost<Timestamp>))
+        requires
+            auth.id() == self.id(),
+            auth.wf(),
+        ensures
+            ({
+                let ts = res.1@;
+                &&& auth.readable(old(tv)@, ts)
+                &&& equal(res.0, auth.msg_at(ts).value)
+                &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        let value = self.value.load(Ordering::Relaxed);
+        (value, Ghost::assume_new())
+    }
+
+    /// Acquire load: same pointer choice as relaxed, plus import the release
+    /// view carried by the selected message.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn load_acquire(
+        &self,
+        Tracked(auth): Tracked<&HistAuth<*mut T>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (*mut T, Ghost<Timestamp>))
+        requires
+            auth.id() == self.id(),
+            auth.wf(),
+        ensures
+            ({
+                let ts = res.1@;
+                &&& auth.readable(old(tv)@, ts)
+                &&& equal(res.0, auth.msg_at(ts).value)
+                &&& final(tv)@ == old(tv)@.observe(self.id(), ts).join(auth.msg_at(ts).view)
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        let value = self.value.load(Ordering::Acquire);
+        (value, Ghost::assume_new())
+    }
+
+    /// Relaxed store: append a pointer-valued message whose published view
+    /// contains only this store's own timestamp.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn store_relaxed(
+        &self,
+        Tracked(auth): Tracked<&mut HistAuth<*mut T>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+        value: *mut T,
+    ) -> (snap: Tracked<MsgSnap<*mut T>>)
+        requires
+            old(auth).id() == self.id(),
+            old(auth).wf(),
+        ensures
+            ({
+                let ts = old(auth).history().len();
+                let msg = Msg { value, view: WmView::empty().observe(self.id(), ts) };
+                &&& final(auth).id() == old(auth).id()
+                &&& final(auth).history() == old(auth).history().push(msg)
+                &&& final(auth).wf()
+                &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+                &&& snap@.id() == self.id()
+                &&& snap@.ts() == ts
+                &&& snap@.msg() == msg
+                &&& snap@.agrees_with(*final(auth))
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        self.value.store(value, Ordering::Relaxed);
+        Tracked::assume_new()
+    }
+
+    /// Release store: append a pointer-valued message carrying the writer's
+    /// current view, then advance the writer's view for this location.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn store_release(
+        &self,
+        Tracked(auth): Tracked<&mut HistAuth<*mut T>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+        value: *mut T,
+    ) -> (snap: Tracked<MsgSnap<*mut T>>)
+        requires
+            old(auth).id() == self.id(),
+            old(auth).wf(),
+        ensures
+            ({
+                let ts = old(auth).history().len();
+                let msg = Msg { value, view: old(tv)@.observe(self.id(), ts) };
+                &&& final(auth).id() == old(auth).id()
+                &&& final(auth).history() == old(auth).history().push(msg)
+                &&& final(auth).wf()
+                &&& final(tv)@ == old(tv)@.observe(self.id(), ts)
+                &&& snap@.id() == self.id()
+                &&& snap@.ts() == ts
+                &&& snap@.msg() == msg
+                &&& snap@.agrees_with(*final(auth))
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        self.value.store(value, Ordering::Release);
+        Tracked::assume_new()
+    }
+}
+
+impl<T> AtomicPtrW<T> {
+    /// Strong compare-exchange with `AcqRel` success ordering and `Acquire`
+    /// failure ordering.
+    ///
+    /// Pointer CAS compares runtime pointer identity, which Verus models as
+    /// address equality for sized pointers. The returned pointer and written
+    /// message still carry the full pointer value, including provenance.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn compare_exchange_acqrel_acquire(
+        &self,
+        Tracked(auth): Tracked<&mut HistAuth<*mut T>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+        current: *mut T,
+        new: *mut T,
+    ) -> (res: (Result<*mut T, *mut T>, Ghost<Timestamp>, Tracked<Option<MsgSnap<*mut T>>>))
+        requires
+            old(auth).id() == self.id(),
+            old(auth).wf(),
+        ensures
+            ({
+                let read_ts = res.1@;
+                let read_msg = old(auth).msg_at(read_ts);
+                let after_read = old(tv)@.observe(self.id(), read_ts).join(read_msg.view);
+                &&& old(auth).readable(old(tv)@, read_ts)
+                &&& read_ts + 1 == old(auth).history().len()
+                &&& match res.0 {
+                    Ok(v) => {
+                        let write_ts = old(auth).history().len();
+                        let write_msg = Msg {
+                            value: new,
+                            view: after_read.observe(self.id(), write_ts),
+                        };
+                        &&& current.addr() == read_msg.value.addr()
+                        &&& equal(v, read_msg.value)
+                        &&& final(auth).id() == old(auth).id()
+                        &&& final(auth).history() == old(auth).history().push(write_msg)
+                        &&& final(auth).wf()
+                        &&& final(tv)@ == after_read.observe(self.id(), write_ts)
+                        &&& res.2@ is Some
+                        &&& res.2@->Some_0.id() == self.id()
+                        &&& res.2@->Some_0.ts() == write_ts
+                        &&& res.2@->Some_0.msg() == write_msg
+                        &&& res.2@->Some_0.agrees_with(*final(auth))
+                    },
+                    Err(v) => {
+                        &&& current.addr() != read_msg.value.addr()
+                        &&& equal(v, read_msg.value)
+                        &&& final(auth).id() == old(auth).id()
+                        &&& final(auth).history() == old(auth).history()
+                        &&& final(auth).wf()
+                        &&& final(tv)@ == after_read
+                        &&& res.2@ is None
+                    },
+                }
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        let result = self.value.compare_exchange(current, new, Ordering::AcqRel, Ordering::Acquire);
+        (result, Ghost::assume_new(), Tracked::assume_new())
+    }
+}
+
 #[cfg(verus_keep_ghost)]
 fn smoke_test_weak_atomic_with_ghost() {
     let atomic = WeakAtomicUsize::<(), (), TrueWeakAtomicInv>::new(Ghost(()), 0, Tracked(()));
@@ -714,6 +1641,370 @@ fn smoke_test_weak_atomic_with_ghost() {
             assert(ts < history.len());
         }
     };
+    let _ =
+        weak_atomic_with_ghost! {
+        atomic => compare_exchange_acqrel_acquire(2, 3, Tracked(&mut tv));
+        update prev -> next;
+        returning ret;
+        timestamp ts;
+        message msg;
+        snapshot snap;
+        ghost g => {
+            assert(ts + 1 == prev.len());
+            match ret {
+                Result::Ok(v) => {
+                    assert(v == 2);
+                    assert(msg.value == 2);
+                    match snap {
+                        Option::Some(s) => {
+                            assert(next == prev.push(s.msg()));
+                            assert(s.msg().value == 3);
+                        },
+                        Option::None => {
+                            assert(false);
+                        },
+                    }
+                },
+                Result::Err(v) => {
+                    assert(v == msg.value);
+                    assert(msg.value != 2);
+                    match snap {
+                        Option::Some(_) => {
+                            assert(false);
+                        },
+                        Option::None => {},
+                    }
+                    assert(next == prev);
+                },
+            }
+        }
+    };
+
+    let bool_atomic = WeakAtomicBool::<(), (), TrueWeakAtomicInv>::new(
+        Ghost(()),
+        false,
+        Tracked(()),
+    );
+    let tracked mut bool_tv = ThreadView::new();
+    weak_atomic_with_ghost! {
+        bool_atomic => store_release(true, Tracked(&mut bool_tv));
+        update prev -> next;
+        snapshot snap;
+        ghost g => {
+            assert(next == prev.push(snap.msg()));
+            assert(snap.ts() == prev.len());
+            assert(snap.msg().value == true);
+        }
+    }
+    let _ =
+        weak_atomic_with_ghost! {
+        bool_atomic => load_acquire(Tracked(&mut bool_tv));
+        returning ret;
+        timestamp ts;
+        message msg;
+        history history;
+        ghost g => {
+            assert(ret == msg.value);
+            assert(ts < history.len());
+        }
+    };
+    let _ =
+        weak_atomic_with_ghost! {
+        bool_atomic => compare_exchange_acqrel_acquire(true, false, Tracked(&mut bool_tv));
+        update prev -> next;
+        returning ret;
+        timestamp ts;
+        message msg;
+        snapshot snap;
+        ghost g => {
+            assert(ts + 1 == prev.len());
+            match ret {
+                Result::Ok(v) => {
+                    assert(v == true);
+                    assert(msg.value == true);
+                    match snap {
+                        Option::Some(s) => {
+                            assert(next == prev.push(s.msg()));
+                            assert(s.msg().value == false);
+                        },
+                        Option::None => {
+                            assert(false);
+                        },
+                    }
+                },
+                Result::Err(v) => {
+                    assert(v == msg.value);
+                    assert(msg.value != true);
+                    match snap {
+                        Option::Some(_) => {
+                            assert(false);
+                        },
+                        Option::None => {},
+                    }
+                    assert(next == prev);
+                },
+            }
+        }
+    };
+
+    let null = core::ptr::null_mut::<usize>();
+    let ptr_atomic = WeakAtomicPtr::<usize, (), (), TrueWeakAtomicInv>::new(
+        Ghost(()),
+        null,
+        Tracked(()),
+    );
+    let tracked mut ptr_tv = ThreadView::new();
+    weak_atomic_with_ghost! {
+        ptr_atomic => store_release(null, Tracked(&mut ptr_tv));
+        update prev -> next;
+        snapshot snap;
+        ghost g => {
+            assert(next == prev.push(snap.msg()));
+            assert(snap.ts() == prev.len());
+            assert(equal(snap.msg().value, null));
+        }
+    }
+    let _ =
+        weak_atomic_with_ghost! {
+        ptr_atomic => load_acquire(Tracked(&mut ptr_tv));
+        returning ret;
+        timestamp ts;
+        message msg;
+        history history;
+        ghost g => {
+            assert(equal(ret, msg.value));
+            assert(ts < history.len());
+        }
+    };
+    let _ =
+        weak_atomic_with_ghost! {
+        ptr_atomic => compare_exchange_acqrel_acquire(null, null, Tracked(&mut ptr_tv));
+        update prev -> next;
+        returning ret;
+        timestamp ts;
+        message msg;
+        snapshot snap;
+        ghost g => {
+            assert(ts + 1 == prev.len());
+            match ret {
+                Result::Ok(v) => {
+                    assert(equal(v, msg.value));
+                    assert(msg.value.addr() == null.addr());
+                    match snap {
+                        Option::Some(s) => {
+                            assert(next == prev.push(s.msg()));
+                            assert(equal(s.msg().value, null));
+                        },
+                        Option::None => {
+                            assert(false);
+                        },
+                    }
+                },
+                Result::Err(v) => {
+                    assert(equal(v, msg.value));
+                    assert(msg.value.addr() != null.addr());
+                    match snap {
+                        Option::Some(_) => {
+                            assert(false);
+                        },
+                        Option::None => {},
+                    }
+                    assert(next == prev);
+                },
+            }
+        }
+    };
 }
 
+#[cfg(verus_keep_ghost)]
+pub struct MessagePassingDataInv;
+
+#[cfg(verus_keep_ghost)]
+impl WeakAtomicInvariantPredicate<(), usize, ()> for MessagePassingDataInv {
+    open spec fn atomic_inv(k: (), history: History<usize>, g: ()) -> bool {
+        &&& history.len() >= 1
+        &&& history[0].value == 0
+        &&& forall|i: int| 1 <= i < history.len() ==> #[trigger] history[i].value == 1
+    }
+}
+
+#[cfg(verus_keep_ghost)]
+pub struct MessagePassingFlagInv;
+
+#[cfg(verus_keep_ghost)]
+impl WeakAtomicInvariantPredicate<AtomicId, usize, ()> for MessagePassingFlagInv {
+    open spec fn atomic_inv(data_id: AtomicId, history: History<usize>, g: ()) -> bool {
+        &&& history.len() >= 1
+        &&& history[0].value == 0
+        &&& forall|i: int|
+            1 <= i < history.len() ==> {
+                &&& #[trigger] history[i].value == 1
+                &&& history[i].view.seen_at(data_id) >= 1
+            }
+    }
+}
+
+#[cfg(verus_keep_ghost)]
+proof fn preserve_message_passing_data_inv_on_push(
+    prev: History<usize>,
+    next: History<usize>,
+    msg: Msg<usize>,
+)
+    requires
+        MessagePassingDataInv::atomic_inv((), prev, ()),
+        next == prev.push(msg),
+        msg.value == 1,
+    ensures
+        MessagePassingDataInv::atomic_inv((), next, ()),
+{
+    assert(next.len() >= 1);
+    assert(next[0].value == 0);
+    assert forall|i: int| 1 <= i < next.len() implies #[trigger] next[i].value == 1 by {
+        if i == prev.len() {
+            assert(next[i] == msg);
+        } else {
+            assert(i < prev.len());
+        }
+    };
+}
+
+#[cfg(verus_keep_ghost)]
+proof fn preserve_message_passing_flag_inv_on_push(
+    data_id: AtomicId,
+    prev: History<usize>,
+    next: History<usize>,
+    msg: Msg<usize>,
+)
+    requires
+        MessagePassingFlagInv::atomic_inv(data_id, prev, ()),
+        next == prev.push(msg),
+        msg.value == 1,
+        msg.view.seen_at(data_id) >= 1,
+    ensures
+        MessagePassingFlagInv::atomic_inv(data_id, next, ()),
+{
+    assert(next.len() >= 1);
+    assert(next[0].value == 0);
+    assert forall|i: int| 1 <= i < next.len() implies {
+        &&& #[trigger] next[i].value == 1
+        &&& next[i].view.seen_at(data_id) >= 1
+    } by {
+        if i == prev.len() {
+            assert(next[i] == msg);
+        } else {
+            assert(i < prev.len());
+        }
+    };
+}
+
+#[cfg(verus_keep_ghost)]
+proof fn prove_message_passing_data_read(
+    data_id: AtomicId,
+    history: History<usize>,
+    ret: usize,
+    ts: Timestamp,
+    msg: Msg<usize>,
+    tv: WmView,
+)
+    requires
+        MessagePassingDataInv::atomic_inv((), history, ()),
+        ts < history.len(),
+        ret == msg.value,
+        msg == history[ts as int],
+        tv.seen_at(data_id) >= 1,
+        tv.seen_at(data_id) <= ts,
+    ensures
+        ret == 1,
+{
+    assert(ts >= 1);
+    assert(history[ts as int].value == 1);
+}
+
+// #[cfg(verus_keep_ghost)]
+// fn message_passing_release_acquire_threads_can_prove() {
+//     let data = std::sync::Arc::new(
+//         WeakAtomicUsize::<(), (), MessagePassingDataInv>::new(Ghost(()), 0, Tracked(())),
+//     );
+//     let ghost data_id = data.atomic.id();
+//     let flag = std::sync::Arc::new(
+//         WeakAtomicUsize::<AtomicId, (), MessagePassingFlagInv>::new(Ghost(data_id), 0, Tracked(())),
+//     );
+//     let data_writer = data.clone();
+//     let flag_writer = flag.clone();
+//     let data_reader = data.clone();
+//     let flag_reader = flag.clone();
+//     let writer = vstd::thread::spawn(
+//         move ||
+//             {
+//                 let tracked mut writer_tv = ThreadView::new();
+//                 weak_atomic_with_ghost! {
+//             *data_writer => store_release(1, Tracked(&mut writer_tv));
+//             update prev -> next;
+//             snapshot snap;
+//             ghost g => {
+//                 preserve_message_passing_data_inv_on_push(prev, next, snap.msg());
+//                 assert(writer_tv.view.seen_at(data_id) >= 1);
+//             }
+//         }
+//                 let ghost before_flag = writer_tv.view;
+//                 assert(before_flag.seen_at(data_id) >= 1);
+//                 weak_atomic_with_ghost! {
+//             *flag_writer => store_release(1, Tracked(&mut writer_tv));
+//             update prev -> next;
+//             snapshot snap;
+//             ghost g => {
+//                 assert(snap.msg().view == before_flag.observe(flag_writer.atomic.id(), snap.ts()));
+//                 assert(snap.msg().view.seen_at(data_id) >= 1);
+//                 preserve_message_passing_flag_inv_on_push(data_id, prev, next, snap.msg());
+//             }
+//         }
+//             },
+//     );
+//     let reader = vstd::thread::spawn(
+//         move ||
+//             {
+//                 let tracked mut reader_tv = ThreadView::new();
+//                 let flag_result =
+//                     weak_atomic_with_ghost! {
+//                 *flag_reader => load_acquire(Tracked(&mut reader_tv));
+//                 returning ret;
+//                 timestamp ts;
+//                 message msg;
+//                 history history;
+//                 ghost g => {
+//                     if ret == 1 {
+//                         assert(msg.value == 1);
+//                         if ts == 0 {
+//                             assert(history[0].value == 0);
+//                             assert(false);
+//                         }
+//                         assert(ts >= 1);
+//                         assert(history[ts as int].value == 1);
+//                         assert(history[ts as int].view.seen_at(data_id) >= 1);
+//                         assert(msg == history[ts as int]);
+//                         assert(msg.view.seen_at(data_id) >= 1);
+//                         assert(reader_tv.view.seen_at(data_id) >= 1);
+//                     }
+//                 }
+//             };
+//                 if flag_result.0 == 1 {
+//                     assert(reader_tv.view.seen_at(data_id) >= 1);
+//                     let data_result =
+//                         weak_atomic_with_ghost! {
+//             *data_reader => load_relaxed(Tracked(&mut reader_tv));
+//             returning ret;
+//             timestamp ts;
+//             message msg;
+//             history history;
+//             ghost g => {
+//                 prove_message_passing_data_read(data_id, history, ret, ts, msg, reader_tv.view);
+//             }
+//         };
+//                     assert(data_result.0 == 1);
+//                 }
+//             },
+//     );
+//     let _ = writer.join();
+//     let _ = reader.join();
+// }
 } // verus!
