@@ -65,24 +65,113 @@ macro_rules! bitflags {
 
         $($t:tt)*
     ) => {
+        paste::paste! {
         verus! {
 
             $(#[$outer])*
             #[repr(transparent)]
-            #[derive(Copy, Clone, PartialEq, Eq)]
+            #[allow(repr_transparent_non_zst_fields)]
             $vis struct $name {
                 /// The raw bits backing this flags value.
                 bits: $T,
+                flags: ::vstd::prelude::Ghost<::vstd::set::Set<[< __ghost $name >]>>,
+            }
+
+            impl ::core::clone::Clone for $name {
+                #[inline]
+                fn clone(&self) -> (r: Self)
+                    ensures
+                        r.bits() == self.bits(),
+                        r.flags_spec() == self.flags_spec(),
+                {
+                    proof {
+                        use ::vstd::prelude::use_type_invariant;
+                        use_type_invariant(self);
+                    }
+                    Self {
+                        bits: self.bits,
+                        flags: self.flags,
+                    }
+                }
+            }
+
+            impl ::core::marker::Copy for $name {}
+
+            impl ::vstd::view::View for $name {
+                type V = ::vstd::set::Set<[< __ghost $name >]>;
+
+                open spec fn view(&self) -> Self::V {
+                    self.flags_spec()
+                }
+            }
+
+            #[allow(non_camel_case_types)]
+            $vis ghost enum [< __ghost $name >] {
+                $(
+                    $(#[$inner $($args)*])*
+                    [< __ghost $Flag >],
+                )*
+            }
+
+            impl [< __ghost $name >] {
+                pub open spec fn bit(self) -> $T {
+                    match self {
+                        $(
+                            [< __ghost $name >]::[< __ghost $Flag >] => (($value) as $T),
+                        )*
+                    }
+                }
             }
 
             impl $name {
+                pub closed spec fn flags_spec(&self) -> ::vstd::set::Set<[< __ghost $name >]> {
+                    self.flags@
+                }
+
+                #[verifier::type_invariant]
+                pub closed spec fn type_inv(&self) -> bool {
+                    &&& forall|flag: [< __ghost $name >]| #[trigger]
+                        self@.contains(flag) <==> (self.bits() & flag.bit()) == flag.bit()
+                    &&& self@ =~= Self::flags_from_bits(self.bits())
+                }
+
+                pub open spec fn inv(&self) -> bool {
+                    self.type_inv()
+                }
+
+                pub open spec fn flags_from_bits(bits: $T) -> ::vstd::set::Set<[< __ghost $name >]> {
+                    ::vstd::set::Set::new(|flag: [< __ghost $name >]| {
+                        (bits & flag.bit()) == flag.bit()
+                    })
+                }
+
+                closed spec fn from_bits_unchecked_spec(bits: $T) -> Self {
+                    Self { bits, flags: ::vstd::prelude::Ghost::new(Self::flags_from_bits(bits)) }
+                }
+
+                #[verifier::when_used_as_spec(from_bits_unchecked_spec)]
+                const fn from_bits_unchecked(bits: $T) -> (r: Self)
+                    ensures
+                        r.bits() == bits,
+                        r.flags_spec() == Self::flags_from_bits(bits),
+                        r.inv(),
+                    returns
+                        Self::from_bits_unchecked(bits),
+                {
+                    use ::vstd::prelude::Ghost;
+                    Self { bits, flags: Ghost(Self::flags_from_bits(bits)) }
+                }
+
                 $(
                     $(#[$inner $($args)*])*
                     #[allow(non_snake_case)]
                     pub const fn $Flag() -> (r: Self)
-                        ensures r.bits() == ($value),
+                        ensures
+                            r.bits() == ($value),
+                            r.flags_spec() == Self::flags_from_bits(($value) as $T),
+                            r.inv(),
                     {
-                        Self { bits: ($value) as $T }
+                        Self::from_bits_unchecked(($value) as $T)
                     }
                 )*
 
@@ -109,64 +198,164 @@ macro_rules! bitflags {
                 }
 
                 pub closed spec fn empty_spec() -> Self {
-                    Self { bits: 0 }
+                    Self::from_bits_unchecked_spec(0)
                 }
 
                 #[verifier::when_used_as_spec(empty_spec)]
                 pub const fn empty() -> (r: Self)
-                    ensures r.bits() == 0,
+                    ensures
+                        r.bits() == 0,
+                        r.flags_spec() == Self::flags_from_bits(0),
+                        r.inv(),
                     returns Self::empty(),
                 {
-                    Self { bits: 0 }
+                    Self::from_bits_unchecked(0)
                 }
 
                 pub closed spec fn all_spec() -> Self {
-                    Self { bits: Self::all_bits_spec() }
+                    Self::from_bits_unchecked_spec(Self::all_bits_spec())
                 }
 
                 #[verifier::when_used_as_spec(all_spec)]
                 pub const fn all() -> (r: Self)
-                    ensures r == Self::all_spec(),
+                    ensures
+                        r == Self::all_spec(),
+                        r.inv(),
                 {
-                    Self { bits: Self::all_bits() }
+                    Self::from_bits_unchecked(Self::all_bits())
                 }
 
                 pub open spec fn contains_spec(&self, other: Self) -> bool {
-                    (self.bits() & other.bits()) == other.bits()
+                    other@.subset_of(self@)
+                }
+
+                pub open spec fn contains_flags_spec(&self, other: Self) -> bool {
+                    self.contains(other)
                 }
 
                 #[verifier::when_used_as_spec(contains_spec)]
                 pub const fn contains(&self, other: Self) -> bool
                     returns self.contains(other),
                 {
-                    (self.bits & other.bits) == other.bits
+                    let res = $(
+                        (
+                            (other.bits & (($value) as $T)) != (($value) as $T)
+                            || (self.bits & (($value) as $T)) == (($value) as $T)
+                        )
+                    )&&*;
+                    proof {
+                        use ::vstd::prelude::use_type_invariant;
+                        use_type_invariant(self);
+                        use_type_invariant(&other);
+                        assert(self@ =~= Self::flags_from_bits(self.bits()));
+                        assert(other@ =~= Self::flags_from_bits(other.bits()));
+
+                        if res {
+                            assert forall|flag: [< __ghost $name >]| #[trigger]
+                                other@.contains(flag) implies self@.contains(flag) by {
+                                match flag {
+                                    $(
+                                        [< __ghost $name >]::[< __ghost $Flag >] => {
+                                            assert(other@.contains(flag));
+                                            assert(Self::flags_from_bits(other.bits()).contains(flag));
+                                            assert((other.bits() & (($value) as $T)) == (($value) as $T));
+                                            assert((self.bits() & (($value) as $T)) == (($value) as $T));
+                                            assert(Self::flags_from_bits(self.bits()).contains(flag));
+                                        },
+                                    )*
+                                }
+                            }
+                            assert(other@.subset_of(self@));
+                        }
+
+                        if other@.subset_of(self@) {
+                            $(
+                                if (other.bits() & (($value) as $T)) == (($value) as $T) {
+                                    assert(Self::flags_from_bits(other.bits()).contains(
+                                        [< __ghost $name >]::[< __ghost $Flag >],
+                                    ));
+                                    assert(other@.contains([< __ghost $name >]::[< __ghost $Flag >]));
+                                    assert(self@.contains([< __ghost $name >]::[< __ghost $Flag >]));
+                                    assert(Self::flags_from_bits(self.bits()).contains(
+                                        [< __ghost $name >]::[< __ghost $Flag >],
+                                    ));
+                                    assert((self.bits() & (($value) as $T)) == (($value) as $T));
+                                }
+                            )*
+                            assert(res);
+                        }
+                    }
+                    res
                 }
 
                 pub open spec fn intersects_spec(&self, other: Self) -> bool {
-                    (self.bits() & other.bits()) != 0
+                    exists|flag: [< __ghost $name >]| #[trigger] self@.contains(flag) && other@.contains(flag)
                 }
 
                 #[verifier::when_used_as_spec(intersects_spec)]
                 pub const fn intersects(&self, other: Self) -> bool
                     returns self.intersects(other),
                 {
-                    (self.bits & other.bits) != 0
+                    let res = $(
+                        (
+                            (self.bits & (($value) as $T)) == (($value) as $T)
+                            && (other.bits & (($value) as $T)) == (($value) as $T)
+                        )
+                    )||*;
+                    proof {
+                        use ::vstd::prelude::use_type_invariant;
+                        use_type_invariant(self);
+                        use_type_invariant(&other);
+
+                        if res {
+                            $(
+                                if (self.bits() & (($value) as $T)) == (($value) as $T)
+                                    && (other.bits() & (($value) as $T)) == (($value) as $T)
+                                {
+                                    assert(self@.contains([< __ghost $name >]::[< __ghost $Flag >]));
+                                    assert(other@.contains([< __ghost $name >]::[< __ghost $Flag >]));
+                                    assert(exists|flag: [< __ghost $name >]|
+                                        #[trigger] self@.contains(flag) && other@.contains(flag));
+                                }
+                            )*
+                            assert(exists|flag: [< __ghost $name >]|
+                                #[trigger] self@.contains(flag) && other@.contains(flag));
+                        }
+
+                        if exists|flag: [< __ghost $name >]| #[trigger] self@.contains(flag) && other@.contains(flag) {
+                            let flag = choose|flag: [< __ghost $name >]| self@.contains(flag) && other@.contains(flag);
+                            assert(self@.contains(flag));
+                            assert(other@.contains(flag));
+                            match flag {
+                                $(
+                                    [< __ghost $name >]::[< __ghost $Flag >] => {
+                                        assert((self.bits() & (($value) as $T)) == (($value) as $T));
+                                        assert((other.bits() & (($value) as $T)) == (($value) as $T));
+                                    },
+                                )*
+                            }
+                            assert(res);
+                        }
+                    }
+                    res
                 }
 
                 pub closed spec fn from_bits_truncate_spec(bits: $T) -> Self {
-                    Self { bits: bits & Self::all_bits() }
+                    Self::from_bits_unchecked_spec(bits & Self::all_bits())
                 }
 
                 #[verifier::when_used_as_spec(from_bits_truncate_spec)]
                 pub const fn from_bits_truncate(bits: $T) -> Self
+                    ensures
+                        Self::from_bits_truncate(bits).inv(),
                     returns Self::from_bits_truncate(bits),
                 {
-                    Self { bits: bits & Self::all_bits() }
+                    Self::from_bits_unchecked(bits & Self::all_bits())
                 }
 
                 pub closed spec fn from_bits_spec(bits: $T) -> Option<Self> {
                     if (bits & Self::all_bits()) == bits {
-                        Some(Self { bits })
+                        Some(Self::from_bits_unchecked_spec(bits))
                     } else {
                         None
                     }
@@ -176,66 +365,123 @@ macro_rules! bitflags {
                 pub const fn from_bits(bits: $T) -> (r: Option<Self>)
                     ensures
                         r is Some == ((bits & Self::all_bits()) == bits),
-                        r is Some ==> r->0.bits() == bits,
+                        r matches Some(flags_value) ==> {
+                            &&& flags_value.bits() == bits
+                            &&& flags_value.flags_spec() == Self::flags_from_bits(bits)
+                            &&& flags_value.inv()
+                        },
                     returns
                         Self::from_bits(bits),
                 {
                     if (bits & Self::all_bits()) == bits {
-                        Some(Self { bits })
+                        Some(Self::from_bits_unchecked(bits))
                     } else {
                         None
                     }
                 }
 
+                pub closed spec fn remove_spec(self, other: Self) -> Self {
+                    Self::from_bits_unchecked_spec(self.bits() & !other.bits())
+                }
+
                 pub fn insert(&mut self, other: Self)
-                    ensures final(self).bits() == (old(self).bits() | other.bits()),
+                    ensures
+                        final(self).bits() == (old(self).bits() | other.bits()),
+                        final(self).flags_spec() == Self::flags_from_bits(
+                            old(self).bits() | other.bits(),
+                        ),
+                        final(self).inv(),
                 {
-                    self.bits = self.bits | other.bits;
+                    let bits = self.bits | other.bits;
+                    *self = Self::from_bits_unchecked(bits);
+                }
+
+                pub fn remove(&mut self, other: Self)
+                    ensures
+                        *final(self) == old(self).remove_spec(other),
+                        final(self).bits() == (old(self).bits() & !other.bits()),
+                        final(self).flags_spec() == Self::flags_from_bits(
+                            old(self).bits() & !other.bits(),
+                        ),
+                        final(self).inv(),
+                {
+                    let bits = self.bits & !other.bits;
+                    *self = Self::from_bits_unchecked(bits);
                 }
 
                 pub fn toggle(&mut self, other: Self)
-                    ensures final(self).bits() == (old(self).bits() ^ other.bits()),
+                    ensures
+                        final(self).bits() == (old(self).bits() ^ other.bits()),
+                        final(self).flags_spec() == Self::flags_from_bits(
+                            old(self).bits() ^ other.bits(),
+                        ),
+                        final(self).inv(),
                 {
-                    self.bits = self.bits ^ other.bits;
+                    let bits = self.bits ^ other.bits;
+                    *self = Self::from_bits_unchecked(bits);
                 }
 
 
                 pub closed spec fn union_spec(self, other: Self) -> Self {
-                    Self { bits: self.bits() | other.bits() }
+                    Self::from_bits_unchecked_spec(self.bits() | other.bits())
                 }
 
                 #[verifier::when_used_as_spec(union_spec)]
                 pub const fn union(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() | other.bits()),
+                    ensures
+                        r.bits() == (self.bits() | other.bits()),
+                        r.inv(),
                     returns self.union(other),
                 {
-                    Self { bits: self.bits | other.bits }
+                    Self::from_bits_unchecked(self.bits | other.bits)
                 }
 
                 pub closed spec fn intersection_spec(self, other: Self) -> Self {
-                    Self { bits: self.bits() & other.bits() }
+                    Self::from_bits_unchecked_spec(self.bits() & other.bits())
                 }
 
                 #[verifier::when_used_as_spec(intersection_spec)]
                 pub const fn intersection(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() & other.bits()),
+                    ensures
+                        r.bits() == (self.bits() & other.bits()),
+                        r.inv(),
                     returns self.intersection(other),
                 {
-                    Self { bits: self.bits & other.bits }
+                    Self::from_bits_unchecked(self.bits & other.bits)
                 }
 
                 pub closed spec fn symmetric_difference_spec(self, other: Self) -> Self {
-                    Self { bits: self.bits() ^ other.bits() }
+                    Self::from_bits_unchecked_spec(self.bits() ^ other.bits())
                 }
 
                 #[verifier::when_used_as_spec(symmetric_difference_spec)]
                 pub const fn symmetric_difference(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() ^ other.bits()),
+                    ensures
+                        r.bits() == (self.bits() ^ other.bits()),
+                        r.inv(),
                     returns self.symmetric_difference(other),
                 {
-                    Self { bits: self.bits ^ other.bits }
+                    Self::from_bits_unchecked(self.bits ^ other.bits)
                 }
             }
+
+            impl core::cmp::PartialEq for $name {
+                fn eq(&self, other: &Self) -> (r: bool)
+                    ensures r == (self.bits() == other.bits()),
+                {
+                    self.bits == other.bits
+                }
+            }
+
+            impl ::vstd::std_specs::cmp::PartialEqSpecImpl for $name {
+                closed spec fn obeys_eq_spec() -> bool { true }
+
+                closed spec fn eq_spec(&self, other: &Self) -> bool {
+                    self.bits() == other.bits()
+                }
+            }
+
+            impl core::cmp::Eq for $name {}
 
             impl BitOrSpecImpl for $name {
                 open spec fn obeys_bitor_spec() -> bool { true }
@@ -249,11 +495,12 @@ macro_rules! bitflags {
 
             impl core::ops::BitOr for $name {
                 type Output = Self;
-                #[verifier::external_body]
                 fn bitor(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() | other.bits()),
+                    ensures
+                        r.bits() == (self.bits() | other.bits()),
+                        r.inv(),
                 {
-                    Self { bits: self.bits | other.bits }
+                    Self::from_bits_unchecked(self.bits | other.bits)
                 }
             }
 
@@ -269,11 +516,12 @@ macro_rules! bitflags {
 
             impl core::ops::BitAnd for $name {
                 type Output = Self;
-                #[verifier::external_body]
                 fn bitand(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() & other.bits()),
+                    ensures
+                        r.bits() == (self.bits() & other.bits()),
+                        r.inv(),
                 {
-                    Self { bits: self.bits & other.bits }
+                    Self::from_bits_unchecked(self.bits & other.bits)
                 }
             }
 
@@ -289,11 +537,12 @@ macro_rules! bitflags {
 
             impl core::ops::BitXor for $name {
                 type Output = Self;
-                #[verifier::external_body]
                 fn bitxor(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() ^ other.bits()),
+                    ensures
+                        r.bits() == (self.bits() ^ other.bits()),
+                        r.inv(),
                 {
-                    Self { bits: self.bits ^ other.bits }
+                    Self::from_bits_unchecked(self.bits ^ other.bits)
                 }
             }
 
@@ -303,7 +552,7 @@ macro_rules! bitflags {
                 open spec fn not_req(self) -> bool { true }
 
                 closed spec fn not_spec(self) -> Self::Output {
-                    Self { bits: !self.bits() & Self::all_bits() }
+                    Self::from_bits_unchecked_spec(!self.bits() & Self::all_bits())
                 }
             }
 
@@ -311,13 +560,16 @@ macro_rules! bitflags {
                 type Output = Self;
 
                 fn not(self) -> (r: Self)
-                    ensures r.bits() == (!self.bits() & $name::all_bits()),
+                    ensures
+                        r.bits() == (!self.bits() & $name::all_bits()),
+                        r.inv(),
                 {
-                    Self { bits: !self.bits & $name::all_bits() }
+                    Self::from_bits_unchecked(!self.bits & $name::all_bits())
                 }
             }
 
         } // verus!
+        } // paste!
     };
 }
 
@@ -399,6 +651,12 @@ fn _bitflags_smoke_test() {
     assert(b.bits() == 0b010u32);
     assert(c.bits() == 0b100u32);
     assert(abc.bits() == 0b111u32);
+    assert(a.inv());
+    assert(b.inv());
+    assert(c.inv());
+    assert(abc.inv());
+    assert(a@ =~= Flags::flags_from_bits(a.bits()));
+    assert(abc@ =~= Flags::flags_from_bits(abc.bits()));
 
     let abc_b = abc.bits();
     let a_b = a.bits();
@@ -415,9 +673,118 @@ fn _bitflags_smoke_test() {
         requires
             a_b == 0b001u32 && b_b == 0b010u32,
     ;
+    assert forall|flag: __ghostFlags| #[trigger] abc@.contains(flag) by {
+        assert(abc@ =~= Flags::flags_from_bits(abc.bits()));
+        match flag {
+            __ghostFlags::__ghostA => {
+                assert((abc_b & 0b001u32) == 0b001u32) by (bit_vector)
+                    requires abc_b == 0b111u32,
+                ;
+                assert((abc.bits() & 0b001u32) == 0b001u32);
+            },
+            __ghostFlags::__ghostB => {
+                assert((abc_b & 0b010u32) == 0b010u32) by (bit_vector)
+                    requires abc_b == 0b111u32,
+                ;
+                assert((abc.bits() & 0b010u32) == 0b010u32);
+            },
+            __ghostFlags::__ghostC => {
+                assert((abc_b & 0b100u32) == 0b100u32) by (bit_vector)
+                    requires abc_b == 0b111u32,
+                ;
+                assert((abc.bits() & 0b100u32) == 0b100u32);
+            },
+            __ghostFlags::__ghostABC => {
+                assert((abc_b & 0b111u32) == 0b111u32) by (bit_vector)
+                    requires abc_b == 0b111u32,
+                ;
+                assert((abc.bits() & 0b111u32) == 0b111u32);
+            },
+        }
+    }
+    assert(a@.subset_of(abc@));
+    assert(b@.subset_of(abc@));
+    assert(b@.contains(__ghostFlags::__ghostB)) by {
+        assert(b@ =~= Flags::flags_from_bits(b.bits()));
+        assert((b_b & 0b010u32) == 0b010u32) by (bit_vector)
+            requires b_b == 0b010u32,
+        ;
+        assert((b.bits() & 0b010u32) == 0b010u32);
+    }
+    assert(a@.contains(__ghostFlags::__ghostA)) by {
+        assert(a@ =~= Flags::flags_from_bits(a.bits()));
+        assert((a_b & 0b001u32) == 0b001u32) by (bit_vector)
+            requires a_b == 0b001u32,
+        ;
+        assert((a.bits() & 0b001u32) == 0b001u32);
+    }
+    assert(!a@.contains(__ghostFlags::__ghostB)) by {
+        assert(a@ =~= Flags::flags_from_bits(a.bits()));
+        assert((a_b & 0b010u32) != 0b010u32) by (bit_vector)
+            requires a_b == 0b001u32,
+        ;
+        assert((a.bits() & 0b010u32) != 0b010u32);
+    }
+    assert(!b@.subset_of(a@)) by {
+        if b@.subset_of(a@) {
+            assert(a@.contains(__ghostFlags::__ghostB));
+        }
+    }
     assert(abc.contains(a));
     assert(abc.contains(b));
     assert(!a.contains(b));
+
+    let mut removed = abc;
+    removed.remove(a);
+    let removed_b = removed.bits();
+    assert(removed_b == (abc_b & !a_b));
+    assert(removed_b == 0b110u32) by (bit_vector)
+        requires
+            removed_b == (abc_b & !a_b),
+            abc_b == 0b111u32 && a_b == 0b001u32,
+    ;
+    assert(removed.inv());
+    assert(removed@ =~= Flags::flags_from_bits(removed.bits()));
+
+    assert(abc.intersects(a)) by {
+        assert(abc@.contains(__ghostFlags::__ghostA));
+        assert(a@.contains(__ghostFlags::__ghostA));
+        assert(exists|flag: __ghostFlags| #[trigger] abc@.contains(flag) && a@.contains(flag));
+    }
+    assert(!a.intersects(b)) by {
+        assert forall|flag: __ghostFlags| !(#[trigger] a@.contains(flag) && b@.contains(flag)) by {
+            match flag {
+                __ghostFlags::__ghostA => {
+                    assert(b@ =~= Flags::flags_from_bits(b.bits()));
+                    assert((b_b & 0b001u32) != 0b001u32) by (bit_vector)
+                        requires b_b == 0b010u32,
+                    ;
+                    assert((b.bits() & 0b001u32) != 0b001u32);
+                    assert(!b@.contains(flag));
+                },
+                __ghostFlags::__ghostB => {
+                    assert(!a@.contains(flag));
+                },
+                __ghostFlags::__ghostC => {
+                    assert(a@ =~= Flags::flags_from_bits(a.bits()));
+                    assert((a_b & 0b100u32) != 0b100u32) by (bit_vector)
+                        requires a_b == 0b001u32,
+                    ;
+                    assert((a.bits() & 0b100u32) != 0b100u32);
+                    assert(!a@.contains(flag));
+                },
+                __ghostFlags::__ghostABC => {
+                    assert(a@ =~= Flags::flags_from_bits(a.bits()));
+                    assert((a_b & 0b111u32) != 0b111u32) by (bit_vector)
+                        requires a_b == 0b001u32,
+                    ;
+                    assert((a.bits() & 0b111u32) != 0b111u32);
+                    assert(!a@.contains(flag));
+                },
+            }
+        }
+        assert(!exists|flag: __ghostFlags| #[trigger] a@.contains(flag) && b@.contains(flag));
+    }
 
 }
 

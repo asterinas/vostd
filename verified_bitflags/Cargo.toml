@@ -24,3 +24,4 @@ verify = true
 
 [dependencies]
 vstd = { workspace = true }
+paste = "1.0"
