@@ -61,7 +61,7 @@ macro_rules! bitflags {
         $vis:vis struct $name:ident: $T:ty {
             $(
                 $(#[$inner:ident $($args:tt)*])*
-                const $Flag:ident = $value:literal;
+                const $Flag:ident = $value:expr;
             )*
         }
 

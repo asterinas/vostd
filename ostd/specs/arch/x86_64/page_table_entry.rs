@@ -11,6 +11,7 @@ use crate::mm::{
     page_table::*,
     Paddr, PagingLevel,
 };
+use crate::arch::mm::PageTableFlags;
 
 decl_bms_const!(
     PAGE_FLAG_MAPPING,
@@ -19,10 +20,10 @@ decl_bms_const!(
     usize,
     4,
     [
-        (PageFlags::R().bits(), PageTableFlags::PRESENT()),
-        (PageFlags::W().bits(), PageTableFlags::WRITABLE()),
-        (PageFlags::ACCESSED().bits(), PageTableFlags::ACCESSED()),
-        (PageFlags::DIRTY().bits(), PageTableFlags::DIRTY())
+        (PageFlags::R().bits(), PageTableFlags::PRESENT().bits()),
+        (PageFlags::W().bits(), PageTableFlags::WRITABLE().bits()),
+        (PageFlags::ACCESSED().bits(), PageTableFlags::ACCESSED().bits()),
+        (PageFlags::DIRTY().bits(), PageTableFlags::DIRTY().bits())
     ]
 );
 
@@ -33,10 +34,10 @@ decl_bms_const!(
     usize,
     2,
     [
-        (PrivilegedPageFlags::USER().bits(), PageTableFlags::USER()),
+        (PrivilegedPageFlags::USER().bits(), PageTableFlags::USER().bits()),
         (
             PrivilegedPageFlags::GLOBAL().bits(),
-            PageTableFlags::GLOBAL()
+            PageTableFlags::GLOBAL().bits()
         )
     ]
 );
@@ -47,7 +48,7 @@ decl_bms_const!(
     u8,
     usize,
     1,
-    [(PageFlags::X().bits(), PageTableFlags::NO_EXECUTE())]
+    [(PageFlags::X().bits(), PageTableFlags::NO_EXECUTE().bits())]
 );
 
 verus! {
@@ -78,7 +79,7 @@ impl PageTableEntry {
     #[vstd::contrib::auto_spec]
     pub const fn PROP_MASK() -> (res: usize)
     {
-        !PHYS_ADDR_MASK & !(PageTableFlags::HUGE())
+        !PHYS_ADDR_MASK & !(PageTableFlags::HUGE().bits())
     }
 
     #[verifier::inline]
@@ -97,8 +98,8 @@ impl PageTableEntry {
     pub fn encode_cache(cache: CachePolicy) -> (res: usize)
     {
         match cache {
-            CachePolicy::Uncacheable => PageTableFlags::NO_CACHE(),
-            CachePolicy::Writethrough => PageTableFlags::WRITE_THROUGH(),
+            CachePolicy::Uncacheable => PageTableFlags::NO_CACHE().bits(),
+            CachePolicy::Writethrough => PageTableFlags::WRITE_THROUGH().bits(),
             _ => 0,
         }
     }
@@ -106,7 +107,7 @@ impl PageTableEntry {
     pub open spec fn format_flags_spec(prop: PageProperty) -> usize {
         let flags: u8 = prop.flags.bits();
         let priv_flags: u8 = prop.priv_flags.bits();
-        PageTableFlags::PRESENT()
+        PageTableFlags::PRESENT().bits()
             | flags.map_forward(&PAGE_FLAG_MAPPING)
             | flags.map_invert_forward(&PAGE_INVERTED_FLAG_MAPPING)
             | priv_flags.map_forward(&PAGE_PRIV_MAPPING)
@@ -120,7 +121,7 @@ impl PageTableEntry {
     {
         let flags: u8 = prop.flags.bits();
         let priv_flags: u8 = prop.priv_flags.bits();
-        PageTableFlags::PRESENT()
+        PageTableFlags::PRESENT().bits()
             | flags.map_forward(&PAGE_FLAG_MAPPING)
             | flags.map_invert_forward(&PAGE_INVERTED_FLAG_MAPPING)
             | priv_flags.map_forward(&PAGE_PRIV_MAPPING)
@@ -130,9 +131,9 @@ impl PageTableEntry {
     #[vstd::contrib::auto_spec]
     pub fn format_cache(flags: usize) -> (res: CachePolicy)
     {
-        if flags & PageTableFlags::NO_CACHE() != 0 {
+        if flags & PageTableFlags::NO_CACHE().bits() != 0 {
             CachePolicy::Uncacheable
-        } else if flags & PageTableFlags::WRITE_THROUGH() != 0 {
+        } else if flags & PageTableFlags::WRITE_THROUGH().bits() != 0 {
             CachePolicy::Writethrough
         } else {
             CachePolicy::Writeback
@@ -174,7 +175,7 @@ impl PageTableEntry {
         if level == 1 {
             0
         } else {
-            PageTableFlags::HUGE() as u64
+            PageTableFlags::HUGE().bits() as u64
         }
     }
 
@@ -225,14 +226,14 @@ impl PageTableEntryTrait for PageTableEntry {
 
     #[verifier::inline]
     open spec fn is_present_spec(&self) -> bool {
-        self.0 & PageTableFlags::PRESENT() != 0
+        self.0 & PageTableFlags::PRESENT().bits() != 0
     }
 
     #[inline(always)]
     fn is_present(&self) -> bool
         returns self.is_present_spec()
     {
-        self.0 & PageTableFlags::PRESENT() != 0
+        self.0 & PageTableFlags::PRESENT().bits() != 0
     }
 
     open spec fn set_prop_spec(&self, prop: PageProperty) -> Self {
@@ -265,14 +266,14 @@ impl PageTableEntryTrait for PageTableEntry {
 
     open spec fn new_pt_spec(paddr: Paddr) -> Self {
         let addr = paddr & PHYS_ADDR_MASK;
-        Self(addr | PageTableFlags::PRESENT() | PageTableFlags::WRITABLE() | PageTableFlags::USER())
+        Self(addr | PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits())
     }
 
     #[verifier::external_body]
     fn new_pt(paddr: Paddr) -> (res: Self)
     {
         let addr = paddr & PHYS_ADDR_MASK;
-        Self(addr | PageTableFlags::PRESENT() | PageTableFlags::WRITABLE() | PageTableFlags::USER())
+        Self(addr | PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits())
     }
 
     #[verifier::inline]
@@ -301,14 +302,14 @@ impl PageTableEntryTrait for PageTableEntry {
 
     #[verifier::inline]
     open spec fn is_last_spec(&self, level: PagingLevel) -> bool {
-        level == 1 || (self.0 & PageTableFlags::HUGE() != 0)
+        level == 1 || (self.0 & PageTableFlags::HUGE().bits() != 0)
     }
 
     #[inline(always)]
     fn is_last(&self, level: PagingLevel) -> bool
         returns self.is_last_spec(level)
     {
-        level == 1 || (self.0 & PageTableFlags::HUGE() != 0)
+        level == 1 || (self.0 & PageTableFlags::HUGE().bits() != 0)
     }
 
     proof fn set_prop_properties(self, prop: PageProperty)

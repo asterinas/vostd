@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(dead_code)]
 
+use vstd::prelude::*;
+
 use alloc::fmt;
 use core::ops::Range;
 
@@ -22,9 +24,8 @@ use crate::{
 
 mod util;
 
-/*
-bitflags::bitflags! {
-    #[derive(Pod)]
+verified_bitflags::bitflags! {
+    //#[derive(Pod)]
     #[repr(C)]
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
@@ -65,6 +66,7 @@ bitflags::bitflags! {
     }
 }
 
+/*
 /// Flush any TLB entry that contains the map of the given virtual address.
 ///
 /// This flush performs regardless of the global-page bit. So it can flush both global
