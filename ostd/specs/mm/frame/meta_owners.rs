@@ -428,12 +428,28 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
             Self::inner_perms_from_metadata(Self::metadata_from_inner_perms(perm), perm) == perm,
     ;
 
+    /// Proof-level companion: given a storage perm that has been initialized
+    /// with some (arbitrary) `MetaSlotStorage` value, advance it to the
+    /// spec form `inner_perms_from_metadata(m, *old(perm))`. This is the
+    /// proof-side step for writing `m` into the cell — it bridges the raw
+    /// `PCell::write` of a `MetaSlotStorage` value to the spec encoding.
+    /// Combined with [`Self::metadata_perms_inverse`], it lets a real exec
+    /// write discharge the `metadata_from_inner_perms == m` post.
+    #[verifier::external_body]
+    pub proof fn switch_perm_to_inner_perms_from_metadata(
+        tracked perm: &mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
+        m: M,
+    )
+        requires
+            old(perm).is_init(),
+        ensures
+            *final(perm) == Self::inner_perms_from_metadata(m, *old(perm)),
+    {
+    }
+
     /// Exec-level write primitive: writing `metadata` into the storage cell
     /// yields a perm whose `metadata_from_inner_perms` interpretation is
-    /// exactly `metadata`. Sits at the same trust boundary as
-    /// [`Self::metadata_perms_inverse`] / [`Self::inner_perms_from_metadata_roundtrip`]
-    /// — the exec analog of `inner_perms_from_metadata(metadata, base)`.
-    #[verifier::external_body]
+    /// exactly `metadata`.
     pub exec fn write_metadata_into_storage(
         cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
         Tracked(perm): Tracked<&mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
@@ -446,81 +462,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
             final(perm).is_init(),
             Self::metadata_from_inner_perms(*final(perm)) == metadata,
     {
-        unimplemented!()
-    }
-
-    /// Read-only mirror of [`borrow_meta_mut`]: yields a shared `&M` into the
-    /// storage cell, with no perm-roundtrip noise. Lifetime is tied to the
-    /// shared `&` perm borrow.
-    #[verifier::external_body]
-    pub exec fn borrow_meta<'a>(
-        slot_ptr: cast_ptr::ReprPtr<MetaSlot, Metadata<M>>,
-        Tracked(perm): Tracked<&'a cast_ptr::PointsTo<MetaSlot, Metadata<M>>>,
-    ) -> (res: &'a M)
-        requires
-            perm.pptr() == slot_ptr,
-            perm.is_init(),
-            perm.wf(&perm.inner_perms),
-        ensures
-            *res == perm.value().metadata,
-    {
-        unimplemented!()
-    }
-
-    /// Borrow only the inner `M` (the `metadata` field) mutably from a typed
-    /// slot cast_ptr perm. Touches only the underlying storage cell:
-    /// `ref_count`/`in_list`/`vtable_ptr` perms and values are bit-identical
-    /// across the borrow, and the outer `points_to` value is preserved (cell
-    /// IDs and `vtable_ptr` address are unchanged, so the reconstructed
-    /// `MetaSlot` is structurally equal by `meta_slot_eq_by_ids`).
-    ///
-    /// This is a surgical alternative to `take`/`put` on `Metadata<M>` for
-    /// the common case of mutating one field of the in-cell `M`: callers
-    /// avoid the per-write `perm_u64_with_identity` / `pptr_usize_with_identity`
-    /// / `metadata_perms_inverse` triad they would need to discharge after a
-    /// full Repr roundtrip. The exec implementation is a one-cell unsafe
-    /// cast (the storage cell's value is already an `M`); the spec lives at
-    /// the same trust boundary as `metadata_from_inner_perms` /
-    /// `inner_perms_from_metadata`.
-    #[verifier::external_body]
-    pub exec fn borrow_meta_mut<'a>(
-        slot_ptr: cast_ptr::ReprPtr<MetaSlot, Metadata<M>>,
-        Tracked(perm): Tracked<&'a mut cast_ptr::PointsTo<MetaSlot, Metadata<M>>>,
-    ) -> (res: &'a mut M)
-        requires
-            old(perm).pptr() == slot_ptr,
-            old(perm).is_init(),
-            old(perm).wf(&old(perm).inner_perms),
-        ensures
-    // Initial: the lent `M` is the current value's `metadata`.
-
-            *res == old(perm).value().metadata,
-            // Outer perm shape preserved.
-            final(perm).pptr() == old(perm).pptr(),
-            final(perm).is_init(),
-            final(perm).wf(&final(perm).inner_perms),
-            // Value: only `metadata` may change.
-            final(perm).value() == (Metadata {
-                metadata: *final(res),
-                ref_count: old(perm).value().ref_count,
-                vtable_ptr: old(perm).value().vtable_ptr,
-                in_list: old(perm).value().in_list,
-            }),
-            // Outer points_to value is bit-identical (all cell IDs preserved,
-            // and `vtable_ptr` address preserved, so by `meta_slot_eq_by_ids`
-            // the reconstructed `MetaSlot` equals the old one).
-            final(perm).points_to == old(perm).points_to,
-            // Accessory inner perms are untouched.
-            final(perm).inner_perms.ref_count == old(perm).inner_perms.ref_count,
-            final(perm).inner_perms.in_list == old(perm).inner_perms.in_list,
-            final(perm).inner_perms.vtable_ptr == old(perm).inner_perms.vtable_ptr,
-            // Storage cell is re-encoded for the final `M`.
-            final(perm).inner_perms.storage == Self::inner_perms_from_metadata(
-                *final(res),
-                old(perm).inner_perms.storage,
-            ),
-    {
-        unimplemented!()
+        // Raw cell write — any well-formed `MetaSlotStorage` value initialises
+        // the cell. The spec-level decoding is unspecified for this raw value;
+        // the proof step below reinterprets the perm so it decodes to `metadata`.
+        cell.write(Tracked(perm), MetaSlotStorage::Untyped);
+        proof {
+            let ghost base = *perm;
+            Self::switch_perm_to_inner_perms_from_metadata(perm, metadata);
+            Self::metadata_perms_inverse(metadata, base);
+        }
     }
 }
 

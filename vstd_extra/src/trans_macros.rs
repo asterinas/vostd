@@ -36,7 +36,7 @@ macro_rules! borrow_field {
     // `$perm:expr` arm — otherwise the latter matches greedily, treating
     // `Meta(perm)` as a function-call expression.
     ($ptr:expr => $field:tt, Meta($perm:expr)) => {
-        verus_exec_expr!(Metadata::borrow_meta($ptr, Tracked($perm)).$field)
+        verus_exec_expr!($ptr.borrow(Tracked($perm)).metadata.$field)
     };
     ($ptr:expr => $field:tt, $perm:expr) => {
         verus_exec_expr!($ptr.borrow(Tracked($perm)).$field)
@@ -127,8 +127,9 @@ macro_rules! update_field {
     ($ptr:expr => $field:tt <- $val:expr, Meta($perm:expr)) => {
         verus_exec_expr!(
         {
-            let __link = Metadata::borrow_meta_mut($ptr, Tracked($perm));
-            __link.$field = $val;
+            let __link = $ptr.borrow_mut(Tracked($perm));
+            let __contents = &mut __link.metadata;
+            __contents.$field = $val;
         })
     };
 }
