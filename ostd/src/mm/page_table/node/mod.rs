@@ -48,12 +48,12 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::allocator::FrameAllocOptions;
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::{frame_to_index, AnyFrameMeta, Frame};
+use crate::mm::frame::{AnyFrameMeta, Frame, frame_to_index};
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
-use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
+use crate::mm::{Paddr, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::mm::frame::mapping::{frame_to_meta, meta_to_frame, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_meta, meta_to_frame};
 use crate::specs::mm::frame::meta_owners::{
     MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED,
 };
@@ -128,22 +128,19 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     open spec fn on_drop_pre(
         &self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
-        args: crate::mm::frame::meta::OnDropArgs,
+        regions: crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
+        vm_io_owner: crate::specs::mm::io::VmIoOwner,
     ) -> bool {
         &&& reader.inv()
-        &&& reader.wf(args.vm_io_owner)
+        &&& reader.wf(vm_io_owner)
         &&& reader.remain_spec() >= crate::specs::arch::mm::PAGE_SIZE
         &&& reader.cursor.vaddr % core::mem::align_of::<C::E>() == 0
-        &&& args.vm_io_owner.inv()
-        &&& args.vm_io_owner.read_view_initialized()
-        &&& args.regions.inv()
-        &&& Self::child_perms_embedding(args)
-        &&& self.walk_coverage_from_view(
-            reader,
-            args.vm_io_owner.read_view_of(),
-            args.child_perms.dom(),
-        )
-        &&& self.walk_uniqueness_from_view(reader, args.vm_io_owner.read_view_of())
+        &&& vm_io_owner.inv()
+        &&& vm_io_owner.read_view_initialized()
+        &&& regions.inv()
+        &&& Self::child_perms_embedding(regions, vstd::set::Set::empty())
+        &&& self.walk_coverage_from_view(reader, vm_io_owner.read_view_of(), regions.slots.dom())
+        &&& self.walk_uniqueness_from_view(reader, vm_io_owner.read_view_of())
     }
 
     /// Drops the children of a page-table node: walks each present PTE and
@@ -153,7 +150,10 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     fn on_drop(
         &mut self,
         reader: &mut crate::mm::VmReader<'_, crate::mm::Infallible>,
-        Tracked(args): Tracked<&mut crate::mm::frame::meta::OnDropArgs>,
+        Tracked(regions): Tracked<
+            &mut crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
+        >,
+        Tracked(vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
     ) {
         let level = self.level;
         let range = if level == C::NR_LEVELS() {
@@ -178,12 +178,11 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost align_of_e: int = core::mem::align_of::<C::E>() as int;
         let ghost pre_skip_cursor: int = reader.cursor.vaddr as int;
 
-        let ghost initial_view: crate::specs::mm::virt_mem::MemView =
-            args.vm_io_owner.read_view_of();
-        let ghost initial_dom: vstd::set::Set<usize> = args.child_perms.dom();
+        let ghost initial_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
+        let ghost initial_dom: vstd::set::Set<usize> = regions.slots.dom();
         let ghost initial_reader: crate::mm::VmReader<'_, crate::mm::Infallible> = *reader;
 
-        #[verus_spec(with Tracked(&mut args.vm_io_owner))]
+        #[verus_spec(with Tracked(vm_io_owner))]
         reader.skip_in_place(range.start * core::mem::size_of::<C::E>());
 
         proof {
@@ -228,19 +227,15 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 size_of_e,
             );
             assert(post_skip_remain >= (range_end - range_start) * size_of_e);
-            assert(args.child_perms.dom() == initial_dom.difference(removed_indices)) by {
-                assert(removed_indices == vstd::set::Set::<usize>::empty());
-                assert(initial_dom.difference(vstd::set::Set::<usize>::empty()) == initial_dom);
-            }
         }
 
         while iter_count < n_iters
             invariant
                 reader.inv(),
-                reader.wf(args.vm_io_owner),
-                args.vm_io_owner.inv(),
-                args.vm_io_owner.read_view_initialized(),
-                args.regions.inv(),
+                reader.wf(*vm_io_owner),
+                vm_io_owner.inv(),
+                vm_io_owner.read_view_initialized(),
+                regions.inv(),
                 reader.cursor.vaddr as int % align_of_e == 0,
                 size_of_e == core::mem::size_of::<C::E>() as int,
                 align_of_e == core::mem::align_of::<C::E>() as int,
@@ -257,7 +252,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 range_end <= NR_ENTRIES as int,
                 reader.remain_spec() as int == post_skip_remain - iter_count as int * size_of_e,
                 post_skip_remain >= (range_end - range_start) * size_of_e,
-                Self::child_perms_embedding(*args),
+                regions.slots.dom() == initial_dom,
+                Self::child_perms_embedding(*regions, removed_indices),
                 self.walk_coverage_from_view(initial_reader, initial_view, initial_dom),
                 self.walk_uniqueness_from_view(initial_reader, initial_view),
                 // Without this, Verus treats `self.level` as potentially
@@ -274,14 +270,14 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         &&& initial_view.memory.contains_key(initial_view.addr_transl(i).unwrap().0)
                     },
                 forall|va: usize|
-                    #![trigger args.vm_io_owner.read_view_of().read(va)]
+                    #![trigger vm_io_owner.read_view_of().read(va)]
                     reader.cursor.vaddr <= va < initial_reader.end.vaddr ==> {
-                        &&& initial_view.addr_transl(va)
-                            == args.vm_io_owner.read_view_of().addr_transl(va)
-                        &&& initial_view.read(va) == args.vm_io_owner.read_view_of().read(va)
+                        &&& initial_view.addr_transl(va) == vm_io_owner.read_view_of().addr_transl(
+                            va,
+                        )
+                        &&& initial_view.read(va) == vm_io_owner.read_view_of().read(va)
                     },
                 removed_indices.subset_of(initial_dom),
-                args.child_perms.dom() == initial_dom.difference(removed_indices),
                 // Witness past iter for each removed idx — the discharge
                 // proof picks it up via `choose|j|` and invokes
                 // `walk_uniqueness` at (current_cursor, witness_cursor).
@@ -316,8 +312,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 );
             }
             let ghost cursor_pre_read: usize = reader.cursor.vaddr;
-            let ghost pre_view: crate::specs::mm::virt_mem::MemView =
-                args.vm_io_owner.read_view_of();
+            let ghost pre_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
             proof {
                 crate::specs::mm::virt_mem::MemView::lemma_read_bytes_eq_pointwise(
                     pre_view,
@@ -326,7 +321,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                     core::mem::size_of::<C::E>(),
                 );
             }
-            let pte = #[verus_spec(with Tracked(&mut args.vm_io_owner))]
+            let pte = #[verus_spec(with Tracked(vm_io_owner))]
             reader.read_once::<C::E>();
             let pte = pte.unwrap();
             proof {
@@ -419,15 +414,10 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         // Pinning these in SMT context lets `tracked_remove`'s
                         // dom-containment precondition and `from_raw`'s
                         // `from_raw_requires_safety` (via embedding) discharge.
-                        assert(args.child_perms.dom().contains(frame_to_index(paddr)));
+                        assert(regions.slots.dom().contains(frame_to_index(paddr)));
                     }
-                    let tracked child_perm = args.child_perms.tracked_remove(frame_to_index(paddr));
                     proof {
                         removed_indices = removed_indices.insert(frame_to_index(paddr));
-                        // Witness for the just-inserted idx: j = iter_count
-                        // (before the end-of-body increment), cursor_j ==
-                        // cursor_pre_read, pte_j == pte. Required to keep
-                        // the witness-exists loop invariant true.
                         assert({
                             let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
                                 + iter_count as int * size_of_e) as usize;
@@ -440,13 +430,10 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         });
                     }
                     let frame = unsafe {
-                        #[verus_spec(
-                            with Tracked(&mut args.regions),
-                                 Tracked(&child_perm) => _debt
-                        )]
+                        #[verus_spec(with Tracked(regions) => _debt)]
                         Frame::<Self>::from_raw(paddr)
                     };
-                    VerifiedDrop::drop(frame, Tracked(&mut args.regions));
+                    VerifiedDrop::drop(frame, Tracked(regions));
                 } else {
                     // SAFETY: The PTE points to a mapped item. The ownership
                     // of the item is transferred here then dropped.
@@ -510,7 +497,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     #[verus_spec(res =>
         with Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&Guards<'rcu, C>>,
+            Tracked(guards): Tracked<&Guards<'rcu>>,
             Ghost(idx): Ghost<usize>,
         -> owner: Tracked<OwnerSubtree<C>>
         requires
@@ -523,31 +510,23 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).inv(),
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
-            res.ptr.addr() == owner@.value.node.unwrap().meta_perm.addr(),
-            guards.unlocked(owner@.value.node.unwrap().meta_perm.addr()),
-            MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()), false, *old(regions), *final(regions)),
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
+            res.ptr.addr() == owner@.value.node.unwrap().meta_addr_self(),
+            guards.unlocked(owner@.value.node.unwrap().meta_addr_self()),
+            MetaSlot::get_from_unused_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
+            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
             // Allocator trust boundary: PT-node allocations come from the regular
             // RAM pool, never from MMIO ranges. Used by `alloc_if_none_metaregion_sound_preserved`
             // to rule out untracked-frame collisions at the freshly-allocated idx.
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())),
+                meta_to_frame(owner@.value.node.unwrap().meta_addr_self())),
             owner@.value.metaregion_sound(*final(regions)),
-            // Note: `owner@.value.in_scope` was previously asserted here, but
-            // `allocated_empty_node_owner` already requires `owner.inv()`, which
-            // through `EntryOwner::inv` forces `!in_scope`. Asserting both was
-            // an unsoundness that allowed `assert(false)` post-alloc.
-            //
-            // Disjointness: the alloc'd slot's idx is different from any
-            // previously-active slot's idx. Derived from the unused pre-state
-            // (`pre.slot_owners[new_alloc_idx].ref_count == UNUSED` per
-            // `get_from_unused_spec`). Stated as an explicit ensures so it's
-            // easy to trigger from split/alloc_if_none loop invariants.
             forall|i: usize|
                 #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> i != frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())),
-            owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())), level as PagingLevel),
-            *final(parent_owner) == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
+                ==> i != frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self())),
+            owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self())), level as PagingLevel),
+            *final(parent_owner) == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
+            final(regions).slots.contains_key(owner@.value.node.unwrap().slot_index),
+            owner@.value.node.unwrap().metaregion_sound_node(*final(regions)),
     )]
     #[verifier::external_body]
     pub fn alloc<'rcu>(level: PagingLevel) -> Self {
@@ -625,12 +604,12 @@ impl<C: PageTableConfig> PageTableNode<C> {
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub open spec fn locks_preserved_except<'rcu>(
         addr: usize,
-        guards0: Guards<'rcu, C>,
-        guards1: Guards<'rcu, C>,
+        guards0: Guards<'rcu>,
+        guards1: Guards<'rcu>,
     ) -> bool {
         &&& OwnerSubtree::implies(
-            CursorOwner::node_unlocked(guards0),
-            CursorOwner::node_unlocked_except(guards1, addr),
+            CursorOwner::<'rcu, C>::node_unlocked(guards0),
+            CursorOwner::<'rcu, C>::node_unlocked_except(guards1, addr),
         )
         &&& forall|i: usize| guards0.lock_held(i) ==> guards1.lock_held(i)
         &&& forall|i: usize| guards0.unlocked(i) && i != addr ==> guards1.unlocked(i)
@@ -647,13 +626,13 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     #[verifier::external_body]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             self.inner@.invariants(*owner),
-            old(guards).unlocked(owner.meta_perm.addr()),
+            old(guards).unlocked(owner.meta_addr_self()),
         ensures
-            final(guards).lock_held(owner.meta_perm.addr()),
-            Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *final(guards)),
+            final(guards).lock_held(owner.meta_addr_self()),
+            Self::locks_preserved_except(owner.meta_addr_self(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
     pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
@@ -672,13 +651,13 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// unless that guard was already forgotten.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             self.inner@.invariants(*owner),
-            old(guards).unlocked(owner.meta_perm.addr()),
+            old(guards).unlocked(owner.meta_addr_self()),
         ensures
-            final(guards).lock_held(owner.meta_perm.addr()),
-            Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *final(guards)),
+            final(guards).lock_held(owner.meta_addr_self()),
+            Self::locks_preserved_except(owner.meta_addr_self(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
     pub unsafe fn make_guard_unchecked<'rcu, A: InAtomicMode>(
@@ -689,14 +668,14 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
         proof {
             let ghost guards0 = *guards;
-            guards.guards.tracked_insert(owner.meta_perm.addr(), None);
+            guards.guards = guards.guards.insert(owner.meta_addr_self());
             assert(owner.relate_guard(guard));
 
             assert(forall|other: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                 owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
                     ==> #[trigger] CursorOwner::node_unlocked_except(
                     *guards,
-                    owner.meta_perm.addr(),
+                    owner.meta_addr_self(),
                 )(other, path));
         }
 
@@ -704,7 +683,6 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     }
 }
 
-//}
 impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// Borrows an entry in the node at a given index.
     ///
@@ -715,6 +693,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
             Tracked(child_owner): Tracked<&EntryOwner<C>>,
+            Tracked(regions): Tracked<&MetaRegionOwners>,
     )]
     pub fn entry<'a>(&'a mut self, idx: usize) -> (res: Entry<'a, 'rcu, C>)
         requires
@@ -726,6 +705,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 owner.children_perm.value()[idx as int],
                 child_owner.parent_level,
             ),
+            regions.inv(),
+            regions.slots.contains_key(owner.slot_index),
             // Panic condition
             idx < NR_ENTRIES,
         ensures
@@ -741,7 +722,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // node equals the input guard's value, and the reborrow makes
         // `*final(self) == *res.node`.
         unsafe {
-            #[verus_spec(with Tracked(child_owner), Tracked(owner))]
+            #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(regions))]
             Entry::new_at(self, idx)
         }
     }
@@ -755,18 +736,21 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// ## Safety
     /// - We require the caller to provide a permission token to ensure that this function is only called on a valid page table node.
     #[verus_spec(
-        with Tracked(owner) : Tracked<&NodeOwner<C>>
+        with Tracked(owner) : Tracked<&NodeOwner<C>>,
+            Tracked(regions): Tracked<&MetaRegionOwners>,
     )]
     pub fn nr_children(&self) -> (nr: u16)
         requires
-    // Node invariants: owner well-formedness and node-owner consistency
-
             self.inner.inner@.invariants(*owner),
+            regions.inv(),
+            owner.metaregion_sound_node(*regions),
         returns
             owner.meta_own.nr_children.value(),
     {
-        // SAFETY: The lock is held so we have an exclusive access.
-        #[verus_spec(with Tracked(&owner.meta_perm))]
+        let tracked owner_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+            owner.slot_index,
+        );
+        #[verus_spec(with Tracked(owner_meta_perm))]
         let meta = self.meta();
 
         *meta.nr_children.borrow(Tracked(&owner.meta_own.nr_children))
@@ -802,19 +786,23 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     ///
     /// The caller must ensure that the index is within the bound.
     #[verus_spec(
-        with Tracked(owner): Tracked<&NodeOwner<C>>
+        with Tracked(owner): Tracked<&NodeOwner<C>>,
+            Tracked(regions): Tracked<&MetaRegionOwners>,
     )]
     pub unsafe fn read_pte(&self, idx: usize) -> (pte: C::E)
         requires
             self.inner.inner@.invariants(*owner),
+            regions.inv(),
+            regions.slots.contains_key(owner.slot_index),
             idx < NR_ENTRIES,
         ensures
             pte == owner.children_perm.value()[idx as int],
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
+        let tracked owner_slot_perm = regions.slots.tracked_borrow(owner.slot_index);
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
             paddr_to_vaddr(
-                #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
+                #[verus_spec(with Tracked(owner_slot_perm))]
                 self.start_paddr(),
             ),
         );
@@ -841,19 +829,20 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     ///  3. The page table node will have the ownership of the [`Child`]
     ///     after this method.
     #[verus_spec(
-        with Tracked(owner): Tracked<&mut NodeOwner<C>>
+        with Tracked(owner): Tracked<&mut NodeOwner<C>>,
+            Tracked(regions): Tracked<&MetaRegionOwners>,
     )]
     pub unsafe fn write_pte(&mut self, idx: usize, pte: C::E)
         requires
             old(self).inner.inner@.invariants(*old(owner)),
+            regions.inv(),
+            regions.slots.contains_key(old(owner).slot_index),
             idx < NR_ENTRIES,
         ensures
             final(owner).inv(),
-            final(owner).meta_perm.addr() == old(owner).meta_perm.addr(),
             final(owner).level == old(owner).level,
             final(owner).meta_own == old(owner).meta_own,
-            final(owner).meta_perm.points_to == old(owner).meta_perm.points_to,
-            final(owner).meta_perm.inner_perms == old(owner).meta_perm.inner_perms,
+            final(owner).slot_index == old(owner).slot_index,
             final(owner).children_perm.value() == old(owner).children_perm.value().update(
                 idx as int,
                 pte,
@@ -861,10 +850,11 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             *final(self) == *old(self),
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
+        let tracked owner_slot_perm = regions.slots.tracked_borrow(owner.slot_index);
         #[verusfmt::skip]
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
             paddr_to_vaddr(
-                #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
+                #[verus_spec(with Tracked(owner_slot_perm))]
                 self.start_paddr()
             ),
         );
@@ -987,7 +977,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// position in the walk (over `view`) has its child-frame index in
     /// `dom`. Phrased over a frozen `(view, dom)` pair so the body can
     /// carry it as a loop invariant against an entry-state snapshot
-    /// while `args.vm_io_owner` advances per iteration.
+    /// while `vm_io_owner` advances per iteration.
     pub open spec fn walk_coverage_from_view(
         self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
@@ -1033,31 +1023,24 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// has a slot perm matching the shape `from_raw` + `VerifiedDrop::drop`
     /// expect (init, alignment, refcount within bounds, last-reference
     /// shape when refcount == 1).
-    pub open spec fn child_perms_embedding(args: crate::mm::frame::meta::OnDropArgs) -> bool {
+    pub open spec fn child_perms_embedding(
+        regions: crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
+        excluded: vstd::set::Set<usize>,
+    ) -> bool {
         forall|paddr: crate::mm::Paddr|
-            #![trigger args.child_perms.dom().contains(frame_to_index(paddr))]
-            args.child_perms.dom().contains(frame_to_index(paddr)) ==> {
+            #![trigger regions.slot_owners[frame_to_index(paddr)]]
+            regions.slots.dom().contains(frame_to_index(paddr)) && !excluded.contains(
+                frame_to_index(paddr),
+            ) ==> {
                 let idx = frame_to_index(paddr);
-                let so = args.regions.slot_owners[idx];
-                &&& args.regions.slot_owners.contains_key(idx)
-                &&& <Frame<Self>>::from_raw_requires_safety(args.regions, paddr)
-                &&& so.raw_count <= 1
-                &&& args.child_perms[idx].is_init()
-                &&& args.child_perms[idx].addr() == frame_to_meta(paddr)
-                &&& args.child_perms[idx].value().wf(
-                    so,
-                )
-                // Live frame: refcount in [1, REF_COUNT_MAX]. Needed for
-                // `Drop::drop_requires` after `from_raw` reconstructs the
-                // child Frame.
+                let so = regions.slot_owners[idx];
+                &&& <Frame<Self>>::from_raw_requires_safety(regions, paddr)
+                &&& so.raw_count == 1
                 &&& so.inner_perms.ref_count.value() > 0
                 &&& so.inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                 &&& so.inner_perms.ref_count.value()
                     <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
-                // If refcount == 1, the child is in last-reference shape
-                // (drop will tear it down). PT-children at drop time have
-                // refcount == 1 (only the parent's PTE holds them).
                 &&& so.inner_perms.ref_count.value() == 1 ==> {
                     &&& so.inner_perms.storage.is_init()
                     &&& so.inner_perms.in_list.value() == 0

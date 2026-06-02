@@ -2,10 +2,10 @@
 use vstd::map::*;
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
-use vstd::resource::algebra::ResourceAlgebra;
-use vstd::resource::pcm::{Resource, PCM};
-use vstd::resource::storage_protocol::*;
 use vstd::resource::Loc;
+use vstd::resource::algebra::ResourceAlgebra;
+use vstd::resource::pcm::{PCM, Resource};
+use vstd::resource::storage_protocol::*;
 
 verus! {
 

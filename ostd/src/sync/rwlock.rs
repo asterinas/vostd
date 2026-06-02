@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::{self, pcell::*, CellId};
+use vstd::cell::{self, CellId, pcell::*};
 use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd_extra::resource::ghost_resource::{count::*, csum::*, excl::*, tokens::*};
@@ -21,8 +21,8 @@ use core::{
 };
 
 use super::{
-    guard::{GuardTransfer, SpinGuardian},
     PreemptDisabled,
+    guard::{GuardTransfer, SpinGuardian},
 };
 
 verus! {

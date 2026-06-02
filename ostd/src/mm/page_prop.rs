@@ -1,11 +1,18 @@
+// SPDX-License-Identifier: MPL-2.0
+//! Definitions of page mapping properties.
 use vstd::prelude::*;
+
+use core::fmt::Debug;
+
+use verified_bitflags::bitflags;
+//use bitflags::bitflags;
 
 use core::ops::{Add, BitAnd, BitOr, BitXor, Sub};
 
 verus! {
 
 #[verifier::ext_equal]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageProperty {
     /// The flags associated with the page,
     pub flags: PageFlags,
@@ -16,58 +23,19 @@ pub struct PageProperty {
 
 global layout PageProperty is size == 3, align == 1;
 
-} // verus!
-verus! {
-
-pub broadcast proof fn lemma_page_property_equal_correctness(a: PageProperty, b: PageProperty)
-    requires
-        #[trigger] a.flags == #[trigger] b.flags,
-        a.cache == b.cache,
-        a.priv_flags == b.priv_flags,
-    ensures
-        a == b,
-{
-}
-
-pub broadcast proof fn lemma_page_property_equal_soundness(a: PageProperty, b: PageProperty)
-    requires
-        a == b,
-    ensures
-        #[trigger] a.flags == #[trigger] b.flags,
-        a.cache == b.cache,
-        a.priv_flags == b.priv_flags,
-{
-}
-
-} // verus!
-verus! {
-
+#[verus_verify]
 impl PageProperty {
-    pub open spec fn new_user_spec(flags: PageFlags, cache: CachePolicy) -> Self {
+    /// Creates a new `PageProperty` with the given flags and cache policy for the user.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::new_user(flags, cache))]
+    pub fn new_user(flags: PageFlags, cache: CachePolicy) -> Self {
         Self { flags, cache, priv_flags: PrivilegedPageFlags::USER() }
     }
 
-    #[verifier::when_used_as_spec(new_user_spec)]
-    pub fn new_user(flags: PageFlags, cache: CachePolicy) -> Self
-        returns
-            Self::new_user_spec(flags, cache),
-    {
-        Self { flags, cache, priv_flags: PrivilegedPageFlags::USER() }
-    }
-
-    pub open spec fn new_absent_spec() -> Self {
-        Self {
-            flags: PageFlags::empty(),
-            cache: CachePolicy::Writeback,
-            priv_flags: PrivilegedPageFlags::empty(),
-        }
-    }
-
-    #[verifier::when_used_as_spec(new_absent_spec)]
-    pub fn new_absent() -> Self
-        returns
-            Self::new_absent_spec(),
-    {
+    /// Creates a page property that implies an invalid page without mappings.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::new_absent())]
+    pub fn new_absent() -> Self {
         Self {
             flags: PageFlags::empty(),
             cache: CachePolicy::Writeback,
@@ -75,9 +43,6 @@ impl PageProperty {
         }
     }
 }
-
-} // verus!
-verus! {
 
 // TODO: Make it more abstract when supporting other architectures.
 /// A type to control the cacheability of the main memory.
@@ -139,274 +104,48 @@ pub enum CachePolicy {
     Writeback,
 }
 
-#[allow(non_snake_case)]
-impl CachePolicy {
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn N() -> (res: usize) {
-        (CachePolicy::Writeback.value() + 1) as usize
-    }
-
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn value(&self) -> (res: u8)
-        ensures
-            res == self.value(),
-    {
-        match self {
-            CachePolicy::Uncacheable => 0u8,
-            CachePolicy::WriteCombining => 1,
-            CachePolicy::WriteProtected => 2,
-            CachePolicy::Writethrough => 3,
-            CachePolicy::Writeback => 4,
-        }
-    }
-}
-
 } // verus!
-verus! {
+bitflags! {
+    /// Page protection permissions and access status.
+    pub struct PageFlags: u8 {
+        /// Readable.
+        const R = 0b00000001;
+        /// Writable.
+        const W = 0b00000010;
+        /// Executable.
+        const X = 0b00000100;
+        /// Readable + writable.
+        //const RW = Self::R.bits | Self::W.bits;
+        const RW = 0b00000011;
+        /// Readable + executable.
+        //const RX = Self::R.bits | Self::X.bits;
+        const RX = 0b00000101;
+        /// Readable + writable + executable.
+        //const RWX = Self::R.bits | Self::W.bits | Self::X.bits;
+        const RWX = 0b00000111;
+        /// Has the memory page been read or written.
+        const ACCESSED  = 0b00001000;
+        /// Has the memory page been written.
+        const DIRTY     = 0b00010000;
 
-#[verifier::ext_equal]
-#[repr(transparent)]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-pub struct PageFlags {
-    pub bits: u8,
-}
-
-pub broadcast proof fn lemma_page_flags_equal_correctness(a: PageFlags, b: PageFlags)
-    requires
-        #[trigger] a.bits == #[trigger] b.bits,
-    ensures
-        a == b,
-{
-}
-
-pub broadcast proof fn lemma_page_flags_equal_soundness(a: PageFlags, b: PageFlags)
-    requires
-        a == b,
-    ensures
-        #[trigger] a.bits == #[trigger] b.bits,
-{
-}
-
-impl PageFlags {
-    pub open spec fn present(self) -> bool {
-        self.bits & 0b00000001 != 0
-    }
-
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn empty() -> (res: Self) {
-        Self { bits: 0 }
-    }
-
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn value(&self) -> (res: u8) {
-        self.bits
-    }
-
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub fn from_bits(value: u8) -> (res: Self)
-        ensures
-            res.bits == value,
-    {
-        Self { bits: value }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn R() -> (res: Self) {
-        Self { bits: 0b00000001 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn W() -> (res: Self) {
-        Self { bits: 0b00000010 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn X() -> (res: Self) {
-        Self { bits: 0b00000100 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn RW() -> (res: Self) {
-        Self { bits: Self::R().value() | Self::W().value() }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn RX() -> (res: Self) {
-        Self { bits: Self::R().value() | Self::X().value() }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn RWX() -> (res: Self) {
-        Self { bits: Self::R().value() | Self::W().value() | Self::X().value() }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn ACCESSED() -> (res: Self) {
-        Self { bits: 0b00001000 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn DIRTY() -> (res: Self) {
-        Self { bits: 0b00010000 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn AVAIL1() -> Self {
-        Self { bits: 0b01000000 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn AVAIL2() -> Self {
-        Self { bits: 0b10000000 }
-    }
-
-    #[vstd::contrib::auto_spec]
-    pub fn contains(self, other: Self) -> bool {
-        self.bits & other.bits != 0
+        /// The first bit available for software use.
+        const AVAIL1    = 0b01000000;
+        /// The second bit available for software use.
+        const AVAIL2    = 0b10000000;
     }
 }
 
-impl Add for PageFlags {
-    type Output = Self;
+bitflags! {
+    /// Page property that are only accessible in OSTD.
+    pub struct PrivilegedPageFlags: u8 {
+        /// Accessible from user mode.
+        const USER      = 0b00000001;
+        /// Global page that won't be evicted from TLB with normal TLB flush.
+        const GLOBAL    = 0b00000010;
 
-    #[verifier::external_body]
-    fn add(self, other: Self) -> Self {
-        Self { bits: self.bits + other.bits }
+        /// (TEE only) If the page is shared with the host.
+        /// Otherwise the page is ensured confidential and not visible outside the guest.
+        #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
+        const SHARED    = 0b10000000;
     }
 }
-
-impl Sub for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn sub(self, other: Self) -> Self {
-        Self { bits: self.bits - !other.bits }
-    }
-}
-
-impl BitOr for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn bitor(self, other: Self) -> Self {
-        Self { bits: self.bits | other.bits }
-    }
-}
-
-impl BitAnd for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn bitand(self, other: Self) -> Self {
-        Self { bits: self.bits & other.bits }
-    }
-}
-
-impl BitXor for PageFlags {
-    type Output = Self;
-
-    #[verifier::external_body]
-    fn bitxor(self, other: Self) -> Self {
-        Self { bits: self.bits ^ other.bits }
-    }
-}
-
-} // verus!
-verus! {
-
-#[verifier::ext_equal]
-#[repr(transparent)]
-#[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-pub struct PrivilegedPageFlags {
-    pub bits: u8,
-}
-
-pub broadcast proof fn lemma_privileged_page_flags_equal_correctness(
-    a: PrivilegedPageFlags,
-    b: PrivilegedPageFlags,
-)
-    requires
-        #[trigger] a.bits == #[trigger] b.bits,
-    ensures
-        a == b,
-{
-}
-
-pub broadcast proof fn lemma_privileged_page_flags_equal_soundness(
-    a: PrivilegedPageFlags,
-    b: PrivilegedPageFlags,
-)
-    requires
-        a == b,
-    ensures
-        #[trigger] a.bits == #[trigger] b.bits,
-{
-}
-
-impl PrivilegedPageFlags {
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn empty() -> (res: Self) {
-        Self { bits: 0 }
-    }
-
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn value(&self) -> (res: u8) {
-        self.bits
-    }
-
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub fn from_bits(value: u8) -> (res: Self) {
-        Self { bits: value }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn USER() -> (res: Self) {
-        Self { bits: 0b00000001 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn GLOBAL() -> (res: Self) {
-        Self { bits: 0b00000010 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn SHARED() -> (res: Self) {
-        Self { bits: 0b10000000 }
-    }
-}
-
-} // verus!

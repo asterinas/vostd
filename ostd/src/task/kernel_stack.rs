@@ -6,9 +6,9 @@ use crate::{
     cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
     impl_frame_meta_for,
     mm::{
+        FrameAllocOptions, PAGE_SIZE,
         kspace::kvirt_area::KVirtArea,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
-        FrameAllocOptions, PAGE_SIZE,
     },
     prelude::*,
     trap::irq::DisabledLocalIrqGuard,

@@ -18,50 +18,28 @@ use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageM
 
 verus! {
 
-pub tracked struct Guards<'rcu, C: PageTableConfig> {
-    pub guards: Map<usize, Option<PageTableGuard<'rcu, C>>>,
+pub tracked struct Guards<'rcu> {
+    /// The set of node addresses that are currently guarded (locked).
+    pub ghost guards: Set<usize>,
+    pub _phantom: PhantomData<&'rcu ()>,
 }
 
-impl<'rcu, C: PageTableConfig> Guards<'rcu, C> {
+impl<'rcu> Guards<'rcu> {
     pub open spec fn locked(self, addr: usize) -> bool {
-        self.guards.contains_key(addr)
+        self.guards.contains(addr)
     }
 
     pub open spec fn unlocked(self, addr: usize) -> bool {
-        !self.guards.contains_key(addr)
+        !self.guards.contains(addr)
     }
 
     pub open spec fn lock_held(self, addr: usize) -> bool {
-        self.guards.contains_key(addr) && self.guards[addr] is None
-    }
-
-    pub proof fn take(tracked &mut self, addr: usize) -> (tracked guard: PageTableGuard<'rcu, C>)
-        requires
-            old(self).locked(addr),
-            old(self).guards[addr] is Some,
-        ensures
-            final(self).lock_held(addr),
-            guard == old(self).guards[addr].unwrap(),
-    {
-        let tracked guard = self.guards.tracked_remove(addr).tracked_unwrap();
-        self.guards.tracked_insert(addr, None);
-        guard
-    }
-
-    pub proof fn put(tracked &mut self, addr: usize, tracked guard: PageTableGuard<'rcu, C>)
-        requires
-            old(self).lock_held(addr),
-        ensures
-            final(self).locked(addr),
-            final(self).guards[addr] == Some(guard),
-    {
-        let _ = self.guards.tracked_remove(addr);
-        self.guards.tracked_insert(addr, Some(guard));
+        self.guards.contains(addr)
     }
 }
 
 impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
-    type State = Guards<'rcu, C>;
+    type State = Guards<'rcu>;
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         s.lock_held(self.inner.inner@.ptr.addr())
@@ -72,7 +50,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) {
-        s.guards.tracked_remove(self.inner.inner@.ptr.addr());
+        s.guards = s.guards.remove(self.inner.inner@.ptr.addr());
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
@@ -80,7 +58,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     }
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
-        s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr(), None)
+        s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr())
     }
 }
 

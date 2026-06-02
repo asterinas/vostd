@@ -5,8 +5,8 @@ use super::*;
 use core::mem::size_of;
 use core::ops::Range;
 
-use crate::mm::frame::meta::{meta_slot_size, size_of_meta_slot};
 use crate::mm::frame::MetaSlot;
+use crate::mm::frame::meta::{meta_slot_size, size_of_meta_slot};
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};

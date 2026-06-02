@@ -32,9 +32,9 @@ use crate::{
     cpu::context::{CpuException, PageFaultErrorCode, RawPageFaultInfo},
     cpu_local_cell,
     mm::{
+        MAX_USERSPACE_VADDR, PAGE_SIZE, PageFlags, PrivilegedPageFlags as PrivFlags,
         kspace::{KERNEL_PAGE_TABLE, LINEAR_MAPPING_BASE_VADDR, LINEAR_MAPPING_VADDR_RANGE},
         page_prop::{CachePolicy, PageProperty},
-        PageFlags, PrivilegedPageFlags as PrivFlags, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
     task::disable_preempt,
     trap::call_irq_callback_functions,

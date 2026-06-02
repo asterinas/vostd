@@ -14,7 +14,7 @@ use vstd_extra::ownership::*;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::{Guards, Mapping, PageTableOwner, PageTableView, INC_LEVELS};
+use crate::specs::mm::page_table::{Guards, INC_LEVELS, Mapping, PageTableOwner, PageTableView};
 use crate::specs::mm::tlb::TlbModel;
 use crate::specs::mm::virt_mem::FrameContents;
 

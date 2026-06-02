@@ -12,13 +12,13 @@ use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
 use super::*;
-use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::AnyFrameMeta;
+use crate::mm::frame::meta::MetaSlot;
 use crate::mm::{Paddr, PagingLevel};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
-use crate::specs::mm::frame::mapping::{meta_addr, meta_to_frame, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, meta_addr, meta_to_frame};
 
 verus! {
 
@@ -274,10 +274,21 @@ impl Inv for MetaSlotOwner {
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNIQUE ==> {
             &&& self.inner_perms.vtable_ptr.is_init()
             &&& self.inner_perms.storage.is_init()
-            &&& self.inner_perms.in_list.value() == 0
         }
+        // A SHARED slot (`0 < rc <= REF_COUNT_MAX`) is genuinely in use:
+        // metadata storage is written, `vtable_ptr` resolves the
+        // dynamic type, and the slot is *not* on the allocator's free
+        // list. `storage.is_init()` and `in_list.value() == 0` were
+        // previously asserted only in the `UNIQUE` branch and via the
+        // `rc == 1 ⟹ ...` guard on `Frame::drop_requires`; they are
+        // universally true of any in-use slot, so they live here. Once
+        // these are invariants, the embedding's `op_pre[FrameDrop]` can
+        // drop its `rc == 1 ⟹ storage.is_init ∧ in_list == 0` residual
+        // (it follows from `regions.inv() ⟹ slot_owners[idx].inv()`).
         &&& 0 < self.inner_perms.ref_count.value() <= REF_COUNT_MAX ==> {
             &&& self.inner_perms.vtable_ptr.is_init()
+            &&& self.inner_perms.storage.is_init()
+            &&& self.inner_perms.in_list.value() == 0
         }
         &&& REF_COUNT_MAX < self.inner_perms.ref_count.value() < REF_COUNT_UNIQUE ==> { false }
         &&& self.inner_perms.ref_count.value() == 0 ==> {
@@ -407,6 +418,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
         ensures
             Self::metadata_from_inner_perms(Self::inner_perms_from_metadata(m, base)) == m,
             Self::inner_perms_from_metadata(m, base).id() == base.id(),
+            Self::inner_perms_from_metadata(m, base).is_init(),
     ;
 
     pub axiom fn inner_perms_from_metadata_roundtrip(
@@ -415,6 +427,51 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
         ensures
             Self::inner_perms_from_metadata(Self::metadata_from_inner_perms(perm), perm) == perm,
     ;
+
+    /// Proof-level companion: given a storage perm that has been initialized
+    /// with some (arbitrary) `MetaSlotStorage` value, advance it to the
+    /// spec form `inner_perms_from_metadata(m, *old(perm))`. This is the
+    /// proof-side step for writing `m` into the cell — it bridges the raw
+    /// `PCell::write` of a `MetaSlotStorage` value to the spec encoding.
+    /// Combined with [`Self::metadata_perms_inverse`], it lets a real exec
+    /// write discharge the `metadata_from_inner_perms == m` post.
+    #[verifier::external_body]
+    pub proof fn switch_perm_to_inner_perms_from_metadata(
+        tracked perm: &mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
+        m: M,
+    )
+        requires
+            old(perm).is_init(),
+        ensures
+            *final(perm) == Self::inner_perms_from_metadata(m, *old(perm)),
+    {
+    }
+
+    /// Exec-level write primitive: writing `metadata` into the storage cell
+    /// yields a perm whose `metadata_from_inner_perms` interpretation is
+    /// exactly `metadata`.
+    pub exec fn write_metadata_into_storage(
+        cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
+        Tracked(perm): Tracked<&mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+        metadata: M,
+    )
+        requires
+            cell.id() == old(perm).id(),
+        ensures
+            final(perm).id() == old(perm).id(),
+            final(perm).is_init(),
+            Self::metadata_from_inner_perms(*final(perm)) == metadata,
+    {
+        // Raw cell write — any well-formed `MetaSlotStorage` value initialises
+        // the cell. The spec-level decoding is unspecified for this raw value;
+        // the proof step below reinterprets the perm so it decodes to `metadata`.
+        cell.write(Tracked(perm), MetaSlotStorage::Untyped);
+        proof {
+            let ghost base = *perm;
+            Self::switch_perm_to_inner_perms_from_metadata(perm, metadata);
+            Self::metadata_perms_inverse(metadata, base);
+        }
+    }
 }
 
 /// Value-updaters for the opaque tracked permission types inside

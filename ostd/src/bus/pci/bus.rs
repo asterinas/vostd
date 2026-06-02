@@ -7,7 +7,7 @@ use core::fmt::Debug;
 
 use log::{debug, error};
 
-use super::{device_info::PciDeviceId, PciCommonDevice};
+use super::{PciCommonDevice, device_info::PciDeviceId};
 use crate::bus::BusProbeError;
 
 /// PciDevice trait.

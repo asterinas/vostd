@@ -9,7 +9,7 @@ use spin::Once;
 
 use crate::{
     arch::{
-        irq::{send_ipi, HwCpuId},
+        irq::{HwCpuId, send_ipi},
         trap::TrapFrame,
     },
     cpu::{CpuSet, PinCurrentCpu},

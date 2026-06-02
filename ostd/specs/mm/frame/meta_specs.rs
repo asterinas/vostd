@@ -11,9 +11,8 @@ use super::meta_owners::{
     MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, Metadata, PageUsage,
 };
 use crate::mm::frame::meta::{
-    get_slot_spec,
+    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, get_slot_spec,
     mapping::{frame_to_index, frame_to_meta},
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
 };
 use crate::mm::frame::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
@@ -55,6 +54,7 @@ impl MetaSlot {
         let idx = frame_to_index(paddr);
         {
             &&& post.slots =~= pre.slots.remove(idx)
+            &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
             &&& MetaSlot::get_from_unused_inner_perms_spec(
                 as_unique,
                 post.slot_owners[idx].inner_perms,
@@ -90,6 +90,10 @@ impl MetaSlot {
         let idx = frame_to_index(paddr);
         {
             &&& post.slots.dom() =~= pre.slots.dom()
+            &&& forall|k: usize|
+                #![trigger post.slots[k]]
+                k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
+            &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
             &&& MetaSlot::get_from_unused_inner_perms_spec(
                 as_unique,
                 post.slot_owners[idx].inner_perms,

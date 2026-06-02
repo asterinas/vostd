@@ -7,13 +7,13 @@ use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
-use crate::specs::mm::page_table::cursor::owners::*;
-use crate::specs::mm::page_table::node::EntryOwner;
-use crate::specs::mm::page_table::owners::{OwnerSubtree, PageTableOwner, INC_LEVELS};
-use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::Guards;
 use crate::specs::mm::Mapping;
 use crate::specs::mm::MetaRegionOwners;
+use crate::specs::mm::page_table::AbstractVaddr;
+use crate::specs::mm::page_table::cursor::owners::*;
+use crate::specs::mm::page_table::node::EntryOwner;
+use crate::specs::mm::page_table::owners::{INC_LEVELS, OwnerSubtree, PageTableOwner};
 
 use crate::mm::page_table::page_size_spec as page_size;
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame};
@@ -86,7 +86,7 @@ pub proof fn push_tail_increases_length(path: TreePath<NR_ENTRIES>, i: usize)
 pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     subtree: OwnerSubtree<C>,
     path: TreePath<NR_ENTRIES>,
-    guards: Guards<'rcu, C>,
+    guards: Guards<'rcu>,
     regions: MetaRegionOwners,
     excepted_addr: usize,
     excepted_path: TreePath<NR_ENTRIES>,
@@ -122,7 +122,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     assert(f(subtree.value, path));
     assert(g(subtree.value, path));
     if subtree.value.is_node() {
-        if subtree.value.node.unwrap().meta_perm.addr() == excepted_addr {
+        if subtree.value.node.unwrap().meta_addr_self() == excepted_addr {
             // addr == excepted_addr contradicts path != excepted_path
             // via metaregion_sound's singleton paths_in_pt.
             let idx = frame_to_index(meta_to_frame(excepted_addr));
@@ -887,7 +887,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         guard: PageTableGuard<'rcu, C>,
         regions: MetaRegionOwners,
-        guards: Guards<'rcu, C>,
+        guards: Guards<'rcu>,
     )
         requires
             self.inv(),
@@ -923,7 +923,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         );
 
         let cur_entry = self.cur_entry_owner();
-        let cur_entry_addr = cur_entry.node.unwrap().meta_perm.addr();
+        let cur_entry_addr = cur_entry.node.unwrap().meta_addr_self();
         let cur_entry_path = old_cont.path().push_tail(old_cont.idx as usize);
         self.cont_entries_metaregion(regions);
 
@@ -935,8 +935,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let cont_i = self.continuations[i];
 
             if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
-                let addr = cont_i.entry_own.node.unwrap().meta_perm.addr();
-                assert(addr == cur_entry.node.unwrap().meta_perm.addr());
+                let addr = cont_i.entry_own.node.unwrap().meta_addr_self();
+                assert(addr == cur_entry.node.unwrap().meta_addr_self());
                 let idx = frame_to_index(meta_to_frame(addr));
                 assert(regions.slot_owners[idx].paths_in_pt == set![cont_i.path()]);
                 assert(regions.slot_owners[idx].paths_in_pt == set![cur_entry_path]);
@@ -1469,7 +1469,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub proof fn pop_level_owner_preserves_invs(
         self,
-        guards: Guards<'rcu, C>,
+        guards: Guards<'rcu>,
         regions: MetaRegionOwners,
     )
         requires
@@ -1515,7 +1515,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
 
-        let child_addr = child.entry_own.node.unwrap().meta_perm.addr();
+        let child_addr = child.entry_own.node.unwrap().meta_addr_self();
         let child_subtree = child.as_subtree();
 
         assert forall|j: int|
@@ -2016,6 +2016,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
     }
 
+    #[verifier::rlimit(4)]
+    #[verifier::spinoff_prover]
     pub proof fn move_forward_va_is_align_up(self)
         requires
             self.inv(),

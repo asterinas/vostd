@@ -17,8 +17,8 @@ use x86_64::registers::{
 
 use crate::{
     arch::{
-        trap::{RawUserContext, TrapFrame},
         CPU_FEATURES,
+        trap::{RawUserContext, TrapFrame},
     },
     mm::Vaddr,
     task::scheduler,

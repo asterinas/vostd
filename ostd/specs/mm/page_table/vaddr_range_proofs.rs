@@ -9,7 +9,7 @@ use vstd::arithmetic::power2::{lemma_pow2_adds, lemma_pow2_pos, pow2};
 use vstd::prelude::*;
 
 use crate::mm::page_table::{
-    axiom_top_level_index_range_bounds, pte_index_bit_offset_spec, PageTableConfig,
+    PageTableConfig, axiom_top_level_index_range_bounds, pte_index_bit_offset_spec,
 };
 use crate::mm::{PagingConstsTrait, Vaddr};
 

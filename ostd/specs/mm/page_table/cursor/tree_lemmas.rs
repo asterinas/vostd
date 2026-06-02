@@ -16,11 +16,11 @@ use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::page_table::AbstractVaddr;
+use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::mm::page_table::owners::*;
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::Mapping;
 
 use core::ops::Range;
 
@@ -186,6 +186,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// and `end` are BASE_PAGE_SIZE-aligned and `cur_va < end`, we have
     /// `cur_va + page_size(1) <= end`, so a level-1 frame always fits. Therefore
     /// `!cur_entry_fits_range` implies `level > 1`.
+    #[verifier::rlimit(4)]
+    #[verifier::spinoff_prover]
     pub proof fn frame_not_fits_implies_level_gt_1(
         self,
         cur_entry_fits_range: bool,

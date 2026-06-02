@@ -163,25 +163,37 @@ mod test {
         let allocator =
             unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
 
-        assert!(allocator
-            .acquire((io_mem_region_a.start - 1)..io_mem_region_a.start)
-            .is_none());
-        assert!(allocator
-            .acquire(io_mem_region_a.start..(io_mem_region_a.start + 1))
-            .is_some());
+        assert!(
+            allocator
+                .acquire((io_mem_region_a.start - 1)..io_mem_region_a.start)
+                .is_none()
+        );
+        assert!(
+            allocator
+                .acquire(io_mem_region_a.start..(io_mem_region_a.start + 1))
+                .is_some()
+        );
 
-        assert!(allocator
-            .acquire((io_mem_region_a.end + 1)..(io_mem_region_b.start - 1))
-            .is_none());
-        assert!(allocator
-            .acquire((io_mem_region_a.end - 1)..(io_mem_region_b.start + 1))
-            .is_none());
+        assert!(
+            allocator
+                .acquire((io_mem_region_a.end + 1)..(io_mem_region_b.start - 1))
+                .is_none()
+        );
+        assert!(
+            allocator
+                .acquire((io_mem_region_a.end - 1)..(io_mem_region_b.start + 1))
+                .is_none()
+        );
 
-        assert!(allocator
-            .acquire((io_mem_region_a.end - 1)..io_mem_region_a.end)
-            .is_some());
-        assert!(allocator
-            .acquire(io_mem_region_a.end..(io_mem_region_a.end + 1))
-            .is_none());
+        assert!(
+            allocator
+                .acquire((io_mem_region_a.end - 1)..io_mem_region_a.end)
+                .is_some()
+        );
+        assert!(
+            allocator
+                .acquire(io_mem_region_a.end..(io_mem_region_a.end + 1))
+                .is_none()
+        );
     }
 }

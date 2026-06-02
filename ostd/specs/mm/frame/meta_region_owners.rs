@@ -5,19 +5,22 @@ use vstd::simple_pptr::{self, *};
 
 use core::ops::Range;
 
-use vstd_extra::cast_ptr::Repr;
+use vstd_extra::cast_ptr::{self, Repr};
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
 use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage};
 use super::*;
-use crate::mm::frame::meta::{
-    mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
-    AnyFrameMeta, MetaSlot,
-};
 use crate::mm::Paddr;
+use crate::mm::frame::Link;
+use crate::mm::frame::meta::{
+    AnyFrameMeta, MetaSlot,
+    mapping::{META_SLOT_SIZE, frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr},
+};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
+use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;
+use crate::specs::mm::frame::meta_owners::Metadata;
 
 verus! {
 
@@ -60,6 +63,10 @@ impl Inv for MetaRegionOwners {
         &&& {
             // All accessible slots are within the valid address range.
             forall|i: usize| i < max_meta_slots() <==> #[trigger] self.slot_owners.contains_key(i)
+        }
+        &&& {
+            forall|i: usize| #[trigger]
+                self.slot_owners.contains_key(i) ==> self.slots.contains_key(i)
         }
         &&& { forall|i: usize| #[trigger] self.slots.contains_key(i) ==> i < max_meta_slots() }
         &&& {
@@ -125,6 +132,58 @@ impl MetaRegionOwners {
     {
         self.slot_owners[i].inner_perms.ref_count.value()
     }
+
+    pub axiom fn borrow_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+        &self,
+        i: usize,
+    ) -> (tracked res: &vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<M>>)
+        requires
+            self.slots.contains_key(i),
+            self.slot_owners.contains_key(i),
+            vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<M>>::new_spec(
+                self.slots[i],
+                self.slot_owners[i].inner_perms,
+            ).wf(&self.slot_owners[i].inner_perms),
+        ensures
+            res.points_to == self.slots[i],
+            res.inner_perms == self.slot_owners[i].inner_perms,
+            res.wf(&res.inner_perms),
+    ;
+
+    /// Mutable analog of [`borrow_typed_perm`]. Lends out a `&'a mut cast_ptr`
+    /// reconstructed from `slots[i]` (outer simple-pptr) and
+    /// `slot_owners[i].inner_perms` (inner perms). While the returned reference
+    /// is live, `self` is mutably borrowed; on borrow-end, `self.slots[i]` and
+    /// `self.slot_owners[i].inner_perms` are restored from the final cast_ptr.
+    /// Every other slot/slot_owner is fully preserved, and the other fields of
+    /// `slot_owners[i]` (raw_count/usage/self_addr/paths_in_pt) are unchanged.
+    pub axiom fn borrow_mut_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+        &mut self,
+        i: usize,
+    ) -> (tracked res: &mut vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<M>>)
+        requires
+            old(self).slots.contains_key(i),
+            old(self).slot_owners.contains_key(i),
+            vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<M>>::new_spec(
+                old(self).slots[i],
+                old(self).slot_owners[i].inner_perms,
+            ).wf(&old(self).slot_owners[i].inner_perms),
+        ensures
+            res.points_to == old(self).slots[i],
+            res.inner_perms == old(self).slot_owners[i].inner_perms,
+            res.wf(&res.inner_perms),
+            final(self).slots.dom() == old(self).slots.dom(),
+            final(self).slot_owners.dom() == old(self).slot_owners.dom(),
+            final(self).slots[i] == final(res).points_to,
+            final(self).slot_owners[i].inner_perms == final(res).inner_perms,
+            forall|k: usize| k != i ==> #[trigger] final(self).slots[k] == old(self).slots[k],
+            forall|k: usize|
+                k != i ==> #[trigger] final(self).slot_owners[k] == old(self).slot_owners[k],
+            final(self).slot_owners[i].raw_count == old(self).slot_owners[i].raw_count,
+            final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
+            final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
+            final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
+    ;
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
         recommends

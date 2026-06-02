@@ -7,7 +7,7 @@ use int_to_c_enum::TryFromInt;
 
 use super::IrtEntryHandle;
 use crate::{
-    mm::{FrameAllocOptions, Segment, UntypedMem, PAGE_SIZE},
+    mm::{FrameAllocOptions, PAGE_SIZE, Segment, UntypedMem},
     sync::{LocalIrqDisabled, SpinLock},
 };
 

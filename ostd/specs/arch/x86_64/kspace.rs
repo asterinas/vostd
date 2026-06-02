@@ -3,6 +3,7 @@ use vstd::prelude::*;
 
 use super::*;
 use crate::mm::{
+    Paddr, PagingConsts, Vaddr,
     frame::meta::mapping::{lemma_meta_to_frame_soundness, meta_to_frame},
     frame::*,
     kspace::{
@@ -10,7 +11,6 @@ use crate::mm::{
         KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, LINEAR_MAPPING_VADDR_RANGE,
         VMALLOC_BASE_VADDR,
     },
-    Paddr, PagingConsts, Vaddr,
 };
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 

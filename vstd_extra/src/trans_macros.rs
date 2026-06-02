@@ -30,6 +30,14 @@ macro_rules! borrow_field {
     ($ptr:expr) => {
         $ptr
     };
+    // Meta-cell read: borrows only the metadata `M` view of a slot's storage
+    // cell (analogous to `unsafe { ptr.as_ref() }.field` in ../vostd). Requires
+    // `Metadata` to be in scope at the call site. MUST come before the generic
+    // `$perm:expr` arm — otherwise the latter matches greedily, treating
+    // `Meta(perm)` as a function-call expression.
+    ($ptr:expr => $field:tt, Meta($perm:expr)) => {
+        verus_exec_expr!($ptr.borrow(Tracked($perm)).metadata.$field)
+    };
     ($ptr:expr => $field:tt, $perm:expr) => {
         verus_exec_expr!($ptr.borrow(Tracked($perm)).$field)
     };
@@ -111,7 +119,19 @@ macro_rules! update_field {
             __tmp.$field = __tmp.$field - $val;
             $ptr.put(Tracked(&mut $perm), __tmp);
         })
-    }
+    };
+    // Meta-cell write: mutates a single field of the metadata `M` via a
+    // surgical view on the storage cell, leaving ref_count/in_list/vtable_ptr
+    // perms untouched (analogous to `unsafe { ptr.as_mut() }.field = val` in
+    // ../vostd, but verified). Requires `Metadata` to be in scope.
+    ($ptr:expr => $field:tt <- $val:expr, Meta($perm:expr)) => {
+        verus_exec_expr!(
+        {
+            let __link = $ptr.borrow_mut(Tracked($perm));
+            let __contents = &mut __link.metadata;
+            __contents.$field = $val;
+        })
+    };
 }
 
 pub use crate::{assert, borrow_field, update_field};

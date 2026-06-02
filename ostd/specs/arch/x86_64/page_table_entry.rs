@@ -19,10 +19,10 @@ decl_bms_const!(
     usize,
     4,
     [
-        (PageFlags::R().value(), PageTableFlags::PRESENT()),
-        (PageFlags::W().value(), PageTableFlags::WRITABLE()),
-        (PageFlags::ACCESSED().value(), PageTableFlags::ACCESSED()),
-        (PageFlags::DIRTY().value(), PageTableFlags::DIRTY())
+        (PageFlags::R().bits(), PageTableFlags::PRESENT()),
+        (PageFlags::W().bits(), PageTableFlags::WRITABLE()),
+        (PageFlags::ACCESSED().bits(), PageTableFlags::ACCESSED()),
+        (PageFlags::DIRTY().bits(), PageTableFlags::DIRTY())
     ]
 );
 
@@ -33,9 +33,9 @@ decl_bms_const!(
     usize,
     2,
     [
-        (PrivilegedPageFlags::USER().value(), PageTableFlags::USER()),
+        (PrivilegedPageFlags::USER().bits(), PageTableFlags::USER()),
         (
-            PrivilegedPageFlags::GLOBAL().value(),
+            PrivilegedPageFlags::GLOBAL().bits(),
             PageTableFlags::GLOBAL()
         )
     ]
@@ -47,7 +47,7 @@ decl_bms_const!(
     u8,
     usize,
     1,
-    [(PageFlags::X().value(), PageTableFlags::NO_EXECUTE())]
+    [(PageFlags::X().bits(), PageTableFlags::NO_EXECUTE())]
 );
 
 verus! {
@@ -104,8 +104,8 @@ impl PageTableEntry {
     }
 
     pub open spec fn format_flags_spec(prop: PageProperty) -> usize {
-        let flags: u8 = prop.flags.value();
-        let priv_flags: u8 = prop.priv_flags.value();
+        let flags: u8 = prop.flags.bits();
+        let priv_flags: u8 = prop.priv_flags.bits();
         PageTableFlags::PRESENT()
             | flags.map_forward(&PAGE_FLAG_MAPPING)
             | flags.map_invert_forward(&PAGE_INVERTED_FLAG_MAPPING)
@@ -118,8 +118,8 @@ impl PageTableEntry {
     pub fn format_flags(prop: PageProperty) -> usize
         returns Self::format_flags_spec(prop)
     {
-        let flags: u8 = prop.flags.value();
-        let priv_flags: u8 = prop.priv_flags.value();
+        let flags: u8 = prop.flags.bits();
+        let priv_flags: u8 = prop.priv_flags.bits();
         PageTableFlags::PRESENT()
             | flags.map_forward(&PAGE_FLAG_MAPPING)
             | flags.map_invert_forward(&PAGE_INVERTED_FLAG_MAPPING)
@@ -145,9 +145,9 @@ impl PageTableEntry {
         let priv_flags: u8 = entry.map_backward(&PAGE_PRIV_MAPPING);
         let cache = Self::format_cache(entry);
         PageProperty {
-            flags: PageFlags::from_bits(flags),
+            flags: PageFlags::from_bits(flags).unwrap(),
             cache,
-            priv_flags: PrivilegedPageFlags::from_bits(priv_flags),
+            priv_flags: PrivilegedPageFlags::from_bits(priv_flags).unwrap(),
         }
     }
 
@@ -161,9 +161,9 @@ impl PageTableEntry {
         let priv_flags: u8 = entry.map_backward(&PAGE_PRIV_MAPPING);
         let cache = Self::format_cache(entry);
         PageProperty {
-            flags: PageFlags::from_bits(flags),
+            flags: PageFlags::from_bits(flags).unwrap(),
             cache,
-            priv_flags: PrivilegedPageFlags::from_bits(priv_flags),
+            priv_flags: PrivilegedPageFlags::from_bits(priv_flags).unwrap(),
         }
     }
 

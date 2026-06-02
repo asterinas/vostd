@@ -6,7 +6,7 @@ use vstd_extra::ownership::Inv;
 
 use crate::{
     specs::mm::cpu::{AtomicCpuSet, CpuSet},
-    sync::{once::Predicate as OncePredicate, AtomicDataWithOwner, LocalIrqDisabled, SpinLock},
+    sync::{AtomicDataWithOwner, LocalIrqDisabled, SpinLock, once::Predicate as OncePredicate},
 };
 
 verus! {

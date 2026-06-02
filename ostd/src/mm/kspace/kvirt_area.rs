@@ -16,24 +16,24 @@ use super::{
     VMALLOC_VADDR_RANGE,
 };
 use crate::mm::{
-    frame::{untyped::AnyUFrameMeta, Frame, Segment},
+    PAGE_SIZE, Paddr, Vaddr,
+    frame::{Frame, Segment, untyped::AnyUFrameMeta},
     kspace::{KernelPtConfig, MappedItem},
     largest_pages,
     page_prop::PageProperty,
-    page_table::{is_valid_range_spec, page_size, Child, CursorMut, PageTable, PageTableConfig},
-    Paddr, Vaddr, PAGE_SIZE,
+    page_table::{Child, CursorMut, PageTable, PageTableConfig, is_valid_range_spec, page_size},
 };
 
+use crate::mm::PagingConstsTrait;
 use crate::mm::frame::DynFrame;
 use crate::mm::kspace::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::PageTableGuard;
-use crate::mm::PagingConstsTrait;
-use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::arch::PagingConsts;
+use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_index_spec};
 use crate::specs::mm::frame::meta_owners::{
-    is_mmio_paddr, MetaSlotStorage, PageUsage, REF_COUNT_MAX,
+    MetaSlotStorage, PageUsage, REF_COUNT_MAX, is_mmio_paddr,
 };
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};
@@ -198,7 +198,7 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> (res: alloc::vec::
 pub(crate) fn get_kernel_page_table<'rcu>(
     Tracked(kernel_owner): Tracked<&mut Option<&PageTableOwner<KernelPtConfig>>>,
     Tracked(regions): Tracked<&MetaRegionOwners>,
-    Tracked(guards_k): Tracked<&Guards<'rcu, KernelPtConfig>>,
+    Tracked(guards): Tracked<&Guards<'rcu>>,
 ) -> (r: &'static PageTable<KernelPtConfig>)
     requires
         regions.inv(),
@@ -206,13 +206,13 @@ pub(crate) fn get_kernel_page_table<'rcu>(
         final(kernel_owner)@ is Some,
         final(kernel_owner)@.unwrap().inv(),
         final(kernel_owner)@.unwrap().0.value.node is Some,
-        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_perm.addr(),
+        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_addr_self(),
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
             final(kernel_owner)@.unwrap().0.value.node.unwrap(),
         ),
         final(kernel_owner)@.unwrap().0.value.metaregion_sound(*regions),
         final(kernel_owner)@.unwrap().metaregion_sound(*regions),
-        guards_k.unlocked(final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_perm.addr()),
+        guards.unlocked(final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_addr_self()),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }
@@ -409,8 +409,8 @@ impl KVirtArea {
     #[verus_spec(r =>
         with Tracked(owner): Tracked<KVirtAreaOwner>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'static, KernelPtConfig>>,
-            Ghost(root_guard): Ghost<PageTableGuard<'static, KernelPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'rcu>>,
+            Ghost(root_guard): Ghost<PageTableGuard<'rcu, KernelPtConfig>>
         requires
             self.inv(),
             old(regions).inv(),
@@ -428,7 +428,7 @@ impl KVirtArea {
             self.range.start <= addr < self.range.end
     )]
     #[allow(private_interfaces)]
-    pub fn query<A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem> {
+    pub fn query<'rcu, A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem> {
         use align_ext::AlignExt;
         assert!(self.start() <= addr && self.end() > addr);
 
@@ -469,7 +469,7 @@ impl KVirtArea {
             proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
             get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards))
         };
-        let preempt_guard = disable_preempt::<A>();
+        let preempt_guard: &'rcu A = disable_preempt::<A>();
         let (mut cursor, Tracked(mut cursor_owner)) = (
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         page_table.cursor(preempt_guard, &vaddr)).unwrap();
@@ -603,7 +603,7 @@ impl KVirtArea {
             Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
             Tracked(entry_owners): Tracked<&mut Map<Paddr, EntryOwner<KernelPtConfig>>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a>>
     )]
     #[allow(private_interfaces)]
     pub fn map_frames<'a, A: InAtomicMode + 'a>(
@@ -1051,7 +1051,7 @@ impl KVirtArea {
         with Tracked(owner): Tracked<KVirtAreaOwner>,
             Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a>>
     )]
     #[allow(private_interfaces)]
     pub unsafe fn map_untracked_frames<A: InAtomicMode + 'a, 'a>(
