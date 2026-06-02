@@ -94,15 +94,16 @@ macro_rules! bitflags {
                 )*
 
                 /// The bitwise OR of every declared flag (the "all" mask).
-                pub open spec fn all_bits_spec() -> $T {
-                    ($( ($value) as $T )|*) as $T
+                pub closed spec fn all_spec() -> Self {
+                    Self { bits: ($( ($value) as $T )|*) as $T }
                 }
 
-                #[verifier::when_used_as_spec(all_bits_spec)]
-                pub const fn all_bits() -> $T
-                    returns Self::all_bits(),
+                #[verifier::when_used_as_spec(all_spec)]
+                pub const fn all() -> (r: Self)
+                    ensures Self::all_spec().bits() == ($( ($value) as $T )|*) as $T,
+                    returns Self::all_spec(),
                 {
-                    $( ($value) as $T )|*
+                    Self { bits: ($( ($value) as $T )|*) as $T }
                 }
 
                 /// The raw bits stored inside this flags value.
@@ -127,17 +128,6 @@ macro_rules! bitflags {
                     Self { bits: 0 }
                 }
 
-                pub closed spec fn all_spec() -> Self {
-                    Self { bits: Self::all_bits_spec() }
-                }
-
-                #[verifier::when_used_as_spec(all_spec)]
-                pub const fn all() -> (r: Self)
-                    ensures r == Self::all_spec(),
-                {
-                    Self { bits: Self::all_bits() }
-                }
-
                 pub open spec fn contains_spec(&self, other: Self) -> bool {
                     (self.bits() & other.bits()) == other.bits()
                 }
@@ -160,87 +150,92 @@ macro_rules! bitflags {
                     (self.bits & other.bits) != 0
                 }
 
-                pub closed spec fn from_bits_truncate_spec(bits: $T) -> Self {
-                    Self { bits: bits & Self::all_bits() }
+                pub closed spec fn from_bits_retain_spec(bits: $T) -> Self {
+                    Self { bits: bits }
                 }
 
-                #[verifier::when_used_as_spec(from_bits_truncate_spec)]
+                #[verifier::when_used_as_spec(from_bits_retain_spec)]
+                pub const fn from_bits_retain(bits: $T) -> (r: Self)
+                    ensures r.bits() == bits,
+                    returns Self::from_bits_retain_spec(bits),
+                {
+                    Self { bits }
+                }
+
+                #[vstd::contrib::auto_spec]
                 pub const fn from_bits_truncate(bits: $T) -> Self
                     returns Self::from_bits_truncate(bits),
                 {
-                    Self { bits: bits & Self::all_bits() }
+                    Self::from_bits_retain(bits & Self::all().bits())
                 }
 
-                pub closed spec fn from_bits_spec(bits: $T) -> Option<Self> {
-                    if (bits & Self::all_bits()) == bits {
-                        Some(Self { bits })
-                    } else {
-                        None
-                    }
-                }
-
-                #[verifier::when_used_as_spec(from_bits_spec)]
+                #[vstd::contrib::auto_spec]
                 pub const fn from_bits(bits: $T) -> (r: Option<Self>)
                     ensures
-                        r is Some == ((bits & Self::all_bits()) == bits),
-                        r is Some ==> r->0.bits() == bits,
-                    returns
-                        Self::from_bits(bits),
+                        r is Some == (Self::from_bits_truncate(bits).bits() == bits),
+                    returns Self::from_bits(bits),
                 {
-                    if (bits & Self::all_bits()) == bits {
-                        Some(Self { bits })
+                    let truncated = Self::from_bits_truncate(bits);
+                    if truncated.bits() == bits {
+                        Some(truncated)
                     } else {
                         None
                     }
                 }
 
                 pub fn insert(&mut self, other: Self)
-                    ensures final(self).bits() == (old(self).bits() | other.bits()),
+                    ensures  *final(self) == Self::from_bits_retain(old(self).bits()).union(other),
                 {
-                    self.bits = self.bits | other.bits;
+                    *self = Self::from_bits_retain(self.bits()).union(other);
                 }
 
+                /// The bitwise exclusive-or (`^`) of the bits in `self` and `other`.
                 pub fn toggle(&mut self, other: Self)
-                    ensures final(self).bits() == (old(self).bits() ^ other.bits()),
+                    ensures *final(self) == Self::from_bits_retain(old(self).bits()).symmetric_difference(other),
                 {
-                    self.bits = self.bits ^ other.bits;
+                    *self = Self::from_bits_retain(self.bits()).symmetric_difference(other);
                 }
 
-
-                pub closed spec fn union_spec(self, other: Self) -> Self {
-                    Self { bits: self.bits() | other.bits() }
-                }
-
-                #[verifier::when_used_as_spec(union_spec)]
+                /// The bitwise or (`|`) of the bits in `self` and `other`.
+                #[vstd::contrib::auto_spec]
                 pub const fn union(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() | other.bits()),
                     returns self.union(other),
                 {
-                    Self { bits: self.bits | other.bits }
+                    Self::from_bits_truncate(self.bits() | other.bits())
                 }
 
-                pub closed spec fn intersection_spec(self, other: Self) -> Self {
-                    Self { bits: self.bits() & other.bits() }
-                }
-
-                #[verifier::when_used_as_spec(intersection_spec)]
+                /// The bitwise and (`&`) of the bits in `self` and `other`.
+                #[vstd::contrib::auto_spec]
                 pub const fn intersection(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() & other.bits()),
                     returns self.intersection(other),
                 {
-                    Self { bits: self.bits & other.bits }
+                    Self::from_bits_truncate(self.bits() & other.bits())
                 }
 
-                pub closed spec fn symmetric_difference_spec(self, other: Self) -> Self {
-                    Self { bits: self.bits() ^ other.bits() }
-                }
-
-                #[verifier::when_used_as_spec(symmetric_difference_spec)]
+                #[vstd::contrib::auto_spec]
                 pub const fn symmetric_difference(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() ^ other.bits()),
                     returns self.symmetric_difference(other),
                 {
-                    Self { bits: self.bits ^ other.bits }
+                    Self::from_bits_truncate(self.bits() ^ other.bits())
+                }
+
+                /// The intersection of `self` with the complement of `other` (`&!`).
+                ///
+                /// This method is not equivalent to `self & !other` when `other` has unknown bits set.
+                /// `difference` won't truncate `other`, but the `!` operator will.
+                #[vstd::contrib::auto_spec]
+                pub const fn difference(self, other: Self) -> (r: Self)
+                    returns self.difference(other),
+                {
+                    Self::from_bits_truncate(self.bits() & !other.bits())
+                }
+
+                /// The bitwise negation (`!`) of the bits in `self`, truncating the result.
+                #[vstd::contrib::auto_spec]
+                pub const fn complement(self) -> (r: Self)
+                    returns self.complement(),
+                {
+                    Self::from_bits_truncate(!self.bits())
                 }
             }
 
@@ -256,11 +251,9 @@ macro_rules! bitflags {
 
             impl core::ops::BitOr for $name {
                 type Output = Self;
-                #[verifier::external_body]
                 fn bitor(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() | other.bits()),
                 {
-                    Self { bits: self.bits | other.bits }
+                    self.union(other)
                 }
             }
 
@@ -276,11 +269,9 @@ macro_rules! bitflags {
 
             impl core::ops::BitAnd for $name {
                 type Output = Self;
-                #[verifier::external_body]
                 fn bitand(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() & other.bits()),
                 {
-                    Self { bits: self.bits & other.bits }
+                    self.intersection(other)
                 }
             }
 
@@ -296,11 +287,27 @@ macro_rules! bitflags {
 
             impl core::ops::BitXor for $name {
                 type Output = Self;
-                #[verifier::external_body]
                 fn bitxor(self, other: Self) -> (r: Self)
-                    ensures r.bits() == (self.bits() ^ other.bits()),
                 {
-                    Self { bits: self.bits ^ other.bits }
+                    self.symmetric_difference(other)
+                }
+            }
+
+            impl vstd::std_specs::ops::SubSpecImpl for $name {
+                open spec fn obeys_sub_spec() -> bool { true }
+
+                open spec fn sub_req(self, rhs: Self) -> bool { true }
+
+                open spec fn sub_spec(self, rhs: Self) -> Self::Output {
+                    self.difference(rhs)
+                }
+            }
+
+            impl core::ops::Sub for $name {
+                type Output = Self;
+                fn sub(self, other: Self) -> (r: Self)
+                {
+                    self.difference(other)
                 }
             }
 
@@ -309,8 +316,8 @@ macro_rules! bitflags {
 
                 open spec fn not_req(self) -> bool { true }
 
-                closed spec fn not_spec(self) -> Self::Output {
-                    Self { bits: !self.bits() & Self::all_bits() }
+                open spec fn not_spec(self) -> Self::Output {
+                    self.complement()
                 }
             }
 
@@ -318,13 +325,13 @@ macro_rules! bitflags {
                 type Output = Self;
 
                 fn not(self) -> (r: Self)
-                    ensures r.bits() == (!self.bits() & $name::all_bits()),
                 {
-                    Self { bits: !self.bits & $name::all_bits() }
+                    self.complement()
                 }
             }
 
-        } } // verus! paste!
+        }
+} // verus! paste!
     };
 }
 

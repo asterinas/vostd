@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! Definitions of page mapping properties.
-
 use vstd::prelude::*;
 
 use core::fmt::Debug;
@@ -30,16 +28,14 @@ impl PageProperty {
     /// Creates a new `PageProperty` with the given flags and cache policy for the user.
     #[verus_verify(dual_spec)]
     #[verus_spec(returns Self::new_user(flags, cache))]
-    pub fn new_user(flags: PageFlags, cache: CachePolicy) -> Self
-    {
+    pub fn new_user(flags: PageFlags, cache: CachePolicy) -> Self {
         Self { flags, cache, priv_flags: PrivilegedPageFlags::USER() }
     }
 
     /// Creates a page property that implies an invalid page without mappings.
     #[verus_verify(dual_spec)]
     #[verus_spec(returns Self::new_absent())]
-    pub fn new_absent() -> Self
-    {
+    pub fn new_absent() -> Self {
         Self {
             flags: PageFlags::empty(),
             cache: CachePolicy::Writeback,
@@ -107,8 +103,8 @@ pub enum CachePolicy {
     /// and is useful for most software and data stored in system memory (DRAM).
     Writeback,
 }
-}
 
+} // verus!
 bitflags! {
     /// Page protection permissions and access status.
     pub struct PageFlags: u8 {
