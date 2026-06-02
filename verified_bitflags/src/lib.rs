@@ -86,11 +86,9 @@ macro_rules! bitflags {
 
             $(#[$outer])*
             #[repr(transparent)]
-            #[allow(repr_transparent_non_zst_fields)]
             $vis struct $name {
                 /// The raw bits backing this flags value.
                 bits: $T,
-                flags: ::vstd::prelude::Ghost<::vstd::set::Set<[< __ghost $name >]>>,
             }
 
             impl ::core::clone::Clone for $name {
@@ -99,13 +97,8 @@ macro_rules! bitflags {
                     ensures
                         r.bits() == self.bits(),
                 {
-                    proof {
-                        use ::vstd::prelude::use_type_invariant;
-                        use_type_invariant(self);
-                    }
                     Self {
                         bits: self.bits,
-                        flags: self.flags,
                     }
                 }
             }
@@ -116,7 +109,7 @@ macro_rules! bitflags {
                 type V = ::vstd::set::Set<[< __ghost $name >]>;
 
                 open spec fn view(&self) -> Self::V {
-                    self.flags_spec()
+                    Self::flags_from_bits(self.bits())
                 }
             }
 
@@ -148,19 +141,8 @@ macro_rules! bitflags {
             }
 
             impl $name {
-                $vis closed spec fn flags_spec(&self) -> ::vstd::set::Set<[< __ghost $name >]> {
-                    self.flags@
-                }
-
-                #[verifier::type_invariant]
-                $vis closed spec fn type_inv(&self) -> bool {
-                    &&& forall|flag: [< __ghost $name >]| #[trigger]
-                        self@.contains(flag) <==> flag.enabled() && (self.bits() & flag.bit()) == flag.bit()
-                    &&& self@ =~= Self::flags_from_bits(self.bits())
-                }
-
-                $vis open spec fn inv(&self) -> bool {
-                    self.type_inv()
+                $vis open spec fn flags_spec(&self) -> ::vstd::set::Set<[< __ghost $name >]> {
+                    Self::flags_from_bits(self.bits())
                 }
 
                 $vis open spec fn flags_from_bits(bits: $T) -> ::vstd::set::Set<[< __ghost $name >]> {
@@ -170,7 +152,7 @@ macro_rules! bitflags {
                 }
 
                 closed spec fn from_bits_unchecked_spec(bits: $T) -> Self {
-                    Self { bits, flags: ::vstd::prelude::Ghost::new(Self::flags_from_bits(bits)) }
+                    Self { bits }
                 }
 
                 #[verifier::when_used_as_spec(from_bits_unchecked_spec)]
@@ -178,12 +160,10 @@ macro_rules! bitflags {
                     ensures
                         r.bits() == bits,
                         r.flags_spec() == Self::flags_from_bits(bits),
-                        r.inv(),
                     returns
                         Self::from_bits_unchecked(bits),
                 {
-                    use ::vstd::prelude::Ghost;
-                    Self { bits, flags: Ghost(Self::flags_from_bits(bits)) }
+                    Self { bits }
                 }
 
                 $(
@@ -197,7 +177,6 @@ macro_rules! bitflags {
                         ensures
                             r.bits() == ($value),
                             r.flags_spec() == Self::flags_from_bits(($value) as $T),
-                            r.inv(),
                     {
                         Self::from_bits_unchecked(($value) as $T)
                     }
@@ -246,7 +225,6 @@ macro_rules! bitflags {
                     ensures
                         r.bits() == 0,
                         r.flags_spec() == Self::flags_from_bits(0),
-                        r.inv(),
                     returns Self::empty(),
                 {
                     Self::from_bits_unchecked(0)
@@ -260,7 +238,6 @@ macro_rules! bitflags {
                 $vis const fn all() -> (r: Self)
                     ensures
                         r == Self::all_spec(),
-                        r.inv(),
                 {
                     Self::from_bits_unchecked(Self::all_bits())
                 }
@@ -285,9 +262,6 @@ macro_rules! bitflags {
                         )
                     )&&*;
                     proof {
-                        use ::vstd::prelude::use_type_invariant;
-                        use_type_invariant(self);
-                        use_type_invariant(&other);
                         assert(self@ =~= Self::flags_from_bits(self.bits()));
                         assert(other@ =~= Self::flags_from_bits(other.bits()));
 
@@ -350,9 +324,6 @@ macro_rules! bitflags {
                         )
                     )||*;
                     proof {
-                        use ::vstd::prelude::use_type_invariant;
-                        use_type_invariant(self);
-                        use_type_invariant(&other);
 
                         if res {
                             $(
@@ -402,7 +373,6 @@ macro_rules! bitflags {
                     ensures
                         r.bits() == bits,
                         r.flags_spec() == Self::flags_from_bits(bits),
-                        r.inv(),
                     returns Self::from_bits_retain(bits),
                 {
                     Self::from_bits_unchecked(bits)
@@ -410,8 +380,6 @@ macro_rules! bitflags {
 
                 #[verifier::when_used_as_spec(from_bits_truncate_spec)]
                 $vis const fn from_bits_truncate(bits: $T) -> (r: Self)
-                    ensures
-                        r.inv(),
                     returns Self::from_bits_truncate(bits),
                 {
                     Self::from_bits_unchecked(bits & Self::all_bits())
@@ -432,7 +400,6 @@ macro_rules! bitflags {
                         r matches Some(flags_value) ==> {
                             &&& flags_value.bits() == bits
                             &&& flags_value.flags_spec() == Self::flags_from_bits(bits)
-                            &&& flags_value.inv()
                         },
                     returns
                         Self::from_bits(bits),
@@ -454,7 +421,6 @@ macro_rules! bitflags {
                         final(self).flags_spec() == Self::flags_from_bits(
                             old(self).bits() | other.bits(),
                         ),
-                        final(self).inv(),
                 {
                     let bits = self.bits | other.bits;
                     *self = Self::from_bits_unchecked(bits);
@@ -467,7 +433,6 @@ macro_rules! bitflags {
                         final(self).flags_spec() == Self::flags_from_bits(
                             old(self).bits() & !other.bits(),
                         ),
-                        final(self).inv(),
                 {
                     let bits = self.bits & !other.bits;
                     *self = Self::from_bits_unchecked(bits);
@@ -480,7 +445,6 @@ macro_rules! bitflags {
                         final(self).flags_spec() == Self::flags_from_bits(
                             old(self).bits() ^ other.bits(),
                         ),
-                        final(self).inv(),
                 {
                     let bits = self.bits ^ other.bits;
                     *self = Self::from_bits_unchecked(bits);
@@ -495,7 +459,6 @@ macro_rules! bitflags {
                 $vis const fn union(self, other: Self) -> (r: Self)
                     ensures
                         r.bits() == (self.bits() | other.bits()),
-                        r.inv(),
                     returns self.union(other),
                 {
                     Self::from_bits_unchecked(self.bits | other.bits)
@@ -509,7 +472,6 @@ macro_rules! bitflags {
                 $vis const fn intersection(self, other: Self) -> (r: Self)
                     ensures
                         r.bits() == (self.bits() & other.bits()),
-                        r.inv(),
                     returns self.intersection(other),
                 {
                     Self::from_bits_unchecked(self.bits & other.bits)
@@ -523,7 +485,6 @@ macro_rules! bitflags {
                 $vis const fn difference(self, other: Self) -> (r: Self)
                     ensures
                         r.bits() == (self.bits() & !other.bits()),
-                        r.inv(),
                     returns self.difference(other),
                 {
                     Self::from_bits_unchecked(self.bits & !other.bits)
@@ -537,7 +498,6 @@ macro_rules! bitflags {
                 $vis const fn symmetric_difference(self, other: Self) -> (r: Self)
                     ensures
                         r.bits() == (self.bits() ^ other.bits()),
-                        r.inv(),
                     returns self.symmetric_difference(other),
                 {
                     Self::from_bits_unchecked(self.bits ^ other.bits)
@@ -749,10 +709,6 @@ fn _bitflags_smoke_test() {
     assert(b.bits() == 0b010u32);
     assert(c.bits() == 0b100u32);
     assert(abc.bits() == 0b111u32);
-    assert(a.inv());
-    assert(b.inv());
-    assert(c.inv());
-    assert(abc.inv());
     assert(a@ =~= Flags::flags_from_bits(a.bits()));
     assert(abc@ =~= Flags::flags_from_bits(abc.bits()));
 
@@ -841,7 +797,6 @@ fn _bitflags_smoke_test() {
             removed_b == (abc_b & !a_b),
             abc_b == 0b111u32 && a_b == 0b001u32,
     ;
-    assert(removed.inv());
     assert(removed@ =~= Flags::flags_from_bits(removed.bits()));
 
     assert(abc.intersects(a)) by {

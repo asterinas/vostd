@@ -800,7 +800,7 @@ impl MetaSlot {
             final(vtable_perm).is_init(),
             Metadata::<M>::metadata_from_inner_perms(*final(meta_perm)) == metadata,
     )]
-    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         &self,
         metadata: M,
     ) {
@@ -905,7 +905,7 @@ impl MetaSlot {
             final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
     )]
     #[verifier::external_body]
-    pub(super) fn drop_meta_in_place(&self) {
+    pub(super) unsafe fn drop_meta_in_place(&self) {
         // Smoke test for the dyn-dispatch shape — body kept `external_body`
         // because (a) the args bundle isn't threaded through the call chain
         // yet (Tracked::assume_new forges it here), (b) `VmReader`,
