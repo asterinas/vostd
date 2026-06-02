@@ -11,11 +11,11 @@ use vstd_extra::ownership::*;
 use core::marker::PhantomData;
 
 use super::*;
-use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::mm::Paddr;
+use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
-use crate::specs::mm::frame::mapping::{frame_to_index_spec, meta_to_frame_spec, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_index_spec, meta_to_frame_spec};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;

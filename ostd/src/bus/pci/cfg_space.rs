@@ -9,13 +9,13 @@ use bitflags::bitflags;
 
 use super::PciDeviceLocation;
 use crate::{
+    Error, Result,
     arch::device::io_port::{PortRead, PortWrite},
     io::IoMem,
     mm::{
-        page_prop::{CachePolicy, PageFlags},
         PodOnce, VmIoOnce,
+        page_prop::{CachePolicy, PageFlags},
     },
-    Error, Result,
 };
 
 /// Offset in PCI device's common configuration space(Not the PCI bridge).

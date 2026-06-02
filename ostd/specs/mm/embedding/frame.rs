@@ -29,9 +29,9 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::{has_safe_slot, MetaSlot};
-use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
+use crate::mm::frame::{MetaSlot, has_safe_slot};
+use crate::mm::vm_space::UserPtConfig;
 use crate::specs::mm::frame::mapping::frame_to_index_spec;
 use crate::specs::mm::frame::meta_owners::{
     PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
@@ -39,7 +39,7 @@ use crate::specs::mm::frame::meta_owners::{
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
-use super::{axiom_frame_entry_new, FrameEntry};
+use super::{FrameEntry, axiom_frame_entry_new};
 
 verus! {
 

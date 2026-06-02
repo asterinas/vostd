@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! Handles trap.
-
 mod trap;
 
 use core::arch::asm;
@@ -69,7 +67,9 @@ extern "C" fn trap_handler(f: &mut TrapFrame) {
                 {
                     return;
                 }
-                panic!("User page fault handler failed: addr: {page_fault_addr:#x}, err: {exception:?}");
+                panic!(
+                    "User page fault handler failed: addr: {page_fault_addr:#x}, err: {exception:?}"
+                );
             }
             Exception::PageModifyFault => {
                 unimplemented!()

@@ -24,7 +24,7 @@ pub(crate) fn init() {
 
 #[cfg(target_arch = "x86_64")]
 fn x86_probe() {
-    use common_device::{mmio_check_magic, mmio_read_device_id, MmioCommonDevice};
+    use common_device::{MmioCommonDevice, mmio_check_magic, mmio_read_device_id};
     use log::debug;
 
     use crate::{io::IoMem, trap::IrqLine};

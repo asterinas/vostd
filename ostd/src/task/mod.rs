@@ -23,7 +23,7 @@ use processor::current_task;*/
 use spin::Once;
 // use utils::ForceSync;
 pub use self::{
-    preempt::{disable_preempt, DisabledPreemptGuard},
+    preempt::{DisabledPreemptGuard, disable_preempt},
     /* scheduler::info::{AtomicCpuId, TaskScheduleInfo}, */
 };
 /*

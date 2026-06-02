@@ -7,7 +7,7 @@ use core::intrinsics::atomic_cxchg;
 use core::sync::atomic::{/*AtomicBool,*/ Ordering};
 
 use super::{LocalIrqDisabled, SpinLock};
-use crate::task::{scheduler, Task};
+use crate::task::{Task, scheduler};
 
 // # Explanation on the memory orders
 //

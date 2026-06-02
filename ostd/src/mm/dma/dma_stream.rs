@@ -10,19 +10,20 @@ use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::{
     error::Error,
     mm::{
-        dma::{dma_type, Daddr, DmaType},
-        frame::{untyped::AnyUFrameMeta, AnyFrameMeta, Segment},
+        Paddr,
+        dma::{Daddr, DmaType, dma_type},
+        frame::{AnyFrameMeta, Segment, untyped::AnyUFrameMeta},
         io::{
-            axiom_kernel_mem_view, FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader,
-            VmWriter,
+            FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmReader, VmWriter,
+            axiom_kernel_mem_view,
         },
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
-        paddr_to_vaddr, Paddr,
+        paddr_to_vaddr,
     },
     specs::{
         arch::{
-            kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
             PAGE_SIZE,
+            kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
         },
         mm::frame::segment::SegmentOwner,
         mm::io::{VmIoMemView, VmIoOwner},
@@ -31,7 +32,7 @@ use crate::{
     sync::{AtomicDataWithOwner, PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
 };
 
-use super::{check_and_insert_dma_mapping, is_valid_daddr, DmaError, HasDaddr};
+use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
 
 verus! {
 

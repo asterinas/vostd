@@ -23,10 +23,10 @@ use crate::specs::arch::mm::PAGE_SIZE;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
-use crate::specs::mm::page_table::owners::{vaddr_of, OwnerSubtree, PageTableOwner};
-use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::page_table::owners::{OwnerSubtree, PageTableOwner, vaddr_of};
 
 verus! {
 

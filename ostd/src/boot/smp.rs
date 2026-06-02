@@ -7,8 +7,9 @@ use spin::Once;
 use crate::{
     arch::{boot::smp::bringup_all_aps, irq::HwCpuId},
     mm::{
-        frame::{meta::KernelMeta, Segment},
-        paddr_to_vaddr, FrameAllocOptions, PAGE_SIZE,
+        FrameAllocOptions, PAGE_SIZE,
+        frame::{Segment, meta::KernelMeta},
+        paddr_to_vaddr,
     },
     sync::SpinLock,
     task::Task,

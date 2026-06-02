@@ -2,8 +2,8 @@
 use vstd::prelude::*;
 
 use crate::{
-    task::{/* atomic_mode::AsAtomicModeGuard, */ disable_preempt, DisabledPreemptGuard},
-    trap::irq::{disable_local, DisabledLocalIrqGuard},
+    task::{DisabledPreemptGuard, /* atomic_mode::AsAtomicModeGuard, */ disable_preempt},
+    trap::irq::{DisabledLocalIrqGuard, disable_local},
 };
 
 /// A guardian that denotes the guard behavior for holding a spin-based lock.

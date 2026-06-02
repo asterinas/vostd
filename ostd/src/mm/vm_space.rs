@@ -16,8 +16,8 @@ use vstd::vpanic;
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 use crate::arch::mm::PageTableEntry;
 use crate::error::Error;
-use crate::mm::frame::untyped::UFrame;
 use crate::mm::frame::MetaSlot;
+use crate::mm::frame::untyped::UFrame;
 use crate::mm::kspace::KernelPtConfig;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
@@ -43,9 +43,9 @@ use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
 use crate::specs::mm::io::VmIoOwner;
 use crate::{
     mm::{
+        MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
         io::{Fallible, VmReader, VmWriter},
         page_prop::PageProperty,
-        Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
     },
     prelude::*,
 };

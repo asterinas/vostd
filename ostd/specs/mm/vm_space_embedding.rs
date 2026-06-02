@@ -30,12 +30,12 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
+use crate::mm::Vaddr;
 use crate::mm::frame::UFrame;
 use crate::mm::io::VmIoOwner;
 use crate::mm::page_prop::PageProperty;
-use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::vm_space::UserPtConfig;
-use crate::mm::Vaddr;
+use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 

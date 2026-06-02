@@ -1,9 +1,9 @@
 //！ Exclusive ghost resource.
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
+use vstd::resource::Loc;
 use vstd::resource::algebra::{Resource, ResourceAlgebra};
 use vstd::resource::exclusive::ExclusiveRA;
-use vstd::resource::Loc;
 
 verus! {
 

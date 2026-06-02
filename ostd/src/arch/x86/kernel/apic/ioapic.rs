@@ -9,17 +9,17 @@ use cfg_if::cfg_if;
 use log::info;
 use spin::Once;
 use volatile::{
-    access::{ReadWrite, WriteOnly},
     VolatileRef,
+    access::{ReadWrite, WriteOnly},
 };
 
 use crate::{
+    Error, Result,
     arch::{if_tdx_enabled, kernel::acpi::get_platform_info},
     io::IoMemAllocatorBuilder,
     mm::paddr_to_vaddr,
     sync::SpinLock,
     trap::IrqLine,
-    Error, Result,
 };
 
 cfg_if! {

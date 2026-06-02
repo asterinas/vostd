@@ -44,13 +44,13 @@ pub mod kvirt_area;
 mod test;
 
 use super::{
+    Paddr, PagingConstsTrait, Vaddr,
     frame::{
-        meta::{mapping, AnyFrameMeta, MetaPageMeta, MetaSlot},
         Frame, Segment,
+        meta::{AnyFrameMeta, MetaPageMeta, MetaSlot, mapping},
     },
     page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     page_table::{PageTable, PageTableConfig},
-    Paddr, PagingConstsTrait, Vaddr,
 };
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;

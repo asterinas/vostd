@@ -8,7 +8,7 @@ use spin::Once;
 
 use super::boot::DEVICE_TREE;
 use crate::{
-    bus::pci::PciDeviceLocation, io::IoMem, mm::VmIoOnce, prelude::*, sync::SpinLock, Error,
+    Error, bus::pci::PciDeviceLocation, io::IoMem, mm::VmIoOnce, prelude::*, sync::SpinLock,
 };
 
 static PCI_IO_MEM: Once<IoMem> = Once::new();

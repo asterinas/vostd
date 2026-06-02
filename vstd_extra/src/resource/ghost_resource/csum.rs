@@ -1,7 +1,7 @@
 use vstd::modes::tracked_swap;
 //！ Sum types for ghost resources.
 use vstd::prelude::*;
-use vstd::resource::{storage_protocol::*, Loc};
+use vstd::resource::{Loc, storage_protocol::*};
 
 use crate::resource::storage_protocol::csum::*;
 use crate::sum::*;

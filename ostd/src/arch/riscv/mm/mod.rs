@@ -3,12 +3,12 @@ use alloc::fmt;
 use core::ops::Range;
 
 use crate::{
+    Pod,
     mm::{
+        PAGE_SIZE, Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},
         page_table::PageTableEntryTrait,
-        Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr, PAGE_SIZE,
     },
-    Pod,
 };
 
 pub(crate) const NR_ENTRIES_PER_PAGE: usize = 512;
