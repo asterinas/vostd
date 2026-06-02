@@ -33,7 +33,9 @@ use crate::mm::frame::{has_safe_slot, MetaSlot};
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
 use crate::specs::mm::frame::mapping::frame_to_index_spec;
-use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::{
+    PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
@@ -132,6 +134,12 @@ pub axiom fn frame_from_in_use_embedded(
             &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
             &&& so.inner_perms.storage.is_init()
+            // Op::FrameFromInUse models `Frame::<dyn AnyFrameMeta>::
+            // from_in_use` for data frames; success implies the slot
+            // is Frame-usage. This matches `VmStore::structural_inv`'s
+            // FrameId⟹Frame-usage clause and lets [`from_in_use_step`]
+            // discharge `insert_frame`'s usage precondition.
+            &&& so.usage == PageUsage::Frame
         },
         // `from_in_use` only `inc_ref_count`s — it never touches the
         // slot-perm map, so the `slots` domain is preserved on *both*
@@ -227,6 +235,14 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
             regions,
         ).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list,
         old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() == 1
+            ==> final(regions).slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty(),
+        // `drop` never touches the free-list `in_list` field (the
+        // decrement branch leaves it; `drop_last_in_place` preserves
+        // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
+        final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list == old(
+            regions,
+        ).slot_owners[frame_to_index_spec(paddr)].inner_perms.in_list,
+        old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() == 1
             ==> final(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED,
         old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() > 1
@@ -309,6 +325,7 @@ pub(super) proof fn from_in_use_step(
             &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
             &&& so.inner_perms.storage.is_init()
+            &&& so.usage == PageUsage::Frame
         },
         final(regions).slots =~= old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>|

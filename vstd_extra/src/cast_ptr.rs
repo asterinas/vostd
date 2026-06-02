@@ -152,6 +152,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             final(perm).pptr() == old(perm).pptr(),
             final(perm).mem_contents() == MemContents::Uninit::<T>,
             v == old(perm).value(),
+            final(perm).inner_perms == old(perm).inner_perms,
     {
         proof {
             T::from_to_repr(perm.value(), perm.inner_perms);
@@ -167,6 +168,9 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             final(perm).pptr() == old(perm).pptr(),
             final(perm).mem_contents() == MemContents::Init(v),
             final(perm).wf(&final(perm).inner_perms),
+            final(perm).inner_perms == v.to_repr_spec(old(perm).inner_perms).1,
+            final(perm).points_to.value() == v.to_repr_spec(old(perm).inner_perms).0,
+            final(perm).points_to.is_init(),
     {
         proof {
             v.from_to_repr(perm.inner_perms);
@@ -228,7 +232,10 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
     pub proof fn new(
         tracked points_to: simple_pptr::PointsTo<R>,
         tracked inner_perms: T::Perm,
-    ) -> tracked Self {
+    ) -> (tracked res: Self)
+        ensures
+            res == Self::new_spec(points_to, inner_perms),
+    {
         Self { points_to: points_to, inner_perms, _T: PhantomData }
     }
 

@@ -20,7 +20,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.ptr.addr() == owner.node.unwrap().meta_perm.addr()
+                &&& node.ptr.addr() == owner.node.unwrap().meta_addr_self()
                 &&& node.index() == frame_to_index(meta_to_frame(node.ptr.addr()))
             },
             Self::Frame(paddr, level, prop) => {
@@ -41,7 +41,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.inner.0.ptr.addr() == owner.node.unwrap().meta_perm.addr()
+                &&& node.inner.0.ptr.addr() == owner.node.unwrap().meta_addr_self()
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
@@ -124,10 +124,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let index = frame_to_index(self.meta_slot_paddr().unwrap());
             let old_slot = regions.slot_owners[index];
             let new_slot = MetaSlotOwner { raw_count: 0usize, ..old_slot };
-            MetaRegionOwners {
-                slots: regions.slots.insert(index, self.node.unwrap().meta_perm.points_to),
-                slot_owners: regions.slot_owners.insert(index, new_slot),
-            }
+            MetaRegionOwners { slot_owners: regions.slot_owners.insert(index, new_slot), ..regions }
         } else {
             regions
         }
