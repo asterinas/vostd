@@ -11,7 +11,7 @@ use crate::mm::{
     page_table::*,
     Paddr, PagingLevel,
 };
-use crate::arch::mm::PageTableFlags;
+use crate::arch::mm::{PageTableFlags, PageTableEntry};
 
 decl_bms_const!(
     PAGE_FLAG_MAPPING,
@@ -53,10 +53,6 @@ decl_bms_const!(
 
 verus! {
 
-#[repr(transparent)]
-#[derive(Copy, Debug, PartialEq)]
-pub struct PageTableEntry(pub usize);
-
 global layout PageTableEntry is size == 8, align == 8;
 
 impl crate::specs::mm::pod::Pod for PageTableEntry {}
@@ -65,12 +61,6 @@ impl crate::specs::mm::pod::PodOnce for PageTableEntry {}
 
 /// Masks of the physical address.
 pub const PHYS_ADDR_MASK: usize = 0xffff_ffff_ffff_f000;
-
-impl Clone for PageTableEntry {
-    fn clone(&self) -> Self {
-        Self { 0: self.0 }
-    }
-}
 
 #[allow(non_snake_case)]
 impl PageTableEntry {

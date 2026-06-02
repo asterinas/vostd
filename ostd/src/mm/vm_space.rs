@@ -14,7 +14,7 @@ use vstd::simple_pptr::PointsTo;
 use vstd::vpanic;
 
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
-
+use crate::arch::mm::PageTableEntry;
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::frame::MetaSlot;

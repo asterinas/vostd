@@ -102,11 +102,13 @@ pub(crate) fn tlb_flush_all_including_global() {
         });
     }
 }
-
-#[derive(Clone, Copy, Pod, Default)]
+*/
+#[verus_verify]
+#[derive(Clone, Copy/*, Pod*/, Default)]
+#[derive(Debug)]
 #[repr(C)]
 pub struct PageTableEntry(usize);
-
+/*
 /// Activates the given level 4 page table.
 /// The cache policy of the root page table node is controlled by `root_pt_cache`.
 ///
@@ -133,17 +135,20 @@ pub fn current_page_table_paddr() -> Paddr {
         .start_address()
         .as_u64() as Paddr
 }
+*/
 
+verus!{
 impl PageTableEntry {
-    cfg_if! {
-        if #[cfg(feature = "cvm_guest")] {
-            const PHYS_ADDR_MASK: usize = 0x7_FFFF_FFFF_F000;
-        } else {
+    //cfg_if! {
+        //if #[cfg(feature = "cvm_guest")] {
+        //    const PHYS_ADDR_MASK: usize = 0x7_FFFF_FFFF_F000;
+        //} else {
             const PHYS_ADDR_MASK: usize = 0xF_FFFF_FFFF_F000;
-        }
-    }
+        //}
+    //}
     const PROP_MASK: usize = !Self::PHYS_ADDR_MASK & !PageTableFlags::HUGE.bits();
 }
+
 
 /// Parse a bit-flag bits `val` in the representation of `from` to `to` in bits.
 macro_rules! parse_flags {
@@ -151,7 +156,9 @@ macro_rules! parse_flags {
         ($val as usize & $from.bits() as usize) >> $from.bits().ilog2() << $to.bits().ilog2()
     };
 }
+}
 
+/*
 impl PodOnce for PageTableEntry {}
 
 impl PageTableEntryTrait for PageTableEntry {

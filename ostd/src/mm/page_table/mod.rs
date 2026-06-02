@@ -30,7 +30,7 @@ use crate::specs::task::InAtomicMode;
 
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::kspace::kvirt_area::disable_preempt;
-use crate::specs::arch::PageTableEntry;
+use crate::arch::mm::PageTableEntry;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use vstd_extra::ownership::Inv;

@@ -1066,7 +1066,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(entry.node_matching(new_owner_child.value, new_owner_node, *entry.node)) by {
                     let pte = new_owner_node.children_perm.value()[i as int];
                     assert(pte == C::E::new_absent_spec());
-                    crate::specs::arch::PageTableEntry::absent_pte_paddr_ok();
+                    crate::arch::mm::PageTableEntry::absent_pte_paddr_ok();
                     EntryOwner::absent_match_pte(
                         new_owner_child.value,
                         pte,
