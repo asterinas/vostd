@@ -181,7 +181,17 @@ impl PageTableEntryTrait for PageTableEntry {
         pte
     }
 
-    fn new_pt(paddr: Paddr) -> Self {
+    closed spec fn new_pt_spec(paddr: Paddr) -> Self {
+        let flags = PageTableFlags::PRESENT().bits()
+            | PageTableFlags::WRITABLE().bits()
+            | PageTableFlags::USER().bits();
+        Self(paddr & Self::PHYS_ADDR_MASK | flags)
+    }
+
+    fn new_pt(paddr: Paddr) -> (res: Self) 
+        ensures
+            res.as_usize() == paddr & Self::PHYS_ADDR_MASK | (PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits()),
+    {
         // In x86 if it's an intermediate PTE, it's better to have the same permissions
         // as the most permissive child (to reduce hardware page walk accesses). But we
         // don't have a mechanism to keep it generic across architectures, thus just
