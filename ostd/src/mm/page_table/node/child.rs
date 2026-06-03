@@ -66,6 +66,14 @@ impl<C: PageTableConfig> Child<C> {
         requires
             self.invariants(*old(owner), *old(regions)),
             old(owner).in_scope,
+            // Canonical model: forgetting a live PT-node CONSUMES its
+            // pending-Drop obligation, so the slot must carry one. Established
+            // by the node's producer — `from_pte` (`from_pte_regions_spec`
+            // inserts) or `PageTableNode::alloc` (mints). Vacuous for the
+            // `Frame`/`None` arms.
+            self matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
+                frame_to_index(meta_to_frame(node.ptr.addr())),
+            ) > 0,
         ensures
             final(owner).pte_invariants(res, *final(regions)),
             *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
@@ -88,20 +96,17 @@ impl<C: PageTableConfig> Child<C> {
                 let paddr = node.start_paddr();
 
                 let ghost fo0 = regions.frame_obligations;
-                proof {
-                    // The PT-node ownership model tracks `raw_count`, not the
-                    // per-frame `frame_obligations` ledger. Mint the entry
-                    // that `MD::new` will consume — net-zero on the ledger,
-                    // mirroring `Frame::into_raw`.
-                    let tracked _ = regions.tracked_mint_frame_obligation(node.key());
-                }
+                // Canonical: pure `MD::new` consume. The caller-supplied
+                // `count(node_index) > 0` precondition discharges `MD::new`'s
+                // `consume_requires`; the live node's pending-Drop obligation
+                // is redeemed (one entry removed) and the node leaks into the
+                // PTE — `Drop` will never run.
                 let _ = ManuallyDrop::new(node, Tracked(regions));
 
                 proof {
-                    // `insert(node_index)` (mint) then `remove(node_index)`
-                    // (MD::new consume) is identity on the multiset, so the
-                    // ledger is unchanged — matching `into_pte_regions_spec`.
-                    assert(regions.frame_obligations =~= fo0);
+                    // `MD::new` removed one entry at `node_index`, matching
+                    // `into_pte_regions_spec`'s `.remove(index)`.
+                    assert(regions.frame_obligations =~= fo0.remove(node_index));
                     let spec_regions = owner.into_pte_regions_spec(*old(regions));
                     assert(regions.slot_owners =~= spec_regions.slot_owners);
                     owner.in_scope = false;

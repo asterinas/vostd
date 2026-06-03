@@ -79,9 +79,12 @@ pub trait RCClone: Sized {
             final(perm).slots =~= old(perm).slots,
             final(perm).slot_owners.dom() =~= old(perm).slot_owners.dom(),
             // Linear-drop pilot: `RCClone::clone` doesn't mint/redeem
-            // segment or frame obligations.
+            // segment obligations. The per-frame `frame_obligations` effect
+            // is left to each impl's `clone_ensures` — canonically a clone
+            // creates a fresh live value, so `Frame::clone` MINTS one entry
+            // (`.insert(idx)`); ref-count-only clones (`Segment`) stay
+            // net-zero. Hardcoding `=~= old` here would forbid the mint.
             final(perm).obligations =~= old(perm).obligations,
-            final(perm).frame_obligations =~= old(perm).frame_obligations,
     ;
 }
 
@@ -354,6 +357,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             },
             !Self::tracked(item) ==> new_regions.slot_owners[frame_to_index(pa)]
                 == old_regions.slot_owners[frame_to_index(pa)],
+            // Canonical model: a tracked clone MINTS one per-frame obligation
+            // at the slot (`Frame::clone`); an untracked clone is net-zero.
+            Self::tracked(item) ==> new_regions.frame_obligations
+                =~= old_regions.frame_obligations.insert(frame_to_index(pa)),
+            !Self::tracked(item) ==> new_regions.frame_obligations
+                =~= old_regions.frame_obligations,
     ;
 
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)

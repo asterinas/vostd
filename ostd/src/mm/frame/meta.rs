@@ -502,6 +502,12 @@ impl MetaSlot {
             res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *final(regions)),
             res matches Ok(ptr) ==> ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
             res is Err ==> *final(regions) == *old(regions),
+            // Acquiring an extra reference is net-zero on both obligation
+            // ledgers (the refcount bump is an Arc-style operation). Exposed
+            // so `Frame::from_in_use` can mint the new live handle's
+            // pending-Drop obligation on top of a clean ledger.
+            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            final(regions).obligations =~= old(regions).obligations,
     )]
     #[verifier::exec_allows_no_decreases_clause]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {

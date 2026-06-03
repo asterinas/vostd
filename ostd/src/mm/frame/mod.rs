@@ -445,10 +445,15 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             r matches Ok(res) ==> res.ptr.addr() == frame_to_meta(paddr),
             r is Ok ==> MetaSlot::get_from_unused_reparked_spec(paddr, false, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> r is Err,
-            // Linear-drop pilot: minting a Frame from an unused slot doesn't
-            // mint or redeem segment or frame obligations on any path.
+            // Linear-drop pilot: claiming an unused slot doesn't touch the
+            // segment ledger.
             final(regions).obligations =~= old(regions).obligations,
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            // Canonical model: a successful `from_unused` produces a fresh
+            // LIVE `Frame` whose `Drop` is pending — mint one entry at the
+            // slot. The error path leaves the ledger untouched.
+            r is Ok ==> final(regions).frame_obligations
+                =~= old(regions).frame_obligations.insert(frame_to_index(paddr)),
+            r is Err ==> final(regions).frame_obligations =~= old(regions).frame_obligations,
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         let ghost pre = *regions;
@@ -465,6 +470,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
                 assert(pre.slot_owners.contains_key(idx));
                 assert(pre.slots.contains_key(idx));
                 regions.sync_slot_perm(idx, &perm);
+                // Mint the pending-Drop obligation for the new live value.
+                let tracked _ = regions.tracked_mint_frame_obligation(idx);
             }
             Ok(Self { ptr, _marker: PhantomData })
         }
@@ -549,16 +556,29 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             !has_safe_slot(paddr) ==> res is Err,
             forall|i: usize|
                 #![trigger final(regions).slot_owners[i]]
-                i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
+                i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+            final(regions).obligations =~= old(regions).obligations,
+            // Canonical model: a successful `from_in_use` produces a fresh
+            // LIVE `Frame` (an extra reference whose `Drop` is pending) —
+            // mint one entry at the slot. The error path is net-zero
+            // (`get_from_in_use` preserves both ledgers).
+            res is Ok ==> final(regions).frame_obligations
+                =~= old(regions).frame_obligations.insert(frame_to_index(paddr)),
+            res is Err ==> final(regions).frame_obligations =~= old(regions).frame_obligations,
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
-        Ok(
-            Self {
-                ptr: (#[verus_spec(with Tracked(regions))]
-                MetaSlot::get_from_in_use(paddr))?,
-                _marker: PhantomData,
+        let res = #[verus_spec(with Tracked(regions))]
+        MetaSlot::get_from_in_use(paddr);
+        match res {
+            Ok(ptr) => {
+                proof {
+                    // Mint the pending-Drop obligation for the new live value.
+                    let tracked _ = regions.tracked_mint_frame_obligation(frame_to_index(paddr));
+                }
+                Ok(Self { ptr, _marker: PhantomData })
             },
-        )
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -748,6 +768,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             old(regions).slot_owners[self.index()].usage
                 != crate::specs::mm::frame::meta_owners::PageUsage::PageTable,
+            // Canonical model: `into_raw` forgets a LIVE value (its `Drop`
+            // will never run), so it CONSUMES the pending-Drop obligation —
+            // the slot must carry one.
+            old(regions).frame_obligations.count(self.index()) > 0,
         ensures
             final(regions).inv(),
             r == self.paddr(),
@@ -755,7 +779,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
                 == old(regions).slot_owners[self.index()].usage,
             self.into_raw_post_noninterference(*old(regions), *final(regions)),
             final(regions).slots == old(regions).slots,
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            // Canonical model: forgetting the value CONSUMES its pending-Drop
+            // obligation (one entry removed at the slot) via `MD::new`.
+            final(regions).frame_obligations =~= old(regions).frame_obligations.remove(self.index()),
             final(regions).obligations =~= old(regions).obligations,
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
@@ -770,14 +796,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         #[verus_spec(with Tracked(perm))]
         let paddr = self.start_paddr();
 
-        proof {
-            // Borrow-protocol: mint the obligation that `MD::new` will
-            // consume. Net effect on the ledger: zero. The Frame value
-            // is forgotten inside the wrapper; `ref_count` (set by the
-            // producer that handed `self` to us) stays elevated to
-            // balance the eventual `from_raw + drop`.
-            let tracked _ = regions.tracked_mint_frame_obligation(self.index());
-        }
+        // Canonical: pure `MD::new` consume. The caller-supplied
+        // `frame_obligations.count(self.index()) > 0` precondition discharges
+        // `MD::new`'s `consume_requires`; the value's pending-Drop obligation
+        // is redeemed (one entry removed) and the frame leaks.
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
         paddr
@@ -861,16 +883,29 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& new_perm.slots =~= old_perm.slots
         &&& forall|i: usize|
             i != idx ==> (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
-        &&& new_perm.slot_owners.dom() =~= old_perm.slot_owners.dom()
+        &&& new_perm.slot_owners.dom()
+            =~= old_perm.slot_owners.dom()
+        // Canonical model: cloning produces a fresh LIVE `Frame` value
+        // whose `Drop` is now pending — mint one `frame_obligations` entry
+        // at the slot. (`inc_frame_ref_count` preserves the ledger; the
+        // mint is the clone's net contribution.)
+        &&& new_perm.frame_obligations =~= old_perm.frame_obligations.insert(idx)
     }
 
     fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self {
         let paddr = meta_to_frame(self.ptr.addr());
+        let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
 
         unsafe {
             #[verus_spec(with Tracked(perm))]
             inc_frame_ref_count(paddr)
         };
+
+        proof {
+            // Mint the pending-Drop obligation for the freshly cloned live
+            // value; `inc_frame_ref_count` left `frame_obligations` intact.
+            let tracked _ = perm.tracked_mint_frame_obligation(idx);
+        }
 
         Self { ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0), _marker: PhantomData }
     }

@@ -114,6 +114,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
         &&& res.range() == self.range()
         &&& res.inv()
         &&& new_perm.inv()
+        // `Segment::clone` bumps each page's refcount via
+        // `inc_frame_ref_count` (which preserves the ledger), not through
+        // `Frame::clone`, so it is net-zero on `frame_obligations`. (The
+        // trait no longer hardcodes this; each impl states its own effect.)
+        &&& new_perm.frame_obligations =~= old_perm.frame_obligations
     }
 
     fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self) {
@@ -357,10 +362,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 },
             };
 
-            proof {
-                // Mint the obligation that `MD::new` will consume.
-                let tracked _ = regions.tracked_mint_frame_obligation(frame.key());
-            }
+            // Canonical: `Frame::from_unused` already minted the live
+            // value's obligation, which this `MD::new` consumes (forget into
+            // the segment). Net-zero per page; no explicit mint needed.
             let _ = ManuallyDrop::new(frame, Tracked(regions));
             segment.range.end = paddr + PAGE_SIZE;
             proof {

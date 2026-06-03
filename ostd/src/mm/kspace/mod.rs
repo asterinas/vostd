@@ -319,10 +319,15 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 assert(pa == meta_to_frame(frame.ptr.addr()));
                 assert(frame_to_index(pa) == frame_idx);
                 assert(frame.clone_ensures(old_regions, new_regions, res_frame));
+                // Canonical: the cloned frame minted one obligation at its slot.
+                assert(new_regions.frame_obligations =~= old_regions.frame_obligations.insert(
+                    frame_idx,
+                ));
             },
             (MappedItem::Untracked(_, _, _), _) => {
                 // clone_ensures for Untracked is `old == new`; the trait's
-                // `!tracked ==> slot unchanged` ensures follows directly.
+                // `!tracked ==> slot unchanged` ensures follows directly, and
+                // the per-frame ledger is preserved (net-zero clone).
                 assert(old_regions == new_regions);
             },
             _ => {

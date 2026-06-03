@@ -518,6 +518,12 @@ impl<C: PageTableConfig> PageTableNode<C> {
             res.ptr.addr() == owner@.value.node.unwrap().meta_addr_self(),
             guards.unlocked(owner@.value.node.unwrap().meta_addr_self()),
             MetaSlot::get_from_unused_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
+            // Canonical model: a freshly allocated node is a LIVE value whose
+            // `Drop` is pending — mint one `frame_obligations` entry at its
+            // slot. (`alloc` is `external_body`; the mint is the node's
+            // creation contribution, mirroring `Frame::from_unused`.)
+            final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
+                frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
             // Allocator trust boundary: PT-node allocations come from the regular
             // RAM pool, never from MMIO ranges. Used by `alloc_if_none_metaregion_sound_preserved`

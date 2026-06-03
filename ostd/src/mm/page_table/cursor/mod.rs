@@ -264,9 +264,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 regions,
             ).slot_owners[frame_to_index(pa)],
             // Linear-drop pilot: `clone_item` doesn't mint or redeem segment
-            // or frame obligations.
+            // obligations. Canonically a *tracked* clone MINTS one per-frame
+            // entry (`Frame::clone` via `MappedItem::clone`), so the helper
+            // makes no `frame_obligations` promise on that path. An
+            // *untracked* clone (kernel MMIO) is a true no-op, so the ledger
+            // is preserved — `Cursor::query`'s untracked branch relies on
+            // `*regions == old_regions`.
             final(regions).obligations =~= old(regions).obligations,
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            !C::tracked(*item) ==> final(regions).frame_obligations =~= old(
+                regions,
+            ).frame_obligations,
     {
         let res = item.clone(Tracked(regions));
         proof {

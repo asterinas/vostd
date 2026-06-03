@@ -137,12 +137,23 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn into_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
-        // Borrow-protocol transition: `raw_count` is dormant. Forgetting a
-        // PT-node into a PTE is net-zero on the per-frame ledger (the body
-        // mints one entry for `MD::new` to consume) and leaves `slots` /
-        // `slot_owners` untouched. The owner's `in_scope = false` records
-        // the ownership transfer; `regions` is unchanged.
-        regions
+        if self.is_node() {
+            let index = frame_to_index(self.meta_slot_paddr().unwrap());
+            // Canonical model: forgetting a live PT-node into a PTE CONSUMES
+            // its pending-Drop obligation (the body's `MD::new` redeems one
+            // entry at the node's slot), mirroring `Frame::into_raw`. `slots`
+            // / `slot_owners` are untouched; the owner's `in_scope = false`
+            // records the ownership transfer. Balances the `+1` minted by
+            // `from_pte` (`from_pte_regions_spec`) / `PageTableNode::alloc`.
+            MetaRegionOwners {
+                frame_obligations: regions.frame_obligations.remove(index),
+                ..regions
+            }
+        } else {
+            // Forgetting a mapped frame / clearing an absent entry leaves the
+            // per-frame ledger untouched (`item_into_raw` is `external_body`).
+            regions
+        }
     }
 
     pub open spec fn into_pte_owner_spec(self) -> EntryOwner<C> {

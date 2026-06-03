@@ -123,7 +123,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt
             == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
         &&& forall|i: usize|
-            i != frame_to_index(paddr) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
+            i != frame_to_index(paddr) ==> regions.slot_owners[i]
+                == old_regions.slot_owners[i]
+        // Setting up the owner does not touch the per-frame ledger; the
+        // pending-Drop obligation is minted by `from_unused` itself.
+        &&& regions.frame_obligations == old_regions.frame_obligations
         &&& regions.inv()
     }
 
