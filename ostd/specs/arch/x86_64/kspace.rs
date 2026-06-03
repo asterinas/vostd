@@ -19,7 +19,7 @@ use core::ops::Range;
 verus! {
 
 /// Kernel virtual address range for storing the page frame metadata.
-pub const FRAME_METADATA_RANGE: Range<Vaddr> = 0xffff_fff0_0000_0000..0xffff_fff0_8000_0000;
+pub const FRAME_METADATA_RANGE: Range<Vaddr> = 0xffff_e000_0000_0000..0xffff_e100_0000_0000;
 
 #[verifier::inline]
 pub open spec fn paddr_to_vaddr_spec(pa: Paddr) -> usize
