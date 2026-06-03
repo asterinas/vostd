@@ -40,25 +40,38 @@ impl<'rcu> Guards<'rcu> {
 
 impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     type State = Guards<'rcu>;
-    /// Trivial: lifecycle is enforced by the per-node `Guards` set.
-    /// The token is a no-op pass-through.
-    type Key = ();
 
-    open spec fn key(self) -> Self::Key { () }
+    /// Real key: the node address whose lock this guard holds. The token
+    /// thus identifies *which* guard it tracks; `drop_requires`'s key
+    /// match prevents a guard's obligation from being used to drop a
+    /// different guard. The real lock-set ledger is `Guards::guards`;
+    /// this trait's discipline lifts the existing state-side discipline
+    /// onto the obligation token by carrying the locked address.
+    type Key = usize;
+
+    open spec fn key(self) -> Self::Key {
+        self.inner.inner@.ptr.addr()
+    }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         s.lock_held(self.inner.inner@.ptr.addr())
     }
 
-    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
-        s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
+    open spec fn constructor_ensures(
+        self,
+        s0: Self::State,
+        s1: Self::State,
+        obl_key: Self::Key,
+    ) -> bool {
+        &&& s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
+        &&& obl_key == self.inner.inner@.ptr.addr()
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State)
-        -> (tracked obl: DropObligation<Self::Key>)
-    {
+    proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
+        Self::Key,
+    >) {
         s.guards = s.guards.remove(self.inner.inner@.ptr.addr());
-        DropObligation::tracked_mint(())
+        DropObligation::tracked_mint(self.inner.inner@.ptr.addr())
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
@@ -69,10 +82,24 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr())
     }
 
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool { true }
+    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
+        // The token must identify this guard's locked address — prevents
+        // a token forged for a different guard from discharging this one.
+        obl_key == self.inner.inner@.ptr.addr()
+    }
 
-    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
-        s0 =~= s1
+    open spec fn consume_ensures(
+        self,
+        s0: Self::State,
+        s1: Self::State,
+        obl_key: Self::Key,
+    ) -> bool {
+        // Forgetting a guard via `ManuallyDrop::new` releases its lock —
+        // the same `guards.remove` transition as `constructor_ensures`, so
+        // the cursor's pop/move-forward sites (which forget the popped
+        // guard and then need `children_not_locked` / `node_unlocked`)
+        // observe the lock released.
+        s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
     }
 
     proof fn consume_obligation(
@@ -80,7 +107,8 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         tracked s: &mut Self::State,
         tracked obl: DropObligation<Self::Key>,
     ) {
-        // No-op: trivial `Key = ()`.
+        // Release this guard's lock from the held-lock ledger.
+        s.guards = s.guards.remove(self.inner.inner@.ptr.addr());
     }
 }
 

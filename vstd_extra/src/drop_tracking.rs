@@ -79,6 +79,7 @@ pub trait HasObligations<K> {
 
 pub trait TrackDrop: Sized {
     type State;
+
     /// Identifies which obligation this resource holds in the ledger.
     type Key;
 
@@ -90,8 +91,9 @@ pub trait TrackDrop: Sized {
 
     spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool;
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State)
-        -> (tracked obl: DropObligation<Self::Key>)
+    proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
+        Self::Key,
+    >)
         requires
             self.constructor_requires(*old(s)),
         ensures
@@ -146,9 +148,10 @@ pub trait Drop: TrackDrop {
         Tracked(obl): Tracked<DropObligation<Self::Key>>,
     )
         requires
-            // The body must call `self.consume_obligation(s, obl)` first
-            // (redeeming the token / shrinking the ledger), then run the
-            // destructor work. Both preconditions are required up front.
+    // The body must call `self.consume_obligation(s, obl)` first
+    // (redeeming the token / shrinking the ledger), then run the
+    // destructor work. Both preconditions are required up front.
+
             self.consume_requires(*old(s), obl.value()),
             self.drop_requires(*old(s)),
             obl.value() == self.key(),
@@ -157,37 +160,57 @@ pub trait Drop: TrackDrop {
     ;
 }
 
-pub struct ManuallyDrop<T: TrackDrop>(
-    pub T,
-    pub Tracked<DropObligation<T::Key>>,
-);
+/// Linear-drop obligation wrapper. `ManuallyDrop::new(t, regions)`
+/// **consumes** the State-side obligation entry for `t.key()` (via
+/// `T::consume_obligation`) and wraps the value. The wrapper carries only
+/// the value — no embedded obligation — and can be silently dropped
+/// affinely; the linear-drop guarantee comes from the State-side ledger.
+///
+/// The precondition `consume_requires` (e.g. `frame_obligations.count(idx)
+/// > 0` for Frame) is the load-bearing safety check: callers must
+/// establish an outstanding obligation entry at `t.key()`. Producers
+/// like `Frame::from_raw`, `Frame::clone`, `Frame::from_unused`,
+/// `Frame::from_in_use` mint that entry. The mint + consume pair is
+/// net-zero on the ledger — "the borrow ends here."
+///
+/// # Unsoundness warning
+///
+/// **It is unsound to extract the inner `T` from `ManuallyDrop<T>` via
+/// `take`/`into_inner`-style operations** without minting a fresh
+/// obligation at the extraction site. A `ManuallyDrop<T>` carries no
+/// obligation, so the extracted `T` would have none either — but
+/// `T::drop` (e.g. `Frame::drop`) requires an obligation as input, so the
+/// extracted value cannot legally be dropped. Any extraction site must
+/// mint a fresh entry into the State-side ledger, gated by a soundness
+/// justification (typically `ref_count >= 1` for `MD<Frame>`, mirroring
+/// `Frame::from_raw`'s safety condition).
+///
+/// At the time of this redesign no ostd callsite extracts a `Frame` from
+/// a `ManuallyDrop<Frame>` (only `Deref` borrows are taken; the one
+/// `into_inner` is on `MD<Arc<T>>`, not `MD<Frame>`). Adding such an
+/// extraction without the matching mint resurrects the double-counting
+/// bug that motivated this redesign.
+pub struct ManuallyDrop<T: TrackDrop>(pub T);
 
 impl<T: TrackDrop> ManuallyDrop<T> {
     #[verifier::external_body]
     pub fn new(t: T, Tracked(s): Tracked<&mut T::State>) -> (res: Self)
         requires
-            t.constructor_requires(*old(s)),
+            t.consume_requires(*old(s), t.key()),
         ensures
-            t.constructor_ensures(*old(s), *final(s), res.1@.value()),
+            t.consume_ensures(*old(s), *final(s), t.key()),
             res.0 == t,
-            res.1@.value() == t.key(),
     {
-        let tracked obl = t.constructor_spec(s);
-        Self(t, Tracked(obl))
-    }
-}
-
-impl<T: Drop> ManuallyDrop<T> {
-    pub fn drop(self, Tracked(s): Tracked<&mut T::State>)
-        requires
-            self.0.consume_requires(*old(s), self.1@.value()),
-            self.0.drop_requires(*old(s)),
-            self.1@.value() == self.0.key(),
-        ensures
-            self.0.drop_ensures(*old(s), *final(s), self.1@.value()),
-    {
-        let Self(value, Tracked(obl)) = self;
-        value.drop(Tracked(s), Tracked(obl))
+        proof {
+            // Materialize a ledger-less identity token for `t.key()` and
+            // immediately discharge it via `T::consume_obligation`. The
+            // caller's `consume_requires` precondition guarantees there
+            // is an outstanding ledger entry at this key for the redeem
+            // axiom to remove.
+            let tracked obl = DropObligation::tracked_mint(t.key());
+            t.consume_obligation(s, obl);
+        }
+        Self(t)
     }
 }
 
@@ -204,68 +227,6 @@ impl<T: TrackDrop> Deref for ManuallyDrop<T> {
 }
 
 impl<T: TrackDrop> View for ManuallyDrop<T> {
-    type V = T;
-
-    open spec fn view(&self) -> (res: Self::V) {
-        self.0
-    }
-}
-
-/// Deliberate-leak wrapper. `ConsumeDrop::new(t, regions, obl)` consumes
-/// the obligation token via `T::consume_obligation` — for impls with a
-/// per-instance ledger that's a real redemption, for `Key = ()` impls
-/// it's a no-op — and wraps the value. Crucially, this does **not**
-/// invoke `T::constructor_spec`, so any state-mutation that
-/// `ManuallyDrop::new` would have performed (e.g. bumping a `Frame`
-/// slot's `raw_count`) is skipped.
-///
-/// Compare with [`ManuallyDrop`]:
-///
-/// |               | `ManuallyDrop::new` | `ConsumeDrop::new` |
-/// |---------------|---------------------|--------------------|
-/// | Calls         | `constructor_spec`  | `consume_obligation` |
-/// | Token         | minted internally   | passed in, redeemed |
-/// | State mutation| impl-defined        | impl-defined (often none) |
-/// | Typical use   | "forget via raw_count"-style | "discharge obligation"-style |
-///
-/// Both wrappers can be silently dropped affinely; the linear-drop
-/// guarantee comes from the State-side ledger.
-pub struct ConsumeDrop<T: TrackDrop>(pub T);
-
-impl<T: TrackDrop> ConsumeDrop<T> {
-    #[verifier::external_body]
-    pub fn new(
-        t: T,
-        Tracked(s): Tracked<&mut T::State>,
-        Tracked(obl): Tracked<DropObligation<T::Key>>,
-    ) -> (res: Self)
-        requires
-            t.consume_requires(*old(s), obl.value()),
-            obl.value() == t.key(),
-        ensures
-            t.consume_ensures(*old(s), *final(s), obl.value()),
-            res.0 == t,
-    {
-        proof {
-            t.consume_obligation(s, obl);
-        }
-        Self(t)
-    }
-}
-
-impl<T: TrackDrop> Deref for ConsumeDrop<T> {
-    type Target = T;
-
-    #[verifier::external_body]
-    fn deref(&self) -> (res: &Self::Target)
-        ensures
-            res == &self.0,
-    {
-        &self.0
-    }
-}
-
-impl<T: TrackDrop> View for ConsumeDrop<T> {
     type V = T;
 
     open spec fn view(&self) -> (res: Self::V) {

@@ -19,7 +19,6 @@
 //!   the corresponding `demo_*_leaked_when_enabled` function and re-run
 //!   `cargo dv verify --targets ostd`. The expected errors are documented
 //!   in the comments above each gated function.
-
 use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::drop_tracking::DropObligation;
@@ -147,7 +146,7 @@ pub fn demo_leaked_when_enabled(range: Range<Paddr>) {
 pub fn demo_frame_leaked_when_enabled(slot_idx: usize) {
     proof {
         // Mint a Frame obligation — analog of `ManuallyDrop::new(frame, ..)`.
-        // No matching `Drop::drop` or `ConsumeDrop::new` follows, so the
+        // No matching `Drop::drop` or `ManuallyDrop::new` follows, so the
         // multiset entry persists and `clean_inv` fails at function exit.
         let tracked _obl = regions.tracked_mint_frame_obligation(slot_idx);
     }

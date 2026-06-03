@@ -87,10 +87,21 @@ impl<C: PageTableConfig> Child<C> {
                 #[verus_spec(with Tracked(node_slot_perm))]
                 let paddr = node.start_paddr();
 
+                let ghost fo0 = regions.frame_obligations;
+                proof {
+                    // The PT-node ownership model tracks `raw_count`, not the
+                    // per-frame `frame_obligations` ledger. Mint the entry
+                    // that `MD::new` will consume — net-zero on the ledger,
+                    // mirroring `Frame::into_raw`.
+                    let tracked _ = regions.tracked_mint_frame_obligation(node.key());
+                }
                 let _ = ManuallyDrop::new(node, Tracked(regions));
 
                 proof {
-                    let node_index = frame_to_index(meta_to_frame(node.ptr.addr()));
+                    // `insert(node_index)` (mint) then `remove(node_index)`
+                    // (MD::new consume) is identity on the multiset, so the
+                    // ledger is unchanged — matching `into_pte_regions_spec`.
+                    assert(regions.frame_obligations =~= fo0);
                     let spec_regions = owner.into_pte_regions_spec(*old(regions));
                     assert(regions.slot_owners =~= spec_regions.slot_owners);
                     owner.in_scope = false;
@@ -157,20 +168,25 @@ impl<C: PageTableConfig> Child<C> {
             }
 
             proof_decl! {
-                let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
+                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
             }
 
             let node = unsafe {
                 proof_with!(
-                    Tracked(regions) => Tracked(from_raw_debt)
+                    Tracked(regions) => Tracked(from_raw_obl)
                 );
                 PageTableNode::from_raw(paddr)
             };
 
             proof {
-                // raw_count was 1 (node was in a PTE via into_raw), so discharge trivially.
-                from_raw_debt.discharge_bookkeeping();
-
+                // `from_raw_obl` is the freshly minted obligation token
+                // for this slot. It is silently dropped here; the
+                // corresponding `frame_obligations` entry persists and
+                // is consumed by `on_drop`'s teardown path (which mints
+                // its own token via the paired axiom when it calls
+                // `frame.drop`). Net effect over `from_pte` is +1 on
+                // the ledger, balancing the prior `-1` from
+                // `into_pte`'s `MD::new` consume.
                 entry_own.in_scope = true;
 
                 assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(

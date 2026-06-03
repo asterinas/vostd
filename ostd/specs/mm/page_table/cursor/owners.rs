@@ -806,13 +806,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
-        obl_key: (),
+        obl_key: usize,
     )
         requires
             self.inv(),
             self.only_current_locked(guards0),
             <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1, obl_key),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
+                guard,
+                guards0,
+                guards1,
+                obl_key,
+            ),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
             guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node.unwrap().meta_addr_self(),
@@ -834,13 +839,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
-        obl_key: (),
+        obl_key: usize,
     )
         requires
             self.inv(),
             self.nodes_locked(guards0),
             <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1, obl_key),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
+                guard,
+                guards0,
+                guards1,
+                obl_key,
+            ),
             forall|i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS
@@ -2542,11 +2552,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.inv(),
             forall|k: usize|
                 regions0.slots.contains_key(k) ==> #[trigger] regions1.slots.contains_key(k),
+            // Borrow-protocol transition: `raw_count` is dormant, so the
+            // borrow is net-zero on `regions` — the slot perm at
+            // `changed_idx` is preserved too (the caller borrows it via
+            // `Frame::borrow`, which leaves `slots` unchanged). With
+            // `raw_count` no longer in `metaregion_sound`, full slot
+            // preservation is what carries soundness across the borrow.
             forall|k: usize|
-                regions0.slots.contains_key(k) && k != changed_idx ==> regions0.slots[k]
+                regions0.slots.contains_key(k) ==> regions0.slots[k]
                     == #[trigger] regions1.slots[k],
-            regions0.slot_owners[changed_idx].raw_count == 0,
-            regions1.slot_owners[changed_idx].raw_count == 1,
             // All other fields at changed_idx preserved
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,

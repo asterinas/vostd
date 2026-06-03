@@ -122,34 +122,27 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn from_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
         if self.is_node() {
             let index = frame_to_index(self.meta_slot_paddr().unwrap());
-            let old_slot = regions.slot_owners[index];
-            let new_slot = MetaSlotOwner { raw_count: 0usize, ..old_slot };
-            MetaRegionOwners { slot_owners: regions.slot_owners.insert(index, new_slot), ..regions }
-        } else {
-            regions
-        }
-    }
-
-    pub open spec fn into_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
-        if self.is_node() {
-            let index = frame_to_index(self.meta_slot_paddr().unwrap());
-            let old_slot = regions.slot_owners[index];
-            let new_slot = MetaSlotOwner {
-                raw_count: (old_slot.raw_count + 1) as usize,
-                ..old_slot
-            };
+            // Borrow-protocol transition: `raw_count` is dormant (slot_owners
+            // unchanged). `from_raw` mints one `frame_obligations` entry at
+            // the recovered node's slot — the reconstructed node is a live
+            // Frame value and carries that obligation until it is dropped
+            // (`on_drop`) or re-forgotten (`into_pte`).
             MetaRegionOwners {
-                slots: regions.slots,
-                slot_owners: regions.slot_owners.insert(index, new_slot),
-                // `ManuallyDrop::new(node, ..)` mints a Frame obligation
-                // at the node's slot index. Permanent ledger entry — PT
-                // nodes are leaked into the PTE for the table's lifetime.
                 frame_obligations: regions.frame_obligations.insert(index),
                 ..regions
             }
         } else {
             regions
         }
+    }
+
+    pub open spec fn into_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
+        // Borrow-protocol transition: `raw_count` is dormant. Forgetting a
+        // PT-node into a PTE is net-zero on the per-frame ledger (the body
+        // mints one entry for `MD::new` to consume) and leaves `slots` /
+        // `slot_owners` untouched. The owner's `in_scope = false` records
+        // the ownership transfer; `regions` is unchanged.
+        regions
     }
 
     pub open spec fn into_pte_owner_spec(self) -> EntryOwner<C> {

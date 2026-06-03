@@ -317,8 +317,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     0 <= j < addrs.len() as int ==> {
                         let idx = frame_to_index_spec(addrs[j]);
                         &&& regions.slots.contains_key(idx)
-                        &&& regions.slot_owners.contains_key(idx)
-                        &&& regions.slot_owners[idx].raw_count == 1
+                        &&& regions.slot_owners.contains_key(
+                            idx,
+                        )
+                        // Borrow-protocol transition: `raw_count` is dormant.
                         &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -355,6 +357,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 },
             };
 
+            proof {
+                // Mint the obligation that `MD::new` will consume.
+                let tracked _ = regions.tracked_mint_frame_obligation(frame.key());
+            }
             let _ = ManuallyDrop::new(frame, Tracked(regions));
             segment.range.end = paddr + PAGE_SIZE;
             proof {
@@ -369,11 +375,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             // the owner. The token + ledger insert are produced atomically
             // by the axiom.
             let tracked obligation = regions.tracked_mint_obligation(range);
-            owner = Some(SegmentOwner {
-                range,
-                obligation,
-                _marker: core::marker::PhantomData,
-            });
+            owner = Some(SegmentOwner { range, obligation, _marker: core::marker::PhantomData });
 
             // Every frame in `range` had its perm re-parked into
             // `regions.slots` (Design B), so the slot key is present. Each
@@ -584,13 +586,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             _marker: core::marker::PhantomData,
         };
         proof {
+            // The per-frame `slot_owners` are unchanged by the `MD::new`
+            // wrap and the obligation swap, so `relate_regions_at`'s facts
+            // about `old_regions` transfer to the current `regions`.
+            assert(regions.slot_owners =~= old_regions.slot_owners);
             assert forall|i: int|
                 #![trigger frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize)]
                 0 <= i < crate::specs::mm::frame::segment::seg_nframes(frame_own1.range) implies {
                 let idx = frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].raw_count == 1
+                &&& regions.slots.contains_key(
+                    idx,
+                )
+                // Borrow-protocol transition: `raw_count`/`frame_obligations`
+                // count are dormant in steady state — not asserted here.
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -606,8 +615,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 0 <= i < crate::specs::mm::frame::segment::seg_nframes(frame_own2.range) implies {
                 let idx = frame_to_index((frame_own2.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].raw_count == 1
+                &&& regions.slots.contains_key(
+                    idx,
+                )
+                // Borrow-protocol transition: `raw_count`/`frame_obligations`
+                // count are dormant in steady state — not asserted here.
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -916,7 +928,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     &&& final(self).start_paddr() == old(self).start_paddr() + PAGE_SIZE
                     &&& f.paddr() == old(self).start_paddr()
                     &&& final(regions).slots.contains_key(frame_to_index(f.paddr()))
-                    &&& final(regions).slot_owners[frame_to_index(f.paddr())].raw_count == 0
+                    // Borrow-protocol transition: `raw_count` is dormant; no
+                    // longer advertised here.
                 },
             },
     )]
@@ -928,22 +941,23 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 owner.relate_regions_at(*old(regions), 0);
             }
             proof_decl! {
-                let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
+                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
             }
 
             let frame = unsafe {
-                #[verus_spec(with Tracked(regions) => Tracked(from_raw_debt))]
+                #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
                 Frame::<M>::from_raw(self.range.start)
             };
 
             proof {
-                from_raw_debt.discharge_bookkeeping();
-
+                // `from_raw_obl` is the freshly minted obligation; under
+                // the borrow-protocol redesign it can be silently dropped
+                // (the ledger entry persists for the eventual `frame.drop`
+                // path of whoever takes ownership of `frame`).
                 // Linear-drop pilot: shrink the obligation key in lockstep
                 // with `owner.range`. The atomic re-key swaps the old
                 // full-range key for the new shrunk-range key in one step.
-                let new_range =
-                    ((self.range.start + PAGE_SIZE) as usize)..self.range.end;
+                let new_range = ((self.range.start + PAGE_SIZE) as usize)..self.range.end;
                 regions.tracked_rekey_obligation(&mut owner.obligation, new_range);
                 owner.range = new_range;
 
@@ -958,8 +972,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     0 <= i < crate::specs::mm::frame::segment::seg_nframes(owner.range) implies {
                     let idx = frame_to_index((owner.range.start + i * PAGE_SIZE) as usize);
                     &&& regions.slot_owners.contains_key(idx)
-                    &&& regions.slots.contains_key(idx)
-                    &&& regions.slot_owners[idx].raw_count == 1
+                    &&& regions.slots.contains_key(
+                        idx,
+                    )
+                    // Borrow-protocol transition: `raw_count`/`frame_obligations`
+                    // count are dormant in steady state — not asserted here.
                     &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -1115,8 +1132,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                 // nor redeems segment obligations (the `slots`/`slot_owners`
                 // axioms preserve `obligations` verbatim, as do
                 // `Frame::from_raw` and `Frame::drop`).
+                // `frame_obligations` is NOT preserved here: each iteration
+                // redeems the entry that `Segment::from_unused`'s per-frame
+                // `MD::new` minted, plus the mint+drop pair around the
+                // teardown.
                 regions.obligations =~= old(regions).obligations,
-                regions.frame_obligations =~= old(regions).frame_obligations,
                 self.inv(),
                 self.range.start <= paddr <= self.range.end,
                 paddr == (self.range.start + k * PAGE_SIZE) as usize,
@@ -1141,6 +1161,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     ) && regions.slot_owners[frame_idx_at(self.range.start, j)] == old(
                         regions,
                     ).slot_owners[frame_idx_at(self.range.start, j)],
+                // Borrow-protocol transition: per-frame `frame_obligations`
+                // are minted transiently by `from_raw` and consumed by
+                // `frame.drop` within each iteration, so unprocessed frames
+                // carry no outstanding entry — no count invariant here.
                 regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
                 // Function-entry snapshots, restated for each iteration's
                 // `from_raw`/`drop` preconditions.
@@ -1170,30 +1194,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             }
 
             proof_decl! {
-                let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
+                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
             }
 
-            // SAFETY: each segment frame holds a forgotten reference
-            // (`relate_regions` ⇒ `raw_count == 1`), which `from_raw`
-            // reclaims; the subsequent `frame.drop` decrements `ref_count`
-            // and (when last ref) tears down the metadata.
+            // SAFETY: each segment frame holds a forgotten reference;
+            // `from_raw` mints the obligation and `frame.drop` consumes
+            // it directly. The old "redeem-then-mint-then-drop" dance
+            // is gone — `from_raw`'s freshly minted obligation feeds
+            // straight into `frame.drop`.
             let frame = unsafe {
-                #[verus_spec(with Tracked(regions) => Tracked(from_raw_debt))]
+                #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
                 Frame::<M>::from_raw(paddr)
             };
 
-            proof {
-                from_raw_debt.discharge_bookkeeping();
-            }
-
-            // Mint via the paired axiom so the ledger has an entry that
-            // `consume_obligation` (called inside `drop`) can redeem.
-            // Net effect on `frame_obligations`: zero (mint + redeem).
-            let tracked frame_obl: DropObligation<usize>;
-            proof {
-                frame_obl = regions.tracked_mint_frame_obligation(frame.key());
-            }
-            frame.drop(Tracked(regions), Tracked(frame_obl));
+            frame.drop(Tracked(regions), Tracked(from_raw_obl));
 
             proof {
                 // Only slot `k` was touched (`from_raw` removed+reinserted

@@ -1844,7 +1844,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let md = ManuallyDrop::new(taken, Tracked(guards));
 
         proof {
-            let ghost obl_key = md.1@.value();
+            // `ManuallyDrop` is single-field now; the consumed obligation
+            // matched `taken.key()` (the locked node's address).
+            let ghost obl_key = md.0.inner.inner@.ptr.addr();
             owner.never_drop_restores_children_not_locked(guard, guards0, *guards, obl_key);
             let ghost pre_pop = *old(owner);
             let ghost dropped_addr = guard.inner.inner@.ptr.addr();
@@ -4163,6 +4165,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Child::PageTable(pt) => {
                 // debug_assert_eq!(pt.level(), level - 1);
                 if !C::TOP_LEVEL_CAN_UNMAP() && level as usize == NR_LEVELS {
+                    proof {
+                        // The PT-node model tracks `raw_count`, not the
+                        // per-frame ledger; mint the entry that `MD::new`
+                        // consumes (net-zero), mirroring `into_pte`.
+                        let tracked _ = regions.tracked_mint_frame_obligation(
+                            frame_to_index(meta_to_frame(pt.ptr.addr())),
+                        );
+                    }
                     let _ = ManuallyDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
                     // Runtime panic. Discharges the conditional postcondition
                     // `res matches Some(StrayPageTable) && !TOP_LEVEL_CAN_UNMAP

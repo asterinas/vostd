@@ -265,6 +265,10 @@ impl Inv for MetaSlotOwner {
         // accounting and the huge-page split loop invariant scope out
         // `usage == MMIO`.
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNUSED ==> {
+            // A torn-down slot has no outstanding forgotten reference. This
+            // is re-established by `Frame::drop`'s teardown (which zeroes
+            // `raw_count` alongside the refcount), and is relied on by the
+            // embedding's segment-cover / handle-count accounting.
             &&& self.raw_count == 0
             &&& self.inner_perms.storage.is_uninit()
             &&& self.inner_perms.vtable_ptr.is_uninit()

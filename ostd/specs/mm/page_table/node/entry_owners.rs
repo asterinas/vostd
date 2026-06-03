@@ -544,8 +544,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
-            &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-            &&& regions.slot_owners[idx].raw_count == self.expected_raw_count()
+            &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                != REF_COUNT_UNUSED
+            // Borrow-protocol transition: `raw_count` is dormant; the
+            // linear-drop guarantee is carried by `frame_obligations`.
             &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_addr_self()
             &&& regions.slots[idx].value().wf(
                 regions.slot_owners[idx],

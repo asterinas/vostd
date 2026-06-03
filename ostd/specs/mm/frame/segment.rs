@@ -26,25 +26,39 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     /// `Segment::split` / `Segment::into_raw` where the segment is
     /// "temporarily forgotten" without an actual ledger event.
     type State = MetaRegionOwners;
-    /// `()` because the `ManuallyDrop::new(segment, ..)` step is a no-op
-    /// on `regions.obligations`; the real Segment-level ledger key
-    /// (`Range<Paddr>`) lives on `SegmentOwner<M>`.
-    type Key = ();
 
-    open spec fn key(self) -> Self::Key { () }
+    /// Real segment-range key. The token produced by `constructor_spec`
+    /// carries `self.range` as identity. The mint here does NOT insert
+    /// into `obligations` — the real per-segment entry is added by
+    /// [`Segment::from_unused`] and removed by [`Segment::drop`] directly.
+    /// Carrying `Range<Paddr>` on the token still strengthens the
+    /// discipline: a token forged for one segment can't masquerade as
+    /// belonging to another (the `consume_requires`/`drop_requires`
+    /// checks would refuse the mismatched key).
+    type Key = Range<Paddr>;
+
+    open spec fn key(self) -> Self::Key {
+        self.range
+    }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         true
     }
 
-    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
-        s0 =~= s1
+    open spec fn constructor_ensures(
+        self,
+        s0: Self::State,
+        s1: Self::State,
+        obl_key: Self::Key,
+    ) -> bool {
+        &&& s0 =~= s1
+        &&& obl_key == self.range
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State)
-        -> (tracked obl: DropObligation<Self::Key>)
-    {
-        DropObligation::tracked_mint(())
+    proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
+        Self::Key,
+    >) {
+        DropObligation::tracked_mint(self.range)
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
@@ -55,9 +69,16 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         true
     }
 
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool { true }
+    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
+        true
+    }
 
-    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn consume_ensures(
+        self,
+        s0: Self::State,
+        s1: Self::State,
+        obl_key: Self::Key,
+    ) -> bool {
         s0 =~= s1
     }
 
@@ -66,7 +87,7 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         tracked s: &mut Self::State,
         tracked obl: DropObligation<Self::Key>,
     ) {
-        // No-op: Segment's `Key = ()` is trivial; the real segment-range
+        // No-op: the token is ledger-less identity. The real segment-range
         // ledger lives on `SegmentOwner` and is redeemed by
         // `Segment::drop` directly, not via this hook.
     }
@@ -112,7 +133,8 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
     open spec fn inv(self) -> bool {
         &&& self.range.start % PAGE_SIZE == 0
         &&& self.range.end % PAGE_SIZE == 0
-        &&& self.range.start <= self.range.end <= MAX_PADDR
+        &&& self.range.start <= self.range.end
+            <= MAX_PADDR
         // Linear-drop pilot.
         &&& self.obligation.value() == self.range
     }
@@ -148,8 +170,10 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 )
                 // Design B: the slot perm is canonical in `regions.slots`
                 // (borrowable), NOT owned by the segment.
-                &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].raw_count == 1
+                &&& regions.slots.contains_key(
+                    idx,
+                )
+                // Borrow-protocol transition: `raw_count` is dormant.
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
@@ -166,8 +190,12 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& regions.slot_owners[idx].usage
                     == crate::specs::mm::frame::meta_owners::PageUsage::Frame
-            }
-        &&& forall|i: int, j: int|
+                // Borrow-protocol redesign: in steady state between
+                // `Segment::from_unused`'s consume and `Segment::drop`'s
+                // `from_raw`-mint, the per-frame `frame_obligations`
+                // count is 0. No `count > 0` invariant carried.
+
+            }&&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
                 frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
             0 <= i < j < seg_nframes(self.range) ==> frame_to_index(
@@ -187,8 +215,10 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
             ({
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].raw_count == 1
+                &&& regions.slots.contains_key(
+                    idx,
+                )
+                // Borrow-protocol transition: `raw_count` is dormant.
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()

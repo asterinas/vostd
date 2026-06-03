@@ -4,6 +4,7 @@ use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
 
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
@@ -343,20 +344,24 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     ) -> bool {
         &&& r == meta_to_frame(self.ptr.addr())
         &&& regions.inv()
-        &&& regions.slots =~= old_regions.slots
-        &&& regions.slot_owners[frame_to_index(r)].raw_count == 1
-        &&& regions.slot_owners[frame_to_index(r)].inner_perms
-            == old_regions.slot_owners[frame_to_index(r)].inner_perms
-        &&& regions.slot_owners[frame_to_index(r)].self_addr
-            == old_regions.slot_owners[frame_to_index(r)].self_addr
-        &&& regions.slot_owners[frame_to_index(r)].usage == old_regions.slot_owners[frame_to_index(
-            r,
-        )].usage
-        &&& regions.slot_owners[frame_to_index(r)].paths_in_pt
-            == old_regions.slot_owners[frame_to_index(r)].paths_in_pt
-        &&& forall|i: usize|
-            #![trigger regions.slot_owners[i]]
-            i != frame_to_index(r) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
+        &&& regions.slots
+            =~= old_regions.slots
+        // Forgetting the frame bumps its `raw_count` to record the
+        // outstanding raw reference; all other slots are untouched.
+        &&& ({
+            let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+            &&& regions.slot_owners.dom() =~= old_regions.slot_owners.dom()
+            &&& regions.slot_owners[idx] == MetaSlotOwner {
+                raw_count: (old_regions.slot_owners[idx].raw_count + 1) as usize,
+                ..old_regions.slot_owners[idx]
+            }
+            &&& forall|i: usize|
+                #![trigger regions.slot_owners[i]]
+                i != idx ==> regions.slot_owners[i] == old_regions.slot_owners[i]
+        })
+        // The obligation mint + `MD::new` consume are net-zero on the ledger.
+        &&& regions.frame_obligations =~= old_regions.frame_obligations
+        &&& regions.obligations =~= old_regions.obligations
     }
 
     /// Resets the frame to unused without up-calling the allocator.
@@ -431,7 +436,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         #[verus_spec(with Tracked(owner), Tracked(&*regions))]
         let paddr = self.start_paddr();
 
-        assert(self.constructor_requires(*old(regions)));
+        let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        proof {
+            // Forgetting the frame leaves one outstanding raw reference:
+            // bump `raw_count` to 1 (persistent — the list holds it until
+            // `take_current` reclaims it). The obligation mint below is
+            // immediately consumed by `MD::new` (net-zero on the ledger).
+            let tracked mut so = regions.slot_owners.tracked_remove(idx);
+            so.raw_count = (so.raw_count + 1) as usize;
+            regions.slot_owners.tracked_insert(idx, so);
+            let tracked _ = regions.tracked_mint_frame_obligation(self.key());
+        }
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
         paddr
@@ -475,6 +490,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             forall|i: usize| #![trigger final(regions).slot_owners[i]]
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
+            // `from_raw` mints one transient obligation for the recovered
+            // live `UniqueFrame`; it is consumed by `UniqueFrame::drop`.
+            final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
+                frame_to_index(paddr),
+            ),
+            final(regions).obligations =~= old(regions).obligations,
     )]
     pub(crate) unsafe fn from_raw(paddr: Paddr) -> (Self, Tracked<UniqueFrameOwner<M>>) {
         let vaddr = frame_to_meta(paddr);
@@ -484,6 +505,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
             slot_own.raw_count = (slot_own.raw_count - 1) as usize;
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
+            // Reclaiming the raw reference materializes a live `UniqueFrame`
+            // value: mint its drop obligation (transiently — consumed by the
+            // eventual `UniqueFrame::drop`). Mirrors `Frame::from_raw`.
+            let tracked _ = regions.tracked_mint_frame_obligation(frame_to_index(paddr));
         }
 
         let tracked owner = UniqueFrameOwner { meta_own, slot_index: frame_to_index(paddr) };
@@ -543,6 +568,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             // `UniqueFrame` is exclusively owned and so is never mapped,
             // so its slot carries no PTE paths.
             old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
+            // Linear-drop discipline: the slot's ledger entry (minted by
+            // `UniqueFrame::into_raw`'s `MD::new`) must still be
+            // outstanding so that this teardown can redeem it.
+            old(regions).frame_obligations.count(owner.slot_index) > 0,
         ensures
             final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
@@ -550,9 +579,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             forall|i: usize| #![trigger final(regions).slot_owners[i]]
                 i != owner.slot_index ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
+            // Ledger entry redeemed exactly once.
+            final(regions).frame_obligations =~= old(regions).frame_obligations.remove(owner.slot_index),
     )]
     pub(crate) fn drop(&mut self) {
         let ghost idx = owner.slot_index;
+
+        proof {
+            // Redeem the entry that `into_raw`'s `MD::new` minted on
+            // this slot. The `count > 0` precondition is satisfied by
+            // the caller's invariant (e.g. `LinkedListOwner::relate_region_at`).
+            let tracked redeem_tok = vstd_extra::drop_tracking::DropObligation::tracked_mint(idx);
+            regions.tracked_redeem_frame_obligation(redeem_tok);
+        }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked perm_ref = regions.slots.tracked_borrow(idx);

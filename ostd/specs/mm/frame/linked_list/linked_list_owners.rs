@@ -280,7 +280,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& perm.addr() == self.list[i].paddr
         &&& perm.points_to.addr() == self.list[i].paddr
         &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-        &&& regions.slot_owners[idx].raw_count > 0
+        &&& regions.slot_owners[idx].raw_count
+            > 0
+        // Linear-drop discipline: each list entry holds a forgotten
+        // `UniqueFrame` whose `MD::new` mint persists in
+        // `frame_obligations`. `LinkedList::drop` / `take_current`
+        // redeem this entry via `UniqueFrame::drop`.
         &&& perm.wf(&perm.inner_perms)
         &&& perm.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start + MAX_NR_PAGES

@@ -429,15 +429,16 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             &&& frame_to_index(paddr) == frame_to_index(pte_j.paddr())
                         });
                     }
+                    proof_decl! {
+                        let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+                    }
                     let frame = unsafe {
-                        #[verus_spec(with Tracked(regions) => _debt)]
+                        #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
                         Frame::<Self>::from_raw(paddr)
                     };
-                    let tracked frame_obl: vstd_extra::drop_tracking::DropObligation<usize>;
-                    proof {
-                        frame_obl = regions.tracked_mint_frame_obligation(frame.key());
-                    }
-                    VerifiedDrop::drop(frame, Tracked(regions), Tracked(frame_obl));
+                    // `from_raw` minted the obligation; `frame.drop`
+                    // consumes it directly. No redeem dance needed.
+                    VerifiedDrop::drop(frame, Tracked(regions), Tracked(from_raw_obl));
                 } else {
                     // SAFETY: The PTE points to a mapped item. The ownership
                     // of the item is transferred here then dropped.
@@ -1038,8 +1039,11 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             ) ==> {
                 let idx = frame_to_index(paddr);
                 let so = regions.slot_owners[idx];
-                &&& <Frame<Self>>::from_raw_requires_safety(regions, paddr)
-                &&& so.raw_count == 1
+                &&& <Frame<Self>>::from_raw_requires_safety(
+                    regions,
+                    paddr,
+                )
+                // Borrow-protocol transition: `raw_count` is dormant.
                 &&& so.inner_perms.ref_count.value() > 0
                 &&& so.inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
@@ -1050,6 +1054,10 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                     &&& so.inner_perms.in_list.value() == 0
                     &&& so.paths_in_pt.is_empty()
                 }
+                // Borrow-protocol redesign: in steady state between
+                // `into_pte`'s consume and `on_drop`'s `from_raw`-mint,
+                // the per-child `frame_obligations` count is 0.
+
             }
     }
 }
