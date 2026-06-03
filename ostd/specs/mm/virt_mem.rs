@@ -23,7 +23,7 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::Pod;
-use crate::mm::{Paddr, Vaddr, io::PodOnce};
+use crate::mm::{Paddr, Vaddr, PodOnce};
 use crate::prelude::Inv;
 use crate::specs::arch::mm::MAX_PADDR;
 use crate::specs::mm::page_table::Mapping;

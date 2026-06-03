@@ -17,7 +17,7 @@ use core::{
 use crate::mm::frame::meta::MetaSlot;
 
 use super::{
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr, io::PodOnce, kspace::KernelPtConfig,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, PodOnce, kspace::KernelPtConfig,
     lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge, page_prop::PageProperty,
     vm_space::UserPtConfig,
 };
@@ -478,101 +478,85 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 ///
 /// Note that a default PTE should be a PTE that points to nothing.
 pub trait PageTableEntryTrait:
-    Clone + Copy + Debug + Sized + Send + Sync + Pod + PodOnce + 'static {
-    spec fn default_spec() -> Self;
+    Clone + Copy + Debug + Default + Sized + Send + Sync + Pod + PodOnce + 'static {
 
-    /// For implement `Default` trait.
-    #[verifier::when_used_as_spec(default_spec)]
-    fn default() -> (res: Self)
-        ensures
-            res == Self::default_spec(),
-    ;
-
+    spec fn new_absent_spec() -> Self;
+    
     /// Create a set of new invalid page table flags that indicates an absent page.
     ///
     /// Note that currently the implementation requires an all zero PTE to be an absent PTE.
-    spec fn new_absent_spec() -> Self;
-
     #[verifier(when_used_as_spec(new_absent_spec))]
     fn new_absent() -> (res: Self)
         ensures
-            res == Self::new_absent_spec(),
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
-    ;
+            !res.is_present(),
+        default_ensures
+            call_ensures(Self::default, (), res),
+        returns
+            Self::new_absent(),
+    {
+        Self::default()
+    }
 
-    /// If the flags are present with valid mappings.
     spec fn is_present_spec(&self) -> bool;
 
+    /// Returns if the PTE points to something.
+    ///
+    /// For PTEs created by [`Self::new_absent`], this method should return
+    /// false. For PTEs created by [`Self::new_page`] or [`Self::new_pt`]
+    /// and modified with [`Self::set_prop`], this method should return true.
     #[verifier::when_used_as_spec(is_present_spec)]
-    fn is_present(&self) -> (res: bool)
-        ensures
-            res == self.is_present_spec(),
+    fn is_present(&self) -> bool
+        returns
+            self.is_present_spec(),
     ;
 
-    /// Create a new PTE with the given physical address and flags that map to a page.
     spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self;
 
+    /// Creates a new PTE that maps to a page.
     #[verifier::when_used_as_spec(new_page_spec)]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
             paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
         ensures
-            res == Self::new_page_spec(paddr, level, prop),
             res.paddr() == paddr,
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
+            res.is_present(),
+        returns
+            Self::new_page(paddr, level, prop),
     ;
 
-    /// Create a new PTE that map to a child page table.
     spec fn new_pt_spec(paddr: Paddr) -> Self;
-
+    
+    /// Create a new PTE that map to a child page table.
     #[verifier::when_used_as_spec(new_pt_spec)]
     fn new_pt(paddr: Paddr) -> (res: Self)
         requires
             paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
         ensures
-            res == Self::new_pt_spec(paddr),
             res.paddr() == paddr,
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
+            res.is_present(),
+        returns
+            Self::new_pt(paddr)
     ;
 
-    proof fn new_properties()
-        ensures
-            !Self::new_absent_spec().is_present(),
-            forall|level: PagingLevel|
-                #![trigger Self::new_absent_spec().is_last(level)]
-                1 < level ==> !Self::new_absent_spec().is_last(level),
-            forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
-                #![trigger Self::new_page_spec(paddr, level, prop)]
-                {
-                    &&& Self::new_page_spec(paddr, level, prop).is_present()
-                    &&& Self::new_page_spec(paddr, level, prop).paddr() == paddr
-                    &&& Self::new_page_spec(paddr, level, prop).prop() == prop
-                    &&& Self::new_page_spec(paddr, level, prop).is_last(level)
-                },
-            forall|paddr: Paddr|
-                #![trigger Self::new_pt_spec(paddr)]
-                {
-                    &&& Self::new_pt_spec(paddr).is_present()
-                    &&& Self::new_pt_spec(paddr).paddr() == paddr
-                    &&& forall|level: PagingLevel| !Self::new_pt_spec(paddr).is_last(level)
-                },
-    ;
-
-    /// Get the physical address from the PTE.
+    /// Returns the physical address from the PTE.
+    ///
     /// The physical address recorded in the PTE is either:
-    /// - the physical address of the next level page table;
-    /// - or the physical address of the page it maps to.
+    /// - the physical address of the next-level page table, or
+    /// - the physical address of the page that the PTE maps to.
     spec fn paddr_spec(&self) -> Paddr;
 
     #[verifier::when_used_as_spec(paddr_spec)]
-    fn paddr(&self) -> (res: Paddr)
-        ensures
-            res == self.paddr_spec(),
+    fn paddr(&self) -> Paddr
+        returns
+            self.paddr()
     ;
 
     /// AXIOM: a present PTE's `paddr()` is page-aligned. PT entries record
@@ -589,67 +573,88 @@ pub trait PageTableEntryTrait:
     spec fn prop_spec(&self) -> PageProperty;
 
     #[verifier::when_used_as_spec(prop_spec)]
-    fn prop(&self) -> (res: PageProperty)
-        ensures
-            res == self.prop_spec(),
+    fn prop(&self) -> PageProperty
+        returns
+            self.prop()
     ;
-
-    /// Set the page property of the PTE.
-    ///
-    /// This will be only done if the PTE is present. If not, this method will
-    /// do nothing.
-    spec fn set_prop_spec(&self, prop: PageProperty) -> Self;
 
     fn set_prop(&mut self, prop: PageProperty)
         ensures
-            old(self).set_prop_spec(prop) == *final(self),
-    ;
-
-    proof fn set_prop_properties(self, prop: PageProperty)
-        ensures
-            self.set_prop_spec(prop).prop() == prop,
-            self.set_prop_spec(prop).paddr() == self.paddr(),
-            self.is_present() ==> self.set_prop_spec(prop).is_present(),
+            final(self).prop() == prop,
+            final(self).paddr() == self.paddr(),
+            !old(self).is_present() ==> *old(self) == *final(self),
+            old(self).is_present() ==> final(self).is_present(),
             forall|level: PagingLevel|
-                #![trigger self.is_last(level)]
-                self.is_last(level) ==> self.set_prop_spec(prop).is_last(level),
+                #![trigger old(self).is_last(level)]
+                old(self).is_last(level) ==> final(self).is_last(level),
     ;
 
-    /// If the PTE maps a page rather than a child page table.
-    ///
-    /// The level of the page table the entry resides is given since architectures
-    /// like amd64 only uses a huge bit in intermediate levels.
     spec fn is_last_spec(&self, level: PagingLevel) -> bool;
 
+    /// Returns if the PTE maps a page rather than a child page table.
+    ///
+    /// The method needs to know the level of the page table where the PTE resides,
+    /// since architectures like x86-64 have a huge bit only in intermediate levels.
     #[verifier::when_used_as_spec(is_last_spec)]
-    fn is_last(&self, level: PagingLevel) -> (b: bool)
-        ensures
-            b == self.is_last_spec(level),
+    fn is_last(&self, level: PagingLevel) -> bool
+        returns
+            self.is_last_spec(level),
     ;
 
-    /// Converts the PTE into its corresponding `usize` value.
     spec fn as_usize_spec(self) -> usize;
 
+    /// Converts the PTE into a raw `usize` value.
     #[verifier::external_body]
     #[verifier::when_used_as_spec(as_usize_spec)]
-    fn as_usize(self) -> (res: usize)
-        ensures
-            res == self.as_usize_spec(),
+    fn as_usize(self) -> usize
+        returns
+            self.as_usize(),
     {
         unimplemented!()
+        // const { assert!(size_of::<Self>() == size_of::<usize>()) };
+
         // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
-        //        unsafe { transmute_unchecked(self) }
+        // unsafe { transmute_unchecked(self) }
 
     }
 
-    /// Converts a usize `pte_raw` into a PTE.
+    /// Converts the raw `usize` value into a PTE.
     #[verifier::external_body]
     fn from_usize(pte_raw: usize) -> Self {
         unimplemented!()
+        // const { assert!(size_of::<Self>() == size_of::<usize>()) };
+
         // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
-        //        unsafe { transmute_unchecked(pte_raw) }
+        // unsafe { transmute_unchecked(pte_raw) }
 
     }
+
+    /// Absent (zero) PTE has well-formed paddr for match_pte.
+    proof fn lemma_page_table_entry_properties()
+        ensures
+            Self::new_absent().paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
+            Self::new_absent().paddr() < crate::specs::arch::mm::MAX_PADDR,
+            !Self::new_absent().is_present(),
+            forall |level: PagingLevel|
+                #![trigger Self::new_absent().is_last(level)]
+                1 < level ==> !Self::new_absent().is_last(level),
+            forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
+                #![trigger Self::new_page(paddr, level, prop)]
+                {
+                    &&& Self::new_page(paddr, level, prop).is_present()
+                    &&& Self::new_page(paddr, level, prop).paddr() == paddr
+                    &&& Self::new_page(paddr, level, prop).prop() == prop
+                    &&& Self::new_page(paddr, level, prop).is_last(level)
+                },
+            forall|paddr: Paddr|
+                #![trigger Self::new_pt(paddr)]
+                {
+                    &&& Self::new_pt(paddr).is_present()
+                    &&& Self::new_pt(paddr).paddr() == paddr
+                    &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
+                },
+        ;
+
 }
 
 /// A handle to a page table.

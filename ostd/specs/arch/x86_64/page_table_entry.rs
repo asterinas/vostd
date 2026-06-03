@@ -62,28 +62,7 @@ impl crate::mm::io::PodOnce for PageTableEntry {}
 /// Masks of the physical address.
 pub const PHYS_ADDR_MASK: usize = 0xffff_ffff_ffff_f000;
 
-#[allow(non_snake_case)]
 impl PageTableEntry {
-
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub const fn PROP_MASK() -> (res: usize)
-    {
-        !PHYS_ADDR_MASK & !(PageTableFlags::HUGE().bits())
-    }
-
-    #[verifier::inline]
-    pub open spec fn prop_assign_spec(self, flags: usize) -> Self {
-        Self((self.0 & !Self::PROP_MASK()) | flags as usize)
-    }
-
-    #[inline(always)]
-    pub fn prop_assign(&mut self, flags: usize)
-        ensures final(self).0 == old(self).prop_assign_spec(flags).0
-    {
-        self.0 = (self.0 & !Self::PROP_MASK()) | flags as usize;
-    }
-
     #[vstd::contrib::auto_spec]
     pub fn encode_cache(cache: CachePolicy) -> (res: usize)
     {
@@ -178,21 +157,8 @@ verus! {
 impl PageTableEntryTrait for PageTableEntry {
 
     #[verifier::inline]
-    open spec fn default_spec() -> Self
-    {
-        Self { 0: 0 }
-    }
-
-    #[inline(always)]
-    fn default() -> Self
-        returns Self::default_spec()
-    {
-        Self { 0: 0 }
-    }
-
-    #[verifier::inline]
-    open spec fn new_absent_spec() -> Self {
-        Self::default_spec()
+    closed spec fn new_absent_spec() -> Self {
+        Self(0)
     }
 
     #[inline(always)]
@@ -203,20 +169,19 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[verifier::inline]
-    open spec fn as_usize_spec(self) -> usize {
-        self.0 as usize
+    closed spec fn as_usize_spec(self) -> usize {
+        self.0
     }
 
     #[inline(always)]
     fn as_usize(self) -> usize
-        returns self.as_usize_spec()
     {
-        self.0 as usize
+        self.0
     }
 
     #[verifier::inline]
     open spec fn is_present_spec(&self) -> bool {
-        self.0 & PageTableFlags::PRESENT().bits() != 0
+        self.as_usize() & PageTableFlags::PRESENT().bits() != 0
     }
 
     #[inline(always)]

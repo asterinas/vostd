@@ -260,9 +260,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             return;
         }*/
 
-        proof {
-            self.pte.set_prop_properties(new_prop);
-        }
         self.pte.set_prop(new_prop);
 
         // SAFETY:

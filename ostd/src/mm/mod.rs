@@ -21,7 +21,7 @@ pub mod frame;
 //pub mod heap;
 pub mod io;
 pub use io::{
-    Fallible, FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmIoOnce, VmReader, VmWriter,
+    Fallible, FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoOnce, VmReader, VmWriter,
 };
 pub mod kspace;
 pub(crate) mod page_prop;
