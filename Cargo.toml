@@ -3,6 +3,7 @@ members = [
     "verified_bitflags",
     "vstd_extra",
     "ostd",
+    "ostd-pod",
     "ostd/libs/align_ext",
 #    "ostd/libs/ostd-macros",
 #    "ostd/libs/ostd-test",
