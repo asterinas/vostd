@@ -35,6 +35,7 @@ pub mod prelude;
 pub mod raw_ptr_extra;
 pub mod seq_extra;
 pub mod set_extra;
+pub mod spec_operators;
 pub mod state_machine;
 pub mod sum;
 pub mod temporal_logic;
