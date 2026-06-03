@@ -518,10 +518,10 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(new_page_spec)]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
-            paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
         ensures
-            res.paddr() == paddr,
+            res.paddr() == paddr & !(PAGE_SIZE - 1),
+            paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             res.is_present(),
@@ -535,10 +535,10 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(new_pt_spec)]
     fn new_pt(paddr: Paddr) -> (res: Self)
         requires
-            paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
         ensures
-            res.paddr() == paddr,
+            res.paddr() == paddr & !(PAGE_SIZE - 1),
+            paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             res.is_present(),
@@ -633,7 +633,8 @@ pub trait PageTableEntryTrait:
                 #![trigger Self::new_page(paddr, level, prop)]
                 {
                     &&& Self::new_page(paddr, level, prop).is_present()
-                    &&& Self::new_page(paddr, level, prop).paddr() == paddr
+                    &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr & !(PAGE_SIZE - 1))
+                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(paddr, level, prop).paddr() == paddr)
                     &&& Self::new_page(paddr, level, prop).prop() == prop
                     &&& Self::new_page(paddr, level, prop).is_last(level)
                 },
@@ -641,7 +642,8 @@ pub trait PageTableEntryTrait:
                 #![trigger Self::new_pt(paddr)]
                 {
                     &&& Self::new_pt(paddr).is_present()
-                    &&& Self::new_pt(paddr).paddr() == paddr
+                    &&& (paddr < MAX_PADDR ==> Self::new_pt(paddr).paddr() == paddr & !(PAGE_SIZE - 1))
+                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr() == paddr)
                     &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
                 },
         ;
