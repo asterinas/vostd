@@ -22,12 +22,12 @@ use vstd::set_lib;
 use core::marker::PhantomData;
 use core::ops::Range;
 
+use crate::Pod;
 use crate::mm::{Paddr, Vaddr, io::PodOnce};
 use crate::prelude::Inv;
 use crate::specs::arch::mm::MAX_PADDR;
-use crate::Pod;
 use crate::specs::mm::page_table::Mapping;
-use ostd_pod::{pod_bytes, decode_pod, lemma_decode_pod_inverse};
+use ostd_pod::{decode_pod, lemma_decode_pod_inverse, pod_bytes};
 
 verus! {
 

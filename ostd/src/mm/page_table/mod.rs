@@ -17,9 +17,9 @@ use core::{
 use crate::mm::frame::meta::MetaSlot;
 
 use super::{
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, io::PodOnce, kspace::KernelPtConfig,
     lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge, page_prop::PageProperty,
-    vm_space::UserPtConfig, io::PodOnce
+    vm_space::UserPtConfig,
 };
 
 use crate::Pod;

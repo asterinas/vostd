@@ -12,8 +12,8 @@ use crate::{
         dma::{Daddr, DmaType, dma_type},
         frame::{Segment, untyped::AnyUFrameMeta},
         io::{
-            FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmIoMemView, VmIoOnce, VmIoOwner,
-            VmReader, VmWriter, axiom_kernel_mem_view, PodOnce,
+            FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoMemView, VmIoOnce,
+            VmIoOwner, VmReader, VmWriter, axiom_kernel_mem_view,
         },
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr,

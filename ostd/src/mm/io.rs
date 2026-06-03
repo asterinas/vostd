@@ -2030,7 +2030,6 @@ impl<'a> VmReader<'a, Infallible> {
 }
 
 } // verus!
-
 /// Fallible memory read from a `VmWriter`.
 pub trait FallibleVmRead<F> {
     fn read_fallible(
@@ -2158,14 +2157,16 @@ impl_write_fallible!(Fallible, Infallible);
 impl_write_fallible!(Fallible, Fallible);
 impl_write_fallible!(Infallible, Fallible);
 
-verus!{
+verus! {
 
 /// A marker trait for POD types that can be read or written with one instruction.
 ///
 /// This trait is mostly a hint, since it's safe and can be implemented for _any_ POD type. If it
 /// is implemented for a type that cannot be read or written with a single instruction, calling
 /// `read_once`/`write_once` will lead to a failed compile-time assertion.
-pub trait PodOnce: Pod {}
+pub trait PodOnce: Pod {
+
+}
 
 #[cfg(any(
     target_arch = "x86_64",
@@ -2175,16 +2176,45 @@ pub trait PodOnce: Pod {}
 mod pod_once_impls {
     use super::PodOnce;
 
-    impl PodOnce for u8 {}
-    impl PodOnce for u16 {}
-    impl PodOnce for u32 {}
-    impl PodOnce for u64 {}
-    impl PodOnce for usize {}
-    impl PodOnce for i8 {}
-    impl PodOnce for i16 {}
-    impl PodOnce for i32 {}
-    impl PodOnce for i64 {}
-    impl PodOnce for isize {}
+    impl PodOnce for u8 {
+
+    }
+
+    impl PodOnce for u16 {
+
+    }
+
+    impl PodOnce for u32 {
+
+    }
+
+    impl PodOnce for u64 {
+
+    }
+
+    impl PodOnce for usize {
+
+    }
+
+    impl PodOnce for i8 {
+
+    }
+
+    impl PodOnce for i16 {
+
+    }
+
+    impl PodOnce for i32 {
+
+    }
+
+    impl PodOnce for i64 {
+
+    }
+
+    impl PodOnce for isize {
+
+    }
 
     /// Checks whether the memory operation created by `ptr::read_volatile` and
     /// `ptr::write_volatile` doesn't tear.
@@ -2197,6 +2227,7 @@ mod pod_once_impls {
 
         size == 1 || size == 2 || size == 4 || size == 8
     }
-}
 
 }
+
+} // verus!
