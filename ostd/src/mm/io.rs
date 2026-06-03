@@ -49,9 +49,9 @@ use vstd_extra::assert;
 use vstd_extra::ownership::Inv;
 use vstd_extra::panic::may_panic;
 
+use crate::Pod;
 use crate::error::*;
 use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
-use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::MAX_USERSPACE_VADDR;
 pub use crate::specs::mm::io::{
     VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
@@ -993,7 +993,7 @@ impl<'a> VmReader<'a, Infallible> {
                     &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
                     &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
-                    &&& crate::mm::pod::pod_bytes::<T>(v)
+                    &&& ostd_pod::pod_bytes::<T>(v)
                         == crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner))
                             .read_bytes(old(self).cursor.vaddr, core::mem::size_of::<T>())
                     &&& forall|va: usize|
@@ -2030,32 +2030,6 @@ impl<'a> VmReader<'a, Infallible> {
 }
 
 } // verus!
-mod pod_once_impls {
-    use super::PodOnce;
-
-    impl PodOnce for u8 {}
-    impl PodOnce for u16 {}
-    impl PodOnce for u32 {}
-    impl PodOnce for u64 {}
-    impl PodOnce for usize {}
-    impl PodOnce for i8 {}
-    impl PodOnce for i16 {}
-    impl PodOnce for i32 {}
-    impl PodOnce for i64 {}
-    impl PodOnce for isize {}
-
-    /// Checks whether the memory operation created by `ptr::read_volatile` and
-    /// `ptr::write_volatile` doesn't tear.
-    ///
-    /// Note that the Rust documentation makes no such guarantee, and even the wording in the LLVM
-    /// LangRef is ambiguous. But this is unlikely to break in practice because the Linux kernel
-    /// also uses "volatile" semantics to implement `READ_ONCE`/`WRITE_ONCE`.
-    pub(super) const fn is_non_tearing<T>() -> bool {
-        let size = core::mem::size_of::<T>();
-
-        size == 1 || size == 2 || size == 4 || size == 8
-    }
-}
 
 /// Fallible memory read from a `VmWriter`.
 pub trait FallibleVmRead<F> {
@@ -2183,3 +2157,46 @@ impl_read_fallible!(Infallible, Fallible);
 impl_write_fallible!(Fallible, Infallible);
 impl_write_fallible!(Fallible, Fallible);
 impl_write_fallible!(Infallible, Fallible);
+
+verus!{
+
+/// A marker trait for POD types that can be read or written with one instruction.
+///
+/// This trait is mostly a hint, since it's safe and can be implemented for _any_ POD type. If it
+/// is implemented for a type that cannot be read or written with a single instruction, calling
+/// `read_once`/`write_once` will lead to a failed compile-time assertion.
+pub trait PodOnce: Pod {}
+
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
+mod pod_once_impls {
+    use super::PodOnce;
+
+    impl PodOnce for u8 {}
+    impl PodOnce for u16 {}
+    impl PodOnce for u32 {}
+    impl PodOnce for u64 {}
+    impl PodOnce for usize {}
+    impl PodOnce for i8 {}
+    impl PodOnce for i16 {}
+    impl PodOnce for i32 {}
+    impl PodOnce for i64 {}
+    impl PodOnce for isize {}
+
+    /// Checks whether the memory operation created by `ptr::read_volatile` and
+    /// `ptr::write_volatile` doesn't tear.
+    ///
+    /// Note that the Rust documentation makes no such guarantee, and even the wording in the LLVM
+    /// LangRef is ambiguous. But this is unlikely to break in practice because the Linux kernel
+    /// also uses "volatile" semantics to implement `READ_ONCE`/`WRITE_ONCE`.
+    pub(super) const fn is_non_tearing<T>() -> bool {
+        let size = core::mem::size_of::<T>();
+
+        size == 1 || size == 2 || size == 4 || size == 8
+    }
+}
+
+}

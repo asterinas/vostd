@@ -325,7 +325,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             reader.read_once::<C::E>();
             let pte = pte.unwrap();
             proof {
-                crate::mm::pod::lemma_decode_pod_inverse::<C::E>(pte);
+                ostd_pod::lemma_decode_pod_inverse::<C::E>(pte);
                 assert(pte == Self::walk_pte_at_view(initial_view, cursor_pre_read));
                 vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
                 vstd::arithmetic::mul::lemma_mul_nonnegative(iter_count as int, size_of_e);
@@ -911,7 +911,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// `pod_bytes(v) == read_view.read_bytes(...)` (strengthened ensures)
     /// + [`lemma_decode_pod_inverse`].
     pub open spec fn walk_pte_at_view(view: crate::specs::mm::virt_mem::MemView, c: usize) -> C::E {
-        crate::mm::pod::decode_pod::<C::E>(view.read_bytes(c, core::mem::size_of::<C::E>()))
+        ostd_pod::decode_pod::<C::E>(view.read_bytes(c, core::mem::size_of::<C::E>()))
     }
 
     /// Single-cursor projection of [`walk_coverage_from_view`]. Extracting

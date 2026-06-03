@@ -13,7 +13,7 @@ use crate::{
         frame::{Segment, untyped::AnyUFrameMeta},
         io::{
             FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmIoMemView, VmIoOnce, VmIoOwner,
-            VmReader, VmWriter, axiom_kernel_mem_view,
+            VmReader, VmWriter, axiom_kernel_mem_view, PodOnce,
         },
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
         paddr_to_vaddr,
@@ -24,7 +24,6 @@ use crate::{
             kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
         },
         mm::frame::segment::SegmentOwner,
-        mm::pod::PodOnce,
         mm::virt_mem::VirtPtr,
     },
     sync::{AtomicDataWithOwner, PreemptDisabled, RwArc, RwLockReadGuard},

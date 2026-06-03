@@ -284,6 +284,7 @@ dependencies = [
  "minicov",
  "multiboot2",
  "num-traits",
+ "ostd-pod",
  "riscv",
  "sbi-rt",
  "smallvec",
@@ -296,6 +297,14 @@ dependencies = [
  "vstd_extra",
  "x86",
  "x86_64",
+]
+
+[[package]]
+name = "ostd-pod"
+version = "0.1.1"
+dependencies = [
+ "vstd",
+ "vstd_extra",
 ]
 
 [[package]]

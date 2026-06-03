@@ -58,9 +58,9 @@ pub struct PageTableEntry(pub usize);
 
 global layout PageTableEntry is size == 8, align == 8;
 
-impl crate::specs::mm::pod::Pod for PageTableEntry {}
+unsafe impl crate::Pod for PageTableEntry {}
 
-impl crate::specs::mm::pod::PodOnce for PageTableEntry {}
+impl crate::mm::io::PodOnce for PageTableEntry {}
 
 /// Masks of the physical address.
 pub const PHYS_ADDR_MASK: usize = 0xffff_ffff_ffff_f000;
