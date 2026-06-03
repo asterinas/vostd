@@ -298,14 +298,12 @@ impl PageTableEntryTrait for PageTableEntry {
         self.0
     }
 
-    proof fn absent_pte_paddr_ok() {}
-
-    proof fn new_properties()
+    proof fn lemma_page_table_entry_properties()
     {
         admit();
     }
 
-    proof fn axiom_present_paddr_aligned(&self)
+    proof fn lemma_paddr_is_page_aligned(self)
     {
         admit();
     }

@@ -75,7 +75,7 @@ impl<C: PageTableConfig> Child<C> {
             ),
     {
         proof {
-            C::E::new_properties();
+            C::E::lemma_page_table_entry_properties();
         }
 
         match self {

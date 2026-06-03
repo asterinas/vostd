@@ -554,20 +554,11 @@ pub trait PageTableEntryTrait:
     spec fn paddr_spec(&self) -> Paddr;
 
     #[verifier::when_used_as_spec(paddr_spec)]
-    fn paddr(&self) -> Paddr
+    fn paddr(&self) -> (res: Paddr)
+        ensures
+            res % crate::specs::arch::mm::PAGE_SIZE == 0,
         returns
             self.paddr()
-    ;
-
-    /// AXIOM: a present PTE's `paddr()` is page-aligned. PT entries record
-    /// the base address of either a child PT page or a mapped frame; both
-    /// are page-aligned by construction. Used by `PageTablePageMeta::on_drop`
-    /// to combine `lemma_frame_to_index_injective` with walk uniqueness.
-    proof fn axiom_present_paddr_aligned(&self)
-        requires
-            self.is_present(),
-        ensures
-            self.paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
     ;
 
     spec fn prop_spec(&self) -> PageProperty;
@@ -654,6 +645,11 @@ pub trait PageTableEntryTrait:
                     &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
                 },
         ;
+
+        proof fn lemma_paddr_is_page_aligned(self)
+            ensures
+                self.paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
+            ;
 
 }
 
