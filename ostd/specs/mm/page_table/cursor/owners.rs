@@ -1654,9 +1654,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ///
     /// **KernelPtConfig**: `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`, but
     /// `LOCKED_END_BOUND_spec() == FRAME_METADATA_BASE_VADDR + PAGE_SIZE ==
-    /// 0xffff_fff0_0000_1000`. Combined with `leading_bits == 0xFFFF`, the
+    /// 0xffff_e000_0000_1000`. Combined with `leading_bits == 0xFFFF`, the
     /// cursor inv `locked_range().end <= LOCKED_END_BOUND_spec()` forces
-    /// `prefix.index[NR_LEVELS - 1] + 1 <= 0x1fe < NR_ENTRIES`. The full
+    /// `prefix.index[NR_LEVELS - 1] + 1 <= 0x1c0 < NR_ENTRIES`. The full
     /// arithmetic chain through `align_up` is encapsulated in this lemma.
     pub proof fn cursor_top_idx_strict_lt_nr_entries(self)
         requires
