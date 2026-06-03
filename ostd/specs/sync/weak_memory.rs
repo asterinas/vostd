@@ -10,6 +10,10 @@
 //! fication history, subject to coherence. In particular, relaxed reads may ob-
 //! serve stale writes, but a thread’s view prevents it from going backwards,
 //! and reads do not observe future writes that have not been added to the history.
+//!
+//! # References
+//!
+//! - [RCU Verification](https://dl.acm.org/doi/pdf/10.1145/3729246)
 use core::sync::atomic::{
     AtomicBool, AtomicI16, AtomicI32, AtomicI8, AtomicIsize, AtomicPtr, AtomicU16, AtomicU32,
     AtomicU8, AtomicUsize, Ordering,
@@ -26,6 +30,16 @@ use vstd::seq::Seq;
 
 verus! {
 
+// The "global" memory is defined wihtin the invariant we need to preserve and,
+// by the definition of Iris operations, invariant can be opened by a thread
+// provided that the invariant holds and it can close afterwards provided that
+// the invariant holds as well.
+//
+// Thanks to Verus' native support for the semantics, we only need to define
+// what means for `atomic` and we can freely open the invariant and provide
+// customized macros for doing ergonomic updates on both the physical resources
+// and the ghost tokens like message histories, views, etc.
+/// An `AtomicId` is just an abstract identifier (memory location) of one atomic object.
 pub type AtomicId = Loc;
 
 /// Logical timestamp into one atomic object's message history.
@@ -36,11 +50,16 @@ pub type Timestamp = nat;
 ///
 /// `seen[id] = ts` means this thread has advanced past all messages for `id`
 /// older than `ts`; future reads from that atomic must not go backwards.
+///
+/// Typically, if another thread has published a message with timestamp `ts` for `id`,
+/// and the reader reads the message via some atomic operations, then the reader's
+/// thread view will advance to at least `ts` for `id`.
 pub ghost struct WmView {
     pub seen: Map<AtomicId, Timestamp>,
 }
 
 impl WmView {
+    /// Creates an empty view.
     pub open spec fn empty() -> Self {
         WmView { seen: Map::empty() }
     }
@@ -55,6 +74,14 @@ impl WmView {
     }
 
     /// Monotonically advance the view for one atomic object.
+    ///
+    /// Just as the name indicates, `observe` means that the current thread has observed
+    /// a message written by another thread with a specific timestamp; because the atomic
+    /// operation never "goes back", the thread's view for that atomic must advance to at
+    /// least that timestamp.
+    ///
+    /// "During a read from `l`, a thread can observe any message `m` from `M(l)` where
+    /// `m.time >= V(l)`, and updates its view to incorporate `m.time`."
     pub open spec fn observe(self, id: AtomicId, ts: Timestamp) -> Self {
         WmView {
             seen: self.seen.insert(
@@ -86,6 +113,7 @@ impl WmView {
         }
     }
 
+    /// Partial ordering two threads' views.
     pub open spec fn le(self, other: Self) -> bool {
         forall|id: AtomicId| #[trigger] self.seen_at(id) <= other.seen_at(id)
     }

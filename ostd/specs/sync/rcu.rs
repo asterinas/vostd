@@ -1,0 +1,439 @@
+//! Specification skeleton for RCU traversal safety.
+//!
+//! This module models the shape of the traversal specification from the RCU
+//! relaxed-memory paper:
+//!
+//! - the base layer provides read-side guards, protected pointers, and retire
+//!   permissions;
+//! - the traversal layer reasons about link histories (`RcuPointsTo`) and
+//!   incoming-link histories (`RcuPointedBy`);
+//! - concrete data structures instantiate the traversal trait.
+//!
+//! The module is intentionally proof-only for now. The executable RCU
+//! implementation should later connect its real guard/token state to these
+//! abstract ghost tokens.
+use vstd::prelude::*;
+use vstd::resource::Loc;
+
+verus! {
+
+pub type LinkIndex = nat;
+
+pub type LinkEdge<T> = (*mut T, LinkIndex);
+
+/// Link view carried by an RCU read-side guard.
+///
+/// `seen_at(p) = n` means the guard has observed link-history events for source
+/// node `p` up to at least `n`. Following a loaded link at index `k` is allowed
+/// only when `seen_at(p) <= k`; otherwise the pointer may be too stale.
+#[verifier::reject_recursive_types(T)]
+pub ghost struct RcuLinkView<T> {
+    pub seen: Map<*mut T, LinkIndex>,
+}
+
+impl<T> RcuLinkView<T> {
+    pub open spec fn empty() -> Self {
+        RcuLinkView { seen: Map::empty() }
+    }
+
+    pub open spec fn seen_at(self, p: *mut T) -> LinkIndex {
+        if self.seen.contains_key(p) {
+            self.seen[p]
+        } else {
+            0nat
+        }
+    }
+
+    pub open spec fn observe(self, p: *mut T, n: LinkIndex) -> Self {
+        RcuLinkView {
+            seen: self.seen.insert(
+                p,
+                if self.seen_at(p) <= n {
+                    n
+                } else {
+                    self.seen_at(p)
+                },
+            ),
+        }
+    }
+}
+
+/// Paper-style `SeenRemoved(D, LV)`.
+///
+/// `removed` is the set `D` observed by the guard; `link_view` is `LV`.
+/// A dead incoming edge is either from a removed predecessor or overwritten by a
+/// later observed link event.
+#[verifier::reject_recursive_types(T)]
+pub ghost struct RcuSeenRemoved<T> {
+    pub removed: Set<*mut T>,
+    pub link_view: RcuLinkView<T>,
+}
+
+impl<T> RcuSeenRemoved<T> {
+    pub open spec fn empty() -> Self {
+        RcuSeenRemoved { removed: Set::empty(), link_view: RcuLinkView::empty() }
+    }
+
+    pub open spec fn seen_at(self, p: *mut T) -> LinkIndex {
+        self.link_view.seen_at(p)
+    }
+
+    pub open spec fn dead_edge(self, edge: LinkEdge<T>) -> bool {
+        self.removed.contains(edge.0) || self.seen_at(edge.0) > edge.1
+    }
+}
+
+/// Authoritative ghost handle for one RCU protection domain.
+///
+/// The concrete implementation owns this token in its invariant. We keep the
+/// fields private so clients cannot manufacture domain authority.
+pub tracked struct RcuDomainAuth {
+    ghost id: Loc,
+}
+
+impl RcuDomainAuth {
+    pub closed spec fn id(self) -> Loc {
+        self.id
+    }
+}
+
+/// Low-level base retire permission.
+///
+/// This is the paper's `BaseRetirePerm`. By itself it is not enough to reclaim;
+/// it must be combined with a `SeenRemoved` observation for the retired object.
+#[verifier::reject_recursive_types(T)]
+pub tracked struct RcuBaseRetirePerm<T> {
+    ghost domain: Loc,
+    ghost ptr: *mut T,
+}
+
+impl<T> RcuBaseRetirePerm<T> {
+    pub closed spec fn domain(self) -> Loc {
+        self.domain
+    }
+
+    pub closed spec fn ptr(self) -> *mut T {
+        self.ptr
+    }
+}
+
+/// High-level retire permission.
+///
+/// This corresponds to `RetirePerm(l, a) = BaseRetirePerm(l, a) *
+/// exists D LV. SeenRemoved(D, LV) * a in D`.
+#[verifier::reject_recursive_types(T)]
+pub tracked struct RcuRetirePerm<T> {
+    ghost domain: Loc,
+    ghost ptr: *mut T,
+    ghost seen_removed: RcuSeenRemoved<T>,
+}
+
+impl<T> RcuRetirePerm<T> {
+    pub closed spec fn domain(self) -> Loc {
+        self.domain
+    }
+
+    pub closed spec fn ptr(self) -> *mut T {
+        self.ptr
+    }
+
+    pub closed spec fn seen_removed(self) -> RcuSeenRemoved<T> {
+        self.seen_removed
+    }
+
+    pub open spec fn ready_to_reclaim(self) -> bool {
+        self.seen_removed().removed.contains(self.ptr())
+    }
+}
+
+/// Lift a base retire permission once the caller has observed the object in the
+/// removed set.
+pub proof fn lift_retire_perm<T>(
+    tracked base: RcuBaseRetirePerm<T>,
+    seen_removed: RcuSeenRemoved<T>,
+) -> (tracked perm: RcuRetirePerm<T>)
+    requires
+        seen_removed.removed.contains(base.ptr()),
+    ensures
+        perm.domain() == base.domain(),
+        perm.ptr() == base.ptr(),
+        perm.seen_removed() == seen_removed,
+        perm.ready_to_reclaim(),
+{
+    RcuRetirePerm { domain: base.domain(), ptr: base.ptr(), seen_removed }
+}
+
+/// Read-side guard token for one critical section.
+///
+/// This is the traversal-level guard: it includes the base guard protection and
+/// the `SeenRemoved(D, LV)` observation used to rule out stale links.
+#[verifier::reject_recursive_types(T)]
+pub tracked struct RcuReadGuardToken<T> {
+    ghost domain: Loc,
+    ghost seen_removed: RcuSeenRemoved<T>,
+}
+
+impl<T> RcuReadGuardToken<T> {
+    pub closed spec fn domain(self) -> Loc {
+        self.domain
+    }
+
+    pub closed spec fn seen_removed(self) -> RcuSeenRemoved<T> {
+        self.seen_removed
+    }
+
+    pub closed spec fn link_view(self) -> RcuLinkView<T> {
+        self.seen_removed().link_view
+    }
+
+    pub open spec fn seen_at(self, p: *mut T) -> LinkIndex {
+        self.seen_removed().seen_at(p)
+    }
+
+    pub open spec fn is_for(self, domain: RcuDomainAuth) -> bool {
+        self.domain() == domain.id()
+    }
+
+    pub open spec fn can_protect(self, p: *mut T) -> bool {
+        !self.seen_removed().removed.contains(p)
+    }
+}
+
+/// A pointer protected by a live read-side guard.
+///
+/// It records the same `SeenRemoved` snapshot as the guard. This lets traversal
+/// proofs preserve the fact that the protected pointer is not in the guard's
+/// removed set.
+#[verifier::reject_recursive_types(T)]
+pub tracked struct RcuProtectedPtr<T> {
+    ghost domain: Loc,
+    ghost ptr: *mut T,
+    ghost seen_removed: RcuSeenRemoved<T>,
+}
+
+impl<T> RcuProtectedPtr<T> {
+    pub closed spec fn domain(self) -> Loc {
+        self.domain
+    }
+
+    pub closed spec fn ptr(self) -> *mut T {
+        self.ptr
+    }
+
+    pub closed spec fn seen_removed(self) -> RcuSeenRemoved<T> {
+        self.seen_removed
+    }
+
+    pub open spec fn protected_by(self, guard: RcuReadGuardToken<T>) -> bool {
+        &&& self.domain() == guard.domain()
+        &&& self.seen_removed() == guard.seen_removed()
+        &&& !self.seen_removed().removed.contains(self.ptr())
+    }
+}
+
+/// Traversal specification for an RCU-protected data structure.
+///
+/// `link_inv(from, n, to, g)` is the client-facing analogue of a
+/// `RcuPointsTo(from, ...)` snapshot containing the `n`th link event from
+/// `from` to `to`. `seen_removed_sound` is the client-facing analogue of the
+/// `RcuPointedBy`/`SeenRemoved` invariant for partially ordered link histories.
+pub trait RcuTraversalSafety: Sized {
+    type Node;
+
+    type Ghost;
+
+    spec fn root_inv(p: *mut Self::Node, g: Self::Ghost) -> bool;
+
+    spec fn node_inv(p: *mut Self::Node, g: Self::Ghost) -> bool;
+
+    spec fn link_inv(
+        from: *mut Self::Node,
+        n: LinkIndex,
+        to: *mut Self::Node,
+        g: Self::Ghost,
+    ) -> bool;
+
+    spec fn seen_removed_sound(seen_removed: RcuSeenRemoved<Self::Node>, g: Self::Ghost) -> bool;
+
+    proof fn root_is_node_inv(p: *mut Self::Node, g: Self::Ghost)
+        requires
+            Self::root_inv(p, g),
+        ensures
+            Self::node_inv(p, g),
+    ;
+
+    proof fn link_preserves_protection(
+        from: *mut Self::Node,
+        n: LinkIndex,
+        to: *mut Self::Node,
+        seen_removed: RcuSeenRemoved<Self::Node>,
+        g: Self::Ghost,
+    )
+        requires
+            Self::node_inv(from, g),
+            Self::link_inv(from, n, to, g),
+            Self::seen_removed_sound(seen_removed, g),
+            !seen_removed.removed.contains(from),
+            seen_removed.seen_at(from) <= n,
+        ensures
+            Self::node_inv(to, g),
+            !seen_removed.removed.contains(to),
+    ;
+}
+
+/// Protect a freshly acquired root pointer.
+pub proof fn protect_root<S: RcuTraversalSafety>(
+    tracked domain: &RcuDomainAuth,
+    tracked guard: &RcuReadGuardToken<S::Node>,
+    p: *mut S::Node,
+    g: S::Ghost,
+) -> (tracked root: RcuProtectedPtr<S::Node>)
+    requires
+        guard.is_for(*domain),
+        guard.can_protect(p),
+        S::root_inv(p, g),
+    ensures
+        root.ptr() == p,
+        root.domain() == domain.id(),
+        root.protected_by(*guard),
+        S::node_inv(p, g),
+{
+    S::root_is_node_inv(p, g);
+    RcuProtectedPtr { domain: domain.id(), ptr: p, seen_removed: guard.seen_removed() }
+}
+
+/// Protect a child reached by following a non-stale link-history event.
+pub proof fn protect_link<S: RcuTraversalSafety>(
+    tracked guard: &RcuReadGuardToken<S::Node>,
+    tracked from: &RcuProtectedPtr<S::Node>,
+    n: LinkIndex,
+    to: *mut S::Node,
+    g: S::Ghost,
+) -> (tracked to_protected: RcuProtectedPtr<S::Node>)
+    requires
+        from.protected_by(*guard),
+        S::node_inv(from.ptr(), g),
+        S::link_inv(from.ptr(), n, to, g),
+        S::seen_removed_sound(guard.seen_removed(), g),
+        guard.seen_at(from.ptr()) <= n,
+    ensures
+        to_protected.ptr() == to,
+        to_protected.domain() == from.domain(),
+        to_protected.protected_by(*guard),
+        S::node_inv(to, g),
+{
+    S::link_preserves_protection(from.ptr(), n, to, guard.seen_removed(), g);
+    RcuProtectedPtr { domain: from.domain(), ptr: to, seen_removed: guard.seen_removed() }
+}
+
+/// Minimal ghost-only node used to demonstrate the traversal contract.
+pub struct LinkedListNode;
+
+/// Paper-style ghost state for a linked list.
+///
+/// `successors[p]` is the successor history for `p`, corresponding to
+/// `RcuPointsTo(p, s)`.
+///
+/// `incoming_all[p]` is the set of all incoming edges that have ever pointed to
+/// `p`, corresponding to the authoritative incoming set in `RcuPointedBy(p, B)`.
+///
+/// `current_incoming[p]` is the current incoming set `B`. It is not required for
+/// the simple one-step traversal proof below, but keeping it in the ghost state
+/// makes the example match the paper's predicate shape.
+pub ghost struct LinkedListGhost {
+    pub root: *mut LinkedListNode,
+    pub successors: Map<*mut LinkedListNode, Seq<Option<*mut LinkedListNode>>>,
+    pub incoming_all: Map<*mut LinkedListNode, Set<LinkEdge<LinkedListNode>>>,
+    pub current_incoming: Map<*mut LinkedListNode, Set<LinkEdge<LinkedListNode>>>,
+}
+
+pub struct LinkedListTraversalSpec;
+
+impl RcuTraversalSafety for LinkedListTraversalSpec {
+    type Node = LinkedListNode;
+
+    type Ghost = LinkedListGhost;
+
+    open spec fn root_inv(p: *mut LinkedListNode, g: LinkedListGhost) -> bool {
+        &&& p == g.root
+        &&& g.successors.contains_key(p)
+        &&& g.incoming_all.contains_key(p)
+    }
+
+    open spec fn node_inv(p: *mut LinkedListNode, g: LinkedListGhost) -> bool {
+        &&& g.successors.contains_key(p)
+        &&& g.incoming_all.contains_key(p)
+    }
+
+    open spec fn link_inv(
+        from: *mut LinkedListNode,
+        n: LinkIndex,
+        to: *mut LinkedListNode,
+        g: LinkedListGhost,
+    ) -> bool {
+        &&& g.successors.contains_key(from)
+        &&& n < g.successors[from].len()
+        &&& g.successors[from][n as int] == Some(to)
+        &&& g.successors.contains_key(to)
+        &&& g.incoming_all.contains_key(to)
+        &&& g.incoming_all[to].contains((from, n))
+    }
+
+    open spec fn seen_removed_sound(
+        seen_removed: RcuSeenRemoved<LinkedListNode>,
+        g: LinkedListGhost,
+    ) -> bool {
+        forall|to: *mut LinkedListNode| #[trigger]
+            seen_removed.removed.contains(to) ==> {
+                &&& g.incoming_all.contains_key(to)
+                &&& forall|edge: LinkEdge<LinkedListNode>| #[trigger]
+                    g.incoming_all[to].contains(edge) ==> seen_removed.dead_edge(edge)
+            }
+    }
+
+    proof fn root_is_node_inv(p: *mut LinkedListNode, g: LinkedListGhost) {
+    }
+
+    proof fn link_preserves_protection(
+        from: *mut LinkedListNode,
+        n: LinkIndex,
+        to: *mut LinkedListNode,
+        seen_removed: RcuSeenRemoved<LinkedListNode>,
+        g: LinkedListGhost,
+    ) {
+        if seen_removed.removed.contains(to) {
+            assert(g.incoming_all[to].contains((from, n)));
+            assert(seen_removed.dead_edge((from, n)));
+            assert(false);
+        }
+    }
+}
+
+/// Example: after protecting the root, following a non-stale successor-history
+/// event protects the next node under the same guard.
+pub proof fn linked_list_protect_next_example(
+    tracked domain: &RcuDomainAuth,
+    tracked guard: &RcuReadGuardToken<LinkedListNode>,
+    root: *mut LinkedListNode,
+    n: LinkIndex,
+    next: *mut LinkedListNode,
+    g: LinkedListGhost,
+) -> (tracked next_protected: RcuProtectedPtr<LinkedListNode>)
+    requires
+        guard.is_for(*domain),
+        guard.can_protect(root),
+        LinkedListTraversalSpec::root_inv(root, g),
+        LinkedListTraversalSpec::link_inv(root, n, next, g),
+        LinkedListTraversalSpec::seen_removed_sound(guard.seen_removed(), g),
+        guard.seen_at(root) <= n,
+    ensures
+        next_protected.ptr() == next,
+        next_protected.domain() == domain.id(),
+        next_protected.protected_by(*guard),
+        LinkedListTraversalSpec::node_inv(next, g),
+{
+    let tracked root_protected = protect_root::<LinkedListTraversalSpec>(domain, guard, root, g);
+    protect_link::<LinkedListTraversalSpec>(guard, &root_protected, n, next, g)
+}
+
+} // verus!
