@@ -22,10 +22,9 @@ use vstd_extra::ownership::*;
 use vstd_extra::panic::{may_panic, panic_diverge};
 use vstd_extra::prelude::*;
 
-pub mod mapping;
-
 use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
+pub use crate::specs::mm::frame::mapping;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
