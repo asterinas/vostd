@@ -39,7 +39,7 @@ use vstd::simple_pptr::PointsTo;
 
 //use log::info;
 use crate::sync::{OnceImpl, TrivialPred};
-pub mod kvirt_area;
+pub(crate) mod kvirt_area;
 #[cfg(ktest)]
 mod test;
 
@@ -96,13 +96,13 @@ pub fn kernel_loaded_offset() -> usize {
 }*/
 
 #[cfg(target_arch = "x86_64")]
-pub const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_8000_0000 << ADDR_WIDTH_SHIFT;
+const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_8000_0000 << ADDR_WIDTH_SHIFT;
 
 #[cfg(target_arch = "riscv64")]
-pub const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_0000_0000 << ADDR_WIDTH_SHIFT;
+const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_0000_0000 << ADDR_WIDTH_SHIFT;
 
 #[cfg(target_arch = "loongarch64")]
-pub const KERNEL_CODE_BASE_VADDR: usize = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
+const KERNEL_CODE_BASE_VADDR: usize = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
 
 pub const FRAME_METADATA_CAP_VADDR: Vaddr = 0xffff_e100_0000_0000 << ADDR_WIDTH_SHIFT;
 
