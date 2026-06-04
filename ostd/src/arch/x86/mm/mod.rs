@@ -3,6 +3,9 @@
 
 use vstd::prelude::*;
 use vstd::vpanic;
+use vstd_extra::panic::may_panic;
+use vstd_extra::panic::panic_diverge;
+use crate::specs::arch::MAX_PADDR;
 use vstd_extra::prelude::*;
 
 use alloc::fmt;
@@ -12,6 +15,7 @@ use core::ops::Range;
 pub(crate) use util::{__memcpy_fallible, __memset_fallible};
 //use x86_64::{instructions::tlb, structures::paging::PhysFrame, VirtAddr};
 
+use crate::specs::arch::PAGE_SIZE;
 use crate::{
     Pod, mm::{
         Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr, page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags}, page_table::{PageTableEntryTrait, PageTableFrag}
@@ -99,14 +103,34 @@ pub(crate) fn tlb_flush_all_including_global() {
     }
 }
 */
-#[verus_verify]
-#[derive(Clone, Copy/*, Pod*/, Default)]
+verus!{
+#[verifier::ext_equal]
+#[derive(Clone, Copy/*, Pod, Default*/)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct PageTableEntry(usize);
 
 #[verus_verify]
 unsafe impl Pod for PageTableEntry {}
+
+impl PageTableEntry {
+    pub closed spec fn default_spec() -> Self {
+        Self(0)
+    }
+}
+
+impl Default for PageTableEntry {
+    fn default() -> (ret: Self)
+        ensures
+            ret.paddr() == 0, 
+        returns
+            Self::default_spec(),
+    {
+        proof{ lemma_auxiliary_bit_properties(0); }
+        Self(usize::default())
+    }
+}
+}
 
 /*
 /// Activates the given level 4 page table.
@@ -161,12 +185,13 @@ macro_rules! parse_flags {
 impl PodOnce for PageTableEntry {}
 
 impl PageTableEntryTrait for PageTableEntry {
-    closed spec fn new_absent_spec() -> Self {
-        Self(0)
-    }
-    
-    open spec fn is_present_spec(&self) -> bool {
-        self.as_usize() & PageTableFlags::PRESENT().bits() != 0 || self.as_usize() & PageTableFlags::HUGE().bits() != 0
+    fn new_absent() -> Self {
+        proof {
+            lemma_auxiliary_bit_properties(0);
+            Self::lemma_page_table_entry_properties();
+            assert(Self::default_spec() == Self::new_absent_spec());
+        }
+        Self::default()
     }
 
     fn is_present(&self) -> bool {
@@ -177,25 +202,20 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     open spec fn new_page_req(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> bool {
-        prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable
+        ! (prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable) ==> may_panic()
     }
 
     fn new_page(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> Self {
         let flags = PageTableFlags::HUGE().bits();
         let mut pte = Self(paddr & Self::PHYS_ADDR_MASK | flags);
         pte.set_prop(prop);
+        proof{admit();}
         pte
-    }
-
-    closed spec fn new_pt_spec(paddr: Paddr) -> Self {
-        let flags = PageTableFlags::PRESENT().bits()
-            | PageTableFlags::WRITABLE().bits()
-            | PageTableFlags::USER().bits();
-        Self(paddr & Self::PHYS_ADDR_MASK | flags)
     }
 
     fn new_pt(paddr: Paddr) -> (res: Self) 
     {
+        
         // In x86 if it's an intermediate PTE, it's better to have the same permissions
         // as the most permissive child (to reduce hardware page walk accesses). But we
         // don't have a mechanism to keep it generic across architectures, thus just
@@ -203,18 +223,22 @@ impl PageTableEntryTrait for PageTableEntry {
         let flags = PageTableFlags::PRESENT().bits()
             | PageTableFlags::WRITABLE().bits()
             | PageTableFlags::USER().bits();
+        proof{
+            admit();
+        }
         Self(paddr & Self::PHYS_ADDR_MASK | flags)
     }
 
-    closed spec fn paddr_spec(&self) -> Paddr {
-        self.as_usize() & Self::PHYS_ADDR_MASK
-    }
-
     fn paddr(&self) -> Paddr {
+        proof { self.lemma_paddr_is_page_aligned(); }
         self.0 & Self::PHYS_ADDR_MASK
     }
 
     fn prop(&self) -> PageProperty {
+        proof {
+            lemma_auxiliary_bit_properties(0);
+            admit();
+        }
         let flags = (parse_flags!(self.0, PageTableFlags::PRESENT(), PageFlags::R()))
             | (parse_flags!(self.0, PageTableFlags::WRITABLE(), PageFlags::W()))
             | (parse_flags!(!self.0, PageTableFlags::NO_EXECUTE(), PageFlags::X()))
@@ -241,7 +265,15 @@ impl PageTableEntryTrait for PageTableEntry {
         }
     }
 
+    open spec fn set_prop_req(self, prop: PageProperty) -> bool {
+        !(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable) ==> may_panic()
+    }
+
     fn set_prop(&mut self, prop: PageProperty) {
+        proof {
+            lemma_auxiliary_bit_properties(0);
+            assert(self.set_prop_req(prop));
+        }
         if !self.is_present() {
             return;
         }
@@ -291,25 +323,34 @@ impl PageTableEntryTrait for PageTableEntry {
             CachePolicy::Uncacheable => {
                 flags |= PageTableFlags::NO_CACHE().bits();
             }
-            _ => vpanic!("unsupported cache policy"),
+            _ => { 
+                //panic!("unsupported cache policy"); 
+                assert(!(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable));
+                panic_diverge();
+            }
         }
+        proof {admit();}
         self.0 = self.0 & !Self::PROP_MASK | flags;
-    }
-
-    open spec fn is_last_spec(&self, _level: PagingLevel) -> bool {
-        self.as_usize() & PageTableFlags::HUGE().bits() != 0
     }
     
     fn is_last(&self, _level: PagingLevel) -> bool {
         self.0 & PageTableFlags::HUGE().bits() != 0
     }
 
-    closed spec fn as_usize_spec(self) -> usize {
+    fn as_usize(self) -> usize {
         self.0
     }
 
-    fn as_usize(self) -> usize {
-        self.0
+    open spec fn new_absent_spec() -> Self {
+        Self::default_spec()
+    }
+
+    open spec fn is_present_spec(&self) -> bool {
+        self.as_usize() & PageTableFlags::PRESENT().bits() != 0 || self.as_usize() & PageTableFlags::HUGE().bits() != 0
+    }
+
+    closed spec fn paddr_spec(&self) -> Paddr {
+        self.as_usize() & Self::PHYS_ADDR_MASK
     }
 
     closed spec fn prop_spec(&self) -> PageProperty {
@@ -336,6 +377,13 @@ impl PageTableEntryTrait for PageTableEntry {
             cache,
             priv_flags: PrivFlags::from_bits(priv_flags as u8).unwrap(),
         }
+    }
+
+    closed spec fn new_pt_spec(paddr: Paddr) -> Self {
+        let flags = PageTableFlags::PRESENT().bits()
+            | PageTableFlags::WRITABLE().bits()
+            | PageTableFlags::USER().bits();
+        Self(paddr & Self::PHYS_ADDR_MASK | flags)
     }
 
     closed spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self {
@@ -367,6 +415,14 @@ impl PageTableEntryTrait for PageTableEntry {
         }
     }
 
+    open spec fn is_last_spec(&self, _level: PagingLevel) -> bool {
+        self.as_usize() & PageTableFlags::HUGE().bits() != 0
+    }
+    
+    closed spec fn as_usize_spec(self) -> usize {
+        self.0
+    }
+
     proof fn lemma_page_table_entry_properties()
     {
         admit();
@@ -374,8 +430,71 @@ impl PageTableEntryTrait for PageTableEntry {
 
     proof fn lemma_paddr_is_page_aligned(self)
     {
-        admit();
+        lemma_auxiliary_bit_properties(self.0);
     }
+}
+
+proof fn lemma_auxiliary_bit_properties(addr: usize)
+    ensures
+        0 & PageTableEntry::PHYS_ADDR_MASK == 0,
+        0 & PageTableFlags::PRESENT().bits() == 0,
+        0 & PageTableFlags::HUGE().bits() == 0,
+        0usize % PAGE_SIZE == 0,
+        0 < MAX_PADDR,
+        addr % PAGE_SIZE == 0 ==> addr == (addr & !((PAGE_SIZE - 1) as usize)),
+        (addr & PageTableEntry::PHYS_ADDR_MASK) % PAGE_SIZE == 0,
+        addr < MAX_PADDR ==> (addr & PageTableEntry::PHYS_ADDR_MASK) < MAX_PADDR,
+        PageTableFlags::PRESENT().bits() == 0x1,
+        PageTableFlags::WRITABLE().bits() == 0x2,
+        PageTableFlags::USER().bits() == 0x4,
+        PageTableFlags::WRITE_THROUGH().bits() == 0x8,
+        PageTableFlags::NO_CACHE().bits() == 0x10,
+        PageTableFlags::ACCESSED().bits() == 0x20,
+        PageTableFlags::DIRTY().bits() == 0x40,
+        PageTableFlags::HUGE().bits() == 0x80,
+        PageTableFlags::GLOBAL().bits() == 0x100,
+        #[cfg(feature = "cvm_guest")]
+        (PageTableFlags::SHARED().bits() == 0x0200_0000_0000_0000),
+        PageTableFlags::HIGH_IGN1().bits() == 0x0010_0000_0000_0000,
+        PageTableFlags::HIGH_IGN2().bits() == 0x0020_0000_0000_0000,
+        PageTableFlags::NO_EXECUTE().bits() == 0x8000000000000000,
+        PageTableFlags::PRESENT().bits().ilog2() == 0,
+        PageTableFlags::WRITABLE().bits().ilog2() == 1,
+        PageTableFlags::USER().bits().ilog2() == 2,
+        PageTableFlags::WRITE_THROUGH().bits().ilog2() == 3,
+        PageTableFlags::NO_CACHE().bits().ilog2() == 4,
+        PageTableFlags::ACCESSED().bits().ilog2() == 5,
+        PageTableFlags::DIRTY().bits().ilog2() == 6,
+        PageTableFlags::HUGE().bits().ilog2() == 7,
+        PageTableFlags::GLOBAL().bits().ilog2() == 8,
+        #[cfg(feature = "cvm_guest")]
+        (PageTableFlags::SHARED().bits().ilog2() == 51),
+        PageTableFlags::HIGH_IGN1().bits().ilog2() == 52,
+        PageTableFlags::HIGH_IGN2().bits().ilog2() == 53,
+        PageTableFlags::NO_EXECUTE().bits().ilog2() == 63,
+{
+    lemma_usize_ilog2_to32();
+    lemma_u64_ilog2_to64();
+    assert(0 < MAX_PADDR) by (compute);
+    assert(0usize % PAGE_SIZE == 0) by (compute);
+    assert(0 & PageTableEntry::PHYS_ADDR_MASK == 0) by (compute);
+    assert(0 & PageTableFlags::PRESENT().bits() == 0) by (compute);
+    assert(0 & PageTableFlags::HUGE().bits() == 0) by (compute);
+    assert(addr % PAGE_SIZE == 0 ==> addr == (addr & !((PAGE_SIZE - 1) as usize))) by (bit_vector);
+    assert((addr & PageTableEntry::PHYS_ADDR_MASK) % PAGE_SIZE == 0) by (bit_vector);
+    assert(addr < MAX_PADDR ==> (addr & PageTableEntry::PHYS_ADDR_MASK) < MAX_PADDR) by (bit_vector);
+    assert(PageTableFlags::PRESENT().bits() == 0x1) by (compute);
+    assert(PageTableFlags::WRITABLE().bits() == 0x2) by (compute);
+    assert(PageTableFlags::USER().bits() == 0x4) by (compute);
+    assert(PageTableFlags::WRITE_THROUGH().bits() == 0x8) by (compute);
+    assert(PageTableFlags::NO_CACHE().bits() == 0x10) by (compute);
+    assert(PageTableFlags::ACCESSED().bits() == 0x20) by (compute);
+    assert(PageTableFlags::DIRTY().bits() == 0x40) by (compute);
+    assert(PageTableFlags::HUGE().bits() == 0x80) by (compute);
+    assert(PageTableFlags::GLOBAL().bits() == 0x100) by (compute);
+    assert(PageTableFlags::HIGH_IGN1().bits() == 0x0010_0000_0000_0000) by (compute);
+    assert(PageTableFlags::HIGH_IGN2().bits() == 0x0020_0000_0000_0000) by (compute);
+    assert(PageTableFlags::NO_EXECUTE().bits() == 0x8000_0000_0000_0000) by (compute);
 }
 }
 

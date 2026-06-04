@@ -491,13 +491,8 @@ pub trait PageTableEntryTrait:
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             !res.is_present(),
-        default_ensures
-            call_ensures(Self::default, (), res),
         returns
-            Self::new_absent(),
-    {
-        Self::default()
-    }
+            Self::new_absent();
 
     spec fn is_present_spec(&self) -> bool;
 
@@ -574,7 +569,12 @@ pub trait PageTableEntryTrait:
             self.prop()
     ;
 
+    /// The preconditions for setting the page property of a PTE.
+    spec fn set_prop_req(self, prop: PageProperty) -> bool;
+
     fn set_prop(&mut self, prop: PageProperty)
+        requires
+            old(self).set_prop_req(prop),
         ensures
             !old(self).is_present() ==> *old(self) == *final(self),
             old(self).is_present() ==> {
