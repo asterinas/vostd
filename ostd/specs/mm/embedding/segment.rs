@@ -38,7 +38,7 @@ use crate::mm::frame::has_safe_slot;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::mapping::frame_to_index_spec;
+use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::{PageUsage, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
@@ -79,14 +79,14 @@ pub axiom fn segment_from_unused_embedded(
         // Every frame in `range` is currently UNUSED — discharged from
         // `accounting_inv` clause 1 by the caller.
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> old(regions).slot_owners[frame_to_index_spec(paddr)]
+                ==> old(regions).slot_owners[frame_to_index(paddr)]
                         .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+                ==> old(regions).slots.contains_key(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         // `slots` domain preserved (Design B re-parking).
@@ -94,10 +94,10 @@ pub axiom fn segment_from_unused_embedded(
         // On success: each frame in range transitions to a Frame-usage,
         // rc=1, raw_count=1 SHARED slot.
         res is Some ==> forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
-                    let idx = frame_to_index_spec(paddr);
+                    let idx = frame_to_index(paddr);
                     let so = final(regions).slot_owners[idx];
                     &&& so.usage == PageUsage::Frame
                     &&& so.inner_perms.ref_count.value() == 1
@@ -110,7 +110,7 @@ pub axiom fn segment_from_unused_embedded(
         res is Some ==> forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame_spec(i)
+            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // On failure: regions unchanged.
@@ -150,10 +150,10 @@ pub axiom fn segment_drop_embedded(
         // contributes at least 1), `rc >= 1` and `rc <= REF_COUNT_MAX`
         // (SHARED).
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
-                    let so = old(regions).slot_owners[frame_to_index_spec(paddr)];
+                    let so = old(regions).slot_owners[frame_to_index(paddr)];
                     &&& so.raw_count >= 1
                     &&& so.inner_perms.ref_count.value() >= 1
                     &&& so.inner_perms.ref_count.value()
@@ -171,10 +171,10 @@ pub axiom fn segment_drop_embedded(
         // For each covered slot: `raw_count -= 1`; rc -= 1 or
         // transition to UNUSED (when pre rc == 1).
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
-                    let idx = frame_to_index_spec(paddr);
+                    let idx = frame_to_index(paddr);
                     let so_old = old(regions).slot_owners[idx];
                     let so_new = final(regions).slot_owners[idx];
                     &&& so_new.raw_count == (so_old.raw_count - 1) as usize
@@ -192,7 +192,7 @@ pub axiom fn segment_drop_embedded(
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame_spec(i)
+            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
@@ -222,21 +222,21 @@ pub axiom fn segment_next_embedded(
         old(regions).inv(),
         paddr % PAGE_SIZE == 0,
         paddr < MAX_PADDR,
-        old(regions).slots.contains_key(frame_to_index_spec(paddr)),
-        old(regions).slot_owners[frame_to_index_spec(paddr)].raw_count >= 1,
-        old(regions).slot_owners[frame_to_index_spec(paddr)]
+        old(regions).slots.contains_key(frame_to_index(paddr)),
+        old(regions).slot_owners[frame_to_index(paddr)].raw_count >= 1,
+        old(regions).slot_owners[frame_to_index(paddr)]
                 .inner_perms.ref_count.value() >= 1,
-        old(regions).slot_owners[frame_to_index_spec(paddr)]
+        old(regions).slot_owners[frame_to_index(paddr)]
                 .inner_perms.ref_count.value()
             <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
-        old(regions).slot_owners[frame_to_index_spec(paddr)].usage
+        old(regions).slot_owners[frame_to_index(paddr)].usage
             == PageUsage::Frame,
     ensures
         final(regions).inv(),
         final(regions).slots =~= old(regions).slots,
         // At paddr: raw_count -= 1, rc unchanged, other fields preserved.
         {
-            let idx = frame_to_index_spec(paddr);
+            let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
             &&& so_new.raw_count == (so_old.raw_count - 1) as usize
@@ -250,7 +250,7 @@ pub axiom fn segment_next_embedded(
         },
         // All other slots fully preserved.
         forall|i: usize| #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index_spec(paddr)
+            i != frame_to_index(paddr)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -274,23 +274,23 @@ pub(super) proof fn from_unused_step(
         range.start < range.end,
         range.end <= MAX_PADDR,
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> old(regions).slot_owners[frame_to_index_spec(paddr)]
+                ==> old(regions).slot_owners[frame_to_index(paddr)]
                         .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> old(regions).slots.contains_key(frame_to_index_spec(paddr)),
+                ==> old(regions).slots.contains_key(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         final(regions).slots =~= old(regions).slots,
         res matches Some(e) ==> e.range == range,
         res is Some ==> forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
-                    let idx = frame_to_index_spec(paddr);
+                    let idx = frame_to_index(paddr);
                     let so = final(regions).slot_owners[idx];
                     &&& so.usage == PageUsage::Frame
                     &&& so.inner_perms.ref_count.value() == 1
@@ -300,7 +300,7 @@ pub(super) proof fn from_unused_step(
         res is Some ==> forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame_spec(i)
+            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         res is None ==> *final(regions) == *old(regions),
@@ -328,10 +328,10 @@ pub(super) proof fn drop_step(
         entry.range.start < entry.range.end,
         entry.range.end <= MAX_PADDR,
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (entry.range.start <= paddr < entry.range.end
                 && paddr % PAGE_SIZE == 0) ==> {
-                let so = old(regions).slot_owners[frame_to_index_spec(paddr)];
+                let so = old(regions).slot_owners[frame_to_index(paddr)];
                 &&& so.raw_count >= 1
                 &&& so.inner_perms.ref_count.value() >= 1
                 &&& so.inner_perms.ref_count.value()
@@ -344,10 +344,10 @@ pub(super) proof fn drop_step(
         final(regions).inv(),
         final(regions).slots =~= old(regions).slots,
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (entry.range.start <= paddr < entry.range.end
                 && paddr % PAGE_SIZE == 0) ==> {
-                let idx = frame_to_index_spec(paddr);
+                let idx = frame_to_index(paddr);
                 let so_old = old(regions).slot_owners[idx];
                 let so_new = final(regions).slot_owners[idx];
                 &&& so_new.raw_count == (so_old.raw_count - 1) as usize
@@ -364,7 +364,7 @@ pub(super) proof fn drop_step(
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(entry.range.start <= crate::specs::mm::frame::mapping::index_to_frame_spec(i)
+            && !(entry.range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
                     < entry.range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]

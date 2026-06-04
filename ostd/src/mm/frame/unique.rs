@@ -87,7 +87,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             Err(err)
         } else {
             let (ptr, Tracked(slot_perm)) = from_unused.unwrap();
-            let idx = frame_to_index(paddr);
+            let ghost idx = frame_to_index(paddr);
 
             proof_decl! {
                 regions.slots.tracked_insert(idx, slot_perm);
@@ -600,7 +600,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     )]
     pub fn from_unique(unique: UniqueFrame<M>) -> Self {
         let ghost idx_g = owner.slot_index;
-        let idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
+        let ghost idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);
         let tracked mut inner_perms = slot_own.take_inner_perms();
@@ -643,7 +643,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn try_from_shared(frame: Frame<M>) -> Result<Self, Frame<M>> {
-        let idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
+        let ghost idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);
         let tracked mut inner_perms = slot_own.take_inner_perms();

@@ -60,23 +60,19 @@ pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr
 }
 
 #[verifier::inline]
-pub open spec fn frame_to_index_spec(paddr: Paddr) -> usize {
+pub open spec fn frame_to_index(paddr: Paddr) -> usize
+    recommends
+        paddr % PAGE_SIZE == 0,
+{
     paddr / PAGE_SIZE
 }
 
 #[verifier::inline]
-pub open spec fn index_to_frame_spec(index: usize) -> Paddr {
-    (index * PAGE_SIZE) as usize
-}
-
-#[verifier::when_used_as_spec(frame_to_index_spec)]
-pub fn frame_to_index(paddr: Paddr) -> (res: usize)
-    requires
-        paddr % PAGE_SIZE == 0,
-    ensures
-        res == frame_to_index_spec(paddr),
+pub open spec fn index_to_frame(index: usize) -> Paddr
+    recommends
+        index < max_meta_slots(),
 {
-    paddr / PAGE_SIZE
+    (index * PAGE_SIZE) as usize
 }
 
 /// `frame_to_index` is injective on page-aligned paddrs.
@@ -86,18 +82,8 @@ pub broadcast proof fn lemma_frame_to_index_injective(p1: Paddr, p2: Paddr)
         p2 % PAGE_SIZE == 0,
         p1 != p2,
     ensures
-        #[trigger] frame_to_index_spec(p1) != #[trigger] frame_to_index_spec(p2),
+        #[trigger] frame_to_index(p1) != #[trigger] frame_to_index(p2),
 {
-}
-
-#[verifier::when_used_as_spec(index_to_frame_spec)]
-pub fn index_to_frame(index: usize) -> (res: Paddr)
-    requires
-        index < max_meta_slots(),
-    ensures
-        res == index_to_frame_spec(index),
-{
-    index * PAGE_SIZE
 }
 
 } // verus!

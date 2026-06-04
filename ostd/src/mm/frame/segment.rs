@@ -20,7 +20,7 @@ use crate::specs::mm::virt_mem::MemView;
 
 use core::{fmt::Debug, /*mem::ManuallyDrop,*/ ops::Range};
 
-use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
+use super::meta::mapping::{frame_to_index, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaSlot};
 use crate::mm::frame::{Frame, has_safe_slot, untyped::AnyUFrameMeta};
 
@@ -229,9 +229,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     // Design B: the slot perms stay canonical in
                     // `regions.slots` (borrowable), so they are *present*.
                     &&& forall|paddr: Paddr|
-                        #![trigger frame_to_index_spec(paddr)]
+                        #![trigger frame_to_index(paddr)]
                         (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                            ==> final(regions).slots.contains_key(frame_to_index_spec(paddr))
+                            ==> final(regions).slots.contains_key(frame_to_index(paddr))
                 }
             },
     )]
@@ -299,7 +299,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 forall|j: int|
                     #![trigger addrs[j]]
                     0 <= j < addrs.len() as int ==> {
-                        let idx = frame_to_index_spec(addrs[j]);
+                        let idx = frame_to_index(addrs[j]);
                         &&& regions.slots.contains_key(idx)
                         &&& regions.slot_owners.contains_key(idx)
                         &&& regions.slot_owners[idx].raw_count == 1
@@ -350,9 +350,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             // `addr` in range is `addrs[j]` for `j = (addr-range.start)/PS`,
             // and the loop invariant pins `slots.contains_key` for that `j`.
             assert forall|addr: usize|
-                #![trigger frame_to_index_spec(addr)]
+                #![trigger frame_to_index(addr)]
                 range.start <= addr < range.end && addr % PAGE_SIZE == 0 implies {
-                regions.slots.contains_key(frame_to_index_spec(addr))
+                regions.slots.contains_key(frame_to_index(addr))
             } by {
                 let j = (addr - range.start) / PAGE_SIZE as int;
                 assert(0 <= j < addrs.len() as int);

@@ -63,9 +63,7 @@ pub use segment::Segment;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
-pub use meta::mapping::{
-    META_SLOT_SIZE, frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr, meta_to_frame,
-};
+pub use meta::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
 pub use unique::UniqueFrame;
 pub use untyped::{AnyUFrameMeta, UFrame};
@@ -373,8 +371,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
             let ghost idx = frame_to_index(paddr);
             proof {
-                assert(frame_to_index_spec(paddr)
-                    < crate::mm::frame::meta::mapping::max_meta_slots());
+                assert(frame_to_index(paddr) < crate::mm::frame::meta::mapping::max_meta_slots());
                 assert(pre.slot_owners.contains_key(idx));
                 assert(pre.slots.contains_key(idx));
                 regions.sync_slot_perm(idx, &perm);
