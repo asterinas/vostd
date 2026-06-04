@@ -62,6 +62,12 @@ impl crate::mm::io::PodOnce for PageTableEntry {}
 /// Masks of the physical address.
 pub const PHYS_ADDR_MASK: usize = 0xffff_ffff_ffff_f000;
 
+impl Clone for PageTableEntry {
+    fn clone(&self) -> Self {
+        Self { 0: self.0 }
+    }
+}
+
 impl PageTableEntry {
     #[vstd::contrib::auto_spec]
     pub fn encode_cache(cache: CachePolicy) -> (res: usize)

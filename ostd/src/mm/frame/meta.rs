@@ -22,13 +22,67 @@ use vstd_extra::ownership::*;
 use vstd_extra::panic::{may_panic, panic_diverge};
 use vstd_extra::prelude::*;
 
-pub mod mapping;
-
 use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
+verus! {
+
+pub(crate) mod mapping {
+    use crate::mm::frame::MetaSlot;
+    use crate::mm::frame::meta::meta_slot_size;
+    use crate::mm::{PAGE_SIZE, Paddr, Vaddr};
+    use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+    use crate::specs::arch::mm::MAX_PADDR;
+    pub use crate::specs::mm::frame::mapping::*;
+    use vstd::prelude::*;
+
+    #[verifier::inline]
+    pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
+        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * meta_slot_size()) as usize
+    }
+
+    #[verifier::inline]
+    pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr {
+        ((vaddr - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int * PAGE_SIZE) as usize
+    }
+
+    /// Converts a physical address of a base frame to the virtual address of the metadata slot.
+    #[inline(always)]
+    #[verifier::when_used_as_spec(frame_to_meta_spec)]
+    pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
+        requires
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+        ensures
+            res == frame_to_meta_spec(paddr),
+            res % META_SLOT_SIZE == 0,
+    {
+        let base = FRAME_METADATA_RANGE.start;
+        let offset = paddr / PAGE_SIZE;
+        base + offset * META_SLOT_SIZE
+    }
+
+    /// Converts a virtual address of the metadata slot to the physical address of the frame.
+    #[inline(always)]
+    #[verifier::when_used_as_spec(meta_to_frame_spec)]
+    pub fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
+        requires
+            FRAME_METADATA_RANGE.start <= vaddr && vaddr < FRAME_METADATA_RANGE.end,
+            vaddr % META_SLOT_SIZE == 0,
+        ensures
+            res == meta_to_frame_spec(vaddr),
+            res % PAGE_SIZE == 0,
+    {
+        let base = FRAME_METADATA_RANGE.start;
+        let offset = (vaddr - base) / META_SLOT_SIZE;
+        offset * PAGE_SIZE
+    }
+
+}
+
+} // verus!
 use core::{
     alloc::Layout,
     any::Any,

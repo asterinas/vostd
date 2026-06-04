@@ -45,8 +45,7 @@ use crate::mm::page_table::*;
 use crate::mm::{MAX_NR_LEVELS, MAX_PADDR, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::mapping::{
-    META_SLOT_SIZE, frame_to_index, frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr,
-    meta_to_frame,
+    META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
 };
 use crate::specs::mm::frame::meta_owners::{
     MetaSlotOwner, REF_COUNT_MAX, REF_COUNT_UNUSED, is_mmio_paddr,
