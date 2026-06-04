@@ -124,6 +124,11 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
     )]
     #[inline]
     pub fn new(stream: Dma, offset: usize, len: usize) -> Self {
+        /*
+        // Original bounds assertions (removed during Verus migration):
+        assert!(offset < stream.as_ref().nbytes());
+        assert!(offset + len <= stream.as_ref().nbytes());
+        */
         Self { stream, offset, len, _marker: PhantomData }
     }
 
@@ -406,8 +411,16 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         }
         let start_daddr = match dma_type() {
             DmaType::Direct => {
-                // todo: if crate::arch::if_tdx_enabled!...
-                // unprotect_gpa_range()
+                /*
+                // Original TDX unprotect (removed during Verus migration):
+                #[cfg(target_arch = "x86_64")]
+                crate::arch::if_tdx_enabled!({
+                    unsafe {
+                        crate::arch::tdx_guest::unprotect_gpa_range(start_paddr, frame_count)
+                            .unwrap();
+                    }
+                });
+                */
                 start_paddr as Daddr
             },
             DmaType::Iommu => {
@@ -426,7 +439,12 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                     assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
                     let paddr = start_paddr + i * PAGE_SIZE;
 
-                    // iommu::map...
+                    /*
+                    // Original IOMMU map (removed during Verus migration):
+                    unsafe {
+                        iommu::map(paddr as Daddr, paddr).unwrap();
+                    }
+                    */
 
                     i += 1;
                 }
@@ -758,6 +776,26 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     /// [`read_bytes`]: Self::read_bytes
     /// [`write_bytes`]: Self::write_bytes
     pub fn sync(&self, _byte_range: Range<usize>) -> Result<(), Error> {
+        /*
+        // Original sync() with cache-line flushing (removed during Verus migration):
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "x86_64")]{
+                Ok(())
+            } else {
+                if _byte_range.end > self.nbytes() {
+                    return Err(Error::InvalidArgs);
+                }
+                if self.inner.is_cache_coherent {
+                    return Ok(());
+                }
+                let start_va = crate::mm::paddr_to_vaddr(self.inner.segment.start_paddr()) as *const u8;
+                for i in _byte_range.step_by(64) {
+                    todo!()
+                }
+                Ok(())
+            }
+        }
+        */
         Ok(())
     }
 
@@ -982,6 +1020,36 @@ impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaStreamInner<M>> for DmaStreamInnerO
         &&& v.segment.wf(&self.segment_owner)
     }
 }
+
+/*
+// Original Drop impl for DmaStreamInner (removed during Verus migration):
+impl Drop for DmaStreamInner {
+    fn drop(&mut self) {
+        let start_paddr = self.segment.start_paddr();
+        let frame_count = self.segment.size() / PAGE_SIZE;
+
+        match dma_type() {
+            DmaType::Direct => {
+                #[cfg(target_arch = "x86_64")]
+                crate::arch::if_tdx_enabled!({
+                    unsafe {
+                        crate::arch::tdx_guest::protect_gpa_range(start_paddr, frame_count)
+                            .unwrap();
+                    }
+                });
+            }
+            DmaType::Iommu => {
+                for i in 0..frame_count {
+                    let paddr = start_paddr + (i * PAGE_SIZE);
+                    iommu::unmap(paddr as Daddr).unwrap();
+                }
+            }
+        }
+
+        remove_dma_mapping(start_paddr, frame_count);
+    }
+}
+*/
 
 /// [`DmaDirection`] limits the data flow direction of [`DmaStream`] and
 /// prevents users from reading and writing to [`DmaStream`] unexpectedly.
@@ -1519,4 +1587,32 @@ impl<
     }
 }
 
+/*
+// Original AsRef<DmaStream> for DmaStream (removed during Verus migration):
+impl AsRef<DmaStream> for DmaStream {
+    fn as_ref(&self) -> &DmaStream {
+        self
+    }
+}
+*/
+/*
+// Original HasPaddr for DmaStreamSlice (removed during Verus migration):
+impl<Dma: AsRef<DmaStream>> HasPaddr for DmaStreamSlice<Dma> {
+    fn paddr(&self) -> Paddr {
+        self.stream.as_ref().paddr() + self.offset
+    }
+}
+*/
+/*
+// Original Clone for DmaStreamSlice (removed during Verus migration):
+impl<Dma: AsRef<DmaStream> + Clone> Clone for DmaStreamSlice<Dma> {
+    fn clone(&self) -> Self {
+        Self {
+            stream: self.stream.clone(),
+            offset: self.offset,
+            len: self.len,
+        }
+    }
+}
+*/
 } // verus!
