@@ -196,7 +196,6 @@ impl MetaRegionOwners {
             forall|k: usize| k != i ==> #[trigger] final(self).slots[k] == old(self).slots[k],
             forall|k: usize|
                 k != i ==> #[trigger] final(self).slot_owners[k] == old(self).slot_owners[k],
-            final(self).slot_owners[i].raw_count == old(self).slot_owners[i].raw_count,
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
             final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,

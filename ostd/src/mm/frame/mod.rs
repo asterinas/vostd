@@ -147,10 +147,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         obl_key: Self::Key,
     ) -> bool {
         let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == MetaSlotOwner {
-            raw_count: (slot_own.raw_count + 1) as usize,
-            ..slot_own
-        }
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == slot_own
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
             i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
@@ -173,7 +170,6 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         let meta_addr = self.ptr.addr();
         let index = frame_to_index(meta_to_frame(meta_addr));
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
-        slot_own.raw_count = (slot_own.raw_count + 1) as usize;
         s.slot_owners.tracked_insert(index, slot_own);
         // Paired mint axiom: produces the token AND adds its Loc to
         // `frame_obligations`. Replaces the prior ledger-less
@@ -223,11 +219,6 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         let so0 = s0.slot_owners[idx];
         let so1 = s1.slot_owners[idx];
         &&& s1.inv()
-        // Refcount-dependent `raw_count` transition: the last-ref teardown
-        // zeroes `raw_count` (re-establishing `UNUSED ==> raw_count == 0`);
-        // a non-final drop leaves it untouched.
-        &&& so0.inner_perms.ref_count.value() == 1 ==> so1.raw_count == 0
-        &&& so0.inner_perms.ref_count.value() > 1 ==> so1.raw_count == so0.raw_count
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
             i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
@@ -876,7 +867,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
             == old_perm.slot_owners[idx].inner_perms.in_list
         &&& new_perm.slot_owners[idx].paths_in_pt == old_perm.slot_owners[idx].paths_in_pt
         &&& new_perm.slot_owners[idx].self_addr == old_perm.slot_owners[idx].self_addr
-        &&& new_perm.slot_owners[idx].raw_count == old_perm.slot_owners[idx].raw_count
         &&& new_perm.slot_owners[idx].usage
             == old_perm.slot_owners[idx].usage
         // Other slot_owners unchanged
@@ -965,12 +955,6 @@ impl<M: ?Sized> Drop for Frame<M> {
                 // Teardown reclaims the last reference and any dormant
                 // forgotten references: zero `raw_count` so the resulting
                 // `UNUSED` slot satisfies `MetaSlotOwner::inv`
-                // (`UNUSED ==> raw_count == 0`) and the embedding's
-                // segment-cover accounting. This is the single site that
-                // re-establishes `raw_count == 0`, replacing the prior
-                // `from_raw`-decrement / `drop_requires raw_count == 0`
-                // discipline.
-                slot_own.raw_count = 0;
                 assert(slot_own.inner_perms.ref_count.value() == 0u64);
                 assert(slot_own.inner_perms.storage.is_init());
                 assert(slot_own.inner_perms.in_list.value() == 0u64);
@@ -991,9 +975,6 @@ impl<M: ?Sized> Drop for Frame<M> {
                 assert(slot_own.self_addr == so0.self_addr);
                 assert(slot_own.usage == so0.usage);
                 assert(slot_own.paths_in_pt == so0.paths_in_pt);
-                // Teardown zeroed `raw_count`; `drop_last_in_place`
-                // preserves it.
-                assert(slot_own.raw_count == 0);
             }
 
             // TODO: return page to allocator
@@ -1011,8 +992,6 @@ impl<M: ?Sized> Drop for Frame<M> {
                 assert(slot_own.self_addr == so0.self_addr);
                 assert(slot_own.usage == so0.usage);
                 assert(slot_own.paths_in_pt == so0.paths_in_pt);
-                // Non-final drop leaves `raw_count` untouched.
-                assert(slot_own.raw_count == so0.raw_count);
             }
         }
 
@@ -1197,9 +1176,6 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].self_addr,
-        final(regions).slot_owners[frame_to_index(paddr)].raw_count == old(
-            regions,
-        ).slot_owners[frame_to_index(paddr)].raw_count,
         final(regions).slot_owners[frame_to_index(paddr)].usage == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].usage,

@@ -250,9 +250,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& final(regions).slot_owners[frame_to_index(pa)].self_addr == old(
                     regions,
                 ).slot_owners[frame_to_index(pa)].self_addr
-                &&& final(regions).slot_owners[frame_to_index(pa)].raw_count == old(
-                    regions,
-                ).slot_owners[frame_to_index(pa)].raw_count
                 &&& final(regions).slot_owners[frame_to_index(pa)].usage == old(
                     regions,
                 ).slot_owners[frame_to_index(pa)].usage
@@ -519,9 +516,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             regions,
                         ).slot_owners[idx].self_addr
                         &&& regions.slot_owners[idx].usage == old(regions).slot_owners[idx].usage
-                        &&& regions.slot_owners[idx].raw_count == old(
-                            regions,
-                        ).slot_owners[idx].raw_count
                         &&& regions.slot_owners[idx].inner_perms.ref_count.id() == old(
                             regions,
                         ).slot_owners[idx].inner_perms.ref_count.id()

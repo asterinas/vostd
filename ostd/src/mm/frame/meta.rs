@@ -539,7 +539,6 @@ impl MetaSlot {
                 regions0.slots[frame_to_index(paddr)] == *slot_perm,
                 slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
                 slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
-                slot_own.raw_count == regions0.slot_owners[frame_to_index(paddr)].raw_count,
                 slot_own.paths_in_pt == regions0.slot_owners[frame_to_index(paddr)].paths_in_pt,
                 FRAME_METADATA_RANGE.start <= slot_own.self_addr < FRAME_METADATA_RANGE.end,
                 slot_own.self_addr % META_SLOT_SIZE == 0,
@@ -640,8 +639,6 @@ impl MetaSlot {
                         assert(regions.slot_owners[idx].self_addr
                             == regions0.slot_owners[idx].self_addr);
                         assert(regions.slot_owners[idx].usage == regions0.slot_owners[idx].usage);
-                        assert(regions.slot_owners[idx].raw_count
-                            == regions0.slot_owners[idx].raw_count);
 
                         // For ptr postcondition: slot_perm.pptr() == old(regions).slots[idx].pptr()
                         assert(*slot_perm == regions0.slots[idx]);
@@ -864,7 +861,6 @@ impl MetaSlot {
             final(owner).inner_perms.in_list == old(owner).inner_perms.in_list,
             final(owner).self_addr == old(owner).self_addr,
             final(owner).usage == old(owner).usage,
-            final(owner).raw_count == old(owner).raw_count,
             final(owner).paths_in_pt == old(owner).paths_in_pt,
     )]
     pub(super) unsafe fn drop_last_in_place(&self) {
@@ -915,7 +911,6 @@ impl MetaSlot {
             final(slot_own).inner_perms.vtable_ptr.pptr() == old(slot_own).inner_perms.vtable_ptr.pptr(),
             final(slot_own).self_addr == old(slot_own).self_addr,
             final(slot_own).usage == old(slot_own).usage,
-            final(slot_own).raw_count == old(slot_own).raw_count,
             final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
     )]
     #[verifier::external_body]

@@ -78,18 +78,6 @@ impl<'a, M: ?Sized> Frame<M> {
         regions.slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED
     }
 
-    // ── into_raw postcondition predicates ──
-    /// **Correctness**: The frame's raw count is incremented.
-    pub open spec fn into_raw_post_raw_count_incremented(
-        self,
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-    ) -> bool {
-        &&& new_regions.slot_owners.contains_key(self.index())
-        &&& new_regions.slot_owners[self.index()].raw_count == (
-        old_regions.slot_owners[self.index()].raw_count + 1) as usize
-    }
-
     /// **Safety**: Frames other than this one are not affected by the call.
     pub open spec fn into_raw_post_noninterference(
         self,

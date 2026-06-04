@@ -1113,7 +1113,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // Other MetaSlotOwner fields at idx unchanged
             new_regions.slot_owners[idx].paths_in_pt == old_regions.slot_owners[idx].paths_in_pt,
             new_regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr,
-            new_regions.slot_owners[idx].raw_count == old_regions.slot_owners[idx].raw_count,
             new_regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage,
             // All other slot_owners unchanged
             new_regions.slot_owners.dom() == old_regions.slot_owners.dom(),
@@ -2511,7 +2510,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == regions0.slot_owners[idx].inner_perms.in_list,
             regions1.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt,
             regions1.slot_owners[idx].self_addr == regions0.slot_owners[idx].self_addr,
-            regions1.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
             regions1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             forall|i: usize|

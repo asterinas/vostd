@@ -389,7 +389,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             owner.inv(),
             old(regions).inv(),
             old(regions).slot_owners.contains_key(owner.slot_index),
-            old(regions).slot_owners[owner.slot_index].raw_count == 0,
             old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).slot_owners[owner.slot_index].inner_perms.in_list.value() == 0,
@@ -397,7 +396,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).slot_owners[owner.slot_index].inner_perms.vtable_ptr.is_init(),
             old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
         ensures
-            final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
     )]
     pub fn reset_as_unused(self) {
@@ -547,7 +545,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             // outstanding so this (the actual `Drop`) can consume it.
             old(regions).frame_obligations.count(owner.slot_index) > 0,
         ensures
-            final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
             final(regions).slots =~= old(regions).slots,
             forall|i: usize| #![trigger final(regions).slot_owners[i]]
@@ -568,11 +565,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
-        proof {
-            // `raw_count` is dormant; zero it so the `UNUSED` slot left by
-            // `drop_last_in_place` satisfies `MetaSlotOwner::inv`.
-            slot_own.raw_count = 0;
-        }
         let tracked perm_ref = regions.slots.tracked_borrow(idx);
 
         // SAFETY: We are the sole owner and the reference count is 0.
