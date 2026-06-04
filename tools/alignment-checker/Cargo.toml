@@ -1,0 +1,16 @@
+[package]
+name = "alignment-checker"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.1", features = ["derive"] }
+git2 = "0.20"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "1.1.2"
+quote = "1"
+verus_syn = { path = "../verus/dependencies/syn", features = ["full", "parsing", "printing", "clone-impls"] }
+
+[package.metadata]
+verify = false

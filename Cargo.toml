@@ -5,6 +5,7 @@ members = [
     "ostd",
     "ostd-pod",
     "ostd/libs/align_ext",
+    "tools/alignment-checker",
 #    "ostd/libs/ostd-macros",
 #    "ostd/libs/ostd-test",
 #    "kernel/libs/int-to-c-enum",

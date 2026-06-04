@@ -1,0 +1,13 @@
+[anchor]
+git = "https://github.com/asterinas/asterinas.git"
+tag = "v0.16.0"
+
+[[modules]]
+name = "rcu"
+path = "/home/haobchen/asterinas-fv/tools/alignment-checker/modules/rcu.toml"
+source = "/home/haobchen/asterinas-fv/ostd/src/sync/rcu"
+
+[[modules]]
+name = "mm"
+path = "/home/haobchen/asterinas-fv/tools/alignment-checker/modules/mm.toml"
+source = "/home/haobchen/asterinas-fv/ostd/src/mm"

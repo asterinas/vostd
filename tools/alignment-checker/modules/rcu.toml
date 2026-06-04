@@ -1,0 +1,216 @@
+# Exec function existence/signature deltas against the configured anchor.
+
+[[planned]]
+name = "<RcuDrop<T> as Drop>::drop"
+type = "function"
+
+[[planned]]
+name = "<RcuInner<P> as Drop>::drop"
+type = "function"
+
+[[planned]]
+name = "Rcu<P>::read_with"
+type = "function"
+
+[[verified]]
+name = "RcuInner<P>::load_read_token"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "RcuInner<P>::new_none"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "RcuInner<P>::read_with"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "RcuOption<P>::read_with"
+type = "function"
+
+[[verified]]
+name = "RcuOptionReadGuard<P>::drop"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "RcuOptionReadGuard<P>::get"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "RcuReadGuard<P>::drop"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "RcuReadGuard<P>::get"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "RcuReadGuardInner<P>::drop"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "RcuReadGuardInner<P>::get"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "delay_drop"
+type = "function"
+
+[[planned]]
+name = "finish_grace_period"
+type = "function"
+
+[[planned]]
+name = "monitor::GracePeriod::finish_grace_period"
+type = "function"
+
+[[planned]]
+name = "monitor::GracePeriod::is_complete"
+type = "function"
+
+[[verified]]
+name = "monitor::GracePeriod::new"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "monitor::GracePeriod::restart"
+type = "function"
+
+[[planned]]
+name = "monitor::GracePeriod::take_callbacks"
+type = "function"
+
+[[planned]]
+name = "monitor::RcuMonitor::after_grace_period"
+type = "function"
+
+[[planned]]
+name = "monitor::RcuMonitor::finish_grace_period"
+type = "function"
+
+[[verified]]
+name = "monitor::RcuMonitor::is_monitoring"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "monitor::RcuMonitor::new_data"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "monitor::RcuMonitor::set_monitoring"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "monitor::State::new"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::<Arc<T> as NonNullPtr>::into_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::<Arc<T> as NonNullPtrRef>::raw_as_ref"
+anchor = "non_null::<Arc<T> as NonNullPtr>::raw_as_ref"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::<Arc<T> as NonNullPtrRef>::ref_as_raw"
+anchor = "non_null::<Arc<T> as NonNullPtr>::ref_as_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::<Box<T> as NonNullPtr>::into_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::<Box<T> as NonNullPtrRef>::raw_as_ref"
+anchor = "non_null::<Box<T> as NonNullPtr>::raw_as_ref"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::<Box<T> as NonNullPtrRef>::ref_as_raw"
+anchor = "non_null::<Box<T> as NonNullPtr>::ref_as_raw"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "non_null::<BoxRef<T> as Deref>::deref"
+type = "function"
+
+[[planned]]
+name = "non_null::<Weak<T> as NonNullPtr>::from_raw"
+type = "function"
+
+[[planned]]
+name = "non_null::<Weak<T> as NonNullPtr>::into_raw"
+type = "function"
+
+[[planned]]
+name = "non_null::<Weak<T> as NonNullPtr>::raw_as_ref"
+type = "function"
+
+[[planned]]
+name = "non_null::<Weak<T> as NonNullPtr>::ref_as_raw"
+type = "function"
+
+[[planned]]
+name = "non_null::<WeakRef<T> as Deref>::deref"
+type = "function"
+
+[[verified]]
+name = "non_null::NonNullPtr::from_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::NonNullPtr::into_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::NonNullPtrRef::raw_as_ref"
+anchor = "non_null::NonNullPtr::raw_as_ref"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::NonNullPtrRef::ref_as_raw"
+anchor = "non_null::NonNullPtr::ref_as_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::either::<Either<L,R> as NonNullPtr>::into_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::either::<Either<L,R> as NonNullPtrRef>::raw_as_ref"
+anchor = "non_null::either::<Either<L,R> as NonNullPtr>::raw_as_ref"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "non_null::either::<Either<L,R> as NonNullPtrRef>::ref_as_raw"
+anchor = "non_null::either::<Either<L,R> as NonNullPtr>::ref_as_raw"
+type = "function"
+how = "rewrite"

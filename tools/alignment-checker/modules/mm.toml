@@ -1,0 +1,1615 @@
+# Exec function existence/signature deltas against the configured anchor.
+#
+# Generated from the mm verification status table and alignment-checker output.
+
+[[planned]]
+name = "PagingConstsTrait::ADDRESS_WIDTH"
+type = "function"
+
+[[planned]]
+name = "PagingConstsTrait::BASE_PAGE_SIZE"
+type = "function"
+
+[[planned]]
+name = "PagingConstsTrait::HIGHEST_TRANSLATION_LEVEL"
+type = "function"
+
+[[planned]]
+name = "PagingConstsTrait::NR_LEVELS"
+type = "function"
+
+[[planned]]
+name = "PagingConstsTrait::PTE_SIZE"
+type = "function"
+
+[[planned]]
+name = "PagingConstsTrait::VA_SIGN_EXT"
+type = "function"
+
+[[planned]]
+name = "dma::<T as HasDaddr>::daddr"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::<DmaCoherent as Deref>::deref"
+type = "function"
+
+[[verified]]
+name = "dma::dma_coherent::<DmaCoherent<M> as HasDaddr>::daddr"
+anchor = "dma::dma_coherent::<DmaCoherent as HasDaddr>::daddr"
+type = "function"
+
+[[verified]]
+name = "dma::dma_coherent::<DmaCoherent<M> as HasPaddr>::paddr"
+anchor = "dma::dma_coherent::<DmaCoherent as HasPaddr>::paddr"
+type = "function"
+
+[[verified]]
+name = "dma::dma_coherent::<DmaCoherent<M> as VmIo<DmaCoherentVmIoOwner < M >>>::read"
+anchor = "dma::dma_coherent::<DmaCoherent as VmIo>::read"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "dma::dma_coherent::<DmaCoherent<M> as VmIo<DmaCoherentVmIoOwner < M >>>::write"
+anchor = "dma::dma_coherent::<DmaCoherent as VmIo>::write"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "dma::dma_coherent::<DmaCoherent as VmIoOnce>::read_once"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::<DmaCoherent as VmIoOnce>::write_once"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::<DmaCoherent<M> as Clone>::clone"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::<DmaCoherent<M> as VmIoOnce>::read_once"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::<DmaCoherent<M> as VmIoOnce>::write_once"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::<DmaCoherentInner as Drop>::drop"
+type = "function"
+
+[[verified]]
+name = "dma::dma_coherent::DmaCoherent<M>::map"
+anchor = "dma::dma_coherent::DmaCoherent::map"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "dma::dma_coherent::DmaCoherent<M>::nbytes"
+anchor = "dma::dma_coherent::DmaCoherent::nbytes"
+type = "function"
+
+[[verified]]
+name = "dma::dma_coherent::DmaCoherent<M>::reader"
+anchor = "dma::dma_coherent::DmaCoherent::reader"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "dma::dma_coherent::DmaCoherent<M>::writer"
+anchor = "dma::dma_coherent::DmaCoherent::writer"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::daddr"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::daddr_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::nbytes_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::nframes"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::nframes_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::paddr"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::paddr_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::read_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::reader_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_coherent::DmaCoherent<M>::writer_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::<DmaStream as AsRef<DmaStream>>::as_ref"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::<DmaStream as HasDaddr>::daddr"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::<DmaStream as HasPaddr>::paddr"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::<DmaStream<M> as VmIo<DmaStreamVmIoOwner < M >>>::read"
+anchor = "dma::dma_stream::<DmaStream as VmIo>::read"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "dma::dma_stream::<DmaStream<M> as VmIo<DmaStreamVmIoOwner < M >>>::write"
+anchor = "dma::dma_stream::<DmaStream as VmIo>::write"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "dma::dma_stream::<DmaStreamInner as Drop>::drop"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::<DmaStreamSlice<Dma,M> as VmIo<()>>::read"
+anchor = "dma::dma_stream::<DmaStreamSlice<Dma> as VmIo>::read"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "dma::dma_stream::<DmaStreamSlice<Dma,M> as VmIo<()>>::write"
+anchor = "dma::dma_stream::<DmaStreamSlice<Dma> as VmIo>::write"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "dma::dma_stream::<DmaStreamSlice<Dma> as Clone>::clone"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::<DmaStreamSlice<Dma> as HasDaddr>::daddr"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::<DmaStreamSlice<Dma> as HasPaddr>::paddr"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStream<M>::direction"
+anchor = "dma::dma_stream::DmaStream::direction"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStream<M>::map"
+anchor = "dma::dma_stream::DmaStream::map"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "dma::dma_stream::DmaStream<M>::nbytes"
+anchor = "dma::dma_stream::DmaStream::nbytes"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStream<M>::nframes"
+anchor = "dma::dma_stream::DmaStream::nframes"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStream<M>::reader"
+anchor = "dma::dma_stream::DmaStream::reader"
+type = "function"
+how = "rewrite"
+
+# The status table marks DmaStream::segment as verified, but the current API is
+# removed and the only direct RwArc access helper has external_body.
+[[planned]]
+name = "dma::dma_stream::DmaStream::segment"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStream<M>::sync"
+anchor = "dma::dma_stream::DmaStream::sync"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStream<M>::writer"
+anchor = "dma::dma_stream::DmaStream::writer"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::daddr"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::daddr_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::direction_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::nbytes_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::nframes_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::paddr"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::paddr_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::read_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::read_inner_vmio"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::reader_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::write_inner_vmio"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStream<M>::writer_inner"
+type = "function"
+
+[[planned]]
+name = "dma::dma_stream::DmaStreamSlice<Dma,M>::daddr"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStreamSlice<Dma,M>::nbytes"
+anchor = "dma::dma_stream::DmaStreamSlice<Dma>::nbytes"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStreamSlice<Dma,M>::new"
+anchor = "dma::dma_stream::DmaStreamSlice<Dma>::new"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStreamSlice<Dma,M>::offset"
+anchor = "dma::dma_stream::DmaStreamSlice<Dma>::offset"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStreamSlice<Dma,M>::reader"
+anchor = "dma::dma_stream::DmaStreamSlice<Dma>::reader"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "dma::dma_stream::DmaStreamSlice<Dma,M>::stream"
+anchor = "dma::dma_stream::DmaStreamSlice<Dma>::stream"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "dma::dma_stream::DmaStreamSlice<Dma,M>::sync"
+type = "function"
+
+[[verified]]
+name = "dma::dma_stream::DmaStreamSlice<Dma,M>::writer"
+anchor = "dma::dma_stream::DmaStreamSlice<Dma>::writer"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "dma::dma_stream::DmaStreamSlice<Dma>::sync"
+type = "function"
+
+[[planned]]
+name = "dma::remove_dma_mapping"
+type = "function"
+
+[[verified]]
+name = "frame::<Frame<M> as RCClone>::clone"
+anchor = "frame::<Frame<M> as Clone>::clone"
+type = "function"
+
+[[unsupported]]
+name = "frame::<Frame<M> as Debug>::fmt"
+type = "function"
+reason = "other"
+
+[[verified]]
+name = "frame::<Frame<M> as Drop>::drop"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::Frame<M>::eq"
+anchor = "frame::<Frame<M> as PartialEq>::eq"
+type = "function"
+how = "rewrite"
+
+[[unsupported]]
+name = "frame::<Frame<M> as TryFrom<Frame < dyn AnyFrameMeta >>>::try_from"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::<Frame<dyn AnyFrameMeta> as From<Frame < M >>>::from"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::<Frame<dyn AnyFrameMeta> as From<UFrame>>::from"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::<UFrame as TryFrom<Frame < dyn AnyFrameMeta >>>::try_from"
+type = "function"
+reason = "other"
+
+[[verified]]
+name = "frame::Frame<M>::borrow"
+type = "function"
+how = "rewrite"
+
+[[unsupported]]
+name = "frame::Frame<M>::dyn_meta"
+type = "function"
+reason = "other"
+
+[[verified]]
+name = "frame::Frame<M>::from_in_use"
+anchor = "frame::Frame<dyn AnyFrameMeta>::from_in_use"
+type = "function"
+
+[[planned]]
+name = "frame::Frame<M>::into_dyn"
+type = "function"
+
+[[verified]]
+name = "frame::Frame<M>::meta"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::Frame<M>::slot"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::acquire_fence"
+type = "function"
+
+[[unsupported]]
+name = "frame::allocator::EarlyFrameAllocator::alloc"
+type = "function"
+reason = "other"
+
+[[planned]]
+name = "frame::allocator::EarlyFrameAllocator::allocated_regions"
+type = "function"
+
+[[unsupported]]
+name = "frame::allocator::EarlyFrameAllocator::new"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::allocator::FrameAllocOptions::alloc_frame"
+type = "function"
+reason = "other"
+
+[[planned]]
+name = "frame::allocator::FrameAllocOptions::alloc_frame_with"
+type = "function"
+
+[[unsupported]]
+name = "frame::allocator::FrameAllocOptions::alloc_segment"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::allocator::FrameAllocOptions::alloc_segment_with"
+type = "function"
+reason = "other"
+
+[[verified]]
+name = "frame::allocator::FrameAllocOptions::zeroed"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::allocator::GlobalFrameAllocator::add_free_memory"
+type = "function"
+
+[[planned]]
+name = "frame::allocator::GlobalFrameAllocator::alloc"
+type = "function"
+
+[[planned]]
+name = "frame::allocator::GlobalFrameAllocator::dealloc"
+type = "function"
+
+[[planned]]
+name = "frame::allocator::early_alloc"
+type = "function"
+
+[[planned]]
+name = "frame::allocator::get_global_frame_allocator"
+type = "function"
+
+[[planned]]
+name = "frame::allocator::init"
+type = "function"
+
+[[planned]]
+name = "frame::allocator::init_early_allocator"
+type = "function"
+
+[[planned]]
+name = "frame::allocator::test_alloc_dealloc"
+type = "function"
+
+[[planned]]
+name = "frame::frame_ref::<Frame<M> as NonNullPtr>::ALIGN_BITS"
+type = "function"
+
+[[verified]]
+name = "frame::frame_ref::<Frame<M> as NonNullPtr>::from_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::frame_ref::<Frame<M> as NonNullPtr>::into_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::frame_ref::<Frame<M> as NonNullPtr>::raw_as_ref"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::frame_ref::<Frame<M> as NonNullPtr>::ref_as_raw"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::frame_ref::NonNullPtr::ALIGN_BITS"
+type = "function"
+
+[[planned]]
+name = "frame::frame_ref::NonNullPtr::from_raw"
+type = "function"
+
+[[planned]]
+name = "frame::frame_ref::NonNullPtr::into_raw"
+type = "function"
+
+[[planned]]
+name = "frame::frame_ref::NonNullPtr::raw_as_ref"
+type = "function"
+
+[[planned]]
+name = "frame::frame_ref::NonNullPtr::ref_as_raw"
+type = "function"
+
+[[verified]]
+name = "frame::linked_list::<LinkedList<M> as Drop>::drop"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::linked_list::CursorMut<M>::current_meta"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::linked_list::CursorMut<M>::take_current"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::linked_list::LinkedList<M>::cursor_back_mut"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::linked_list::LinkedList<M>::cursor_front_mut"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::linked_list::LinkedList<M>::lazy_get_id"
+type = "function"
+
+[[verified]]
+name = "frame::linked_list::LinkedList<M>::pop_back"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::linked_list::LinkedList<M>::pop_front"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::max_paddr"
+type = "function"
+
+[[verified]]
+name = "frame::meta::AnyFrameMeta::on_drop"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::meta::MetaSlot::addr_of"
+type = "function"
+
+[[verified]]
+name = "frame::meta::MetaSlot::as_meta_ptr"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::meta::MetaSlot::cast_slot"
+type = "function"
+
+[[planned]]
+name = "frame::meta::MetaSlot::dyn_meta_ptr"
+type = "function"
+
+[[verified]]
+name = "frame::meta::MetaSlot::frame_paddr"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::meta::MetaSlot::get_from_in_use"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::meta::MetaSlot::get_from_in_use_loop"
+type = "function"
+
+[[verified]]
+name = "frame::meta::MetaSlot::get_from_unused"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::meta::MetaSlot::write_meta"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::meta::add_temp_linear_mapping"
+type = "function"
+
+[[planned]]
+name = "frame::meta::alloc_meta_frames"
+type = "function"
+
+[[verified]]
+name = "frame::meta::get_slot"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::meta::init"
+type = "function"
+
+[[planned]]
+name = "frame::meta::is_initialized"
+type = "function"
+
+[[verified]]
+name = "frame::meta::mapping::frame_to_meta"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::meta::mapping::meta_to_frame"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::meta::mark_unusable_ranges"
+type = "function"
+
+[[planned]]
+name = "frame::meta::meta_slot_size"
+type = "function"
+
+[[verified]]
+name = "frame::segment::<Segment<M> as RCClone>::clone"
+anchor = "frame::segment::<Segment<M> as Clone>::clone"
+type = "function"
+how = "rewrite"
+
+[[unsupported]]
+name = "frame::segment::<Segment<M> as Debug>::fmt"
+type = "function"
+reason = "other"
+
+[[verified]]
+name = "frame::segment::Segment<M>::drop"
+anchor = "frame::segment::<Segment<M> as Drop>::drop"
+type = "function"
+how = "rewrite"
+
+[[unsupported]]
+name = "frame::segment::<Segment<M> as TryFrom<Segment < dyn AnyFrameMeta >>>::try_from"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::segment::<Segment<dyn AnyFrameMeta> as From<Segment < M >>>::from"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::segment::<USegment as From<Segment < M >>>::from"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::segment::<USegment as TryFrom<Segment < dyn AnyFrameMeta >>>::try_from"
+type = "function"
+reason = "other"
+
+[[verified]]
+name = "frame::segment::Segment<M>::from_unused"
+type = "function"
+how = "rewrite"
+
+[[unsupported]]
+name = "frame::segment::Segment<M>::next"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::unique::<UniqueFrame<M> as Debug>::fmt"
+type = "function"
+reason = "other"
+
+[[verified]]
+name = "frame::unique::UniqueFrame<M>::drop"
+anchor = "frame::unique::<UniqueFrame<M> as Drop>::drop"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::unique::Frame<M>::from_unique"
+type = "function"
+how = "rewrite"
+
+[[unsupported]]
+name = "frame::unique::UniqueFrame<M>::dyn_meta"
+type = "function"
+reason = "other"
+
+[[unsupported]]
+name = "frame::unique::UniqueFrame<M>::dyn_meta_mut"
+type = "function"
+reason = "other"
+
+[[verified]]
+name = "frame::unique::UniqueFrame<M>::from_raw"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::unique::UniqueFrame<M>::meta"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::unique::UniqueFrame<M>::meta_mut"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "frame::unique::UniqueFrame<M>::repurpose"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::unique::UniqueFrame<M>::slot"
+type = "function"
+
+# The status table mentions UniqueFrame::reset_as_unused, which has no
+# existence/signature delta. This current-only transmute helper has external_body.
+[[planned]]
+name = "frame::unique::UniqueFrame<M>::transmute"
+type = "function"
+
+[[verified]]
+name = "frame::unique::UniqueFrame<M>::try_from_shared"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "frame::untyped::Segment<M>::reader"
+type = "function"
+
+[[planned]]
+name = "frame::untyped::Segment<M>::writer"
+type = "function"
+
+[[planned]]
+name = "io::<VmReader<Infallible> as From<& 'a [u8]>>::from"
+type = "function"
+
+[[planned]]
+name = "io::<VmWriter<Infallible> as From<& 'a mut [u8]>>::from"
+type = "function"
+
+[[planned]]
+name = "io::<[u8] as AsVirtPtr>::as_virt_ptr"
+type = "function"
+
+[[planned]]
+name = "io::AsVirtPtr::as_virt_ptr"
+type = "function"
+
+[[verified]]
+name = "io::VmIo::read"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmIo::read_bytes"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmIo::read_slice"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmIo::read_val"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmIo::write"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmIo::write_bytes"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmIo::write_slice"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmIo::write_val"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmIo::write_vals"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmReader<Fallibility>::cursor"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "io::VmReader<Fallibility>::skip_in_place"
+type = "function"
+
+[[verified]]
+name = "io::VmReader<Fallible>::collect"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmReader<Fallible>::from_user_space"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "io::VmReader<Infallible>::from"
+type = "function"
+
+[[verified]]
+name = "io::VmReader<Infallible>::from_kernel_space"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmReader<Infallible>::to_fallible"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmWriter<Fallibility>::cursor"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::VmWriter<Fallible>::from_user_space"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "io::VmWriter<Infallible>::from"
+type = "function"
+
+[[verified]]
+name = "io::VmWriter<Infallible>::from_kernel_space"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "io::memcpy"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "io::memcpy_fallible"
+type = "function"
+
+[[planned]]
+name = "io::memset_fallible"
+type = "function"
+
+[[planned]]
+name = "kspace::<KernelPtConfig as PageTableConfig>::TOP_LEVEL_CAN_UNMAP"
+type = "function"
+
+[[planned]]
+name = "kspace::<KernelPtConfig as PageTableConfig>::TOP_LEVEL_INDEX_RANGE"
+type = "function"
+
+[[planned]]
+name = "kspace::<KernelPtConfig as PageTableConfig>::item_from_raw"
+type = "function"
+
+[[planned]]
+name = "kspace::<KernelPtConfig as PageTableConfig>::item_into_raw"
+type = "function"
+
+[[planned]]
+name = "kspace::<MappedItem as RCClone>::clone"
+type = "function"
+
+[[planned]]
+name = "kspace::activate_kernel_page_table"
+type = "function"
+
+[[planned]]
+name = "kspace::init_kernel_page_table"
+type = "function"
+
+[[planned]]
+name = "kspace::kernel_loaded_offset"
+type = "function"
+
+[[planned]]
+name = "kspace::kvirt_area::<KVirtArea as Drop>::drop"
+type = "function"
+
+[[verified]]
+name = "kspace::kvirt_area::KVirtArea::map_frames"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "kspace::kvirt_area::KVirtArea::map_untracked_frames"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "kspace::kvirt_area::KVirtArea::query"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "kspace::kvirt_area::RangeAllocator::alloc"
+type = "function"
+
+[[planned]]
+name = "kspace::kvirt_area::RangeAllocator::new"
+type = "function"
+
+[[planned]]
+name = "kspace::kvirt_area::collect_largest_pages"
+type = "function"
+
+[[planned]]
+name = "kspace::kvirt_area::disable_preempt"
+type = "function"
+
+[[planned]]
+name = "kspace::kvirt_area::frame_into_dynframe"
+type = "function"
+
+[[planned]]
+name = "kspace::kvirt_area::get_kernel_page_table"
+type = "function"
+
+[[planned]]
+name = "nr_base_per_page"
+type = "function"
+
+[[verified]]
+name = "nr_subpage_per_huge"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_size"
+type = "function"
+
+[[planned]]
+name = "page_table::<C as PagingConstsTrait>::ADDRESS_WIDTH"
+type = "function"
+
+[[planned]]
+name = "page_table::<C as PagingConstsTrait>::BASE_PAGE_SIZE"
+type = "function"
+
+[[planned]]
+name = "page_table::<C as PagingConstsTrait>::HIGHEST_TRANSLATION_LEVEL"
+type = "function"
+
+[[planned]]
+name = "page_table::<C as PagingConstsTrait>::NR_LEVELS"
+type = "function"
+
+[[planned]]
+name = "page_table::<C as PagingConstsTrait>::PTE_SIZE"
+type = "function"
+
+[[planned]]
+name = "page_table::<C as PagingConstsTrait>::VA_SIGN_EXT"
+type = "function"
+
+[[verified]]
+name = "page_table::PageTable<C>::cursor"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::PageTable<C>::cursor_mut"
+type = "function"
+
+[[planned]]
+name = "page_table::PageTable<C>::empty_with_owner"
+type = "function"
+
+[[planned]]
+name = "page_table::PageTable<C>::root_paddr"
+type = "function"
+
+[[planned]]
+name = "page_table::PageTable<C>::shallow_copy"
+type = "function"
+
+[[verified]]
+name = "page_table::PageTable<KernelPtConfig>::create_user_page_table"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::PageTable<KernelPtConfig>::protect_flush_tlb"
+type = "function"
+
+[[planned]]
+name = "page_table::PageTable<UserPtConfig>::activate"
+type = "function"
+
+[[planned]]
+name = "page_table::PageTableConfig::TOP_LEVEL_CAN_UNMAP"
+type = "function"
+
+[[planned]]
+name = "page_table::PageTableConfig::TOP_LEVEL_INDEX_RANGE"
+type = "function"
+
+[[verified]]
+name = "page_table::PageTableConfig::item_into_raw"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::PageTableEntryTrait::as_usize"
+type = "function"
+
+[[planned]]
+name = "page_table::PageTableEntryTrait::default"
+type = "function"
+
+[[verified]]
+name = "page_table::PageTableEntryTrait::is_last"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::PageTableEntryTrait::is_present"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::PageTableEntryTrait::new_absent"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::PageTableEntryTrait::new_page"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::PageTableEntryTrait::new_pt"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::PageTableEntryTrait::paddr"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::PageTableEntryTrait::prop"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::RCClone::clone"
+type = "function"
+
+[[planned]]
+name = "page_table::apply_sign_ext"
+type = "function"
+
+[[planned]]
+name = "page_table::boot_pt::dismiss"
+type = "function"
+
+[[verified]]
+name = "page_table::boot_pt::with_borrow"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::cursor::<Cursor<C,A> as Iterator>::next"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::<Cursor<C> as Drop>::drop"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::<Cursor<C> as Iterator>::next"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::Cursor<C,A>::clone_item"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::cur_entry"
+anchor = "page_table::cursor::Cursor<C>::cur_entry"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::cur_va_range"
+anchor = "page_table::cursor::Cursor<C>::cur_va_range"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::find_next"
+anchor = "page_table::cursor::Cursor<C>::find_next"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::find_next_impl"
+anchor = "page_table::cursor::Cursor<C>::find_next_impl"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::jump"
+anchor = "page_table::cursor::Cursor<C>::jump"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::move_forward"
+anchor = "page_table::cursor::Cursor<C>::move_forward"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::new"
+anchor = "page_table::cursor::Cursor<C>::new"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::pop_level"
+anchor = "page_table::cursor::Cursor<C>::pop_level"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::push_level"
+anchor = "page_table::cursor::Cursor<C>::push_level"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::query"
+anchor = "page_table::cursor::Cursor<C>::query"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::Cursor<C,A>::virt_addr"
+anchor = "page_table::cursor::Cursor<C>::virt_addr"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::find_next"
+anchor = "page_table::cursor::CursorMut<C>::find_next"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::jump"
+anchor = "page_table::cursor::CursorMut<C>::jump"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::map"
+anchor = "page_table::cursor::CursorMut<C>::map"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::cursor::CursorMut<C,A>::map_branch_pt"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::CursorMut<C,A>::map_loop"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::new"
+anchor = "page_table::cursor::CursorMut<C>::new"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::protect_next"
+anchor = "page_table::cursor::CursorMut<C>::protect_next"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::query"
+anchor = "page_table::cursor::CursorMut<C>::query"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::replace_cur_entry"
+anchor = "page_table::cursor::CursorMut<C>::replace_cur_entry"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::take_next"
+anchor = "page_table::cursor::CursorMut<C>::take_next"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::cursor::CursorMut<C,A>::virt_addr"
+anchor = "page_table::cursor::CursorMut<C>::virt_addr"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::PageTableFrag<C>::va_range"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::cursor::locking::dfs_acquire_lock"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::locking::dfs_mark_stray_and_unlock"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::locking::dfs_release_lock"
+type = "function"
+
+[[verified]]
+name = "page_table::cursor::locking::lock_range"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::cursor::locking::try_traverse_and_lock_subtree_root"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::locking::unlock_range"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::page_size"
+type = "function"
+
+[[planned]]
+name = "page_table::cursor::path_slot_as_mut"
+type = "function"
+
+[[planned]]
+name = "page_table::is_valid_range"
+type = "function"
+
+[[planned]]
+name = "page_table::largest_pages"
+type = "function"
+
+[[planned]]
+name = "page_table::load_pte"
+type = "function"
+
+[[verified]]
+name = "page_table::node::entry::<PageTableGuard<C> as Deref>::deref"
+anchor = "page_table::node::<PageTableGuard<C> as Deref>::deref"
+type = "function"
+
+[[planned]]
+name = "page_table::node::<PageTableGuard<C> as Drop>::drop"
+type = "function"
+
+[[planned]]
+name = "page_table::node::<PageTablePageMeta<C> as AnyFrameMeta>::is_untyped"
+type = "function"
+
+[[verified]]
+name = "page_table::node::<PageTablePageMeta<C> as AnyFrameMeta>::on_drop"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::PageTableGuard<C>::entry"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::PageTableGuard<C>::nr_children"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::PageTableGuard<C>::nr_children_mut"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::PageTableGuard<C>::read_pte"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::PageTableGuard<C>::stray_mut"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::PageTableGuard<C>::write_pte"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::node::PageTableNode<C>::activate"
+type = "function"
+
+[[planned]]
+name = "page_table::node::PageTableNode<C>::alloc"
+type = "function"
+
+[[planned]]
+name = "page_table::node::PageTableNode<C>::first_activate"
+type = "function"
+
+[[planned]]
+name = "page_table::node::PageTableNodeRef<C>::lock"
+type = "function"
+
+[[verified]]
+name = "page_table::node::PageTableNodeRef<C>::make_guard_unchecked"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::child::Child<C>::from_pte"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::child::Child<C>::into_pte"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::child::Child<C>::is_none"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::child::ChildRef<C>::from_pte"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::entry::Entry<C>::alloc_if_none"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::node::entry::Entry<C>::new"
+type = "function"
+
+[[verified]]
+name = "page_table::node::entry::Entry<C>::new_at"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::entry::Entry<C>::protect"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::entry::Entry<C>::replace"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::entry::Entry<C>::split_if_mapped_huge"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::node::entry::Entry<C>::to_ref"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::nr_pte_index_bits"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "page_table::page_walk"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "page_table::pt_va_range_end"
+type = "function"
+
+[[planned]]
+name = "page_table::pt_va_range_start"
+type = "function"
+
+[[planned]]
+name = "page_table::pte_index"
+type = "function"
+
+[[planned]]
+name = "page_table::pte_index_bit_offset"
+type = "function"
+
+[[planned]]
+name = "page_table::sign_bit_of_va"
+type = "function"
+
+[[planned]]
+name = "page_table::store_pte"
+type = "function"
+
+[[planned]]
+name = "page_table::top_level_index_width"
+type = "function"
+
+[[verified]]
+name = "page_table::vaddr_range"
+type = "function"
+how = "rewrite"
+
+[[unsupported]]
+name = "tlb::TlbFlusher::dispatch_tlb_flush"
+anchor = "tlb::TlbFlusher<G>::dispatch_tlb_flush"
+type = "function"
+reason = "lack-hardware-support"
+
+[[unsupported]]
+name = "tlb::TlbFlusher::issue_tlb_flush"
+anchor = "tlb::TlbFlusher<G>::issue_tlb_flush"
+type = "function"
+reason = "lack-hardware-support"
+
+[[unsupported]]
+name = "tlb::TlbFlusher::issue_tlb_flush_with"
+anchor = "tlb::TlbFlusher<G>::issue_tlb_flush_with"
+type = "function"
+reason = "lack-hardware-support"
+
+[[verified]]
+name = "tlb::TlbFlusher::new"
+anchor = "tlb::TlbFlusher<G>::new"
+type = "function"
+how = "rewrite"
+
+[[unsupported]]
+name = "tlb::TlbFlusher::sync_tlb_flush"
+anchor = "tlb::TlbFlusher<G>::sync_tlb_flush"
+type = "function"
+reason = "lack-hardware-support"
+
+[[planned]]
+name = "vm_space::<Cursor as Iterator>::next"
+type = "function"
+
+[[planned]]
+name = "vm_space::<MappedItem as RCClone>::clone"
+type = "function"
+
+[[planned]]
+name = "vm_space::<UserPtConfig as PageTableConfig>::TOP_LEVEL_CAN_UNMAP"
+type = "function"
+
+[[planned]]
+name = "vm_space::<UserPtConfig as PageTableConfig>::TOP_LEVEL_INDEX_RANGE"
+type = "function"
+
+[[verified]]
+name = "vm_space::VmSpace::default"
+anchor = "vm_space::<VmSpace as Default>::default"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "vm_space::Cursor<A>::find_next"
+anchor = "vm_space::Cursor::find_next"
+type = "function"
+
+[[verified]]
+name = "vm_space::Cursor<A>::jump"
+anchor = "vm_space::Cursor::jump"
+type = "function"
+
+[[verified]]
+name = "vm_space::Cursor<A>::query"
+anchor = "vm_space::Cursor::query"
+type = "function"
+
+[[verified]]
+name = "vm_space::Cursor<A>::virt_addr"
+anchor = "vm_space::Cursor::virt_addr"
+type = "function"
+
+[[verified]]
+name = "vm_space::CursorMut<A>::find_next"
+anchor = "vm_space::CursorMut::find_next"
+type = "function"
+
+[[verified]]
+name = "vm_space::CursorMut<A>::flusher"
+anchor = "vm_space::CursorMut::flusher"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "vm_space::CursorMut<A>::jump"
+anchor = "vm_space::CursorMut::jump"
+type = "function"
+
+[[verified]]
+name = "vm_space::CursorMut<A>::map"
+anchor = "vm_space::CursorMut::map"
+type = "function"
+
+[[verified]]
+name = "vm_space::CursorMut<A>::protect_next"
+anchor = "vm_space::CursorMut::protect_next"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "vm_space::CursorMut<A>::query"
+anchor = "vm_space::CursorMut::query"
+type = "function"
+
+[[verified]]
+name = "vm_space::CursorMut<A>::unmap"
+anchor = "vm_space::CursorMut::unmap"
+type = "function"
+
+[[verified]]
+name = "vm_space::CursorMut<A>::virt_addr"
+anchor = "vm_space::CursorMut::virt_addr"
+type = "function"
+
+[[unsupported]]
+name = "vm_space::VmSpace::activate"
+type = "function"
+reason = "lack-hardware-support"
+
+[[verified]]
+name = "vm_space::VmSpace::cursor"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "vm_space::VmSpace::cursor_mut"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "vm_space::VmSpace::new"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "vm_space::VmSpace::reader"
+type = "function"
+how = "rewrite"
+
+[[verified]]
+name = "vm_space::VmSpace::writer"
+type = "function"
+how = "rewrite"
+
+[[planned]]
+name = "vm_space::get_activated_vm_space"
+type = "function"
