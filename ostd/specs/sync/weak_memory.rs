@@ -15,8 +15,8 @@
 //!
 //! - [RCU Verification](https://dl.acm.org/doi/pdf/10.1145/3729246)
 use core::sync::atomic::{
-    AtomicBool, AtomicI16, AtomicI32, AtomicI8, AtomicIsize, AtomicPtr, AtomicU16, AtomicU32,
-    AtomicU8, AtomicUsize, Ordering,
+    AtomicBool, AtomicI8, AtomicI16, AtomicI32, AtomicIsize, AtomicPtr, AtomicU8, AtomicU16,
+    AtomicU32, AtomicUsize, Ordering,
 };
 
 #[cfg(target_has_atomic = "64")]
@@ -24,8 +24,8 @@ use core::sync::atomic::{AtomicI64, AtomicU64};
 
 use vstd::invariant::{AtomicInvariant, InvariantPredicate};
 use vstd::prelude::*;
-use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo};
 use vstd::resource::Loc;
+use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo};
 use vstd::seq::Seq;
 
 verus! {
@@ -328,6 +328,7 @@ macro_rules! declare_weak_atomic_type {
                 self.atomic_inv@.constant().1 == self.atomic.id()
             }
 
+            #[verifier::type_invariant]
             pub closed spec fn type_inv(&self) -> bool {
                 self.well_formed()
             }
@@ -345,7 +346,6 @@ macro_rules! declare_weak_atomic_type {
                 requires
                     Pred::atomic_inv(k, seq![Msg { value: init, view: WmView::empty() }], g),
                 ensures
-                    res.well_formed(),
                     res.constant() == k,
             {
                 let (atomic, Tracked(hist)) = $raw_atomic::new(init);
@@ -359,10 +359,7 @@ macro_rules! declare_weak_atomic_type {
             pub fn load_relaxed(
                 &self,
                 Tracked(tv): Tracked<&mut ThreadView>,
-            ) -> (res: ($value_ty, Ghost<Timestamp>))
-                requires
-                    self.well_formed(),
-            {
+            ) -> (res: ($value_ty, Ghost<Timestamp>)) {
                 let result;
                 vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
                     let tracked (hist, g) = pair;
@@ -378,10 +375,7 @@ macro_rules! declare_weak_atomic_type {
             pub fn load_acquire(
                 &self,
                 Tracked(tv): Tracked<&mut ThreadView>,
-            ) -> (res: ($value_ty, Ghost<Timestamp>))
-                requires
-                    self.well_formed(),
-            {
+            ) -> (res: ($value_ty, Ghost<Timestamp>)) {
                 let result;
                 vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
                     let tracked (hist, g) = pair;
@@ -463,6 +457,7 @@ impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> {
         self.atomic_inv@.constant().1 == self.atomic.id()
     }
 
+    #[verifier::type_invariant]
     pub closed spec fn type_inv(&self) -> bool {
         self.well_formed()
     }
@@ -490,10 +485,7 @@ impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> where
     pub fn load_relaxed(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
         *mut T,
         Ghost<Timestamp>,
-    ))
-        requires
-            self.well_formed(),
-    {
+    )) {
         let result;
         vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
             let tracked (hist, g) = pair;
@@ -509,10 +501,7 @@ impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> where
     pub fn load_acquire(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
         *mut T,
         Ghost<Timestamp>,
-    ))
-        requires
-            self.well_formed(),
-    {
+    )) {
         let result;
         vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
             let tracked (hist, g) = pair;
@@ -530,6 +519,49 @@ pub struct TrueWeakAtomicInv;
 impl<K, V, G> WeakAtomicInvariantPredicate<K, V, G> for TrueWeakAtomicInv {
     open spec fn atomic_inv(k: K, history: History<V>, g: G) -> bool {
         true
+    }
+}
+
+impl<T, K> WeakAtomicPtr<T, K, (), TrueWeakAtomicInv> {
+    // TODO: Move exec code into, `vstd_extra`?
+    /// Release-store helper for users with the trivial atomic invariant.
+    ///
+    /// This keeps early weak-memory clients from depending on the macro while
+    /// we are still shaping the client-specific ghost state.
+    #[inline(always)]
+    pub fn store_release_simple(&self, value: *mut T, Tracked(tv): Tracked<&mut ThreadView>) {
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (mut hist, g) = pair;
+            let _snap = self.atomic.store_release(Tracked(&mut hist), Tracked(tv), value);
+            proof {
+                pair = (hist, g);
+            }
+        });
+    }
+
+    /// Strong AcqRel/Acquire CAS helper for users with the trivial invariant.
+    #[inline(always)]
+    pub fn compare_exchange_acqrel_acquire_simple(
+        &self,
+        current: *mut T,
+        new: *mut T,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (Result<*mut T, *mut T>, Ghost<Timestamp>)) {
+        let result;
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (mut hist, g) = pair;
+            let cas_result = self.atomic.compare_exchange_acqrel_acquire(
+                Tracked(&mut hist),
+                Tracked(tv),
+                current,
+                new,
+            );
+            result = (cas_result.0, cas_result.1);
+            proof {
+                pair = (hist, g);
+            }
+        });
+        result
     }
 }
 

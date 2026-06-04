@@ -12,14 +12,83 @@
 //! The module is intentionally proof-only for now. The executable RCU
 //! implementation should later connect its real guard/token state to these
 //! abstract ghost tokens.
+use super::weak_memory::{History, Msg, WeakAtomicInvariantPredicate};
 use vstd::prelude::*;
 use vstd::resource::Loc;
 
 verus! {
 
+/// Workaround for supporting `dyn Fn() + 'static + Send`.
+///
+/// A closure basically is just a function pointer
+/// along with the pointer to the captured context.
+#[verifier::external_body]
+pub struct RawRcuCallback {
+    data: *mut (),
+    run: unsafe fn (*mut ()),
+}
+
 pub type LinkIndex = nat;
 
 pub type LinkEdge<T> = (*mut T, LinkIndex);
+
+/// The weak-memory invariant for the root pointer stored in an executable RCU
+/// cell.
+///
+/// The key is the cell's nullability: `true` for `RcuOption`, `false` for
+/// `Rcu`.  At this layer we only connect the atomic message history to the
+/// public nullability contract. Ownership, read tokens, and reclamation are
+/// deliberately modeled by the traversal/reclaim tokens below and will be wired
+/// into this predicate in later steps.
+pub struct RcuWeakAtomicInv;
+
+pub open spec fn rcu_history_inv<T>(nullable: bool, history: History<*mut T>) -> bool {
+    &&& history.len() >= 1
+    &&& !nullable ==> forall|i: int|
+        0 <= i < history.len() ==> #[trigger] history[i].value.addr() != 0
+}
+
+impl<T> WeakAtomicInvariantPredicate<bool, *mut T, ()> for RcuWeakAtomicInv {
+    open spec fn atomic_inv(nullable: bool, history: History<*mut T>, _g: ()) -> bool {
+        rcu_history_inv(nullable, history)
+    }
+}
+
+pub proof fn preserve_rcu_history_inv_on_push<T>(
+    nullable: bool,
+    prev: History<*mut T>,
+    next: History<*mut T>,
+    msg: Msg<*mut T>,
+)
+    requires
+        rcu_history_inv(nullable, prev),
+        next == prev.push(msg),
+        nullable || msg.value.addr() != 0,
+    ensures
+        rcu_history_inv(nullable, next),
+{
+    assert(next.len() >= 1);
+    if !nullable {
+        assert forall|i: int| 0 <= i < next.len() implies #[trigger] next[i].value.addr() != 0 by {
+            if i == prev.len() {
+                assert(next[i] == msg);
+            } else {
+                assert(i < prev.len());
+            }
+        };
+    }
+}
+
+pub proof fn rcu_history_inv_read_nonnull<T>(history: History<*mut T>, ts: nat)
+    requires
+        rcu_history_inv(false, history),
+        ts < history.len(),
+    ensures
+        history[ts as int].value.addr() != 0,
+        !history[ts as int].value.is_null(),
+{
+    assert(history[ts as int].value.addr() != 0);
+}
 
 /// Link view carried by an RCU read-side guard.
 ///
