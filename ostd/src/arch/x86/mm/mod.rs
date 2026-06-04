@@ -234,7 +234,12 @@ impl PageTableEntryTrait for PageTableEntry {
         let flags = PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits()
             | PageTableFlags::USER().bits();
         proof {
-            admit();
+            Self::lemma_page_table_entry_properties();
+            lemma_auxiliary_bit_properties(paddr);
+            assert((PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits()) & Self::PHYS_ADDR_MASK == 0) by (compute);
+            assert(paddr < MAX_PADDR ==> paddr & Self::PHYS_ADDR_MASK == paddr
+                & !((PAGE_SIZE - 1) as usize)) by (bit_vector);
+            assert((Self(paddr & Self::PHYS_ADDR_MASK | flags)) =~= Self::new_pt_spec(paddr));
         }
         Self(paddr & Self::PHYS_ADDR_MASK | flags)
     }
