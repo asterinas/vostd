@@ -3,7 +3,6 @@
 //!
 //! This is the new weak-memory RCU skeleton. The previous SC proof-oriented
 //! implementation is kept in `__mod.rs` as reference and is not compiled.
-use alloc::boxed::Box;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
@@ -23,6 +22,7 @@ use crate::{
 use non_null::{NonNullPtr, NonNullPtrRef};
 
 pub mod non_null;
+pub mod monitor;
 
 verus! {
 
@@ -456,81 +456,6 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
         self.0.compare_exchange(new_ptr)
     }
 }
-
-} // verus!
-/// A one-shot, type-erased RCU callback.
-///
-/// This is the small executable wrapper we use instead of `Box<dyn FnOnce()>`.
-/// `data` is a thin pointer to a sized heap payload, and `run` is the
-/// monomorphized shim that knows how to consume that payload. The proof layer
-/// treats the pair as a TCB boundary; later monitor proofs should reason about
-/// which retired resource each callback represents, not about arbitrary closure
-/// bodies.
-#[must_use]
-#[allow(dead_code)]
-pub(crate) struct RawRcuCallback {
-    data: *mut (),
-    run: unsafe fn(*mut ()),
-}
-
-struct RawRcuCallbackPayload<C: Send + 'static> {
-    context: C,
-    run: unsafe fn(C),
-}
-
-// SAFETY: `RawRcuCallback::new` only accepts `C: Send + 'static` payloads, and
-// `call_once` consumes the payload through the matching monomorphized runner.
-unsafe impl Send for RawRcuCallback {}
-
-#[allow(dead_code)]
-impl RawRcuCallback {
-    /// Builds a callback from an explicit captured context and a typed one-shot
-    /// runner.
-    #[inline]
-    pub(crate) fn new<C: Send + 'static>(context: C, run: unsafe fn(C)) -> Self {
-        let payload = Box::new(RawRcuCallbackPayload { context, run });
-        Self {
-            data: Box::into_raw(payload).cast::<()>(),
-            run: run_raw_callback::<C>,
-        }
-    }
-
-    /// Builds the common "drop this value after the grace period" callback.
-    #[inline]
-    pub(crate) fn defer_drop<T: Send + 'static>(value: T) -> Self {
-        Self::new(value, drop_context::<T>)
-    }
-
-    /// Runs the callback exactly once.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure this callback has not already been run and will
-    /// not be run again. This is the executable one-shot invariant that the
-    /// monitor queue will eventually own.
-    #[inline]
-    pub(crate) unsafe fn call_once(self) {
-        unsafe {
-            (self.run)(self.data);
-        }
-    }
-}
-
-#[inline]
-unsafe fn run_raw_callback<C: Send + 'static>(data: *mut ()) {
-    let payload = unsafe { Box::from_raw(data.cast::<RawRcuCallbackPayload<C>>()) };
-    let RawRcuCallbackPayload { context, run } = *payload;
-    unsafe {
-        run(context);
-    }
-}
-
-#[inline]
-fn drop_context<T: Send + 'static>(value: T) {
-    drop(value);
-}
-
-verus! {
 
 /// A wrapper whose destructor will eventually be delayed until after an RCU
 /// grace period.

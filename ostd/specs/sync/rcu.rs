@@ -12,21 +12,11 @@
 //! The module is intentionally proof-only for now. The executable RCU
 //! implementation should later connect its real guard/token state to these
 //! abstract ghost tokens.
-use super::weak_memory::{History, Msg, WeakAtomicInvariantPredicate};
+use super::weak_memory::{History, Msg, WeakAtomicInvariantPredicate, WmView};
 use vstd::prelude::*;
 use vstd::resource::Loc;
 
 verus! {
-
-/// Workaround for supporting `dyn Fn() + 'static + Send`.
-///
-/// A closure basically is just a function pointer
-/// along with the pointer to the captured context.
-#[verifier::external_body]
-pub struct RawRcuCallback {
-    data: *mut (),
-    run: unsafe fn (*mut ()),
-}
 
 pub type LinkIndex = nat;
 
@@ -52,6 +42,111 @@ impl<T> WeakAtomicInvariantPredicate<bool, *mut T, ()> for RcuWeakAtomicInv {
     open spec fn atomic_inv(nullable: bool, history: History<*mut T>, _g: ()) -> bool {
         rcu_history_inv(nullable, history)
     }
+}
+
+/// Ghost summary paired with the RCU monitor's `is_monitoring` flag.
+///
+/// `pending[i]` summarizes whether the monitor state represented at flag
+/// message `i` has queued callbacks or an active grace period that must still be
+/// observed. This is intentionally a summary: the concrete callback vectors
+/// live in the monitor state protected by its lock.
+pub ghost struct RcuMonitorFlagGhost {
+    pub pending: Seq<bool>,
+}
+
+impl RcuMonitorFlagGhost {
+    pub open spec fn initial() -> Self {
+        RcuMonitorFlagGhost { pending: seq![false] }
+    }
+
+    pub open spec fn push(self, pending: bool) -> Self {
+        RcuMonitorFlagGhost { pending: self.pending.push(pending) }
+    }
+}
+
+/// Weak-memory invariant for the monitor's fast-path flag.
+///
+/// The invariant is deliberately one-way: a `false` flag message certifies no
+/// pending monitor work for that message's ghost summary. A `true` flag is
+/// conservative and may over-approximate pending work.
+pub open spec fn rcu_monitor_flag_history_inv(
+    history: History<bool>,
+    ghost: RcuMonitorFlagGhost,
+) -> bool {
+    &&& history.len() >= 1
+    &&& ghost.pending.len() == history.len()
+    &&& forall|i: int|
+        0 <= i < history.len() ==> {
+            &&& !#[trigger] history[i].value ==> !ghost.pending[i]
+        }
+}
+
+pub struct RcuMonitorFlagInv;
+
+impl WeakAtomicInvariantPredicate<(), bool, RcuMonitorFlagGhost> for RcuMonitorFlagInv {
+    open spec fn atomic_inv(
+        _k: (),
+        history: History<bool>,
+        ghost: RcuMonitorFlagGhost,
+    ) -> bool {
+        rcu_monitor_flag_history_inv(history, ghost)
+    }
+}
+
+pub proof fn rcu_monitor_flag_initial_inv()
+    ensures
+        RcuMonitorFlagInv::atomic_inv(
+            (),
+            seq![Msg { value: false, view: WmView::empty() }],
+            RcuMonitorFlagGhost::initial(),
+        ),
+{
+}
+
+pub proof fn preserve_rcu_monitor_flag_inv_on_push(
+    prev: History<bool>,
+    next: History<bool>,
+    msg: Msg<bool>,
+    prev_ghost: RcuMonitorFlagGhost,
+    next_ghost: RcuMonitorFlagGhost,
+    pending: bool,
+)
+    requires
+        rcu_monitor_flag_history_inv(prev, prev_ghost),
+        next == prev.push(msg),
+        next_ghost == prev_ghost.push(pending),
+        !msg.value ==> !pending,
+    ensures
+        rcu_monitor_flag_history_inv(next, next_ghost),
+{
+    assert(next.len() >= 1);
+    assert(next_ghost.pending.len() == next.len());
+    assert forall|i: int| 0 <= i < next.len() implies {
+        &&& !#[trigger] next[i].value ==> !next_ghost.pending[i]
+    } by {
+        if i == prev.len() {
+            assert(next[i] == msg);
+            assert(next_ghost.pending[i] == pending);
+        } else {
+            assert(i < prev.len());
+            assert(next[i] == prev[i]);
+            assert(next_ghost.pending[i] == prev_ghost.pending[i]);
+        }
+    };
+}
+
+pub proof fn rcu_monitor_flag_false_has_no_pending(
+    history: History<bool>,
+    ghost: RcuMonitorFlagGhost,
+    ts: nat,
+)
+    requires
+        rcu_monitor_flag_history_inv(history, ghost),
+        ts < history.len(),
+        !history[ts as int].value,
+    ensures
+        !ghost.pending[ts as int],
+{
 }
 
 pub proof fn preserve_rcu_history_inv_on_push<T>(

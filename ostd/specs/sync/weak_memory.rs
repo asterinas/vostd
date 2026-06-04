@@ -19,6 +19,8 @@ use core::sync::atomic::{
     AtomicU32, AtomicUsize, Ordering,
 };
 
+use super::rcu as rcu_spec;
+
 #[cfg(target_has_atomic = "64")]
 use core::sync::atomic::{AtomicI64, AtomicU64};
 
@@ -312,9 +314,9 @@ macro_rules! declare_weak_atomic_type {
         /// `#[verifier::type_invariant]`.
         pub struct $weak_atomic<K, G, Pred> {
             #[doc(hidden)]
-            pub atomic: $raw_atomic,
+            atomic: $raw_atomic,
             #[doc(hidden)]
-            pub atomic_inv: Tracked<
+            atomic_inv: Tracked<
                 AtomicInvariant<(K, AtomicId), (HistAuth<$value_ty>, G), $pred_adapter<Pred>>,
             >,
         }
@@ -361,8 +363,16 @@ macro_rules! declare_weak_atomic_type {
                 Tracked(tv): Tracked<&mut ThreadView>,
             ) -> (res: ($value_ty, Ghost<Timestamp>)) {
                 let result;
+                proof {
+                    use_type_invariant(self);
+                }
                 vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
                     let tracked (hist, g) = pair;
+                    proof {
+                        assert(hist.id() == self.atomic_inv@.constant().1);
+                        assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                        assert(hist.id() == self.atomic.id());
+                    }
                     result = self.atomic.load_relaxed(Tracked(&hist), Tracked(tv));
                     proof {
                         pair = (hist, g);
@@ -377,8 +387,16 @@ macro_rules! declare_weak_atomic_type {
                 Tracked(tv): Tracked<&mut ThreadView>,
             ) -> (res: ($value_ty, Ghost<Timestamp>)) {
                 let result;
+                proof {
+                    use_type_invariant(self);
+                }
                 vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
                     let tracked (hist, g) = pair;
+                    proof {
+                        assert(hist.id() == self.atomic_inv@.constant().1);
+                        assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                        assert(hist.id() == self.atomic.id());
+                    }
                     result = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
                     proof {
                         pair = (hist, g);
@@ -441,9 +459,9 @@ impl<T, K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<*mut T>, G)> for
 #[verifier::accept_recursive_types(T)]
 pub struct WeakAtomicPtr<T, K, G, Pred> {
     #[doc(hidden)]
-    pub atomic: AtomicPtrW<T>,
+    atomic: AtomicPtrW<T>,
     #[doc(hidden)]
-    pub atomic_inv: Tracked<
+    atomic_inv: Tracked<
         AtomicInvariant<(K, AtomicId), (HistAuth<*mut T>, G), WeakAtomicPredPtr<T, Pred>>,
     >,
 }
@@ -487,8 +505,16 @@ impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> where
         Ghost<Timestamp>,
     )) {
         let result;
+        proof {
+            use_type_invariant(self);
+        }
         vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
             let tracked (hist, g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
             result = self.atomic.load_relaxed(Tracked(&hist), Tracked(tv));
             proof {
                 pair = (hist, g);
@@ -503,8 +529,16 @@ impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> where
         Ghost<Timestamp>,
     )) {
         let result;
+        proof {
+            use_type_invariant(self);
+        }
         vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
             let tracked (hist, g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
             result = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
             proof {
                 pair = (hist, g);
@@ -530,8 +564,16 @@ impl<T, K> WeakAtomicPtr<T, K, (), TrueWeakAtomicInv> {
     /// we are still shaping the client-specific ghost state.
     #[inline(always)]
     pub fn store_release_simple(&self, value: *mut T, Tracked(tv): Tracked<&mut ThreadView>) {
+        proof {
+            use_type_invariant(self);
+        }
         vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
             let tracked (mut hist, g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
             let _snap = self.atomic.store_release(Tracked(&mut hist), Tracked(tv), value);
             proof {
                 pair = (hist, g);
@@ -548,8 +590,16 @@ impl<T, K> WeakAtomicPtr<T, K, (), TrueWeakAtomicInv> {
         Tracked(tv): Tracked<&mut ThreadView>,
     ) -> (res: (Result<*mut T, *mut T>, Ghost<Timestamp>)) {
         let result;
+        proof {
+            use_type_invariant(self);
+        }
         vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
             let tracked (mut hist, g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
             let cas_result = self.atomic.compare_exchange_acqrel_acquire(
                 Tracked(&mut hist),
                 Tracked(tv),
@@ -558,6 +608,144 @@ impl<T, K> WeakAtomicPtr<T, K, (), TrueWeakAtomicInv> {
             );
             result = (cas_result.0, cas_result.1);
             proof {
+                pair = (hist, g);
+            }
+        });
+        result
+    }
+}
+
+impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
+    /// Acquire-load helper for RCU root pointers.
+    #[inline(always)]
+    pub fn load_acquire_rcu(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+        *mut T,
+        Ghost<Timestamp>,
+    ))
+        requires
+            self.well_formed(),
+        ensures
+            !self.constant() ==> !res.0.is_null(),
+    {
+        let result;
+        proof {
+            use_type_invariant(self);
+        }
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (hist, g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
+            result = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
+            proof {
+                assert(rcu_spec::rcu_history_inv(self.constant(), hist.history()));
+                if !self.constant() {
+                    rcu_spec::rcu_history_inv_read_nonnull::<T>(hist.history(), result.1@);
+                    assert(!result.0.is_null());
+                }
+                pair = (hist, g);
+            }
+        });
+        result
+    }
+
+    /// Release-store helper for RCU root pointers.
+    #[inline(always)]
+    pub fn store_release_rcu(&self, value: *mut T, Tracked(tv): Tracked<&mut ThreadView>)
+        requires
+            self.well_formed(),
+            self.constant() || !value.is_null(),
+    {
+        proof {
+            use_type_invariant(self);
+        }
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (mut hist, g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
+            let ghost prev = hist.history();
+            let snap = self.atomic.store_release(Tracked(&mut hist), Tracked(tv), value);
+            let ghost next = hist.history();
+            proof {
+                if !self.constant() {
+                    assert(!value.is_null());
+                    assert(snap@.msg().value.addr() != 0);
+                }
+                rcu_spec::preserve_rcu_history_inv_on_push(
+                    self.constant(),
+                    prev,
+                    next,
+                    snap@.msg(),
+                );
+                pair = (hist, g);
+            }
+        });
+    }
+
+    /// Strong AcqRel/Acquire CAS helper for RCU root pointers.
+    #[inline(always)]
+    pub fn compare_exchange_acqrel_acquire_rcu(
+        &self,
+        current: *mut T,
+        new: *mut T,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (Result<*mut T, *mut T>, Ghost<Timestamp>))
+        requires
+            self.well_formed(),
+            self.constant() || !new.is_null(),
+    {
+        let result;
+        proof {
+            use_type_invariant(self);
+        }
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (mut hist, g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
+            let ghost prev = hist.history();
+            let cas_result = self.atomic.compare_exchange_acqrel_acquire(
+                Tracked(&mut hist),
+                Tracked(tv),
+                current,
+                new,
+            );
+            result = (cas_result.0, cas_result.1);
+            let ghost next = hist.history();
+            proof {
+                match cas_result.0 {
+                    Result::Ok(_) => {
+                        let tracked snap_opt = cas_result.2.get();
+                        match snap_opt {
+                            Option::Some(snap) => {
+                                if !self.constant() {
+                                    assert(!new.is_null());
+                                    assert(snap.msg().value.addr() != 0);
+                                }
+                                rcu_spec::preserve_rcu_history_inv_on_push(
+                                    self.constant(),
+                                    prev,
+                                    next,
+                                    snap.msg(),
+                                );
+                            },
+                            Option::None => {
+                                assert(false);
+                            },
+                        }
+                    },
+                    Result::Err(_) => {
+                        assert(next == prev);
+                        assert(rcu_spec::rcu_history_inv(self.constant(), next));
+                    },
+                }
                 pair = (hist, g);
             }
         });
@@ -589,9 +777,17 @@ macro_rules! weak_atomic_with_ghost {
             let atomic = &($atomic);
             let current = $current;
             let new = $new;
+            proof {
+                use_type_invariant(atomic);
+            }
             ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
                 #[allow(unused_mut)]
                 let tracked (mut hist, mut $g) = pair;
+                proof {
+                    assert(hist.id() == atomic.atomic_inv@.constant().1);
+                    assert(atomic.atomic_inv@.constant().1 == atomic.atomic.id());
+                    assert(hist.id() == atomic.atomic.id());
+                }
                 let ghost $prev = hist.history();
                 let cas_result = atomic.atomic.compare_exchange_acqrel_acquire(
                     Tracked(&mut hist),
@@ -628,9 +824,17 @@ macro_rules! weak_atomic_with_ghost {
             ::vstd::prelude::verus_exec_expr! {{
             let result;
             let atomic = &($atomic);
+            proof {
+                use_type_invariant(atomic);
+            }
             ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
                 #[allow(unused_mut)]
                 let tracked (hist, mut $g) = pair;
+                proof {
+                    assert(hist.id() == atomic.atomic_inv@.constant().1);
+                    assert(atomic.atomic_inv@.constant().1 == atomic.atomic.id());
+                    assert(hist.id() == atomic.atomic.id());
+                }
                 let ghost $history = hist.history();
                 result = atomic.atomic.load_acquire(Tracked(&hist), $tv);
                 let ghost $ret = result.0;
@@ -657,9 +861,17 @@ macro_rules! weak_atomic_with_ghost {
             ::vstd::prelude::verus_exec_expr! {{
             let result;
             let atomic = &($atomic);
+            proof {
+                use_type_invariant(atomic);
+            }
             ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
                 #[allow(unused_mut)]
                 let tracked (hist, mut $g) = pair;
+                proof {
+                    assert(hist.id() == atomic.atomic_inv@.constant().1);
+                    assert(atomic.atomic_inv@.constant().1 == atomic.atomic.id());
+                    assert(hist.id() == atomic.atomic.id());
+                }
                 let ghost $history = hist.history();
                 result = atomic.atomic.load_relaxed(Tracked(&hist), $tv);
                 let ghost $ret = result.0;
@@ -684,9 +896,17 @@ macro_rules! weak_atomic_with_ghost {
             ::vstd::prelude::verus_exec_expr! {{
             let atomic = &($atomic);
             let value = $value;
+            proof {
+                use_type_invariant(atomic);
+            }
             ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
                 #[allow(unused_mut)]
                 let tracked (mut hist, mut $g) = pair;
+                proof {
+                    assert(hist.id() == atomic.atomic_inv@.constant().1);
+                    assert(atomic.atomic_inv@.constant().1 == atomic.atomic.id());
+                    assert(hist.id() == atomic.atomic.id());
+                }
                 let ghost $prev = hist.history();
                 let snap_tracked = atomic.atomic.store_release(Tracked(&mut hist), $tv, value);
                 let ghost $next = hist.history();
@@ -711,9 +931,17 @@ macro_rules! weak_atomic_with_ghost {
             ::vstd::prelude::verus_exec_expr! {{
             let atomic = &($atomic);
             let value = $value;
+            proof {
+                use_type_invariant(atomic);
+            }
             ::vstd::invariant::open_atomic_invariant!(atomic.atomic_inv.borrow() => pair => {
                 #[allow(unused_mut)]
                 let tracked (mut hist, mut $g) = pair;
+                proof {
+                    assert(hist.id() == atomic.atomic_inv@.constant().1);
+                    assert(atomic.atomic_inv@.constant().1 == atomic.atomic.id());
+                    assert(hist.id() == atomic.atomic.id());
+                }
                 let ghost $prev = hist.history();
                 let snap_tracked = atomic.atomic.store_relaxed(Tracked(&mut hist), $tv, value);
                 let ghost $next = hist.history();
