@@ -94,8 +94,7 @@ macro_rules! bitflags {
             impl ::core::clone::Clone for $name {
                 #[inline]
                 fn clone(&self) -> (r: Self)
-                    ensures
-                        r.bits() == self.bits(),
+                    returns self
                 {
                     Self {
                         bits: self.bits,
@@ -168,7 +167,7 @@ macro_rules! bitflags {
 
                 $(
                     $vis closed spec fn [< $Flag _spec >]() -> Self {
-                        Self::from_bits_unchecked_spec(($value) as $T)
+                        Self::from_bits_unchecked_spec($value as $T)
                     }
 
                     $(#[$inner $($args)*])*
@@ -177,8 +176,9 @@ macro_rules! bitflags {
                         ensures
                             r.bits() == ($value),
                             r.flags_spec() == Self::flags_from_bits(($value) as $T),
+                        returns Self::[< $Flag _spec >](),
                     {
-                        Self::from_bits_unchecked(($value) as $T)
+                        Self::from_bits_unchecked($value)
                     }
                 )*
 
