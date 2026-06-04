@@ -6,6 +6,9 @@ use core::mem::size_of;
 use core::ops::Range;
 
 use crate::mm::frame::MetaSlot;
+pub use crate::mm::frame::meta::mapping::{
+    frame_to_meta, frame_to_meta_spec, meta_to_frame, meta_to_frame_spec,
+};
 use crate::mm::frame::meta::{meta_slot_size, size_of_meta_slot};
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -42,24 +45,6 @@ pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_large_enough()
 }
 
 #[verifier::inline]
-pub open spec fn frame_to_meta_spec(paddr: Paddr) -> (res: Vaddr)
-    recommends
-        paddr % PAGE_SIZE == 0,
-        paddr < MAX_PADDR,
-{
-    (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * meta_slot_size()) as usize
-}
-
-#[verifier::inline]
-pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr
-    recommends
-        vaddr % size_of::<MetaSlot>() == 0,
-        FRAME_METADATA_RANGE.start <= vaddr < FRAME_METADATA_RANGE.end,
-{
-    ((vaddr - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int * PAGE_SIZE) as usize
-}
-
-#[verifier::inline]
 pub open spec fn frame_to_index(paddr: Paddr) -> usize
     recommends
         paddr % PAGE_SIZE == 0,
@@ -84,39 +69,6 @@ pub broadcast proof fn lemma_frame_to_index_injective(p1: Paddr, p2: Paddr)
     ensures
         #[trigger] frame_to_index(p1) != #[trigger] frame_to_index(p2),
 {
-}
-
-} // verus!
-verus! {
-
-#[inline(always)]
-#[verifier::when_used_as_spec(frame_to_meta_spec)]
-pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
-    requires
-        paddr % PAGE_SIZE == 0,
-        paddr < MAX_PADDR,
-    ensures
-        res == frame_to_meta_spec(paddr),
-        res % META_SLOT_SIZE == 0,
-{
-    let base = FRAME_METADATA_RANGE.start;
-    let offset = paddr / PAGE_SIZE;
-    base + offset * META_SLOT_SIZE
-}
-
-#[inline(always)]
-#[verifier::when_used_as_spec(meta_to_frame_spec)]
-pub fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
-    requires
-        FRAME_METADATA_RANGE.start <= vaddr && vaddr < FRAME_METADATA_RANGE.end,
-        vaddr % META_SLOT_SIZE == 0,
-    ensures
-        res == meta_to_frame_spec(vaddr),
-        res % PAGE_SIZE == 0,
-{
-    let base = FRAME_METADATA_RANGE.start;
-    let offset = (vaddr - base) / META_SLOT_SIZE;
-    offset * PAGE_SIZE
 }
 
 pub broadcast proof fn lemma_paddr_to_meta_biinjective(paddr: Paddr)
