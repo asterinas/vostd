@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "verified_bitflags",
-    "vstd_extra",
+    "verified_libs/verified_bitflags",
+    "verified_libs/vstd_extra",
+    "verified_libs/ostd-pod",
     "ostd",
-    "ostd-pod",
     "ostd/libs/align_ext",
 #    "ostd/libs/ostd-macros",
 #    "ostd/libs/ostd-test",
