@@ -61,8 +61,8 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::{
     arch::mm::PageTableEntry,
     boot::memory_region::MemoryRegionType,
-    mm::{largest_pages, PagingLevel},
-    specs::arch::{PagingConsts},
+    mm::{PagingLevel, largest_pages},
+    specs::arch::PagingConsts,
     //task::disable_preempt,
 };
 

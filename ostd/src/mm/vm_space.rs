@@ -13,7 +13,6 @@ use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 use vstd::vpanic;
 
-use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 use crate::arch::mm::PageTableEntry;
 use crate::error::Error;
 use crate::mm::frame::MetaSlot;
@@ -29,6 +28,7 @@ use crate::specs::mm::io::VmIoMemView;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::tlb::TlbModel;
+use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 use crate::specs::task::InAtomicMode;
 use crate::sync::RoArc;
 use core::marker::PhantomData;

@@ -17,7 +17,7 @@ use core::{
 use crate::mm::frame::meta::MetaSlot;
 
 use super::{
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr, PodOnce, kspace::KernelPtConfig,
+    Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr, kspace::KernelPtConfig,
     lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge, page_prop::PageProperty,
     vm_space::UserPtConfig,
 };
@@ -30,9 +30,9 @@ use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
+use crate::arch::mm::PageTableEntry;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::kspace::kvirt_area::disable_preempt;
-use crate::arch::mm::PageTableEntry;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use vstd_extra::ownership::Inv;
@@ -479,9 +479,8 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 /// Note that a default PTE should be a PTE that points to nothing.
 pub trait PageTableEntryTrait:
     Clone + Copy + Debug + Default + Sized + Send + Sync + Pod + PodOnce + 'static {
-
     spec fn new_absent_spec() -> Self;
-    
+
     /// Create a set of new invalid page table flags that indicates an absent page.
     ///
     /// Note that currently the implementation requires an all zero PTE to be an absent PTE.
@@ -492,7 +491,8 @@ pub trait PageTableEntryTrait:
             res.paddr() < MAX_PADDR,
             !res.is_present(),
         returns
-            Self::new_absent();
+            Self::new_absent(),
+    ;
 
     spec fn is_present_spec(&self) -> bool;
 
@@ -530,7 +530,7 @@ pub trait PageTableEntryTrait:
     ;
 
     spec fn new_pt_spec(paddr: Paddr) -> Self;
-    
+
     /// Create a new PTE that map to a child page table.
     #[verifier::when_used_as_spec(new_pt_spec)]
     fn new_pt(paddr: Paddr) -> (res: Self)
@@ -543,7 +543,7 @@ pub trait PageTableEntryTrait:
             res.paddr() < MAX_PADDR,
             res.is_present(),
         returns
-            Self::new_pt(paddr)
+            Self::new_pt(paddr),
     ;
 
     /// Returns the physical address from the PTE.
@@ -558,7 +558,7 @@ pub trait PageTableEntryTrait:
         ensures
             res % crate::specs::arch::mm::PAGE_SIZE == 0,
         returns
-            self.paddr()
+            self.paddr(),
     ;
 
     spec fn prop_spec(&self) -> PageProperty;
@@ -566,7 +566,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(prop_spec)]
     fn prop(&self) -> PageProperty
         returns
-            self.prop()
+            self.prop(),
     ;
 
     /// The preconditions for setting the page property of a PTE.
@@ -583,7 +583,8 @@ pub trait PageTableEntryTrait:
                 &&& final(self).is_present()
                 &&& forall|level: PagingLevel|
                     #![trigger old(self).is_last(level)]
-                    old(self).is_last(level) ==> final(self).is_last(level)},
+                    old(self).is_last(level) ==> final(self).is_last(level)
+            },
     ;
 
     spec fn is_last_spec(&self, level: PagingLevel) -> bool;
@@ -609,7 +610,6 @@ pub trait PageTableEntryTrait:
     {
         unimplemented!()
         // const { assert!(size_of::<Self>() == size_of::<usize>()) };
-
         // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
         // unsafe { transmute_unchecked(self) }
 
@@ -620,7 +620,6 @@ pub trait PageTableEntryTrait:
     fn from_usize(pte_raw: usize) -> Self {
         unimplemented!()
         // const { assert!(size_of::<Self>() == size_of::<usize>()) };
-
         // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
         // unsafe { transmute_unchecked(pte_raw) }
 
@@ -632,15 +631,20 @@ pub trait PageTableEntryTrait:
             Self::new_absent().paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
             Self::new_absent().paddr() < crate::specs::arch::mm::MAX_PADDR,
             !Self::new_absent().is_present(),
-            forall |level: PagingLevel|
+            forall|level: PagingLevel|
                 #![trigger Self::new_absent().is_last(level)]
                 1 < level ==> !Self::new_absent().is_last(level),
             forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
                 #![trigger Self::new_page(paddr, level, prop)]
                 {
                     &&& Self::new_page(paddr, level, prop).is_present()
-                    &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr & !((PAGE_SIZE - 1) as usize))
-                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(paddr, level, prop).paddr() == paddr)
+                    &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr
+                        & !((PAGE_SIZE - 1) as usize))
+                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+                        paddr,
+                        level,
+                        prop,
+                    ).paddr() == paddr)
                     &&& Self::new_page(paddr, level, prop).prop() == prop
                     &&& Self::new_page(paddr, level, prop).is_last(level)
                 },
@@ -648,17 +652,18 @@ pub trait PageTableEntryTrait:
                 #![trigger Self::new_pt(paddr)]
                 {
                     &&& Self::new_pt(paddr).is_present()
-                    &&& (paddr < MAX_PADDR ==> Self::new_pt(paddr).paddr() == paddr & !((PAGE_SIZE - 1) as usize))
-                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr() == paddr)
+                    &&& (paddr < MAX_PADDR ==> Self::new_pt(paddr).paddr() == paddr & !((PAGE_SIZE
+                        - 1) as usize))
+                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr()
+                        == paddr)
                     &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
                 },
-        ;
+    ;
 
-        proof fn lemma_paddr_is_page_aligned(self)
-            ensures
-                self.paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
-            ;
-
+    proof fn lemma_paddr_is_page_aligned(self)
+        ensures
+            self.paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
+    ;
 }
 
 /// A handle to a page table.
