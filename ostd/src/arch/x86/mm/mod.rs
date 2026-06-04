@@ -26,7 +26,7 @@ mod util;
 
 verified_bitflags::bitflags! {
     //#[derive(Pod)]
-    #[repr(C)]
+    //#[repr(C)]
     /// Possible flags for a page table entry.
     pub struct PageTableFlags: usize {
         /// Specifies whether the mapped frame or page table is loaded in memory.
