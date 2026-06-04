@@ -4,6 +4,7 @@ use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
 
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
@@ -76,6 +77,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         ensures
             !has_safe_slot(paddr) ==> res is Err,
             res is Ok ==> res.unwrap().wf(owner@.unwrap()),
+            // Creating a live value mints its pending-Drop obligation.
+            res is Ok ==> final(regions).frame_obligations =~= old(
+                regions,
+            ).frame_obligations.insert(frame_to_index(paddr)),
+            res is Err ==> final(regions).frame_obligations =~= old(regions).frame_obligations,
             final(regions).inv(),
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
@@ -92,6 +98,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             proof_decl! {
                 regions.slots.tracked_insert(idx, slot_perm);
                 let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(regions, paddr);
+            }
+            proof {
+                // The freshly-created live value owes a Drop: mint it.
+                let tracked _ = regions.tracked_mint_frame_obligation(idx);
             }
             proof_with!(|= Tracked(Some(owner)));
             Ok(Self { ptr, _marker: PhantomData })
@@ -330,8 +340,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         unsafe { &mut *self.slot().dyn_meta_ptr() }
     }*/
     pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
-        &&& regions.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& regions.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0
+        &&& regions.slot_owners.contains_key(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
+        // `self` is a live value with a pending Drop; forgetting it (`MD::new`)
+        // discharges that obligation.
+        &&& regions.frame_obligations.count(frame_to_index(meta_to_frame(self.ptr.addr()))) > 0
         &&& regions.inv()
     }
 
@@ -344,19 +358,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         &&& r == meta_to_frame(self.ptr.addr())
         &&& regions.inv()
         &&& regions.slots =~= old_regions.slots
-        &&& regions.slot_owners[frame_to_index(r)].raw_count == 1
-        &&& regions.slot_owners[frame_to_index(r)].inner_perms
-            == old_regions.slot_owners[frame_to_index(r)].inner_perms
-        &&& regions.slot_owners[frame_to_index(r)].self_addr
-            == old_regions.slot_owners[frame_to_index(r)].self_addr
-        &&& regions.slot_owners[frame_to_index(r)].usage == old_regions.slot_owners[frame_to_index(
-            r,
-        )].usage
-        &&& regions.slot_owners[frame_to_index(r)].paths_in_pt
-            == old_regions.slot_owners[frame_to_index(r)].paths_in_pt
-        &&& forall|i: usize|
-            #![trigger regions.slot_owners[i]]
-            i != frame_to_index(r) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
+        &&& regions.slot_owners
+            =~= old_regions.slot_owners
+        // Forgetting the value via `ManuallyDrop::new` consumes its pending-Drop
+        // obligation (its `Drop` will not run). `slot_owners` (incl. dormant
+        // `raw_count`) is untouched.
+        &&& regions.frame_obligations =~= old_regions.frame_obligations.remove(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
+        &&& regions.obligations =~= old_regions.obligations
     }
 
     /// Resets the frame to unused without up-calling the allocator.
@@ -379,7 +389,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             owner.inv(),
             old(regions).inv(),
             old(regions).slot_owners.contains_key(owner.slot_index),
-            old(regions).slot_owners[owner.slot_index].raw_count == 0,
             old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).slot_owners[owner.slot_index].inner_perms.in_list.value() == 0,
@@ -387,7 +396,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).slot_owners[owner.slot_index].inner_perms.vtable_ptr.is_init(),
             old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
         ensures
-            final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
     )]
     pub fn reset_as_unused(self) {
@@ -421,7 +429,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             self.wf(*owner),
             owner.inv(),
             old(regions).inv(),
-            old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0,
             old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
         ensures
             Self::into_raw_ensures(self, *old(regions), *final(regions), r),
@@ -431,7 +438,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         #[verus_spec(with Tracked(owner), Tracked(&*regions))]
         let paddr = self.start_paddr();
 
-        assert(self.constructor_requires(*old(regions)));
+        // `ManuallyDrop::new` consumes `self`'s pending-Drop obligation; the
+        // caller's `count > 0` precondition guarantees it is outstanding.
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
         paddr
@@ -452,7 +460,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             paddr % PAGE_SIZE == 0,
             old(regions).inv(),
             old(regions).slot_owners.contains_key(frame_to_index(paddr)),
-            old(regions).slot_owners[frame_to_index(paddr)].raw_count > 0,
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
         ensures
             res.0.ptr.addr() == frame_to_meta(paddr),
@@ -461,29 +468,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             res.1@.slot_index == frame_to_index(paddr),
             final(regions).inv(),
             final(regions).slots == old(regions).slots,
-            final(regions).slot_owners[frame_to_index(paddr)].raw_count == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].raw_count - 1,
-            final(regions).slot_owners[frame_to_index(paddr)].inner_perms
-                == old(regions).slot_owners[frame_to_index(paddr)].inner_perms,
-            final(regions).slot_owners[frame_to_index(paddr)].self_addr
-                == old(regions).slot_owners[frame_to_index(paddr)].self_addr,
-            final(regions).slot_owners[frame_to_index(paddr)].usage
-                == old(regions).slot_owners[frame_to_index(paddr)].usage,
-            final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt
-                == old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt,
-            forall|i: usize| #![trigger final(regions).slot_owners[i]]
-                i != frame_to_index(paddr) ==> final(regions).slot_owners[i]
-                    == old(regions).slot_owners[i],
+            // `from_raw` reconstitutes a live value (`slot_owners` unchanged,
+            // `raw_count` dormant) and MINTS its pending-Drop obligation.
+            final(regions).slot_owners =~= old(regions).slot_owners,
+            final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
+                frame_to_index(paddr),
+            ),
+            final(regions).obligations =~= old(regions).obligations,
     )]
     pub(crate) unsafe fn from_raw(paddr: Paddr) -> (Self, Tracked<UniqueFrameOwner<M>>) {
         let vaddr = frame_to_meta(paddr);
         let ptr = vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(vaddr);
 
         proof {
-            let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-            slot_own.raw_count = (slot_own.raw_count - 1) as usize;
-            regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
+            // The reconstituted value owes a Drop: mint its obligation.
+            let tracked _ = regions.tracked_mint_frame_obligation(frame_to_index(paddr));
         }
 
         let tracked owner = UniqueFrameOwner { meta_own, slot_index: frame_to_index(paddr) };
@@ -531,7 +530,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(self).wf(owner),
             owner.inv(),
             old(regions).slot_owners.contains_key(owner.slot_index),
-            old(regions).slot_owners[owner.slot_index].raw_count == 0,
             old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
             old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).slot_owners[owner.slot_index].inner_perms.in_list.value() == 0,
@@ -543,16 +541,28 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             // `UniqueFrame` is exclusively owned and so is never mapped,
             // so its slot carries no PTE paths.
             old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
+            // `self` is a live value: its pending-Drop obligation must be
+            // outstanding so this (the actual `Drop`) can consume it.
+            old(regions).frame_obligations.count(owner.slot_index) > 0,
         ensures
-            final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
             final(regions).slots =~= old(regions).slots,
             forall|i: usize| #![trigger final(regions).slot_owners[i]]
                 i != owner.slot_index ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
+            // Running `Drop` consumes the value's pending-Drop obligation.
+            final(regions).frame_obligations =~= old(regions).frame_obligations.remove(
+                owner.slot_index,
+            ),
     )]
     pub(crate) fn drop(&mut self) {
         let ghost idx = owner.slot_index;
+
+        proof {
+            // Running `Drop` discharges the value's pending-Drop obligation.
+            let tracked redeem_tok = vstd_extra::drop_tracking::DropObligation::tracked_mint(idx);
+            regions.tracked_redeem_frame_obligation(redeem_tok);
+        }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked perm_ref = regions.slots.tracked_borrow(idx);

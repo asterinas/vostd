@@ -317,6 +317,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(self).new_owner_compatible(new_child, *old(owner), *old(new_owner), *old(regions)),
             !old(owner).in_scope,
             old(parent_owner).metaregion_sound_node(*old(regions)),
+            // Canonical model: forwards `into_pte`'s precondition for the
+            // node case — a live PT-node child carries a pending-Drop
+            // obligation. Vacuous for the `Frame`/`None` children that the
+            // cursor's `replace_cur_entry` actually passes.
+            new_child matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
+                frame_to_index(meta_to_frame(node.ptr.addr())),
+            ) > 0,
         ensures
             final(self).invariants(*final(new_owner), *final(regions)),
             res.invariants(*final(owner), *final(regions)),
@@ -376,7 +383,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(regions).slots == old(regions).slots
                 &&& forall|i: usize|
                     #![trigger final(regions).slot_owners[i]]
-                    final(regions).slot_owners[i] == old(regions).slot_owners[i]
+                    final(regions).slot_owners[i] == old(
+                        regions,
+                    ).slot_owners[i]
+                // Canonical model: neither `from_pte` (old non-node) nor
+                // `into_pte` (new non-node) touches the per-frame ledger, so
+                // it is preserved. Lets the huge-page split loop carry the
+                // freshly-allocated node's obligation across the per-child
+                // `replace` calls up to its own `into_pte`.
+                &&& final(regions).frame_obligations =~= old(regions).frame_obligations
             },
             // When old child is absent and new child is not a node: slots values unchanged.
             (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: usize|
@@ -670,6 +685,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             assert(new_node_owner.value.metaregion_sound(*regions));
 
+            proof {
+                // Canonical: `alloc` minted the new node's pending-Drop
+                // obligation; the intervening slot borrows don't touch the
+                // ledger, so it is still outstanding — discharging
+                // `into_pte`'s `count(node_index) > 0` precondition.
+                assert(regions.frame_obligations.count(
+                    frame_to_index(meta_to_frame(new_page.ptr.addr())),
+                ) > 0);
+            }
+
             #[verus_spec(with Tracked(&mut new_node_owner.value), Tracked(regions))]
             let new_pte = Child::PageTable(new_page).into_pte();
             self.pte = new_pte;
@@ -927,6 +952,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 pa % page_size(level) == 0,
                 pa + page_size(level) <= MAX_PADDR,
                 regions.inv(),
+                // Canonical model: the freshly-allocated node carries its
+                // pending-Drop obligation across the per-child `replace`
+                // calls (each net-zero on the ledger), discharging the
+                // `into_pte` consume after the loop.
+                regions.frame_obligations.count(frame_to_index(meta_to_frame(new_owner_meta_addr)))
+                    > 0,
                 parent_owner.inv(),
                 new_owner.value.is_node(),
                 new_owner.inv(),
@@ -1228,6 +1259,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
         }
 
+        proof {
+            // Canonical: the loop invariant preserved the alloc-minted
+            // obligation at the node's slot; `new_page.ptr.addr()` is that
+            // slot's meta address, discharging `into_pte`'s `count > 0`
+            // precondition.
+            assert(new_page.ptr.addr() == new_owner_meta_addr);
+            assert(regions.frame_obligations.count(
+                frame_to_index(meta_to_frame(new_page.ptr.addr())),
+            ) > 0);
+        }
         self.pte = (#[verus_spec(with Tracked(&mut new_owner.value), Tracked(regions))]
         Child::PageTable(new_page).into_pte());
 

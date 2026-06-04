@@ -280,7 +280,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& perm.addr() == self.list[i].paddr
         &&& perm.points_to.addr() == self.list[i].paddr
         &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-        &&& regions.slot_owners[idx].raw_count > 0
         &&& perm.wf(&perm.inner_perms)
         &&& perm.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start + MAX_NR_PAGES
@@ -345,7 +344,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& perm.addr() == self.list[i].paddr
                 &&& perm.points_to.addr() == self.list[i].paddr
                 &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-                &&& regions.slot_owners[idx].raw_count > 0
                 &&& perm.wf(&perm.inner_perms)
                 &&& perm.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
@@ -397,7 +395,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& perm.addr() == self.list[i].paddr
                 &&& perm.points_to.addr() == self.list[i].paddr
                 &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-                &&& regions.slot_owners[idx].raw_count > 0
                 &&& perm.wf(&perm.inner_perms)
                 &&& perm.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
@@ -516,7 +513,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fp.points_to.addr() == old.list[p].paddr
                     &&& fp.points_to.pptr() == r0.slots[i].pptr()
                     &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-                    &&& fr.slot_owners[i].raw_count > 0
                     &&& fp.wf(&fp.inner_perms)
                     &&& fp.addr() % META_SLOT_SIZE == 0
                     &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
@@ -672,7 +668,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& fpn.addr() == link.paddr
                 &&& fpn.points_to.addr() == link.paddr
                 &&& fpn.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-                &&& fr.slot_owners[ins].raw_count > 0
                 &&& fpn.wf(&fpn.inner_perms)
                 &&& fpn.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= fpn.addr() < FRAME_METADATA_RANGE.start
@@ -710,7 +705,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fp.points_to.addr() == old.list[p].paddr
                     &&& fp.points_to.pptr() == r0.slots[i].pptr()
                     &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-                    &&& fr.slot_owners[i].raw_count > 0
                     &&& fp.wf(&fp.inner_perms)
                     &&& fp.addr() % META_SLOT_SIZE == 0
                     &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start

@@ -78,6 +78,13 @@ pub trait RCClone: Sized {
             final(perm).inv(),
             final(perm).slots =~= old(perm).slots,
             final(perm).slot_owners.dom() =~= old(perm).slot_owners.dom(),
+            // Linear-drop pilot: `RCClone::clone` doesn't mint/redeem
+            // segment obligations. The per-frame `frame_obligations` effect
+            // is left to each impl's `clone_ensures` — canonically a clone
+            // creates a fresh live value, so `Frame::clone` MINTS one entry
+            // (`.insert(idx)`); ref-count-only clones (`Segment`) stay
+            // net-zero. Hardcoding `=~= old` here would forbid the mint.
+            final(perm).obligations =~= old(perm).obligations,
     ;
 }
 
@@ -343,13 +350,17 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     == old_regions.slot_owners[frame_to_index(pa)].paths_in_pt
                 &&& new_regions.slot_owners[frame_to_index(pa)].self_addr
                     == old_regions.slot_owners[frame_to_index(pa)].self_addr
-                &&& new_regions.slot_owners[frame_to_index(pa)].raw_count
-                    == old_regions.slot_owners[frame_to_index(pa)].raw_count
                 &&& new_regions.slot_owners[frame_to_index(pa)].usage
                     == old_regions.slot_owners[frame_to_index(pa)].usage
             },
             !Self::tracked(item) ==> new_regions.slot_owners[frame_to_index(pa)]
                 == old_regions.slot_owners[frame_to_index(pa)],
+            // Canonical model: a tracked clone MINTS one per-frame obligation
+            // at the slot (`Frame::clone`); an untracked clone is net-zero.
+            Self::tracked(item) ==> new_regions.frame_obligations
+                =~= old_regions.frame_obligations.insert(frame_to_index(pa)),
+            !Self::tracked(item) ==> new_regions.frame_obligations
+                =~= old_regions.frame_obligations,
     ;
 
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
@@ -1255,10 +1266,7 @@ impl PageTable<KernelPtConfig> {
                 kernel_owner.0.value.meta_slot_paddr().unwrap(),
             );
             assert(regions_before_self_borrow.slot_owners
-                =~= regions_after_kroot_borrow.slot_owners) by {
-                assert(regions_before_self_borrow.slot_owners[kern_idx].raw_count == 1);
-                assert(regions_after_kroot_borrow.slot_owners[kern_idx].raw_count == 1);
-            }
+                =~= regions_after_kroot_borrow.slot_owners);
             // Slots: kern_idx was NOT in regions_before_self_borrow.slots (it was
             // owned by the NodeOwner; active_entry_not_in_free_pool gives no active
             // node has its idx in the free pool). So at k == kern_idx the precondition

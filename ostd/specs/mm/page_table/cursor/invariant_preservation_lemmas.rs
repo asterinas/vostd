@@ -173,8 +173,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == regions0.slot_owners[changed_idx].inner_perms,
             regions1.slot_owners[changed_idx].self_addr
                 == regions0.slot_owners[changed_idx].self_addr,
-            regions1.slot_owners[changed_idx].raw_count
-                == regions0.slot_owners[changed_idx].raw_count,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt.insert(new_path),
@@ -475,8 +473,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == regions0.slot_owners[changed_idx].inner_perms,
             regions1.slot_owners[changed_idx].self_addr
                 == regions0.slot_owners[changed_idx].self_addr,
-            regions1.slot_owners[changed_idx].raw_count
-                == regions0.slot_owners[changed_idx].raw_count,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt.remove(removed_path),

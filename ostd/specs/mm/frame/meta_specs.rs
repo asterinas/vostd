@@ -61,11 +61,14 @@ impl MetaSlot {
                 post.slot_owners[idx].inner_perms,
             )
             &&& post.slot_owners[idx].usage == PageUsage::Frame
-            &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
             &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
-            &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+            &&& pre.slot_owners[idx].inner_perms.ref_count.value()
+                == REF_COUNT_UNUSED
+            // Linear-drop pilot: claiming an unused slot doesn't mint or
+            // redeem segment obligations.
+            &&& post.obligations =~= pre.obligations
         }
     }
 
@@ -100,11 +103,14 @@ impl MetaSlot {
                 post.slot_owners[idx].inner_perms,
             )
             &&& post.slot_owners[idx].usage == PageUsage::Frame
-            &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
             &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
-            &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+            &&& pre.slot_owners[idx].inner_perms.ref_count.value()
+                == REF_COUNT_UNUSED
+            // Linear-drop pilot: claiming an unused slot (with re-park) doesn't
+            // mint or redeem segment obligations.
+            &&& post.obligations =~= pre.obligations
         }
     }
 
@@ -160,7 +166,6 @@ impl MetaSlot {
                 == pre.slot_owners[idx].inner_perms.in_list
             &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
             &&& post.slot_owners[idx].usage == pre.slot_owners[idx].usage
-            &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
         }
@@ -170,8 +175,7 @@ impl MetaSlot {
         &&& (owner.inner_perms.ref_count.value() == 0 || owner.inner_perms.ref_count.value()
             == REF_COUNT_UNIQUE)
         &&& owner.inner_perms.storage.is_init()
-        &&& owner.inner_perms.in_list.value() == 0
-        &&& owner.raw_count
+        &&& owner.inner_perms.in_list.value()
             == 0
         // The slot is torn down to `REF_COUNT_UNUSED`; the strengthened
         // `MetaSlotOwner::inv` UNUSED branch requires an empty

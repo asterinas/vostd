@@ -122,9 +122,15 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn from_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
         if self.is_node() {
             let index = frame_to_index(self.meta_slot_paddr().unwrap());
-            let old_slot = regions.slot_owners[index];
-            let new_slot = MetaSlotOwner { raw_count: 0usize, ..old_slot };
-            MetaRegionOwners { slot_owners: regions.slot_owners.insert(index, new_slot), ..regions }
+            // Borrow-protocol transition: `raw_count` is dormant (slot_owners
+            // unchanged). `from_raw` mints one `frame_obligations` entry at
+            // the recovered node's slot — the reconstructed node is a live
+            // Frame value and carries that obligation until it is dropped
+            // (`on_drop`) or re-forgotten (`into_pte`).
+            MetaRegionOwners {
+                frame_obligations: regions.frame_obligations.insert(index),
+                ..regions
+            }
         } else {
             regions
         }
@@ -133,17 +139,19 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn into_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
         if self.is_node() {
             let index = frame_to_index(self.meta_slot_paddr().unwrap());
-            let old_slot = regions.slot_owners[index];
-            let new_slot = MetaSlotOwner {
-                raw_count: (old_slot.raw_count + 1) as usize,
-                ..old_slot
-            };
+            // Canonical model: forgetting a live PT-node into a PTE CONSUMES
+            // its pending-Drop obligation (the body's `MD::new` redeems one
+            // entry at the node's slot), mirroring `Frame::into_raw`. `slots`
+            // / `slot_owners` are untouched; the owner's `in_scope = false`
+            // records the ownership transfer. Balances the `+1` minted by
+            // `from_pte` (`from_pte_regions_spec`) / `PageTableNode::alloc`.
             MetaRegionOwners {
-                slots: regions.slots,
-                slot_owners: regions.slot_owners.insert(index, new_slot),
+                frame_obligations: regions.frame_obligations.remove(index),
                 ..regions
             }
         } else {
+            // Forgetting a mapped frame / clearing an absent entry leaves the
+            // per-frame ledger untouched (`item_into_raw` is `external_body`).
             regions
         }
     }

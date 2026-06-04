@@ -250,9 +250,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& final(regions).slot_owners[frame_to_index(pa)].self_addr == old(
                     regions,
                 ).slot_owners[frame_to_index(pa)].self_addr
-                &&& final(regions).slot_owners[frame_to_index(pa)].raw_count == old(
-                    regions,
-                ).slot_owners[frame_to_index(pa)].raw_count
                 &&& final(regions).slot_owners[frame_to_index(pa)].usage == old(
                     regions,
                 ).slot_owners[frame_to_index(pa)].usage
@@ -263,6 +260,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             !C::tracked(*item) ==> final(regions).slot_owners[frame_to_index(pa)] == old(
                 regions,
             ).slot_owners[frame_to_index(pa)],
+            // Linear-drop pilot: `clone_item` doesn't mint or redeem segment
+            // obligations. Canonically a *tracked* clone MINTS one per-frame
+            // entry (`Frame::clone` via `MappedItem::clone`), so the helper
+            // makes no `frame_obligations` promise on that path. An
+            // *untracked* clone (kernel MMIO) is a true no-op, so the ledger
+            // is preserved — `Cursor::query`'s untracked branch relies on
+            // `*regions == old_regions`.
+            final(regions).obligations =~= old(regions).obligations,
+            !C::tracked(*item) ==> final(regions).frame_obligations =~= old(
+                regions,
+            ).frame_obligations,
     {
         let res = item.clone(Tracked(regions));
         proof {
@@ -508,9 +516,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             regions,
                         ).slot_owners[idx].self_addr
                         &&& regions.slot_owners[idx].usage == old(regions).slot_owners[idx].usage
-                        &&& regions.slot_owners[idx].raw_count == old(
-                            regions,
-                        ).slot_owners[idx].raw_count
                         &&& regions.slot_owners[idx].inner_perms.ref_count.id() == old(
                             regions,
                         ).slot_owners[idx].inner_perms.ref_count.id()
@@ -1837,10 +1842,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
 
-        let _ = ManuallyDrop::new(taken, Tracked(guards));
+        let md = ManuallyDrop::new(taken, Tracked(guards));
 
         proof {
-            owner.never_drop_restores_children_not_locked(guard, guards0, *guards);
+            // `ManuallyDrop` is single-field now; the consumed obligation
+            // matched `taken.key()` (the locked node's address).
+            let ghost obl_key = md.0.inner.inner@.ptr.addr();
+            owner.never_drop_restores_children_not_locked(guard, guards0, *guards, obl_key);
             let ghost pre_pop = *old(owner);
             let ghost dropped_addr = guard.inner.inner@.ptr.addr();
             assert forall|i: int|
@@ -1848,7 +1856,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.level - 1 <= i
                     < NR_LEVELS implies owner.continuations[i].guard.inner.inner@.ptr.addr()
                 != dropped_addr by {};
-            owner.never_drop_restores_nodes_locked(guard, guards0, *guards);
+            owner.never_drop_restores_nodes_locked(guard, guards0, *guards, obl_key);
         }
 
         self.level = self.level + 1;
@@ -4158,6 +4166,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Child::PageTable(pt) => {
                 // debug_assert_eq!(pt.level(), level - 1);
                 if !C::TOP_LEVEL_CAN_UNMAP() && level as usize == NR_LEVELS {
+                    proof {
+                        // The PT-node model tracks `raw_count`, not the
+                        // per-frame ledger; mint the entry that `MD::new`
+                        // consumes (net-zero), mirroring `into_pte`.
+                        let tracked _ = regions.tracked_mint_frame_obligation(
+                            frame_to_index(meta_to_frame(pt.ptr.addr())),
+                        );
+                    }
                     let _ = ManuallyDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
                     // Runtime panic. Discharges the conditional postcondition
                     // `res matches Some(StrayPageTable) && !TOP_LEVEL_CAN_UNMAP

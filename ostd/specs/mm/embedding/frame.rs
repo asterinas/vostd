@@ -176,7 +176,6 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
     requires
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index_spec(paddr)),
-        old(regions).slot_owners[frame_to_index_spec(paddr)].raw_count == 0,
         old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value() > 0,
         old(regions).slot_owners[frame_to_index_spec(paddr)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED,
@@ -207,9 +206,6 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
             ).slot_owners[i],
         final(regions).slots =~= old(regions).slots,
         final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
-        final(regions).slot_owners[frame_to_index_spec(paddr)].raw_count == old(
-            regions,
-        ).slot_owners[frame_to_index_spec(paddr)].raw_count,
         final(regions).slot_owners[frame_to_index_spec(paddr)].self_addr == old(
             regions,
         ).slot_owners[frame_to_index_spec(paddr)].self_addr,
@@ -347,7 +343,6 @@ pub(super) proof fn from_in_use_step(
 pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
     let so = regions.slot_owners[frame_to_index_spec(paddr)];
     &&& regions.slots.contains_key(frame_to_index_spec(paddr))
-    &&& so.raw_count == 0
     &&& so.inner_perms.ref_count.value() > 0
     &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
     &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
@@ -374,12 +369,9 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
             i != frame_to_index_spec(entry.paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
             ).slot_owners[i],
-        // `raw_count` / `in_list` preserved at the dropped slot too —
-        // `drop` touches only `ref_count` (+ storage on teardown). Keeps
-        // `VmStore::inv`'s `raw_count` / `in_list` coverage (#4).
-        final(regions).slot_owners[frame_to_index_spec(entry.paddr)].raw_count == old(
-            regions,
-        ).slot_owners[frame_to_index_spec(entry.paddr)].raw_count,
+        // `in_list` preserved at the dropped slot too — `drop` touches
+        // only `ref_count` (+ storage on teardown). Keeps `VmStore::inv`'s
+        // `in_list` coverage (#4).
         final(regions).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.in_list == old(
             regions,
         ).slot_owners[frame_to_index_spec(entry.paddr)].inner_perms.in_list,
