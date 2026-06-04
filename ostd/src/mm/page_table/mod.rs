@@ -514,17 +514,22 @@ pub trait PageTableEntryTrait:
 
     spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self;
 
+    /// The preconditions for creating a new page-mapping PTE.
+    spec fn new_page_req(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> bool;
+
     /// Creates a new PTE that maps to a page.
     #[verifier::when_used_as_spec(new_page_spec)]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
             paddr < MAX_PADDR,
+            Self::new_page_req(paddr, level, prop),
         ensures
-            res.paddr() == paddr & !(PAGE_SIZE - 1),
+            res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             res.is_present(),
+            res.prop() == prop,
         returns
             Self::new_page(paddr, level, prop),
     ;
@@ -537,7 +542,7 @@ pub trait PageTableEntryTrait:
         requires
             paddr < MAX_PADDR,
         ensures
-            res.paddr() == paddr & !(PAGE_SIZE - 1),
+            res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
@@ -571,13 +576,14 @@ pub trait PageTableEntryTrait:
 
     fn set_prop(&mut self, prop: PageProperty)
         ensures
-            final(self).prop() == prop,
-            final(self).paddr() == self.paddr(),
             !old(self).is_present() ==> *old(self) == *final(self),
-            old(self).is_present() ==> final(self).is_present(),
-            forall|level: PagingLevel|
-                #![trigger old(self).is_last(level)]
-                old(self).is_last(level) ==> final(self).is_last(level),
+            old(self).is_present() ==> {
+                &&& final(self).prop() == prop
+                &&& final(self).paddr() == old(self).paddr()
+                &&& final(self).is_present()
+                &&& forall|level: PagingLevel|
+                    #![trigger old(self).is_last(level)]
+                    old(self).is_last(level) ==> final(self).is_last(level)},
     ;
 
     spec fn is_last_spec(&self, level: PagingLevel) -> bool;
@@ -633,7 +639,7 @@ pub trait PageTableEntryTrait:
                 #![trigger Self::new_page(paddr, level, prop)]
                 {
                     &&& Self::new_page(paddr, level, prop).is_present()
-                    &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr & !(PAGE_SIZE - 1))
+                    &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr & !((PAGE_SIZE - 1) as usize))
                     &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(paddr, level, prop).paddr() == paddr)
                     &&& Self::new_page(paddr, level, prop).prop() == prop
                     &&& Self::new_page(paddr, level, prop).is_last(level)
@@ -642,7 +648,7 @@ pub trait PageTableEntryTrait:
                 #![trigger Self::new_pt(paddr)]
                 {
                     &&& Self::new_pt(paddr).is_present()
-                    &&& (paddr < MAX_PADDR ==> Self::new_pt(paddr).paddr() == paddr & !(PAGE_SIZE - 1))
+                    &&& (paddr < MAX_PADDR ==> Self::new_pt(paddr).paddr() == paddr & !((PAGE_SIZE - 1) as usize))
                     &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr() == paddr)
                     &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
                 },
