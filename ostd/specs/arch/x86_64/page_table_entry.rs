@@ -71,7 +71,6 @@ impl Clone for PageTableEntry {
     }
 }
 
-#[allow(non_snake_case)]
 impl PageTableEntry {
 
     #[inline(always)]

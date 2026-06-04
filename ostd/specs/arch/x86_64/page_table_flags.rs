@@ -4,7 +4,6 @@ verus! {
 
 pub struct PageTableFlags {}
 
-#[allow(non_snake_case)]
 impl PageTableFlags {
     /// Specifies whether the mapped frame or page table is loaded in memory.
     #[inline(always)]
