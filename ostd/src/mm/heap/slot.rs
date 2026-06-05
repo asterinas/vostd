@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Heap slots for allocations.
 use vstd::prelude::*;
+use vstd_extra::external::nonnull::NonNullAdditionalFns;
 
 use core::{alloc::AllocError, ptr::NonNull};
 
 use crate::mm::{
-    PAGE_SIZE, Paddr, Vaddr, frame::meta::AnyFrameMeta, kspace::LINEAR_MAPPING_BASE_VADDR,
+    PAGE_SIZE, Paddr, Vaddr,
+    frame::meta::AnyFrameMeta,
+    kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
 
 verus! {
@@ -72,6 +75,14 @@ impl HeapSlot {
         self.info_spec().size_spec()
     }
 
+    pub closed spec fn vaddr_spec(&self) -> Vaddr {
+        self.addr.view_ptr_mut().addr()
+    }
+
+    pub closed spec fn in_linear_mapping_spec(&self) -> bool {
+        LINEAR_MAPPING_BASE_VADDR <= self.vaddr_spec() < VMALLOC_BASE_VADDR
+    }
+
     /// Creates a new pointer to a heap slot.
     ///
     /// # Safety
@@ -82,8 +93,11 @@ impl HeapSlot {
     ///
     /// If the pointer is from a [`super::Slab`] or [`Segment`], the slot must
     /// have a size that matches the slot size of the slab or segment respectively.
-    #[verifier::external_body]
-    pub(super) unsafe fn new(addr: NonNull<u8>, info: SlotInfo) -> Self {
+    pub(super) unsafe fn new(addr: NonNull<u8>, info: SlotInfo) -> (res: Self)
+        ensures
+            res.info_spec() == info,
+            res.size_spec() == info.size_spec(),
+    {
         Self { addr, info }
     }
 
@@ -134,7 +148,6 @@ impl HeapSlot {
     /// This function aborts if the slot was not allocated with
     /// [`HeapSlot::alloc_large`], as it requires specific memory management
     /// operations that only apply to large slots.
-    #[verifier::external_body]
     pub fn dealloc_large(self) {
         /*
         let SlotInfo::LargeSlot(size) = self.info else {
@@ -158,9 +171,17 @@ impl HeapSlot {
     }
 
     /// Gets the physical address of the slot.
-    #[verifier::external_body]
-    pub fn paddr(&self) -> Paddr {
-        self.addr.as_ptr() as Vaddr - LINEAR_MAPPING_BASE_VADDR
+    pub fn paddr(&self) -> (res: Paddr)
+        requires
+            self.in_linear_mapping_spec(),
+        ensures
+            res == crate::specs::arch::kspace::vaddr_to_paddr_spec(self.vaddr_spec()),
+    {
+        let vaddr = self.addr.as_ptr() as Vaddr;
+        proof {
+            self.addr.lemma_addr_view_eq_view_ptr_mut();
+        }
+        crate::specs::arch::kspace::vaddr_to_paddr(vaddr)
     }
 
     /// Gets the size of the slot.
@@ -183,7 +204,6 @@ impl HeapSlot {
     }
 
     /// Gets the pointer to the slot.
-    #[verifier::external_body]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr.as_ptr()
     }

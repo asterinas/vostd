@@ -59,7 +59,6 @@ impl<const SLOT_SIZE: usize> Repr<MetaSlotSmall> for SlabMeta<SLOT_SIZE> {
         (MetaSlotSmall, perm)
     }
 
-    #[verifier::external_body]
     fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotSmall {
         MetaSlotSmall
     }
@@ -84,7 +83,6 @@ impl<const SLOT_SIZE: usize> Repr<MetaSlotSmall> for SlabMeta<SLOT_SIZE> {
     #[verifier::external_body]
     proof fn to_from_repr(r: MetaSlotSmall, perm: ()) {}
 
-    #[verifier::external_body]
     proof fn to_repr_wf(self, perm: ()) {}
 }
 
@@ -174,7 +172,6 @@ impl<const SLOT_SIZE: usize> Slab<SLOT_SIZE> {
     ///
     /// If the size is less than `SLOT_SIZE` or [`PAGE_SIZE`], the size will be
     /// the maximum of the two.
-    #[verifier::external_body]
     pub fn new() -> core::result::Result<Self, Error> {
         /*
         const { assert!(SLOT_SIZE <= PAGE_SIZE) };

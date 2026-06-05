@@ -19,9 +19,17 @@ pub use self::{
     slot_list::SlabSlotList,
 };
 
+#[cfg(not(feature = "verify"))]
 macro_rules! abort_with_message {
     ($($arg:tt)*) => {
         log::error!($($arg)*);
+        core::intrinsics::abort();
+    };
+}
+
+#[cfg(feature = "verify")]
+macro_rules! abort_with_message {
+    ($($arg:tt)*) => {
         core::intrinsics::abort();
     };
 }
@@ -35,6 +43,15 @@ pub struct ExLayout(Layout);
 #[verifier::external_type_specification]
 #[verifier::external_body]
 pub struct ExAllocError(AllocError);
+
+pub assume_specification[Layout::size](layout: &Layout) -> usize;
+
+pub assume_specification[Layout::align](layout: &Layout) -> (res: usize)
+    ensures
+        res != 0,
+;
+
+pub assume_specification[core::intrinsics::abort]() -> !;
 
 /// The trait for the global heap allocator.
 ///
@@ -78,6 +95,10 @@ extern "Rust" {
     fn __GLOBAL_HEAP_SLOT_INFO_FROM_LAYOUT(layout: Layout) -> Option<SlotInfo>;
 }
 
+pub assume_specification[__GLOBAL_HEAP_SLOT_INFO_FROM_LAYOUT](
+    layout: Layout,
+) -> Option<SlotInfo>;
+
 /// Gets the reference to the user-defined global heap allocator.
 #[verifier::external_body]
 fn get_global_heap_allocator() -> &'static dyn GlobalHeapAllocator {
@@ -91,7 +112,6 @@ fn get_global_heap_allocator() -> &'static dyn GlobalHeapAllocator {
 /// require it to be implemented as a `const fn`.
 ///
 /// See [`crate::global_heap_allocator_slot_map`].
-#[verifier::external_body]
 fn slot_size_from_layout(layout: Layout) -> Option<SlotInfo> {
     // SAFETY: This up-call is redirected safely to Rust code by OSDK.
     unsafe { __GLOBAL_HEAP_SLOT_INFO_FROM_LAYOUT(layout) }
@@ -111,9 +131,7 @@ struct AllocDispatch;
 
 // TODO: Somehow restrict unwinding in the user-provided global allocator.
 // Panicking should be fine, but we shouldn't unwind on panics.
-#[verifier::external]
 unsafe impl GlobalAlloc for AllocDispatch {
-    #[verifier::external_body]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let Some(required_slot) = slot_size_from_layout(layout) else {
             abort_with_message!("Heap allocation size not found for layout = {:#x?}", layout);
@@ -140,7 +158,6 @@ unsafe impl GlobalAlloc for AllocDispatch {
         slot.as_ptr()
     }
 
-    #[verifier::external_body]
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         // Now we restore the `HeapSlot` from the pointer and the layout.
         let Some(required_slot) = slot_size_from_layout(layout) else {
@@ -153,7 +170,11 @@ unsafe impl GlobalAlloc for AllocDispatch {
         // SAFETY: The validity of the pointer is guaranteed by the caller. The
         // size must match the size of the slot when it was allocated, since we
         // require `slot_size_from_layout` to be idempotent.
-        let slot = unsafe { HeapSlot::new(NonNull::new_unchecked(ptr), required_slot) };
+        // let slot = unsafe { HeapSlot::new(NonNull::new_unchecked(ptr), required_slot) };
+        let Some(nonnull_ptr) = NonNull::new(ptr) else {
+            abort_with_message!("Heap deallocation null pointer, layout = {:#x?}", layout);
+        };
+        let slot = unsafe { HeapSlot::new(nonnull_ptr, required_slot) };
         let res = get_global_heap_allocator().dealloc(slot);
 
         if res.is_err() {

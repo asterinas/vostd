@@ -28,7 +28,10 @@ unsafe impl<const SLOT_SIZE: usize> Sync for SlabSlotList<SLOT_SIZE> {}
 unsafe impl<const SLOT_SIZE: usize> Send for SlabSlotList<SLOT_SIZE> {}
 
 impl<const SLOT_SIZE: usize> Default for SlabSlotList<SLOT_SIZE> {
-    fn default() -> Self {
+    fn default() -> (res: Self)
+        ensures
+            res.is_empty_spec(),
+    {
         Self::new()
     }
 }
