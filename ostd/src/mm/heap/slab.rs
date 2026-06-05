@@ -98,9 +98,7 @@ unsafe impl<const SLOT_SIZE: usize> Sync for SlabMeta<SLOT_SIZE> {
 
 }
 
-#[verifier::external]
 unsafe impl<const SLOT_SIZE: usize> AnyFrameMeta for SlabMeta<SLOT_SIZE> {
-    #[verifier::external_body]
     fn on_drop(
         &mut self,
         _reader: &mut crate::mm::VmReader<crate::mm::Infallible>,
@@ -110,11 +108,11 @@ unsafe impl<const SLOT_SIZE: usize> AnyFrameMeta for SlabMeta<SLOT_SIZE> {
         if self.nr_allocated != 0 {
             // FIXME: We have no mechanisms to forget the slab once we are here,
             // so we require the user to deallocate all slots before dropping.
+            #[cfg(feature = "allow_panic")]
             panic!("{} slots allocated when dropping a slab", self.nr_allocated);
         }
     }
 
-    #[verifier::external_body]
     fn is_untyped(&self) -> bool {
         false
     }
