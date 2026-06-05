@@ -169,25 +169,21 @@ impl<const SLOT_SIZE: usize> SlabMeta<SLOT_SIZE> {
     }
 }
 
+/*
 impl<const SLOT_SIZE: usize> Slab<SLOT_SIZE> {
     /// Allocates a new slab of the given size.
     ///
     /// If the size is less than `SLOT_SIZE` or [`PAGE_SIZE`], the size will be
     /// the maximum of the two.
-    pub fn new() -> core::result::Result<Self, Error> {
-        /*
+    pub fn new() -> crate::prelude::Result<Self> {
         const { assert!(SLOT_SIZE <= PAGE_SIZE) };
         // To ensure we can store a pointer in each slot.
         const { assert!(SLOT_SIZE >= core::mem::size_of::<usize>()) };
         // To ensure `nr_allocated` can be stored in a `u16`.
         const { assert!(PAGE_SIZE / SLOT_SIZE <= u16::MAX as usize) };
 
-        let mut options = FrameAllocOptions::new();
-        // FrameAllocOptions::new()
-        //     .zeroed(false)
-        //     .alloc_frame_with(...)
-        options.zeroed(false);
-        let mut slab: Slab<SLOT_SIZE> = options
+        let mut slab: Slab<SLOT_SIZE> = FrameAllocOptions::new()
+            .zeroed(false)
             .alloc_frame_with(Link::new(SlabMeta::<SLOT_SIZE> {
                 free_list: SlabSlotList::new(),
                 nr_allocated: 0,
@@ -209,16 +205,12 @@ impl<const SLOT_SIZE: usize> Slab<SLOT_SIZE> {
         }
 
         Ok(slab)
-        */
-        Err(NoMemory)
     }
 
     /// Deallocates a slot to the slab.
     ///
     /// If the slot does not belong to the slab it returns [`AllocError`].
-    #[verifier::external_body]
     pub fn dealloc(&mut self, slot: HeapSlot) -> Result<(), AllocError> {
-        /*
         if !(self.start_paddr()..self.start_paddr() + self.size()).contains(&slot.paddr()) {
             log::error!("Deallocating a slot to a slab that does not own the slot");
             return Err(AllocError);
@@ -228,11 +220,8 @@ impl<const SLOT_SIZE: usize> Slab<SLOT_SIZE> {
         self.meta_mut().nr_allocated -= 1;
 
         Ok(())
-        */
-        let _ = slot;
-        log::error!("Deallocating a slot to a slab that does not own the slot");
-        Err(AllocError)
     }
 }
+*/
 
 } // verus!
