@@ -158,10 +158,15 @@ impl<const SLOT_SIZE: usize> SlabMeta<SLOT_SIZE> {
     }
 
     /// Allocates a slot from the slab.
-    #[verifier::external_body]
-    pub fn alloc(&mut self) -> Result<HeapSlot, AllocError> {
+    pub fn alloc(&mut self) -> (res: Result<HeapSlot, AllocError>)
+        requires
+            old(self).nr_allocated_spec() < u16::MAX,
+        ensures
+            res is Ok ==> final(self).nr_allocated_spec() == old(self).nr_allocated_spec() + 1,
+            res is Err ==> final(self).nr_allocated_spec() == old(self).nr_allocated_spec(),
+    {
         let Some(allocated) = self.free_list.pop() else {
-            log::error!("Allocating a slot from a full slab");
+            // log::error!("Allocating a slot from a full slab");
             return Err(AllocError);
         };
         self.nr_allocated += 1;
@@ -223,5 +228,4 @@ impl<const SLOT_SIZE: usize> Slab<SLOT_SIZE> {
     }
 }
 */
-
 } // verus!

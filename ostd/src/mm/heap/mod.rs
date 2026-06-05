@@ -41,7 +41,6 @@ verus! {
 pub struct ExLayout(Layout);
 
 #[verifier::external_type_specification]
-#[verifier::external_body]
 pub struct ExAllocError(AllocError);
 
 pub assume_specification[Layout::size](layout: &Layout) -> usize;
