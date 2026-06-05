@@ -256,7 +256,6 @@ impl PageTableEntryTrait for PageTableEntry {
         proof {
             lemma_auxiliary_bit_properties(self.0);
             lemma_page_property_flag_constants();
-            admit();
         }
         let flags = (parse_flags!(self.0, PageTableFlags::PRESENT(), PageFlags::R())) | (
         parse_flags!(self.0, PageTableFlags::WRITABLE(), PageFlags::W())) | (
@@ -277,6 +276,13 @@ impl PageTableEntryTrait for PageTableEntry {
         } else {
             CachePolicy::Writeback
         };
+        proof{
+            lemma_parse_flags_collorary(self.0);
+            assume(flags <= u8::MAX);
+            assume(priv_flags <= u8::MAX);
+            assume(flags & PageFlags::all_bits() as usize == flags);
+            assume(priv_flags & PrivFlags::all_bits() as usize == priv_flags);
+        }
         PageProperty {
             flags: PageFlags::from_bits(flags as u8).unwrap(),
             cache,
@@ -390,7 +396,7 @@ impl PageTableEntryTrait for PageTableEntry {
             PageFlags::W().bits()
         } else {
             0
-        } | if !self.as_usize() & (PageTableFlags::NO_EXECUTE().bits() as usize) == 0 {
+        } | if !self.as_usize() & (PageTableFlags::NO_EXECUTE().bits() as usize) != 0 {
             PageFlags::X().bits()
         } else {
             0
@@ -435,9 +441,9 @@ impl PageTableEntryTrait for PageTableEntry {
             CachePolicy::Writeback
         };
         PageProperty {
-            flags: PageFlags::from_bits(flags as u8).unwrap(),
+            flags: PageFlags::from_bits(flags as u8)->0,
             cache,
-            priv_flags: PrivFlags::from_bits(priv_flags as u8).unwrap(),
+            priv_flags: PrivFlags::from_bits(priv_flags as u8)->0,
         }
     }
 
@@ -750,6 +756,54 @@ proof fn lemma_parse_flags_equiv_if(v: usize)
     assert(parse_flags!(v, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL()) == ((v & 0x100usize) >> 8 << 1)) by (compute);
     assert(((v & 0x100usize) >> 8 << 1) == (if (v & 0x100usize) != 0 { 0x2usize } else { 0usize })) by (bit_vector);
 }
+
+proof fn lemma_parse_flags_collorary(v:usize)
+    ensures
+        (parse_flags!(v, PageTableFlags::PRESENT(), PageFlags::R()))
+            | (parse_flags!(v, PageTableFlags::WRITABLE(), PageFlags::W()))
+            | (parse_flags!(!v, PageTableFlags::NO_EXECUTE(), PageFlags::X()))
+            | (parse_flags!(v, PageTableFlags::ACCESSED(), PageFlags::ACCESSED()))
+            | (parse_flags!(v, PageTableFlags::DIRTY(), PageFlags::DIRTY()))
+            | (parse_flags!(v, PageTableFlags::HIGH_IGN1(), PageFlags::AVAIL1()))
+            | (parse_flags!(v, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2())) == (if v & PageTableFlags::PRESENT().bits() != 0 {
+            PageFlags::R().bits() as usize
+        } else { 0usize } | if v & PageTableFlags::WRITABLE().bits() != 0 {
+            PageFlags::W().bits() as usize
+        } else {
+            0usize
+        } | if !v & PageTableFlags::NO_EXECUTE().bits() != 0 {
+            PageFlags::X().bits() as usize
+        } else {
+            0usize
+        } | if v & PageTableFlags::ACCESSED().bits() != 0 {
+            PageFlags::ACCESSED().bits() as usize
+        } else {
+            0usize
+        } | if v & PageTableFlags::DIRTY().bits() != 0 {
+            PageFlags::DIRTY().bits() as usize
+        } else {
+            0usize
+        } | if v & PageTableFlags::HIGH_IGN1().bits() != 0 {
+            PageFlags::AVAIL1().bits() as usize
+        } else {
+            0usize
+        } | if v & PageTableFlags::HIGH_IGN2().bits() != 0 {
+            PageFlags::AVAIL2().bits() as usize
+        } else {
+            0usize
+        }), 
+        (parse_flags!(v, PageTableFlags::USER(), PrivFlags::USER())) | (parse_flags!(v, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL())) == (if v & PageTableFlags::USER().bits() != 0 {
+            PrivFlags::USER().bits() as usize
+        } else {
+            0usize
+        } | if v & PageTableFlags::GLOBAL().bits() != 0 {
+            PrivFlags::GLOBAL().bits() as usize
+        } else {
+            0usize
+        }),
+    {
+        lemma_parse_flags_equiv_if(v);
+    }
 
 } // verus!
 /*
