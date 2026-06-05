@@ -118,8 +118,30 @@ unsafe impl<const SLOT_SIZE: usize> AnyFrameMeta for SlabMeta<SLOT_SIZE> {
 }
 
 impl<const SLOT_SIZE: usize> SlabMeta<SLOT_SIZE> {
+    pub open spec fn valid_slot_size() -> bool {
+        &&& SLOT_SIZE != 0
+        &&& SLOT_SIZE <= PAGE_SIZE
+        &&& SLOT_SIZE >= core::mem::size_of::<usize>()
+        &&& SLOT_SIZE != 0 ==> PAGE_SIZE / SLOT_SIZE <= u16::MAX as usize
+    }
+
+    pub open spec fn capacity_spec() -> usize {
+        if SLOT_SIZE == 0 {
+            0
+        } else {
+            PAGE_SIZE / SLOT_SIZE
+        }
+    }
+
+    pub closed spec fn nr_allocated_spec(&self) -> u16 {
+        self.nr_allocated
+    }
+
     /// Gets the capacity of the slab (regardless of the number of allocated slots).
-    pub const fn capacity(&self) -> u16 {
+    pub const fn capacity(&self) -> (res: u16)
+        ensures
+            Self::capacity_spec() <= u16::MAX as usize ==> res as usize == Self::capacity_spec(),
+    {
         if SLOT_SIZE == 0 {
             0
         } else {
@@ -128,7 +150,10 @@ impl<const SLOT_SIZE: usize> SlabMeta<SLOT_SIZE> {
     }
 
     /// Gets the number of allocated slots.
-    pub fn nr_allocated(&self) -> u16 {
+    pub fn nr_allocated(&self) -> (res: u16)
+        ensures
+            res == self.nr_allocated_spec(),
+    {
         self.nr_allocated
     }
 

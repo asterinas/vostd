@@ -44,8 +44,18 @@ pub enum SlotInfo {
 }
 
 impl SlotInfo {
+    pub open spec fn size_spec(self) -> usize {
+        match self {
+            Self::SlabSlot(size) => size,
+            Self::LargeSlot(size) => size,
+        }
+    }
+
     /// Gets the size of the slot.
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> (res: usize)
+        ensures
+            res == (*self).size_spec(),
+    {
         match self {
             Self::SlabSlot(size) => *size,
             Self::LargeSlot(size) => *size,
@@ -54,6 +64,14 @@ impl SlotInfo {
 }
 
 impl HeapSlot {
+    pub closed spec fn info_spec(&self) -> SlotInfo {
+        self.info
+    }
+
+    pub closed spec fn size_spec(&self) -> usize {
+        self.info_spec().size_spec()
+    }
+
     /// Creates a new pointer to a heap slot.
     ///
     /// # Safety
@@ -146,7 +164,10 @@ impl HeapSlot {
     }
 
     /// Gets the size of the slot.
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> (res: usize)
+        ensures
+            res == self.size_spec(),
+    {
         match self.info {
             SlotInfo::SlabSlot(size) => size,
             SlotInfo::LargeSlot(size) => size,
@@ -154,7 +175,10 @@ impl HeapSlot {
     }
 
     /// Gets the type and size of the slot.
-    pub fn info(&self) -> SlotInfo {
+    pub fn info(&self) -> (res: SlotInfo)
+        ensures
+            res == self.info_spec(),
+    {
         self.info
     }
 
