@@ -628,6 +628,129 @@ proof fn lemma_page_property_flag_constants()
     assert(PrivFlags::all_bits() == 0x3u8) by (compute);
 }
 
+#[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
+proof fn lemma_parse_shared_to_priv_shared_equiv_if(v: usize)
+    ensures
+        parse_flags!(v, PageTableFlags::SHARED(), PrivFlags::SHARED()) == if v
+            & PageTableFlags::SHARED().bits() != 0 {
+            PrivFlags::SHARED().bits() as usize
+        } else {
+            0usize
+        },
+{
+    lemma_page_property_flag_constants();
+    assert(parse_flags!(v, PageTableFlags::SHARED(), PrivFlags::SHARED()) == ((v
+        & 0x0200_0000_0000_0000usize) >> 51 << 7)) by (compute);
+    assert(((v & 0x0200_0000_0000_0000usize) >> 51 << 7) == (if (v
+        & 0x0200_0000_0000_0000usize) != 0 {
+        0x80usize
+    } else {
+        0usize
+    })) by (bit_vector);
+}
+
+proof fn lemma_parse_flags_equiv_if(v: usize)
+    ensures
+        parse_flags!(v, PageTableFlags::PRESENT(), PageFlags::R()) == if v
+            & PageTableFlags::PRESENT().bits() != 0 {
+            PageFlags::R().bits() as usize
+        } else {
+            0usize
+        },
+        parse_flags!(v, PageTableFlags::WRITABLE(), PageFlags::W()) == if v
+            & PageTableFlags::WRITABLE().bits() != 0 {
+            PageFlags::W().bits() as usize
+        } else {
+            0usize
+        },
+        parse_flags!(!v, PageTableFlags::NO_EXECUTE(), PageFlags::X()) == if !v
+            & PageTableFlags::NO_EXECUTE().bits() != 0 {
+            PageFlags::X().bits() as usize
+        } else {
+            0usize
+        },
+        parse_flags!(v, PageTableFlags::ACCESSED(), PageFlags::ACCESSED()) == if v
+            & PageTableFlags::ACCESSED().bits() != 0 {
+            PageFlags::ACCESSED().bits() as usize
+        } else {
+            0usize
+        },
+        parse_flags!(v, PageTableFlags::DIRTY(), PageFlags::DIRTY()) == if v
+            & PageTableFlags::DIRTY().bits() != 0 {
+            PageFlags::DIRTY().bits() as usize
+        } else {
+            0usize
+        },
+        parse_flags!(v, PageTableFlags::HIGH_IGN1(), PageFlags::AVAIL1()) == if v
+            & PageTableFlags::HIGH_IGN1().bits() != 0 {
+            PageFlags::AVAIL1().bits() as usize
+        } else {
+            0usize
+        },
+        parse_flags!(v, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2()) == if v
+            & PageTableFlags::HIGH_IGN2().bits() != 0 {
+            PageFlags::AVAIL2().bits() as usize
+        } else {
+            0usize
+        },
+        parse_flags!(v, PageTableFlags::USER(), PrivFlags::USER()) == if v
+            & PageTableFlags::USER().bits() != 0 {
+            PrivFlags::USER().bits() as usize
+        } else {
+            0usize
+        },
+        parse_flags!(v, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL()) == if v
+            & PageTableFlags::GLOBAL().bits() != 0 {
+            PrivFlags::GLOBAL().bits() as usize
+        } else {
+            0usize
+        },
+{
+    lemma_page_property_flag_constants();
+    assert(parse_flags!(v, PageTableFlags::PRESENT(), PageFlags::R()) == ((v & 0x1usize) >> 0
+        << 0)) by (compute);
+    assert(((v & 0x1usize) >> 0 << 0) == (if (v & 0x1usize) != 0 { 0x1usize } else { 0usize })) by (bit_vector);
+    assert(parse_flags!(v, PageTableFlags::WRITABLE(), PageFlags::W()) == ((v & 0x2usize) >> 1
+        << 1)) by (compute);
+    assert(((v & 0x2usize) >> 1 << 1) == (if (v & 0x2usize) != 0 { 0x2usize } else { 0usize })) by (bit_vector);
+    assert(parse_flags!(!v, PageTableFlags::NO_EXECUTE(), PageFlags::X()) == (((!v
+        & 0x8000_0000_0000_0000usize) >> 63) << 2)) by (compute);
+    assert((((!v & 0x8000_0000_0000_0000usize) >> 63) << 2) == (if (!v
+        & 0x8000_0000_0000_0000usize) != 0 {
+        0x4usize
+    } else {
+        0usize
+    })) by (bit_vector);
+    assert(parse_flags!(v, PageTableFlags::ACCESSED(), PageFlags::ACCESSED()) == ((v & 0x20usize) >> 5 << 3)) by (compute);
+    assert(((v & 0x20usize) >> 5 << 3) == (if (v & 0x20usize) != 0 {
+        0x8usize
+    } else {
+        0usize
+    })) by (bit_vector);
+    assert(parse_flags!(v, PageTableFlags::DIRTY(), PageFlags::DIRTY()) == ((v & 0x40usize) >> 6 << 4)) by (compute);
+    assert(((v & 0x40usize) >> 6 << 4) == (if (v & 0x40usize) != 0 {
+        0x10usize
+    } else {
+        0usize
+    })) by (bit_vector);
+    assert(parse_flags!(v, PageTableFlags::HIGH_IGN1(), PageFlags::AVAIL1()) == ((v & 0x0010_0000_0000_0000usize) >> 52 << 6)) by (compute);
+    assert(((v & 0x0010_0000_0000_0000usize) >> 52 << 6) == (if (v & 0x0010_0000_0000_0000usize) != 0 {
+        0x40usize
+    } else {
+        0usize
+    })) by (bit_vector);
+    assert(parse_flags!(v, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2()) == ((v & 0x0020_0000_0000_0000usize) >> 53 << 7)) by (compute);
+    assert(((v & 0x0020_0000_0000_0000usize) >> 53 << 7) == (if (v & 0x0020_0000_0000_0000usize) != 0 {
+        0x80usize
+    } else {
+        0usize
+    })) by (bit_vector);
+    assert(parse_flags!(v, PageTableFlags::USER(), PrivFlags::USER()) == ((v & 0x4usize) >> 2 << 0)) by (compute);
+    assert(((v & 0x4usize) >> 2 << 0) == (if (v & 0x4usize) != 0 { 0x1usize } else { 0usize })) by (bit_vector);
+    assert(parse_flags!(v, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL()) == ((v & 0x100usize) >> 8 << 1)) by (compute);
+    assert(((v & 0x100usize) >> 8 << 1) == (if (v & 0x100usize) != 0 { 0x2usize } else { 0usize })) by (bit_vector);
+}
+
 } // verus!
 /*
 impl fmt::Debug for PageTableEntry {
