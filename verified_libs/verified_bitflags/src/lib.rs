@@ -49,6 +49,44 @@ macro_rules! __bitflags_cfg_expr {
     };
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __bitflags_cfg_guarded_expr {
+    (() $e:expr) => {
+        $e
+    };
+    ((#[cfg($($cfg:tt)*)] $($rest:tt)*) $e:expr) => {{
+        #[cfg($($cfg)*)]
+        {
+            $crate::__bitflags_cfg_guarded_expr!(($($rest)*) $e)
+        }
+        #[cfg(not($($cfg)*))]
+        {
+            true
+        }
+    }};
+    ((#[$_other:meta] $($rest:tt)*) $e:expr) => {
+        $crate::__bitflags_cfg_guarded_expr!(($($rest)*) $e)
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __bitflags_cfg_guarded_stmt {
+    (() $stmt:stmt) => {
+        $stmt
+    };
+    ((#[cfg($($cfg:tt)*)] $($rest:tt)*) $stmt:stmt) => {
+        #[cfg($($cfg)*)]
+        {
+            $crate::__bitflags_cfg_guarded_stmt!(($($rest)*) $stmt)
+        }
+    };
+    ((#[$_other:meta] $($rest:tt)*) $stmt:stmt) => {
+        $crate::__bitflags_cfg_guarded_stmt!(($($rest)*) $stmt)
+    };
+}
+
 /// A macro wrapper for quickly defining bitflags with verified
 /// properties in Verus. It only supports literal values for the bits.
 ///
@@ -83,7 +121,6 @@ macro_rules! bitflags {
     ) => {
         paste::paste! {
         verus! {
-
             $(#[$outer])*
             #[repr(transparent)]
             $vis struct $name {
@@ -204,6 +241,38 @@ macro_rules! bitflags {
                             0 as $T
                         }
                     ))*
+                }
+
+                $(
+                    $(#[$inner $($args)*])*
+                    proof fn [< lemma_ $Flag _constant >]()
+                        ensures
+                            Self::$Flag().bits() == (($value) as $T),
+                    {
+                        let flag = Self::$Flag();
+                        assert(flag.bits() == (($value) as $T));
+                    }
+                )*
+
+                $vis broadcast proof fn lemma_consts()
+                    ensures
+                        $(
+                            #![trigger $crate::__bitflags_cfg_guarded_expr!(
+                                ($(#[$inner $($args)*])*)
+                                Self::$Flag().bits()
+                            )]
+                            $crate::__bitflags_cfg_guarded_expr!(
+                                ($(#[$inner $($args)*])*)
+                                Self::$Flag().bits() == (($value) as $T)
+                            ),
+                        )*
+                {
+                    $(
+                        $crate::__bitflags_cfg_guarded_stmt!(
+                            ($(#[$inner $($args)*])*)
+                            Self::[< lemma_ $Flag _constant >]()
+                        );
+                    )*
                 }
 
                 /// The raw bits stored inside this flags value.

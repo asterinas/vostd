@@ -133,7 +133,8 @@ impl Default for PageTableEntry {
             Self::default_spec(),
     {
         proof {
-            lemma_auxiliary_bit_properties(0);
+            lemma_page_property_flag_constants();
+            assert(Self::default_spec().paddr_spec() == 0) by (compute);
         }
         Self(usize::default())
     }
@@ -253,7 +254,8 @@ impl PageTableEntryTrait for PageTableEntry {
 
     fn prop(&self) -> PageProperty {
         proof {
-            lemma_auxiliary_bit_properties(0);
+            lemma_auxiliary_bit_properties(self.0);
+            lemma_page_property_flag_constants();
             admit();
         }
         let flags = (parse_flags!(self.0, PageTableFlags::PRESENT(), PageFlags::R())) | (
@@ -290,6 +292,7 @@ impl PageTableEntryTrait for PageTableEntry {
     fn set_prop(&mut self, prop: PageProperty) {
         proof {
             lemma_auxiliary_bit_properties(0);
+            lemma_page_property_flag_constants();
             assert(self.set_prop_req(prop));
         }
         if !self.is_present() {
@@ -348,8 +351,6 @@ impl PageTableEntryTrait for PageTableEntry {
             },
             _ => {
                 //panic!("unsupported cache policy");
-                assert(!(prop.cache is Writeback || prop.cache is Writethrough
-                    || prop.cache is Uncacheable));
                 panic_diverge();
             },
         }
@@ -524,16 +525,22 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 }
 
+#[verifier::bit_vector]
 proof fn lemma_auxiliary_bit_properties(addr: usize)
     ensures
-        0 & PageTableEntry::PHYS_ADDR_MASK == 0,
-        0 & PageTableFlags::PRESENT().bits() == 0,
-        0 & PageTableFlags::HUGE().bits() == 0,
-        0usize % PAGE_SIZE == 0,
-        0 < MAX_PADDR,
         addr % PAGE_SIZE == 0 ==> addr == (addr & !((PAGE_SIZE - 1) as usize)),
         (addr & PageTableEntry::PHYS_ADDR_MASK) % PAGE_SIZE == 0,
         addr < MAX_PADDR ==> (addr & PageTableEntry::PHYS_ADDR_MASK) < MAX_PADDR,
+{
+}
+
+proof fn lemma_page_property_flag_constants()
+    ensures
+        0 & PageTableEntry::PHYS_ADDR_MASK == 0,
+        0usize % PAGE_SIZE == 0,
+        0 < MAX_PADDR,
+        0 & PageTableFlags::PRESENT().bits() == 0,
+        0 & PageTableFlags::HUGE().bits() == 0,
         PageTableFlags::PRESENT().bits() == 0x1,
         PageTableFlags::WRITABLE().bits() == 0x2,
         PageTableFlags::USER().bits() == 0x4,
@@ -562,18 +569,40 @@ proof fn lemma_auxiliary_bit_properties(addr: usize)
         PageTableFlags::HIGH_IGN1().bits().ilog2() == 52,
         PageTableFlags::HIGH_IGN2().bits().ilog2() == 53,
         PageTableFlags::NO_EXECUTE().bits().ilog2() == 63,
+        PageFlags::R().bits() == 0x1,
+        PageFlags::W().bits() == 0x2,
+        PageFlags::X().bits() == 0x4,
+        PageFlags::ACCESSED().bits() == 0x8,
+        PageFlags::DIRTY().bits() == 0x10,
+        PageFlags::AVAIL1().bits() == 0x40,
+        PageFlags::AVAIL2().bits() == 0x80,
+        PageFlags::all_bits() == 0xDFu8,
+        PageFlags::R().bits().ilog2() == 0,
+        PageFlags::W().bits().ilog2() == 1,
+        PageFlags::X().bits().ilog2() == 2,
+        PageFlags::ACCESSED().bits().ilog2() == 3,
+        PageFlags::DIRTY().bits().ilog2() == 4,
+        PageFlags::AVAIL1().bits().ilog2() == 6,
+        PageFlags::AVAIL2().bits().ilog2() == 7,
+        PrivFlags::USER().bits() == 0x1,
+        PrivFlags::GLOBAL().bits() == 0x2,
+        #[cfg(not(all(target_arch = "x86_64", feature = "cvm_guest")))]
+        PrivFlags::all_bits() == 0x3u8,
+        PrivFlags::USER().bits().ilog2() == 0,
+        PrivFlags::GLOBAL().bits().ilog2() == 1,
+        #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
+        (PrivFlags::SHARED().bits() == 0x80),
+        #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
+        (PrivFlags::all_bits() == 0x83u8),
+        #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
+        (PrivFlags::SHARED().bits().ilog2() == 7),
 {
     lemma_usize_ilog2_to32();
+    lemma_u8_ilog2_to8();
     lemma_u64_ilog2_to64();
-    assert(0 < MAX_PADDR) by (compute);
-    assert(0usize % PAGE_SIZE == 0) by (compute);
-    assert(0 & PageTableEntry::PHYS_ADDR_MASK == 0) by (compute);
-    assert(0 & PageTableFlags::PRESENT().bits() == 0) by (compute);
-    assert(0 & PageTableFlags::HUGE().bits() == 0) by (compute);
-    assert(addr % PAGE_SIZE == 0 ==> addr == (addr & !((PAGE_SIZE - 1) as usize))) by (bit_vector);
-    assert((addr & PageTableEntry::PHYS_ADDR_MASK) % PAGE_SIZE == 0) by (bit_vector);
-    assert(addr < MAX_PADDR ==> (addr & PageTableEntry::PHYS_ADDR_MASK) < MAX_PADDR)
-        by (bit_vector);
+    assert(0 & PageTableEntry::PHYS_ADDR_MASK == 0) by (compute_only);
+    assert(0usize % PAGE_SIZE == 0) by (compute_only);
+    assert(0 < MAX_PADDR) by (compute_only);
     assert(PageTableFlags::PRESENT().bits() == 0x1) by (compute);
     assert(PageTableFlags::WRITABLE().bits() == 0x2) by (compute);
     assert(PageTableFlags::USER().bits() == 0x4) by (compute);
@@ -583,9 +612,20 @@ proof fn lemma_auxiliary_bit_properties(addr: usize)
     assert(PageTableFlags::DIRTY().bits() == 0x40) by (compute);
     assert(PageTableFlags::HUGE().bits() == 0x80) by (compute);
     assert(PageTableFlags::GLOBAL().bits() == 0x100) by (compute);
+    assert(0 & PageTableFlags::PRESENT().bits() == 0) by (bit_vector);
+    assert(0 & PageTableFlags::HUGE().bits() == 0) by (bit_vector);
+    #[cfg(feature = "cvm_guest")]
+    {
+        assert(PageTableFlags::SHARED().bits() == 0x0200_0000_0000_0000) by (compute);
+    }
     assert(PageTableFlags::HIGH_IGN1().bits() == 0x0010_0000_0000_0000) by (compute);
     assert(PageTableFlags::HIGH_IGN2().bits() == 0x0020_0000_0000_0000) by (compute);
-    assert(PageTableFlags::NO_EXECUTE().bits() == 0x8000_0000_0000_0000) by (compute);
+    assert(PageTableFlags::NO_EXECUTE().bits() == 0x8000000000000000) by (compute);
+    broadcast use PageFlags::lemma_consts;
+    broadcast use PrivFlags::lemma_consts;
+    assert(PageFlags::all_bits() == 0xDFu8) by (compute);
+    #[cfg(not(all(target_arch = "x86_64", feature = "cvm_guest")))]
+    assert(PrivFlags::all_bits() == 0x3u8) by (compute);
 }
 
 } // verus!
