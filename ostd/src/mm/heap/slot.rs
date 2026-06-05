@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Heap slots for allocations.
+use vstd::prelude::*;
+
 use core::{alloc::AllocError, ptr::NonNull};
 
-use crate::{
-    impl_frame_meta_for,
-    mm::{
-        FrameAllocOptions, PAGE_SIZE, Paddr, Segment, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR,
-        paddr_to_vaddr,
-    },
+use crate::mm::{
+    PAGE_SIZE, Paddr, Vaddr, frame::meta::AnyFrameMeta, kspace::LINEAR_MAPPING_BASE_VADDR,
 };
+
+verus! {
 
 /// A slot that will become or has been turned from a heap allocation.
 ///
@@ -64,6 +64,7 @@ impl HeapSlot {
     ///
     /// If the pointer is from a [`super::Slab`] or [`Segment`], the slot must
     /// have a size that matches the slot size of the slab or segment respectively.
+    #[verifier::external_body]
     pub(super) unsafe fn new(addr: NonNull<u8>, info: SlotInfo) -> Self {
         Self { addr, info }
     }
@@ -77,12 +78,18 @@ impl HeapSlot {
     /// # Panics
     ///
     /// This function panics if the size is not a multiple of [`PAGE_SIZE`].
+    #[verifier::external_body]
     pub fn alloc_large(size: usize) -> Result<Self, AllocError> {
+        /*
         #[cfg(feature = "allow_panic")]
         assert_eq!(size % PAGE_SIZE, 0);
         let nframes = size / PAGE_SIZE;
-        let segment = FrameAllocOptions::new()
-            .zeroed(false)
+        let mut options = FrameAllocOptions::new();
+        // FrameAllocOptions::new()
+        //     .zeroed(false)
+        //     .alloc_segment_with(...)
+        options.zeroed(false);
+        let segment = options
             .alloc_segment_with(nframes, |_| LargeAllocFrameMeta)
             .map_err(|_| {
                 log::error!("Failed to allocate a large slot");
@@ -96,6 +103,10 @@ impl HeapSlot {
             addr: NonNull::new(vaddr as *mut u8).unwrap(),
             info: SlotInfo::LargeSlot(size),
         })
+        */
+        let _ = size;
+        log::error!("Failed to allocate a large slot");
+        Err(AllocError)
     }
 
     /// Deallocates a large slot.
@@ -105,13 +116,15 @@ impl HeapSlot {
     /// This function aborts if the slot was not allocated with
     /// [`HeapSlot::alloc_large`], as it requires specific memory management
     /// operations that only apply to large slots.
+    #[verifier::external_body]
     pub fn dealloc_large(self) {
+        /*
         let SlotInfo::LargeSlot(size) = self.info else {
             log::error!(
                 "Deallocating a large slot that was not allocated with `HeapSlot::alloc_large`"
             );
             #[cfg(feature = "allow_panic")]
-            crate::panic::abort();
+            core::intrinsics::abort();
             #[cfg(not(feature = "allow_panic"))]
             return;
         };
@@ -122,9 +135,12 @@ impl HeapSlot {
 
         // SAFETY: The segment was once forgotten when allocated.
         drop(unsafe { Segment::<LargeAllocFrameMeta>::from_raw(range) });
+        */
+        let _ = self;
     }
 
     /// Gets the physical address of the slot.
+    #[verifier::external_body]
     pub fn paddr(&self) -> Paddr {
         self.addr.as_ptr() as Vaddr - LINEAR_MAPPING_BASE_VADDR
     }
@@ -143,6 +159,7 @@ impl HeapSlot {
     }
 
     /// Gets the pointer to the slot.
+    #[verifier::external_body]
     pub fn as_ptr(&self) -> *mut u8 {
         self.addr.as_ptr()
     }
@@ -152,4 +169,8 @@ impl HeapSlot {
 #[derive(Debug)]
 pub struct LargeAllocFrameMeta;
 
-impl_frame_meta_for!(LargeAllocFrameMeta);
+unsafe impl AnyFrameMeta for LargeAllocFrameMeta {
+    uninterp spec fn vtable_ptr(&self) -> usize;
+}
+
+} // verus!

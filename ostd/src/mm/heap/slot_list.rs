@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Implementation of the free heap slot list.
+use vstd::prelude::*;
+
 use core::ptr::NonNull;
 
 use super::HeapSlot;
+
+verus! {
 
 /// A singly-linked list of [`HeapSlot`]s from [`super::Slab`]s.
 ///
@@ -18,7 +22,9 @@ pub struct SlabSlotList<const SLOT_SIZE: usize> {
 // data pointed to by `head` requires a `&mut SlabSlotList`. Therefore, at any
 // given time, only one task can access the inner `head`. Additionally, a
 // `HeapSlot` will not be allocated again as long as it remains in the list.
+#[verifier::external]
 unsafe impl<const SLOT_SIZE: usize> Sync for SlabSlotList<SLOT_SIZE> {}
+#[verifier::external]
 unsafe impl<const SLOT_SIZE: usize> Send for SlabSlotList<SLOT_SIZE> {}
 
 impl<const SLOT_SIZE: usize> Default for SlabSlotList<SLOT_SIZE> {
@@ -41,6 +47,7 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     ///  - the slot does not come from a slab
     ///    (i.e., `!matches(slot.info(), SlotInfo::SlabSlot(_))`);
     ///  - the size of the slot does not match `SLOT_SIZE`.
+    #[verifier::external_body]
     pub fn push(&mut self, slot: HeapSlot) {
         let slot_ptr = slot.as_ptr();
         let super::SlotInfo::SlabSlot(slot_size) = slot.info() else {
@@ -72,6 +79,7 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     /// Pops a slot from the front of the list.
     ///
     /// It returns `None` if the list is empty.
+    #[verifier::external_body]
     pub fn pop(&mut self) -> Option<HeapSlot> {
         let original_head = self.head?;
 
@@ -89,3 +97,5 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
         Some(unsafe { HeapSlot::new(original_head, super::SlotInfo::SlabSlot(SLOT_SIZE)) })
     }
 }
+
+} // verus!
