@@ -40,7 +40,6 @@ pub struct SlabMeta<const SLOT_SIZE: usize> {
     ///
     /// Slots not inside the slab should not be in the list.
     free_list: SlabSlotList<SLOT_SIZE>,
-
     /// The number of allocated slots in the slab.
     ///
     /// Even if a slot is free, as long as it does not stay in the
@@ -78,18 +77,26 @@ impl<const SLOT_SIZE: usize> Repr<MetaSlotSmall> for SlabMeta<SLOT_SIZE> {
     }
 
     #[verifier::external_body]
-    proof fn from_to_repr(self, perm: ()) {}
+    proof fn from_to_repr(self, perm: ()) {
+    }
 
     #[verifier::external_body]
-    proof fn to_from_repr(r: MetaSlotSmall, perm: ()) {}
+    proof fn to_from_repr(r: MetaSlotSmall, perm: ()) {
+    }
 
-    proof fn to_repr_wf(self, perm: ()) {}
+    proof fn to_repr_wf(self, perm: ()) {
+    }
 }
 
 #[verifier::external]
-unsafe impl<const SLOT_SIZE: usize> Send for SlabMeta<SLOT_SIZE> {}
+unsafe impl<const SLOT_SIZE: usize> Send for SlabMeta<SLOT_SIZE> {
+
+}
+
 #[verifier::external]
-unsafe impl<const SLOT_SIZE: usize> Sync for SlabMeta<SLOT_SIZE> {}
+unsafe impl<const SLOT_SIZE: usize> Sync for SlabMeta<SLOT_SIZE> {
+
+}
 
 #[verifier::external]
 unsafe impl<const SLOT_SIZE: usize> AnyFrameMeta for SlabMeta<SLOT_SIZE> {

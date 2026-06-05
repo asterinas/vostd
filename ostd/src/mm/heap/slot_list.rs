@@ -23,9 +23,14 @@ pub struct SlabSlotList<const SLOT_SIZE: usize> {
 // given time, only one task can access the inner `head`. Additionally, a
 // `HeapSlot` will not be allocated again as long as it remains in the list.
 #[verifier::external]
-unsafe impl<const SLOT_SIZE: usize> Sync for SlabSlotList<SLOT_SIZE> {}
+unsafe impl<const SLOT_SIZE: usize> Sync for SlabSlotList<SLOT_SIZE> {
+
+}
+
 #[verifier::external]
-unsafe impl<const SLOT_SIZE: usize> Send for SlabSlotList<SLOT_SIZE> {}
+unsafe impl<const SLOT_SIZE: usize> Send for SlabSlotList<SLOT_SIZE> {
+
+}
 
 impl<const SLOT_SIZE: usize> Default for SlabSlotList<SLOT_SIZE> {
     fn default() -> (res: Self)
@@ -64,7 +69,7 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
             #[cfg(feature = "allow_panic")]
             panic!("The slot does not come from a slab");
             #[cfg(not(feature = "allow_panic"))]
-            return;
+             return;
         };
 
         #[cfg(feature = "allow_panic")]
@@ -80,9 +85,7 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
         // SAFETY: A heap slot must be free so the pointer to the slot can be
         // written to. The slot size is at least the size of a pointer.
         unsafe {
-            slot_ptr
-                .cast::<usize>()
-                .write(original_head.map_or(0, |h| h.as_ptr() as usize));
+            slot_ptr.cast::<usize>().write(original_head.map_or(0, |h| h.as_ptr() as usize));
         }
     }
 

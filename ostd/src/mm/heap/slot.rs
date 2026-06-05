@@ -131,7 +131,6 @@ impl HeapSlot {
         })
     }
     */
-
     /// Deallocates a large slot.
     ///
     /// # Panics
@@ -156,7 +155,6 @@ impl HeapSlot {
         drop(unsafe { Segment::<LargeAllocFrameMeta>::from_raw(range) });
     }
     */
-
     /// Gets the physical address of the slot.
     pub fn paddr(&self) -> (res: Paddr)
         requires
