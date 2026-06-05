@@ -56,10 +56,15 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
         self.head is None
     }
 
+    pub closed spec fn new_spec() -> Self {
+        SlabSlotList { head: None }
+    }
+
     /// Creates a new empty list.
     pub const fn new() -> (res: Self)
         ensures
             res.is_empty_spec(),
+            res == Self::new_spec(),
     {
         Self { head: None }
     }
