@@ -110,18 +110,12 @@ impl HeapSlot {
     /// # Panics
     ///
     /// This function panics if the size is not a multiple of [`PAGE_SIZE`].
-    #[verifier::external_body]
+    /*
     pub fn alloc_large(size: usize) -> Result<Self, AllocError> {
-        /*
-        #[cfg(feature = "allow_panic")]
         assert_eq!(size % PAGE_SIZE, 0);
         let nframes = size / PAGE_SIZE;
-        let mut options = FrameAllocOptions::new();
-        // FrameAllocOptions::new()
-        //     .zeroed(false)
-        //     .alloc_segment_with(...)
-        options.zeroed(false);
-        let segment = options
+        let segment = FrameAllocOptions::new()
+            .zeroed(false)
             .alloc_segment_with(nframes, |_| LargeAllocFrameMeta)
             .map_err(|_| {
                 log::error!("Failed to allocate a large slot");
@@ -135,11 +129,8 @@ impl HeapSlot {
             addr: NonNull::new(vaddr as *mut u8).unwrap(),
             info: SlotInfo::LargeSlot(size),
         })
-        */
-        let _ = size;
-        log::error!("Failed to allocate a large slot");
-        Err(AllocError)
     }
+    */
 
     /// Deallocates a large slot.
     ///
@@ -148,16 +139,13 @@ impl HeapSlot {
     /// This function aborts if the slot was not allocated with
     /// [`HeapSlot::alloc_large`], as it requires specific memory management
     /// operations that only apply to large slots.
+    /*
     pub fn dealloc_large(self) {
-        /*
         let SlotInfo::LargeSlot(size) = self.info else {
             log::error!(
                 "Deallocating a large slot that was not allocated with `HeapSlot::alloc_large`"
             );
-            #[cfg(feature = "allow_panic")]
-            core::intrinsics::abort();
-            #[cfg(not(feature = "allow_panic"))]
-            return;
+            crate::panic::abort();
         };
 
         debug_assert_eq!(size % PAGE_SIZE, 0);
@@ -166,9 +154,8 @@ impl HeapSlot {
 
         // SAFETY: The segment was once forgotten when allocated.
         drop(unsafe { Segment::<LargeAllocFrameMeta>::from_raw(range) });
-        */
-        let _ = self;
     }
+    */
 
     /// Gets the physical address of the slot.
     pub fn paddr(&self) -> (res: Paddr)
