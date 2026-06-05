@@ -8,6 +8,16 @@ use super::HeapSlot;
 
 verus! {
 
+pub assume_specification<T>[ <*mut T>::write ](ptr: *mut T, val: T);
+
+pub assume_specification<T>[ <*mut T>::read ](ptr: *mut T) -> T;
+
+pub assume_specification<T, U, F>[ core::option::Option::<T>::map_or ](_0: core::option::Option<T>, _1: U, _2: F) -> U
+where
+    F: core::ops::FnOnce(T,) -> U + core::marker::Destruct,
+    U: core::marker::Destruct,
+;
+
 /// A singly-linked list of [`HeapSlot`]s from [`super::Slab`]s.
 ///
 /// The slots inside this list will have a size of `SLOT_SIZE`. They can come
@@ -62,7 +72,6 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     ///  - the slot does not come from a slab
     ///    (i.e., `!matches(slot.info(), SlotInfo::SlabSlot(_))`);
     ///  - the size of the slot does not match `SLOT_SIZE`.
-    #[verifier::external_body]
     pub fn push(&mut self, slot: HeapSlot) {
         let slot_ptr = slot.as_ptr();
         let super::SlotInfo::SlabSlot(slot_size) = slot.info() else {
@@ -74,10 +83,12 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
 
         #[cfg(feature = "allow_panic")]
         assert_eq!(slot_size, SLOT_SIZE);
+        #[cfg(feature = "allow_panic")]
         const { assert!(SLOT_SIZE >= core::mem::size_of::<usize>()) };
 
         let original_head = self.head;
 
+        #[cfg(feature = "allow_panic")]
         debug_assert!(!slot_ptr.is_null());
         // SAFETY: A pointer to a slot must not be NULL;
         self.head = Some(unsafe { NonNull::new_unchecked(slot_ptr) });
@@ -85,20 +96,22 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
         // SAFETY: A heap slot must be free so the pointer to the slot can be
         // written to. The slot size is at least the size of a pointer.
         unsafe {
-            slot_ptr.cast::<usize>().write(original_head.map_or(0, |h| h.as_ptr() as usize));
+            // slot_ptr.cast::<usize>().write(original_head.map_or(0, |h| h.as_ptr() as usize));
+            slot_ptr.cast::<*mut u8>().write(original_head.map_or(core::ptr::null_mut(), |h| h.as_ptr()));
         }
     }
 
     /// Pops a slot from the front of the list.
     ///
     /// It returns `None` if the list is empty.
-    #[verifier::external_body]
+    // #[verifier::external_body]
     pub fn pop(&mut self) -> Option<HeapSlot> {
         let original_head = self.head?;
 
         // SAFETY: The head is a valid pointer to a free slot.
         // The slot contains a pointer to the next slot.
-        let next = unsafe { original_head.as_ptr().cast::<usize>().read() } as *mut u8;
+        // let next = unsafe { original_head.as_ptr().cast::<usize>().read() } as *mut u8;
+        let next = unsafe { original_head.as_ptr().cast::<*mut u8>().read() };
 
         self.head = if next.is_null() {
             None

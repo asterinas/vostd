@@ -189,7 +189,10 @@ impl HeapSlot {
     }
 
     /// Gets the pointer to the slot.
-    pub fn as_ptr(&self) -> *mut u8 {
+    pub fn as_ptr(&self) -> (res: *mut u8)
+        ensures
+            !res.is_null(),
+    {
         self.addr.as_ptr()
     }
 }
