@@ -66,7 +66,6 @@ impl<const SLOT_SIZE: usize> Repr<MetaSlotSmall> for SlabMeta<SLOT_SIZE> {
         SlabMeta { free_list: SlabSlotList::new_spec(), nr_allocated: 0 }
     }
 
-    // #[verifier::external_body]
     fn from_repr(_r: MetaSlotSmall, Tracked(_perm): Tracked<&()>) -> Self {
         SlabMeta { free_list: SlabSlotList::new(), nr_allocated: 0 }
     }

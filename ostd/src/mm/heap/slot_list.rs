@@ -109,7 +109,6 @@ impl<const SLOT_SIZE: usize> SlabSlotList<SLOT_SIZE> {
     /// Pops a slot from the front of the list.
     ///
     /// It returns `None` if the list is empty.
-    // #[verifier::external_body]
     pub fn pop(&mut self) -> Option<HeapSlot> {
         let original_head = self.head?;
 
