@@ -17,7 +17,8 @@ use super::Frame;
 use core::{marker::PhantomData, sync::atomic::Ordering};
 
 use super::meta::mapping::{
-    frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE,
+    frame_to_index, frame_to_meta, lemma_meta_addr_to_index, max_meta_slots, meta_addr,
+    meta_to_frame, META_SLOT_SIZE,
 };
 use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::frame::MetaPerm;
@@ -145,8 +146,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             self.wf(owner),
             owner.inv(),
             owner.global_inv(*old(regions)),
-            old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr()))),
-            old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.in_list.value() == 0,
             old(regions).inv(),
         ensures
@@ -159,6 +158,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         metadata: M1,
     ) -> UniqueFrame<M1> {
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        proof {
+            // `self.wf(owner)` pins `ptr.addr() == meta_addr(owner.slot_index)`;
+            // the round-trip identifies `idx` with `owner.slot_index`, so the
+            // `contains_key` and `ref_count == REF_COUNT_UNIQUE` facts carried by
+            // `global_inv` at `owner.slot_index` transfer to `idx`.
+            lemma_meta_addr_to_index(owner.slot_index);
+        }
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked perm_ref = regions.slots.tracked_borrow(idx);
 

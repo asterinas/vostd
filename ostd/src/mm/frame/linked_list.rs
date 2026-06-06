@@ -182,15 +182,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(*old(regions)),
-            old(owner).list.len() < usize::MAX,
             old(regions).inv(),
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.ref_count.value()
-                == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE,
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.in_list.is_for(
-                old(regions).slots[old(frame_own).slot_index].value().in_list,
-            ),
-            // The frame must be free (not already in a list).
-            old(regions).frame_obligations.count(old(frame_own).slot_index) > 0,
             forall|p: int| #![trigger old(owner).slot_index_at(p)]
                 0 <= p < old(owner).list.len()
                 ==> old(owner).slot_index_at(p) != old(frame_own).slot_index,
@@ -206,6 +198,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         let current = self.front;
         let tracked mut cursor_own = CursorOwner::tracked_front_owner(*owner);
         let mut cursor = CursorMut { list: self, current };
+
+        proof {
+            cursor_own.list_own.relate_region_implies_inv(*regions);
+        }
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
         cursor.insert_before(frame);
@@ -282,15 +278,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(*old(regions)),
-            old(owner).list.len() < usize::MAX,
             old(regions).inv(),
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.ref_count.value()
-                == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE,
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.in_list.is_for(
-                old(regions).slots[old(frame_own).slot_index].value().in_list,
-            ),
-            // The frame must be free (not already in a list).
-            old(regions).frame_obligations.count(old(frame_own).slot_index) > 0,
             forall|p: int| #![trigger old(owner).slot_index_at(p)]
                 0 <= p < old(owner).list.len()
                 ==> old(owner).slot_index_at(p) != old(frame_own).slot_index,
@@ -309,6 +297,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         let current = self.back;
         let tracked mut cursor_own = CursorOwner::tracked_back_owner(*owner);
         let mut cursor = CursorMut { list: self, current };
+
+        proof {
+            cursor_own.list_own.relate_region_implies_inv(*regions);
+        }
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
         cursor.insert_before(frame);
@@ -1179,24 +1171,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             old(self).wf_region(*old(owner), *old(regions)),
             old(owner).inv_region(*old(regions)),
             old(regions).inv(),
-            old(owner).list_own.list_id != 0,
+            old(owner).list_own.inv(),
             old(frame_own).inv(),
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(*old(regions)),
-            old(owner).length() < usize::MAX,
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.ref_count.value()
-                == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE,
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.in_list.is_for(
-                old(regions).slots[old(frame_own).slot_index].value().in_list,
-            ),
-            // The frame being inserted is free (not already in any list), so
-            // minting its "in-list" obligation yields exactly `count == 1`.
-            old(regions).frame_obligations.count(old(frame_own).slot_index) > 0,
-            forall|p: int|
-                #![trigger old(owner).list_own.slot_index_at(p)]
-                0 <= p < old(owner).list_own.list.len() ==> old(owner).list_own.slot_index_at(p)
-                    != old(frame_own).slot_index,
         ensures
             final(owner).inv_region(*final(regions)),
             final(self).wf_region(*final(owner), *final(regions)),
@@ -1218,6 +1197,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let ghost nn = owner.index as int;
 
         proof {
+            owner0.list_own.length_lt_usize_max(regions0);
             if nn > 0 {
                 let _ = owner.list_own.list[nn - 1];
                 owner.list_own.relate_region_at_facts(*regions, nn - 1);
@@ -1366,6 +1346,16 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         #[verus_spec(with Tracked(&owner.list_own))]
         let list_id = self.list.lazy_get_id();
 
+        proof {
+            // `is_for` (the in_list permission governs the slot's in_list
+            // atomic) is a per-slot consequence of `regions.inv()` via the slot
+            // `wf`. Surface it here while the slot is still in `regions`, so the
+            // `store` below type-checks after the slot is removed.
+            assert(regions.slots.contains_key(frame_idx_g));
+            assert(regions.slot_owners[frame_idx_g].inner_perms.in_list.is_for(
+                regions.slots[frame_idx_g].value().in_list,
+            ));
+        }
         let tracked frame_outer = regions.slots.tracked_remove(frame_idx_g);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(frame_idx_g);
         let tracked mut fip = frame_so.take_inner_perms();

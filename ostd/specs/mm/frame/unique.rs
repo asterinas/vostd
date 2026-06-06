@@ -85,7 +85,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     /// Borrow-model global invariant: the frame's permission is parked in
     /// `regions.slots[slot_index]` (NOT owned by the frame), and the
     /// reconstructed `meta_perm_of` is well-formed and decodes to metadata
-    /// matching `meta_own`.
+    /// matching `meta_own`. A `UniqueFrame` is the sole live reference to its
+    /// slot, so the slot sits at `REF_COUNT_UNIQUE` — the unique-frame analog
+    /// of the segment's `0 < ref_count <= REF_COUNT_MAX` regime in
+    /// [`SegmentOwner::relate_regions`]. Being live, it also owes a pending-Drop
+    /// obligation in `frame_obligations` (minted at `from_unused`/`from_raw`,
+    /// consumed by `drop`/`into_raw`).
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
         let perm = self.meta_perm_of(regions);
         &&& regions.slots.contains_key(self.slot_index)
@@ -96,6 +101,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& perm.addr() == perm.points_to.addr()
         &&& perm.value().metadata.wf(self.meta_own)
         &&& regions.slot_owners[self.slot_index].self_addr == meta_addr(self.slot_index)
+        &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value()
+            == REF_COUNT_UNIQUE
+        &&& regions.frame_obligations.count(self.slot_index) > 0
     }
 
     pub proof fn from_raw_owner(owner: M::Owner, index: Ghost<usize>) -> Self {

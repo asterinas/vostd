@@ -157,6 +157,47 @@ pub broadcast proof fn lemma_meta_to_paddr_biinjective(vaddr: Vaddr)
 {
 }
 
+/// Index round-trip: the slot index recovered from a slot's metadata address
+/// is the original index. Callers holding `ptr.addr() == meta_addr(slot_index)`
+/// (via [`crate::mm::frame::unique::UniqueFrame::wf`]) use this to re-derive
+/// region facts phrased over `frame_to_index(meta_to_frame(ptr.addr))` at
+/// `slot_index` (e.g. recovering `ref_count == REF_COUNT_UNIQUE` from
+/// `global_inv`).
+pub broadcast proof fn lemma_meta_addr_to_index(i: usize)
+    requires
+        i < MAX_NR_PAGES,
+    ensures
+        #[trigger] frame_to_index_spec(meta_to_frame_spec(meta_addr(i))) == i,
+{
+    assert(MAX_NR_PAGES == 0x80000 && PAGE_SIZE == 4096 && MAX_PADDR == 0x8000_0000
+        && META_SLOT_SIZE == 64) by (compute_only);
+
+    let p = index_to_frame_spec(i);
+    assert(i * PAGE_SIZE < MAX_PADDR) by (nonlinear_arith)
+        requires
+            i < 0x80000,
+            PAGE_SIZE == 4096,
+            MAX_PADDR == 0x8000_0000,
+    ;
+    assert(p == i * PAGE_SIZE);
+    assert(p % PAGE_SIZE == 0) by (nonlinear_arith)
+        requires
+            p == i * PAGE_SIZE,
+            PAGE_SIZE == 4096,
+    ;
+    assert(p / PAGE_SIZE == i) by (nonlinear_arith)
+        requires
+            p == i * PAGE_SIZE,
+            PAGE_SIZE == 4096,
+    ;
+    // `meta_addr(i)` is exactly the metadata address of physical page `p`.
+    assert(meta_addr(i) == frame_to_meta_spec(p));
+    // Existing biinjectivity closes `meta_to_frame(frame_to_meta(p)) == p`.
+    lemma_paddr_to_meta_biinjective(p);
+    assert(meta_to_frame_spec(meta_addr(i)) == p);
+    assert(frame_to_index_spec(p) == i);
+}
+
 pub broadcast proof fn lemma_meta_to_frame_soundness(meta: Vaddr)
     requires
         meta % META_SLOT_SIZE == 0,
@@ -196,6 +237,7 @@ pub broadcast group group_page_meta {
     lemma_FRAME_METADATA_RANGE_is_large_enough,
     lemma_paddr_to_meta_biinjective,
     lemma_meta_to_paddr_biinjective,
+    lemma_meta_addr_to_index,
     lemma_meta_to_frame_soundness,
     lemma_frame_to_meta_soundness,
     lemma_meta_to_frame_alignment,

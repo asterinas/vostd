@@ -2,6 +2,7 @@ use vstd::atomic::*;
 use vstd::cell;
 use vstd::prelude::*;
 use vstd::seq_lib::*;
+use vstd::set_lib::*;
 use vstd::simple_pptr::*;
 
 use vstd::std_specs::convert::{FromSpec, FromSpecImpl};
@@ -15,7 +16,9 @@ use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
-use crate::specs::mm::frame::mapping::{frame_to_index_spec, meta_to_frame_spec, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{
+    frame_to_index_spec, max_meta_slots, meta_to_frame_spec, META_SLOT_SIZE,
+};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
@@ -231,7 +234,8 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
     open spec fn inv(self) -> bool {
-        forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
+        &&& self.list_id != 0
+        &&& forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
     }
 }
 
@@ -326,6 +330,78 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             #![trigger self.slot_index_at(i), self.slot_index_at(j)]
             0 <= i < self.list.len() && 0 <= j < self.list.len() && i != j ==> self.slot_index_at(i)
                 != self.slot_index_at(j)
+    }
+
+    /// Pigeonhole bound: the list is no longer than the number of meta slots.
+    /// Each link occupies a region slot (`relate_region_at` ⟹
+    /// `slots.contains_key(slot_index_at(i))`, and `regions.inv()` ⟹
+    /// `slot_index_at(i) < max_meta_slots()`), and distinct positions occupy
+    /// distinct slots (`relate_region`'s injectivity). So the positions inject
+    /// into `[0, max_meta_slots())` and the length is capped by it.
+    pub proof fn length_le_max_meta_slots(self, regions: MetaRegionOwners)
+        requires
+            self.relate_region(regions),
+            regions.inv(),
+        ensures
+            self.list.len() <= max_meta_slots(),
+    {
+        let idxs = Seq::new(self.list.len(), |i: int| self.slot_index_at(i) as int);
+
+        assert(idxs.no_duplicates()) by {
+            assert forall|i: int, j: int|
+                0 <= i < idxs.len() && 0 <= j < idxs.len() && i != j implies idxs[i] != idxs[j] by {
+                let a = self.slot_index_at(i);
+                let b = self.slot_index_at(j);
+                // `relate_region`'s injectivity gives `a != b`.
+            }
+        }
+        idxs.unique_seq_to_set();
+
+        let bound = set_int_range(0, max_meta_slots());
+        assert(idxs.to_set().subset_of(bound)) by {
+            assert forall|x: int| #![trigger idxs.to_set().contains(x)]
+                idxs.to_set().contains(x) implies bound.contains(x) by {
+                let i = choose|i: int| 0 <= i < idxs.len() && idxs[i] == x;
+                let _ = self.list[i];
+                self.relate_region_at_facts(regions, i);
+                // `regions.inv()`: `contains_key(slot_index_at(i)) ⟹ < max_meta_slots()`.
+            }
+        }
+        lemma_int_range(0, max_meta_slots());
+        lemma_len_subset(idxs.to_set(), bound);
+    }
+
+    /// The list counter can never saturate: its length is capped by
+    /// `max_meta_slots()` (see [`Self::length_le_max_meta_slots`]), which is far
+    /// below `usize::MAX`. Lets `insert_before` discharge the `size + 1`
+    /// overflow check without a caller-supplied non-fullness precondition.
+    pub proof fn length_lt_usize_max(self, regions: MetaRegionOwners)
+        requires
+            self.relate_region(regions),
+            regions.inv(),
+        ensures
+            self.list.len() < usize::MAX,
+    {
+        self.length_le_max_meta_slots(regions);
+        assert(max_meta_slots() < usize::MAX) by (compute_only);
+    }
+
+    /// `relate_region` plus a nonzero `list_id` re-establishes the owned
+    /// invariant `inv()`: each link's `inv_at` follows from the per-link clauses
+    /// (`list[i].inv()` and `in_list == list_id`) that `relate_region_at`
+    /// already carries. Lets callers hand `inv()` to APIs that require it
+    /// without separately threading `list_id != 0`.
+    pub proof fn relate_region_implies_inv(self, regions: MetaRegionOwners)
+        requires
+            self.relate_region(regions),
+            self.list_id != 0,
+        ensures
+            self.inv(),
+    {
+        assert forall|i: int| 0 <= i < self.list.len() implies self.inv_at(i) by {
+            let _ = self.list[i];
+            self.relate_region_at_facts(regions, i);
+        }
     }
 
     /// Unfolds the opaque `relate_region_at` ONCE and exposes its clauses.
