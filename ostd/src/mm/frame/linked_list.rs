@@ -177,31 +177,24 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         requires
             old(self).wf_region(*old(owner), *old(regions)),
             old(owner).relate_region(*old(regions)),
-            old(owner).list_id != 0,
             old(frame_own).inv(),
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(*old(regions)),
             old(regions).inv(),
-            forall|p: int| #![trigger old(owner).slot_index_at(p)]
-                0 <= p < old(owner).list.len()
-                ==> old(owner).slot_index_at(p) != old(frame_own).slot_index,
         ensures
             final(owner).relate_region(*final(regions)),
             final(regions).inv(),
             final(owner).list == old(owner).list.insert(0, final(frame_own).meta_own),
-            final(owner).list_id == old(owner).list_id,
+            old(owner).list_id != 0 ==> final(owner).list_id == old(owner).list_id,
+            final(owner).list_id != 0,
             final(frame_own).meta_own.paddr == old(frame_own).meta_own.paddr,
-            final(frame_own).meta_own.in_list == old(owner).list_id,
+            final(frame_own).meta_own.in_list == final(owner).list_id,
     )]
     pub fn push_front(&mut self, frame: UniqueFrame<Link<M>>) {
         let current = self.front;
         let tracked mut cursor_own = CursorOwner::tracked_front_owner(*owner);
         let mut cursor = CursorMut { list: self, current };
-
-        proof {
-            cursor_own.list_own.relate_region_implies_inv(*regions);
-        }
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
         cursor.insert_before(frame);
@@ -273,15 +266,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         requires
             old(self).wf_region(*old(owner), *old(regions)),
             old(owner).relate_region(*old(regions)),
-            old(owner).list_id != 0,
             old(frame_own).inv(),
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(*old(regions)),
             old(regions).inv(),
-            forall|p: int| #![trigger old(owner).slot_index_at(p)]
-                0 <= p < old(owner).list.len()
-                ==> old(owner).slot_index_at(p) != old(frame_own).slot_index,
         ensures
             final(owner).relate_region(*final(regions)),
             final(regions).inv(),
@@ -289,18 +278,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 old(owner).list.len() as int - 1, final(frame_own).meta_own),
             old(owner).list.len() == 0 ==> final(owner).list == old(owner).list.insert(
                 0, final(frame_own).meta_own),
-            final(owner).list_id == old(owner).list_id,
+            // Id preserved when already minted; a fresh (empty) list adopts a
+            // non-zero id.
+            old(owner).list_id != 0 ==> final(owner).list_id == old(owner).list_id,
+            final(owner).list_id != 0,
             final(frame_own).meta_own.paddr == old(frame_own).meta_own.paddr,
-            final(frame_own).meta_own.in_list == old(owner).list_id,
+            final(frame_own).meta_own.in_list == final(owner).list_id,
     )]
     pub fn push_back(&mut self, frame: UniqueFrame<Link<M>>) {
         let current = self.back;
         let tracked mut cursor_own = CursorOwner::tracked_back_owner(*owner);
         let mut cursor = CursorMut { list: self, current };
-
-        proof {
-            cursor_own.list_own.relate_region_implies_inv(*regions);
-        }
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
         cursor.insert_before(frame);
@@ -375,11 +363,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         requires
             slot_own.inv(),
             old(regions).inv(),
-            old(regions).slots[frame_to_index(frame)].is_init(),
-            old(regions).slot_owners.contains_key(frame_to_index(frame)),
-            old(regions).slot_owners[frame_to_index(frame)].inner_perms.in_list.is_for(
-                old(regions).slots[frame_to_index(frame)].mem_contents().value().in_list,
-            ),
         ensures
             old(owner).list_id != 0 ==> *final(owner) == *old(owner),
     )]
@@ -387,6 +370,22 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         let Ok(slot_ptr) = get_slot(frame) else {
             return false;
         };
+
+        proof {
+            // `get_slot` returned `Ok`, so `has_safe_slot(frame)` holds; with
+            // `regions.inv()` that pins the slot in the region maps, its
+            // metadata as init, and its `in_list` permission as governing the
+            // slot's atomic — the same facts `cursor_mut_at` derives in-body.
+            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            let idx = frame_to_index(frame);
+            assert(idx < max_meta_slots());
+            assert(regions.slot_owners.contains_key(idx));
+            assert(regions.slots.contains_key(idx));
+            assert(regions.slots[idx].is_init());
+            assert(regions.slot_owners[idx].inner_perms.in_list.is_for(
+                regions.slots[idx].value().in_list,
+            ));
+        }
 
         let tracked mut slot_perm = regions.slots.tracked_remove(frame_to_index(frame));
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(frame));
@@ -575,6 +574,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(self).front == old(self).front,
             final(self).back == old(self).back,
             old(self).list_id != 0 ==> final(self).list_id == old(self).list_id,
+            // The allocator hands out non-zero ids (it starts at 1 and only
+            // increments, panicking on exhaustion), and the field ends up equal
+            // to the returned id. Lets `insert_before` stamp a freshly-id'd
+            // (previously `list_id == 0`) list without a non-zero precondition.
+            id != 0,
+            final(self).list_id == id,
     {
         unimplemented!()/*        // FIXME: Self-incrementing IDs may overflow, while `core::pin::Pin`
         // is not compatible with locks. Think about a better solution.
@@ -849,9 +854,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             old(self).wf_region(*old(owner), *old(regions)),
             old(owner).inv_region(*old(regions)),
             old(regions).inv(),
-            old(owner).length() > 0 ==> old(regions).slot_owners.contains_key(
-                frame_to_index(meta_to_frame(old(self).current.unwrap().addr())),
-            ),
         ensures
             old(owner).length() == 0 ==> res.is_none(),
             old(self).current.is_some() ==> res.is_some(),
@@ -1171,7 +1173,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             old(self).wf_region(*old(owner), *old(regions)),
             old(owner).inv_region(*old(regions)),
             old(regions).inv(),
-            old(owner).list_own.inv(),
             old(frame_own).inv(),
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
@@ -1184,10 +1185,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 old(owner).index,
                 final(frame_own).meta_own,
             ),
-            final(owner).list_own.list_id == old(owner).list_own.list_id,
+            // The id is preserved when it was already minted; a `list_id == 0`
+            // (necessarily empty) list adopts a freshly-minted non-zero id.
+            old(owner).list_own.list_id != 0 ==> final(owner).list_own.list_id
+                == old(owner).list_own.list_id,
+            final(owner).list_own.list_id != 0,
             final(owner).index == old(owner).index + 1,
             final(frame_own).meta_own.paddr == old(frame_own).meta_own.paddr,
-            final(frame_own).meta_own.in_list == old(owner).list_own.list_id,
+            final(frame_own).meta_own.in_list == final(owner).list_own.list_id,
             final(self).model(*final(owner)) == old(self).model(*old(owner)).insert(
                 final(frame_own).meta_own@,
             ),
@@ -1380,7 +1385,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         self.list.size = self.list.size + 1;
 
         proof {
-            CursorOwner::<M>::list_insert(owner, &mut frame_own.meta_own);
+            CursorOwner::<M>::list_insert(owner, &mut frame_own.meta_own, list_id);
 
             let oldl = owner0.list_own;
             let nn = owner0.index as int;

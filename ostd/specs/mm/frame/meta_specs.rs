@@ -41,6 +41,11 @@ impl MetaSlot {
         &&& perms.vtable_ptr.is_init()
     }
 
+    /// The `slot_owners`/`obligations` transition of claiming an unused slot,
+    /// *agnostic to where the extracted slot perm ends up*. Says nothing about
+    /// `regions.slots` — callers pin the permission location separately with
+    /// [`slot_perm_extracted_spec`] (perm handed out, slot removed) or
+    /// [`slot_perm_reparked_spec`] (perm re-parked, domain preserved).
     pub open spec fn get_from_unused_spec(
         paddr: Paddr,
         as_unique: bool,
@@ -54,7 +59,6 @@ impl MetaSlot {
     {
         let idx = frame_to_index(paddr);
         {
-            &&& post.slots =~= pre.slots.remove(idx)
             &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
             &&& MetaSlot::get_from_unused_inner_perms_spec(
                 as_unique,
@@ -72,46 +76,55 @@ impl MetaSlot {
         }
     }
 
-    /// Design-B variant of [`get_from_unused_spec`]: models the
-    /// post-state *after the caller re-parks* the returned slot perm
-    /// into `regions.slots` (see [`crate::mm::frame::Frame::from_unused`]
-    /// — it hands the perm back via the `perm` out-param and the caller
-    /// re-inserts it). The only difference from [`get_from_unused_spec`]
-    /// is the `slots` clause: the domain is *preserved* (`pre.slots.dom()`)
-    /// rather than `pre.slots.remove(idx)`, since the perm is immediately
-    /// re-inserted. All `slot_owners` transitions are identical.
-    pub open spec fn get_from_unused_reparked_spec(
+    /// Permission-location clause: the slot perm was *extracted* (handed back to
+    /// the caller via an out-param), so `regions.slots` loses it. Pairs with
+    /// [`get_from_unused_spec`] to describe [`crate::mm::frame::MetaSlot::get_from_unused`].
+    pub open spec fn slot_perm_extracted_spec(
         paddr: Paddr,
-        as_unique: bool,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
-    ) -> bool
-        recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
-            pre.inv(),
-    {
+    ) -> bool {
+        post.slots =~= pre.slots.remove(frame_to_index(paddr))
+    }
+
+    /// Permission-location clause: the extracted slot perm was *re-parked* into
+    /// `regions.slots`, so the domain is preserved and every other slot's perm
+    /// is untouched. Callers that re-park (see
+    /// [`crate::mm::frame::Frame::from_unused`] — it hands the perm back via the
+    /// `perm` out-param and re-inserts it) pair this with [`get_from_unused_spec`]
+    /// (the `slot_owners` transition) to fully describe the Design-B post-state.
+    pub open spec fn slot_perm_reparked_spec(
+        paddr: Paddr,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+    ) -> bool {
         let idx = frame_to_index(paddr);
-        {
-            &&& post.slots.dom() =~= pre.slots.dom()
-            &&& forall|k: usize|
-                #![trigger post.slots[k]]
-                k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
-            &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
-            &&& MetaSlot::get_from_unused_inner_perms_spec(
-                as_unique,
-                post.slot_owners[idx].inner_perms,
-            )
-            &&& post.slot_owners[idx].usage == PageUsage::Frame
-            &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
-            &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
-            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
-            &&& pre.slot_owners[idx].inner_perms.ref_count.value()
-                == REF_COUNT_UNUSED
-            // Linear-drop pilot: claiming an unused slot (with re-park) doesn't
-            // mint or redeem segment obligations.
-            &&& post.obligations =~= pre.obligations
-        }
+        &&& post.slots.dom() =~= pre.slots.dom()
+        &&& forall|k: usize|
+            #![trigger post.slots[k]]
+            k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
+    }
+
+    /// Obligation-ledger effect of [`crate::mm::frame::Frame::from_unused`] on
+    /// success: the segment `obligations` ledger is untouched, and the new live
+    /// frame mints its pending-Drop entry in `frame_obligations` at `paddr`.
+    pub open spec fn from_unused_obligations_ok_spec(
+        paddr: Paddr,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+    ) -> bool {
+        &&& post.obligations =~= pre.obligations
+        &&& post.frame_obligations =~= pre.frame_obligations.insert(frame_to_index(paddr))
+    }
+
+    /// Obligation-ledger effect of [`crate::mm::frame::Frame::from_unused`] on
+    /// failure: both the segment and frame ledgers are left untouched.
+    pub open spec fn from_unused_obligations_err_spec(
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+    ) -> bool {
+        &&& post.obligations =~= pre.obligations
+        &&& post.frame_obligations =~= pre.frame_obligations
     }
 
     pub open spec fn get_from_unused_perm_spec<M: AnyFrameMeta + Repr<MetaSlotStorage>>(

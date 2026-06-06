@@ -334,6 +334,9 @@ impl MetaSlot {
             // and recover `final.slots == old.slots`.
             res matches Ok((_, perm)) ==> perm@ == old(regions).slots[frame_to_index(paddr)],
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
+            // The extracted slot perm is handed back via the out-param, so it
+            // leaves `regions.slots` (caller re-parks it via `sync_slot_perm`).
+            res is Ok ==> Self::slot_perm_extracted_spec(paddr, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> res is Err,
             // Linear-drop pilot: claiming an unused slot doesn't mint or
             // redeem segment or frame obligations on any path.

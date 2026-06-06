@@ -330,6 +330,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             #![trigger self.slot_index_at(i), self.slot_index_at(j)]
             0 <= i < self.list.len() && 0 <= j < self.list.len() && i != j ==> self.slot_index_at(i)
                 != self.slot_index_at(j)
+        // A non-empty list has a minted (non-zero) id: every link is stamped
+        // `in_list == list_id` when added, and ids are handed out non-zero. Only
+        // a fresh, never-pushed (hence empty) list sits at `list_id == 0`. This
+        // is what lets `insert_before` accept a `list_id == 0` list (necessarily
+        // empty) and stamp it with a freshly-minted id.
+        &&& self.list.len() > 0 ==> self.list_id != 0
     }
 
     /// Pigeonhole bound: the list is no longer than the number of meta slots.
@@ -384,24 +390,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     {
         self.length_le_max_meta_slots(regions);
         assert(max_meta_slots() < usize::MAX) by (compute_only);
-    }
-
-    /// `relate_region` plus a nonzero `list_id` re-establishes the owned
-    /// invariant `inv()`: each link's `inv_at` follows from the per-link clauses
-    /// (`list[i].inv()` and `in_list == list_id`) that `relate_region_at`
-    /// already carries. Lets callers hand `inv()` to APIs that require it
-    /// without separately threading `list_id != 0`.
-    pub proof fn relate_region_implies_inv(self, regions: MetaRegionOwners)
-        requires
-            self.relate_region(regions),
-            self.list_id != 0,
-        ensures
-            self.inv(),
-    {
-        assert forall|i: int| 0 <= i < self.list.len() implies self.inv_at(i) by {
-            let _ = self.list[i];
-            self.relate_region_at_facts(regions, i);
-        }
     }
 
     /// Unfolds the opaque `relate_region_at` ONCE and exposes its clauses.
@@ -700,6 +688,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.relate_region_at_from_clauses(fr, k);
         }
 
+        // Non-empty `new` ⟹ `old` had ≥2 elements ⟹ `old.list_id != 0`, and
+        // the id is preserved, so `new.list_id != 0`.
+        assert(new.list.len() > 0 ==> new.list_id != 0);
         assert(new.relate_region(fr));
     }
 
@@ -728,8 +719,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             0 <= n <= old.list.len(),
             old.relate_region(r0),
             new.list == old.list.insert(n, link),
-            new.list_id == old.list_id,
-            link.in_list == old.list_id,
+            new.list_id != 0,
+            // The list adopts the (non-zero) resolved id; it equals the old id
+            // whenever the list already had elements (those carry `old.list_id`,
+            // which must stay consistent). A `list_id == 0` old list is empty,
+            // so its id is free to become the freshly-minted one.
+            old.list.len() > 0 ==> new.list_id == old.list_id,
+            link.in_list == new.list_id,
             forall|p: int|
                 #![trigger old.slot_index_at(p)]
                 (0 <= p < old.list.len()) ==> old.slot_index_at(p) != new.slot_index_at(n),
@@ -893,6 +889,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.relate_region_at_from_clauses(fr, k);
         }
 
+        // `new` has `old.len + 1 ≥ 1 > 0` elements and a non-zero id by hypothesis.
+        assert(new.list.len() > 0 ==> new.list_id != 0);
         assert(new.relate_region(fr));
     }
 
@@ -1178,20 +1176,24 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
 
     /// Tracked update to the cursor's owner state when a new link is inserted
     /// before the current position. The inserted `link`'s `paddr` is unchanged
-    /// and its `in_list` is now stamped with the list_id. The cursor's list
-    /// gains `link` at `old.index`, its `list_id` is preserved, and `index`
-    /// advances by one. In the borrow model, the link's tracked permission
-    /// remains parked in `MetaRegionOwners.slots`; this axiom doesn't need to
-    /// take or carry a perm.
-    pub axiom fn list_insert(tracked cursor: &mut Self, tracked link: &mut LinkOwner)
+    /// and its `in_list` is stamped with `list_id` — the (non-zero) id the
+    /// concrete `lazy_get_id` resolved. The cursor's list gains `link` at
+    /// `old.index`, adopts `list_id` (which equals the old id when that was
+    /// already non-zero), and `index` advances by one. In the borrow model, the
+    /// link's tracked permission remains parked in `MetaRegionOwners.slots`;
+    /// this axiom doesn't need to take or carry a perm.
+    pub axiom fn list_insert(tracked cursor: &mut Self, tracked link: &mut LinkOwner, list_id: u64)
+        requires
+            list_id != 0,
+            old(cursor).list_own.list_id != 0 ==> list_id == old(cursor).list_own.list_id,
         ensures
             final(link).paddr == old(link).paddr,
-            final(link).in_list == final(cursor).list_own.list_id,
+            final(link).in_list == list_id,
             final(cursor).list_own.list == old(cursor).list_own.list.insert(
                 old(cursor).index,
                 *final(link),
             ),
-            final(cursor).list_own.list_id == old(cursor).list_own.list_id,
+            final(cursor).list_own.list_id == list_id,
             final(cursor).index == old(cursor).index + 1,
     ;
 

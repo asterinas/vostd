@@ -137,8 +137,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         recommends
             self.index < self.length(),
     {
+        // The list model (`view_helper`) depends only on the element sequence,
+        // not on `list_id`, so this carries no `list_id` clause — letting it
+        // hold even when the insert mints a fresh id for a previously-empty list.
         &&& post.list_own.list == self.list_own.list.insert(self.index, link)
-        &&& post.list_own.list_id == self.list_own.list_id
         &&& post.index == self.index + 1
     }
 

@@ -51,7 +51,7 @@ verus! {
 /// `Some`, the slot at `paddr` transitions from `REF_COUNT_UNUSED` to
 /// `1`, with `usage == Frame` and `paths_in_pt` preserved, and the
 /// slot perm is re-parked into `regions.slots` (domain preserved — see
-/// [`MetaSlot::get_from_unused_reparked_spec`]). The embedding *is* the
+/// [`MetaSlot::slot_perm_reparked_spec`]). The embedding *is* the
 /// caller of `Frame::from_unused`, and its `FrameEntry` does not carry
 /// the perm, so the modeled atomic step is "allocate + re-park".
 ///
@@ -78,12 +78,18 @@ pub axiom fn frame_from_unused_embedded(
         // the `None` branch below).
         !has_safe_slot(paddr) ==> res is None,
         // Success branch is conditioned on the slot being unused
-        // (per `get_from_unused_reparked_spec` recommends + the body's
+        // (per `get_from_unused_spec` recommends + the body's
         // `MetaSlot::get_from_unused` failing otherwise). The reparked
-        // variant keeps the slot perm in `regions.slots` (Design B).
-        res is Some ==> MetaSlot::get_from_unused_reparked_spec(
+        // location (`slot_perm_reparked_spec`) keeps the slot perm in
+        // `regions.slots` (Design B).
+        res is Some ==> MetaSlot::get_from_unused_spec(
             paddr,
             false,
+            *old(regions),
+            *final(regions),
+        ),
+        res is Some ==> MetaSlot::slot_perm_reparked_spec(
+            paddr,
             *old(regions),
             *final(regions),
         ),
@@ -276,9 +282,14 @@ pub(super) proof fn from_unused_step(
         final(regions).inv(),
         !has_safe_slot(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
-        res is Some ==> MetaSlot::get_from_unused_reparked_spec(
+        res is Some ==> MetaSlot::get_from_unused_spec(
             paddr,
             false,
+            *old(regions),
+            *final(regions),
+        ),
+        res is Some ==> MetaSlot::slot_perm_reparked_spec(
+            paddr,
             *old(regions),
             *final(regions),
         ),

@@ -517,7 +517,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
             allocated_empty_node_grandchildren_none(owner@),
             res.ptr.addr() == owner@.value.node.unwrap().meta_addr_self(),
             guards.unlocked(owner@.value.node.unwrap().meta_addr_self()),
-            MetaSlot::get_from_unused_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
+            MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
+            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), *old(regions), *final(regions)),
             // Canonical model: a freshly allocated node is a LIVE value whose
             // `Drop` is pending — mint one `frame_obligations` entry at its
             // slot. (`alloc` is `external_body`; the mint is the node's

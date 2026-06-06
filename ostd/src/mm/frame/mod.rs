@@ -418,12 +418,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariant**: Metaslot region invariants must hold.
-    /// - **Bookkeeping**: The slot must be available in order to get the permission.
-    /// This is stronger than it needs to be; absent permissions correspond to error cases.
     /// ## Postconditions
     /// - **Safety Invariant**: Metaslot region invariants hold after the call.
     /// - **Correctness**: If successful, the function returns a pointer to the metadata slot and a permission to the slot.
     /// - **Correctness**: If successful, the slot is initialized with the given metadata.
+    /// - **Correctness**: If `paddr` does not have a corresponding metadata slot, the function returns an error.
+    /// - **Drop Bookkeeping**: If successful, the function returns a live frame, which is tracked correctly as needing to be dropped.
     /// ## Safety
     /// - This function returns an error if `paddr` does not correspond to a valid slot or the slot is in use.
     #[verus_spec(r =>
@@ -434,17 +434,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         ensures
             final(regions).inv(),
             r matches Ok(res) ==> res.ptr.addr() == frame_to_meta(paddr),
-            r is Ok ==> MetaSlot::get_from_unused_reparked_spec(paddr, false, *old(regions), *final(regions)),
+            r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
+            r is Ok ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> r is Err,
-            // Linear-drop pilot: claiming an unused slot doesn't touch the
-            // segment ledger.
-            final(regions).obligations =~= old(regions).obligations,
-            // Canonical model: a successful `from_unused` produces a fresh
-            // LIVE `Frame` whose `Drop` is pending — mint one entry at the
-            // slot. The error path leaves the ledger untouched.
-            r is Ok ==> final(regions).frame_obligations
-                =~= old(regions).frame_obligations.insert(frame_to_index(paddr)),
-            r is Err ==> final(regions).frame_obligations =~= old(regions).frame_obligations,
+            r is Ok ==> MetaSlot::from_unused_obligations_ok_spec(paddr, *old(regions), *final(regions)),
+            r is Err ==> MetaSlot::from_unused_obligations_err_spec(*old(regions), *final(regions)),
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         let ghost pre = *regions;
