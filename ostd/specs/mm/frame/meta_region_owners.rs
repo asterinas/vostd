@@ -6,7 +6,7 @@ use vstd::simple_pptr::{self, *};
 use core::ops::Range;
 
 use vstd_extra::cast_ptr::{self, Repr};
-use vstd_extra::drop_tracking::{DropObligation, HasObligations};
+use vstd_extra::drop_tracking::DropObligation;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
@@ -14,7 +14,7 @@ use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage
 use super::*;
 use crate::mm::frame::meta::{
     mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
-    AnyFrameMeta, MetaSlot,
+    AnyFrameMeta, MetaSlot, REF_COUNT_MAX,
 };
 use crate::mm::frame::Link;
 use crate::mm::Paddr;
@@ -52,22 +52,15 @@ pub struct MetaRegion;
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
-    /// Outstanding "must drop" obligations for `Segment<M>`, keyed by
-    /// `Range<Paddr>`. Each entry corresponds to one live `SegmentOwner`.
-    pub obligations: Set<Range<Paddr>>,
-    /// Outstanding per-instance obligations for `Frame<M>`, as a multiset
-    /// of slot indices. `ManuallyDrop::new(frame, ..)` adds one entry at
-    /// `frame.key()` (mint paired with the `raw_count++` bump);
-    /// `Frame::drop` (via `consume_obligation`) and `ManuallyDrop::new`
-    /// redeem one. Multiset semantics — multiple outstanding obligations
-    /// at the same slot are counted individually.
+    /// Outstanding per-instance obligations for both `Frame<M>` and
+    /// `Segment<M>`, as a multiset of slot indices. `ManuallyDrop::new(frame,
+    /// ..)` adds one entry at `frame.key()` (mint paired with the `raw_count++`
+    /// bump); `Frame::drop` (via `consume_obligation`) and `ManuallyDrop::new`
+    /// redeem one. A `Segment<M>` records one entry per frame it holds (see
+    /// [`crate::specs::mm::frame::segment::tracked_mint_seg_obligations`]).
+    /// Multiset semantics — multiple outstanding obligations at the same slot
+    /// are counted individually.
     pub frame_obligations: vstd::multiset::Multiset<usize>,
-}
-
-impl HasObligations<Range<Paddr>> for MetaRegionOwners {
-    open spec fn obligations(self) -> Set<Range<Paddr>> {
-        self.obligations
-    }
 }
 
 pub ghost struct MetaRegionModel {
@@ -150,6 +143,14 @@ impl MetaRegionOwners {
         self.slot_owners[i].inner_perms.ref_count.value()
     }
 
+    /// `other` agrees with `self` on every slot owner except the one at index
+    /// `idx`: a single-slot operation leaves all other slots' owners untouched.
+    pub open spec fn slot_owners_agree_except(self, other: MetaRegionOwners, idx: usize) -> bool {
+        forall|i: usize|
+            #![trigger other.slot_owners[i]]
+            i != idx ==> other.slot_owners[i] == self.slot_owners[i]
+    }
+
     pub axiom fn borrow_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         &self,
         i: usize,
@@ -199,7 +200,6 @@ impl MetaRegionOwners {
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
             final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
-            final(self).obligations =~= old(self).obligations,
             final(self).frame_obligations =~= old(self).frame_obligations,
     ;
 
@@ -271,7 +271,6 @@ impl MetaRegionOwners {
             perm.points_to == old(self).slots[index],
             final(self).slots == old(self).slots.remove(index),
             final(self).slot_owners == old(self).slot_owners,
-            final(self).obligations =~= old(self).obligations,
             final(self).frame_obligations =~= old(self).frame_obligations,
     ;
 
@@ -287,95 +286,28 @@ impl MetaRegionOwners {
         ensures
             final(self).slots == old(self).slots.insert(index, *perm),
             final(self).slot_owners == old(self).slot_owners,
-            final(self).obligations =~= old(self).obligations,
             final(self).frame_obligations =~= old(self).frame_obligations,
     ;
 
     // ----------------------------------------------------------------------
-    // Linear-drop pilot: obligation ledger machinery.
+    // Per-frame linear-drop ledger machinery.
     // ----------------------------------------------------------------------
-    /// "Clean" boundary invariant: standard invariant plus
+    /// "Clean" boundary invariant: standard invariant plus an empty per-frame
+    /// obligation multiset (every minted token has been redeemed via
+    /// `Drop::drop` or `ManuallyDrop::new`; and every `Segment` has been
+    /// dropped, draining its per-frame entries).
     ///
-    /// - empty `Segment` obligation ledger, and
-    /// - empty `Frame` obligation multiset (every minted token has been
-    ///   redeemed via `Drop::drop` or `ManuallyDrop::new`).
-    ///
-    /// Functions that should leave no outstanding `Segment` undropped
-    /// and no outstanding `Frame` obligations (e.g., top-of-call-stack
-    /// entry points, or any helper that opens fresh resources locally)
-    /// should require this in their postcondition instead of the plain
-    /// `inv()`.
+    /// Functions that should leave no outstanding `Frame`/`Segment` obligations
+    /// (e.g., top-of-call-stack entry points, or any helper that opens fresh
+    /// resources locally) should require this in their postcondition instead of
+    /// the plain `inv()`.
     pub open spec fn clean_inv(self) -> bool {
         &&& self.inv()
-        &&& self.obligations.is_empty()
-        // Linear-drop discipline for `Frame<M>` via the multiset ledger:
-        // every `ManuallyDrop::new` adds one entry, every `Drop::drop` /
-        // `ManuallyDrop::new` removes one.
+        // Per-frame linear-drop discipline via the multiset ledger: every
+        // `ManuallyDrop::new` / segment-frame mint adds one entry, every
+        // `Drop::drop` / `ManuallyDrop::new` / segment-frame redeem removes one.
         &&& self.frame_obligations.len() == 0
     }
-
-    /// Pairs the production of a [`DropObligation`] token with an insert
-    /// into the ledger. The token + ledger pair is the linear-drop primitive
-    /// — see [`DropObligation`]. The `range` here is the segment's address
-    /// range used as the obligation key.
-    ///
-    /// This is an axiom: callers must only invoke it on a freshly
-    /// constructed segment (where the `range` is unique among outstanding
-    /// obligations). The `range` is required not to already be in the
-    /// ledger so that obligations stay 1:1 with live segments.
-    pub axiom fn tracked_mint_obligation(tracked &mut self, range: Range<Paddr>) -> (tracked obl:
-        DropObligation<Range<Paddr>>)
-        requires
-            !old(self).obligations.contains(range),
-        ensures
-            obl.value() == range,
-            final(self).slots == old(self).slots,
-            final(self).slot_owners == old(self).slot_owners,
-            final(self).obligations =~= old(self).obligations.insert(range),
-            final(self).frame_obligations =~= old(self).frame_obligations,
-    ;
-
-    /// Consumes a [`DropObligation`] token and removes its key from the
-    /// ledger. The token's `value()` must match the key being redeemed,
-    /// preventing callers from using a token issued for one segment to
-    /// discharge another.
-    pub axiom fn tracked_redeem_obligation(
-        tracked &mut self,
-        tracked obl: DropObligation<Range<Paddr>>,
-    )
-        requires
-            old(self).obligations.contains(obl.value()),
-        ensures
-            final(self).slots == old(self).slots,
-            final(self).slot_owners == old(self).slot_owners,
-            final(self).obligations =~= old(self).obligations.remove(obl.value()),
-            final(self).frame_obligations =~= old(self).frame_obligations,
-    ;
-
-    /// Atomic redeem-then-mint: re-keys an obligation in place. Avoids
-    /// the "swap with placeholder" dance when an operation (e.g.
-    /// `Segment::next`) shrinks/shifts a segment's range while keeping
-    /// the same logical obligation. The token is mutated in place; the
-    /// ledger swaps the old key for the new one in a single step.
-    pub axiom fn tracked_rekey_obligation(
-        tracked &mut self,
-        tracked obl: &mut DropObligation<Range<Paddr>>,
-        new_key: Range<Paddr>,
-    )
-        requires
-            old(self).obligations.contains(old(obl).value()),
-            // Either the key is unchanged (no-op), or the new key isn't
-            // already outstanding.
-            old(obl).value() == new_key || !old(self).obligations.contains(new_key),
-        ensures
-            final(obl).value() == new_key,
-            final(self).slots == old(self).slots,
-            final(self).slot_owners == old(self).slot_owners,
-            final(self).obligations =~= old(self).obligations.remove(old(obl).value()).insert(
-                new_key,
-            ),
-            final(self).frame_obligations =~= old(self).frame_obligations,
-    ;
 
     // ----------------------------------------------------------------------
     // Frame-side per-instance ledger.
@@ -390,7 +322,6 @@ impl MetaRegionOwners {
             final(self).frame_obligations =~= old(self).frame_obligations.insert(slot_idx),
             final(self).slots =~= old(self).slots,
             final(self).slot_owners =~= old(self).slot_owners,
-            final(self).obligations =~= old(self).obligations,
     ;
 
     /// Redeems a per-Frame obligation, decrementing `frame_obligations`
@@ -406,7 +337,6 @@ impl MetaRegionOwners {
             final(self).frame_obligations =~= old(self).frame_obligations.remove(obl.value()),
             final(self).slots =~= old(self).slots,
             final(self).slot_owners =~= old(self).slot_owners,
-            final(self).obligations =~= old(self).obligations,
     ;
 }
 

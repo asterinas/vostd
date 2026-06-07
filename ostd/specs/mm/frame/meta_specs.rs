@@ -27,6 +27,24 @@ use core::marker::PhantomData;
 verus! {
 
 impl MetaSlot {
+    /// A helper function that casts a `MetaSlot` pointer to a `Metadata` pointer of type `M`.
+    #[verus_spec(res =>
+        with
+            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+        requires
+            perm.value() == self,
+            addr == perm.addr(),
+        ensures
+            res.ptr.addr() == addr,
+            res.addr() == addr,
+    )]
+    pub fn cast_slot<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, addr: usize) -> ReprPtr<
+        MetaSlot,
+        Metadata<M>,
+    > {
+        ReprPtr::<MetaSlot, Metadata<M>> { ptr: PPtr::from_addr(addr), _T: PhantomData }
+    }
+
     pub open spec fn get_from_unused_inner_perms_spec(
         as_unique: bool,
         perms: MetadataInnerPerms,
@@ -72,7 +90,6 @@ impl MetaSlot {
                 == REF_COUNT_UNUSED
             // Linear-drop pilot: claiming an unused slot doesn't mint or
             // redeem segment obligations.
-            &&& post.obligations =~= pre.obligations
         }
     }
 
@@ -105,25 +122,25 @@ impl MetaSlot {
             k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
     }
 
-    /// Obligation-ledger effect of [`crate::mm::frame::Frame::from_unused`] on
-    /// success: the segment `obligations` ledger is untouched, and the new live
-    /// frame mints its pending-Drop entry in `frame_obligations` at `paddr`.
-    pub open spec fn from_unused_obligations_ok_spec(
+    /// Obligation-ledger effect of producing a fresh live `Frame` handle on
+    /// success (e.g. [`crate::mm::frame::Frame::from_unused`] or
+    /// [`crate::mm::frame::Frame::from_in_use`]): the segment `obligations`
+    /// ledger is untouched, and the new handle mints its pending-Drop entry in
+    /// `frame_obligations` at `paddr`.
+    pub open spec fn live_frame_obligations_ok_spec(
         paddr: Paddr,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
     ) -> bool {
-        &&& post.obligations =~= pre.obligations
         &&& post.frame_obligations =~= pre.frame_obligations.insert(frame_to_index(paddr))
     }
 
-    /// Obligation-ledger effect of [`crate::mm::frame::Frame::from_unused`] on
-    /// failure: both the segment and frame ledgers are left untouched.
-    pub open spec fn from_unused_obligations_err_spec(
+    /// Obligation-ledger effect on failure: both the segment and frame ledgers
+    /// are left untouched.
+    pub open spec fn live_frame_obligations_err_spec(
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
     ) -> bool {
-        &&& post.obligations =~= pre.obligations
         &&& post.frame_obligations =~= pre.frame_obligations
     }
 

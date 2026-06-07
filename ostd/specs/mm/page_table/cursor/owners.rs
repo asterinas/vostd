@@ -554,6 +554,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
+            // Allocating a child doesn't touch the segment obligation ledger.
             res.value == EntryOwner::<C>::new_frame(
                 paddr,
                 self.path().push_tail(self.idx as usize),
@@ -1122,6 +1123,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     == old_regions.slot_owners[i],
             // slots map unchanged
             new_regions.slots == old_regions.slots,
+            // obligation ledger unchanged (clone bumps a ref count only)
             // rc overflow guard: old rc is a normal shared count; the bumped rc fits
             // in the valid `[1, REF_COUNT_MAX]` range. The `<=` form (vs strict `<`)
             // matches what callers actually have: post-`clone_item`, the new rc is
@@ -2512,6 +2514,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].self_addr == regions0.slot_owners[idx].self_addr,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
             regions1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            // Bumped rc stays in the SHARED range (needed for the node branch).
+            regions1.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX,
             forall|i: usize|
                 #![trigger regions1.slot_owners[i]]
                 i != idx && regions0.slot_owners.contains_key(i) ==> regions1.slot_owners[i]

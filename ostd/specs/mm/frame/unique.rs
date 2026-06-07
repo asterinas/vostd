@@ -198,7 +198,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         // one entry at the slot index via the paired mint axiom — same
         // ledger Frame uses.
         &&& s1.frame_obligations =~= s0.frame_obligations.insert(obl_key)
-        &&& s1.obligations =~= s0.obligations
         &&& s1.inv()
     }
 
@@ -231,7 +230,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         // `consume_obligation`. (`UniqueFrame`'s inherent `drop` exec
         // function is responsible for arranging this in the body.)
         &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
-        &&& s1.obligations =~= s0.obligations
         &&& s1.inv()
     }
 
@@ -251,7 +249,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners =~= s0.slot_owners
-        &&& s1.obligations =~= s0.obligations
     }
 
     proof fn consume_obligation(

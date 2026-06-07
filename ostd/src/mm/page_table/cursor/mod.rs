@@ -267,7 +267,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // *untracked* clone (kernel MMIO) is a true no-op, so the ledger
             // is preserved — `Cursor::query`'s untracked branch relies on
             // `*regions == old_regions`.
-            final(regions).obligations =~= old(regions).obligations,
             !C::tracked(*item) ==> final(regions).frame_obligations =~= old(
                 regions,
             ).frame_obligations,
@@ -4189,10 +4188,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let ghost regions_before_borrow = *regions;
 
-                let tracked old_node_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-                    old_node_owner.slot_index,
-                );
-                #[verus_spec(with Tracked(regions), Tracked(old_node_meta_perm))]
+                #[verus_spec(with Tracked(regions))]
                 let borrow_pt = pt.borrow();
 
                 let ghost regions_after_borrow = *regions;

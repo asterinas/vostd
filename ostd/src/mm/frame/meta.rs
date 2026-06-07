@@ -265,35 +265,6 @@ impl MetaSlot {
         unimplemented!()
     }
 
-    /// A helper function that casts a `MetaSlot` pointer to a `Metadata` pointer of type `M`.
-    #[verus_spec(res =>
-        with
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
-        requires
-            perm.value() == self,
-            addr == perm.addr(),
-        ensures
-            res.ptr.addr() == addr,
-            res.addr() == addr,
-    )]
-    pub fn cast_slot<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, addr: usize) -> ReprPtr<
-        MetaSlot,
-        Metadata<M>,
-    > {
-        ReprPtr::<MetaSlot, Metadata<M>> { ptr: PPtr::from_addr(addr), _T: PhantomData }
-    }
-
-    /// A helper function that casts `MetaSlot` permission to a `Metadata` permission of type `M`.
-    pub proof fn cast_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        tracked perm: vstd::simple_pptr::PointsTo<MetaSlot>,
-        tracked inner_perms: MetadataInnerPerms,
-    ) -> (tracked res: PointsTo<MetaSlot, Metadata<M>>)
-        ensures
-            res.points_to == perm,
-            res.inner_perms == inner_perms,
-    {
-        PointsTo { points_to: perm, inner_perms, _T: PhantomData }
-    }
 
     /// Initializes the metadata slot of a frame assuming it is unused.
     ///
@@ -326,6 +297,9 @@ impl MetaSlot {
             // to restore `regions.inv()`). On Err, regions is left intact
             // and the inv is preserved.
             res is Err ==> final(regions).inv(),
+            // On failure the slot perm/owner are re-parked unchanged: nothing
+            // was claimed, so the whole region state is intact.
+            res is Err ==> *final(regions) == *old(regions),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
             res matches Ok((res, perm)) ==> perm@.value().wf(
                 final(regions).slot_owners[frame_to_index(paddr)]),
@@ -340,7 +314,6 @@ impl MetaSlot {
             !has_safe_slot(paddr) ==> res is Err,
             // Linear-drop pilot: claiming an unused slot doesn't mint or
             // redeem segment or frame obligations on any path.
-            final(regions).obligations =~= old(regions).obligations,
             final(regions).frame_obligations =~= old(regions).frame_obligations,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -375,8 +348,19 @@ impl MetaSlot {
 
         if let Err(err) = last_ref_cnt {
             proof {
-                regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
-                regions.slots.tracked_insert(frame_to_index(paddr), slot_perm);
+                let idx = frame_to_index(paddr);
+                regions.slot_owners.tracked_insert(idx, slot_own);
+                regions.slots.tracked_insert(idx, slot_perm);
+                // CAS failure leaves `ref_count` unchanged (value + id), so the
+                // re-parked slot is exactly the original — region state intact.
+                vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
+                    regions.slot_owners[idx].inner_perms.ref_count,
+                    old(regions).slot_owners[idx].inner_perms.ref_count,
+                );
+                assert(regions.slot_owners[idx] == old(regions).slot_owners[idx]);
+                assert(regions.slot_owners =~= old(regions).slot_owners);
+                assert(regions.slots =~= old(regions).slots);
+                assert(*regions == *old(regions));
             }
 
             return Err(err);
@@ -491,26 +475,14 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            has_safe_slot(paddr) ==> {
-                &&& old(regions).slot_owners.contains_key(frame_to_index(paddr))
-                &&& old(regions).slots[frame_to_index(paddr)].addr() == frame_to_meta(paddr)
-                &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id()
-                    == old(regions).slots[frame_to_index(paddr)].value().ref_count.id()
-                &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms
-                    .ref_count.value() >= REF_COUNT_MAX ==> may_panic()
-            },
+            has_safe_slot(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
         ensures
             final(regions).inv(),
             !has_safe_slot(paddr) ==> res is Err,
             res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *final(regions)),
             res matches Ok(ptr) ==> ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
             res is Err ==> *final(regions) == *old(regions),
-            // Acquiring an extra reference is net-zero on both obligation
-            // ledgers (the refcount bump is an Arc-style operation). Exposed
-            // so `Frame::from_in_use` can mint the new live handle's
-            // pending-Drop obligation on top of a clean ledger.
             final(regions).frame_obligations =~= old(regions).frame_obligations,
-            final(regions).obligations =~= old(regions).obligations,
     )]
     #[verifier::exec_allows_no_decreases_clause]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
@@ -521,6 +493,12 @@ impl MetaSlot {
         proof {
             assert(regions0 == *old(regions));
             assert(has_safe_slot(paddr));
+            // `get_slot` succeeded ⟹ `has_safe_slot(paddr)`; with `regions.inv()`
+            // that recovers the slot facts the caller used to supply: the slot is
+            // present, its address is `frame_to_meta(paddr)`, and its inner-perm
+            // ref-count cell matches the slot's (via the per-slot `wf`).
+            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            regions.inv_implies_correct_addr(paddr);
         }
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
@@ -572,7 +550,6 @@ impl MetaSlot {
                 regions.slots == regions0.slots,
                 // Linear-drop pilot: this path doesn't mint/redeem segment
                 // obligations, so the ledger is invariant.
-                regions.obligations =~= regions0.obligations,
                 regions.frame_obligations =~= regions0.frame_obligations,
         {
             match #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms))]

@@ -112,12 +112,16 @@ pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     /// permissions. Each frame's `simple_pptr::PointsTo<MetaSlot>` stays
     /// canonical in `regions.slots[idx]` and is *borrowed* on drop/next;
     /// the segment merely contributes one (forgotten) reference per frame.
+    ///
+    /// Per-frame linear-drop: the owner carries *no* obligation token. The
+    /// segment's "must drop" guarantee is enforced entirely by the per-frame
+    /// `regions.frame_obligations` multiset (one count per segment frame, see
+    /// [`SegmentOwner::relate_regions`]) combined with the boundary
+    /// `clean_inv()` check — silently dropping a `SegmentOwner` leaves those
+    /// counts outstanding and breaks `clean_inv()`. Redeem-time tokens are
+    /// fabricated on demand via `DropObligation::tracked_mint`, so no token
+    /// needs to travel with the owner.
     pub ghost range: Range<Paddr>,
-    /// Linear-drop pilot: the obligation token bound to `range`. Travels
-    /// with the owner so every operation that consumes/produces a
-    /// `SegmentOwner` automatically transports the obligation. The token's
-    /// `value()` is pinned to `range` by [`SegmentOwner::inv`].
-    pub tracked obligation: DropObligation<Range<Paddr>>,
     pub _marker: core::marker::PhantomData<M>,
 }
 
@@ -133,10 +137,7 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
     open spec fn inv(self) -> bool {
         &&& self.range.start % PAGE_SIZE == 0
         &&& self.range.end % PAGE_SIZE == 0
-        &&& self.range.start <= self.range.end
-            <= MAX_PADDR
-        // Linear-drop pilot.
-        &&& self.obligation.value() == self.range
+        &&& self.range.start <= self.range.end <= MAX_PADDR
     }
 }
 
@@ -157,14 +158,17 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     /// [`crate::specs::mm::frame::unique::UniqueFrameOwner::global_inv`] but
     /// spanning all frames in a segment.
     pub open spec fn relate_regions(self, regions: MetaRegionOwners) -> bool {
-        // Linear-drop pilot: the ledger has an entry for this owner's range.
-        // Combined with the inv()-pinned `obligation.value() == range`, this
-        // gates `Segment::drop`'s redeem against a genuine outstanding entry.
-        &&& regions.obligations.contains(self.range)
         &&& forall|i: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
             0 <= i < seg_nframes(self.range) ==> {
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
+                // Per-frame linear-drop: the segment holds one (forgotten)
+                // reference per frame, recorded as a `frame_obligations` count.
+                // Combined with the boundary `clean_inv()` (which requires the
+                // multiset empty), this gates `Segment::drop`'s per-frame
+                // redeem against a genuine outstanding entry — the per-frame
+                // analogue of the old `obligations.contains(range)` check.
+                &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(
                     idx,
                 )
@@ -190,11 +194,6 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& regions.slot_owners[idx].usage
                     == crate::specs::mm::frame::meta_owners::PageUsage::Frame
-                // Borrow-protocol redesign: in steady state between
-                // `Segment::from_unused`'s consume and `Segment::drop`'s
-                // `from_raw`-mint, the per-frame `frame_obligations`
-                // count is 0. No `count > 0` invariant carried.
-
             }&&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
                 frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
@@ -214,6 +213,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
         ensures
             ({
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
+                &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
                 &&& regions.slots.contains_key(
                     idx,
@@ -314,6 +314,101 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 #[verifier::inline]
 pub open spec fn frame_idx_at(range_start: usize, j: int) -> usize {
     frame_to_index((range_start + j * PAGE_SIZE) as usize)
+}
+
+/// Mints one per-frame `frame_obligations` entry for each of the first `n`
+/// frames of a segment starting at `range_start`. Used by
+/// [`Segment::from_unused`] to record the segment's forgotten per-frame
+/// references *after* the construction loop (which is net-zero on the ledger:
+/// each frame's `Frame::from_unused` mint is cancelled by its `ManuallyDrop`).
+///
+/// Per-frame obligations replace the old single range-keyed `obligations`
+/// ledger entry. Because `frame_obligations` is a multiset and minting only
+/// ever increases counts, no distinctness hypothesis on the frame indices is
+/// needed to conclude every segment frame ends with `count >= 1`.
+pub proof fn tracked_mint_seg_obligations(
+    tracked regions: &mut MetaRegionOwners,
+    range_start: usize,
+    n: int,
+)
+    requires
+        0 <= n,
+        old(regions).inv(),
+    ensures
+        final(regions).inv(),
+        final(regions).slots =~= old(regions).slots,
+        final(regions).slot_owners =~= old(regions).slot_owners,
+        forall|idx: usize|
+            #![trigger final(regions).frame_obligations.count(idx)]
+            final(regions).frame_obligations.count(idx) >= old(
+                regions,
+            ).frame_obligations.count(idx),
+        forall|i: int|
+            #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
+            0 <= i < n ==> final(regions).frame_obligations.count(
+                frame_to_index((range_start + i * PAGE_SIZE) as usize),
+            ) >= 1,
+    decreases n,
+{
+    if n > 0 {
+        tracked_mint_seg_obligations(regions, range_start, n - 1);
+        let idx = frame_to_index((range_start + (n - 1) * PAGE_SIZE) as usize);
+        let tracked _ = regions.tracked_mint_frame_obligation(idx);
+    }
+}
+
+/// Redeems the per-frame `frame_obligations` entry for each of the first `n`
+/// frames of a segment starting at `range_start` — the inverse of
+/// [`tracked_mint_seg_obligations`]. Used by [`Segment::drop`] to drain the
+/// segment's retained per-frame references *before* the per-frame teardown
+/// loop, so that loop sees `count == 0` (as it did before the migration) and
+/// its `from_raw`(+1)/`frame.drop`(-1) pair nets to zero unchanged.
+///
+/// Unlike minting, redeeming requires the frame indices be *distinct*
+/// (redeeming one frame must not drop another's count below 1) and each count
+/// be `>= 1` up front — both supplied by [`SegmentOwner::relate_regions`].
+/// Leaves `slots`, `slot_owners`, and the (vestigial) range `obligations`
+/// ledger untouched.
+pub proof fn tracked_redeem_seg_obligations(
+    tracked regions: &mut MetaRegionOwners,
+    range_start: usize,
+    n: int,
+)
+    requires
+        0 <= n,
+        old(regions).inv(),
+        forall|i: int|
+            #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
+            0 <= i < n ==> old(regions).frame_obligations.count(
+                frame_to_index((range_start + i * PAGE_SIZE) as usize),
+            ) >= 1,
+        forall|i: int, j: int|
+            #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize),
+                frame_to_index((range_start + j * PAGE_SIZE) as usize)]
+            0 <= i < j < n ==> frame_to_index((range_start + i * PAGE_SIZE) as usize)
+                != frame_to_index((range_start + j * PAGE_SIZE) as usize),
+    ensures
+        final(regions).inv(),
+        final(regions).slots =~= old(regions).slots,
+        final(regions).slot_owners =~= old(regions).slot_owners,
+    decreases n,
+{
+    if n > 0 {
+        let idx = frame_to_index((range_start + (n - 1) * PAGE_SIZE) as usize);
+        let tracked tok = DropObligation::tracked_mint(idx);
+        regions.tracked_redeem_frame_obligation(tok);
+        // Redeeming `idx` (the n-1'th frame) left every earlier frame's count
+        // untouched, since the indices are distinct — so the `>= 1` hypothesis
+        // still holds for `[0, n-1)` and the recursive call's precondition is met.
+        assert forall|i: int|
+            #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
+            0 <= i < n - 1 implies regions.frame_obligations.count(
+                frame_to_index((range_start + i * PAGE_SIZE) as usize),
+            ) >= 1 by {
+            assert(frame_to_index((range_start + i * PAGE_SIZE) as usize) != idx);
+        };
+        tracked_redeem_seg_obligations(regions, range_start, n - 1);
+    }
 }
 
 } // verus!

@@ -60,7 +60,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             final(regions).slot_owners =~= old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
             final(regions).frame_obligations =~= old(regions).frame_obligations,
-            final(regions).obligations =~= old(regions).obligations,
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {

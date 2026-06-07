@@ -54,11 +54,11 @@
 //!      `FrameEntry`'s registration + the segment-cover hypothesis.
 //!      `op_pre[FrameDrop]` and `step_frame_drop` shrink to
 //!      id-existence + segment-cover only.
-//!    - **Exec layer**: [`crate::mm::frame::Frame::wf_state`]
+//!    - **Exec layer**: [`crate::mm::frame::Frame::inv_with_regions`]
 //!      packages the per-handle cross-object validity (slot/pointer
 //!      identity + SHARED rc bounds — `> 0 ∧ ≠ UNUSED ∧ ≠ UNIQUE
 //!      ∧ ≤ MAX`). `Frame::drop_requires` is refactored to read
-//!      `self.wf_state(s) ∧ raw_count == 0 ∧ rc == 1 ⟹ paths empty`,
+//!      `self.inv_with_regions(s) ∧ raw_count == 0 ∧ rc == 1 ⟹ paths empty`,
 //!      which keeps the drop-specific bits explicit while
 //!      consolidating the static "this Frame is valid against
 //!      this state" conjuncts.
@@ -66,7 +66,7 @@
 //!      `PageTableConfig::clone_requires_concrete` (a trait method
 //!      with multiple implementors); left explicit to keep the
 //!      change local.
-//!    - **Preservation of `wf_state` (FUTURE).** `Frame::wf_state`'s
+//!    - **Preservation of `inv_with_regions` (FUTURE).** `Frame::inv_with_regions`'s
 //!      preservation across drops of *other* handles at the same slot
 //!      is currently informal (claimed in the docstring; no
 //!      machine-checked proof). To prove it, every `Frame<M>` needs a
@@ -89,7 +89,7 @@
 //!      The embedding's `handle_count` already provides the equivalent
 //!      property at the abstract level, so this is only needed if
 //!      downstream code outside the embedding's tracking needs
-//!      `Frame::wf_state` preservation proofs.
+//!      `Frame::inv_with_regions` preservation proofs.
 //!
 //! 3a. **Op::Map consumes a `FrameId`** — DONE. `Op::Map { c, fid,
 //!     prop }` extracts the matching `FrameEntry` (so `H` at the

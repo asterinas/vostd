@@ -84,7 +84,6 @@ pub trait RCClone: Sized {
             // creates a fresh live value, so `Frame::clone` MINTS one entry
             // (`.insert(idx)`); ref-count-only clones (`Segment`) stay
             // net-zero. Hardcoding `=~= old` here would forbid the mint.
-            final(perm).obligations =~= old(perm).obligations,
     ;
 }
 
@@ -1232,20 +1231,14 @@ impl PageTable<KernelPtConfig> {
         }
         let ghost regions_before_self_borrow: MetaRegionOwners = *regions;
         let mut root_node = {
-            let tracked root_meta_perm = regions.borrow_typed_perm::<
-                PageTablePageMeta<KernelPtConfig>,
-            >(root_owner.slot_index);
-            #[verus_spec(with Tracked(regions), Tracked(root_meta_perm))]
+            #[verus_spec(with Tracked(regions))]
             let root_ref = self.root.borrow();
             #[verus_spec(with Tracked(root_owner), Tracked(guards))]
             root_ref.lock(preempt_guard)
         };
         let ghost regions_after_kroot_borrow: MetaRegionOwners = *regions;
         let mut new_node: PageTableGuard<'rcu, UserPtConfig> = {
-            let tracked new_node_meta_perm = regions.borrow_typed_perm::<
-                PageTablePageMeta<UserPtConfig>,
-            >(new_node_owner.slot_index);
-            #[verus_spec(with Tracked(regions), Tracked(new_node_meta_perm))]
+            #[verus_spec(with Tracked(regions))]
             let new_ref = new_root.borrow();
             #[verus_spec(with Tracked(&new_node_owner), Tracked(guards))]
             new_ref.lock(preempt_guard)

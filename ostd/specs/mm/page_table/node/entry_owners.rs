@@ -8,7 +8,7 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
@@ -538,6 +538,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
             &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
+            // A live tree node is a SHARED slot: it holds at least the parent
+            // PTE's reference and is never UNIQUE. (`0 < rc <= MAX` subsumes
+            // `!= UNUSED` and `!= UNIQUE`, both of which exceed `MAX`.) This is
+            // what lets `Frame::borrow` recover `inv_with_regions` for a node.
+            &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value()
+                <= REF_COUNT_MAX
             // Borrow-protocol transition: `raw_count` is dormant; the
             // linear-drop guarantee is carried by `frame_obligations`.
             &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_addr_self()
@@ -803,6 +809,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value() > 0
+                // Needed to re-establish the node branch's SHARED range (`<= MAX`).
+                &&& r1.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
                 &&& r1.slot_owners[idx].inner_perms.storage
                     == r0.slot_owners[idx].inner_perms.storage
                 &&& r1.slot_owners[idx].inner_perms.vtable_ptr
