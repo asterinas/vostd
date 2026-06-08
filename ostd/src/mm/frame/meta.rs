@@ -319,7 +319,6 @@ impl MetaSlot {
         unimplemented!()
     }
 
-
     /// Initializes the metadata slot of a frame assuming it is unused.
     ///
     /// If successful, the function returns a pointer to the metadata slot.
@@ -552,6 +551,7 @@ impl MetaSlot {
             // present, its address is `frame_to_meta(paddr)`, and its inner-perm
             // ref-count cell matches the slot's (via the per-slot `wf`).
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             regions.inv_implies_correct_addr(paddr);
         }
 

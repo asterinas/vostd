@@ -34,7 +34,7 @@ use core::{
 use crate::specs::*;
 
 use crate::mm::frame::meta::mapping::{
-    frame_to_index, max_meta_slots, meta_addr, meta_to_frame, meta_to_frame_spec, META_SLOT_SIZE,
+    META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_addr, meta_to_frame, meta_to_frame_spec,
 };
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, get_slot, has_safe_slot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -376,6 +376,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             // metadata as init, and its `in_list` permission as governing the
             // slot's atomic — the same facts `cursor_mut_at` derives in-body.
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             let idx = frame_to_index(frame);
             assert(idx < max_meta_slots());
             assert(regions.slot_owners.contains_key(idx));
@@ -1182,8 +1183,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             ),
             // The id is preserved when it was already minted; a `list_id == 0`
             // (necessarily empty) list adopts a freshly-minted non-zero id.
-            old(owner).list_own.list_id != 0 ==> final(owner).list_own.list_id
-                == old(owner).list_own.list_id,
+            old(owner).list_own.list_id != 0 ==> final(owner).list_own.list_id == old(
+                owner,
+            ).list_own.list_id,
             final(owner).list_own.list_id != 0,
             final(owner).index == old(owner).index + 1,
             final(frame_own).meta_own.paddr == old(frame_own).meta_own.paddr,

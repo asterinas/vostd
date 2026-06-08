@@ -295,10 +295,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     0 <= j < addrs.len() as int ==> {
                         let idx = frame_to_index(addrs[j]);
                         &&& regions.slots.contains_key(idx)
-                        &&& regions.slot_owners.contains_key(
-                            idx,
-                        )
-
+                        &&& regions.slot_owners.contains_key(idx)
                         &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -362,6 +359,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         let ghost idx_k = frame_to_index(p);
                         proof {
                             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                             assert(addrs[k] == p);
                             assert(meta_addr(idx_k) == frame_to_meta(p));
                             assert(regions.slots.contains_key(idx_k));
@@ -377,6 +375,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         };
                         proof {
                             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                             assert(regions.slots[idx_k].pptr() == frame.ptr);
                         }
                         frame.drop(Tracked(regions), Tracked(from_raw_obl));
@@ -412,6 +411,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             segment.range.end = paddr + PAGE_SIZE;
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                 regions.inv_implies_correct_addr(paddr);
                 let idx = frame_to_index(paddr);
                 axiom_mmio_usage_iff_mmio_paddr(regions.slot_owners[idx]);
@@ -610,9 +610,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 let idx = frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(
-                    idx,
-                )
+                &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -629,9 +627,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 let idx = frame_to_index((frame_own2.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(
-                    idx,
-                )
+                &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -931,8 +927,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
             proof {
                 let new_range = ((self.range.start + PAGE_SIZE) as usize)..self.range.end;
-                let tracked redeem_tok =
-                    vstd_extra::drop_tracking::DropObligation::tracked_mint(frame.index());
+                let tracked redeem_tok = vstd_extra::drop_tracking::DropObligation::tracked_mint(
+                    frame.index(),
+                );
                 regions.tracked_redeem_frame_obligation(redeem_tok);
                 assert(regions.frame_obligations =~= old(regions).frame_obligations);
                 owner.range = new_range;
@@ -943,9 +940,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     let idx = frame_to_index((owner.range.start + i * PAGE_SIZE) as usize);
                     &&& regions.frame_obligations.count(idx) >= 1
                     &&& regions.slot_owners.contains_key(idx)
-                    &&& regions.slots.contains_key(
-                        idx,
-                    )
+                    &&& regions.slots.contains_key(idx)
                     &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -969,6 +964,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 // The yielded frame is a valid live handle against the new
                 // regions, so the caller can use or drop it.
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                 assert(regions.slots[frame.index()].pptr() == frame.ptr);
                 assert(frame.inv_with_regions(*regions));
             }
@@ -1095,15 +1091,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             assert forall|i: int|
                 #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
                 0 <= i < n implies old(regions).frame_obligations.count(
-                    frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
-                ) >= 1 by {
+                frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
+            ) >= 1 by {
                 old_owner.relate_regions_at(*old(regions), i);
             };
             assert forall|i: int, j: int|
                 #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
                     frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                 0 <= i < j < n implies frame_to_index((self.range.start + i * PAGE_SIZE) as usize)
-                    != frame_to_index((self.range.start + j * PAGE_SIZE) as usize) by {
+                != frame_to_index((self.range.start + j * PAGE_SIZE) as usize) by {
                 old_owner.relate_regions_distinct(*old(regions), i, j);
             };
             crate::specs::mm::frame::segment::tracked_redeem_seg_obligations(

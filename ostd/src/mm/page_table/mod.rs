@@ -79,13 +79,16 @@ pub trait RCClone: Sized {
             self.clone_ensures(*old(perm), *final(perm), res),
             final(perm).inv(),
             final(perm).slots =~= old(perm).slots,
-            final(perm).slot_owners.dom() =~= old(perm).slot_owners.dom(),
-            // Linear-drop pilot: `RCClone::clone` doesn't mint/redeem
-            // segment obligations. The per-frame `frame_obligations` effect
-            // is left to each impl's `clone_ensures` — canonically a clone
-            // creates a fresh live value, so `Frame::clone` MINTS one entry
-            // (`.insert(idx)`); ref-count-only clones (`Segment`) stay
-            // net-zero. Hardcoding `=~= old` here would forbid the mint.
+            final(perm).slot_owners.dom() =~= old(
+                perm,
+            ).slot_owners.dom(),
+    // Linear-drop pilot: `RCClone::clone` doesn't mint/redeem
+    // segment obligations. The per-frame `frame_obligations` effect
+    // is left to each impl's `clone_ensures` — canonically a clone
+    // creates a fresh live value, so `Frame::clone` MINTS one entry
+    // (`.insert(idx)`); ref-count-only clones (`Segment`) stay
+    // net-zero. Hardcoding `=~= old` here would forbid the mint.
+
     ;
 }
 

@@ -48,12 +48,12 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::{has_safe_slot, UFrame};
+use crate::mm::frame::{UFrame, has_safe_slot};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::UserPtConfig;
+use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::specs::mm::frame::meta_owners::{
     PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
 };
@@ -231,10 +231,9 @@ pub axiom fn cursor_query_embedded<'rcu>(
         res matches Some(paddr) ==> {
             &&& has_safe_slot(paddr)
             &&& old(regions).slot_owners[frame_to_index(paddr)].usage == PageUsage::Frame
-            &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
-                == (old(regions).slot_owners[frame_to_index(
-                paddr,
-            )].inner_perms.ref_count.value() + 1) as nat
+            &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == (
+            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+                + 1) as nat
             &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
                 <= REF_COUNT_MAX
             &&& forall|i: usize|
@@ -260,8 +259,9 @@ pub axiom fn cursor_query_embedded<'rcu>(
             &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage == old(
                 regions,
             ).slot_owners[frame_to_index(paddr)].inner_perms.storage
-            &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr
-                == old(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr
+            &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr == old(
+                regions,
+            ).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr
         },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
@@ -413,10 +413,10 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         // nodes, so the "fully preserved" guard requires `pre rc != UNUSED`.
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index(paddr) && old(
+            i != frame_to_index(paddr) && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i] == old(
                 regions,
-            ).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+            ).slot_owners[i],
         // Per exec cursor/mod.rs:2844-2846: any pre-non-UNUSED slot
         // stays non-UNUSED.
         forall|i: usize|
@@ -469,11 +469,9 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         // above.
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index(paddr) && old(
-                regions,
-            ).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
-                && final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i].usage != PageUsage::Frame,
+            i != frame_to_index(paddr) && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                == REF_COUNT_UNUSED && final(regions).slot_owners[i].inner_perms.ref_count.value()
+                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i].usage != PageUsage::Frame,
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -790,10 +788,9 @@ pub(super) proof fn cursor_query_step<'rcu>(
         res matches Some(paddr) ==> {
             &&& has_safe_slot(paddr)
             &&& old(regions).slot_owners[frame_to_index(paddr)].usage == PageUsage::Frame
-            &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
-                == (old(regions).slot_owners[frame_to_index(
-                paddr,
-            )].inner_perms.ref_count.value() + 1) as nat
+            &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == (
+            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+                + 1) as nat
             &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
                 <= REF_COUNT_MAX
             &&& forall|i: usize|
@@ -1029,10 +1026,10 @@ pub(super) proof fn map_step<'rcu>(
             ).slot_owners[i].inner_perms.in_list,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index(paddr) && old(
+            i != frame_to_index(paddr) && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i] == old(
                 regions,
-            ).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+            ).slot_owners[i],
         forall|i: usize|
             #![trigger final(regions).slot_owners[i].inner_perms.ref_count.value()]
             old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
@@ -1055,11 +1052,9 @@ pub(super) proof fn map_step<'rcu>(
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            i != frame_to_index(paddr) && old(
-                regions,
-            ).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
-                && final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> final(regions).slot_owners[i].usage != PageUsage::Frame,
+            i != frame_to_index(paddr) && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                == REF_COUNT_UNUSED && final(regions).slot_owners[i].inner_perms.ref_count.value()
+                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i].usage != PageUsage::Frame,
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),

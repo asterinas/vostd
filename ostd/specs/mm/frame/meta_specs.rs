@@ -92,6 +92,7 @@ impl MetaSlot {
                 == REF_COUNT_UNUSED
             // Linear-drop pilot: claiming an unused slot doesn't mint or
             // redeem segment obligations.
+
         }
     }
 

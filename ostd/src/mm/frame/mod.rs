@@ -281,8 +281,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
             let ghost idx = frame_to_index(paddr);
             proof {
-                assert(frame_to_index(paddr)
-                    < crate::mm::frame::meta::mapping::max_meta_slots());
+                assert(frame_to_index(paddr) < crate::mm::frame::meta::mapping::max_meta_slots());
                 assert(pre.slot_owners.contains_key(idx));
                 assert(pre.slots.contains_key(idx));
                 regions.sync_slot_perm(idx, &perm);
@@ -438,6 +437,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         let ghost other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             regions.inv_implies_correct_addr(meta_to_frame(self.ptr.addr()));
             regions.inv_implies_correct_addr(meta_to_frame(other.ptr.addr()));
             assert(regions.slots.contains_key(self_idx));
@@ -537,6 +537,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             // pins its presence and that `slots[idx].pptr() == self.ptr`, so the
             // caller no longer threads a separate `MetaPerm`.
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             regions.inv_implies_correct_addr(self.paddr());
             assert(regions.slots.contains_key(self.index()));
             assert(regions.slots[self.index()].addr() == self.ptr.addr());
@@ -681,8 +682,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& new_perm.slots =~= old_perm.slots
         &&& forall|i: usize|
             i != idx ==> (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
-        &&& new_perm.slot_owners.dom()
-            =~= old_perm.slot_owners.dom()
+        &&& new_perm.slot_owners.dom() =~= old_perm.slot_owners.dom()
         &&& new_perm.frame_obligations =~= old_perm.frame_obligations.insert(idx)
     }
 

@@ -101,8 +101,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& perm.addr() == perm.points_to.addr()
         &&& perm.value().metadata.wf(self.meta_own)
         &&& regions.slot_owners[self.slot_index].self_addr == meta_addr(self.slot_index)
-        &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value()
-            == REF_COUNT_UNIQUE
+        &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
 

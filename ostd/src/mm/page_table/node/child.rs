@@ -66,7 +66,6 @@ impl<C: PageTableConfig> Child<C> {
         requires
             self.invariants(*old(owner), *old(regions)),
             old(owner).in_scope,
-
             self matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
                 frame_to_index(meta_to_frame(node.ptr.addr())),
             ) > 0,

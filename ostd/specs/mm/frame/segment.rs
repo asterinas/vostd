@@ -169,9 +169,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 // redeem against a genuine outstanding entry — the per-frame
                 // analogue of the old `obligations.contains(range)` check.
                 &&& regions.frame_obligations.count(idx) >= 1
-                &&& regions.slot_owners.contains_key(
-                    idx,
-                )
+                &&& regions.slot_owners.contains_key(idx)
                 &&& regions.slots.contains_key(
                     idx,
                 )
@@ -192,7 +190,8 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& regions.slot_owners[idx].usage
                     == crate::specs::mm::frame::meta_owners::PageUsage::Frame
-            }&&& forall|i: int, j: int|
+            }
+        &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
                 frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
             0 <= i < j < seg_nframes(self.range) ==> frame_to_index(
@@ -354,10 +353,9 @@ pub open spec fn seg_obligations_minted(
         #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
         0 <= i < n ==> post.frame_obligations.count(
             frame_to_index((range_start + i * PAGE_SIZE) as usize),
-        ) >= pre.frame_obligations.count(
-            frame_to_index((range_start + i * PAGE_SIZE) as usize),
-        ) + 1
-    // Frame condition: every slot that is NOT a segment frame is untouched.
+        ) >= pre.frame_obligations.count(frame_to_index((range_start + i * PAGE_SIZE) as usize))
+            + 1
+        // Frame condition: every slot that is NOT a segment frame is untouched.
     &&& forall|jdx: usize|
         #![trigger post.frame_obligations.count(jdx)]
         (forall|i: int|
@@ -398,9 +396,9 @@ pub proof fn tracked_mint_seg_obligations(
         // Counts only grow.
         forall|idx: usize|
             #![trigger final(regions).frame_obligations.count(idx)]
-            final(regions).frame_obligations.count(idx) >= old(
-                regions,
-            ).frame_obligations.count(idx),
+            final(regions).frame_obligations.count(idx) >= old(regions).frame_obligations.count(
+                idx,
+            ),
         // The exact per-frame mint effect (segment frames +≥1, all else fixed).
         seg_obligations_minted(*old(regions), *final(regions), range_start, n),
     decreases n,
@@ -420,8 +418,11 @@ pub proof fn tracked_mint_seg_obligations(
             #![trigger regions.frame_obligations.count(jdx)]
             (forall|i: int|
                 #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
-                0 <= i < n ==> jdx != frame_to_index((range_start + i * PAGE_SIZE) as usize))
-                implies regions.frame_obligations.count(jdx) == g0.frame_obligations.count(jdx) by {
+                0 <= i < n ==> jdx != frame_to_index(
+                    (range_start + i * PAGE_SIZE) as usize,
+                )) implies regions.frame_obligations.count(jdx) == g0.frame_obligations.count(
+            jdx,
+        ) by {
             assert(jdx != idx);
             assert(gmid.frame_obligations.count(jdx) == g0.frame_obligations.count(jdx));
         };
@@ -429,10 +430,9 @@ pub proof fn tracked_mint_seg_obligations(
         assert forall|i: int|
             #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
             0 <= i < n implies regions.frame_obligations.count(
-                frame_to_index((range_start + i * PAGE_SIZE) as usize),
-            ) >= g0.frame_obligations.count(
-                frame_to_index((range_start + i * PAGE_SIZE) as usize),
-            ) + 1 by {
+            frame_to_index((range_start + i * PAGE_SIZE) as usize),
+        ) >= g0.frame_obligations.count(frame_to_index((range_start + i * PAGE_SIZE) as usize))
+            + 1 by {
             // i < n-1: recursion gives `gmid.count(idx_i) >= g0.count(idx_i)+1`;
             // the mint only grows counts. i == n-1: `gmid.count(idx) >= g0.count(idx)`
             // (monotone), and the mint adds exactly one at `idx`.
@@ -487,8 +487,8 @@ pub proof fn tracked_redeem_seg_obligations(
         assert forall|i: int|
             #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
             0 <= i < n - 1 implies regions.frame_obligations.count(
-                frame_to_index((range_start + i * PAGE_SIZE) as usize),
-            ) >= 1 by {
+            frame_to_index((range_start + i * PAGE_SIZE) as usize),
+        ) >= 1 by {
             assert(frame_to_index((range_start + i * PAGE_SIZE) as usize) != idx);
         };
         tracked_redeem_seg_obligations(regions, range_start, n - 1);

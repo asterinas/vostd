@@ -17,7 +17,7 @@ use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
 use crate::specs::mm::frame::mapping::{
-    frame_to_index, max_meta_slots, meta_to_frame_spec, META_SLOT_SIZE,
+    META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_to_frame_spec,
 };
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -360,7 +360,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
 
         let bound = set_int_range(0, max_meta_slots());
         assert(idxs.to_set().subset_of(bound)) by {
-            assert forall|x: int| #![trigger idxs.to_set().contains(x)]
+            assert forall|x: int|
+                #![trigger idxs.to_set().contains(x)]
                 idxs.to_set().contains(x) implies bound.contains(x) by {
                 let i = choose|i: int| 0 <= i < idxs.len() && idxs[i] == x;
                 let _ = self.list[i];

@@ -194,10 +194,10 @@ use vstd_extra::ownership::*;
 use crate::mm::frame::{MetaSlot, UFrame, has_safe_slot};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::UserPtConfig;
-use crate::mm::{Paddr, Vaddr, MAX_USERSPACE_VADDR};
+use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
+use crate::mm::{MAX_USERSPACE_VADDR, Paddr, Vaddr};
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, index_to_frame, max_meta_slots};
-use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::specs::mm::frame::meta_owners::{
     PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
 };
@@ -465,12 +465,8 @@ pub proof fn lemma_frame_drop_pre_derivable<'rcu>(s: VmStore<'rcu>, fid: FrameId
         segment_cover_count(s.segments, s.frames[fid].paddr) == 0,
     ensures
         frame::drop_pre(s.regions, s.frames[fid].paddr),
-        s.regions.slot_owners[frame_to_index(
-            s.frames[fid].paddr,
-        )].inner_perms.ref_count.value() == 1 ==> handle_count(
-            s.frames,
-            frame_to_index(s.frames[fid].paddr),
-        ) == 1,
+        s.regions.slot_owners[frame_to_index(s.frames[fid].paddr)].inner_perms.ref_count.value()
+            == 1 ==> handle_count(s.frames, frame_to_index(s.frames[fid].paddr)) == 1,
 {
     let paddr = s.frames[fid].paddr;
     let idx = frame_to_index(paddr);
@@ -1349,8 +1345,7 @@ impl<'rcu> VmStore<'rcu> {
             // structural_inv's FrameId⟹Frame-usage clause. Every caller
             // discharges this from the `from_*` / query axioms which
             // commit to Frame-usage at the cloned slot.
-            old(self).regions.slot_owners[frame_to_index(entry.paddr)].usage
-                == PageUsage::Frame,
+            old(self).regions.slot_owners[frame_to_index(entry.paddr)].usage == PageUsage::Frame,
         ensures
             final(self).regions == old(self).regions,
             final(self).tlb_model == old(self).tlb_model,
@@ -1815,8 +1810,7 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
                         assert(s.regions.slot_owners[target_idx].paths_in_pt.len()
                             == old_regions.slot_owners[target_idx].paths_in_pt.len());
                         assert(old_regions.slot_owners[target_idx].paths_in_pt.len() == 0);
-                        assert(segment_cover_count(s.segments, index_to_frame(target_idx))
-                            == 0);
+                        assert(segment_cover_count(s.segments, index_to_frame(target_idx)) == 0);
                     } else if old_regions.slot_owners[target_idx].inner_perms.ref_count.value()
                         == REF_COUNT_UNIQUE {
                         assert(false);
@@ -1827,10 +1821,7 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
                         let pre_rc = pre_so.inner_perms.ref_count.value();
                         let pre_paths = pre_so.paths_in_pt.len();
                         let pre_H = handle_count(old_frames, target_idx);
-                        let pre_cover = segment_cover_count(
-                            s.segments,
-                            index_to_frame(target_idx),
-                        );
+                        let pre_cover = segment_cover_count(s.segments, index_to_frame(target_idx));
                         if pre_H == 0 && pre_paths == 0 && pre_cover == 0 {
                             assert(false);
                         } else {
@@ -1901,8 +1892,7 @@ proof fn step_map<'rcu>(
 {
     // `usage == Frame` at the mapped slot from `structural_inv`'s
     // FrameId⟹Frame-usage clause.
-    assert(s.regions.slot_owners[frame_to_index(s.frames[fid].paddr)].usage
-        == PageUsage::Frame);
+    assert(s.regions.slot_owners[frame_to_index(s.frames[fid].paddr)].usage == PageUsage::Frame);
     let ghost paddr = s.frames[fid].paddr;
     let ghost target_idx = frame_to_index(paddr);
     let ghost old_frames = s.frames;
@@ -2897,9 +2887,7 @@ proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Ra
             // pre (clause 4), so they're outside `range` (which is all
             // UNUSED pre). Axiom fully preserves outside-range slots.
             assert forall|fid_other: FrameId| #[trigger]
-                s.frames.dom().contains(
-                    fid_other,
-                ) implies s.regions.slot_owners[frame_to_index(
+                s.frames.dom().contains(fid_other) implies s.regions.slot_owners[frame_to_index(
                 s.frames[fid_other].paddr,
             )].usage == PageUsage::Frame by {
                 let other_idx = frame_to_index(s.frames[fid_other].paddr);

@@ -4,8 +4,8 @@ use vstd::prelude::*;
 use vstd::cell;
 use vstd::simple_pptr::*;
 
-use crate::mm::frame::meta::mapping::{max_meta_slots, meta_addr};
 use crate::mm::frame::meta::MetaSlot;
+use crate::mm::frame::meta::mapping::{max_meta_slots, meta_addr};
 use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR};
 use crate::mm::paddr_to_vaddr;
 use crate::mm::page_table::PageTableGuard;

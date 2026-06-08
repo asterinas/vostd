@@ -17,9 +17,8 @@ use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
 use core::{marker::PhantomData, sync::atomic::Ordering};
 
 use super::meta::mapping::{
-    frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE,
+    META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
 };
-use crate::specs::mm::frame::meta_specs::lemma_meta_addr_to_index;
 use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::frame::MetaPerm;
 use crate::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE, Paddr, PagingLevel};
@@ -27,6 +26,7 @@ use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_owners::Metadata;
+use crate::specs::mm::frame::meta_specs::lemma_meta_addr_to_index;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 verus! {
@@ -104,7 +104,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 // The freshly-created live value owes a Drop: mint it.
                 let tracked _ = regions.tracked_mint_frame_obligation(idx);
             }
-            
+
             proof_with!(|= Tracked(Some(owner)));
             Ok(Self { ptr, _marker: PhantomData })
         }
@@ -361,8 +361,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         &&& r == meta_to_frame(self.ptr.addr())
         &&& regions.inv()
         &&& regions.slots =~= old_regions.slots
-        &&& regions.slot_owners
-            =~= old_regions.slot_owners
+        &&& regions.slot_owners =~= old_regions.slot_owners
         &&& regions.frame_obligations =~= old_regions.frame_obligations.remove(
             frame_to_index(meta_to_frame(self.ptr.addr())),
         )
@@ -595,10 +594,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn from_unique(unique: UniqueFrame<M>) -> Self {
-
         let ghost idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             lemma_meta_addr_to_index(owner.slot_index);
             regions.inv_implies_correct_addr(meta_to_frame(unique.ptr.addr()));
             assert(idx == owner.slot_index);
@@ -643,6 +642,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         let ghost idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             regions.inv_implies_correct_addr(meta_to_frame(frame.ptr.addr()));
             assert(regions.slots[idx].addr() == frame.ptr.addr());
             assert(regions.slots[idx].pptr() == frame.ptr);

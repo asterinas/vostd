@@ -29,9 +29,9 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::{has_safe_slot, MetaSlot};
-use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
+use crate::mm::frame::{MetaSlot, has_safe_slot};
+use crate::mm::vm_space::UserPtConfig;
 use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::{
     PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
@@ -88,11 +88,7 @@ pub axiom fn frame_from_unused_embedded(
             *old(regions),
             *final(regions),
         ),
-        res is Some ==> MetaSlot::slot_perm_reparked_spec(
-            paddr,
-            *old(regions),
-            *final(regions),
-        ),
+        res is Some ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
         // Non-interference: failure leaves `regions` unchanged.
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>|
@@ -286,11 +282,7 @@ pub(super) proof fn from_unused_step(
             *old(regions),
             *final(regions),
         ),
-        res is Some ==> MetaSlot::slot_perm_reparked_spec(
-            paddr,
-            *old(regions),
-            *final(regions),
-        ),
+        res is Some ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]

@@ -536,14 +536,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
-            &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                != REF_COUNT_UNUSED
-            &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value()
-                <= REF_COUNT_MAX
+            &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
             &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_addr_self()
-            &&& regions.slots[idx].value().wf(
-                regions.slot_owners[idx],
-            )
+            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node.unwrap().metaregion_sound_node(regions)
         } else if self.is_frame() {
@@ -801,7 +797,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     == r0.slot_owners[idx].inner_perms.ref_count.id()
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                &&& r1.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& r1.slot_owners[idx].inner_perms.ref_count.value()
+                    > 0
                 // Needed to re-establish the node branch's SHARED range (`<= MAX`).
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
                 &&& r1.slot_owners[idx].inner_perms.storage

@@ -5,9 +5,8 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::{
-    get_slot_spec,
-    mapping::{frame_to_index, meta_to_frame, META_SLOT_SIZE},
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, get_slot_spec,
+    mapping::{META_SLOT_SIZE, frame_to_index, meta_to_frame},
 };
 use crate::mm::frame::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
