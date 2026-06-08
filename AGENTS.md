@@ -26,8 +26,8 @@ Before implementing proof-sensitive changes, read the relevant Verus Guide secti
 ## Hard Constraints
 
 - Do not change any code outside of the verification scope (e.g., `kernel/`, `osdk/`, `test/`, `docs/`).
-- Do not modify any executable Rust code.
 - Try to only change proof code first to fix verification issues, and only modify specifications if necessary to enable proofs.
+- Avoid changing executable Rust code unless required to support verification (e.g., use `PPtr` instead of raw pointers). All changes to executable code must be justified in the commit and PR description and should not change observable behavior.
 - Keep edits minimal and localized to the smallest necessary dependency closure.
 
 ## Testing and Verification Guidelines
