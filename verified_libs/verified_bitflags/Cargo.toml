@@ -1,0 +1,27 @@
+[package]
+name = "verified_bitflags"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+name = "verified_bitflags"
+# for cargo
+# path = "src/.dummy.rs"
+path = "src/lib.rs"
+
+[features]
+verus = []
+verify = ["verus"]
+alloc = []
+default = ["verify", "alloc"]
+
+[package.metadata.verus]
+path = "src/lib.rs"
+verify = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vstd = { workspace = true }
+paste = "1.0"

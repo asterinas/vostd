@@ -15,7 +15,7 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use super::{op_pre, step, Op, VmStore};
+use super::{Op, VmStore, op_pre, step};
 
 verus! {
 

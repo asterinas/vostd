@@ -39,7 +39,7 @@ pub(super) fn init_ap(timer_irq: &IrqLine) {
 
 /// A callback that needs to be called on timer interrupt.
 pub(super) fn timer_callback() {
-    use x86::msr::{wrmsr, IA32_TSC_DEADLINE};
+    use x86::msr::{IA32_TSC_DEADLINE, wrmsr};
 
     match CONFIG.get().expect("ACPI timer config is not initialized") {
         Config::DeadlineMode { tsc_interval } => {

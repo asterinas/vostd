@@ -7,10 +7,10 @@ use vstd_extra::ownership::*;
 use core::ops::Range;
 
 use crate::mm::frame::{AnyFrameMeta, MetaSlot, Segment};
-use crate::mm::{paddr_to_vaddr, Paddr, Vaddr};
+use crate::mm::{Paddr, Vaddr, paddr_to_vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_index, meta_addr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::virt_mem::MemView;
 
@@ -172,8 +172,6 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners.contains_key(
                     idx,
                 )
-                // Design B: the slot perm is canonical in `regions.slots`
-                // (borrowable), NOT owned by the segment.
                 &&& regions.slots.contains_key(
                     idx,
                 )

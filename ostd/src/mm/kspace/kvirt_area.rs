@@ -16,24 +16,24 @@ use super::{
     VMALLOC_VADDR_RANGE,
 };
 use crate::mm::{
-    frame::{untyped::AnyUFrameMeta, Frame, Segment},
+    PAGE_SIZE, Paddr, Vaddr,
+    frame::{Frame, Segment, untyped::AnyUFrameMeta},
     kspace::{KernelPtConfig, MappedItem},
     largest_pages,
     page_prop::PageProperty,
-    page_table::{is_valid_range_spec, page_size, Child, CursorMut, PageTable, PageTableConfig},
-    Paddr, Vaddr, PAGE_SIZE,
+    page_table::{Child, CursorMut, PageTable, PageTableConfig, is_valid_range_spec, page_size},
 };
 
+use crate::mm::PagingConstsTrait;
 use crate::mm::frame::DynFrame;
 use crate::mm::kspace::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::PageTableGuard;
-use crate::mm::PagingConstsTrait;
-use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::arch::PagingConsts;
-use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_index_spec};
+use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
+use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::{
-    is_mmio_paddr, MetaSlotStorage, PageUsage, REF_COUNT_MAX,
+    MetaSlotStorage, PageUsage, REF_COUNT_MAX, is_mmio_paddr,
 };
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};
@@ -905,7 +905,7 @@ impl KVirtArea {
             // keys are monotonic across map.
             proof {
                 let cur_pa = KernelPtConfig::item_into_raw_spec(item).0;
-                let cur_pa_idx = frame_to_index_spec(cur_pa);
+                let cur_pa_idx = frame_to_index(cur_pa);
                 assert forall|i: int|
                     (it.index() as int + 1) <= i < it.seq().len() implies CursorMut::<
                     'a,
@@ -917,7 +917,7 @@ impl KVirtArea {
                 ) by {
                     let item_i = MappedItem::Tracked(it.seq()[i], prop);
                     let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
-                    let idx_i = frame_to_index_spec(pa_i);
+                    let idx_i = frame_to_index(pa_i);
                     KernelPtConfig::item_into_raw_spec_tracked_level(item_i);
                     // Loop invariant gives item_slot_in_regions for item_i
                     // against `regions_before_map`. cursor.map preserves
@@ -936,7 +936,7 @@ impl KVirtArea {
             }
 
             proof {
-                let cur_idx = frame_to_index_spec(cur_mapped_pa);
+                let cur_idx = frame_to_index(cur_mapped_pa);
 
                 let (pa, level, prop_) = KernelPtConfig::item_into_raw_spec(item);
                 KernelPtConfig::item_into_raw_spec_tracked_level(item);

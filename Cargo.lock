@@ -284,18 +284,34 @@ dependencies = [
  "minicov",
  "multiboot2",
  "num-traits",
+ "ostd-pod",
  "riscv",
  "sbi-rt",
  "smallvec",
  "spin",
  "tdx-guest",
  "unwinding",
+ "verified_bitflags",
  "volatile 0.6.1",
  "vstd",
  "vstd_extra",
  "x86",
  "x86_64",
 ]
+
+[[package]]
+name = "ostd-pod"
+version = "0.1.1"
+dependencies = [
+ "vstd",
+ "vstd_extra",
+]
+
+[[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "proc-macro2"
@@ -550,6 +566,7 @@ dependencies = [
 name = "verified_bitflags"
 version = "0.1.0"
 dependencies = [
+ "paste",
  "vstd",
 ]
 

@@ -12,8 +12,8 @@ use core::{
 };
 
 use super::{
-    frame::{meta::AnyFrameMeta, Frame},
-    Vaddr, PAGE_SIZE,
+    PAGE_SIZE, Vaddr,
+    frame::{Frame, meta::AnyFrameMeta},
 };
 
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu};

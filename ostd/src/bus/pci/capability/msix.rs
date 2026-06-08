@@ -6,7 +6,7 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
-    arch::pci::{construct_remappable_msix_address, MSIX_DEFAULT_MSG_ADDR},
+    arch::pci::{MSIX_DEFAULT_MSG_ADDR, construct_remappable_msix_address},
     bus::pci::{
         cfg_space::{Bar, Command, MemoryBar},
         common_device::PciCommonDevice,

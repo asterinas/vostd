@@ -64,10 +64,8 @@ pub use segment::Segment;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
-pub use meta::mapping::{
-    frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE,
-};
-pub use meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
+pub use meta::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
+pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
 pub use unique::UniqueFrame;
 pub use untyped::{AnyUFrameMeta, UFrame};
 
@@ -75,8 +73,8 @@ use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
 use crate::mm::page_table::RCClone;
 use crate::mm::{
+    MAX_PADDR, Paddr, PagingLevel, Vaddr,
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
-    Paddr, PagingLevel, Vaddr, MAX_PADDR,
 };
 use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::frame_specs::*;
@@ -142,6 +140,46 @@ impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
 
 impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
 */
+
+impl<M: ?Sized> Frame<M> {
+    /// Cross-object well-formedness predicate: this `Frame` handle and
+    /// the supplied [`MetaRegionOwners`] state are mutually consistent.
+    /// Packages the static "Frame ⟷ state" conjuncts (slot/pointer
+    /// identity, slot in-use range) so that consumer specs
+    /// ([`drop_requires`], [`clone_requires`]) read uniformly.
+    ///
+    /// **Name**: `wf_state` (not just `wf`) to avoid clashing with the
+    /// `OwnerOf::wf(self, Self::Owner)` impl that
+    /// [`PageTableNode<C> = Frame<PageTablePageMeta<C>>`] inherits — the
+    /// two predicates take different argument types and serve different
+    /// purposes (per-handle vs. per-owner well-formedness).
+    ///
+    /// The rc range (`> 0 ∧ ≠ UNUSED ∧ ≠ UNIQUE ∧ ≤ MAX`) captures the
+    /// fact that holding a `Frame<M>` is itself evidence that the slot
+    /// is in the SHARED state — no UNUSED, no UNIQUE (which is reserved
+    /// for [`UniqueFrame`]). Combined with
+    /// [`MetaSlotOwner::inv`]'s SHARED branch (post Item 1), `wf_state`
+    /// implies `storage.is_init`, `in_list == 0`, and `vtable_ptr.is_init`
+    /// at the slot, so consumers don't have to repeat those.
+    ///
+    /// **Not preserved by `drop` for `self`**: dropping `self` releases
+    /// the reference; for *other* handles to the same slot, `wf_state`
+    /// is preserved by `drop`'s `>1` branch (post rc ∈ [1, MAX-1]) and
+    /// vacuous in the `==1` branch (no other handles to break).
+    pub open spec fn wf_state(self, s: MetaRegionOwners) -> bool {
+        let idx = self.index();
+        let slot_own = s.slot_owners[idx];
+        &&& self.inv()
+        &&& s.inv()
+        &&& s.slots.contains_key(idx)
+        &&& s.slots[idx].pptr() == self.ptr
+        &&& s.slot_owners.contains_key(idx)
+        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
+        &&& slot_own.inner_perms.ref_count.value() > 0
+        &&& slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX
+    }
+}
 
 #[verus_verify]
 impl<M> Frame<M> {
@@ -243,7 +281,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
             let ghost idx = frame_to_index(paddr);
             proof {
-                assert(frame_to_index_spec(paddr)
+                assert(frame_to_index(paddr)
                     < crate::mm::frame::meta::mapping::max_meta_slots());
                 assert(pre.slot_owners.contains_key(idx));
                 assert(pre.slots.contains_key(idx));
@@ -504,12 +542,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             assert(regions.slots[self.index()].addr() == self.ptr.addr());
         }
         let tracked slot_perm = regions.slots.tracked_borrow(self.index());
-        #[verus_spec(with Tracked(slot_perm))]
-        let paddr = self.start_paddr();
+
         // SAFETY: Both the lifetime and the type matches `self`.
         unsafe {
             #[verus_spec(with Tracked(regions))]
-            FrameRef::borrow_paddr(paddr)
+            FrameRef::borrow_paddr(
+                #[verus_spec(with Tracked(slot_perm))]
+                self.start_paddr(),
+            )
         }
     }
 
@@ -543,9 +583,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             old(regions).slot_owners[self.index()].usage
                 != crate::specs::mm::frame::meta_owners::PageUsage::PageTable,
-            // Canonical model: `into_raw` forgets a LIVE value (its `Drop`
-            // will never run), so it CONSUMES the pending-Drop obligation —
-            // the slot must carry one.
             old(regions).frame_obligations.count(self.index()) > 0,
         ensures
             final(regions).inv(),
@@ -554,8 +591,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
                 == old(regions).slot_owners[self.index()].usage,
             self.into_raw_post_noninterference(*old(regions), *final(regions)),
             final(regions).slots == old(regions).slots,
-            // Canonical model: forgetting the value CONSUMES its pending-Drop
-            // obligation (one entry removed at the slot) via `MD::new`.
             final(regions).frame_obligations =~= old(regions).frame_obligations.remove(self.index()),
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
@@ -570,10 +605,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         #[verus_spec(with Tracked(perm))]
         let paddr = self.start_paddr();
 
-        // Canonical: pure `MD::new` consume. The caller-supplied
-        // `frame_obligations.count(self.index()) > 0` precondition discharges
-        // `MD::new`'s `consume_requires`; the value's pending-Drop obligation
-        // is redeemed (one entry removed) and the frame leaks.
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
         paddr
@@ -609,12 +640,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
     open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
-        // NB: not using [`Frame::inv_with_regions`] here — it'd cascade into the
-        // [`PageTableConfig::clone_requires_concrete`] trait method,
-        // forcing a per-impl bridge for the pointer-agreement +
-        // `rc != UNIQUE` + `rc <= MAX` conjuncts. The drop site uses
-        // `inv_with_regions`; clone keeps the (slightly weaker) explicit
-        // shape that matches the trait method's preconditions.
         &&& self.inv()
         &&& perm.inv()
         &&& perm.slots.contains_key(idx)
@@ -658,10 +683,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
             i != idx ==> (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
         &&& new_perm.slot_owners.dom()
             =~= old_perm.slot_owners.dom()
-        // Canonical model: cloning produces a fresh LIVE `Frame` value
-        // whose `Drop` is now pending — mint one `frame_obligations` entry
-        // at the slot. (`inc_frame_ref_count` preserves the ledger; the
-        // mint is the clone's net contribution.)
         &&& new_perm.frame_obligations =~= old_perm.frame_obligations.insert(idx)
     }
 

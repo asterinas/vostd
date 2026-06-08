@@ -39,18 +39,18 @@ use vstd::simple_pptr::PointsTo;
 
 //use log::info;
 use crate::sync::{OnceImpl, TrivialPred};
-pub mod kvirt_area;
+pub(crate) mod kvirt_area;
 #[cfg(ktest)]
 mod test;
 
 use super::{
+    Paddr, PagingConstsTrait, Vaddr,
     frame::{
-        meta::{mapping, AnyFrameMeta, MetaPageMeta, MetaSlot},
         Frame, Segment,
+        meta::{AnyFrameMeta, MetaPageMeta, MetaSlot, mapping},
     },
     page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     page_table::{PageTable, PageTableConfig},
-    Paddr, PagingConstsTrait, Vaddr,
 };
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;
@@ -60,7 +60,7 @@ use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::{
     boot::memory_region::MemoryRegionType,
-    mm::{largest_pages, PagingLevel},
+    mm::{PagingLevel, largest_pages},
     specs::arch::{PageTableEntry, PagingConsts},
     //task::disable_preempt,
 };
@@ -96,17 +96,17 @@ pub fn kernel_loaded_offset() -> usize {
 }*/
 
 #[cfg(target_arch = "x86_64")]
-pub const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_8000_0000 << ADDR_WIDTH_SHIFT;
+const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_8000_0000 << ADDR_WIDTH_SHIFT;
 
 #[cfg(target_arch = "riscv64")]
-pub const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_0000_0000 << ADDR_WIDTH_SHIFT;
+const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_0000_0000 << ADDR_WIDTH_SHIFT;
 
 #[cfg(target_arch = "loongarch64")]
-pub const KERNEL_CODE_BASE_VADDR: usize = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
+const KERNEL_CODE_BASE_VADDR: usize = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
 
-pub const FRAME_METADATA_CAP_VADDR: Vaddr = 0xffff_fff0_8000_0000 << ADDR_WIDTH_SHIFT;
+pub const FRAME_METADATA_CAP_VADDR: Vaddr = 0xffff_e100_0000_0000 << ADDR_WIDTH_SHIFT;
 
-pub const FRAME_METADATA_BASE_VADDR: Vaddr = 0xffff_fff0_0000_0000 << ADDR_WIDTH_SHIFT;
+pub const FRAME_METADATA_BASE_VADDR: Vaddr = 0xffff_e000_0000_0000 << ADDR_WIDTH_SHIFT;
 
 pub const VMALLOC_BASE_VADDR: Vaddr = 0xffff_c000_0000_0000 << ADDR_WIDTH_SHIFT;
 

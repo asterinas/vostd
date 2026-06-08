@@ -11,18 +11,18 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
-use super::meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
 use super::Frame;
+use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
 
 use core::{marker::PhantomData, sync::atomic::Ordering};
 
 use super::meta::mapping::{
-    frame_to_index, frame_to_meta, lemma_meta_addr_to_index, max_meta_slots, meta_addr,
-    meta_to_frame, META_SLOT_SIZE,
+    frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE,
 };
+use crate::specs::mm::frame::meta_specs::lemma_meta_addr_to_index;
 use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::frame::MetaPerm;
-use crate::mm::{Paddr, PagingLevel, MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE, Paddr, PagingLevel};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
@@ -94,7 +94,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             Err(err)
         } else {
             let (ptr, Tracked(slot_perm)) = from_unused.unwrap();
-            let idx = frame_to_index(paddr);
+            let ghost idx = frame_to_index(paddr);
 
             proof_decl! {
                 regions.slots.tracked_insert(idx, slot_perm);
@@ -104,6 +104,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 // The freshly-created live value owes a Drop: mint it.
                 let tracked _ = regions.tracked_mint_frame_obligation(idx);
             }
+            
             proof_with!(|= Tracked(Some(owner)));
             Ok(Self { ptr, _marker: PhantomData })
         }
@@ -159,10 +160,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     ) -> UniqueFrame<M1> {
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         proof {
-            // `self.wf(owner)` pins `ptr.addr() == meta_addr(owner.slot_index)`;
-            // the round-trip identifies `idx` with `owner.slot_index`, so the
-            // `contains_key` and `ref_count == REF_COUNT_UNIQUE` facts carried by
-            // `global_inv` at `owner.slot_index` transfer to `idx`.
             lemma_meta_addr_to_index(owner.slot_index);
         }
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
@@ -366,9 +363,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         &&& regions.slots =~= old_regions.slots
         &&& regions.slot_owners
             =~= old_regions.slot_owners
-        // Forgetting the value via `ManuallyDrop::new` consumes its pending-Drop
-        // obligation (its `Drop` will not run). `slot_owners` (incl. dormant
-        // `raw_count`) is untouched.
         &&& regions.frame_obligations =~= old_regions.frame_obligations.remove(
             frame_to_index(meta_to_frame(self.ptr.addr())),
         )
@@ -540,13 +534,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).slot_owners[owner.slot_index].inner_perms.storage.is_init(),
             old(regions).slot_owners[owner.slot_index].inner_perms.vtable_ptr.is_init(),
             old(regions).inv(),
-            // The strengthened `MetaSlotOwner::inv` UNUSED branch
-            // requires an empty `paths_in_pt` post-teardown; a
-            // `UniqueFrame` is exclusively owned and so is never mapped,
-            // so its slot carries no PTE paths.
             old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
-            // `self` is a live value: its pending-Drop obligation must be
-            // outstanding so this (the actual `Drop`) can consume it.
             old(regions).frame_obligations.count(owner.slot_index) > 0,
         ensures
             final(regions).inv(),
@@ -554,7 +542,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             forall|i: usize| #![trigger final(regions).slot_owners[i]]
                 i != owner.slot_index ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
-            // Running `Drop` consumes the value's pending-Drop obligation.
             final(regions).frame_obligations =~= old(regions).frame_obligations.remove(
                 owner.slot_index,
             ),
@@ -608,13 +595,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn from_unique(unique: UniqueFrame<M>) -> Self {
-        let ghost idx_g = owner.slot_index;
-        let idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
+
+        let ghost idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
         proof {
-            // `unique.wf(owner)` pins `ptr.addr() == meta_addr(owner.slot_index)`,
-            // so the slot index round-trips and `regions.inv()` recovers the
-            // slot's presence, that its pptr is `unique.ptr`, and the ref-count
-            // cell identity — the facts the caller used to supply.
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
             lemma_meta_addr_to_index(owner.slot_index);
             regions.inv_implies_correct_addr(meta_to_frame(unique.ptr.addr()));
@@ -657,12 +640,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn try_from_shared(frame: Frame<M>) -> Result<Self, Frame<M>> {
-        let idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
+        let ghost idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
         proof {
-            // `frame.inv()` puts the meta address in the slot range and aligns
-            // it, so the slot is present (via `regions.inv()`), its address
-            // round-trips to `frame.ptr.addr()` (whence its pptr is `frame.ptr`),
-            // and the ref-count cell identity holds — recovered, not required.
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
             regions.inv_implies_correct_addr(meta_to_frame(frame.ptr.addr()));
             assert(regions.slots[idx].addr() == frame.ptr.addr());

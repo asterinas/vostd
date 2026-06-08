@@ -10,7 +10,7 @@ use vstd_extra::panic::may_panic;
 use vstd_extra::prelude::*;
 
 use crate::mm::page_table::RCClone;
-use crate::mm::{paddr_to_vaddr, Paddr, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingLevel, Vaddr, paddr_to_vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
@@ -20,9 +20,9 @@ use crate::specs::mm::virt_mem::MemView;
 
 use core::{fmt::Debug, /*mem::ManuallyDrop,*/ ops::Range};
 
-use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
+use super::meta::mapping::{frame_to_index, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaSlot};
-use crate::mm::frame::{has_safe_slot, untyped::AnyUFrameMeta, Frame};
+use crate::mm::frame::{Frame, has_safe_slot, untyped::AnyUFrameMeta};
 
 verus! {
 
@@ -236,9 +236,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     &&& seg.wf(&owner)
                 }
                 &&& forall|paddr: Paddr|
-                    #![trigger frame_to_index_spec(paddr)]
+                    #![trigger frame_to_index(paddr)]
                     (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                        ==> final(regions).slots.contains_key(frame_to_index_spec(paddr))
+                        ==> final(regions).slots.contains_key(frame_to_index(paddr))
             },
     )]
     pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
@@ -293,7 +293,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 forall|j: int|
                     #![trigger addrs[j]]
                     0 <= j < addrs.len() as int ==> {
-                        let idx = frame_to_index_spec(addrs[j]);
+                        let idx = frame_to_index(addrs[j]);
                         &&& regions.slots.contains_key(idx)
                         &&& regions.slot_owners.contains_key(
                             idx,
@@ -344,7 +344,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             forall|j: int|
                                 #![trigger addrs[j]]
                                 k <= j < addrs.len() as int ==> {
-                                    let idx = frame_to_index_spec(addrs[j]);
+                                    let idx = frame_to_index(addrs[j]);
                                     &&& regions.slots.contains_key(idx)
                                     &&& regions.slot_owners.contains_key(idx)
                                     &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
@@ -359,7 +359,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         decreases segment.range.end - p,
                     {
                         let ghost reclaim_pre = *regions;
-                        let ghost idx_k = frame_to_index_spec(p);
+                        let ghost idx_k = frame_to_index(p);
                         proof {
                             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
                             assert(addrs[k] == p);
@@ -384,7 +384,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             assert forall|j: int|
                                 #![trigger addrs[j]]
                                 (k + 1) <= j < addrs.len() as int implies ({
-                                let idx = frame_to_index_spec(addrs[j]);
+                                let idx = frame_to_index(addrs[j]);
                                 &&& regions.slots.contains_key(idx)
                                 &&& regions.slot_owners.contains_key(idx)
                                 &&& regions.slot_owners[idx] == reclaim_pre.slot_owners[idx]
@@ -413,7 +413,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
                 regions.inv_implies_correct_addr(paddr);
-                let idx = frame_to_index_spec(paddr);
+                let idx = frame_to_index(paddr);
                 axiom_mmio_usage_iff_mmio_paddr(regions.slot_owners[idx]);
                 axiom_mmio_usage_iff_mmio_paddr(regions_pre.slot_owners[idx]);
                 assert(regions_pre.slot_owners[idx].paths_in_pt.is_empty());
@@ -446,9 +446,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             owner = Some(SegmentOwner { range, _marker: core::marker::PhantomData });
 
             assert forall|addr: usize|
-                #![trigger frame_to_index_spec(addr)]
+                #![trigger frame_to_index(addr)]
                 range.start <= addr < range.end && addr % PAGE_SIZE == 0 implies {
-                regions.slots.contains_key(frame_to_index_spec(addr))
+                regions.slots.contains_key(frame_to_index(addr))
             } by {
                 let j = (addr - range.start) / PAGE_SIZE as int;
                 assert(0 <= j < addrs.len() as int);
@@ -931,12 +931,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
             proof {
                 let new_range = ((self.range.start + PAGE_SIZE) as usize)..self.range.end;
-                // `from_raw` minted the yielded frame's obligation (count +1).
-                // Frame 0 leaves the segment, so redeem the segment's RETAINED
-                // obligation for it — via a *fabricated* token — and KEEP
-                // `from_raw_obl` to hand back as the yielded frame's drop handle.
-                // (The insert/remove at frame 0 cancel, so the ledger is
-                // unchanged and the remaining frames keep their counts.)
                 let tracked redeem_tok =
                     vstd_extra::drop_tracking::DropObligation::tracked_mint(frame.index());
                 regions.tracked_redeem_frame_obligation(redeem_tok);

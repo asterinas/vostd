@@ -14,9 +14,9 @@ use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
 use vstd_extra::ownership::*;
 use vstd_extra::trans_macros::*;
 
-use crate::mm::frame::meta::mapping::frame_to_meta;
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::UniqueFrame;
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
+use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::*;
@@ -34,10 +34,9 @@ use core::{
 use crate::specs::*;
 
 use crate::mm::frame::meta::mapping::{
-    frame_to_index, frame_to_index_spec, max_meta_slots, meta_addr, meta_to_frame,
-    meta_to_frame_spec, META_SLOT_SIZE,
+    frame_to_index, max_meta_slots, meta_addr, meta_to_frame, meta_to_frame_spec, META_SLOT_SIZE,
 };
-use crate::mm::frame::meta::{get_slot, has_safe_slot, AnyFrameMeta, MetaSlot};
+use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, get_slot, has_safe_slot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 
 verus! {
@@ -574,10 +573,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(self).front == old(self).front,
             final(self).back == old(self).back,
             old(self).list_id != 0 ==> final(self).list_id == old(self).list_id,
-            // The allocator hands out non-zero ids (it starts at 1 and only
-            // increments, panicking on exhaustion), and the field ends up equal
-            // to the returned id. Lets `insert_before` stamp a freshly-id'd
-            // (previously `list_id == 0`) list without a non-zero precondition.
             id != 0,
             final(self).list_id == id,
     {
@@ -641,7 +636,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             // SAFETY: The cursor is pointing to a valid element.
             Some(current) => {
                 let current_md = MetadataAsLink::cast_to_metadata(current);
-                let idx = frame_to_index(meta_to_frame(current.addr()));
+                let ghost idx = frame_to_index(meta_to_frame(current.addr()));
 
                 proof {
                     assert(idx == owner.list_own.slot_index_at(owner.index));
@@ -705,7 +700,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             // SAFETY: The cursor is pointing to a valid element.
             Some(current) => {
                 let current_md = MetadataAsLink::cast_to_metadata(current);
-                let idx = frame_to_index(meta_to_frame(current.addr()));
+                let ghost idx = frame_to_index(meta_to_frame(current.addr()));
 
                 proof {
                     assert(idx == owner.list_own.slot_index_at(owner.index));
@@ -799,7 +794,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     assert(current == self.current.unwrap());
                 }
                 let current_md = MetadataAsLink::cast_to_metadata(current);
-                let idx = frame_to_index(meta_to_frame(current.addr()));
+                let ghost idx = frame_to_index(meta_to_frame(current.addr()));
                 proof {
                     assert(idx == owner.list_own.slot_index_at(owner.index));
                     assert(regions.slots.contains_key(idx));
@@ -936,7 +931,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         let meta_ptr = current.addr();
         let paddr = meta_to_frame(meta_ptr);
-        let idx = frame_to_index(paddr);
+        let ghost idx = frame_to_index(paddr);
 
         assert(current.addr() == owner.list_own.list[owner.index].paddr);
         assert(idx == owner.list_own.slot_index_at(owner.index));
@@ -1352,10 +1347,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let list_id = self.list.lazy_get_id();
 
         proof {
-            // `is_for` (the in_list permission governs the slot's in_list
-            // atomic) is a per-slot consequence of `regions.inv()` via the slot
-            // `wf`. Surface it here while the slot is still in `regions`, so the
-            // `store` below type-checks after the slot is removed.
             assert(regions.slots.contains_key(frame_idx_g));
             assert(regions.slot_owners[frame_idx_g].inner_perms.in_list.is_for(
                 regions.slots[frame_idx_g].value().in_list,
@@ -1637,12 +1628,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         proof {
             self.consume_obligation(s, obl);
         }
-        // Pull the tuple components out from behind the `&mut`. We can't
-        // move directly (E0507) and `cursor_front_mut` requires owned
-        // `LinkedListOwner`. `tracked_take` swaps `s.0` with a fresh-empty
-        // `LinkedListOwner`; we'll restore `*s` at the end of the body.
-        // `MetaRegionOwners` can't be similarly emptied (its `inv()` requires
-        // all valid slot indices), so we re-borrow `&mut s.1` for it.
+
         proof_decl! {
             let tracked mut list_own: LinkedListOwner<M>;
         }
@@ -1816,9 +1802,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                             meta_to_frame(original_list[i + k + 1].paddr),
                         ));
                         assert(idx != cur_idx);
-                        // `frame.drop` removed exactly one entry at
-                        // `cur_idx` from `frame_obligations`. For any
-                        // `idx != cur_idx`, the count is unchanged.
+
                         cursor_own.list_own.relate_region_at_facts(regions_pre_drop, i);
                         assert(regions.frame_obligations
                             =~= regions_pre_drop.frame_obligations.remove(cur_idx));

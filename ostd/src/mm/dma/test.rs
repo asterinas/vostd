@@ -3,10 +3,11 @@ use alloc::vec;
 
 use crate::{
     mm::{
+        CachePolicy, FrameAllocOptions, HasPaddr, PAGE_SIZE, VmReader, VmWriter,
         dma::*,
         io::{VmIo, VmIoOnce},
         kspace::KERNEL_PAGE_TABLE,
-        paddr_to_vaddr, CachePolicy, FrameAllocOptions, HasPaddr, VmReader, VmWriter, PAGE_SIZE,
+        paddr_to_vaddr,
     },
     prelude::*,
 };

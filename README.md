@@ -20,29 +20,29 @@ A merge of these efforts is planned, but has not yet begun.
 
 ## Building the Proof Development
 
-#### Install Rust
+### Install Rust
 
 If you have not installed Rust yet, follow the [official instructions](https://www.rust-lang.org/tools/install).
 
-#### Clone Submodule
+### Clone Submodule
 
 `vostd` relies on our [custom build tool](https://github.com/asterinas/rust-deductive-verifier). Please run:
 
-```
+```bash
 git submodule update --init --recursive
 ```
 
-#### Build Verus
+### Build Verus
 
 The recommended way to build Verus is by running the following command:
 
-```
+```bash
 make verus
 ```
 
 or
 
-```
+```bash
 cargo dv bootstrap
 ```
 
@@ -54,66 +54,63 @@ Verus should be automatically cloned and built in the `tools` directory. If down
 >
 > If you have already installed Verus, you can either set `VERUS_PATH` to the directory containing the Verus binary and `VERUS_Z3_PATH` to the Z3 binary, or simply add them to your `PATH`. Please also note that our project relies on the experimental `new-mut-ref` feature by default, so a newer version of Verus is required.
 
-
-#### Build Verification Targets
+### Build Verification Targets
 
 To verify the entire project, simply run:
 
-```
+```bash
 make
 ```
 
 or
 
-```
+```bash
 cargo dv verify --targets ostd
 ```
 
 The `ostd` crate relies on a verified library: `vstd_extra`. To compile and verify the library independently, run:
 
-```
+```bash
 cargo dv compile --targets vstd_extra
 ```
 
-#### Clean Build Artifacts
+### Clean Build Artifacts
 
 `dv` automatically skips recompilation and reverification for libraries that have not changed since the last build. To remove the build artifact of a particular library and force a fresh build, run:
 
-```
+```bash
 cargo dv clean --targets vstd_extra
 ```
 
 To clean all artifacts at once, run:
 
-```
+```bash
 make clean
 ```
 
 or
 
-```
+```bash
 cargo dv clean
 ```
 
-
-
-#### Documentation
+### Documentation
 
 We provide comprehensive API-level documentation that describes the verified APIs along with their auxiliary lemmas. To generate the documentation, run:
 
-```
+```bash
 make doc
 ```
 
 or
 
-```
+```bash
 cargo dv doc --target ostd
 ```
 
-The generated documentation can be found at `doc/index.html`. An online version is also available [here](https://asterinas.github.io/vostd/).
+The generated documentation can be found at `doc/index.html`. An [online version](https://asterinas.github.io/vostd/) is also available.
 
-#### IDE Support
+### IDE Support
 
 For VSCode users, the [`verus-analyzer`](https://marketplace.visualstudio.com/items?itemName=verus-lang.verus-analyzer) extension is available in the Marketplace.
 
@@ -123,13 +120,13 @@ For Emacs users, please refer to the [`verus-mode`](https://github.com/verus-lan
 
 We welcome your contributions!
 
-#### Common Conventions
+### Common Conventions
 
 - We add an `axiom_` prefix to the name of each `axiom fn` and a `lemma_` prefix to each `proof fn`.
 - We prefer associated functions to isolated lemmas.
 
-#### Tips
+### Tips
 
 - During your development process, please frequently run `make verus update` or `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
--  Format checking is not enforced, but we still recommend formatting your code with `cargo dv fmt --paths path_to_your_file` before submission.
+- Format checking is not enforced, but we still recommend formatting your code with `cargo dv fmt --paths path_to_your_file` before submission.
 - If you are contributing to Verus, we recommend submitting pull requests to [the upstream repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.

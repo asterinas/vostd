@@ -6,7 +6,6 @@ use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
@@ -15,6 +14,7 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::arch::*;
+use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr, meta_to_frame};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::entry_view::*;
 use crate::specs::mm::page_table::*;
@@ -538,19 +538,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
             &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
-            // A live tree node is a SHARED slot: it holds at least the parent
-            // PTE's reference and is never UNIQUE. (`0 < rc <= MAX` subsumes
-            // `!= UNUSED` and `!= UNIQUE`, both of which exceed `MAX`.) This is
-            // what lets `Frame::borrow` recover `inv_with_regions` for a node.
             &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value()
                 <= REF_COUNT_MAX
-            // Borrow-protocol transition: `raw_count` is dormant; the
-            // linear-drop guarantee is carried by `frame_obligations`.
             &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_addr_self()
             &&& regions.slots[idx].value().wf(
                 regions.slot_owners[idx],
             )
-            // Node path tracking: ensures no two tree nodes share the same slot index.
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node.unwrap().metaregion_sound_node(regions)
         } else if self.is_frame() {

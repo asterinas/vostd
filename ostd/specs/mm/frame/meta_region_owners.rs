@@ -13,7 +13,7 @@ use vstd_extra::ownership::*;
 use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage};
 use super::*;
 use crate::mm::frame::meta::{
-    mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
+    mapping::{frame_to_index, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
     AnyFrameMeta, MetaSlot, REF_COUNT_MAX,
 };
 use crate::mm::frame::Link;
@@ -209,9 +209,9 @@ impl MetaRegionOwners {
             range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> self.slots.contains_key(frame_to_index_spec(paddr))
+                ==> self.slots.contains_key(frame_to_index(paddr))
     }
 
     pub open spec fn paddr_range_not_mapped(self, range: Range<Paddr>) -> bool
@@ -220,9 +220,9 @@ impl MetaRegionOwners {
             range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> self.slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty()
+                ==> self.slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty()
     }
 
     pub open spec fn paddr_range_not_in_region(self, range: Range<Paddr>) -> bool
@@ -231,9 +231,9 @@ impl MetaRegionOwners {
             range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
+            #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> !self.slots.contains_key(frame_to_index_spec(paddr))
+                ==> !self.slots.contains_key(frame_to_index(paddr))
     }
 
     /// Instantiates `paddr_range_not_mapped` at a specific paddr in the range.
@@ -244,9 +244,9 @@ impl MetaRegionOwners {
             paddr < range.end,
             paddr % PAGE_SIZE == 0,
         ensures
-            self.slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty(),
+            self.slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
     {
-        // The trigger frame_to_index_spec(paddr) fires from the ensures clause,
+        // The trigger frame_to_index(paddr) fires from the ensures clause,
         // instantiating the forall in paddr_range_not_mapped at this paddr.
     }
 
@@ -256,9 +256,9 @@ impl MetaRegionOwners {
             paddr % PAGE_SIZE == 0,
             self.inv(),
         ensures
-            self.slot_owners.contains_key(frame_to_index_spec(paddr) as usize),
+            self.slot_owners.contains_key(frame_to_index(paddr) as usize),
     {
-        assert((frame_to_index_spec(paddr)) < max_meta_slots() as usize);
+        assert((frame_to_index(paddr)) < max_meta_slots() as usize);
     }
 
     pub axiom fn copy_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(

@@ -6,9 +6,9 @@ use alloc::vec::Vec;
 
 use self::{msix::CapabilityMsixData, vendor::CapabilityVndrData};
 use super::{
+    PciDeviceLocation,
     cfg_space::{PciDeviceCommonCfgOffset, Status},
     common_device::PciCommonDevice,
-    PciDeviceLocation,
 };
 
 pub mod msix;

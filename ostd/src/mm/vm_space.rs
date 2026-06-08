@@ -13,23 +13,23 @@ use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 use vstd::vpanic;
 
-use crate::specs::mm::virt_mem::{MemView, VirtPtr};
-
 use crate::error::Error;
-use crate::mm::frame::untyped::UFrame;
 use crate::mm::frame::MetaSlot;
+use crate::mm::frame::meta::mapping::meta_to_frame;
+use crate::mm::frame::untyped::UFrame;
 use crate::mm::kspace::KernelPtConfig;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
 use crate::specs::arch::*;
-use crate::specs::mm::frame::mapping::meta_to_frame;
 use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage, MetadataInnerPerms};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::io::VmIoMemView;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::tlb::TlbModel;
+use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 use crate::specs::task::InAtomicMode;
+use crate::sync::RoArc;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
@@ -43,9 +43,9 @@ use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
 use crate::specs::mm::io::VmIoOwner;
 use crate::{
     mm::{
+        MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
         io::{Fallible, VmReader, VmWriter},
         page_prop::PageProperty,
-        Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
     },
     prelude::*,
 };
@@ -311,6 +311,31 @@ impl<'a> VmSpace<'a> {
                 Err(Error::AccessDenied)
             },
         }
+    }
+
+    /// Activates the page table on the current CPU.
+    #[verifier::external_body]
+    pub fn activate(this: &RoArc<Self>) {
+        // No support for CPU set semantics; skip now
+        // let preempt_guard = disable_preempt();
+        // let cpu = preempt_guard.current_cpu();
+        // let last_ptr = ACTIVATED_VM_SPACE.load();
+        // if last_ptr == Arc::as_ptr(self) {
+        //     return;
+        // }
+        // // Record ourselves in the CPU set and the activated VM space pointer.
+        // // `Acquire` to ensure the modification to the PT is visible by this CPU.
+        // self.cpus.add(cpu, Ordering::Acquire);
+        // let self_ptr = Arc::into_raw(Arc::clone(self)) as *mut VmSpace;
+        // ACTIVATED_VM_SPACE.store(self_ptr);
+        // if !last_ptr.is_null() {
+        //     // SAFETY: The pointer is cast from an `Arc` when it's activated
+        //     // the last time, so it can be restored and only restored once.
+        //     let last = unsafe { Arc::from_raw(last_ptr) };
+        //     last.cpus.remove(cpu, Ordering::Relaxed);
+        // }
+        // self.pt.activate();
+        unimplemented!()
     }
 
     /// Creates a reader to read data from the user space of the current task.

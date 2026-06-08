@@ -7,16 +7,16 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::{
-    nr_subpage_per_huge, paddr_to_vaddr, page_table::*, Paddr, PagingConsts, PagingConstsTrait,
-    PagingLevel, Vaddr, NR_ENTRIES, NR_LEVELS, PAGE_SIZE,
+    NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
+    nr_subpage_per_huge, paddr_to_vaddr, page_table::*,
 };
 
 use vstd_extra::array_ptr::*;
 
 use crate::mm::page_table::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::mm::page_table::node::Guards;
+use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::task::InAtomicMode;
 use vstd_extra::ghost_tree::TreePath;
 

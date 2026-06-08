@@ -19,19 +19,19 @@ use core::ops::Range;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
-use crate::mm::{nr_subpage_per_huge, Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge};
 use crate::specs::arch::mm::{MAX_PADDR, MAX_USERSPACE_VADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::page_table::AbstractVaddr;
+use crate::specs::mm::page_table::Guards;
+use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
 };
 use crate::specs::mm::page_table::owners::*;
 use crate::specs::mm::page_table::view::PageTableView;
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::Guards;
-use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
 use crate::specs::task::InAtomicMode;
 
@@ -1667,9 +1667,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ///
     /// **KernelPtConfig**: `TOP_LEVEL_INDEX_RANGE.end == NR_ENTRIES`, but
     /// `LOCKED_END_BOUND_spec() == FRAME_METADATA_BASE_VADDR + PAGE_SIZE ==
-    /// 0xffff_fff0_0000_1000`. Combined with `leading_bits == 0xFFFF`, the
+    /// 0xffff_e000_0000_1000`. Combined with `leading_bits == 0xFFFF`, the
     /// cursor inv `locked_range().end <= LOCKED_END_BOUND_spec()` forces
-    /// `prefix.index[NR_LEVELS - 1] + 1 <= 0x1fe < NR_ENTRIES`. The full
+    /// `prefix.index[NR_LEVELS - 1] + 1 <= 0x1c0 < NR_ENTRIES`. The full
     /// arithmetic chain through `align_up` is encapsulated in this lemma.
     pub proof fn cursor_top_idx_strict_lt_nr_entries(self)
         requires

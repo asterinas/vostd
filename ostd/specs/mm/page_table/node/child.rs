@@ -122,11 +122,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn from_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
         if self.is_node() {
             let index = frame_to_index(self.meta_slot_paddr().unwrap());
-            // Borrow-protocol transition: `raw_count` is dormant (slot_owners
-            // unchanged). `from_raw` mints one `frame_obligations` entry at
-            // the recovered node's slot — the reconstructed node is a live
-            // Frame value and carries that obligation until it is dropped
-            // (`on_drop`) or re-forgotten (`into_pte`).
             MetaRegionOwners {
                 frame_obligations: regions.frame_obligations.insert(index),
                 ..regions

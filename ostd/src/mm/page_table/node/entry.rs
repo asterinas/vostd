@@ -15,7 +15,7 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::{PageTableOwner, INC_LEVELS};
+use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
 use crate::specs::task::InAtomicMode;
 
 use core::marker::PhantomData;
@@ -317,10 +317,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(self).new_owner_compatible(new_child, *old(owner), *old(new_owner), *old(regions)),
             !old(owner).in_scope,
             old(parent_owner).metaregion_sound_node(*old(regions)),
-            // Canonical model: forwards `into_pte`'s precondition for the
-            // node case — a live PT-node child carries a pending-Drop
-            // obligation. Vacuous for the `Frame`/`None` children that the
-            // cursor's `replace_cur_entry` actually passes.
             new_child matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
                 frame_to_index(meta_to_frame(node.ptr.addr())),
             ) > 0,

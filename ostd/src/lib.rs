@@ -64,9 +64,9 @@ pub mod util;
 pub use ostd_macros::{
     global_frame_allocator, global_heap_allocator, global_heap_allocator_slot_map, main,
     panic_handler,
-};
+};*/
 pub use ostd_pod::Pod;
-
+/*
 pub use self::{error::Error, prelude::Result};
 
 /// Initializes OSTD.

@@ -42,14 +42,13 @@ use vstd_extra::{assert, assert_eq};
 
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, Vaddr, MAX_NR_LEVELS, MAX_PADDR};
+use crate::mm::{MAX_NR_LEVELS, MAX_PADDR, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::mapping::{
-    frame_to_index, frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
-    META_SLOT_SIZE,
+    META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
 };
 use crate::specs::mm::frame::meta_owners::{
-    is_mmio_paddr, MetaSlotOwner, REF_COUNT_MAX, REF_COUNT_UNUSED,
+    MetaSlotOwner, REF_COUNT_MAX, REF_COUNT_UNUSED, is_mmio_paddr,
 };
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
@@ -64,8 +63,8 @@ use crate::{
 };
 
 use super::{
-    pte_index, Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig,
-    PageTableError, PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel,
+    Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError,
+    PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel, pte_index,
 };
 
 verus! {

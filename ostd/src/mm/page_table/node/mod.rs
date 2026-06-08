@@ -48,12 +48,12 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::allocator::FrameAllocOptions;
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::{frame_to_index, AnyFrameMeta, Frame};
+use crate::mm::frame::meta::mapping::{META_SLOT_SIZE, frame_to_meta, meta_to_frame};
+use crate::mm::frame::{AnyFrameMeta, Frame, frame_to_index};
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
-use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
+use crate::mm::{Paddr, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::mm::frame::mapping::{frame_to_meta, meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::{
     MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED,
 };
@@ -325,7 +325,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             reader.read_once::<C::E>();
             let pte = pte.unwrap();
             proof {
-                crate::mm::pod::lemma_decode_pod_inverse::<C::E>(pte);
+                ostd_pod::lemma_decode_pod_inverse::<C::E>(pte);
                 assert(pte == Self::walk_pte_at_view(initial_view, cursor_pre_read));
                 vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
                 vstd::arithmetic::mul::lemma_mul_nonnegative(iter_count as int, size_of_e);
@@ -519,16 +519,11 @@ impl<C: PageTableConfig> PageTableNode<C> {
             guards.unlocked(owner@.value.node.unwrap().meta_addr_self()),
             MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
             MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), *old(regions), *final(regions)),
-            // Canonical model: a freshly allocated node is a LIVE value whose
-            // `Drop` is pending — mint one `frame_obligations` entry at its
-            // slot. (`alloc` is `external_body`; the mint is the node's
-            // creation contribution, mirroring `Frame::from_unused`.)
+
             final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
                 frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
-            // Allocator trust boundary: PT-node allocations come from the regular
-            // RAM pool, never from MMIO ranges. Used by `alloc_if_none_metaregion_sound_preserved`
-            // to rule out untracked-frame collisions at the freshly-allocated idx.
+
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 meta_to_frame(owner@.value.node.unwrap().meta_addr_self())),
             owner@.value.metaregion_sound(*final(regions)),
@@ -923,7 +918,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// `pod_bytes(v) == read_view.read_bytes(...)` (strengthened ensures)
     /// + [`lemma_decode_pod_inverse`].
     pub open spec fn walk_pte_at_view(view: crate::specs::mm::virt_mem::MemView, c: usize) -> C::E {
-        crate::mm::pod::decode_pod::<C::E>(view.read_bytes(c, core::mem::size_of::<C::E>()))
+        ostd_pod::decode_pod::<C::E>(view.read_bytes(c, core::mem::size_of::<C::E>()))
     }
 
     /// Single-cursor projection of [`walk_coverage_from_view`]. Extracting

@@ -3,7 +3,7 @@
 use core::ffi::c_void;
 
 use crate::{
-    arch::qemu::{exit_qemu, QemuExitCode},
+    arch::qemu::{QemuExitCode, exit_qemu},
     early_print, early_println,
     sync::SpinLock,
 };

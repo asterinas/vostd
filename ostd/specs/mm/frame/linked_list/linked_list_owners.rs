@@ -12,12 +12,12 @@ use vstd_extra::ownership::*;
 use core::marker::PhantomData;
 
 use super::*;
-use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::mm::Paddr;
+use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
 use crate::specs::mm::frame::mapping::{
-    frame_to_index_spec, max_meta_slots, meta_to_frame_spec, META_SLOT_SIZE,
+    frame_to_index, max_meta_slots, meta_to_frame_spec, META_SLOT_SIZE,
 };
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -251,7 +251,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
 
     /// The region slot index keyed by the `i`-th link's meta-slot address.
     pub open spec fn slot_index_at(self, i: int) -> usize {
-        frame_to_index_spec(meta_to_frame_spec(self.list[i].paddr))
+        frame_to_index(meta_to_frame_spec(self.list[i].paddr))
     }
 
     /// The typed permission for the `i`-th link, reconstructed from the region:
@@ -330,11 +330,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             #![trigger self.slot_index_at(i), self.slot_index_at(j)]
             0 <= i < self.list.len() && 0 <= j < self.list.len() && i != j ==> self.slot_index_at(i)
                 != self.slot_index_at(j)
-        // A non-empty list has a minted (non-zero) id: every link is stamped
-        // `in_list == list_id` when added, and ids are handed out non-zero. Only
-        // a fresh, never-pushed (hence empty) list sits at `list_id == 0`. This
-        // is what lets `insert_before` accept a `list_id == 0` list (necessarily
-        // empty) and stamp it with a freshly-minted id.
         &&& self.list.len() > 0 ==> self.list_id != 0
     }
 
@@ -688,8 +683,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.relate_region_at_from_clauses(fr, k);
         }
 
-        // Non-empty `new` ⟹ `old` had ≥2 elements ⟹ `old.list_id != 0`, and
-        // the id is preserved, so `new.list_id != 0`.
         assert(new.list.len() > 0 ==> new.list_id != 0);
         assert(new.relate_region(fr));
     }
@@ -720,10 +713,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             old.relate_region(r0),
             new.list == old.list.insert(n, link),
             new.list_id != 0,
-            // The list adopts the (non-zero) resolved id; it equals the old id
-            // whenever the list already had elements (those carry `old.list_id`,
-            // which must stay consistent). A `list_id == 0` old list is empty,
-            // so its id is free to become the freshly-minted one.
             old.list.len() > 0 ==> new.list_id == old.list_id,
             link.in_list == new.list_id,
             forall|p: int|

@@ -13,7 +13,7 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
-use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
+use vstd::atomic::{PAtomicU8, PAtomicU64, PermissionU64};
 use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
@@ -22,22 +22,76 @@ use vstd_extra::ownership::*;
 use vstd_extra::panic::{may_panic, panic_diverge};
 use vstd_extra::prelude::*;
 
-pub mod mapping;
-
-use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE};
+use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
+verus! {
+
+pub(crate) mod mapping {
+    use crate::mm::frame::MetaSlot;
+    use crate::mm::frame::meta::meta_slot_size;
+    use crate::mm::{PAGE_SIZE, Paddr, Vaddr};
+    use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+    use crate::specs::arch::mm::MAX_PADDR;
+    pub use crate::specs::mm::frame::mapping::*;
+    use vstd::prelude::*;
+
+    #[verifier::inline]
+    pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
+        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * meta_slot_size()) as usize
+    }
+
+    #[verifier::inline]
+    pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr {
+        ((vaddr - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int * PAGE_SIZE) as usize
+    }
+
+    /// Converts a physical address of a base frame to the virtual address of the metadata slot.
+    #[inline(always)]
+    #[verifier::when_used_as_spec(frame_to_meta_spec)]
+    pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
+        requires
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+        ensures
+            res == frame_to_meta_spec(paddr),
+            res % META_SLOT_SIZE == 0,
+    {
+        let base = FRAME_METADATA_RANGE.start;
+        let offset = paddr / PAGE_SIZE;
+        base + offset * META_SLOT_SIZE
+    }
+
+    /// Converts a virtual address of the metadata slot to the physical address of the frame.
+    #[inline(always)]
+    #[verifier::when_used_as_spec(meta_to_frame_spec)]
+    pub fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
+        requires
+            FRAME_METADATA_RANGE.start <= vaddr && vaddr < FRAME_METADATA_RANGE.end,
+            vaddr % META_SLOT_SIZE == 0,
+        ensures
+            res == meta_to_frame_spec(vaddr),
+            res % PAGE_SIZE == 0,
+    {
+        let base = FRAME_METADATA_RANGE.start;
+        let offset = (vaddr - base) / META_SLOT_SIZE;
+        offset * PAGE_SIZE
+    }
+
+}
+
+} // verus!
 use core::{
     alloc::Layout,
     any::Any,
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
-    mem::{align_of, size_of, ManuallyDrop, MaybeUninit},
+    mem::{ManuallyDrop, MaybeUninit, align_of, size_of},
     result::Result,
-    sync::atomic::{AtomicU64, AtomicU8, Ordering},
+    sync::atomic::{AtomicU8, AtomicU64, Ordering},
 };
 
 use align_ext::AlignExt;
@@ -47,17 +101,17 @@ use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        //        frame::allocator::{self, EarlyAllocatedFrameMeta},
-        paddr_to_vaddr,
-        //        page_table::boot_pt,
-        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
+        MAX_NR_PAGES,
+        MAX_PADDR,
+        /*VmReader,*/ PAGE_SIZE,
         /*Infallible,*/ Paddr,
         PagingLevel,
         //Segment,
         Vaddr,
-        MAX_NR_PAGES,
-        MAX_PADDR,
-        /*VmReader,*/ PAGE_SIZE,
+        //        frame::allocator::{self, EarlyAllocatedFrameMeta},
+        paddr_to_vaddr,
+        //        page_table::boot_pt,
+        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     },
     specs::arch::kspace::FRAME_METADATA_RANGE,
     //    panic::abort,
@@ -791,7 +845,7 @@ impl MetaSlot {
             final(vtable_perm).is_init(),
             Metadata::<M>::metadata_from_inner_perms(*final(meta_perm)) == metadata,
     )]
-    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+    pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         &self,
         metadata: M,
     ) {

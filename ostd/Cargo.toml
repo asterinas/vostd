@@ -36,7 +36,8 @@ targets = ["x86_64-unknown-none"]
 
 [dependencies]
 vstd = { workspace = true }
-vstd_extra = { path = "../vstd_extra" }
+vstd_extra = { path = "../verified_libs/vstd_extra" }
+verified_bitflags = { path = "../verified_libs/verified_bitflags" }
 align_ext = { path = "libs/align_ext", version = "0.1.0" }
 bit_field = "0.10.1"
 buddy_system_allocator = { version = "0.10", default-features = false, features = ["alloc"] }
@@ -53,6 +54,7 @@ num-traits = { version = "0.2", default-features = false }
 #ostd-macros = { version = "0.15.1", path = "libs/ostd-macros" }
 #ostd-test = { version = "0.15.1", path = "libs/ostd-test" }
 #ostd-pod = { git = "https://github.com/asterinas/ostd-pod", rev = "c4644be", version = "0.1.1" }
+ostd-pod = { path = "../verified_libs/ostd-pod" }
 spin = "0.9.4"
 smallvec = "1.13.2"
 # unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }

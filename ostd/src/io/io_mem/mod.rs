@@ -6,17 +6,17 @@ use core::ops::{Deref, Range};
 
 use align_ext::AlignExt;
 
-pub(super) use self::allocator::init;
 pub(crate) use self::allocator::IoMemAllocatorBuilder;
+pub(super) use self::allocator::init;
 use crate::{
+    Error,
     mm::{
+        FallibleVmRead, FallibleVmWrite, HasPaddr, Infallible, PAGE_SIZE, Paddr, PodOnce, VmIo,
+        VmIoOnce, VmReader, VmWriter,
         kspace::kvirt_area::KVirtArea,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
-        FallibleVmRead, FallibleVmWrite, HasPaddr, Infallible, Paddr, PodOnce, VmIo, VmIoOnce,
-        VmReader, VmWriter, PAGE_SIZE,
     },
     prelude::*,
-    Error,
 };
 
 /// I/O memory.

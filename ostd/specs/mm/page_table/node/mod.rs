@@ -41,7 +41,7 @@ impl<'rcu> Guards<'rcu> {
 impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     type State = Guards<'rcu>;
 
-    /// Real key: the node address whose lock this guard holds. The token
+    /// The node address whose lock this guard holds. The token
     /// thus identifies *which* guard it tracks; `drop_requires`'s key
     /// match prevents a guard's obligation from being used to drop a
     /// different guard. The real lock-set ledger is `Guards::guards`;
@@ -94,11 +94,6 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s1: Self::State,
         obl_key: Self::Key,
     ) -> bool {
-        // Forgetting a guard via `ManuallyDrop::new` releases its lock —
-        // the same `guards.remove` transition as `constructor_ensures`, so
-        // the cursor's pop/move-forward sites (which forget the popped
-        // guard and then need `children_not_locked` / `node_unlocked`)
-        // observe the lock released.
         s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
     }
 

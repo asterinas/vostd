@@ -8,28 +8,28 @@ use vstd_extra::ownership::{Inv, OwnerOf};
 use crate::{
     error::Error,
     mm::{
-        dma::{dma_type, Daddr, DmaType},
-        frame::{untyped::AnyUFrameMeta, Segment},
+        HasPaddr, Paddr,
+        dma::{Daddr, DmaType, dma_type},
+        frame::{Segment, untyped::AnyUFrameMeta},
         io::{
-            axiom_kernel_mem_view, FallibleVmRead, FallibleVmWrite, Infallible, VmIo, VmIoMemView,
-            VmIoOnce, VmIoOwner, VmReader, VmWriter,
+            FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoMemView, VmIoOnce,
+            VmIoOwner, VmReader, VmWriter, axiom_kernel_mem_view,
         },
         kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
-        paddr_to_vaddr, HasPaddr, Paddr,
+        paddr_to_vaddr,
     },
     specs::{
         arch::{
-            kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
             PAGE_SIZE,
+            kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
         },
         mm::frame::segment::SegmentOwner,
-        mm::pod::PodOnce,
         mm::virt_mem::VirtPtr,
     },
     sync::{AtomicDataWithOwner, PreemptDisabled, RwArc, RwLockReadGuard},
 };
 
-use super::{check_and_insert_dma_mapping, is_valid_daddr, DmaError, HasDaddr};
+use super::{DmaError, HasDaddr, check_and_insert_dma_mapping, is_valid_daddr};
 
 verus! {
 
@@ -111,10 +111,31 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
 
         if !check_and_insert_dma_mapping(start_paddr, frame_count) {
             return Err(DmaError::AlreadyMapped);
+        }/*
+        // Original cache policy change (removed during Verus migration):
+        if !is_cache_coherent {
+            let page_table = KERNEL_PAGE_TABLE.get().unwrap();
+            let vaddr = paddr_to_vaddr(start_paddr);
+            let va_range = vaddr..vaddr + (frame_count * PAGE_SIZE);
+            unsafe {
+                page_table
+                    .protect_flush_tlb(&va_range, |p| p.cache = CachePolicy::Uncacheable)
+                    .unwrap();
+            }
         }
+        */
+
         let start_daddr = match dma_type() {
             DmaType::Direct => {
-                // TODO: restore TDX GPA sharing once the arch hook is verified.
+                /*
+                // Original TDX unprotect (removed during Verus migration):
+                #[cfg(target_arch = "x86_64")]
+                crate::arch::if_tdx_enabled!({
+                    unsafe {
+                        tdx_guest::unprotect_gpa_range(start_paddr, frame_count).unwrap();
+                    }
+                });
+                */
                 start_paddr as Daddr
             },
             DmaType::Iommu => {
@@ -132,7 +153,12 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
                 while i < frame_count {
                     assume(start_paddr + i * PAGE_SIZE <= usize::MAX);
                     let _paddr = start_paddr + i * PAGE_SIZE;
-                    // TODO: restore iommu::map once the IOMMU API is verified.
+                    /*
+                    // Original IOMMU map (removed during Verus migration):
+                    unsafe {
+                        iommu::map(paddr as Daddr, paddr).unwrap();
+                    }
+                    */
                     i += 1;
                 }
 
@@ -466,6 +492,56 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> HasPaddr for DmaCoherent<M> {
         Self::paddr_inner(&inner)
     }
 }
+
+/*
+// Original Deref impl (removed during Verus migration):
+impl Deref for DmaCoherent {
+    type Target = USegment;
+    fn deref(&self) -> &Self::Target {
+        &self.inner.segment
+    }
+}
+*/
+
+/*
+// Original Drop impl for DmaCoherentInner (removed during Verus migration):
+impl Drop for DmaCoherentInner {
+    fn drop(&mut self) {
+        let start_paddr = self.segment.start_paddr();
+        let frame_count = self.segment.size() / PAGE_SIZE;
+
+        match dma_type() {
+            DmaType::Direct => {
+                #[cfg(target_arch = "x86_64")]
+                crate::arch::if_tdx_enabled!({
+                    unsafe {
+                        tdx_guest::protect_gpa_range(start_paddr, frame_count).unwrap();
+                    }
+                });
+            }
+            DmaType::Iommu => {
+                for i in 0..frame_count {
+                    let paddr = start_paddr + (i * PAGE_SIZE);
+                    iommu::unmap(paddr as Daddr).unwrap();
+                }
+            }
+        }
+
+        if !self.is_cache_coherent {
+            let page_table = KERNEL_PAGE_TABLE.get().unwrap();
+            let vaddr = paddr_to_vaddr(start_paddr);
+            let va_range = vaddr..vaddr + (frame_count * PAGE_SIZE);
+            unsafe {
+                page_table
+                    .protect_flush_tlb(&va_range, |p| p.cache = CachePolicy::Writeback)
+                    .unwrap();
+            }
+        }
+
+        remove_dma_mapping(start_paddr, frame_count);
+    }
+}
+*/
 
 impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<
     DmaCoherentVmIoOwner<M>,

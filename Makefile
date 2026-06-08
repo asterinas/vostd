@@ -3,9 +3,6 @@
 VERIFICATION_TARGETS := \
 	ostd \
 
-# Disabled:
-# 	demo
-
 .PHONY: all verify $(VERIFICATION_TARGETS) fmt clean verus update
 
 $(VERIFICATION_TARGETS):

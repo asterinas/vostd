@@ -17,10 +17,12 @@ use core::{
 use crate::mm::frame::meta::MetaSlot;
 
 use super::{
-    kspace::KernelPtConfig, lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge,
-    page_prop::PageProperty, vm_space::UserPtConfig, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, io::PodOnce, kspace::KernelPtConfig,
+    lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge, page_prop::PageProperty,
+    vm_space::UserPtConfig,
 };
 
+use crate::Pod;
 use crate::specs::mm::page_table::*;
 
 use crate::specs::arch::mm::*;
@@ -486,7 +488,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 ///
 /// Note that a default PTE should be a PTE that points to nothing.
 pub trait PageTableEntryTrait:
-    Clone + Copy + Debug + Sized + Send + Sync + crate::specs::mm::pod::PodOnce + 'static {
+    Clone + Copy + Debug + Sized + Send + Sync + Pod + PodOnce + 'static {
     spec fn default_spec() -> Self;
 
     /// For implement `Default` trait.
@@ -1244,26 +1246,11 @@ impl PageTable<KernelPtConfig> {
             new_ref.lock(preempt_guard)
         };
         proof {
-            // Each `borrow` adjusts raw_count to 1 at one slot index. For the kernel
-            // root, raw_count was already 1 (its expected_raw_count, given !in_scope),
-            // so slot_owners is in fact fully preserved. For the new PT, the slot
-            // index is `new_idx`, which is disjoint from any kernel-tree entry's
-            // index.
-            //
-            // Step 1: kernel root borrow. Show slot_owners is fully equal.
-            // From metaregion_sound, raw_count == expected_raw_count == 1 (kernel
-            // root has !in_scope, so expected is 1). The borrow's postcondition
-            // says raw_count == 1 after, plus all other fields preserved at kern_idx,
-            // plus all other indices unchanged. So slot_owners is fully equal as a Map.
             let kern_idx = crate::specs::mm::frame::mapping::frame_to_index(
                 kernel_owner.0.value.meta_slot_paddr().unwrap(),
             );
             assert(regions_before_self_borrow.slot_owners
                 =~= regions_after_kroot_borrow.slot_owners);
-            // Slots: kern_idx was NOT in regions_before_self_borrow.slots (it was
-            // owned by the NodeOwner; active_entry_not_in_free_pool gives no active
-            // node has its idx in the free pool). So at k == kern_idx the precondition
-            // is vacuously true. At k != kern_idx, borrow preserves the value.
             assert forall|k: usize|
                 regions_before_self_borrow.slots.contains_key(
                     k,
@@ -1283,11 +1270,8 @@ impl PageTable<KernelPtConfig> {
                 regions_before_self_borrow,
                 regions_after_kroot_borrow,
             );
-            // Step 2: transfer across the new pt borrow.
+
             let new_idx = new_idx_g;
-            // From empty_with_owner postcondition: new_idx was in
-            // regions_before_alloc.slots. Use this to derive kern_idx != new_idx
-            // via active_entry_not_in_free_pool.
             assert(regions_before_alloc.slots.contains_key(new_idx));
             assert(kern_idx != new_idx) by {
                 crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
@@ -1298,15 +1282,9 @@ impl PageTable<KernelPtConfig> {
                     new_idx,
                 );
             };
-            // After empty_with_owner, new_idx is removed from regions.slots; that
-            // state is captured as regions_before_self_borrow (no slots changes
-            // happened in the intervening proof_decl block).
+
             assert(!regions_before_self_borrow.slots.contains_key(new_idx));
-            // The kernel root borrow doesn't change contains_key at indices !=
-            // kern_idx (Frame::borrow's strengthened postcondition), so new_idx
-            // is still absent.
             assert(!regions_after_kroot_borrow.slots.contains_key(new_idx));
-            // Now slots-preservation for the lemma is vacuous at k == new_idx.
             assert forall|k: usize|
                 regions_after_kroot_borrow.slots.contains_key(
                     k,
@@ -1315,14 +1293,8 @@ impl PageTable<KernelPtConfig> {
                     // borrow preserves slots[k] at k != self.index() == new_idx
                 }
             };
-            // Instantiate the freshness postconditions of empty_with_owner with
-            // kt = *kernel_owner. The forall in empty_with_owner's postcondition
-            // ranges over `kt: PageTableOwner<KernelPtConfig>`; trigger it via
-            // `kt.metaregion_sound(*old(regions))`.
             assert(kernel_owner.metaregion_sound(regions_before_alloc));
-            // The freshness predicate we have (`sub_idx != new_idx`) needs to be
-            // weakened to the lemma's predicate (`sub_idx != new_idx || (slot
-            // still in r1.slots ...)`). Use map_implies to transfer.
+
             kernel_owner.0.map_implies(
                 kernel_owner.0.value.path,
                 |
@@ -1440,13 +1412,10 @@ impl PageTable<KernelPtConfig> {
             #[verus_spec(with Tracked(entry_owner), Tracked(root_owner), Tracked(regions))]
             let child = root_entry.to_ref();
 
-            // Derive `child is PageTable` from entry_owner.is_node() (forced by the
-            // panic condition) and ChildRef::wf's case discrimination.
             proof {
                 let kern_node = kernel_owner.0.value.node.unwrap();
                 let pte = kern_node.children_perm.value()[i as int];
-                // From the negation of the panic condition: every in-range slot is
-                // present and not is_last. Provide `i` as the existential witness.
+
                 assert(pte.is_present() && !pte.is_last(kern_node.level)) by {
                     if !pte.is_present() || pte.is_last(kern_node.level) {
                         assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i

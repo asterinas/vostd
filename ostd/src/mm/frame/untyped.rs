@@ -12,8 +12,8 @@ use super::*;
 use crate::mm::{
     io::{Infallible, VmReader, VmWriter},
     kspace::{
-        paddr_to_vaddr_spec, KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR,
-        VMALLOC_BASE_VADDR,
+        KERNEL_BASE_VADDR, KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR,
+        paddr_to_vaddr_spec,
     },
     paddr_to_vaddr,
 };
@@ -191,4 +191,59 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
     }
 }
 
+/*
+// Original impl_untyped_for! macro and its invocations (removed during Verus migration):
+// This macro provided UntypedMem + VmIo implementations for both Frame<UM> and Segment<UM>.
+
+macro_rules! impl_untyped_for {
+    ($t:ident) => {
+        impl<UM: AnyUFrameMeta + ?Sized> UntypedMem for $t<UM> {
+            fn reader(&self) -> VmReader<'_, Infallible> {
+                let ptr = paddr_to_vaddr(self.start_paddr()) as *const u8;
+                unsafe { VmReader::from_kernel_space(ptr, self.size()) }
+            }
+
+            fn writer(&self) -> VmWriter<'_, Infallible> {
+                let ptr = paddr_to_vaddr(self.start_paddr()) as *mut u8;
+                unsafe { VmWriter::from_kernel_space(ptr, self.size()) }
+            }
+        }
+
+        impl<UM: AnyUFrameMeta + ?Sized> VmIo for $t<UM> {
+            fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()> {
+                let read_len = writer.avail().min(self.size().saturating_sub(offset));
+                let max_offset = offset.checked_add(read_len).ok_or(Error::Overflow)?;
+                if max_offset > self.size() {
+                    return Err(Error::InvalidArgs);
+                }
+                let len = self
+                    .reader()
+                    .skip(offset)
+                    .read_fallible(writer)
+                    .map_err(|(e, _)| e)?;
+                debug_assert!(len == read_len);
+                Ok(())
+            }
+
+            fn write(&self, offset: usize, reader: &mut VmReader) -> Result<()> {
+                let write_len = reader.remain().min(self.size().saturating_sub(offset));
+                let max_offset = offset.checked_add(write_len).ok_or(Error::Overflow)?;
+                if max_offset > self.size() {
+                    return Err(Error::InvalidArgs);
+                }
+                let len = self
+                    .writer()
+                    .skip(offset)
+                    .write_fallible(reader)
+                    .map_err(|(e, _)| e)?;
+                debug_assert!(len == write_len);
+                Ok(())
+            }
+        }
+    };
+}
+
+impl_untyped_for!(Frame);
+impl_untyped_for!(Segment);
+*/
 } // verus!

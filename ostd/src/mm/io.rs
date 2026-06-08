@@ -49,12 +49,12 @@ use vstd_extra::assert;
 use vstd_extra::ownership::Inv;
 use vstd_extra::panic::may_panic;
 
+use crate::Pod;
 use crate::error::*;
 use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
-use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::MAX_USERSPACE_VADDR;
 pub use crate::specs::mm::io::{
-    axiom_kernel_mem_view, axiom_slice_in_kernel, VmIoMemView, VmIoOwner,
+    VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
 };
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
@@ -159,6 +159,10 @@ pub struct Infallible {}
             },
 )]
 unsafe fn memcpy(dst: VirtPtr, src: VirtPtr, len: usize) {
+    /*
+    // Original memcpy using volatile_copy_memory (replaced during Verus migration):
+    unsafe { core::intrinsics::volatile_copy_memory(dst, src, len) };
+    */
     VirtPtr::copy_nonoverlapping(&src, &dst, Tracked(mem_src), Tracked(mem_dst), len);
 }
 
@@ -993,7 +997,7 @@ impl<'a> VmReader<'a, Infallible> {
                     &&& old(self).cursor.vaddr % core::mem::align_of::<T>() == 0
                     &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
                     &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
-                    &&& crate::mm::pod::pod_bytes::<T>(v)
+                    &&& ostd_pod::pod_bytes::<T>(v)
                         == crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner))
                             .read_bytes(old(self).cursor.vaddr, core::mem::size_of::<T>())
                     &&& forall|va: usize|
@@ -1557,6 +1561,48 @@ pub trait VmIoOnce: Sized {
     fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()>;
 }
 
+/*
+// Original impl_vm_io_pointer macro and invocations (removed during Verus migration):
+macro_rules! impl_vm_io_pointer {
+    ($typ:ty,$from:tt) => {
+        #[inherit_methods(from = $from)]
+        impl<T: VmIo> VmIo for $typ {
+            fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()>;
+            fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<()>;
+            fn read_val<F: Pod>(&self, offset: usize) -> Result<F>;
+            fn read_slice<F: Pod>(&self, offset: usize, slice: &mut [F]) -> Result<()>;
+            fn write(&self, offset: usize, reader: &mut VmReader) -> Result<()>;
+            fn write_bytes(&self, offset: usize, buf: &[u8]) -> Result<()>;
+            fn write_val<F: Pod>(&self, offset: usize, new_val: &F) -> Result<()>;
+            fn write_slice<F: Pod>(&self, offset: usize, slice: &[F]) -> Result<()>;
+        }
+    };
+}
+
+impl_vm_io_pointer!(&T, "(**self)");
+impl_vm_io_pointer!(&mut T, "(**self)");
+impl_vm_io_pointer!(Box<T>, "(**self)");
+impl_vm_io_pointer!(Arc<T>, "(**self)");
+*/
+
+/*
+// Original impl_vm_io_once_pointer macro and invocations (removed during Verus migration):
+macro_rules! impl_vm_io_once_pointer {
+    ($typ:ty,$from:tt) => {
+        #[inherit_methods(from = $from)]
+        impl<T: VmIoOnce> VmIoOnce for $typ {
+            fn read_once<F: PodOnce>(&self, offset: usize) -> Result<F>;
+            fn write_once<F: PodOnce>(&self, offset: usize, new_val: &F) -> Result<()>;
+        }
+    };
+}
+
+impl_vm_io_once_pointer!(&T, "(**self)");
+impl_vm_io_once_pointer!(&mut T, "(**self)");
+impl_vm_io_once_pointer!(Box<T>, "(**self)");
+impl_vm_io_once_pointer!(Arc<T>, "(**self)");
+*/
+
 #[verus_verify]
 impl<Fallibility> VmReader<'_, Fallibility> {
     pub open spec fn remain_spec(&self) -> usize {
@@ -1934,6 +1980,15 @@ impl AsVirtPtr for [u8] {
     }
 }
 
+/*
+// Original From<&mut [u8]> for VmWriter (replaced by pub fn from during Verus migration):
+impl<'a> From<&'a mut [u8]> for VmWriter<'a, Infallible> {
+    fn from(slice: &'a mut [u8]) -> Self {
+        unsafe { Self::from_kernel_space(slice.as_mut_ptr(), slice.len()) }
+    }
+}
+*/
+
 #[verus_verify]
 impl<'a> VmWriter<'a, Infallible> {
     /// Constructs a [`VmWriter<'a, Infallible>`] from a mutable byte slice.
@@ -1981,6 +2036,15 @@ impl<'a> VmWriter<'a, Infallible> {
         writer
     }
 }
+
+/*
+// Original From<&[u8]> for VmReader (replaced by pub fn from during Verus migration):
+impl<'a> From<&'a [u8]> for VmReader<'a, Infallible> {
+    fn from(slice: &'a [u8]) -> Self {
+        unsafe { Self::from_kernel_space(slice.as_ptr(), slice.len()) }
+    }
+}
+*/
 
 #[verus_verify]
 impl<'a> VmReader<'a, Infallible> {
@@ -2030,33 +2094,6 @@ impl<'a> VmReader<'a, Infallible> {
 }
 
 } // verus!
-mod pod_once_impls {
-    use super::PodOnce;
-
-    impl PodOnce for u8 {}
-    impl PodOnce for u16 {}
-    impl PodOnce for u32 {}
-    impl PodOnce for u64 {}
-    impl PodOnce for usize {}
-    impl PodOnce for i8 {}
-    impl PodOnce for i16 {}
-    impl PodOnce for i32 {}
-    impl PodOnce for i64 {}
-    impl PodOnce for isize {}
-
-    /// Checks whether the memory operation created by `ptr::read_volatile` and
-    /// `ptr::write_volatile` doesn't tear.
-    ///
-    /// Note that the Rust documentation makes no such guarantee, and even the wording in the LLVM
-    /// LangRef is ambiguous. But this is unlikely to break in practice because the Linux kernel
-    /// also uses "volatile" semantics to implement `READ_ONCE`/`WRITE_ONCE`.
-    pub(super) const fn is_non_tearing<T>() -> bool {
-        let size = core::mem::size_of::<T>();
-
-        size == 1 || size == 2 || size == 4 || size == 8
-    }
-}
-
 /// Fallible memory read from a `VmWriter`.
 pub trait FallibleVmRead<F> {
     fn read_fallible(
@@ -2183,3 +2220,78 @@ impl_read_fallible!(Infallible, Fallible);
 impl_write_fallible!(Fallible, Infallible);
 impl_write_fallible!(Fallible, Fallible);
 impl_write_fallible!(Infallible, Fallible);
+
+verus! {
+
+/// A marker trait for POD types that can be read or written with one instruction.
+///
+/// This trait is mostly a hint, since it's safe and can be implemented for _any_ POD type. If it
+/// is implemented for a type that cannot be read or written with a single instruction, calling
+/// `read_once`/`write_once` will lead to a failed compile-time assertion.
+pub trait PodOnce: Pod {
+
+}
+
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64"
+))]
+mod pod_once_impls {
+    use super::PodOnce;
+
+    impl PodOnce for u8 {
+
+    }
+
+    impl PodOnce for u16 {
+
+    }
+
+    impl PodOnce for u32 {
+
+    }
+
+    impl PodOnce for u64 {
+
+    }
+
+    impl PodOnce for usize {
+
+    }
+
+    impl PodOnce for i8 {
+
+    }
+
+    impl PodOnce for i16 {
+
+    }
+
+    impl PodOnce for i32 {
+
+    }
+
+    impl PodOnce for i64 {
+
+    }
+
+    impl PodOnce for isize {
+
+    }
+
+    /// Checks whether the memory operation created by `ptr::read_volatile` and
+    /// `ptr::write_volatile` doesn't tear.
+    ///
+    /// Note that the Rust documentation makes no such guarantee, and even the wording in the LLVM
+    /// LangRef is ambiguous. But this is unlikely to break in practice because the Linux kernel
+    /// also uses "volatile" semantics to implement `READ_ONCE`/`WRITE_ONCE`.
+    pub(super) const fn is_non_tearing<T>() -> bool {
+        let size = core::mem::size_of::<T>();
+
+        size == 1 || size == 2 || size == 4 || size == 8
+    }
+
+}
+
+} // verus!
