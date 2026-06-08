@@ -47,9 +47,6 @@ test-ledger
 #doc
 doc
 
-#copilot
-.github/copilot-instructions.md
-
 # cspell
 .vscode/cspell.json
 .vscode/vostd-words.txt
@@ -61,3 +58,6 @@ doc
 .agents/
 .codex/
 .claude/
+.copilot/
+.github/copilot-instructions.md
+.github/instructions.md
