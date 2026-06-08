@@ -12,7 +12,6 @@ use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_fra
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, has_safe_slot};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::frame_specs::BorrowDebt;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
@@ -39,44 +38,28 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// The raw frame address must be well-formed (`has_safe_slot(raw)`).
-    /// The slot's `raw_count` must be `<= 1`.
-    /// ## Postconditions
-    /// The result points to the frame at the physical address.
-    /// `raw_count` is 1 after the call (from_raw sets to 0, ManuallyDrop::new adds 1).
-    /// All other slot fields are preserved.
-    /// ## Safety
-    /// By providing a borrowed `MetaPerm` of the appropriate type, the caller ensures that the frame
-    /// has that type and that the `FrameRef` will be useless if it outlives the frame.
+    /// Under the borrow-protocol redesign, `from_raw` mints one
+    /// `frame_obligations` entry at the slot index and `MD::new`
+    /// immediately consumes it — net-zero on the ledger across this
+    /// borrow. The slot's `ref_count` is unchanged (the existing live
+    /// reference covers the borrow's lifetime via the `'a` lifetime).
+    ///
+    /// # Safety
+    /// By providing a borrowed `MetaPerm` of the appropriate type, the
+    /// caller ensures that the frame has that type and that the
+    /// `FrameRef` will be useless if it outlives the frame.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
             old(regions).slots.contains_key(frame_to_index(raw)),
-            old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,
-            old(regions).slot_owners[frame_to_index(raw)].inner_perms.ref_count.value()
-                != crate::mm::frame::meta::REF_COUNT_UNUSED,
         ensures
             final(regions).inv(),
             r.inner.0.ptr.addr() == frame_to_meta(raw),
-            final(regions).slot_owners[frame_to_index(raw)].raw_count == 1,
-            final(regions).slot_owners[frame_to_index(raw)].inner_perms
-                == old(regions).slot_owners[frame_to_index(raw)].inner_perms,
-            final(regions).slot_owners[frame_to_index(raw)].self_addr
-                == old(regions).slot_owners[frame_to_index(raw)].self_addr,
-            final(regions).slot_owners[frame_to_index(raw)].usage
-                == old(regions).slot_owners[frame_to_index(raw)].usage,
-            final(regions).slot_owners[frame_to_index(raw)].paths_in_pt
-                == old(regions).slot_owners[frame_to_index(raw)].paths_in_pt,
-            forall |i: usize|
-                #![trigger final(regions).slot_owners[i]]
-                i != frame_to_index(raw) ==> final(regions).slot_owners[i]
-                    == old(regions).slot_owners[i],
-            final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
+            final(regions).slot_owners =~= old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
+            final(regions).frame_obligations =~= old(regions).frame_obligations,
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
@@ -85,20 +68,30 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             old(regions).inv_implies_correct_addr(raw);
         }
 
-        proof_decl! {
-            let tracked debt: BorrowDebt;
-        }
+        let ghost idx = frame_to_index(raw);
+        let ghost regions0 = *regions;
 
+        proof_decl! {
+            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+        }
+        // `from_raw` mints one `frame_obligations` entry at the slot and
+        // hands back the token; the token is dropped affinely (the ledger
+        // entry is what matters). `MD::new` then consumes that entry. Net
+        // effect on the ledger: zero.
         let frame = unsafe {
-            proof_with!(Tracked(regions) => Tracked(debt));
+            #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
             Frame::from_raw(raw)
         };
 
+        let inner = ManuallyDrop::new(frame, Tracked(regions));
+
         proof {
-            Frame::lemma_from_raw_manuallydrop_general(raw, frame, *old(regions), *regions, debt);
+            // `from_raw` did `insert(idx)`; `MD::new` did `remove(idx)`.
+            // The pair is identity on the multiset.
+            assert(regions.frame_obligations =~= regions0.frame_obligations);
         }
 
-        Self { inner: ManuallyDrop::new(frame, Tracked(regions)), _marker: PhantomData }
+        Self { inner, _marker: PhantomData }
     }
 }
 
@@ -168,10 +161,6 @@ pub unsafe trait NonNullPtr: 'static + Sized + TrackDrop<State = MetaRegionOwner
         requires
             old(regions).inv(),
             old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
-            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))].raw_count
-                == 0,
-    //            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))].read_only == raw.addr(),
-
     ;
 
     /// Converts a shared reference to a raw pointer.
@@ -194,7 +183,14 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
 
     fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target> {
         let ptr = self.ptr;
-        assert(self.constructor_requires(*old(regions)));
+        proof {
+            // Mint the obligation that `MD::new` will immediately
+            // consume — net-zero on the ledger; the Frame value is
+            // forgotten inside the wrapper, and `ref_count` (set by the
+            // original producer) stays elevated to balance the eventual
+            // `from_raw + drop`.
+            let tracked _ = regions.tracked_mint_frame_obligation(self.index());
+        }
         let _ = ManuallyDrop::new(self, Tracked(regions));
         PPtr::<Self::Target>::from_addr(ptr.addr())
     }
@@ -207,10 +203,14 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
         raw: PPtr<Self::Target>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
     ) -> Self::Ref<'a> {
-        let dropped = ManuallyDrop::<Frame<M>>::new(
-            Frame { ptr: PPtr::<MetaSlot>::from_addr(raw.addr()), _marker: PhantomData },
-            Tracked(regions),
-        );
+        let frame = Frame::<M> {
+            ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
+            _marker: PhantomData,
+        };
+        proof {
+            let tracked _ = regions.tracked_mint_frame_obligation(frame.index());
+        }
+        let dropped = ManuallyDrop::<Frame<M>>::new(frame, Tracked(regions));
         Self::Ref { inner: dropped, _marker: PhantomData }
     }
 

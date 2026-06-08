@@ -42,7 +42,7 @@ use vstd::atomic::PAtomicU8;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::Drop as VerifiedDrop;
+use vstd_extra::drop_tracking::{Drop as VerifiedDrop, TrackDrop};
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
@@ -429,11 +429,16 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             &&& frame_to_index(paddr) == frame_to_index(pte_j.paddr())
                         });
                     }
+                    proof_decl! {
+                        let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+                    }
                     let frame = unsafe {
-                        #[verus_spec(with Tracked(regions) => _debt)]
+                        #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
                         Frame::<Self>::from_raw(paddr)
                     };
-                    VerifiedDrop::drop(frame, Tracked(regions));
+                    // `from_raw` minted the obligation; `frame.drop`
+                    // consumes it directly. No redeem dance needed.
+                    VerifiedDrop::drop(frame, Tracked(regions), Tracked(from_raw_obl));
                 } else {
                     // SAFETY: The PTE points to a mapped item. The ownership
                     // of the item is transferred here then dropped.
@@ -512,11 +517,13 @@ impl<C: PageTableConfig> PageTableNode<C> {
             allocated_empty_node_grandchildren_none(owner@),
             res.ptr.addr() == owner@.value.node.unwrap().meta_addr_self(),
             guards.unlocked(owner@.value.node.unwrap().meta_addr_self()),
-            MetaSlot::get_from_unused_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
+            MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
+            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), *old(regions), *final(regions)),
+
+            final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
+                frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
-            // Allocator trust boundary: PT-node allocations come from the regular
-            // RAM pool, never from MMIO ranges. Used by `alloc_if_none_metaregion_sound_preserved`
-            // to rule out untracked-frame collisions at the freshly-allocated idx.
+
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 meta_to_frame(owner@.value.node.unwrap().meta_addr_self())),
             owner@.value.metaregion_sound(*final(regions)),
@@ -1034,8 +1041,11 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             ) ==> {
                 let idx = frame_to_index(paddr);
                 let so = regions.slot_owners[idx];
-                &&& <Frame<Self>>::from_raw_requires_safety(regions, paddr)
-                &&& so.raw_count == 1
+                &&& <Frame<Self>>::from_raw_requires_safety(
+                    regions,
+                    paddr,
+                )
+                // Borrow-protocol transition: `raw_count` is dormant.
                 &&& so.inner_perms.ref_count.value() > 0
                 &&& so.inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
@@ -1046,6 +1056,10 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                     &&& so.inner_perms.in_list.value() == 0
                     &&& so.paths_in_pt.is_empty()
                 }
+                // Borrow-protocol redesign: in steady state between
+                // `into_pte`'s consume and `on_drop`'s `from_raw`-mint,
+                // the per-child `frame_obligations` count is 0.
+
             }
     }
 }

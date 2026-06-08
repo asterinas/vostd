@@ -102,8 +102,7 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-                && final(regions).slot_owners[i].inner_perms.in_list == old(
+            final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
             ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: opening a cursor only allocates fresh PT nodes —
@@ -150,8 +149,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-                && final(regions).slot_owners[i].inner_perms.in_list == old(
+            final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
             ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: opening a cursor only allocates fresh PT nodes —
@@ -246,9 +244,6 @@ pub axiom fn cursor_query_embedded<'rcu>(
             // At the cloned slot, only `ref_count` changes — everything
             // else (`raw_count`, `in_list`, `usage`, `paths_in_pt`,
             // `storage`, `self_addr`, `vtable_ptr`) is preserved.
-            &&& final(regions).slot_owners[frame_to_index(paddr)].raw_count == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].raw_count
             &&& final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
                 regions,
             ).slot_owners[frame_to_index(paddr)].self_addr
@@ -408,8 +403,7 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         // forget references or touch the free-list).
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-                && final(regions).slot_owners[i].inner_perms.in_list == old(
+            final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
             ).slot_owners[i].inner_perms.in_list,
         // Per exec cursor/mod.rs:2853 + 2836: at non-mapped slots that
@@ -524,7 +518,6 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             {
-                &&& final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
                 &&& final(regions).slot_owners[i].self_addr == old(regions).slot_owners[i].self_addr
                 &&& final(regions).slot_owners[i].usage == old(regions).slot_owners[i].usage
                 &&& final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -675,8 +668,7 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-                && final(regions).slot_owners[i].inner_perms.in_list == old(
+            final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
             ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: opening a cursor only allocates fresh PT nodes —
@@ -726,8 +718,7 @@ pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-                && final(regions).slot_owners[i].inner_perms.in_list == old(
+            final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
             ).slot_owners[i].inner_perms.in_list,
         forall|i: usize|
@@ -807,9 +798,6 @@ pub(super) proof fn cursor_query_step<'rcu>(
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                     regions,
                 ).slot_owners[i]
-            &&& final(regions).slot_owners[frame_to_index(paddr)].raw_count == old(
-                regions,
-            ).slot_owners[frame_to_index(paddr)].raw_count
             &&& final(regions).slot_owners[frame_to_index(paddr)].usage == old(
                 regions,
             ).slot_owners[frame_to_index(paddr)].usage
@@ -952,7 +940,6 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             {
-                &&& final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
                 &&& final(regions).slot_owners[i].self_addr == old(regions).slot_owners[i].self_addr
                 &&& final(regions).slot_owners[i].usage == old(regions).slot_owners[i].usage
                 &&& final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -1034,8 +1021,7 @@ pub(super) proof fn map_step<'rcu>(
         // Mirror the strengthened `cursor_mut_map_embedded` ensures.
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-                && final(regions).slot_owners[i].inner_perms.in_list == old(
+            final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
             ).slot_owners[i].inner_perms.in_list,
         forall|i: usize|

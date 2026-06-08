@@ -101,7 +101,6 @@ pub axiom fn segment_from_unused_embedded(
                     let so = final(regions).slot_owners[idx];
                     &&& so.usage == PageUsage::Frame
                     &&& so.inner_perms.ref_count.value() == 1
-                    &&& so.raw_count == 1
                     &&& so.paths_in_pt.is_empty()
                     &&& so.inner_perms.in_list.value() == 0
                     &&& so.inner_perms.storage.is_init()
@@ -154,7 +153,6 @@ pub axiom fn segment_drop_embedded(
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
                     let so = old(regions).slot_owners[frame_to_index(paddr)];
-                    &&& so.raw_count >= 1
                     &&& so.inner_perms.ref_count.value() >= 1
                     &&& so.inner_perms.ref_count.value()
                             <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
@@ -177,7 +175,6 @@ pub axiom fn segment_drop_embedded(
                     let idx = frame_to_index(paddr);
                     let so_old = old(regions).slot_owners[idx];
                     let so_new = final(regions).slot_owners[idx];
-                    &&& so_new.raw_count == (so_old.raw_count - 1) as usize
                     &&& so_new.usage == so_old.usage
                     &&& so_new.paths_in_pt == so_old.paths_in_pt
                     &&& so_new.self_addr == so_old.self_addr
@@ -223,7 +220,6 @@ pub axiom fn segment_next_embedded(
         paddr % PAGE_SIZE == 0,
         paddr < MAX_PADDR,
         old(regions).slots.contains_key(frame_to_index(paddr)),
-        old(regions).slot_owners[frame_to_index(paddr)].raw_count >= 1,
         old(regions).slot_owners[frame_to_index(paddr)]
                 .inner_perms.ref_count.value() >= 1,
         old(regions).slot_owners[frame_to_index(paddr)]
@@ -239,7 +235,6 @@ pub axiom fn segment_next_embedded(
             let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
-            &&& so_new.raw_count == (so_old.raw_count - 1) as usize
             &&& so_new.inner_perms.ref_count == so_old.inner_perms.ref_count
             &&& so_new.usage == so_old.usage
             &&& so_new.self_addr == so_old.self_addr
@@ -294,7 +289,6 @@ pub(super) proof fn from_unused_step(
                     let so = final(regions).slot_owners[idx];
                     &&& so.usage == PageUsage::Frame
                     &&& so.inner_perms.ref_count.value() == 1
-                    &&& so.raw_count == 1
                     &&& so.paths_in_pt.is_empty()
                 },
         res is Some ==> forall|i: usize|
@@ -332,7 +326,6 @@ pub(super) proof fn drop_step(
             (entry.range.start <= paddr < entry.range.end
                 && paddr % PAGE_SIZE == 0) ==> {
                 let so = old(regions).slot_owners[frame_to_index(paddr)];
-                &&& so.raw_count >= 1
                 &&& so.inner_perms.ref_count.value() >= 1
                 &&& so.inner_perms.ref_count.value()
                         <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
@@ -350,7 +343,6 @@ pub(super) proof fn drop_step(
                 let idx = frame_to_index(paddr);
                 let so_old = old(regions).slot_owners[idx];
                 let so_new = final(regions).slot_owners[idx];
-                &&& so_new.raw_count == (so_old.raw_count - 1) as usize
                 &&& so_new.usage == so_old.usage
                 &&& so_new.paths_in_pt == so_old.paths_in_pt
                 &&& so_new.self_addr == so_old.self_addr

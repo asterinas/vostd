@@ -401,6 +401,11 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
 ) -> bool {
     &&& owner.inv()
     &&& owner.value.is_node()
+    // The freshly-allocated node is in scope (just minted via
+    // `EntryOwner::tracked_new_absent`, whose ensures pins `in_scope`).
+    // Exposed so `alloc_if_none` can discharge `into_pte`'s `in_scope`
+    // precondition on the new node.
+    &&& owner.value.in_scope
     &&& owner.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty())
     &&& owner.value.parent_level == (level + 1) as PagingLevel
     &&& owner.value.node.unwrap().level == level

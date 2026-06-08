@@ -1729,6 +1729,8 @@ unsafe impl PageTableConfig for UserPtConfig {
             == old_regions.slot_owners[frame_idx].inner_perms.ref_count.value() + 1);
         assert(forall|i: usize|
             i != frame_idx ==> #[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]);
+        // Canonical: the cloned frame minted one obligation at its slot.
+        assert(new_regions.frame_obligations =~= old_regions.frame_obligations.insert(frame_idx));
     }
 
     proof fn clone_requires_concrete(
