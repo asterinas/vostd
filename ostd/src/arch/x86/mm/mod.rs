@@ -278,10 +278,21 @@ impl PageTableEntryTrait for PageTableEntry {
         };
         proof{
             lemma_parse_flags_collorary(self.0);
-            assume(flags <= u8::MAX);
-            assume(priv_flags <= u8::MAX);
-            assume(flags & PageFlags::all_bits() as usize == flags);
-            assume(priv_flags & PrivFlags::all_bits() as usize == priv_flags);
+            lemma_x86_page_flags_wf(self.0, flags);
+            assert(flags & PageFlags::all_bits() as usize == flags) by (compute);
+            #[cfg(not(feature = "cvm_guest"))]
+            {
+                lemma_x86_priv_flags_wf(self.0, priv_flags);
+            }
+            #[cfg(feature = "cvm_guest")]
+            {
+                lemma_parse_shared_to_priv_shared_equiv_if(self.0);
+                lemma_x86_priv_flags_cvm_wf(self.0, priv_flags);
+            }
+            let spec_prop = self.prop_spec();
+            assert(cache =~= spec_prop.cache);
+            assert(PageFlags::from_bits(flags as u8)->0 =~= spec_prop.flags);
+            assert(PrivFlags::from_bits(priv_flags as u8)->0 =~= spec_prop.priv_flags);
         }
         PageProperty {
             flags: PageFlags::from_bits(flags as u8).unwrap(),
@@ -803,6 +814,83 @@ proof fn lemma_parse_flags_collorary(v:usize)
     {
         lemma_parse_flags_equiv_if(v);
     }
+
+#[verifier::bit_vector]
+proof fn lemma_x86_page_flags_wf(v: usize, flags: usize)
+    requires
+        flags == (if v & 0x1usize != 0 {
+            0x1usize
+        } else { 0 } | if v & 0x2usize != 0 {
+            0x2usize
+        } else {
+            0
+        } | if !v & 0x8000_0000_0000_0000usize != 0 {
+            0x4usize
+        } else {
+            0
+        } | if v & 0x20usize != 0 {
+            0x8usize
+        } else {
+            0
+        } | if v & 0x40usize != 0 {
+            0x10usize
+        } else {
+            0
+        } | if v & 0x0010_0000_0000_0000usize != 0 {
+            0x40usize
+        } else {
+            0
+        } | if v & 0x0020_0000_0000_0000usize != 0 {
+            0x80usize
+        } else {
+            0
+        }),
+    ensures
+        flags <= 255usize,
+        flags & 0xDFusize == flags,
+{
+}
+
+#[verifier::bit_vector]
+proof fn lemma_x86_priv_flags_wf(v: usize, priv_flags: usize)
+    requires
+        priv_flags == (if v & 0x4usize != 0 {
+            0x1usize
+        } else {
+            0
+        } | if v & 0x100usize != 0 {
+            0x2usize
+        } else {
+            0
+        }),
+    ensures
+        priv_flags <= 255usize,
+        priv_flags & 0x3usize == priv_flags,
+{
+}
+
+#[cfg(feature = "cvm_guest")]
+#[verifier::bit_vector]
+proof fn lemma_x86_priv_flags_cvm_wf(v: usize, priv_flags: usize)
+    requires
+        priv_flags == (if v & 0x4usize != 0 {
+            0x1usize
+        } else {
+            0
+        } | if v & 0x100usize != 0 {
+            0x2usize
+        } else {
+            0
+        } | if v & 0x0200_0000_0000_0000usize != 0 {
+            0x80usize
+        } else {
+            0
+        }),
+    ensures
+        priv_flags <= 255usize,
+        priv_flags & 0x83usize == priv_flags,
+{
+}
 
 } // verus!
 /*
