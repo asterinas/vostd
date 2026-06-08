@@ -6,12 +6,12 @@ use core::fmt::Debug;
 use vstd_extra::prelude::*;
 
 use super::*;
+use crate::arch::mm::{PageTableEntry, PageTableFlags};
 use crate::mm::{
     page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     page_table::*,
     Paddr, PagingLevel,
 };
-use crate::arch::mm::{PageTableFlags, PageTableEntry};
 
 decl_bms_const!(
     PAGE_FLAG_MAPPING,
@@ -22,7 +22,10 @@ decl_bms_const!(
     [
         (PageFlags::R().bits(), PageTableFlags::PRESENT().bits()),
         (PageFlags::W().bits(), PageTableFlags::WRITABLE().bits()),
-        (PageFlags::ACCESSED().bits(), PageTableFlags::ACCESSED().bits()),
+        (
+            PageFlags::ACCESSED().bits(),
+            PageTableFlags::ACCESSED().bits()
+        ),
         (PageFlags::DIRTY().bits(), PageTableFlags::DIRTY().bits())
     ]
 );
@@ -34,7 +37,10 @@ decl_bms_const!(
     usize,
     2,
     [
-        (PrivilegedPageFlags::USER().bits(), PageTableFlags::USER().bits()),
+        (
+            PrivilegedPageFlags::USER().bits(),
+            PageTableFlags::USER().bits()
+        ),
         (
             PrivilegedPageFlags::GLOBAL().bits(),
             PageTableFlags::GLOBAL().bits()
