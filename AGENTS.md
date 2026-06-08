@@ -6,11 +6,11 @@ This repository contains the Verus proof development for Asterinas OSTD. The lay
 
 - `verified_libs/`: The auxiliary verified libraries.
 - `ostd`:
-  * `ostd/src/`: Core OSTD implementation and proofs.
-  * `ostd/specs/`: Verus specifications for OSTD.
+  - `ostd/src/`: Core OSTD implementation and proofs.
+  - `ostd/specs/`: Verus specifications for OSTD.
 - `dv`: The main build system (you can think this as `xtask`-equivalent).
 
-Other components like `kernel`, `ostd`, `test`, and `docs` shall be ignored during verification.
+Other components like `kernel`, `osdk`, `test`, and `docs` shall be ignored during verification.
 
 ## Build, Test, and Development Commands
 
@@ -36,10 +36,9 @@ Before implementing proof-sensitive changes, read the relevant Verus Guide secti
 
 - Do not change any code outside of the verification scope (e.g., `kernel/`, `osdk/`, `test/`, `docs/`).
 - Try to only change proof code first to fix verification issues, and only modify specifications if necessary to enable proofs.
-- Avoid changing executable Rust code unless required to support verification (e.g., use `PPtr` instead of raw pointers). All changes to executable code must be justified in the commit and PR description and should not change observable behavior.
+- Avoid changing executable Rust code unless required to support verification (e.g., use `PPtr` instead of raw pointers). All changes to executable code must be prompted to the user or justified in the PR description, and should not change observable behavior.
 - Keep edits minimal and localized to the smallest necessary dependency closure.
 - Never add `#[verifier::external_body]`, `admit()`, or `assume()` unless instructed. If you really need to add them, prompt the user first to see if adding cheating code is necessary.
-
 
 ## Testing and Verification Guidelines
 
