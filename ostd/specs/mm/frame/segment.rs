@@ -269,6 +269,22 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
         &&& self.range == owner.range
     }
 
+    /// The bundled invariant for [`Segment`] operations that thread an `owner`
+    /// and the global `regions`: the segment's own invariant, its
+    /// well-formedness against the owner, the owner's invariant, the region
+    /// invariant, and the cross-object relation tying the owner to `regions`.
+    ///
+    /// Mirrors the `invariants` bundles used throughout the page-table / cursor
+    /// code — it collapses the five clauses repeated verbatim across `split`,
+    /// `slice`, `into_raw`, `next`, and `drop` into one predicate.
+    pub open spec fn invariants(&self, owner: &SegmentOwner<M>, regions: MetaRegionOwners) -> bool {
+        &&& self.inv()
+        &&& self.wf(owner)
+        &&& owner.inv()
+        &&& regions.inv()
+        &&& owner.relate_regions(regions)
+    }
+
     /// Whether a [`MemView`] covers the segment through the kernel direct mapping.
     ///
     /// This predicate only describes the virtual-to-physical relation and the
@@ -316,6 +332,42 @@ pub open spec fn frame_idx_at(range_start: usize, j: int) -> usize {
     frame_to_index((range_start + j * PAGE_SIZE) as usize)
 }
 
+/// The exact `frame_obligations` effect of recording one forgotten reference
+/// per frame for the first `n` frames of a segment starting at `range_start`:
+///
+/// - every segment frame's count grows by at least one (its recorded
+///   reference), and
+/// - the *frame condition*: every slot that is NOT a segment frame is left
+///   untouched.
+///
+/// The frame condition is the load-bearing part — it pins the *support* of the
+/// change to the segment's slots, so a caller's ledger accounting telescopes
+/// (it can conclude this only touched the segment's slots). Shared by
+/// [`tracked_mint_seg_obligations`] (which establishes it) and
+/// [`Segment::from_unused`] (which advertises it).
+pub open spec fn seg_obligations_minted(
+    pre: MetaRegionOwners,
+    post: MetaRegionOwners,
+    range_start: usize,
+    n: int,
+) -> bool {
+    // Each segment frame gains at least one entry.
+    &&& forall|i: int|
+        #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
+        0 <= i < n ==> post.frame_obligations.count(
+            frame_to_index((range_start + i * PAGE_SIZE) as usize),
+        ) >= pre.frame_obligations.count(
+            frame_to_index((range_start + i * PAGE_SIZE) as usize),
+        ) + 1
+    // Frame condition: every slot that is NOT a segment frame is untouched.
+    &&& forall|jdx: usize|
+        #![trigger post.frame_obligations.count(jdx)]
+        (forall|i: int|
+            #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
+            0 <= i < n ==> jdx != frame_to_index((range_start + i * PAGE_SIZE) as usize))
+            ==> post.frame_obligations.count(jdx) == pre.frame_obligations.count(jdx)
+}
+
 /// Mints one per-frame `frame_obligations` entry for each of the first `n`
 /// frames of a segment starting at `range_start`. Used by
 /// [`Segment::from_unused`] to record the segment's forgotten per-frame
@@ -325,7 +377,14 @@ pub open spec fn frame_idx_at(range_start: usize, j: int) -> usize {
 /// Per-frame obligations replace the old single range-keyed `obligations`
 /// ledger entry. Because `frame_obligations` is a multiset and minting only
 /// ever increases counts, no distinctness hypothesis on the frame indices is
-/// needed to conclude every segment frame ends with `count >= 1`.
+/// needed.
+///
+/// EXACT accounting (Tier A): the ensures pin the *support* of the change —
+/// every segment frame's count grows by at least one, and every *other* slot
+/// is untouched. This frame condition is what lets a caller's accounting
+/// telescope (it can conclude this call touched only the segment's slots).
+/// Each mint targets a segment index, so a non-segment slot is simply never a
+/// mint target — hence the frame condition needs no injectivity argument.
 pub proof fn tracked_mint_seg_obligations(
     tracked regions: &mut MetaRegionOwners,
     range_start: usize,
@@ -338,22 +397,49 @@ pub proof fn tracked_mint_seg_obligations(
         final(regions).inv(),
         final(regions).slots =~= old(regions).slots,
         final(regions).slot_owners =~= old(regions).slot_owners,
+        // Counts only grow.
         forall|idx: usize|
             #![trigger final(regions).frame_obligations.count(idx)]
             final(regions).frame_obligations.count(idx) >= old(
                 regions,
             ).frame_obligations.count(idx),
-        forall|i: int|
-            #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
-            0 <= i < n ==> final(regions).frame_obligations.count(
-                frame_to_index((range_start + i * PAGE_SIZE) as usize),
-            ) >= 1,
+        // The exact per-frame mint effect (segment frames +≥1, all else fixed).
+        seg_obligations_minted(*old(regions), *final(regions), range_start, n),
     decreases n,
 {
+    let ghost g0 = *regions;
     if n > 0 {
         tracked_mint_seg_obligations(regions, range_start, n - 1);
+        let ghost gmid = *regions;
         let idx = frame_to_index((range_start + (n - 1) * PAGE_SIZE) as usize);
         let tracked _ = regions.tracked_mint_frame_obligation(idx);
+        // `regions.frame_obligations == gmid.frame_obligations.insert(idx)`,
+        // and the recursion already proved the strengthened ensures for the
+        // first `n-1` frames against `g0`. Bridge each ensures to `n`.
+        // Frame condition: a non-segment slot is untouched by the recursion
+        // (it omits the slot from `[0, n-1)`) and is not the mint target.
+        assert forall|jdx: usize|
+            #![trigger regions.frame_obligations.count(jdx)]
+            (forall|i: int|
+                #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
+                0 <= i < n ==> jdx != frame_to_index((range_start + i * PAGE_SIZE) as usize))
+                implies regions.frame_obligations.count(jdx) == g0.frame_obligations.count(jdx) by {
+            assert(jdx != idx);
+            assert(gmid.frame_obligations.count(jdx) == g0.frame_obligations.count(jdx));
+        };
+        // Each segment frame gained at least one entry.
+        assert forall|i: int|
+            #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
+            0 <= i < n implies regions.frame_obligations.count(
+                frame_to_index((range_start + i * PAGE_SIZE) as usize),
+            ) >= g0.frame_obligations.count(
+                frame_to_index((range_start + i * PAGE_SIZE) as usize),
+            ) + 1 by {
+            // i < n-1: recursion gives `gmid.count(idx_i) >= g0.count(idx_i)+1`;
+            // the mint only grows counts. i == n-1: `gmid.count(idx) >= g0.count(idx)`
+            // (monotone), and the mint adds exactly one at `idx`.
+            let _ = frame_to_index((range_start + i * PAGE_SIZE) as usize);
+        };
     }
 }
 

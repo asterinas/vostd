@@ -29,9 +29,6 @@ verus! {
 /// they get the API uniformity but not the enforcement.
 #[verifier::reject_recursive_types(R)]
 pub tracked struct DropObligation<R> {
-    /// The token's unique-id-bearing backing. Wraps a `Resource` so that
-    /// every `alloc` produces a fresh [`Loc`] — no `external_body` axiom
-    /// is needed to forge fresh tokens.
     inner: ExclusiveGhost<R>,
 }
 
