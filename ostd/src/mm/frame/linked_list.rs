@@ -34,8 +34,7 @@ use core::{
 use crate::specs::*;
 
 use crate::mm::frame::meta::mapping::{
-    META_SLOT_SIZE, frame_to_index, frame_to_index_spec, max_meta_slots, meta_addr, meta_to_frame,
-    meta_to_frame_spec,
+    META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_addr, meta_to_frame, meta_to_frame_spec,
 };
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, get_slot, has_safe_slot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -642,7 +641,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             // SAFETY: The cursor is pointing to a valid element.
             Some(current) => {
                 let current_md = MetadataAsLink::cast_to_metadata(current);
-                let idx = frame_to_index(meta_to_frame(current.addr()));
+                let ghost idx = frame_to_index(meta_to_frame(current.addr()));
 
                 proof {
                     assert(idx == owner.list_own.slot_index_at(owner.index));
@@ -706,7 +705,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             // SAFETY: The cursor is pointing to a valid element.
             Some(current) => {
                 let current_md = MetadataAsLink::cast_to_metadata(current);
-                let idx = frame_to_index(meta_to_frame(current.addr()));
+                let ghost idx = frame_to_index(meta_to_frame(current.addr()));
 
                 proof {
                     assert(idx == owner.list_own.slot_index_at(owner.index));
@@ -800,7 +799,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     assert(current == self.current.unwrap());
                 }
                 let current_md = MetadataAsLink::cast_to_metadata(current);
-                let idx = frame_to_index(meta_to_frame(current.addr()));
+                let ghost idx = frame_to_index(meta_to_frame(current.addr()));
                 proof {
                     assert(idx == owner.list_own.slot_index_at(owner.index));
                     assert(regions.slots.contains_key(idx));
@@ -941,7 +940,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         let meta_ptr = current.addr();
         let paddr = meta_to_frame(meta_ptr);
-        let idx = frame_to_index(paddr);
+        let ghost idx = frame_to_index(paddr);
 
         assert(current.addr() == owner.list_own.list[owner.index].paddr);
         assert(idx == owner.list_own.slot_index_at(owner.index));

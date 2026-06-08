@@ -159,6 +159,10 @@ pub struct Infallible {}
             },
 )]
 unsafe fn memcpy(dst: VirtPtr, src: VirtPtr, len: usize) {
+    /*
+    // Original memcpy using volatile_copy_memory (replaced during Verus migration):
+    unsafe { core::intrinsics::volatile_copy_memory(dst, src, len) };
+    */
     VirtPtr::copy_nonoverlapping(&src, &dst, Tracked(mem_src), Tracked(mem_dst), len);
 }
 
@@ -1557,6 +1561,48 @@ pub trait VmIoOnce: Sized {
     fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()>;
 }
 
+/*
+// Original impl_vm_io_pointer macro and invocations (removed during Verus migration):
+macro_rules! impl_vm_io_pointer {
+    ($typ:ty,$from:tt) => {
+        #[inherit_methods(from = $from)]
+        impl<T: VmIo> VmIo for $typ {
+            fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()>;
+            fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<()>;
+            fn read_val<F: Pod>(&self, offset: usize) -> Result<F>;
+            fn read_slice<F: Pod>(&self, offset: usize, slice: &mut [F]) -> Result<()>;
+            fn write(&self, offset: usize, reader: &mut VmReader) -> Result<()>;
+            fn write_bytes(&self, offset: usize, buf: &[u8]) -> Result<()>;
+            fn write_val<F: Pod>(&self, offset: usize, new_val: &F) -> Result<()>;
+            fn write_slice<F: Pod>(&self, offset: usize, slice: &[F]) -> Result<()>;
+        }
+    };
+}
+
+impl_vm_io_pointer!(&T, "(**self)");
+impl_vm_io_pointer!(&mut T, "(**self)");
+impl_vm_io_pointer!(Box<T>, "(**self)");
+impl_vm_io_pointer!(Arc<T>, "(**self)");
+*/
+
+/*
+// Original impl_vm_io_once_pointer macro and invocations (removed during Verus migration):
+macro_rules! impl_vm_io_once_pointer {
+    ($typ:ty,$from:tt) => {
+        #[inherit_methods(from = $from)]
+        impl<T: VmIoOnce> VmIoOnce for $typ {
+            fn read_once<F: PodOnce>(&self, offset: usize) -> Result<F>;
+            fn write_once<F: PodOnce>(&self, offset: usize, new_val: &F) -> Result<()>;
+        }
+    };
+}
+
+impl_vm_io_once_pointer!(&T, "(**self)");
+impl_vm_io_once_pointer!(&mut T, "(**self)");
+impl_vm_io_once_pointer!(Box<T>, "(**self)");
+impl_vm_io_once_pointer!(Arc<T>, "(**self)");
+*/
+
 #[verus_verify]
 impl<Fallibility> VmReader<'_, Fallibility> {
     pub open spec fn remain_spec(&self) -> usize {
@@ -1934,6 +1980,15 @@ impl AsVirtPtr for [u8] {
     }
 }
 
+/*
+// Original From<&mut [u8]> for VmWriter (replaced by pub fn from during Verus migration):
+impl<'a> From<&'a mut [u8]> for VmWriter<'a, Infallible> {
+    fn from(slice: &'a mut [u8]) -> Self {
+        unsafe { Self::from_kernel_space(slice.as_mut_ptr(), slice.len()) }
+    }
+}
+*/
+
 #[verus_verify]
 impl<'a> VmWriter<'a, Infallible> {
     /// Constructs a [`VmWriter<'a, Infallible>`] from a mutable byte slice.
@@ -1981,6 +2036,15 @@ impl<'a> VmWriter<'a, Infallible> {
         writer
     }
 }
+
+/*
+// Original From<&[u8]> for VmReader (replaced by pub fn from during Verus migration):
+impl<'a> From<&'a [u8]> for VmReader<'a, Infallible> {
+    fn from(slice: &'a [u8]) -> Self {
+        unsafe { Self::from_kernel_space(slice.as_ptr(), slice.len()) }
+    }
+}
+*/
 
 #[verus_verify]
 impl<'a> VmReader<'a, Infallible> {

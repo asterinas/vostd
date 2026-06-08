@@ -15,7 +15,7 @@ use crate::mm::Paddr;
 use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
-use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_index_spec, meta_to_frame_spec};
+use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_index, meta_to_frame_spec};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
@@ -247,7 +247,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
 
     /// The region slot index keyed by the `i`-th link's meta-slot address.
     pub open spec fn slot_index_at(self, i: int) -> usize {
-        frame_to_index_spec(meta_to_frame_spec(self.list[i].paddr))
+        frame_to_index(meta_to_frame_spec(self.list[i].paddr))
     }
 
     /// The typed permission for the `i`-th link, reconstructed from the region:
