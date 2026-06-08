@@ -16,7 +16,7 @@ Other components like `kernel`, `osdk`, `test`, and `docs` shall be ignored duri
 
 - `git submodule update --init --recursive`: initialize required submodules.
 - `make verus` or `cargo dv bootstrap`: fetch and build the configured Verus toolchain under `tools/`.
-  * `make verus update` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
+  - `make verus update` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
 - `make` or `cargo dv verify --targets ostd`: verify the main `ostd` target.
 - `cargo dv verify --targets ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`.
 - `cargo dv compile --targets vstd_extra`: compile and verify the `vstd_extra` library independently.
@@ -30,7 +30,7 @@ Use Rust 2021 style with Verus proof conventions. Keep executable code, `spec` f
 
 ## Verus Requirements
 
-Before implementing proof-sensitive changes, read the relevant Verus Guide section and nearby project proofs. Prefer existing patterns from `ostd/specs/`, `verified_libs/`, and adjacent lemmas over inventing new proof structure. Make invariants explicit in specs, preconditions, postconditions, and lemma names. Compile and verify with Verus before submitting; fix verification failures rather than weakening specs to pass.
+For proof-sensitive changes, use `.agents/skills/verus-proof-guidance/SKILL.md` only when nontrivial Verus reasoning, specification changes, or verification failures require it. Keep routine edits lightweight.
 
 ## Hard Constraints
 
@@ -51,8 +51,3 @@ Recent history uses short, imperative summaries but does not enforce a strict pr
 ## Security & Configuration Tips
 
 Do not commit generated artifacts such as `target/`, `doc/`, or local logs. Keep Verus, Z3, and bootstrap configuration local through environment variables such as `VERUS_PATH` and `VERUS_Z3_PATH` when needed.
-
-## Verus References
-
-- [Verus Guide](https://verus-lang.github.io/verus/guide/)
-- [vstd Library](https://verus-lang.github.io/verus/verusdoc/vstd/)
