@@ -2,12 +2,21 @@
 
 ## Project Structure & Module Organization
 
-This repository contains the Verus proof development for Asterinas OSTD. The auxiliary verified libraries are under `verified_libs/`. Core OSTD implementation and proofs live in `ostd/src/`; specifications live in `ostd/specs/`. The verification build system is in `dv`. `kernel`, `osdk`, `test`, and `docs` are not considered in the verification scope.
+This repository contains the Verus proof development for Asterinas OSTD. The layout is given as follows:
+
+- `verified_libs/`: The auxiliary verified libraries.
+- `ostd`:
+  * `ostd/src/`: Core OSTD implementation and proofs.
+  * `ostd/specs/`: Verus specifications for OSTD.
+- `dv`: The main build system (you can think this as `xtask`-equivalent).
+
+Other components like `kernel`, `ostd`, `test`, and `docs` shall be ignored during verification.
 
 ## Build, Test, and Development Commands
 
 - `git submodule update --init --recursive`: initialize required submodules.
 - `make verus` or `cargo dv bootstrap`: fetch and build the configured Verus toolchain under `tools/`.
+  * `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
 - `make` or `cargo dv verify --targets ostd`: verify the main `ostd` target.
 - `cargo dv verify --targets ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`.
 - `cargo dv compile --targets vstd_extra`: compile and verify the `vstd_extra` library independently.
@@ -29,6 +38,8 @@ Before implementing proof-sensitive changes, read the relevant Verus Guide secti
 - Try to only change proof code first to fix verification issues, and only modify specifications if necessary to enable proofs.
 - Avoid changing executable Rust code unless required to support verification (e.g., use `PPtr` instead of raw pointers). All changes to executable code must be justified in the commit and PR description and should not change observable behavior.
 - Keep edits minimal and localized to the smallest necessary dependency closure.
+- Never add `#[verifier::external_body]`, `admit()`, or `assume()` unless instructed. If you really need to add them, prompt the user first to see if adding cheating code is necessary.
+
 
 ## Testing and Verification Guidelines
 
