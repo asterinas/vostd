@@ -16,7 +16,7 @@ Other components like `kernel`, `osdk`, `test`, and `docs` shall be ignored duri
 
 - `git submodule update --init --recursive`: initialize required submodules.
 - `make verus` or `cargo dv bootstrap`: fetch and build the configured Verus toolchain under `tools/`.
-  * `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
+  * `make verus update` or `cargo dv bootstrap --upgrade`: needed if there is compilation errors which might be caused by toolchain updates.
 - `make` or `cargo dv verify --targets ostd`: verify the main `ostd` target.
 - `cargo dv verify --targets ostd -- --verify-only-module <module_path>`: verify only a specific module, for example `sync::rwlock`.
 - `cargo dv compile --targets vstd_extra`: compile and verify the `vstd_extra` library independently.
