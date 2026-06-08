@@ -36,7 +36,7 @@ Verification is the primary correctness gate. Run `make` before submitting chang
 
 ## Commit & Pull Request Guidelines
 
-Recent history uses short, imperative summaries but does not enforce a strict prefix convention. Prefer clear subjects such as `Fix page table cursor lemma`. Pull requests should describe the changed subsystem, list verification or formatting commands run, link related issues, and include documentation updates when public APIs or workflows change.
+Recent history uses short, imperative summaries but does not enforce a strict prefix convention. Prefer clear subjects such as `Fix page table cursor lemma`. Pull requests should describe the changed subsystem, list verification or formatting commands run and link related issues.
 
 ## Security & Configuration Tips
 
