@@ -16,12 +16,12 @@ pub(crate) use util::{__memcpy_fallible, __memset_fallible};
 
 use crate::specs::arch::PAGE_SIZE;
 use crate::{
-    Pod,
     mm::{
-        Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},
         page_table::{PageTableEntryTrait, PageTableFrag},
+        Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
     },
+    Pod,
 };
 
 mod util;
@@ -140,34 +140,34 @@ impl Default for PageTableEntry {
 }
 
 } // verus!
-/*
-/// Activates the given level 4 page table.
-/// The cache policy of the root page table node is controlled by `root_pt_cache`.
-///
-/// # Safety
-///
-/// Changing the level 4 page table is unsafe, because it's possible to violate memory safety by
-/// changing the page mapping.
-pub unsafe fn activate_page_table(root_paddr: Paddr, root_pt_cache: CachePolicy) {
-    let addr = PhysFrame::from_start_address(x86_64::PhysAddr::new(root_paddr as u64)).unwrap();
-    let flags = match root_pt_cache {
-        CachePolicy::Writeback => x86_64::registers::control::Cr3Flags::empty(),
-        CachePolicy::Writethrough => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_WRITETHROUGH,
-        CachePolicy::Uncacheable => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_CACHE_DISABLE,
-        _ => panic!("unsupported cache policy for the root page table"),
-    };
+  /*
+  /// Activates the given level 4 page table.
+  /// The cache policy of the root page table node is controlled by `root_pt_cache`.
+  ///
+  /// # Safety
+  ///
+  /// Changing the level 4 page table is unsafe, because it's possible to violate memory safety by
+  /// changing the page mapping.
+  pub unsafe fn activate_page_table(root_paddr: Paddr, root_pt_cache: CachePolicy) {
+      let addr = PhysFrame::from_start_address(x86_64::PhysAddr::new(root_paddr as u64)).unwrap();
+      let flags = match root_pt_cache {
+          CachePolicy::Writeback => x86_64::registers::control::Cr3Flags::empty(),
+          CachePolicy::Writethrough => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_WRITETHROUGH,
+          CachePolicy::Uncacheable => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_CACHE_DISABLE,
+          _ => panic!("unsupported cache policy for the root page table"),
+      };
 
-    // SAFETY: The safety is upheld by the caller.
-    unsafe { x86_64::registers::control::Cr3::write(addr, flags) };
-}
+      // SAFETY: The safety is upheld by the caller.
+      unsafe { x86_64::registers::control::Cr3::write(addr, flags) };
+  }
 
-pub fn current_page_table_paddr() -> Paddr {
-    x86_64::registers::control::Cr3::read_raw()
-        .0
-        .start_address()
-        .as_u64() as Paddr
-}
-*/
+  pub fn current_page_table_paddr() -> Paddr {
+      x86_64::registers::control::Cr3::read_raw()
+          .0
+          .start_address()
+          .as_u64() as Paddr
+  }
+  */
 verus! {
 
 impl PageTableEntry {
@@ -465,7 +465,7 @@ impl PageTableEntryTrait for PageTableEntry {
         let flags = PageTableFlags::HUGE().bits();
         let pte = paddr & Self::PHYS_ADDR_MASK | flags;
         match prop.cache {
-            CachePolicy::Writeback | 
+            CachePolicy::Writeback |
             CachePolicy::Writethrough |
             CachePolicy::Uncacheable => Self(Self::raw_set_prop_spec(pte, prop)),
             _ => arbitrary(),
@@ -924,10 +924,10 @@ proof fn lemma_parse_flags_collorary(v: usize)
         parse_flags!(v, PageTableFlags::ACCESSED(), PageFlags::ACCESSED())) | (
         parse_flags!(v, PageTableFlags::DIRTY(), PageFlags::DIRTY())) | (
         parse_flags!(v, PageTableFlags::HIGH_IGN1(), PageFlags::AVAIL1())) | (
-        parse_flags!(v, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2())) == 
+        parse_flags!(v, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2())) ==
         PageProperty::decode_page_flags_spec(v),
         (parse_flags!(v, PageTableFlags::USER(), PrivFlags::USER())) | (
-        parse_flags!(v, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL())) == 
+        parse_flags!(v, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL())) ==
         PageProperty::decode_priv_flags_spec(v),
 {
     lemma_parse_flags_equiv_if(v);
@@ -1179,19 +1179,19 @@ proof fn lemma_x86_set_prop_preserves_entry_bits(old_raw: usize, new_raw: usize,
 }
 
 } // verus!
-/*
-impl fmt::Debug for PageTableEntry {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut f = f.debug_struct("PageTableEntry");
-        f.field("raw", &format_args!("{:#x}", self.0))
-            .field("paddr", &format_args!("{:#x}", self.paddr()))
-            .field("present", &self.is_present())
-            .field(
-                "flags",
-                &PageTableFlags::from_bits_truncate(self.0 & !Self::PHYS_ADDR_MASK),
-            )
-            .field("prop", &self.prop())
-            .finish()
-    }
-}
-*/
+  /*
+  impl fmt::Debug for PageTableEntry {
+      fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+          let mut f = f.debug_struct("PageTableEntry");
+          f.field("raw", &format_args!("{:#x}", self.0))
+              .field("paddr", &format_args!("{:#x}", self.paddr()))
+              .field("present", &self.is_present())
+              .field(
+                  "flags",
+                  &PageTableFlags::from_bits_truncate(self.0 & !Self::PHYS_ADDR_MASK),
+              )
+              .field("prop", &self.prop())
+              .finish()
+      }
+  }
+  */
