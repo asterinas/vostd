@@ -949,7 +949,8 @@ proof fn lemma_x86_priv_flags_cvm_wf(v: usize, priv_flags: usize)
 {
 }
 
-closed spec fn x86_encoded_flags_numeric(
+/// It is the same as `PageProperty::encode_prop_flags_spec`, but all constants are expanded to support bit_vector.
+closed spec fn encode_prop_flags_bv_spec(
     pbits: usize,
     priv_bits: usize,
     cache_flags: usize,
@@ -966,7 +967,7 @@ closed spec fn x86_encoded_flags_numeric(
         | cache_flags
 }
 
-proof fn lemma_x86_encode_set_prop_flags_numeric(
+proof fn lemma_encode_prop_flags_matches(
     pbits: u8,
     priv_bits: u8,
     cache_flags: usize,
@@ -985,7 +986,7 @@ proof fn lemma_x86_encode_set_prop_flags_numeric(
             | parse_flags!(priv_bits, PrivFlags::USER(), PageTableFlags::USER())
             | parse_flags!(priv_bits, PrivFlags::GLOBAL(), PageTableFlags::GLOBAL())
             | cache_flags)
-            == x86_encoded_flags_numeric(pbits as usize, priv_bits as usize, cache_flags),
+            == encode_prop_flags_bv_spec(pbits as usize, priv_bits as usize, cache_flags),
 {
     lemma_page_property_flag_constants();
     assert((0usize
@@ -999,7 +1000,7 @@ proof fn lemma_x86_encode_set_prop_flags_numeric(
         | ((priv_bits as usize & 0x1usize) >> 0 << 2)
         | ((priv_bits as usize & 0x2usize) >> 1 << 8)
         | cache_flags)
-        == x86_encoded_flags_numeric(pbits as usize, priv_bits as usize, cache_flags)) by (bit_vector);
+        == encode_prop_flags_bv_spec(pbits as usize, priv_bits as usize, cache_flags)) by (bit_vector);
 }
 
 #[verifier::bit_vector]
@@ -1014,7 +1015,7 @@ proof fn lemma_x86_set_prop_decode_bits(
         pbits & 0xDFusize == pbits,
         priv_bits & 0x3usize == priv_bits,
         cache_flags == 0usize || cache_flags == 0x8usize || cache_flags == 0x10usize,
-        flags == x86_encoded_flags_numeric(pbits, priv_bits, cache_flags),
+        flags == encode_prop_flags_bv_spec(pbits, priv_bits, cache_flags),
     ensures
         flags & PageTableEntry::PHYS_ADDR_MASK == 0,
         pbits & 0x1usize == 0x1usize ==> flags & 0x1usize == 0x1usize,
@@ -1088,7 +1089,7 @@ proof fn lemma_x86_set_prop_roundtrip(old_raw: usize, flags: usize, prop: PagePr
     } else {
         0usize
     };
-    lemma_x86_encode_set_prop_flags_numeric(pbits_u8, priv_bits_u8, cache_flags);
+    lemma_encode_prop_flags_matches(pbits_u8, priv_bits_u8, cache_flags);
     let new_raw = old_raw & !(!PageTableEntry::PHYS_ADDR_MASK & !PageTableFlags::HUGE().bits())
         | flags;
     lemma_x86_set_prop_decode_bits(old_raw, flags, pbits, priv_bits, cache_flags);
