@@ -3,7 +3,6 @@
 
 use crate::specs::arch::MAX_PADDR;
 use vstd::prelude::*;
-use vstd::vpanic;
 use vstd_extra::panic::may_panic;
 use vstd_extra::panic::panic_diverge;
 use vstd_extra::prelude::*;
@@ -224,11 +223,29 @@ impl PageTableEntryTrait for PageTableEntry {
         let flags = PageTableFlags::HUGE().bits();
         let mut pte = Self(paddr & Self::PHYS_ADDR_MASK | flags);
         proof {
+            Self::lemma_page_table_entry_properties();
+            lemma_auxiliary_bit_properties(paddr);
+            lemma_auxiliary_bit_properties(paddr & Self::PHYS_ADDR_MASK | flags);
             assert(pte.set_prop_req(prop));
+            assert((paddr & Self::PHYS_ADDR_MASK | flags) & Self::PHYS_ADDR_MASK
+                == paddr & Self::PHYS_ADDR_MASK) by (bit_vector)
+                requires
+                    flags == PageTableFlags::HUGE().bits();
+            assert(paddr < MAX_PADDR ==> (paddr & Self::PHYS_ADDR_MASK | flags)
+                & Self::PHYS_ADDR_MASK == paddr & !((PAGE_SIZE - 1) as usize))
+                by (bit_vector)
+                requires
+                    flags == PageTableFlags::HUGE().bits();
+            assert(((paddr & Self::PHYS_ADDR_MASK | flags) & PageTableFlags::HUGE().bits()) != 0)
+                by (bit_vector)
+                requires
+                    flags == PageTableFlags::HUGE().bits();
+            assert(pte.is_present());
+            assert(pte.is_last(_level));
         }
         pte.set_prop(prop);
         proof {
-            admit();
+            assert(pte == Self::new_page_spec(paddr, _level, prop));
         }
         pte
     }
@@ -243,11 +260,9 @@ impl PageTableEntryTrait for PageTableEntry {
         proof {
             Self::lemma_page_table_entry_properties();
             lemma_auxiliary_bit_properties(paddr);
-            assert((PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits()
-                | PageTableFlags::USER().bits()) & Self::PHYS_ADDR_MASK == 0) by (compute);
             assert(paddr < MAX_PADDR ==> paddr & Self::PHYS_ADDR_MASK == paddr & !((PAGE_SIZE
                 - 1) as usize)) by (bit_vector);
-            assert((Self(paddr & Self::PHYS_ADDR_MASK | flags)) =~= Self::new_pt_spec(paddr));
+            assert((Self(paddr & Self::PHYS_ADDR_MASK | flags)) == Self::new_pt(paddr));
         }
         Self(paddr & Self::PHYS_ADDR_MASK | flags)
     }
@@ -297,9 +312,9 @@ impl PageTableEntryTrait for PageTableEntry {
                 lemma_x86_priv_flags_cvm_wf(self.0, priv_flags);
             }
             let spec_prop = self.prop();
-            assert(cache =~= spec_prop.cache);
-            assert(PageFlags::from_bits(flags as u8)->0 =~= spec_prop.flags);
-            assert(PrivFlags::from_bits(priv_flags as u8)->0 =~= spec_prop.priv_flags);
+            assert(cache == spec_prop.cache);
+            assert(PageFlags::from_bits(flags as u8)->0 == spec_prop.flags);
+            assert(PrivFlags::from_bits(priv_flags as u8)->0 == spec_prop.priv_flags);
         }
         PageProperty {
             flags: PageFlags::from_bits(flags as u8).unwrap(),
@@ -315,11 +330,16 @@ impl PageTableEntryTrait for PageTableEntry {
             ==> may_panic())
     }
 
-    fn set_prop(&mut self, prop: PageProperty) {
+    fn set_prop(&mut self, prop: PageProperty)
+        ensures
+            old(self).is_present() ==> final(self).as_usize() == Self::raw_set_prop_spec(
+                old(self).as_usize(),
+                prop,
+            ),
+    {
         proof {
             lemma_auxiliary_bit_properties(0);
             lemma_page_property_flag_constants();
-            assert(self.set_prop_req(prop));
         }
         if !self.is_present() {
             return;
@@ -397,7 +417,9 @@ impl PageTableEntryTrait for PageTableEntry {
                 panic_diverge();
             },
         }
-        
+        proof {
+            assert(flags == PageProperty::encode_prop_flags_spec(prop));
+        }
         self.0 = self.0 & !Self::PROP_MASK | flags;
         proof {
             lemma_x86_set_prop_roundtrip(old(self).0, flags, prop);
@@ -426,61 +448,10 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     closed spec fn prop_spec(&self) -> PageProperty {
-        let flags = if self.as_usize() & PageTableFlags::PRESENT().bits() != 0 {
-            PageFlags::R().bits()
-        } else {
-            0
-        } | if self.as_usize() & PageTableFlags::WRITABLE().bits() != 0 {
-            PageFlags::W().bits()
-        } else {
-            0
-        } | if !self.as_usize() & PageTableFlags::NO_EXECUTE().bits() != 0 {
-            PageFlags::X().bits()
-        } else {
-            0
-        } | if self.as_usize() & PageTableFlags::ACCESSED().bits() != 0 {
-            PageFlags::ACCESSED().bits()
-        } else {
-            0
-        } | if self.as_usize() & PageTableFlags::DIRTY().bits() != 0 {
-            PageFlags::DIRTY().bits()
-        } else {
-            0
-        } | if self.as_usize() & PageTableFlags::HIGH_IGN1().bits() != 0 {
-            PageFlags::AVAIL1().bits()
-        } else {
-            0
-        } | if self.as_usize() & PageTableFlags::HIGH_IGN2().bits() != 0 {
-            PageFlags::AVAIL2().bits()
-        } else {
-            0
-        };
-        let priv_flags = if self.as_usize() & PageTableFlags::USER().bits() != 0 {
-            PrivFlags::USER().bits()
-        } else {
-            0
-        } | if self.as_usize() & PageTableFlags::GLOBAL().bits() != 0 {
-            PrivFlags::GLOBAL().bits()
-        } else {
-            0
-        };
-        #[cfg(feature = "cvm_guest")]
-        let priv_flags = priv_flags | if self.as_usize() & PageTableFlags::SHARED().bits() != 0 {
-            PrivFlags::SHARED().bits()
-        } else {
-            0
-        };
-        let cache = if self.as_usize() & PageTableFlags::NO_CACHE().bits() != 0 {
-            CachePolicy::Uncacheable
-        } else if self.as_usize() & PageTableFlags::WRITE_THROUGH().bits() != 0 {
-            CachePolicy::Writethrough
-        } else {
-            CachePolicy::Writeback
-        };
         PageProperty {
-            flags: PageFlags::from_bits(flags as u8)->0,
-            cache,
-            priv_flags: PrivFlags::from_bits(priv_flags as u8)->0,
+            flags: PageFlags::from_bits(PageProperty::decode_page_flags_spec(self.0))->0,
+            cache: PageProperty::decode_cache_spec(self.0),
+            priv_flags: PrivFlags::from_bits(PageProperty::decode_priv_flags_spec(self.0))->0,
         }
     }
 
@@ -493,60 +464,10 @@ impl PageTableEntryTrait for PageTableEntry {
     closed spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self {
         let flags = PageTableFlags::HUGE().bits();
         let pte = paddr & Self::PHYS_ADDR_MASK | flags;
-        let flags = PageTableFlags::empty().bits() | if prop.flags.bits() & PageFlags::R().bits()
-            != 0 {
-            PageTableFlags::PRESENT().bits()
-        } else {
-            0
-        } | if prop.flags.bits() & PageFlags::W().bits() != 0 {
-            PageTableFlags::WRITABLE().bits()
-        } else {
-            0
-        } | if !prop.flags.bits() & PageFlags::X().bits() != 0 {
-            0
-        } else {
-            PageTableFlags::NO_EXECUTE().bits()
-        } | if prop.flags.bits() & PageFlags::ACCESSED().bits() != 0 {
-            PageTableFlags::ACCESSED().bits()
-        } else {
-            0
-        } | if prop.flags.bits() & PageFlags::DIRTY().bits() != 0 {
-            PageTableFlags::DIRTY().bits()
-        } else {
-            0
-        } | if prop.flags.bits() & PageFlags::AVAIL1().bits() != 0 {
-            PageTableFlags::HIGH_IGN1().bits()
-        } else {
-            0
-        } | if prop.flags.bits() & PageFlags::AVAIL2().bits() != 0 {
-            PageTableFlags::HIGH_IGN2().bits()
-        } else {
-            0
-        } | if prop.priv_flags.bits() & PrivFlags::USER().bits() != 0 {
-            PageTableFlags::USER().bits()
-        } else {
-            0
-        } | if prop.priv_flags.bits() & PrivFlags::GLOBAL().bits() != 0 {
-            PageTableFlags::GLOBAL().bits()
-        } else {
-            0
-        };
-        #[cfg(feature = "cvm_guest")]
-        let flags = flags | if prop.priv_flags.bits() & PrivFlags::SHARED().bits() != 0 {
-            PageTableFlags::SHARED().bits()
-        } else {
-            0
-        };
         match prop.cache {
-            CachePolicy::Writeback => { Self(pte | flags) },
-            CachePolicy::Writethrough => {
-                let flags = flags | PageTableFlags::WRITE_THROUGH().bits();
-                Self(pte | flags)
-            },
-            CachePolicy::Uncacheable => {
-                let flags = flags | PageTableFlags::NO_CACHE().bits();
-                Self(pte | flags)
-            },
+            CachePolicy::Writeback | 
+            CachePolicy::Writethrough |
+            CachePolicy::Uncacheable => Self(Self::raw_set_prop_spec(pte, prop)),
             _ => arbitrary(),
         }
     }
@@ -565,6 +486,101 @@ impl PageTableEntryTrait for PageTableEntry {
 
     proof fn lemma_paddr_is_page_aligned(self) {
         lemma_auxiliary_bit_properties(self.0);
+    }
+}
+
+
+impl PageTableEntry {
+    pub closed spec fn raw_set_prop_spec(old_raw: usize, prop: PageProperty) -> usize {
+        old_raw & !Self::PROP_MASK | PageProperty::encode_prop_flags_spec(prop)
+    }
+}
+
+// Auxiliary definitions and lemmas about bit properties of page table entries and flags.
+impl PageProperty {
+    closed spec fn encode_prop_flags_spec(prop: Self) -> usize {
+        let flags = PageTableFlags::empty().bits()
+            | parse_flags!(prop.flags.bits(), PageFlags::R(), PageTableFlags::PRESENT())
+            | parse_flags!(prop.flags.bits(), PageFlags::W(), PageTableFlags::WRITABLE())
+            | parse_flags!(!prop.flags.bits(), PageFlags::X(), PageTableFlags::NO_EXECUTE())
+            | parse_flags!(prop.flags.bits(), PageFlags::ACCESSED(), PageTableFlags::ACCESSED())
+            | parse_flags!(prop.flags.bits(), PageFlags::DIRTY(), PageTableFlags::DIRTY())
+            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL1(), PageTableFlags::HIGH_IGN1())
+            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL2(), PageTableFlags::HIGH_IGN2())
+            | parse_flags!(prop.priv_flags.bits(), PrivFlags::USER(), PageTableFlags::USER())
+            | parse_flags!(prop.priv_flags.bits(), PrivFlags::GLOBAL(), PageTableFlags::GLOBAL());
+        #[cfg(feature = "cvm_guest")]
+        let flags = flags
+            | parse_flags!(prop.priv_flags.bits(), PrivFlags::SHARED(), PageTableFlags::SHARED());
+        flags | if prop.cache is Writeback {
+            0
+        } else if prop.cache is Writethrough {
+            PageTableFlags::WRITE_THROUGH().bits()
+        } else {
+            PageTableFlags::NO_CACHE().bits()
+        }
+    }
+
+    closed spec fn decode_page_flags_spec(raw: usize) -> u8 {
+        let flags = if raw & PageTableFlags::PRESENT().bits() != 0 {
+            PageFlags::R().bits()
+        } else {
+            0
+        } | if raw & PageTableFlags::WRITABLE().bits() != 0 {
+            PageFlags::W().bits()
+        } else {
+            0
+        } | if !raw & PageTableFlags::NO_EXECUTE().bits() != 0 {
+            PageFlags::X().bits()
+        } else {
+            0
+        } | if raw & PageTableFlags::ACCESSED().bits() != 0 {
+            PageFlags::ACCESSED().bits()
+        } else {
+            0
+        } | if raw & PageTableFlags::DIRTY().bits() != 0 {
+            PageFlags::DIRTY().bits()
+        } else {
+            0
+        } | if raw & PageTableFlags::HIGH_IGN1().bits() != 0 {
+            PageFlags::AVAIL1().bits()
+        } else {
+            0
+        } | if raw & PageTableFlags::HIGH_IGN2().bits() != 0 {
+            PageFlags::AVAIL2().bits()
+        } else {
+            0
+        };
+        flags
+    }
+
+    closed spec fn decode_priv_flags_spec(raw: usize) -> u8 {
+        let priv_flags = if raw & PageTableFlags::USER().bits() != 0 {
+            PrivFlags::USER().bits()
+        } else {
+            0
+        } | if raw & PageTableFlags::GLOBAL().bits() != 0 {
+            PrivFlags::GLOBAL().bits()
+        } else {
+            0
+        };
+        #[cfg(feature = "cvm_guest")]
+        let priv_flags = priv_flags | if raw & PageTableFlags::SHARED().bits() != 0 {
+            PrivFlags::SHARED().bits()
+        } else {
+            0
+        };
+        priv_flags
+    }
+
+    closed spec fn decode_cache_spec(raw: usize) -> CachePolicy {
+        if raw & PageTableFlags::NO_CACHE().bits() != 0 {
+            CachePolicy::Uncacheable
+        } else if raw & PageTableFlags::WRITE_THROUGH().bits() != 0 {
+            CachePolicy::Writethrough
+        } else {
+            CachePolicy::Writeback
+        }
     }
 }
 
@@ -1043,27 +1059,11 @@ proof fn lemma_x86_set_prop_roundtrip(old_raw: usize, flags: usize, prop: PagePr
         prop.inv(),
         prop.flags.bits() & PageFlags::R().bits() == PageFlags::R().bits(),
         prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable,
-        flags == (PageTableFlags::empty().bits()
-            | parse_flags!(prop.flags.bits(), PageFlags::R(), PageTableFlags::PRESENT())
-            | parse_flags!(prop.flags.bits(), PageFlags::W(), PageTableFlags::WRITABLE())
-            | parse_flags!(!prop.flags.bits(), PageFlags::X(), PageTableFlags::NO_EXECUTE())
-            | parse_flags!(prop.flags.bits(), PageFlags::ACCESSED(), PageTableFlags::ACCESSED())
-            | parse_flags!(prop.flags.bits(), PageFlags::DIRTY(), PageTableFlags::DIRTY())
-            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL1(), PageTableFlags::HIGH_IGN1())
-            | parse_flags!(prop.flags.bits(), PageFlags::AVAIL2(), PageTableFlags::HIGH_IGN2())
-            | parse_flags!(prop.priv_flags.bits(), PrivFlags::USER(), PageTableFlags::USER())
-            | parse_flags!(prop.priv_flags.bits(), PrivFlags::GLOBAL(), PageTableFlags::GLOBAL())
-            | if prop.cache is Writeback {
-                0
-            } else if prop.cache is Writethrough {
-                PageTableFlags::WRITE_THROUGH().bits()
-            } else {
-                PageTableFlags::NO_CACHE().bits()
-            }),
+        flags == PageProperty::encode_prop_flags_spec(prop),
     ensures
         PageTableEntry(
             old_raw & !(!PageTableEntry::PHYS_ADDR_MASK & !PageTableFlags::HUGE().bits()) | flags,
-        ).prop() =~= prop,
+        ).prop() == prop,
         PageTableEntry(
             old_raw & !(!PageTableEntry::PHYS_ADDR_MASK & !PageTableFlags::HUGE().bits()) | flags,
         ).paddr() == PageTableEntry(old_raw).paddr(),
@@ -1093,15 +1093,8 @@ proof fn lemma_x86_set_prop_roundtrip(old_raw: usize, flags: usize, prop: PagePr
         | flags;
     lemma_x86_set_prop_decode_bits(old_raw, flags, pbits, priv_bits, cache_flags);
     lemma_x86_set_prop_preserves_entry_bits(old_raw, new_raw, flags);
-    let decoded_flags = (if new_raw & 0x1usize != 0 { 0x1usize } else { 0 })
-        | (if new_raw & 0x2usize != 0 { 0x2usize } else { 0 })
-        | (if !new_raw & 0x8000_0000_0000_0000usize != 0 { 0x4usize } else { 0 })
-        | (if new_raw & 0x20usize != 0 { 0x8usize } else { 0 })
-        | (if new_raw & 0x40usize != 0 { 0x10usize } else { 0 })
-        | (if new_raw & 0x0010_0000_0000_0000usize != 0 { 0x40usize } else { 0 })
-        | (if new_raw & 0x0020_0000_0000_0000usize != 0 { 0x80usize } else { 0 });
-    let decoded_priv_flags = (if new_raw & 0x4usize != 0 { 0x1usize } else { 0 })
-        | (if new_raw & 0x100usize != 0 { 0x2usize } else { 0 });
+    let decoded_flags = PageProperty::decode_page_flags_spec(new_raw);
+    let decoded_priv_flags = PageProperty::decode_priv_flags_spec(new_raw);
     PageFlags::lemma_from_bits_bits(decoded_flags as u8);
     PrivFlags::lemma_from_bits_bits(decoded_priv_flags as u8);
     PageFlags::lemma_eq_from_bits(PageTableEntry(new_raw).prop().flags, prop.flags);
