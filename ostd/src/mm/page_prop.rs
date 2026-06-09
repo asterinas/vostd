@@ -149,3 +149,43 @@ bitflags! {
         const SHARED    = 0b10000000;
     }
 }
+
+verus! {
+
+impl PageFlags {
+    pub proof fn lemma_from_bits_bits(bits: u8)
+        requires
+            bits & Self::all_bits() == bits,
+        ensures
+            Self::from_bits(bits)->0.bits() == bits,
+    {
+    }
+
+    pub proof fn lemma_eq_from_bits(left: Self, right: Self)
+        requires
+            left.bits() == right.bits(),
+        ensures
+            left =~= right,
+    {
+    }
+}
+
+impl PrivilegedPageFlags {
+    pub proof fn lemma_from_bits_bits(bits: u8)
+        requires
+            bits & Self::all_bits() == bits,
+        ensures
+            Self::from_bits(bits)->0.bits() == bits,
+    {
+    }
+
+    pub proof fn lemma_eq_from_bits(left: Self, right: Self)
+        requires
+            left.bits() == right.bits(),
+        ensures
+            left =~= right,
+    {
+    }
+}
+
+} // verus!
