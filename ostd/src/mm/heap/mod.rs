@@ -8,6 +8,7 @@ use core::{
 };
 
 use crate::mm::Vaddr;
+use vstd_extra::external::alloc_types::*;
 
 mod slab;
 mod slot;
@@ -35,22 +36,6 @@ macro_rules! abort_with_message {
 }
 
 verus! {
-
-#[verifier::external_type_specification]
-#[verifier::external_body]
-pub struct ExLayout(Layout);
-
-#[verifier::external_type_specification]
-pub struct ExAllocError(AllocError);
-
-pub assume_specification[Layout::size](layout: &Layout) -> usize;
-
-pub assume_specification[Layout::align](layout: &Layout) -> (res: usize)
-    ensures
-        res != 0,
-;
-
-pub assume_specification[core::intrinsics::abort]() -> !;
 
 /// The trait for the global heap allocator.
 ///
