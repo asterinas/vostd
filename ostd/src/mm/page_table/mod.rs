@@ -18,7 +18,8 @@ use crate::mm::frame::meta::MetaSlot;
 
 use super::{
     Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr, kspace::KernelPtConfig,
-    lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge, page_prop::PageProperty,
+    lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge,
+    page_prop::{CachePolicy, PageProperty},
     vm_space::UserPtConfig,
 };
 
@@ -649,7 +650,8 @@ pub trait PageTableEntryTrait:
                 1 < level ==> !Self::new_absent().is_last(level),
             forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
                 #![trigger Self::new_page(paddr, level, prop)]
-                {
+                Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
+                    || prop.cache is Writethrough || prop.cache is Uncacheable) ==> {
                     &&& Self::new_page(paddr, level, prop).is_present()
                     &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr
                         & !((PAGE_SIZE - 1) as usize))
