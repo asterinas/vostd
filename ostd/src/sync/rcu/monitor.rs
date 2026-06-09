@@ -15,10 +15,60 @@ use crate::sync::{LocalIrqDisabled, SpinLock};
 
 verus! {
 
-pub type Callbacks = Vec<RawCallback>;
+pub type Callbacks = Vec<RcuCallback>;
 
 type MonitorAtomicBool =
     WeakAtomicBool<(), rcu_spec::RcuMonitorFlagGhost, rcu_spec::RcuMonitorFlagInv>;
+
+/// RCU-specific wrapper around a type-erased executable callback.
+///
+/// `RawCallback` is intentionally proof-opaque. The summary records the object
+/// identity that the monitor invariant will use to decide when this callback is
+/// safe to run after a grace period.
+#[must_use]
+pub struct RcuCallback {
+    raw: RawCallback,
+    summary: Ghost<rcu_spec::RcuCallbackSummary>,
+}
+
+impl View for RcuCallback {
+    type V = rcu_spec::RcuCallbackSummary;
+
+    closed spec fn view(&self) -> rcu_spec::RcuCallbackSummary {
+        self.summary@
+    }
+}
+
+impl RcuCallback {
+    /// Converts a raw callback into an RCU callback, given a proof that the callback is
+    /// safe to run after a grace period.
+    #[inline]
+    pub fn from_raw(
+        raw: RawCallback,
+        Tracked(cert): Tracked<rcu_spec::RcuCallbackSafety>,
+    ) -> (res: Self)
+        ensures
+            res@ == cert@,
+    {
+        let ghost summary = cert@;
+        Self { raw, summary: Ghost(summary) }
+    }
+
+    /// Runs the underlying callback. The reclaim-safety precondition is not
+    /// encoded here yet; the next layer will prove it from the monitor/global
+    /// RCU invariant before invoking this method.
+    #[inline]
+    #[verifier::external_body]
+    pub unsafe fn call_once(self) {
+        unsafe {
+            self.raw.call_once();
+        }
+    }
+}
+
+pub open spec fn callback_summaries(callbacks: Callbacks) -> Seq<rcu_spec::RcuCallbackSummary> {
+    Seq::new(callbacks@.len(), |i: int| callbacks@[i]@)
+}
 
 pub(super) struct GracePeriod {
     callbacks: Callbacks,
@@ -26,10 +76,29 @@ pub(super) struct GracePeriod {
     is_complete: bool,
 }
 
+impl GracePeriod {
+    closed spec fn callback_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
+        callback_summaries(self.callbacks)
+    }
+
+    closed spec fn has_pending_work(self) -> bool {
+        !self.is_complete || self.callback_summaries().len() > 0
+    }
+}
 
 pub(super) struct State {
     current_gp: GracePeriod,
     next_callbacks: Callbacks,
+}
+
+impl State {
+    closed spec fn pending_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
+        self.current_gp.callback_summaries().add(callback_summaries(self.next_callbacks))
+    }
+
+    closed spec fn has_pending_work(self) -> bool {
+        self.current_gp.has_pending_work() || callback_summaries(self.next_callbacks).len() > 0
+    }
 }
 
 /// A RCU monitor ensures the completion of _grace periods_ by keeping track

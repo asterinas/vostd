@@ -22,6 +22,22 @@ pub type LinkIndex = nat;
 
 pub type LinkEdge<T> = (*mut T, LinkIndex);
 
+/// Proof summary for a type-erased RCU callback.
+///
+/// The executable callback may close over any sized Rust value, but the RCU
+/// proof only needs to know which logical object it will reclaim and which
+/// grace-period generation retired that object. `domain` identifies the RCU
+/// protection domain, and `obj` identifies the reclaimed allocation/object
+/// inside that domain.
+pub ghost struct RcuCallbackSummary {
+    /// The RCU protection domain whose grace period governs this callback.
+    pub domain: Loc,
+    /// Logical identity of the retired object inside `domain`.
+    pub obj: Loc,
+    /// The domain-local epoch in which `obj` was retired.
+    pub retire_epoch: nat,
+}
+
 /// The weak-memory invariant for the root pointer stored in an executable RCU
 /// cell.
 ///
@@ -261,6 +277,32 @@ impl RcuDomainAuth {
     }
 }
 
+/// Logical identity of one RCU-managed object.
+///
+/// Traversal proofs are typed and pointer-based (`*mut T`), while the callback
+/// monitor stores type-erased callbacks. This token bridges the two worlds: it
+/// says that `obj` is the logical identity of `ptr` inside `domain`.
+#[verifier::reject_recursive_types(T)]
+pub tracked struct RcuObjectId<T> {
+    ghost domain: Loc,
+    ghost obj: Loc,
+    ghost ptr: *mut T,
+}
+
+impl<T> RcuObjectId<T> {
+    pub closed spec fn domain(self) -> Loc {
+        self.domain
+    }
+
+    pub closed spec fn obj(self) -> Loc {
+        self.obj
+    }
+
+    pub closed spec fn ptr(self) -> *mut T {
+        self.ptr
+    }
+}
+
 /// Low-level base retire permission.
 ///
 /// This is the paper's `BaseRetirePerm`. By itself it is not enough to reclaim;
@@ -325,6 +367,60 @@ pub proof fn lift_retire_perm<T>(
         perm.ready_to_reclaim(),
 {
     RcuRetirePerm { domain: base.domain(), ptr: base.ptr(), seen_removed }
+}
+
+/// Non-generic proof certificate carried across the type-erasure boundary.
+///
+/// A certificate can only be produced from a typed traversal retire permission,
+/// but after that point the monitor only needs the erased callback summary.
+pub tracked struct RcuCallbackSafety {
+    ghost summary: RcuCallbackSummary,
+}
+
+impl View for RcuCallbackSafety {
+    type V = RcuCallbackSummary;
+
+    closed spec fn view(&self) -> RcuCallbackSummary {
+        self.summary
+    }
+}
+
+pub open spec fn callback_safety_from_traversal<T>(
+    cert: RcuCallbackSafety,
+    object: RcuObjectId<T>,
+    retire_epoch: nat,
+) -> bool {
+    &&& cert@.domain == object.domain()
+    &&& cert@.obj == object.obj()
+    &&& cert@.retire_epoch == retire_epoch
+}
+
+/// Consume a typed traversal retire permission and compress it into the
+/// non-generic summary needed by the type-erased callback monitor.
+pub proof fn certify_callback_from_retire_perm<T>(
+    tracked object: &RcuObjectId<T>,
+    tracked retire: RcuRetirePerm<T>,
+    retire_epoch: nat,
+) -> (tracked cert: RcuCallbackSafety)
+    requires
+        object.domain() == retire.domain(),
+        object.ptr() == retire.ptr(),
+        retire.ready_to_reclaim(),
+    ensures
+        cert@ == (RcuCallbackSummary {
+            domain: retire.domain(),
+            obj: object.obj(),
+            retire_epoch,
+        }),
+        callback_safety_from_traversal(cert, *object, retire_epoch),
+{
+    RcuCallbackSafety {
+        summary: RcuCallbackSummary {
+            domain: retire.domain(),
+            obj: object.obj(),
+            retire_epoch,
+        },
+    }
 }
 
 /// Read-side guard token for one critical section.

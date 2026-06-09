@@ -3,6 +3,62 @@
 //!
 //! This is the new weak-memory RCU skeleton. The previous SC proof-oriented
 //! implementation is kept in `__mod.rs` as reference and is not compiled.
+//!
+//! # Verification model
+//!
+//! The executable RCU API is being rebuilt around an explicit weak-memory
+//! history model. The atomic root pointer is a trusted executable wrapper around
+//! Rust atomics, while proofs only rely on the specification in
+//! [`specs::sync::weak_memory`]. Each RCU root pointer is represented by a
+//! `WeakAtomicPtr` whose history records the messages that may be observed by
+//! relaxed/acquire loads and CAS operations.
+//!
+//! The current root-pointer invariant is intentionally small: `Rcu` roots are
+//! non-null in every atomic-history message, while `RcuOption` roots may be
+//! null. Ownership, reader permissions, traversal snapshots, and reclamation are
+//! modeled separately in [`specs::sync::rcu`] and are being connected
+//! incrementally.
+//!
+//! The traversal layer follows the paper's shape:
+//!
+//! - [`RcuReadGuardToken<T>`] represents a read-side critical section together
+//!   with its `SeenRemoved(D, LV)` observation.
+//! - [`RcuProtectedPtr<T>`] records that a typed pointer is protected by that
+//!   guard and has not been observed removed.
+//! - [`RcuBaseRetirePerm<T>`] becomes [`RcuRetirePerm<T>`] only after the caller has
+//!   observed enough traversal state to prove the retired object is in the
+//!   removed set.
+//! - `RcuCallbackSafety` compresses that typed retire proof into an erased
+//!   `RcuCallbackSummary { domain, obj, retire_epoch }`, which is what the
+//!   monitor stores next to a type-erased executable callback.
+//!
+//! # Callback boundary
+//!
+//! Executable callbacks are represented by `vstd_extra::raw_callback::RawCallback`.
+//! `RawCallback` is proof-opaque: it only stores a thin data pointer plus a
+//! monomorphized runner pointer. The RCU monitor wraps it in `monitor::RcuCallback`,
+//! which can only be constructed from a `RcuCallbackSafety` certificate. This
+//! prevents the proof layer from treating an arbitrary type-erased callback as a
+//! safe reclamation callback.
+//!
+//! The monitor also has a weak-memory `is_monitoring` flag with an RCU-specific
+//! invariant. Today that invariant records whether a flag-history message may
+//! correspond to pending monitor work. The next step is to tie that flag summary
+//! to `monitor::State::pending_summaries()` and to prove callback execution only
+//! after the relevant grace period has completed.
+//!
+//! # Usage outline
+//!
+//! Use `Rcu<P>` when the root pointer is always non-null, and `RcuOption<P>`
+//! when the root may be null. `P` must implement `NonNullPtr`; the common cases
+//! are sized thin-pointer owners such as `Box<T>` and `Arc<T>`. Readers call
+//! `read()` to obtain a guard and then use `get()` while the guard is live.
+//! Writers install a new pointer with `update()` or use the read guard's
+//! `compare_exchange()` to replace the value they observed.
+//!
+//! Delayed reclamation is still being wired into the weak-memory proof. For now,
+//! `RcuDrop<T>` preserves the public wrapper API, while the monitor/callback
+//! path carries the new proof summary and safety certificate skeleton.
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
