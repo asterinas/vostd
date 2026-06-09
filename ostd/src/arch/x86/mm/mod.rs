@@ -481,7 +481,106 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     proof fn lemma_page_table_entry_properties() {
-        admit();
+        lemma_page_property_flag_constants();
+        lemma_auxiliary_bit_properties(0);
+
+        assert forall|level: PagingLevel|
+            1 < level implies !(#[trigger]Self::new_absent().is_last(level))
+        by {
+            assert(Self::new_absent().as_usize() == 0);
+        }
+
+        assert forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
+            #![trigger Self::new_page(paddr, level, prop)]
+            Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
+                || prop.cache is Writethrough || prop.cache is Uncacheable) implies {
+                &&& Self::new_page(paddr, level, prop).is_present()
+                &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr
+                    & !((PAGE_SIZE - 1) as usize))
+                &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+                    paddr,
+                    level,
+                    prop,
+                ).paddr() == paddr)
+                &&& Self::new_page(paddr, level, prop).prop() == prop
+                &&& Self::new_page(paddr, level, prop).is_last(level)
+            }
+        by {
+            let raw = paddr & Self::PHYS_ADDR_MASK | PageTableFlags::HUGE().bits();
+            let flags = PageProperty::encode_prop_flags_spec(prop);
+            lemma_auxiliary_bit_properties(paddr);
+            lemma_auxiliary_bit_properties(raw);
+            lemma_x86_set_prop_roundtrip(raw, flags, prop);
+            assert(raw & Self::PHYS_ADDR_MASK == paddr & Self::PHYS_ADDR_MASK) by (bit_vector)
+                requires
+                    raw == (paddr & 0xF_FFFF_FFFF_F000usize | 0x80usize),
+                    Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize;
+            assert(paddr < MAX_PADDR ==> raw & Self::PHYS_ADDR_MASK == paddr & !((PAGE_SIZE
+                - 1) as usize)) by (bit_vector)
+                requires
+                    raw == (paddr & 0xF_FFFF_FFFF_F000usize | 0x80usize),
+                    Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
+                    PAGE_SIZE == 4096usize,
+                    MAX_PADDR == 0x8000_0000usize;
+            assert(paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+                paddr,
+                level,
+                prop,
+            ).paddr() == paddr);
+            assert(Self::new_page(paddr, level, prop).is_present());
+            assert(Self::new_page(paddr, level, prop).prop() == prop);
+            assert(raw & PageTableFlags::HUGE().bits() != 0) by (bit_vector)
+                requires
+                    raw == (paddr & 0xF_FFFF_FFFF_F000usize | 0x80usize),
+                    PageTableFlags::HUGE().bits() == 0x80usize;
+            assert(PageTableEntry(raw).is_last(level));
+            assert(Self::new_page(paddr, level, prop).is_last(level));
+        }
+
+        assert forall|paddr: Paddr| #![trigger Self::new_pt(paddr)] {
+                &&& Self::new_pt(paddr).is_present()
+                &&& (paddr < MAX_PADDR ==> Self::new_pt(paddr).paddr() == paddr & !((PAGE_SIZE
+                    - 1) as usize))
+                &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr()
+                    == paddr)
+                &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
+            }
+        by {
+            let flags = PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits()
+                | PageTableFlags::USER().bits();
+            lemma_auxiliary_bit_properties(paddr);
+            assert(flags == 0x7usize) by (bit_vector)
+                requires
+                    flags == 0x1usize | 0x2usize | 0x4usize;
+            assert(paddr < MAX_PADDR ==> (paddr & Self::PHYS_ADDR_MASK | flags)
+                & Self::PHYS_ADDR_MASK == paddr & !((PAGE_SIZE - 1) as usize)) by (bit_vector)
+                requires
+                    Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
+                    flags == 0x7usize,
+                    PAGE_SIZE == 4096usize,
+                    MAX_PADDR == 0x8000_0000usize;
+            assert((paddr & Self::PHYS_ADDR_MASK | flags) & PageTableFlags::PRESENT().bits() != 0)
+                by (bit_vector)
+                requires
+                    Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
+                    flags == 0x7usize,
+                    PageTableFlags::PRESENT().bits() == 0x1usize;
+            assert((paddr & Self::PHYS_ADDR_MASK | flags) & PageTableFlags::HUGE().bits() == 0)
+                by (bit_vector)
+                requires
+                    Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
+                    flags == 0x7usize,
+                    PageTableFlags::HUGE().bits() == 0x80usize;
+            assert(Self::new_pt(paddr).is_present());
+            assert forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level) by {
+                assert((paddr & Self::PHYS_ADDR_MASK | flags) & PageTableFlags::HUGE().bits()
+                    == 0) by (bit_vector)
+                    requires
+                        Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
+                        flags == 0x7usize,
+                        PageTableFlags::HUGE().bits() == 0x80usize;
+            }
+        }
     }
 
     proof fn lemma_paddr_is_page_aligned(self) {
@@ -825,47 +924,11 @@ proof fn lemma_parse_flags_collorary(v: usize)
         parse_flags!(v, PageTableFlags::ACCESSED(), PageFlags::ACCESSED())) | (
         parse_flags!(v, PageTableFlags::DIRTY(), PageFlags::DIRTY())) | (
         parse_flags!(v, PageTableFlags::HIGH_IGN1(), PageFlags::AVAIL1())) | (
-        parse_flags!(v, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2())) == (if v
-            & PageTableFlags::PRESENT().bits() != 0 {
-            PageFlags::R().bits()
-        } else {
-            0
-        } | if v & PageTableFlags::WRITABLE().bits() != 0 {
-            PageFlags::W().bits()
-        } else {
-            0
-        } | if !v & PageTableFlags::NO_EXECUTE().bits() != 0 {
-            PageFlags::X().bits()
-        } else {
-            0
-        } | if v & PageTableFlags::ACCESSED().bits() != 0 {
-            PageFlags::ACCESSED().bits()
-        } else {
-            0
-        } | if v & PageTableFlags::DIRTY().bits() != 0 {
-            PageFlags::DIRTY().bits()
-        } else {
-            0
-        } | if v & PageTableFlags::HIGH_IGN1().bits() != 0 {
-            PageFlags::AVAIL1().bits()
-        } else {
-            0
-        } | if v & PageTableFlags::HIGH_IGN2().bits() != 0 {
-            PageFlags::AVAIL2().bits()
-        } else {
-            0
-        }),
+        parse_flags!(v, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2())) == 
+        PageProperty::decode_page_flags_spec(v),
         (parse_flags!(v, PageTableFlags::USER(), PrivFlags::USER())) | (
-        parse_flags!(v, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL())) == (if v
-            & PageTableFlags::USER().bits() != 0 {
-            PrivFlags::USER().bits()
-        } else {
-            0
-        } | if v & PageTableFlags::GLOBAL().bits() != 0 {
-            PrivFlags::GLOBAL().bits()
-        } else {
-            0
-        }),
+        parse_flags!(v, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL())) == 
+        PageProperty::decode_priv_flags_spec(v),
 {
     lemma_parse_flags_equiv_if(v);
 }
