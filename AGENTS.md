@@ -26,7 +26,21 @@ Other components like `kernel`, `osdk`, `test`, and `docs` shall be ignored duri
 
 ## Coding Style & Naming Conventions
 
-Use Rust 2021 style with Verus proof conventions. Keep executable code, `spec` functions, proof blocks, and lemmas clearly separated so verification intent is visible in review. Name modules and files in `snake_case`; use `CamelCase` for types and traits, `SCREAMING_SNAKE_CASE` for constants, and descriptive lemma names such as `lemma_page_table_mapping_preserved`. Formatting follows `rustfmt.toml`: 4-space indentation, crate-level import grouping, and reordered imports. Public verified APIs should include rustdoc comments explaining both behavior and proof obligations. Suppress lints at the narrowest practical scope, preferably with `#[expect(...)]`.
+- Use Rust 2021 style with Verus proof conventions.
+- Keep executable code, `spec` functions, proof blocks, and lemmas clearly separated so verification intent is visible in review.
+- Name modules and files in `snake_case`; use `CamelCase` for types and traits, `SCREAMING_SNAKE_CASE` for constants, prefix proof lemmas using `lemma_` like `lemma_page_table_mapping_preserved`, prefix axioms using `axiom_`, and prefix `tracked_` for helper functions that lift verus functions that return ghost types into `tracked`.
+- Formatting follows `rustfmt.toml`: 4-space indentation, crate-level import grouping, and reordered imports.
+- Public verified APIs should include rustdoc comments explaining both behavior and proof obligations. Suppress lints at the narrowest practical scope, preferably with `#[expect(...)]`.
+- Whenever there is proof-only objects inside executable Rust types, be sure to add prefixes to the variables. Example:
+  ```rs
+  pub struct Foo {
+      something: u64,
+      tracked_thing: Tracked<u8>,
+      //             ^^^^^^^
+      ghost_another: Ghost<u32>,
+      //             ^^^^^
+  }
+  ```
 
 ## Verus Requirements
 
