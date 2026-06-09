@@ -214,8 +214,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     open spec fn new_page_req(paddr: Paddr, _level: PagingLevel, prop: PageProperty) -> bool {
-        &&& prop.flags.bits() & PageFlags::all_bits() == prop.flags.bits()
-        &&& prop.priv_flags.bits() & PrivFlags::all_bits() == prop.priv_flags.bits()
+        &&& prop.inv()
         &&& prop.flags.bits() & PageFlags::R().bits() == PageFlags::R().bits()
         &&& (!(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
             ==> may_panic())
@@ -310,8 +309,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     open spec fn set_prop_req(self, prop: PageProperty) -> bool {
-        &&& prop.flags.bits() & PageFlags::all_bits() == prop.flags.bits()
-        &&& prop.priv_flags.bits() & PrivFlags::all_bits() == prop.priv_flags.bits()
+        &&& prop.inv()
         &&& prop.flags.bits() & PageFlags::R().bits() == PageFlags::R().bits()
         &&& (!(prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable)
             ==> may_panic())
@@ -1042,8 +1040,7 @@ proof fn lemma_x86_set_prop_decode_bits(
 
 proof fn lemma_x86_set_prop_roundtrip(old_raw: usize, flags: usize, prop: PageProperty)
     requires
-        prop.flags.bits() & PageFlags::all_bits() == prop.flags.bits(),
-        prop.priv_flags.bits() & PrivFlags::all_bits() == prop.priv_flags.bits(),
+        prop.inv(),
         prop.flags.bits() & PageFlags::R().bits() == PageFlags::R().bits(),
         prop.cache is Writeback || prop.cache is Writethrough || prop.cache is Uncacheable,
         flags == (PageTableFlags::empty().bits()

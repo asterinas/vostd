@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Definitions of page mapping properties.
 use vstd::prelude::*;
+use vstd_extra::prelude::*;
 
 use core::fmt::Debug;
 
@@ -22,6 +23,14 @@ pub struct PageProperty {
 }
 
 global layout PageProperty is size == 3, align == 1;
+
+#[verus_verify]
+impl Inv for PageProperty {
+    open spec fn inv(self) -> bool {
+        &&& self.flags.bits() & PageFlags::all_bits() == self.flags.bits()
+        &&& self.priv_flags.bits() & PrivilegedPageFlags::all_bits() == self.priv_flags.bits()
+    }
+}
 
 #[verus_verify]
 impl PageProperty {
