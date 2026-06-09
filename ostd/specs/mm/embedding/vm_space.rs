@@ -38,8 +38,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-                && final(regions).slot_owners[i].inner_perms.in_list == old(
+            final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
             ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
@@ -80,8 +79,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         final(regions).slots =~= old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].raw_count == old(regions).slot_owners[i].raw_count
-                && final(regions).slot_owners[i].inner_perms.in_list == old(
+            final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
             ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT

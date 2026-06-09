@@ -554,6 +554,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
+            // Allocating a child doesn't touch the segment obligation ledger.
             res.value == EntryOwner::<C>::new_frame(
                 paddr,
                 self.path().push_tail(self.idx as usize),
@@ -806,12 +807,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
+        obl_key: usize,
     )
         requires
             self.inv(),
             self.only_current_locked(guards0),
             <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
+                guard,
+                guards0,
+                guards1,
+                obl_key,
+            ),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
             guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node.unwrap().meta_addr_self(),
@@ -833,12 +840,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
+        obl_key: usize,
     )
         requires
             self.inv(),
             self.nodes_locked(guards0),
             <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
+                guard,
+                guards0,
+                guards1,
+                obl_key,
+            ),
             forall|i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS
@@ -1101,7 +1114,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // Other MetaSlotOwner fields at idx unchanged
             new_regions.slot_owners[idx].paths_in_pt == old_regions.slot_owners[idx].paths_in_pt,
             new_regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr,
-            new_regions.slot_owners[idx].raw_count == old_regions.slot_owners[idx].raw_count,
             new_regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage,
             // All other slot_owners unchanged
             new_regions.slot_owners.dom() == old_regions.slot_owners.dom(),
@@ -1111,6 +1123,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     == old_regions.slot_owners[i],
             // slots map unchanged
             new_regions.slots == old_regions.slots,
+            // obligation ledger unchanged (clone bumps a ref count only)
             // rc overflow guard: old rc is a normal shared count; the bumped rc fits
             // in the valid `[1, REF_COUNT_MAX]` range. The `<=` form (vs strict `<`)
             // matches what callers actually have: post-`clone_item`, the new rc is
@@ -2499,9 +2512,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == regions0.slot_owners[idx].inner_perms.in_list,
             regions1.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt,
             regions1.slot_owners[idx].self_addr == regions0.slot_owners[idx].self_addr,
-            regions1.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
             regions1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            // Bumped rc stays in the SHARED range (needed for the node branch).
+            regions1.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX,
             forall|i: usize|
                 #![trigger regions1.slot_owners[i]]
                 i != idx && regions0.slot_owners.contains_key(i) ==> regions1.slot_owners[i]
@@ -2540,11 +2554,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.inv(),
             forall|k: usize|
                 regions0.slots.contains_key(k) ==> #[trigger] regions1.slots.contains_key(k),
+            // Borrow-protocol transition: `raw_count` is dormant, so the
+            // borrow is net-zero on `regions` — the slot perm at
+            // `changed_idx` is preserved too (the caller borrows it via
+            // `Frame::borrow`, which leaves `slots` unchanged). With
+            // `raw_count` no longer in `metaregion_sound`, full slot
+            // preservation is what carries soundness across the borrow.
             forall|k: usize|
-                regions0.slots.contains_key(k) && k != changed_idx ==> regions0.slots[k]
+                regions0.slots.contains_key(k) ==> regions0.slots[k]
                     == #[trigger] regions1.slots[k],
-            regions0.slot_owners[changed_idx].raw_count == 0,
-            regions1.slot_owners[changed_idx].raw_count == 1,
             // All other fields at changed_idx preserved
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,

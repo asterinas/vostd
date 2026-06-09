@@ -7,14 +7,14 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
-use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::arch::*;
+use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr, meta_to_frame};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::entry_view::*;
 use crate::specs::mm::page_table::*;
@@ -422,14 +422,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         assert(child_pa % PAGE_SIZE == 0);
     }
 
-    pub open spec fn expected_raw_count(self) -> usize {
-        if self.in_scope {
-            0
-        } else {
-            1
-        }
-    }
-
     /// Helper: sub-page validity is preserved when the only slot that changed is the
     /// frame's own slot (and slots map and other slot owners are unchanged).
     pub proof fn frame_sub_pages_valid_preserved_at_own_slot(
@@ -545,12 +537,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         if self.is_node() {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-            &&& regions.slot_owners[idx].raw_count == self.expected_raw_count()
+            &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
             &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_addr_self()
-            &&& regions.slots[idx].value().wf(
-                regions.slot_owners[idx],
-            )
-            // Node path tracking: ensures no two tree nodes share the same slot index.
+            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node.unwrap().metaregion_sound_node(regions)
         } else if self.is_frame() {
@@ -708,7 +697,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // At changed_idx, only paths_in_pt differs.
             r1.slot_owners[changed_idx].inner_perms == r0.slot_owners[changed_idx].inner_perms,
             r1.slot_owners[changed_idx].self_addr == r0.slot_owners[changed_idx].self_addr,
-            r1.slot_owners[changed_idx].raw_count == r0.slot_owners[changed_idx].raw_count,
             r1.slot_owners[changed_idx].usage == r0.slot_owners[changed_idx].usage,
             // For nodes at changed_idx: the new paths_in_pt must match this entry's path.
             self.is_node() && self.meta_slot_paddr() is Some && frame_to_index(
@@ -809,7 +797,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     == r0.slot_owners[idx].inner_perms.ref_count.id()
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                &&& r1.slot_owners[idx].inner_perms.ref_count.value() > 0
+                &&& r1.slot_owners[idx].inner_perms.ref_count.value()
+                    > 0
+                // Needed to re-establish the node branch's SHARED range (`<= MAX`).
+                &&& r1.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
                 &&& r1.slot_owners[idx].inner_perms.storage
                     == r0.slot_owners[idx].inner_perms.storage
                 &&& r1.slot_owners[idx].inner_perms.vtable_ptr
@@ -817,7 +808,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 &&& r1.slot_owners[idx].inner_perms.in_list
                     == r0.slot_owners[idx].inner_perms.in_list
                 &&& r1.slot_owners[idx].self_addr == r0.slot_owners[idx].self_addr
-                &&& r1.slot_owners[idx].raw_count == r0.slot_owners[idx].raw_count
                 &&& r1.slot_owners[idx].paths_in_pt == r0.slot_owners[idx].paths_in_pt
             }),
             // All other slot_owners unchanged: preserves sub-page validity for huge frames.

@@ -243,7 +243,6 @@ pub tracked struct MetaSlotOwner {
     pub inner_perms: MetadataInnerPerms,
     pub self_addr: usize,
     pub usage: PageUsage,
-    pub raw_count: usize,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
     /// location the frame is currently mapped — allowing a single frame to be
@@ -265,7 +264,6 @@ impl Inv for MetaSlotOwner {
         // accounting and the huge-page split loop invariant scope out
         // `usage == MMIO`.
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNUSED ==> {
-            &&& self.raw_count == 0
             &&& self.inner_perms.storage.is_uninit()
             &&& self.inner_perms.vtable_ptr.is_uninit()
             &&& self.inner_perms.in_list.value() == 0
@@ -378,7 +376,6 @@ impl MetaSlotOwner {
             res == old(self).inner_perms,
             final(self).self_addr == old(self).self_addr,
             final(self).usage == old(self).usage,
-            final(self).raw_count == old(self).raw_count,
             final(self).paths_in_pt == old(self).paths_in_pt,
     ;
 

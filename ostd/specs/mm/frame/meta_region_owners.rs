@@ -6,6 +6,7 @@ use vstd::simple_pptr::{self, *};
 use core::ops::Range;
 
 use vstd_extra::cast_ptr::{self, Repr};
+use vstd_extra::drop_tracking::DropObligation;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
@@ -14,7 +15,7 @@ use super::*;
 use crate::mm::Paddr;
 use crate::mm::frame::Link;
 use crate::mm::frame::meta::{
-    AnyFrameMeta, MetaSlot,
+    AnyFrameMeta, MetaSlot, REF_COUNT_MAX,
     mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr},
 };
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -51,6 +52,15 @@ pub struct MetaRegion;
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
+    /// Outstanding per-instance obligations for both `Frame<M>` and
+    /// `Segment<M>`, as a multiset of slot indices. `ManuallyDrop::new(frame,
+    /// ..)` adds one entry at `frame.key()` (mint paired with the `raw_count++`
+    /// bump); `Frame::drop` (via `consume_obligation`) and `ManuallyDrop::new`
+    /// redeem one. A `Segment<M>` records one entry per frame it holds (see
+    /// [`crate::specs::mm::frame::segment::tracked_mint_seg_obligations`]).
+    /// Multiset semantics — multiple outstanding obligations at the same slot
+    /// are counted individually.
+    pub frame_obligations: vstd::multiset::Multiset<usize>,
 }
 
 pub ghost struct MetaRegionModel {
@@ -133,6 +143,14 @@ impl MetaRegionOwners {
         self.slot_owners[i].inner_perms.ref_count.value()
     }
 
+    /// `other` agrees with `self` on every slot owner except the one at index
+    /// `idx`: a single-slot operation leaves all other slots' owners untouched.
+    pub open spec fn slot_owners_agree_except(self, other: MetaRegionOwners, idx: usize) -> bool {
+        forall|i: usize|
+            #![trigger other.slot_owners[i]]
+            i != idx ==> other.slot_owners[i] == self.slot_owners[i]
+    }
+
     pub axiom fn borrow_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         &self,
         i: usize,
@@ -179,10 +197,10 @@ impl MetaRegionOwners {
             forall|k: usize| k != i ==> #[trigger] final(self).slots[k] == old(self).slots[k],
             forall|k: usize|
                 k != i ==> #[trigger] final(self).slot_owners[k] == old(self).slot_owners[k],
-            final(self).slot_owners[i].raw_count == old(self).slot_owners[i].raw_count,
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
             final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
+            final(self).frame_obligations =~= old(self).frame_obligations,
     ;
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
@@ -253,6 +271,7 @@ impl MetaRegionOwners {
             perm.points_to == old(self).slots[index],
             final(self).slots == old(self).slots.remove(index),
             final(self).slot_owners == old(self).slot_owners,
+            final(self).frame_obligations =~= old(self).frame_obligations,
     ;
 
     /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
@@ -267,6 +286,57 @@ impl MetaRegionOwners {
         ensures
             final(self).slots == old(self).slots.insert(index, *perm),
             final(self).slot_owners == old(self).slot_owners,
+            final(self).frame_obligations =~= old(self).frame_obligations,
+    ;
+
+    // ----------------------------------------------------------------------
+    // Per-frame linear-drop ledger machinery.
+    // ----------------------------------------------------------------------
+    /// "Clean" boundary invariant: standard invariant plus an empty per-frame
+    /// obligation multiset (every minted token has been redeemed via
+    /// `Drop::drop` or `ManuallyDrop::new`; and every `Segment` has been
+    /// dropped, draining its per-frame entries).
+    ///
+    /// Functions that should leave no outstanding `Frame`/`Segment` obligations
+    /// (e.g., top-of-call-stack entry points, or any helper that opens fresh
+    /// resources locally) should require this in their postcondition instead of
+    /// the plain `inv()`.
+    pub open spec fn clean_inv(self) -> bool {
+        &&& self.inv()
+        // Per-frame linear-drop discipline via the multiset ledger: every
+        // `ManuallyDrop::new` / segment-frame mint adds one entry, every
+        // `Drop::drop` / `ManuallyDrop::new` / segment-frame redeem removes one.
+        &&& self.frame_obligations.len() == 0
+    }
+
+    // ----------------------------------------------------------------------
+    // Frame-side per-instance ledger.
+    // ----------------------------------------------------------------------
+    /// Pairs the production of a per-Frame [`DropObligation`] with a
+    /// `+1` on the `frame_obligations[slot_idx]` count. Called by Frame's
+    /// `constructor_spec` (i.e. `ManuallyDrop::new(frame, ..)`).
+    pub axiom fn tracked_mint_frame_obligation(tracked &mut self, slot_idx: usize) -> (tracked obl:
+        DropObligation<usize>)
+        ensures
+            obl.value() == slot_idx,
+            final(self).frame_obligations =~= old(self).frame_obligations.insert(slot_idx),
+            final(self).slots =~= old(self).slots,
+            final(self).slot_owners =~= old(self).slot_owners,
+    ;
+
+    /// Redeems a per-Frame obligation, decrementing `frame_obligations`
+    /// at `obl.value()`. Called by Frame's `consume_obligation` (i.e.
+    /// by `Drop::drop` or `ManuallyDrop::new`).
+    pub axiom fn tracked_redeem_frame_obligation(
+        tracked &mut self,
+        tracked obl: DropObligation<usize>,
+    )
+        requires
+            old(self).frame_obligations.count(obl.value()) > 0,
+        ensures
+            final(self).frame_obligations =~= old(self).frame_obligations.remove(obl.value()),
+            final(self).slots =~= old(self).slots,
+            final(self).slot_owners =~= old(self).slot_owners,
     ;
 }
 
