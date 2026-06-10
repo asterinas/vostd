@@ -153,7 +153,7 @@ impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn split_if_mapped_huge_spec(self, new_size: usize) -> Self {
         let m = self.query_mapping();
         let size = m.page_size;
-        let new_mappings = Set::<int>::new_assuming_finite(|n: int| 0 <= n < size / new_size).map(
+        let new_mappings = Set::<int>::range(0int, (size / new_size) as int).map(
             |n: int| Self::split_index(m, new_size, n as usize),
         );
         CursorView { cur_va: self.cur_va, mappings: self.mappings - set![m] + new_mappings, ..self }

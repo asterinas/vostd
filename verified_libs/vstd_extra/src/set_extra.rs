@@ -53,16 +53,9 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
     requires
         l <= r,
     ensures
-        Set::new_assuming_finite(|p: nat| l <= p < r).len() == (r - l) as nat,
-    decreases r - l,
+        Set::<nat>::range(l, r).len() == (r - l) as nat,
 {
-    if l == r {
-        assert(Set::new_assuming_finite(|p: nat| l <= p < r) == Set::<nat>::empty());
-    } else {
-        lemma_nat_range_finite(l, (r - 1) as nat);
-        assert(Set::new_assuming_finite(|p| l <= p < r - 1).insert((r - 1) as nat)
-            == Set::new_assuming_finite(|p: nat| l <= p < r));
-    }
+    broadcast use vstd::set_lib::range_set_properties;
 }
 
 /// A finite set can be separated by a predicate into two disjoint sets.
@@ -101,35 +94,32 @@ pub proof fn lemma_filter_len_unchanged_implies_equal<T>(s: Set<T>, f: spec_fn(T
     lemma_set_separation(s, f)
 }
 
-/// If no element in set `Set::new_assuming_finite(|x: T| p(x))` satisfies the predicate `q`, then all elements
-/// satisfying `p` also satisfy `q`.
-pub proof fn lemma_empty_bad_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
+/// If no element in set `s` fails the predicate `q`, then all elements in `s` satisfy `q`.
+pub proof fn lemma_empty_bad_set_implies_forall<T>(s: Set<T>, q: spec_fn(T) -> bool)
     requires
-        Set::new_assuming_finite(|x: T| p(x)).filter(|x| !q(x)).is_empty(),
+        s.filter(|x| !q(x)).is_empty(),
     ensures
-        forall|x: T| #[trigger] p(x) ==> q(x),
+        forall|x: T| #[trigger] s.contains(x) ==> q(x),
 {
-    assert forall|x: T| #[trigger] p(x) implies q(x) by {
+    assert forall|x: T| #[trigger] s.contains(x) implies q(x) by {
         if !q(x) {
-            assert(Set::new_assuming_finite(|x: T| p(x)).filter(|x| !q(x)).contains(x));
+            assert(s.filter(|x| !q(x)).contains(x));
         };
     }
 }
 
-/// If all elements in the finite set `Set::new_assuming_finite(|x: T| p(x))` satisfy the predicate `q`, then all elements
-/// satisfying `p` also satisfy `q`.
-pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
+/// If all elements in the set `s` satisfy predicate `q` (i.e., the filtered set has the same length),
+/// then every element of `s` satisfies `q`.
+pub proof fn lemma_full_good_set_implies_forall<T>(s: Set<T>, q: spec_fn(T) -> bool)
     requires
-        Set::new_assuming_finite(|x: T| p(x)).len() == Set::new_assuming_finite(|x: T| p(x)).filter(
-            q,
-        ).len(),
+        s.len() == s.filter(q).len(),
     ensures
-        forall|x: T| #[trigger] p(x) ==> q(x),
+        forall|x: T| #[trigger] s.contains(x) ==> q(x),
 {
-    lemma_set_separation(Set::new_assuming_finite(|x: T| p(x)), q);
-    assert forall|x: T| #[trigger] p(x) implies q(x) by {
+    lemma_set_separation(s, q);
+    assert forall|x: T| #[trigger] s.contains(x) implies q(x) by {
         if !q(x) {
-            assert(Set::new_assuming_finite(|x: T| p(x)).filter(|x| !q(x)).contains(x));
+            assert(s.filter(|x| !q(x)).contains(x));
         };
     }
 }

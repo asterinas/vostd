@@ -52,10 +52,10 @@ state_machine! {
             init locked = false;
             init wait_queue_num_wakers = 0;
             init wait_queue_wakers = Seq::empty();
-            init has_woken = Map::new(Set::new_assuming_finite(|i:int| 0 <= i < num_procs), |i| false);
-            init waker = Map::new(Set::new_assuming_finite(|i:int| 0 <= i < num_procs), |i| None);
-            init stack = Map::new(Set::new_assuming_finite(|i:int| 0 <= i < num_procs), |i| Seq::empty());
-            init pc = Map::new(Set::new_assuming_finite(|i:int| 0 <= i < num_procs), |i| Label::start);
+            init has_woken = Map::new(Set::<int>::range(0, num_procs), |i| false);
+            init waker = Map::new(Set::<int>::range(0, num_procs), |i| None);
+            init stack = Map::new(Set::<int>::range(0, num_procs), |i| Seq::empty());
+            init pc = Map::new(Set::<int>::range(0, num_procs), |i| Label::start);
         }
     }
 

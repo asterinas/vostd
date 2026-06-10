@@ -227,6 +227,7 @@ impl MemView {
     ///
     /// The result keeps overlapping mappings and restricts memory to physical
     /// frames reachable from that virtual range.
+    #[allow(deprecated)]
     pub open spec fn borrow_at(&self, vaddr: usize, len: usize) -> MemView {
         let range_end = vaddr + len;
 
@@ -257,6 +258,7 @@ impl MemView {
     /// Returns `(left, right)` where:
     /// - `left` covers `[vaddr, split_end)`, i.e. all mappings overlapping that range.
     /// - `right` covers addresses `>= split_end`.
+    #[allow(deprecated)]
     pub open spec fn split(self, vaddr: usize, len: usize) -> (MemView, MemView) {
         let split_end = vaddr + len;
 
@@ -454,6 +456,7 @@ impl MemView {
     /// [`Self::lemma_split_preserves_transl`] and supports propagating
     /// the read view across [`VmIoOwner::advance`] calls (used by loops
     /// over `read_once`).
+    #[allow(deprecated)]
     pub proof fn lemma_split_preserves_read(
         original: MemView,
         vaddr: usize,
@@ -1121,6 +1124,7 @@ impl GlobalMemView {
         forall|pa: Paddr| #![auto] self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa)
     }
 
+    #[allow(deprecated)]
     pub open spec fn take_view(self, vaddr: usize, len: usize) -> (Self, MemView) {
         let range_end = vaddr + len;
 
@@ -1207,7 +1211,7 @@ impl GlobalMemView {
     pub open spec fn pt_map(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.insert(m);
         let unmapped_pas = self.unmapped_pas.difference(
-            Set::new_assuming_finite(|pa: usize| m.pa_range.start <= pa < m.pa_range.end),
+            Set::<usize>::range(m.pa_range.start, m.pa_range.end),
         );
         GlobalMemView { pt_mappings, unmapped_pas, ..self }
     }
@@ -1224,7 +1228,7 @@ impl GlobalMemView {
     pub open spec fn pt_unmap(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.remove(m);
         let unmapped_pas = self.unmapped_pas.union(
-            Set::new_assuming_finite(|pa: usize| m.pa_range.start <= pa < m.pa_range.end),
+            Set::<usize>::range(m.pa_range.start, m.pa_range.end),
         );
         GlobalMemView { pt_mappings, unmapped_pas, ..self }
     }

@@ -420,13 +420,13 @@ pub broadcast proof fn lemma_forall_map_values_remove<K, V>(
 /// Returns a new map that projects the first key of a pair `(K1, K2)`,
 /// keeping the values associated with the second key `K2`.
 pub open spec fn project_first_key<K1, K2, V>(m: Map<(K1, K2), V>, k1: K1) -> Map<K2, V> {
-    Map::new(Set::new_assuming_finite(|k2: K2| m.contains_key((k1, k2))), |k2: K2| m[(k1, k2)])
+    Map::new(m.dom().filter(|p: (K1, K2)| p.0 == k1).map(|p: (K1, K2)| p.1), |k2: K2| m[(k1, k2)])
 }
 
 /// Returns a new map that projects the second key of a pair `(K1, K2)`,
 /// keeping the values associated with the first key `K1`.
 pub open spec fn project_second_key<K1, K2, V>(m: Map<(K1, K2), V>, k2: K2) -> Map<K1, V> {
-    Map::new(Set::new_assuming_finite(|k1: K1| m.contains_key((k1, k2))), |k1: K1| m[(k1, k2)])
+    Map::new(m.dom().filter(|p: (K1, K2)| p.1 == k2).map(|p: (K1, K2)| p.0), |k1: K1| m[(k1, k2)])
 }
 
 /// A lemma showing that `project_first_key`` is sound.
@@ -442,6 +442,20 @@ pub proof fn lemma_project_first_key_sound<K1, K2, V>(m: Map<(K1, K2), V>, k1: K
                     == m[(k1, k2)]
             },
 {
+    assert forall|k2: K2| {
+        &&& #[trigger] project_first_key(m, k1).contains_key(k2) <==> m.contains_key((k1, k2))
+        &&& project_first_key(m, k1).contains_key(k2) ==> project_first_key(m, k1)[k2] == m[(k1, k2)]
+    } by {
+        let dom = m.dom().filter(|p: (K1, K2)| p.0 == k1).map(|p: (K1, K2)| p.1);
+        if m.contains_key((k1, k2)) {
+            assert(m.dom().filter(|p: (K1, K2)| p.0 == k1).contains((k1, k2)));
+            assert(dom.contains(k2));
+        }
+        if dom.contains(k2) {
+            let witness = choose|p: (K1, K2)| m.dom().filter(|p: (K1, K2)| p.0 == k1).contains(p) && p.1 == k2;
+            assert(m.contains_key((k1, k2)));
+        }
+    }
 }
 
 /// If the value filter of the projected map is non-empty, then there exists a key `k2`

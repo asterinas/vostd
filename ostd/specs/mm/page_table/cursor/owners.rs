@@ -336,6 +336,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         guards.lock_held(self.guard.inner.inner@.ptr.addr())
     }
 
+    #[allow(deprecated)]
     pub open spec fn view_mappings(self) -> Set<Mapping> {
         Set::new_assuming_finite(
             |m: Mapping|
@@ -927,7 +928,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.index.tracked_insert(self.level - 1, cont.idx as int);
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
-        assert(self.va.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
+        assert(self.va.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
 
         old(self).va.index_increment_adds_page_size(old(self).level as int);
         lemma_page_size_ge_page_size(old(self).level as PagingLevel);
@@ -955,7 +956,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(cont.pt_inv_children());
         assert(self.va.inv()) by {
             assert(0 <= self.va.offset < PAGE_SIZE);
-            assert(self.va.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
+            assert(self.va.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int| 0 <= i < NR_LEVELS implies self.va.index.contains_key(i) && 0
                 <= self.va.index[i] < NR_ENTRIES by {
                 assert(self.va.index.contains_key(i));
@@ -977,6 +978,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.continuations.contains_key(i));
     }
 
+    #[allow(deprecated)]
     pub open spec fn view_mappings(self) -> Set<Mapping> {
         Set::new_assuming_finite(
             |m: Mapping|
@@ -2676,7 +2678,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let va = AbstractVaddr {
             offset: 0,
             index: Map::new(
-                Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS),
+                Set::<int>::range(0, NR_LEVELS as int),
                 |i: int| 0,
             ).insert(NR_LEVELS - 1, idx as int),
             // Canonical-high-half shift for this config. `UserPtConfig` has

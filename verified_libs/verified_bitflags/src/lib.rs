@@ -145,6 +145,7 @@ macro_rules! bitflags {
                     Self::flags_from_bits(self.bits())
                 }
 
+                #[allow(deprecated)]
                 $vis open spec fn flags_from_bits(bits: $T) -> ::vstd::set::Set<[< __ghost $name >]> {
                     ::vstd::set::Set::new_assuming_finite(|flag: [< __ghost $name >]| {
                         flag.enabled() && (bits & flag.bit()) == flag.bit()

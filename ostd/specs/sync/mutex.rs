@@ -54,19 +54,19 @@ pub open spec fn init(num_procs: nat) -> StatePred<ProgramState> {
                 &&& s.wait_queue_num_wakers == 0
                 &&& s.wait_queue_wakers == Seq::<Tid>::empty()
                 &&& s.has_woken == Map::new(
-                    Set::new_assuming_finite(|i: Tid| 0 <= i < num_procs),
+                    Set::<Tid>::range(0int, num_procs as int),
                     |i| false,
                 )
                 &&& s.waker == Map::new(
-                    Set::new_assuming_finite(|i: Tid| 0 <= i < num_procs),
+                    Set::<Tid>::range(0int, num_procs as int),
                     |i| None::<Tid>,
                 )
                 &&& s.stack == Map::new(
-                    Set::new_assuming_finite(|i: Tid| 0 <= i < num_procs),
+                    Set::<Tid>::range(0int, num_procs as int),
                     |i| Seq::<StackFrame>::empty(),
                 )
                 &&& s.pc == Map::new(
-                    Set::new_assuming_finite(|i: Tid| 0 <= i < num_procs),
+                    Set::<Tid>::range(0int, num_procs as int),
                     |i| Label::start,
                 )
             },
