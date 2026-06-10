@@ -4,8 +4,6 @@ pub use super::arithmetic::*;
 
 pub use super::auxiliary::*;
 
-pub use super::bit_mapping::*;
-
 pub use super::external::*;
 
 pub use super::function_properties::*;

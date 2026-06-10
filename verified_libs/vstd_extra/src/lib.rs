@@ -17,7 +17,6 @@ extern crate alloc;
 pub mod arithmetic;
 pub mod array_ptr;
 pub mod auxiliary;
-pub mod bit_mapping;
 pub mod cast_ptr;
 pub mod drop_tracking;
 pub mod external;
