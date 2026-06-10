@@ -1538,8 +1538,9 @@ impl AbstractVaddr {
                 assert(vaddr_make::<NR_LEVELS>(1, path.index(1)) == 0x4000_0000usize * path.index(
                     1,
                 )) by (compute);
-                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2))
-                    by (compute);
+                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2)) by {
+                    reveal(pow2);
+                }
             };
             assert(aligned.rec_compute_vaddr(3) == self.index[3] * 0x80_0000_0000usize) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
@@ -1583,8 +1584,9 @@ impl AbstractVaddr {
                 assert(vaddr_make::<NR_LEVELS>(1, path.index(1)) == 0x4000_0000usize * path.index(
                     1,
                 )) by (compute);
-                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2))
-                    by (compute);
+                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2)) by {
+                    reveal(pow2);
+                }
                 assert(vaddr_make::<NR_LEVELS>(3, path.index(3)) == 0x1000usize * path.index(3))
                     by (compute);
             };
