@@ -223,9 +223,7 @@ impl PageTableEntryTrait for PageTableEntry {
         let flags = PageTableFlags::HUGE().bits();
         let mut pte = Self(paddr & Self::PHYS_ADDR_MASK | flags);
         proof {
-            Self::lemma_page_table_entry_properties();
             lemma_auxiliary_bit_properties(paddr);
-            lemma_auxiliary_bit_properties(paddr & Self::PHYS_ADDR_MASK | flags);
             assert(pte.set_prop_req(prop));
             assert((paddr & Self::PHYS_ADDR_MASK | flags) & Self::PHYS_ADDR_MASK
                 == paddr & Self::PHYS_ADDR_MASK) by (bit_vector)
@@ -240,13 +238,9 @@ impl PageTableEntryTrait for PageTableEntry {
                 by (bit_vector)
                 requires
                     flags == PageTableFlags::HUGE().bits();
-            assert(pte.is_present());
             assert(pte.is_last(_level));
         }
         pte.set_prop(prop);
-        proof {
-            assert(pte == Self::new_page_spec(paddr, _level, prop));
-        }
         pte
     }
 
@@ -522,13 +516,6 @@ impl PageTableEntryTrait for PageTableEntry {
                     Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
                     PAGE_SIZE == 4096usize,
                     MAX_PADDR == 0x8000_0000usize;
-            assert(paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
-                paddr,
-                level,
-                prop,
-            ).paddr() == paddr);
-            assert(Self::new_page(paddr, level, prop).is_present());
-            assert(Self::new_page(paddr, level, prop).prop() == prop);
             assert(raw & PageTableFlags::HUGE().bits() != 0) by (bit_vector)
                 requires
                     raw == (paddr & 0xF_FFFF_FFFF_F000usize | 0x80usize),
@@ -565,13 +552,6 @@ impl PageTableEntryTrait for PageTableEntry {
                     Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
                     flags == 0x7usize,
                     PageTableFlags::PRESENT().bits() == 0x1usize;
-            assert((paddr & Self::PHYS_ADDR_MASK | flags) & PageTableFlags::HUGE().bits() == 0)
-                by (bit_vector)
-                requires
-                    Self::PHYS_ADDR_MASK == 0xF_FFFF_FFFF_F000usize,
-                    flags == 0x7usize,
-                    PageTableFlags::HUGE().bits() == 0x80usize;
-            assert(Self::new_pt(paddr).is_present());
             assert forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level) by {
                 assert((paddr & Self::PHYS_ADDR_MASK | flags) & PageTableFlags::HUGE().bits()
                     == 0) by (bit_vector)
