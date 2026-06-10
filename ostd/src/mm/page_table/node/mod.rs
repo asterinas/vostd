@@ -408,8 +408,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                 cursor_pre_read,
                                 cj,
                             );
-                            pte.axiom_present_paddr_aligned();
-                            pte_j.axiom_present_paddr_aligned();
+                            pte.lemma_paddr_is_page_aligned();
+                            pte_j.lemma_paddr_is_page_aligned();
                         };
                         // Pinning these in SMT context lets `tracked_remove`'s
                         // dom-containment precondition and `from_raw`'s

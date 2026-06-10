@@ -78,7 +78,7 @@ impl<C: PageTableConfig> Child<C> {
             ),
     {
         proof {
-            C::E::new_properties();
+            C::E::lemma_page_table_entry_properties();
         }
 
         match self {
@@ -109,6 +109,7 @@ impl<C: PageTableConfig> Child<C> {
                 proof {
                     owner.in_scope = false;
                 }
+                assume(C::E::new_page_req(paddr, level, prop));
                 C::E::new_page(paddr, level, prop)
             },
             Child::None => {

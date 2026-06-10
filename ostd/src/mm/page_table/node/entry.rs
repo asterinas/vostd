@@ -260,9 +260,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             return;
         }*/
 
-        proof {
-            self.pte.set_prop_properties(new_prop);
-        }
+        assume(self.pte.set_prop_req(new_prop));
         self.pte.set_prop(new_prop);
 
         // SAFETY:
@@ -670,7 +668,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     meta_to_frame(new_node_owner.value.node.unwrap().meta_addr_self()),
                 );
                 old(parent_owner).set_children_perm_axiom(self.idx, pte);
-                C::E::new_properties();
+                C::E::lemma_page_table_entry_properties();
                 assert(!pte.is_last_spec(level as PagingLevel));
             }
 
@@ -1093,7 +1091,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(entry.node_matching(new_owner_child.value, new_owner_node, *entry.node)) by {
                     let pte = new_owner_node.children_perm.value()[i as int];
                     assert(pte == C::E::new_absent_spec());
-                    crate::specs::arch::PageTableEntry::absent_pte_paddr_ok();
+                    crate::arch::mm::PageTableEntry::lemma_page_table_entry_properties();
                     EntryOwner::absent_match_pte(
                         new_owner_child.value,
                         pte,

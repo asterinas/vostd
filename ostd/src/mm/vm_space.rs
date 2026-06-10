@@ -13,6 +13,7 @@ use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 use vstd::vpanic;
 
+use crate::arch::mm::PageTableEntry;
 use crate::error::Error;
 use crate::mm::frame::MetaSlot;
 use crate::mm::frame::meta::mapping::meta_to_frame;

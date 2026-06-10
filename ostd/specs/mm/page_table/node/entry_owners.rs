@@ -304,7 +304,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             owner.match_pte(pte, parent_level),
     {
-        C::E::new_properties();
+        C::E::lemma_page_table_entry_properties();
         assert(!pte.is_present());
         if parent_level > 1 {
             assert(!pte.is_last(parent_level));
