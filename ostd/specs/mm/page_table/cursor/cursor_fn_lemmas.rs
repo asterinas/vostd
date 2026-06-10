@@ -348,7 +348,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             page_size_spec(5) == pow2(48nat) as usize,
     {
-        crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();

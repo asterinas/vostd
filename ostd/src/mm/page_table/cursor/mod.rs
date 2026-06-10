@@ -365,6 +365,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         (Self, Tracked<CursorOwner<'rcu, C>>),
         PageTableError,
     > {
+        proof {
+            C::lemma_paging_consts_properties();
+        }
+
         let valid = is_valid_range::<C>(va);
         if !valid || va.start >= va.end {
             return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
@@ -1092,7 +1096,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 }
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
-                                C::lemma_NR_LEVELS_eq();
+                                C::lemma_paging_consts_properties();
                                 assert((self.level as int) < NR_LEVELS as int);
                             }
                         }

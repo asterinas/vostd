@@ -3,7 +3,6 @@
 pub mod cpu;
 pub mod kspace;
 pub mod mm;
-pub mod paging_consts;
 
 use vstd::prelude::*;
 
@@ -12,7 +11,6 @@ use super::*;
 pub use cpu::*;
 pub use kspace::*;
 pub use mm::*;
-pub use paging_consts::*;
 
 verus! {
 

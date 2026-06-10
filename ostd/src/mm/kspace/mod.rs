@@ -59,10 +59,9 @@ use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::{
-    arch::mm::PageTableEntry,
+    arch::mm::{PageTableEntry, PagingConsts},
     boot::memory_region::MemoryRegionType,
     mm::{PagingLevel, largest_pages},
-    specs::arch::PagingConsts,
     //task::disable_preempt,
 };
 
