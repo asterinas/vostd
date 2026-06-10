@@ -365,6 +365,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         (Self, Tracked<CursorOwner<'rcu, C>>),
         PageTableError,
     > {
+        proof {
+            C::lemma_paging_consts_properties();
+        }
+
         let valid = is_valid_range::<C>(va);
         if !valid || va.start >= va.end {
             return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
