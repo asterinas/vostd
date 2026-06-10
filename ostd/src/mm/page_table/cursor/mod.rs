@@ -1092,7 +1092,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 }
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
-                                C::lemma_NR_LEVELS_eq();
+                                C::lemma_paging_consts_properties();
                                 assert((self.level as int) < NR_LEVELS as int);
                             }
                         }

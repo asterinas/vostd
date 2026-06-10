@@ -38,20 +38,9 @@ impl PagingConstsTrait for PagingConsts {
         4096
     }
 
-    proof fn lemma_BASE_PAGE_SIZE_properties()
-        ensures
-            0 < Self::BASE_PAGE_SIZE_spec(),
-            is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
-    {
-        lemma_pow2_is_pow2_to64();
-    }
-
     #[inline(always)]
     fn BASE_PAGE_SIZE() -> usize
     {
-        proof {
-            Self::lemma_BASE_PAGE_SIZE_properties();
-        }
         4096
     }
 
@@ -65,13 +54,6 @@ impl PagingConstsTrait for PagingConsts {
     fn NR_LEVELS() -> PagingLevel
     {
         4
-    }
-
-    proof fn lemma_NR_LEVELS_eq()
-        ensures
-            Self::NR_LEVELS_spec() as int == NR_LEVELS as int,
-    {
-        // Both sides are concretely 4 for x86_64.
     }
 
     // Expansion for ADDRESS_WIDTH
@@ -114,18 +96,15 @@ impl PagingConstsTrait for PagingConsts {
         8
     }
 
-    proof fn lemma_PTE_SIZE_properties()
-    {
-        lemma_pow2_is_pow2_to64();
-    }
-
     #[inline(always)]
     fn PTE_SIZE() -> (res: usize)
     {
-        proof {
-            Self::lemma_PTE_SIZE_properties();
-        }
         8
+    }
+
+    proof fn lemma_paging_consts_properties()
+    {
+        lemma_pow2_is_pow2_to64();
     }
 }
 

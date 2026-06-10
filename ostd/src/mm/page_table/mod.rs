@@ -464,27 +464,9 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::VA_SIGN_EXT()
     }
 
-    proof fn lemma_BASE_PAGE_SIZE_properties()
-        ensures
-            0 < Self::BASE_PAGE_SIZE_spec(),
-            is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
+    proof fn lemma_paging_consts_properties()
     {
-        C::C::lemma_BASE_PAGE_SIZE_properties();
-    }
-
-    proof fn lemma_NR_LEVELS_eq()
-        ensures
-            Self::NR_LEVELS_spec() as int == NR_LEVELS as int,
-    {
-        C::C::lemma_NR_LEVELS_eq();
-    }
-
-    proof fn lemma_PTE_SIZE_properties()
-        ensures
-            0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE(),
-            is_pow2(Self::PTE_SIZE_spec() as int),
-    {
-        C::C::lemma_PTE_SIZE_properties();
+        C::C::lemma_paging_consts_properties();
     }
 }
 
