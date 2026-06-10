@@ -1,5 +1,5 @@
 //! Extra properties of [`vstd::set::Set`](https://verus-lang.github.io/verus/verusdoc/vstd/set/struct.Set.html).
-use vstd::{prelude::*, set::fold::*, set_lib::*};
+use vstd::{prelude::*, iset::fold::*, set::fold::*, set_lib::*};
 
 verus! {
 
@@ -53,15 +53,15 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
     requires
         l <= r,
     ensures
-        Set::new(|p: nat| l <= p < r).finite(),
-        Set::new(|p: nat| l <= p < r).len() == (r - l) as nat,
+        Set::new_assuming_finite(|p: nat| l <= p < r).finite(),
+        Set::new_assuming_finite(|p: nat| l <= p < r).len() == (r - l) as nat,
     decreases r - l,
 {
     if l == r {
-        assert(Set::new(|p: nat| l <= p < r) == Set::<nat>::empty());
+        assert(Set::new_assuming_finite(|p: nat| l <= p < r) == Set::<nat>::empty());
     } else {
         lemma_nat_range_finite(l, (r - 1) as nat);
-        assert(Set::new(|p| l <= p < r - 1).insert((r - 1) as nat) == Set::new(
+        assert(Set::new_assuming_finite(|p| l <= p < r - 1).insert((r - 1) as nat) == Set::new_assuming_finite(
             |p: nat| l <= p < r,
         ));
     }
@@ -106,34 +106,34 @@ pub proof fn lemma_filter_len_unchanged_implies_equal<T>(s: Set<T>, f: spec_fn(T
     lemma_set_separation(s, f)
 }
 
-/// If no element in set `Set::new(|x: T| p(x))` satisfies the predicate `q`, then all elements
+/// If no element in set `Set::new_assuming_finite(|x: T| p(x))` satisfies the predicate `q`, then all elements
 /// satisfying `p` also satisfy `q`.
 pub proof fn lemma_empty_bad_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
     requires
-        Set::new(|x: T| p(x)).filter(|x| !q(x)).is_empty(),
+        Set::new_assuming_finite(|x: T| p(x)).filter(|x| !q(x)).is_empty(),
     ensures
         forall|x: T| #[trigger] p(x) ==> q(x),
 {
     assert forall|x: T| #[trigger] p(x) implies q(x) by {
         if !q(x) {
-            assert(Set::new(|x: T| p(x)).filter(|x| !q(x)).contains(x));
+            assert(Set::new_assuming_finite(|x: T| p(x)).filter(|x| !q(x)).contains(x));
         };
     }
 }
 
-/// If all elements in the finite set `Set::new(|x: T| p(x))` satisfy the predicate `q`, then all elements
+/// If all elements in the finite set `Set::new_assuming_finite(|x: T| p(x))` satisfy the predicate `q`, then all elements
 /// satisfying `p` also satisfy `q`.
 pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
     requires
-        Set::new(|x: T| p(x)).finite(),
-        Set::new(|x: T| p(x)).len() == Set::new(|x: T| p(x)).filter(q).len(),
+        Set::new_assuming_finite(|x: T| p(x)).finite(),
+        Set::new_assuming_finite(|x: T| p(x)).len() == Set::new_assuming_finite(|x: T| p(x)).filter(q).len(),
     ensures
         forall|x: T| #[trigger] p(x) ==> q(x),
 {
-    lemma_set_separation(Set::new(|x: T| p(x)), q);
+    lemma_set_separation(Set::new_assuming_finite(|x: T| p(x)), q);
     assert forall|x: T| #[trigger] p(x) implies q(x) by {
         if !q(x) {
-            assert(Set::new(|x: T| p(x)).filter(|x| !q(x)).contains(x));
+            assert(Set::new_assuming_finite(|x: T| p(x)).filter(|x| !q(x)).contains(x));
         };
     }
 }
@@ -170,6 +170,7 @@ pub proof fn lemma_flatten_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
 {
     if parts.is_empty() {
         assert(parts.flatten() == Set::<A>::empty());
+        assert(parts.to_iset() =~= ISet::empty());
         lemma_fold_empty(0nat, |acc: nat, p: Set<A>| acc + p.len());
     } else {
         let p = parts.choose();
@@ -181,7 +182,8 @@ pub proof fn lemma_flatten_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
         assert(parts.flatten().len() == rest.flatten().len() + p.len()) by {
             lemma_set_disjoint_lens(rest.flatten(), p);
         }
-        lemma_fold_insert(rest, 0nat, |acc: nat, p: Set<A>| acc + p.len(), p);
+        assert(parts.to_iset() =~= rest.to_iset().insert(p));
+        lemma_fold_insert(rest.to_iset(), 0nat, |acc: nat, p: Set<A>| acc + p.len(), p);
     }
 }
 

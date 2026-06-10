@@ -1,13 +1,14 @@
 //! Properties of pure mathematical spec functions ([`spec_fn`](https://verus-lang.github.io/verus/guide/spec_functions.html)).
 use vstd::prelude::*;
 use vstd::relations::*;
+use vstd::set_lib::*;
 
 verus! {
 
 /// A function is bijective from `domain` to `codomain`
 /// if it is injective on `domain` and its image equals `codomain`.
 pub open spec fn bijective_on<A, B>(f: spec_fn(A) -> B, domain: Set<A>, codomain: Set<B>) -> bool {
-    injective_on(f, domain) && domain.map(f) =~= codomain
+    domain.injective_on(f) && domain.map(f) =~= codomain
 }
 
 /// `g` is a left inverse of `f` on `domain` if `g(f(x)) == x` for all `x` in `domain`,
@@ -46,7 +47,7 @@ pub open spec fn inverse_on<A, B>(
 /// For each `b` in the image, returns the unique `a` such that `f(a) = b`.
 pub open spec fn construct_left_inverse<A, B>(f: spec_fn(A) -> B, domain: Set<A>) -> spec_fn(B) -> A
     recommends
-        injective_on(f, domain),
+        domain.injective_on(f),
 {
     |b: B| choose|a: A| domain.contains(a) && f(a) == b
 }
@@ -69,7 +70,7 @@ pub open spec fn construct_inverse<A, B>(
 /// That is, for all `x ∈ domain`, we have `g(f(x)) == x`.
 pub proof fn lemma_construct_left_inverse_sound<A, B>(f: spec_fn(A) -> B, domain: Set<A>)
     requires
-        injective_on(f, domain),
+        domain.injective_on(f),
     ensures
         left_inverse_on(f, construct_left_inverse(f, domain), domain, domain.map(f)),
 {
@@ -95,7 +96,7 @@ pub proof fn lemma_injective_implies_injective_on<T, U>(f: spec_fn(T) -> U, dom:
     requires
         injective(f),
     ensures
-        injective_on(f, dom),
+        dom.injective_on(f),
 {
 }
 
@@ -175,7 +176,7 @@ pub proof fn lemma_inverse_of_bijection_is_bijective<A, B>(
 /// Mapping a finite set with an injective function results in a set of the same cardinality.
 pub proof fn lemma_injective_map_cardinality<T, U>(f: spec_fn(T) -> U, dom: Set<T>, s: Set<T>)
     requires
-        injective_on(f, dom),
+        dom.injective_on(f),
         s.finite(),
         s <= dom,
     ensures

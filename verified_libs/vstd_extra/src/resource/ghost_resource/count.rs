@@ -1,5 +1,5 @@
 //! Integer-based counting ghost resource.
-use vstd::map::*;
+use vstd::imap::*;
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
 use vstd::resource::Loc;
@@ -100,12 +100,12 @@ impl<T, const TOTAL: u64> Protocol<(), T> for FractionalCarrierOpt<T, TOTAL> {
         }
     }
 
-    closed spec fn rel(self, s: Map<(), T>) -> bool {
+    closed spec fn rel(self, s: IMap<(), T>) -> bool {
         match self {
             FractionalCarrierOpt::Value { v, n } => {
                 (match v {
                     Some(v0) => s.dom().contains(()) && s[()] == v0,
-                    None => s =~= map![],
+                    None => s =~= imap![],
                 }) && n == TOTAL && n != 0
             },
             FractionalCarrierOpt::Empty => false,
@@ -326,7 +326,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
             result.resource() == v,
     {
         let f = FractionalCarrierOpt::<T, TOTAL>::Value { v: Some(v), n: TOTAL as int };
-        let tracked mut m = Map::<(), T>::tracked_empty();
+        let tracked mut m = IMap::<(), T>::tracked_empty();
         m.tracked_insert((), v);
         let tracked r = StorageResource::alloc(f, m);
         Self { r }
@@ -378,7 +378,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         r.validate();
         let tracked mut r1 = StorageResource::alloc(
             FractionalCarrierOpt::Value { v: None, n: TOTAL as int },
-            Map::tracked_empty(),
+            IMap::tracked_empty(),
         );
         tracked_swap(r, &mut r1);
         let tracked (r1, r2) = r1.split(
@@ -420,7 +420,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         use_type_invariant(&other);
         let tracked mut r1 = StorageResource::alloc(
             FractionalCarrierOpt::Value { v: None, n: TOTAL as int },
-            Map::tracked_empty(),
+            IMap::tracked_empty(),
         );
         tracked_swap(r, &mut r1);
         r1.validate_with_shared(&other.r);
@@ -440,7 +440,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
             ret == self.resource(),
     {
         use_type_invariant(self);
-        StorageResource::guard(&self.r, map![() => self.resource()]).tracked_borrow(())
+        StorageResource::guard(&self.r, imap![() => self.resource()]).tracked_borrow(())
     }
 
     pub proof fn take_resource(tracked self) -> (tracked pair: (T, EmptyCount<T, TOTAL>))
@@ -454,17 +454,17 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         self.r.validate();
         let p1 = self.r.value();
         let p2 = FractionalCarrierOpt::Value { v: None, n: TOTAL as int };
-        let b2 = map![() => self.resource()];
-        assert forall|q: FractionalCarrierOpt<T, TOTAL>, t1: Map<(), T>|
+        let b2 = imap![() => self.resource()];
+        assert forall|q: FractionalCarrierOpt<T, TOTAL>, t1: IMap<(), T>|
             #![all_triggers]
             FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p1, q), t1) implies exists|
-            t2: Map<(), T>,
+            t2: IMap<(), T>,
         |
             #![all_triggers]
             FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p2, q), t2) && t2.dom().disjoint(
                 b2.dom(),
             ) && t1 =~= t2.union_prefer_right(b2) by {
-            let t2 = map![];
+            let t2 = imap![];
             assert(FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p2, q), t2));
             assert(t2.dom().disjoint(b2.dom()));
             assert(t1 =~= t2.union_prefer_right(b2));
@@ -493,7 +493,7 @@ impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
             TOTAL > 0,
     {
         let f = FractionalCarrierOpt::<T, TOTAL>::Value { v: None, n: TOTAL as int };
-        let tracked mut m = Map::<(), T>::tracked_empty();
+        let tracked mut m = IMap::<(), T>::tracked_empty();
         let tracked r = StorageResource::alloc(f, m);
         Self { r }
     }
@@ -507,22 +507,22 @@ impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
         use_type_invariant(&self);
         self.r.validate();
         let p1 = self.r.value();
-        let b1 = map![() => resource];
+        let b1 = imap![() => resource];
         let p2 = FractionalCarrierOpt::Value { v: Some(resource), n: TOTAL as int };
-        assert forall|q: FractionalCarrierOpt<T, TOTAL>, t1: Map<(), T>|
+        assert forall|q: FractionalCarrierOpt<T, TOTAL>, t1: IMap<(), T>|
             #![all_triggers]
             FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p1, q), t1) implies exists|
-            t2: Map<(), T>,
+            t2: IMap<(), T>,
         |
             #![all_triggers]
             FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p2, q), t2) && t1.dom().disjoint(
                 b1.dom(),
             ) && t1.union_prefer_right(b1) =~= t2 by {
-            let t2 = map![() => resource];
+            let t2 = imap![() => resource];
             assert(FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p2, q), t2)
                 && t1.dom().disjoint(b1.dom()) && t1.union_prefer_right(b1) =~= t2);
         }
-        let tracked mut m = Map::tracked_empty();
+        let tracked mut m = IMap::tracked_empty();
         m.tracked_insert((), resource);
         let tracked Self { r } = self;
         let tracked new_r = r.deposit(m, p2);

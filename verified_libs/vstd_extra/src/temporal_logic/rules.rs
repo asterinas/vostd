@@ -1915,7 +1915,7 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
     state_pred: StatePred<T>,
 )
     requires
-        Set::<A>::full() != Set::<A>::empty(),
+        ISet::<A>::full() != ISet::<A>::empty(),
     ensures
         #[trigger] lift_state_forall(a_to_state_pred).and(lift_state(state_pred))
             == lift_state_forall(StatePred::absorb(a_to_state_pred, state_pred)),
@@ -1933,7 +1933,7 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
                 StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s) by {}
         }
         if rhs.satisfied_by(ex) {
-            let a = choose|a| Set::<A>::full().contains(a);
+            let a = choose|a| ISet::<A>::full().contains(a);
             assert(StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
             assert forall|a| #[trigger] a_to_state_pred(a).apply(s) by {
                 assert(StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
@@ -2013,7 +2013,7 @@ pub proof fn leads_to_always_tla_forall<T, A>(
             }
 
             let a_to_witness = Map::new(
-                |a: A| domain.contains(a),
+                domain,
                 |a: A|
                     {
                         let wit = eventually_choose_witness::<T>(
@@ -2026,7 +2026,6 @@ pub proof fn leads_to_always_tla_forall<T, A>(
             assert(a_to_witness.dom() == domain);
             let r = |a1: nat, a2: nat| a1 <= a2;
             let values = a_to_witness.values();
-            lemma_values_finite(a_to_witness);
             assert_by(
                 values.len() > 0,
                 {
@@ -2043,6 +2042,7 @@ pub proof fn leads_to_always_tla_forall<T, A>(
                     ex.suffix(i).suffix(max_witness),
                 ) by {
                 let witness = a_to_witness[a];
+                assert(values.contains(witness));
                 assert(r(witness, max_witness));
                 assert(ex.suffix(i).suffix(max_witness) == ex.suffix(i).suffix(witness).suffix(
                     (max_witness - witness) as nat,

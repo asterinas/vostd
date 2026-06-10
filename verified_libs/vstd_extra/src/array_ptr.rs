@@ -338,7 +338,7 @@ pub tracked struct PointsTo<V, const N: usize> {
 broadcast use {
     raw_ptr::group_raw_ptr_axioms,
     set_lib::group_set_lib_default,
-    set::group_set_axioms,
+    set::group_set_lemmas,
 };
 
 impl<V, const N: usize> ArrayPtr<V, N> {

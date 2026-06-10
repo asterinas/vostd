@@ -23,7 +23,7 @@ impl<P, S, K, V> Protocol<K, V> for HybridProduct<P, S, K, V> where P: PCM, S: P
         }
     }
 
-    open spec fn rel(self, s: Map<K, V>) -> bool {
+    open spec fn rel(self, s: IMap<K, V>) -> bool {
         self.protocol.rel(s)
     }
 

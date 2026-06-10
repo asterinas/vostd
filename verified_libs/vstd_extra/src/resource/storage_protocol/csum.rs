@@ -64,7 +64,7 @@ impl<A, B, const TOTAL: u64> Protocol<(), Sum<A, B>> for SumSP<A, B, TOTAL> {
         }
     }
 
-    open spec fn rel(self, s: Map<(), Sum<A, B>>) -> bool {
+    open spec fn rel(self, s: IMap<(), Sum<A, B>>) -> bool {
         match self {
             SumSP::Unit => s.is_empty(),
             SumSP::Left(None, n, true) => 0 <= n <= TOTAL && s.is_empty(),
@@ -162,21 +162,21 @@ impl<A, B, const TOTAL: u64> SumSP<A, B, TOTAL> {
             self.has_resource(),
             self.is_valid(),
         ensures
-            withdraws(self, SumSP::Left(None, self.frac(), true), map![()=>self.resource()]),
+            withdraws(self, SumSP::Left(None, self.frac(), true), imap![()=>self.resource()]),
     {
         match self {
             SumSP::Left(Some(a), n, true) => {
                 let resource = Sum::<A, B>::Left(a);
-                let resource_map = map![() => resource];
+                let resource_map = imap![() => resource];
                 let new_protocol_monoid = SumSP::<A, B, TOTAL>::Left(None, n, true);
-                assert forall|q: Self, t1: Map<(), Sum<A, B>>|
+                assert forall|q: Self, t1: IMap<(), Sum<A, B>>|
                     #![auto]
-                    SumSP::rel(SumSP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
+                    SumSP::rel(SumSP::op(self, q), t1) implies exists|t2: IMap<(), Sum<A, B>>|
                     #![auto]
                     SumSP::rel(SumSP::op(new_protocol_monoid, q), t2) && t2.dom().disjoint(
                         resource_map.dom(),
                     ) && t1 =~= t2.union_prefer_right(resource_map) by {
-                    let t2 = Map::empty();
+                    let t2 = IMap::empty();
                     assert(SumSP::rel(SumSP::op(new_protocol_monoid, q), t2));
                     assert(t2.dom().disjoint(resource_map.dom()));
                     assert(t1 =~= t2.union_prefer_right(resource_map));
@@ -195,21 +195,21 @@ impl<A, B, const TOTAL: u64> SumSP<A, B, TOTAL> {
             self.has_resource(),
             self.is_valid(),
         ensures
-            withdraws(self, SumSP::Right(None, self.frac(), true), map![()=>self.resource()]),
+            withdraws(self, SumSP::Right(None, self.frac(), true), imap![()=>self.resource()]),
     {
         match self {
             SumSP::Right(Some(b), n, true) => {
                 let resource = Sum::<A, B>::Right(b);
-                let resource_map = map![() => resource];
+                let resource_map = imap![() => resource];
                 let new_protocol_monoid = SumSP::<A, B, TOTAL>::Right(None, n, true);
-                assert forall|q: Self, t1: Map<(), Sum<A, B>>|
+                assert forall|q: Self, t1: IMap<(), Sum<A, B>>|
                     #![auto]
-                    SumSP::rel(SumSP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
+                    SumSP::rel(SumSP::op(self, q), t1) implies exists|t2: IMap<(), Sum<A, B>>|
                     #![auto]
                     SumSP::rel(SumSP::op(new_protocol_monoid, q), t2) && t2.dom().disjoint(
                         resource_map.dom(),
                     ) && t1 =~= t2.union_prefer_right(resource_map) by {
-                    let t2 = Map::empty();
+                    let t2 = IMap::empty();
                     assert(SumSP::rel(SumSP::op(new_protocol_monoid, q), t2));
                     assert(t2.dom().disjoint(resource_map.dom()));
                     assert(t1 =~= t2.union_prefer_right(resource_map));
@@ -228,13 +228,13 @@ impl<A, B, const TOTAL: u64> SumSP<A, B, TOTAL> {
             self.has_no_resource(),
             self.is_valid(),
         ensures
-            deposits(self, map![()=>Sum::Left(a)], SumSP::Left(Some(a), self.frac(), true)),
+            deposits(self, imap![()=>Sum::Left(a)], SumSP::Left(Some(a), self.frac(), true)),
     {
-        let resource_map = map![()=>Sum::Left(a)];
-        let empty_map: Map<(), Sum<A, B>> = Map::empty();
+        let resource_map = imap![()=>Sum::Left(a)];
+        let empty_map: IMap<(), Sum<A, B>> = IMap::empty();
         let new_protocol_monoid = SumSP::<A, B, TOTAL>::Left(Some(a), self.frac(), true);
-        assert forall|q: Self, t1: Map<(), Sum<A, B>>|
-            SumSP::rel(SumSP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
+        assert forall|q: Self, t1: IMap<(), Sum<A, B>>|
+            SumSP::rel(SumSP::op(self, q), t1) implies exists|t2: IMap<(), Sum<A, B>>|
             {
                 #[trigger] SumSP::rel(SumSP::op(new_protocol_monoid, q), t2) && t1.dom().disjoint(
                     resource_map.dom(),
@@ -251,13 +251,13 @@ impl<A, B, const TOTAL: u64> SumSP<A, B, TOTAL> {
             self.has_no_resource(),
             self.is_valid(),
         ensures
-            deposits(self, map![()=>Sum::Right(b)], SumSP::Right(Some(b), self.frac(), true)),
+            deposits(self, imap![()=>Sum::Right(b)], SumSP::Right(Some(b), self.frac(), true)),
     {
-        let resource_map = map![()=>Sum::Right(b)];
-        let empty_map: Map<(), Sum<A, B>> = Map::empty();
+        let resource_map = imap![()=>Sum::Right(b)];
+        let empty_map: IMap<(), Sum<A, B>> = IMap::empty();
         let new_protocol_monoid = SumSP::<A, B, TOTAL>::Right(Some(b), self.frac(), true);
-        assert forall|q: Self, t1: Map<(), Sum<A, B>>|
-            SumSP::rel(SumSP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
+        assert forall|q: Self, t1: IMap<(), Sum<A, B>>|
+            SumSP::rel(SumSP::op(self, q), t1) implies exists|t2: IMap<(), Sum<A, B>>|
             {
                 #[trigger] SumSP::rel(SumSP::op(new_protocol_monoid, q), t2) && t1.dom().disjoint(
                     resource_map.dom(),

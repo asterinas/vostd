@@ -4,7 +4,7 @@ use vstd::{map::*, set::*};
 
 verus! {
 
-broadcast use {group_map_axioms, group_set_axioms};
+broadcast use {group_map_lemmas, group_set_lemmas};
 
 pub broadcast proof fn lemma_map_remove_keys_finite<K, V>(m: Map<K, V>, keys: Set<K>)
     requires
@@ -33,7 +33,7 @@ pub proof fn lemma_map_insert_len<K, V>(m: Map<K, V>, k: K, v: V)
             1
         }),
 {
-    axiom_map_insert_domain(m, k, v)
+    lemma_map_insert_domain(m, k, v)
 }
 
 /// The length of removing a key-value pair `(k,v)` from a map `m` depends on whether
@@ -49,7 +49,7 @@ pub proof fn lemma_map_remove_len<K, V>(m: Map<K, V>, k: K)
             0int
         }),
 {
-    axiom_map_remove_domain(m, k)
+    lemma_map_remove_domain(m, k)
 }
 
 /// Filters a map based on a predicate function applied to its values.
@@ -270,11 +270,7 @@ pub broadcast proof fn lemma_value_filter_choose<K, V>(m: Map<K, V>, f: spec_fn(
         value_filter(m, f).contains_key(#[trigger] value_filter_choose(m, f)),
         f(m[value_filter_choose(m, f)]),
 {
-    if value_filter(m, f).dom().finite() {
-        axiom_set_choose_len(value_filter(m, f).dom());
-    } else {
-        axiom_set_choose_infinite(value_filter(m, f).dom());
-    }
+    lemma_set_choose_len(value_filter(m, f).dom());
 }
 
 /// Borrows an entry from a tracked `Map` mutably.
@@ -458,13 +454,13 @@ pub broadcast proof fn lemma_forall_map_values_remove<K, V>(
 /// Returns a new map that projects the first key of a pair `(K1, K2)`,
 /// keeping the values associated with the second key `K2`.
 pub open spec fn project_first_key<K1, K2, V>(m: Map<(K1, K2), V>, k1: K1) -> Map<K2, V> {
-    Map::new(|k2: K2| m.contains_key((k1, k2)), |k2: K2| m[(k1, k2)])
+    Map::new(Set::new_assuming_finite(|k2: K2| m.contains_key((k1, k2))), |k2: K2| m[(k1, k2)])
 }
 
 /// Returns a new map that projects the second key of a pair `(K1, K2)`,
 /// keeping the values associated with the first key `K1`.
 pub open spec fn project_second_key<K1, K2, V>(m: Map<(K1, K2), V>, k2: K2) -> Map<K1, V> {
-    Map::new(|k1: K1| m.contains_key((k1, k2)), |k1: K1| m[(k1, k2)])
+    Map::new(Set::new_assuming_finite(|k1: K1| m.contains_key((k1, k2))), |k1: K1| m[(k1, k2)])
 }
 
 /// A lemma showing that `project_first_key`` is sound.
