@@ -539,6 +539,7 @@ pub trait PageTableEntryTrait:
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             res.is_present(),
+            res.is_last(level),
             res.prop() == prop,
         returns
             Self::new_page(paddr, level, prop),
@@ -557,6 +558,7 @@ pub trait PageTableEntryTrait:
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             res.is_present(),
+            forall|level: PagingLevel| !res.is_last(level),
         returns
             Self::new_pt(paddr),
     ;
