@@ -1115,15 +1115,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 }
                             };
                         };
-                        vstd::set::axiom_set_union_finite(
-                            old_removed,
-                            prev_mappings.filter(
-                                |m2: Mapping|
-                                    frag_ghost->StrayPageTable_va <= m2.va_range.start
-                                        < frag_ghost->StrayPageTable_va
-                                        + frag_ghost->StrayPageTable_len,
-                            ),
-                        );
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_wf_subset(
                             old_adjusted,
                             new_removed,
@@ -1150,15 +1141,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 assert(!prev_mappings.contains(m));
                             };
                         };
-                        vstd::set::axiom_set_intersect_finite::<Mapping>(
-                            prev_mappings,
-                            Set::new(
-                                |m2: Mapping|
-                                    frag_ghost->StrayPageTable_va <= m2.va_range.start
-                                        < frag_ghost->StrayPageTable_va
-                                        + frag_ghost->StrayPageTable_len,
-                            ),
-                        );
                         vstd::set_lib::lemma_set_disjoint_lens(
                             old_removed,
                             prev_mappings.filter(
@@ -1259,10 +1241,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                             assert forall|e: Mapping|
                                 old_removed.contains(e) implies !subtree.contains(e) by {};
                         };
-                        vstd::set::axiom_set_intersect_finite::<Mapping>(
-                            prev_mappings,
-                            Set::new(|m2: Mapping| subtree.contains(m2)),
-                        );
                         vstd::set_lib::lemma_set_disjoint_lens(old_removed, subtree);
                         assert(removed =~= old_removed + subtree);
                     },
@@ -1271,18 +1249,16 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                             assert forall|e: Mapping| #[trigger]
                                 old_removed.contains(e) implies !set![mm].contains(e) by {};
                         };
-                        vstd::set::axiom_set_insert_finite(Set::<Mapping>::empty(), mm);
                         vstd::set_lib::lemma_set_disjoint_lens(old_removed, set![mm]);
                         assert(removed =~= old_removed + set![mm]);
                         vstd::set_lib::lemma_set_empty_equivalency_len(Set::<Mapping>::empty());
                         assert(set![mm] =~= Set::<Mapping>::empty().insert(mm));
-                        vstd::set::axiom_set_insert_len(Set::<Mapping>::empty(), mm);
+                        vstd::set::lemma_set_insert_len(Set::<Mapping>::empty(), mm);
                     },
                 }
 
                 // Maintain wf_mapping_set(adjusted_base) — only changes in Mapped case.
                 if is_mapped {
-                    vstd::set::axiom_set_union_finite(sm, old_removed);
                     crate::specs::mm::page_table::mapping_set_lemmas::lemma_wf_subset(
                         old_adjusted,
                         old_removed,

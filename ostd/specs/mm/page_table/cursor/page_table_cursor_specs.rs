@@ -153,7 +153,7 @@ impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn split_if_mapped_huge_spec(self, new_size: usize) -> Self {
         let m = self.query_mapping();
         let size = m.page_size;
-        let new_mappings = Set::<int>::new(|n: int| 0 <= n < size / new_size).map(
+        let new_mappings = Set::<int>::new_assuming_finite(|n: int| 0 <= n < size / new_size).map(
             |n: int| Self::split_index(m, new_size, n as usize),
         );
         CursorView { cur_va: self.cur_va, mappings: self.mappings - set![m] + new_mappings, ..self }
@@ -172,11 +172,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     let f = self.mappings.filter(
                         |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
                     );
-                    vstd::set::axiom_set_intersect_finite::<Mapping>(
-                        self.mappings,
-                        Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
-                    );
-                    vstd::set::axiom_set_choose_len(f);
+                    vstd::set::lemma_set_choose_len(f);
                     assert(self.mappings.contains(m));
                     assert(m.inv());
                     assert(NR_ENTRIES == 512);

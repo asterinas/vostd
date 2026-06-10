@@ -3560,15 +3560,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     < m2.va_range.end,
                         );
                         assert(cover_filter.contains(p));
-                        vstd::set::axiom_set_intersect_finite::<Mapping>(
-                            old(owner)@.mappings,
-                            Set::new(
-                                |m2: Mapping|
-                                    m2.va_range.start <= old(owner)@.cur_va && old(owner)@.cur_va
-                                        < m2.va_range.end,
-                            ),
-                        );
-                        vstd::set::axiom_set_choose_len(cover_filter);
+                        vstd::set::lemma_set_choose_len(cover_filter);
                         assert(old(owner)@.present());
                     } else {
                         assert(m.va_range.start >= frag_va);

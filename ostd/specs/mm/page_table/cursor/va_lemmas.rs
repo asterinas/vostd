@@ -258,11 +258,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
         );
         assert(filtered.contains(m));
-        vstd::set::axiom_set_intersect_finite::<Mapping>(
-            self@.mappings,
-            Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end),
-        );
-        vstd::set::axiom_set_choose_len(filtered);
+        vstd::set::lemma_set_choose_len(filtered);
         let qm = self@.query_mapping();
         assert(filtered.contains(qm));
         assert(qm == m) by {

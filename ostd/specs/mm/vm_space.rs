@@ -370,7 +370,7 @@ impl<'a> VmSpaceOwner {
                 assert(mv.addr_transl(va) is Some);
                 assert(o_mv.len() > 0);
                 let m = o_mv.choose();
-                vstd::set::axiom_set_choose_len(o_mv);
+                vstd::set::lemma_set_choose_len(o_mv);
                 assert(o_mv.contains(m));
                 assert(o_borrow_mv.contains(m));
                 assert(o_borrow_mv.len() > 0);
@@ -447,7 +447,7 @@ impl<'a> VmSpaceOwner {
 
                 assert(old_mv.addr_transl(va) is Some);
                 assert(o_mv.len() > 0);
-                broadcast use vstd::set::axiom_set_choose_len;
+                broadcast use vstd::set::lemma_set_choose_len;
 
                 let m = o_mv.choose();
                 assert(o_mv.contains(m));
@@ -545,7 +545,7 @@ impl<'a> VmSpaceOwner {
 
                 if r_mappings.len() > 0 {
                     let r = r_mappings.choose();
-                    vstd::set::axiom_set_choose_len(r_mappings);
+                    vstd::set::lemma_set_choose_len(r_mappings);
                     assert(r_mappings.contains(r));
                     assert(t_mappings.contains(r));
                     assert(t_mappings.len() > 0);

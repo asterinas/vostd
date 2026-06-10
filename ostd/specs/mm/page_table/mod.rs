@@ -49,7 +49,7 @@ impl Inv for AbstractVaddr {
         &&& 0 <= self.offset
             < PAGE_SIZE
         // `index` has exactly `[0, NR_LEVELS)` as its domain.
-        &&& self.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS)
+        &&& self.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS)
         &&& forall|i: int|
             #![trigger self.index.contains_key(i)]
             0 <= i < NR_LEVELS ==> {
@@ -70,7 +70,7 @@ impl AbstractVaddr {
         AbstractVaddr {
             offset: (va % PAGE_SIZE) as int,
             index: Map::new(
-                |i: int| 0 <= i < NR_LEVELS,
+                Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS),
                 |i: int| ((va / pow2((12 + 9 * i) as nat) as usize) % NR_ENTRIES) as int,
             ),
             leading_bits: (va as int / 0x1_0000_0000_0000int),
@@ -349,7 +349,7 @@ impl AbstractVaddr {
             let tmp = self.align_down(level - 1);
             self.align_down_inv(level - 1);
             let new = self.align_down(level);
-            assert(new.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert(new.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
             assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
                 &&& new.index.contains_key(i)
                 &&& 0 <= new.index[i]
@@ -393,7 +393,7 @@ impl AbstractVaddr {
             let tmp = self.align_down(level - 1);
             self.align_down_shape(level - 1);
             let new = self.align_down(level);
-            assert(new.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert(new.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
             assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
                 &&& new.index.contains_key(i)
                 &&& 0 <= new.index[i]
@@ -782,7 +782,7 @@ impl AbstractVaddr {
         assert(self.align_up(level) == advanced);
 
         assert(advanced.inv()) by {
-            assert(advanced.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert(advanced.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
             assert forall|i: int|
                 #![trigger advanced.index.contains_key(i)]
                 0 <= i < NR_LEVELS implies {
@@ -874,7 +874,7 @@ impl AbstractVaddr {
             assert(self.next_index(level) == advanced);
             assert(self.align_up(level) == advanced);
             assert(advanced.inv()) by {
-                assert(advanced.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+                assert(advanced.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
                 assert forall|i: int|
                     #![trigger advanced.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {
@@ -1030,7 +1030,7 @@ impl AbstractVaddr {
                 assert(self.align_up(NR_LEVELS as int) == advanced_top);
 
                 assert(advanced_top.inv()) by {
-                    assert(advanced_top.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+                    assert(advanced_top.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
                     assert forall|i: int|
                         #![trigger advanced_top.index.contains_key(i)]
                         0 <= i < NR_LEVELS implies {
@@ -1336,7 +1336,7 @@ impl AbstractVaddr {
         if next_index == NR_ENTRIES && start_level < NR_LEVELS {
             let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
             assert(next_va.inv()) by {
-                assert(next_va.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+                assert(next_va.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
                 assert forall|i: int|
                     #![trigger next_va.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {

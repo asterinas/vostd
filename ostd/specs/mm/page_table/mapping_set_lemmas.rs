@@ -37,8 +37,7 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: int, hi
     if s.len() != 0 {
         let m = s.choose();
         let rest = s.remove(m);
-        vstd::set::axiom_set_remove_len(s, m);
-        vstd::set::axiom_set_remove_finite(s, m);
+        vstd::set::lemma_set_remove_len(s, m);
         assert(m.inv());
 
         let below = rest.filter(|n: Mapping| n.va_range.end <= m.va_range.start);
@@ -51,15 +50,6 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: int, hi
                 assert(s.contains(n) && n != m);
             };
         };
-
-        vstd::set::axiom_set_intersect_finite::<Mapping>(
-            rest,
-            Set::new(|n: Mapping| n.va_range.end <= m.va_range.start),
-        );
-        vstd::set::axiom_set_intersect_finite::<Mapping>(
-            rest,
-            Set::new(|n: Mapping| n.va_range.start >= m.va_range.end),
-        );
 
         assert(below.disjoint(above)) by {
             assert forall|n: Mapping| below.contains(n) implies !above.contains(n) by {
@@ -183,7 +173,6 @@ pub proof fn lemma_wf_union(a: Set<Mapping>, b: Set<Mapping>)
     ensures
         wf_mapping_set(a.union(b)),
 {
-    vstd::set::axiom_set_union_finite(a, b);
     assert forall|m: Mapping| #![auto] a.union(b).contains(m) implies m.inv() by {};
     assert forall|m: Mapping, n: Mapping|
         #![auto]
