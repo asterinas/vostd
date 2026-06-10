@@ -250,6 +250,11 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             (core::ptr::null_mut(), Tracked(None))
         };
 
+        // TODO: A freshly minted empty view makes this release store publish no
+        // prior observations, so in the model it degrades to relaxed-strength
+        // publication. This is sound (the empty view is the weakest token) but
+        // lossy; switch to a per-task/per-CPU view once task-attached ghost
+        // state is available.
         proof_decl! {
             let tracked mut tv = ThreadView::new();
         }
@@ -271,6 +276,9 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     )]
     fn read(&self) -> RcuReadGuardInner<'_, P> {
         let inner_guard = disable_preempt();
+        // TODO: The guard's view starts empty instead of inheriting the
+        // thread's accumulated view; sound but forgets prior observations.
+        // Replace with a per-task/per-CPU view once available.
         proof_decl! {
             let tracked mut tv = ThreadView::new();
         }
@@ -286,6 +294,8 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     pub fn read_with<'a, A: InAtomicMode>(&'a self, _guard: &'a A) -> Option<
         <P as NonNullPtrRef<'a>>::Ref,
     > where P: NonNullPtrRef<'a> {
+        // TODO: Same as `read`: a fresh empty view forgets the thread's prior
+        // observations; replace with a per-task/per-CPU view once available.
         proof_decl! {
             let tracked mut tv = ThreadView::new();
         }

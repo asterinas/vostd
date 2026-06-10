@@ -70,19 +70,67 @@ pub open spec fn callback_summaries(callbacks: Callbacks) -> Seq<rcu_spec::RcuCa
     Seq::new(callbacks@.len(), |i: int| callbacks@[i]@)
 }
 
+/// Proof-facing summary of one grace period.
+///
+/// The executable CPU mask is intentionally not part of this first state model:
+/// the next proof cut only needs to connect pending callbacks to the monitor
+/// flag. A later epoch/quiescent-state invariant should refine this view with
+/// CPU progress.
+pub ghost struct GracePeriodView {
+    pub callbacks: Seq<rcu_spec::RcuCallbackSummary>,
+    pub is_complete: bool,
+}
+
+impl GracePeriodView {
+    pub open spec fn has_pending_work(self) -> bool {
+        !self.is_complete || self.callbacks.len() > 0
+    }
+}
+
 pub(super) struct GracePeriod {
     callbacks: Callbacks,
     cpu_mask: AtomicCpuSet,
     is_complete: bool,
 }
 
+impl View for GracePeriod {
+    type V = GracePeriodView;
+
+    closed spec fn view(&self) -> GracePeriodView {
+        GracePeriodView {
+            callbacks: callback_summaries(self.callbacks),
+            is_complete: self.is_complete,
+        }
+    }
+}
+
 impl GracePeriod {
     closed spec fn callback_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
-        callback_summaries(self.callbacks)
+        self@.callbacks
     }
 
     closed spec fn has_pending_work(self) -> bool {
-        !self.is_complete || self.callback_summaries().len() > 0
+        self@.has_pending_work()
+    }
+}
+
+/// Proof-facing summary of the monitor state protected by `RcuMonitor::state`.
+pub ghost struct MonitorStateView {
+    pub current_gp: GracePeriodView,
+    pub next_callbacks: Seq<rcu_spec::RcuCallbackSummary>,
+}
+
+impl MonitorStateView {
+    pub open spec fn pending_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
+        self.current_gp.callbacks.add(self.next_callbacks)
+    }
+
+    pub open spec fn has_pending_work(self) -> bool {
+        self.current_gp.has_pending_work() || self.next_callbacks.len() > 0
+    }
+
+    pub open spec fn no_pending_work(self) -> bool {
+        !self.has_pending_work()
     }
 }
 
@@ -91,14 +139,63 @@ pub(super) struct State {
     next_callbacks: Callbacks,
 }
 
+impl View for State {
+    type V = MonitorStateView;
+
+    closed spec fn view(&self) -> MonitorStateView {
+        MonitorStateView {
+            current_gp: self.current_gp@,
+            next_callbacks: callback_summaries(self.next_callbacks),
+        }
+    }
+}
+
 impl State {
     closed spec fn pending_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
-        self.current_gp.callback_summaries().add(callback_summaries(self.next_callbacks))
+        self@.pending_summaries()
     }
 
     closed spec fn has_pending_work(self) -> bool {
-        self.current_gp.has_pending_work() || callback_summaries(self.next_callbacks).len() > 0
+        self@.has_pending_work()
     }
+
+    closed spec fn no_pending_work(self) -> bool {
+        self@.no_pending_work()
+    }
+}
+
+/// Relationship later maintained between the weak `is_monitoring` flag and the
+/// lock-protected monitor state. A `true` flag may over-approximate work, but a
+/// `false` flag must be precise enough to certify no pending callbacks or grace
+/// period.
+pub open spec fn monitor_flag_matches_state(flag: bool, state: MonitorStateView) -> bool {
+    !flag ==> state.no_pending_work()
+}
+
+/// Bridge used by the future `set_monitoring` helper: the weak atomic flag
+/// invariant already requires `!flag ==> !pending`; once the caller proves that
+/// `pending` exactly summarizes the lock-protected state, we get the stronger
+/// state-level fact needed by the monitor fast path.
+proof fn monitor_flag_matches_state_from_pending(
+    flag: bool,
+    pending: bool,
+    state: State,
+)
+    requires
+        !flag ==> !pending,
+        pending == state.has_pending_work(),
+    ensures
+        monitor_flag_matches_state(flag, state@),
+{
+}
+
+proof fn monitor_flag_false_has_no_pending_state(flag: bool, state: State)
+    requires
+        monitor_flag_matches_state(flag, state@),
+        !flag,
+    ensures
+        state.no_pending_work(),
+{
 }
 
 /// A RCU monitor ensures the completion of _grace periods_ by keeping track

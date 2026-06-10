@@ -150,7 +150,9 @@ pub trait WeakAtomicInvariantPredicate<K, V, G> {
 /// `AtomicInvariant` next to the executable atomic.
 pub tracked struct HistAuth<V> {
     auth: GhostMapAuth<Timestamp, Msg<V>>,
-    pub ghost len: nat,
+    // Private: code outside this TCB module must not forge the history length,
+    // which would desynchronize `len` from the authoritative map domain.
+    ghost len: nat,
 }
 
 impl<V> HistAuth<V> {
@@ -963,38 +965,45 @@ macro_rules! weak_atomic_with_ghost {
 ///
 /// Passing this token through atomic operations makes the weak-memory effects
 /// visible in specs instead of hiding them in global or thread-local state.
+///
+/// # Soundness
+///
+/// The wrapped view is private and can only evolve through the TCB atomic
+/// operations in this module. Those operations maintain the invariant that a
+/// view never claims a timestamp at or beyond the length of that location's
+/// history: loads observe an existing message, stores observe the message they
+/// just appended, and acquire joins only import message views that were built
+/// from existing timestamps. This keeps the `readable`-based postconditions of
+/// loads satisfiable. Do not add raw mutators (e.g. an unconditional
+/// `observe`/`join` proof fn): a forged view claiming an unwritten timestamp
+/// would make the next load's postcondition vacuously false.
 pub tracked struct ThreadView {
-    pub ghost view: WmView,
+    ghost view: WmView,
 }
 
 impl View for ThreadView {
     type V = WmView;
 
-    open spec fn view(&self) -> WmView {
+    closed spec fn view(&self) -> WmView {
         self.view
     }
 }
 
 impl ThreadView {
+    /// Creates a fresh token holding the empty view.
+    ///
+    /// The empty view is the weakest token: it lower-bounds every location at
+    /// timestamp 0, so minting one is always sound — the holder merely
+    /// forfeits all ordering knowledge. Note that minting a fresh view
+    /// mid-thread over-approximates real executions (it forgets per-location
+    /// coherence the thread has already observed) and publishes nothing useful
+    /// through release stores, so executable code should thread one token per
+    /// logical operation or critical section, and eventually one per task.
     pub proof fn new() -> (tracked res: Self)
         ensures
             res@ == WmView::empty(),
     {
         ThreadView { view: WmView::empty() }
-    }
-
-    pub proof fn observe(tracked &mut self, id: AtomicId, ts: Timestamp)
-        ensures
-            final(self)@ == old(self)@.observe(id, ts),
-    {
-        self.view = self.view.observe(id, ts);
-    }
-
-    pub proof fn join(tracked &mut self, view: WmView)
-        ensures
-            final(self)@ == old(self)@.join(view),
-    {
-        self.view = self.view.join(view);
     }
 }
 
@@ -1084,9 +1093,12 @@ impl AtomicUsizeW {
     /// Strong compare-exchange with `AcqRel` success ordering and `Acquire`
     /// failure ordering.
     ///
-    /// This first CAS model is intentionally conservative: the operation reads
-    /// the latest message in the location's modification history. On success it
-    /// appends a new release message; on failure it behaves like an acquire load.
+    /// On success, RMW atomicity forces the read to be the latest message in
+    /// the modification history, and the new release message is appended
+    /// immediately after it. On failure, the operation is only an acquire
+    /// load: it may read *any* readable message whose value differs from
+    /// `current`, not necessarily the latest one. A strong CAS merely never
+    /// fails after reading a value equal to `current`.
     #[inline(always)]
     #[verifier::external_body]
     #[verifier::atomic]
@@ -1106,7 +1118,6 @@ impl AtomicUsizeW {
                 let read_msg = old(auth).msg_at(read_ts);
                 let after_read = old(tv)@.observe(self.id(), read_ts).join(read_msg.view);
                 &&& old(auth).readable(old(tv)@, read_ts)
-                &&& read_ts + 1 == old(auth).history().len()
                 &&& match res.0 {
                     Ok(v) => {
                         let write_ts = old(auth).history().len();
@@ -1114,6 +1125,7 @@ impl AtomicUsizeW {
                             value: new,
                             view: after_read.observe(self.id(), write_ts),
                         };
+                        &&& read_ts + 1 == old(auth).history().len()
                         &&& v == current
                         &&& read_msg.value == current
                         &&& final(auth).id() == old(auth).id()
@@ -1217,8 +1229,9 @@ impl AtomicUsizeW {
 /// Generate a TCB executable wrapper around one Rust integer atomic type.
 ///
 /// All integer atomics share the same weak-memory history shape: load chooses a
-/// readable message, stores append a message, and CAS reads the latest message
-/// before either appending a new one or failing as an acquire read.
+/// readable message, stores append a message, and CAS either reads the latest
+/// message and appends its write right after it (success), or acts as an
+/// acquire read of any readable message with a different value (failure).
 macro_rules! declare_integer_atomic_wrapper {
     ($wrapper:ident, $rust_atomic:ident, $value_ty:ty) => {
         verus! {
@@ -1318,7 +1331,6 @@ macro_rules! declare_integer_atomic_wrapper {
                         let read_msg = old(auth).msg_at(read_ts);
                         let after_read = old(tv)@.observe(self.id(), read_ts).join(read_msg.view);
                         &&& old(auth).readable(old(tv)@, read_ts)
-                        &&& read_ts + 1 == old(auth).history().len()
                         &&& match res.0 {
                             Ok(v) => {
                                 let write_ts = old(auth).history().len();
@@ -1326,6 +1338,7 @@ macro_rules! declare_integer_atomic_wrapper {
                                     value: new,
                                     view: after_read.observe(self.id(), write_ts),
                                 };
+                                &&& read_ts + 1 == old(auth).history().len()
                                 &&& v == current
                                 &&& read_msg.value == current
                                 &&& final(auth).id() == old(auth).id()
@@ -1535,8 +1548,9 @@ impl AtomicBoolW {
     /// Strong compare-exchange with `AcqRel` success ordering and `Acquire`
     /// failure ordering.
     ///
-    /// On success it appends `new`; on failure it only imports the acquired view
-    /// from the message it read.
+    /// On success it reads the latest message and appends `new` immediately
+    /// after it; on failure it acts as an acquire load that may read any
+    /// readable message with a different value, importing that message's view.
     #[inline(always)]
     #[verifier::external_body]
     #[verifier::atomic]
@@ -1556,7 +1570,6 @@ impl AtomicBoolW {
                 let read_msg = old(auth).msg_at(read_ts);
                 let after_read = old(tv)@.observe(self.id(), read_ts).join(read_msg.view);
                 &&& old(auth).readable(old(tv)@, read_ts)
-                &&& read_ts + 1 == old(auth).history().len()
                 &&& match res.0 {
                     Ok(v) => {
                         let write_ts = old(auth).history().len();
@@ -1564,6 +1577,7 @@ impl AtomicBoolW {
                             value: new,
                             view: after_read.observe(self.id(), write_ts),
                         };
+                        &&& read_ts + 1 == old(auth).history().len()
                         &&& v == current
                         &&& read_msg.value == current
                         &&& final(auth).id() == old(auth).id()
@@ -1823,6 +1837,10 @@ impl<T> AtomicPtrW<T> {
     /// Pointer CAS compares runtime pointer identity, which Verus models as
     /// address equality for sized pointers. The returned pointer and written
     /// message still carry the full pointer value, including provenance.
+    ///
+    /// On success the read is the latest message and the write is appended
+    /// immediately after it; on failure the operation is an acquire load that
+    /// may read any readable message whose address differs from `current`.
     #[inline(always)]
     #[verifier::external_body]
     #[verifier::atomic]
@@ -1842,7 +1860,6 @@ impl<T> AtomicPtrW<T> {
                 let read_msg = old(auth).msg_at(read_ts);
                 let after_read = old(tv)@.observe(self.id(), read_ts).join(read_msg.view);
                 &&& old(auth).readable(old(tv)@, read_ts)
-                &&& read_ts + 1 == old(auth).history().len()
                 &&& match res.0 {
                     Ok(v) => {
                         let write_ts = old(auth).history().len();
@@ -1850,6 +1867,7 @@ impl<T> AtomicPtrW<T> {
                             value: new,
                             view: after_read.observe(self.id(), write_ts),
                         };
+                        &&& read_ts + 1 == old(auth).history().len()
                         &&& current.addr() == read_msg.value.addr()
                         &&& equal(v, read_msg.value)
                         &&& final(auth).id() == old(auth).id()
@@ -1938,9 +1956,10 @@ fn smoke_test_weak_atomic_with_ghost() {
         message msg;
         snapshot snap;
         ghost g => {
-            assert(ts + 1 == prev.len());
+            assert(ts < prev.len());
             match ret {
                 Result::Ok(v) => {
+                    assert(ts + 1 == prev.len());
                     assert(v == 2);
                     assert(msg.value == 2);
                     match snap {
@@ -2005,9 +2024,10 @@ fn smoke_test_weak_atomic_with_ghost() {
         message msg;
         snapshot snap;
         ghost g => {
-            assert(ts + 1 == prev.len());
+            assert(ts < prev.len());
             match ret {
                 Result::Ok(v) => {
+                    assert(ts + 1 == prev.len());
                     assert(v == true);
                     assert(msg.value == true);
                     match snap {
@@ -2073,9 +2093,10 @@ fn smoke_test_weak_atomic_with_ghost() {
         message msg;
         snapshot snap;
         ghost g => {
-            assert(ts + 1 == prev.len());
+            assert(ts < prev.len());
             match ret {
                 Result::Ok(v) => {
+                    assert(ts + 1 == prev.len());
                     assert(equal(v, msg.value));
                     assert(msg.value.addr() == null.addr());
                     match snap {
