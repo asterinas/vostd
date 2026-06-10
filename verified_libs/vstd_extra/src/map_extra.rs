@@ -442,17 +442,22 @@ pub proof fn lemma_project_first_key_sound<K1, K2, V>(m: Map<(K1, K2), V>, k1: K
                     == m[(k1, k2)]
             },
 {
-    assert forall|k2: K2| {
-        &&& #[trigger] project_first_key(m, k1).contains_key(k2) <==> m.contains_key((k1, k2))
-        &&& project_first_key(m, k1).contains_key(k2) ==> project_first_key(m, k1)[k2] == m[(k1, k2)]
-    } by {
+    assert forall|k2: K2|
+        {
+            &&& #[trigger] project_first_key(m, k1).contains_key(k2) <==> m.contains_key((k1, k2))
+            &&& project_first_key(m, k1).contains_key(k2) ==> project_first_key(m, k1)[k2] == m[(
+                k1,
+                k2,
+            )]
+        } by {
         let dom = m.dom().filter(|p: (K1, K2)| p.0 == k1).map(|p: (K1, K2)| p.1);
         if m.contains_key((k1, k2)) {
             assert(m.dom().filter(|p: (K1, K2)| p.0 == k1).contains((k1, k2)));
             assert(dom.contains(k2));
         }
         if dom.contains(k2) {
-            let witness = choose|p: (K1, K2)| m.dom().filter(|p: (K1, K2)| p.0 == k1).contains(p) && p.1 == k2;
+            let witness = choose|p: (K1, K2)|
+                m.dom().filter(|p: (K1, K2)| p.0 == k1).contains(p) && p.1 == k2;
             assert(m.contains_key((k1, k2)));
         }
     }

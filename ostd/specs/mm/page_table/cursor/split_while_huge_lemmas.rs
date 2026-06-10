@@ -530,9 +530,10 @@ impl<C: PageTableConfig> CursorView<C> {
             let new_self = self.split_if_mapped_huge_spec(new_size);
             new_self.split_while_huge_refinement(size, m);
             assert(!new_self.mappings.contains(m)) by {
-                let new_mappings = Set::<int>::range(0int, m.page_size as int / new_size as int).map(
-                    |n: int| Self::split_index(m, new_size, n as usize),
-                );
+                let new_mappings = Set::<int>::range(
+                    0int,
+                    m.page_size as int / new_size as int,
+                ).map(|n: int| Self::split_index(m, new_size, n as usize));
                 if new_mappings.contains(m) {
                     let k = choose|k: int|
                         0 <= k < m.page_size as int / new_size as int
@@ -546,9 +547,10 @@ impl<C: PageTableConfig> CursorView<C> {
             if self.mappings.contains(p) {
                 assert(p.va_range.start <= self.cur_va < p.va_range.end);
             } else {
-                let new_mappings = Set::<int>::range(0int, m.page_size as int / new_size as int).map(
-                    |n: int| Self::split_index(m, new_size, n as usize),
-                );
+                let new_mappings = Set::<int>::range(
+                    0int,
+                    m.page_size as int / new_size as int,
+                ).map(|n: int| Self::split_index(m, new_size, n as usize));
                 let k = choose|k: int|
                     0 <= k < m.page_size as int / new_size as int && #[trigger] Self::split_index(
                         m,
@@ -1093,9 +1095,10 @@ impl<C: PageTableConfig> CursorView<C> {
                 // Existing mapping preserved by split: va-disjoint by hypothesis.
             } else {
                 // m2 is a sub-mapping of m, with va_range ⊆ m.va_range.
-                let new_mappings = Set::<int>::range(0int, m.page_size as int / new_size as int).map(
-                    |n: int| Self::split_index(m, new_size, n as usize),
-                );
+                let new_mappings = Set::<int>::range(
+                    0int,
+                    m.page_size as int / new_size as int,
+                ).map(|n: int| Self::split_index(m, new_size, n as usize));
                 assert(new_mappings.contains(m2));
                 let k = choose|k: int|
                     0 <= k < m.page_size as int / new_size as int && #[trigger] Self::split_index(

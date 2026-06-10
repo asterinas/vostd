@@ -56,6 +56,7 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
         Set::<nat>::range(l, r).len() == (r - l) as nat,
 {
     broadcast use vstd::set_lib::range_set_properties;
+
 }
 
 /// A finite set can be separated by a predicate into two disjoint sets.
