@@ -227,11 +227,10 @@ impl MemView {
     ///
     /// The result keeps overlapping mappings and restricts memory to physical
     /// frames reachable from that virtual range.
-    #[allow(deprecated)]
     pub open spec fn borrow_at(&self, vaddr: usize, len: usize) -> MemView {
         let range_end = vaddr + len;
 
-        let valid_pas = Set::new_assuming_finite(
+        let valid_pas = self.memory.dom().filter(
             |pa: usize|
                 exists|va: usize| vaddr <= va < range_end && #[trigger] self.is_mapped(va, pa),
         );
@@ -258,7 +257,6 @@ impl MemView {
     /// Returns `(left, right)` where:
     /// - `left` covers `[vaddr, split_end)`, i.e. all mappings overlapping that range.
     /// - `right` covers addresses `>= split_end`.
-    #[allow(deprecated)]
     pub open spec fn split(self, vaddr: usize, len: usize) -> (MemView, MemView) {
         let split_end = vaddr + len;
 
@@ -268,10 +266,10 @@ impl MemView {
         );
         let right_mappings = self.mappings.filter(|m: Mapping| m.va_range.end > split_end);
 
-        let left_pas = Set::new_assuming_finite(
+        let left_pas = self.memory.dom().filter(
             |pa: usize| exists|va: usize| vaddr <= va < split_end && self.is_mapped(va, pa),
         );
-        let right_pas = Set::new_assuming_finite(
+        let right_pas = self.memory.dom().filter(
             |pa: usize| exists|va: usize| va >= split_end && self.is_mapped(va, pa),
         );
 
@@ -456,7 +454,6 @@ impl MemView {
     /// [`Self::lemma_split_preserves_transl`] and supports propagating
     /// the read view across [`VmIoOwner::advance`] calls (used by loops
     /// over `read_once`).
-    #[allow(deprecated)]
     pub proof fn lemma_split_preserves_read(
         original: MemView,
         vaddr: usize,
@@ -475,7 +472,7 @@ impl MemView {
     {
         Self::lemma_split_preserves_transl(original, vaddr, len, left, right);
         let split_end = vaddr + len;
-        let right_pas = Set::new_assuming_finite(
+        let right_pas = original.memory.dom().filter(
             |pa: usize| exists|va: usize| va >= split_end && original.is_mapped(va, pa),
         );
         assert(right.memory =~= original.memory.restrict(right_pas));
@@ -1124,7 +1121,6 @@ impl GlobalMemView {
         forall|pa: Paddr| #![auto] self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa)
     }
 
-    #[allow(deprecated)]
     pub open spec fn take_view(self, vaddr: usize, len: usize) -> (Self, MemView) {
         let range_end = vaddr + len;
 
@@ -1136,12 +1132,12 @@ impl GlobalMemView {
             |m: Mapping| m.va_range.start < range_end && m.va_range.end > vaddr,
         );
 
-        let leave_pas = Set::new_assuming_finite(
+        let leave_pas = self.memory.dom().filter(
             |pa: usize|
                 exists|m: Mapping|
                     leave_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end,
         );
-        let take_pas = Set::new_assuming_finite(
+        let take_pas = self.memory.dom().filter(
             |pa: usize|
                 exists|m: Mapping|
                     take_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end,

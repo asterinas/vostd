@@ -691,7 +691,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 && self.0.children[i].unwrap().value.is_absent()
     }
 
-    #[allow(deprecated)]
     pub open spec fn view_rec(self, path: TreePath<NR_ENTRIES>) -> Set<Mapping>
         decreases INC_LEVELS - path.len(),
         when self.0.inv() && path.len() <= INC_LEVELS - 1

@@ -336,7 +336,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         guards.lock_held(self.guard.inner.inner@.ptr.addr())
     }
 
-    #[allow(deprecated)]
     pub open spec fn view_mappings(self) -> Set<Mapping> {
         Set::new_assuming_finite(
             |m: Mapping|
@@ -978,7 +977,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.continuations.contains_key(i));
     }
 
-    #[allow(deprecated)]
     pub open spec fn view_mappings(self) -> Set<Mapping> {
         Set::new_assuming_finite(
             |m: Mapping|
