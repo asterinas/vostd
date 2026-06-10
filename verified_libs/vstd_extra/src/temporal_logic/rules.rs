@@ -1989,7 +1989,6 @@ pub proof fn leads_to_always_tla_forall<T, A>(
 )
     requires
         forall|a: A| spec.entails(p.leads_to(always(#[trigger] a_to_temp_pred(a)))),
-        domain.finite(),
         domain.len() > 0,
         forall|a: A| #[trigger] domain.contains(a),
     ensures

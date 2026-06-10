@@ -206,7 +206,6 @@ impl ProgramState {
 
     pub open spec fn inv_unchanged(self, n: nat) -> bool {
         &&& self.ProcSet == set_int_range(0, n as int)
-        &&& self.ProcSet.finite()
         &&& self.pc.dom() == self.ProcSet
         &&& self.stack.dom() == self.ProcSet
     }

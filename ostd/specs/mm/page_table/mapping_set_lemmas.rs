@@ -9,9 +9,8 @@ use super::view::Mapping;
 
 verus! {
 
-/// Well-formed mapping set: finite, all inv(), pairwise VA-disjoint.
+/// Well-formed mapping set: all inv(), pairwise VA-disjoint.
 pub open spec fn wf_mapping_set(s: Set<Mapping>) -> bool {
-    &&& s.finite()
     &&& forall|m: Mapping| #![auto] s.contains(m) ==> m.inv()
     &&& forall|m: Mapping, n: Mapping|
         #![auto]
@@ -151,7 +150,6 @@ pub proof fn lemma_wf_subset(s: Set<Mapping>, sub: Set<Mapping>)
     requires
         wf_mapping_set(s),
         sub.subset_of(s),
-        sub.finite(),
     ensures
         wf_mapping_set(sub),
 {

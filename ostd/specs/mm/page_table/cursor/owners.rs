@@ -2725,7 +2725,6 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
 
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
-        &&& self.mappings.finite()
         &&& forall|m: Mapping|
             #![auto]
             self.mappings.contains(m)

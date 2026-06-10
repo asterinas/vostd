@@ -182,9 +182,7 @@ impl<'a> VmSpaceOwner {
         &&& self.mem_view matches Some(remaining_view) ==> self.mv_range@ matches Some(total_view)
             ==> {
             &&& remaining_view.mappings_are_disjoint()
-            &&& remaining_view.mappings.finite()
             &&& total_view.mappings_are_disjoint()
-            &&& total_view.mappings.finite()
             // ======================
             // Remaining Consistency
             // ======================
@@ -223,7 +221,6 @@ impl<'a> VmSpaceOwner {
                                 // So we cannot directly reason on `self.range` here; we need
                                 // to instead ensure that the memory view it holds is consistent
                                 // with the total view and remaining view.
-                                &&& writer_mv.mappings.finite()
                                 &&& writer_mv.addr_transl(va) == total_view.addr_transl(va)
                                 &&& writer_mv.addr_transl(va) matches Some(_) ==> {
                                     &&& remaining_view.addr_transl(va) is None
@@ -250,7 +247,6 @@ impl<'a> VmSpaceOwner {
                             {
                                 // For readers there is no need to check remaining_view
                                 // because it is borrowed from remaining_view directly.
-                                &&& reader_mv.mappings.finite()
                                 &&& reader_mv.addr_transl(va) == total_view.addr_transl(va)
                             }
                     }
@@ -596,12 +592,11 @@ impl<'a> VmSpaceOwner {
             old(self).active,
             old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
                 VmIoMemView::ReadView(mv),
-            ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
+            ) && old(self).mem_view matches Some(remaining) && {
                 forall|va: usize|
                     #![auto]
                     {
                         &&& total_view.addr_transl(va) == mv.addr_transl(va)
-                        &&& mv.mappings.finite()
                     }
             },
             forall|i: int|
@@ -637,7 +632,7 @@ impl<'a> VmSpaceOwner {
             owner.inv(),
             old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
                 VmIoMemView::WriteView(mv),
-            ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
+            ) && old(self).mem_view matches Some(remaining) && {
                 &&& forall|va: usize|
                     #![auto]
                     {

@@ -69,7 +69,6 @@ pub ghost struct MetaRegionModel {
 
 impl Inv for MetaRegionOwners {
     open spec fn inv(self) -> bool {
-        &&& self.slots.dom().finite()
         &&& {
             // All accessible slots are within the valid address range.
             forall|i: usize| i < max_meta_slots() <==> #[trigger] self.slot_owners.contains_key(i)
@@ -102,7 +101,6 @@ impl Inv for MetaRegionOwners {
 
 impl Inv for MetaRegionModel {
     open spec fn inv(self) -> bool {
-        &&& self.slots.dom().finite()
         &&& forall|i: usize| i < max_meta_slots() <==> #[trigger] self.slots.contains_key(i)
         &&& forall|i: usize| #[trigger] self.slots.contains_key(i) ==> self.slots[i].inv()
     }

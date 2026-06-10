@@ -1080,9 +1080,6 @@ impl Inv for GlobalMemView {
                 self.tlb_mappings.contains(m) ==> self.tlb_mappings.contains(n) ==> m != n
                     ==> #[trigger] m.va_range.end <= n.va_range.start || n.va_range.end
                     <= m.va_range.start
-        &&& self.tlb_mappings.finite()
-        &&& self.pt_mappings.finite()
-        &&& self.memory.dom().finite()
         &&& self.all_pas_accounted_for()
         &&& self.pas_uniquely_mapped()
         &&& self.unmapped_correct()

@@ -288,7 +288,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// presence of initialized backing frame contents.
     pub open spec fn kernel_mem_view_covers(&self, view: &MemView) -> bool {
         &&& self.inv()
-        &&& view.mappings.finite()
         &&& view.mappings_are_disjoint()
         &&& forall|vaddr: Vaddr|
             #![trigger view.addr_transl(vaddr)]

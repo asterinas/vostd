@@ -318,7 +318,6 @@ pub proof fn lemma_handle_count_insert_fresh(
 )
     requires
         !frames.dom().contains(id),
-        frames.dom().finite(),
     ensures
         handle_count(frames.insert(id, entry), idx) == handle_count(frames, idx) + (
         if frame_to_index(entry.paddr) == idx {
@@ -350,7 +349,6 @@ pub proof fn lemma_handle_count_insert_fresh(
             };
         };
         assert(!old_filt.contains(id));
-        assert(old_filt.finite());
         assert(new_filt.len() == old_filt.len() + 1);
     } else {
         assert(new_filt =~= old_filt) by {
@@ -379,7 +377,6 @@ pub proof fn lemma_handle_count_insert_fresh(
 pub proof fn lemma_handle_count_remove(frames: Map<FrameId, FrameEntry>, fid: FrameId, idx: usize)
     requires
         frames.dom().contains(fid),
-        frames.dom().finite(),
     ensures
         handle_count(frames.remove(fid), idx) == handle_count(frames, idx) - (if frame_to_index(
             frames[fid].paddr,
@@ -408,7 +405,6 @@ pub proof fn lemma_handle_count_remove(frames: Map<FrameId, FrameEntry>, fid: Fr
                 assert(frames2[gid] == frames[gid]);
             };
         };
-        assert(old_filt.finite());
         assert(new_filt.len() == (old_filt.len() - 1) as nat);
     } else {
         assert(!old_filt.contains(fid));
@@ -726,19 +722,11 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 self.frames[fid].paddr,
             )].usage
                 == PageUsage::Frame
-            // `frames.dom()` is finite (built by finitely many `insert_frame`
-            // from an empty map; never an infinite `choose`). Needed for
-            // [`handle_count`] (`Set::len`) to be a well-defined `nat` in the
-            // Stage-5 accounting clause.
-        &&& self.frames.dom().finite()
-        // Same for `segments.dom()` — needed for
-        // [`segment_cover_count`] to be a well-defined `nat`.
-        &&& self.segments.dom().finite()
-        // Every registered segment has a well-formed range
-        // (page-aligned, in-bound, non-empty). Enforced by
-        // `op_pre[SegmentFromUnused]`; carried as an invariant so
-        // `step_segment_drop` can discharge `segment::drop_step`'s
-        // alignment preconditions from `s.inv()` alone.
+            // Every registered segment has a well-formed range
+            // (page-aligned, in-bound, non-empty). Enforced by
+            // `op_pre[SegmentFromUnused]`; carried as an invariant so
+            // `step_segment_drop` can discharge `segment::drop_step`'s
+            // alignment preconditions from `s.inv()` alone.
         &&& forall|sid: SegmentId| #[trigger]
             self.segments.dom().contains(sid) ==> {
                 let r = self.segments[sid].range;
@@ -1368,7 +1356,6 @@ impl<'rcu> VmStore<'rcu> {
     pub proof fn extract_segment(tracked &mut self, sid: SegmentId) -> (tracked res: SegmentEntry)
         requires
             old(self).segments.dom().contains(sid),
-            old(self).segments.dom().finite(),
         ensures
             final(self).regions == old(self).regions,
             final(self).tlb_model == old(self).tlb_model,
@@ -3596,7 +3583,6 @@ pub proof fn lemma_segment_cover_insert_inside(
 )
     requires
         !segments.dom().contains(sid),
-        segments.dom().finite(),
         entry.range.start <= paddr < entry.range.end,
     ensures
         segment_cover_count(segments.insert(sid, entry), paddr) == segment_cover_count(
@@ -3629,7 +3615,6 @@ pub proof fn lemma_segment_cover_insert_inside(
             }
         };
     };
-    assert(old_filt.finite());
     assert(new_filt.len() == old_filt.len() + 1);
 }
 
@@ -3643,7 +3628,6 @@ pub proof fn lemma_segment_cover_insert_outside(
 )
     requires
         !segments.dom().contains(sid),
-        segments.dom().finite(),
         !(entry.range.start <= paddr < entry.range.end),
     ensures
         segment_cover_count(segments.insert(sid, entry), paddr) == segment_cover_count(
@@ -3686,7 +3670,6 @@ pub proof fn lemma_segment_cover_contains(
 )
     requires
         segments.dom().contains(sid),
-        segments.dom().finite(),
         segments[sid].range.start <= paddr < segments[sid].range.end,
     ensures
         segment_cover_count(segments, paddr) >= 1,
@@ -3695,7 +3678,6 @@ pub proof fn lemma_segment_cover_contains(
         |s: SegmentId| segments[s].range.start <= paddr && paddr < segments[s].range.end,
     );
     assert(filt.contains(sid));
-    assert(filt.finite());
 }
 
 /// Removing an existing segment whose range covers `paddr` decreases
@@ -3707,7 +3689,6 @@ pub proof fn lemma_segment_cover_remove_inside(
 )
     requires
         segments.dom().contains(sid),
-        segments.dom().finite(),
         segments[sid].range.start <= paddr < segments[sid].range.end,
     ensures
         segment_cover_count(segments.remove(sid), paddr) == (segment_cover_count(segments, paddr)
@@ -3733,7 +3714,6 @@ pub proof fn lemma_segment_cover_remove_inside(
             assert(segments2[s] == segments[s]);
         };
     };
-    assert(old_filt.finite());
 }
 
 /// **Next-pop helper.** `Segment::next` pops the front frame off
@@ -3754,7 +3734,6 @@ pub proof fn lemma_segment_cover_shrink_front(
 )
     requires
         segments.dom().contains(sid),
-        segments.dom().finite(),
         // Original segment is non-empty (the caller guarantees this
         // from structural_inv).
         segments[sid].range.start < segments[sid].range.end,
@@ -3887,7 +3866,6 @@ pub proof fn lemma_segment_cover_split(
 )
     requires
         segments.dom().contains(sid),
-        segments.dom().finite(),
         // `new_left` and `new_right` are fresh and distinct from each
         // other and from `sid`.
         new_left != sid,
@@ -3909,11 +3887,7 @@ pub proof fn lemma_segment_cover_split(
 {
     let mid_segments = segments.remove(sid);
     let with_left = mid_segments.insert(new_left, entry_left);
-    // `with_left.remove(new_left) =~= mid_segments` (since new_left ∉
-    // mid_segments.dom). Also `mid_segments.dom().finite()`.
-    assert(mid_segments.dom().finite());
     assert(with_left.dom() =~= mid_segments.dom().insert(new_left));
-    assert(with_left.dom().finite());
     assert(!with_left.dom().contains(new_right));
     let sid_covers = segments[sid].range.start <= paddr && paddr < segments[sid].range.end;
     let left_covers = entry_left.range.start <= paddr && paddr < entry_left.range.end;
@@ -3985,7 +3959,6 @@ pub proof fn lemma_segment_cover_remove_outside(
 )
     requires
         segments.dom().contains(sid),
-        segments.dom().finite(),
         !(segments[sid].range.start <= paddr < segments[sid].range.end),
     ensures
         segment_cover_count(segments.remove(sid), paddr) == segment_cover_count(segments, paddr),

@@ -111,9 +111,7 @@ verus! {
 ///        ==> self.mv_range@ matches Some(total_view)
 ///        ==> {
 ///        &&& remaining_view.mappings_are_disjoint()
-///        &&& remaining_view.mappings.finite()
 ///        &&& total_view.mappings_are_disjoint()
-///        &&& total_view.mappings.finite()
 ///        // ======================
 ///        // Remaining Consistency
 ///        // ======================
@@ -975,7 +973,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 cursor_owner@.mappings =~= adjusted_base.difference(removed),
                 removed.subset_of(adjusted_base),
                 num_unmapped as nat == removed.len(),
-                removed.finite(),
                 crate::specs::mm::page_table::mapping_set_lemmas::wf_mapping_set(adjusted_base),
                 // Everything removed is in the [start, end) range.
                 forall |m: Mapping| #[trigger] removed.contains(m) ==>

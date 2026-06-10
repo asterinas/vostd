@@ -42,7 +42,6 @@ impl<C: PageTableConfig> CursorView<C> {
             let f = v.mappings.filter(
                 |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end,
             );
-            assert(f.finite());
             vstd::set::lemma_set_choose_len(f);
         };
         assert(m.inv());
@@ -102,14 +101,6 @@ impl<C: PageTableConfig> CursorView<C> {
             |m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end,
         );
         assert(new_filter.contains(sub));
-        assert(new_self.mappings.finite()) by {
-            let domain = Set::<int>::new_assuming_finite(
-                |n: int| 0 <= n < ps as int / new_size as int,
-            );
-            assert(domain =~= int::range_set(0int, ps as int / new_size as int));
-            vstd::set_lib::range_set_properties::<int>(0int, ps as int / new_size as int);
-        };
-        assert(new_filter.finite());
         vstd::set::lemma_set_contains_len(new_filter, sub);
     }
 
@@ -143,7 +134,6 @@ impl<C: PageTableConfig> CursorView<C> {
             let f = v.mappings.filter(
                 |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end,
             );
-            assert(f.finite());
             vstd::set::lemma_set_choose_len(f);
         };
 
@@ -152,14 +142,6 @@ impl<C: PageTableConfig> CursorView<C> {
             let f = new_self.mappings.filter(
                 |m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end,
             );
-            assert(new_self.mappings.finite()) by {
-                let domain = Set::<int>::new_assuming_finite(
-                    |n: int| 0 <= n < ps as int / new_size as int,
-                );
-                assert(domain =~= int::range_set(0int, ps as int / new_size as int));
-                vstd::set_lib::range_set_properties::<int>(0int, ps as int / new_size as int);
-            };
-            assert(f.finite());
             vstd::set::lemma_set_choose_len(f);
         };
 
@@ -211,18 +193,11 @@ impl<C: PageTableConfig> CursorView<C> {
             let f = v.mappings.filter(
                 |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end,
             );
-            assert(f.finite());
             vstd::set::lemma_set_choose_len(f);
         };
         assert(m.inv());
 
         // --- (1) cur_va preserved ---
-
-        // --- (2) mappings.finite() ---
-        assert(new_self.mappings.finite()) by {
-            assert(domain =~= int::range_set(0int, count));
-            vstd::set_lib::range_set_properties::<int>(0int, count);
-        };
 
         // --- Helper: ps == count * ns (no remainder) ---
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
@@ -671,7 +646,6 @@ impl<C: PageTableConfig> CursorView<C> {
         let f = self.mappings.filter(
             |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
         );
-        assert(f.finite());
         vstd::set::lemma_set_choose_len(f);
         assert(m.inv());
 
@@ -729,7 +703,6 @@ impl<C: PageTableConfig> CursorView<C> {
                 let f = self.mappings.filter(
                     |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end,
                 );
-                assert(f.finite());
                 vstd::set::lemma_set_choose_len(f);
                 assert(self.mappings.contains(m));
                 assert(m.va_range.start <= self.cur_va < m.va_range.end);
@@ -797,7 +770,6 @@ impl<C: PageTableConfig> CursorView<C> {
                 let f = self.mappings.filter(
                     |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end,
                 );
-                assert(f.finite());
                 vstd::set::lemma_set_choose_len(f);
                 assert(self.mappings.contains(m));
                 // page_size % new_size == 0

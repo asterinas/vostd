@@ -827,8 +827,6 @@ impl<M: ?Sized> Drop for Frame<M> {
             // indices, the invariant carries over from `old_regions.inv()`.
             // For `idx`, `slot_own.inv()` and the perm/slot agreement at
             // `idx` are already asserted above.
-            assert(regions.slots.dom().finite());
-
             assert forall|i: usize|
                 i < crate::mm::frame::meta::mapping::max_meta_slots()
                     <==> #[trigger] regions.slot_owners.contains_key(i) by {}

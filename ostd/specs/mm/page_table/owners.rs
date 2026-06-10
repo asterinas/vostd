@@ -1202,78 +1202,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    /// `view_rec` is finite: bounded by NR_ENTRIES branching and INC_LEVELS depth.
-    /// Proven by induction on `INC_LEVELS - path.len()`, collapsing the
-    /// `Set::new` existential into a `flatten` of a finite domain-map.
+    /// `view_rec` is finite (trivially true: `Set` is now always finite).
     pub proof fn view_rec_finite(self, path: TreePath<NR_ENTRIES>)
         requires
             self.0.inv(),
             path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level,
-        ensures
-            self.view_rec(path).finite(),
         decreases INC_LEVELS - path.len(),
     {
-        broadcast use group_set_properties;
-
-        if self.0.value.is_frame() {
-            // Singleton set is finite.
-            assert(self.view_rec(path).finite());
-        } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
-            // Recurse into each child: establish finiteness for each Some child.
-            assert forall|i: int|
-                0 <= i < NR_ENTRIES && #[trigger] self.0.children[i] is Some implies PageTableOwner(
-                self.0.children[i].unwrap(),
-            ).view_rec(path.push_tail(i as usize)).finite() by {
-                let child = self.0.children[i].unwrap();
-                // From self.0.inv(): inv_children gives child.level == self.0.level + 1
-                // and child.inv() (since path.len() < INC_LEVELS - 1 means not a leaf).
-                PageTableOwner(child).view_rec_finite(path.push_tail(i as usize));
-            };
-
-            // Domain map: map each index to the child's view_rec set (or empty).
-            let f = |i: int| -> Set<Mapping>
-                {
-                    if 0 <= i < NR_ENTRIES && self.0.children[i] is Some {
-                        PageTableOwner(self.0.children[i].unwrap()).view_rec(
-                            path.push_tail(i as usize),
-                        )
-                    } else {
-                        Set::<Mapping>::empty()
-                    }
-                };
-            let dom: Set<int> = Set::new_assuming_finite(|i: int| 0 <= i < NR_ENTRIES);
-            assert(dom =~= int::range_set(0int, NR_ENTRIES as int));
-            vstd::set_lib::range_set_properties::<int>(0int, NR_ENTRIES as int);
-            let ss = dom.map(f);
-            // view_rec(path) = { m | exists i, children[i] is Some ∧ child.view_rec(...).contains(m) }
-            //                = union over i of f(i)
-            //                = ss.flatten()
-            assert(self.view_rec(path) =~= ss.flatten()) by {
-                assert forall|m: Mapping|
-                    self.view_rec(path).contains(m) implies #[trigger] ss.flatten().contains(m) by {
-                    let i = choose|i: int|
-                        #![trigger self.0.children[i]]
-                        0 <= i < self.0.children.len() && self.0.children[i] is Some
-                            && PageTableOwner(self.0.children[i].unwrap()).view_rec(
-                            path.push_tail(i as usize),
-                        ).contains(m);
-                    assert(dom.contains(i));
-                    assert(ss.contains(f(i)));
-                    assert(f(i).contains(m));
-                };
-                assert forall|m: Mapping| #[trigger] ss.flatten().contains(m) implies self.view_rec(
-                    path,
-                ).contains(m) by {
-                    let s = choose|s: Set<Mapping>| ss.contains(s) && s.contains(m);
-                    let i = choose|i: int| dom.contains(i) && f(i) == s;
-                    assert(0 <= i < NR_ENTRIES && self.0.children[i] is Some);
-                };
-            };
-        } else {
-            // Empty set
-            assert(self.view_rec(path) =~= Set::<Mapping>::empty());
-        }
     }
 
     /// Every mapping in `view_rec` has `page_size ∈ {4K, 2M, 1G}`.

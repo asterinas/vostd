@@ -177,11 +177,9 @@ pub proof fn lemma_inverse_of_bijection_is_bijective<A, B>(
 pub proof fn lemma_injective_map_cardinality<T, U>(f: spec_fn(T) -> U, dom: Set<T>, s: Set<T>)
     requires
         dom.injective_on(f),
-        s.finite(),
         s <= dom,
     ensures
         s.len() == s.map(f).len(),
-        s.map(f).finite(),
     decreases s.len(),
 {
     if s.is_empty() {
@@ -196,9 +194,7 @@ pub proof fn lemma_injective_map_cardinality<T, U>(f: spec_fn(T) -> U, dom: Set<
 pub proof fn lemma_bijective_cardinality<A, B>(f: spec_fn(A) -> B, domain: Set<A>, codomain: Set<B>)
     requires
         bijective_on(f, domain, codomain),
-        domain.finite(),
     ensures
-        codomain.finite(),
         domain.len() == codomain.len(),
 {
     lemma_injective_map_cardinality(f, domain, domain);

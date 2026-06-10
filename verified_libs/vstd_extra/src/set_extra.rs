@@ -48,12 +48,11 @@ pub proof fn lemma_remove_filter_true<T>(s: Set<T>, f: spec_fn(T) -> bool, x: T)
 {
 }
 
-/// If all elements of set `s` are natural numbers between `l` and `r`, then the set is finite.
+/// The length of a set of natural numbers between `l` and `r` equals `r - l`.
 pub proof fn lemma_nat_range_finite(l: nat, r: nat)
     requires
         l <= r,
     ensures
-        Set::new_assuming_finite(|p: nat| l <= p < r).finite(),
         Set::new_assuming_finite(|p: nat| l <= p < r).len() == (r - l) as nat,
     decreases r - l,
 {
@@ -68,8 +67,6 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
 
 /// A finite set can be separated by a predicate into two disjoint sets.
 pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
-    requires
-        s.finite(),
     ensures
         #![trigger s.filter(f)]
         s.filter(f).disjoint(s.filter(|x| !f(x))),
@@ -97,7 +94,6 @@ pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
 /// then the filtered set is equal to the original set.
 pub proof fn lemma_filter_len_unchanged_implies_equal<T>(s: Set<T>, f: spec_fn(T) -> bool)
     requires
-        s.finite(),
         s.filter(f).len() == s.len(),
     ensures
         s.filter(f) =~= s,
@@ -124,7 +120,6 @@ pub proof fn lemma_empty_bad_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spe
 /// satisfying `p` also satisfy `q`.
 pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
     requires
-        Set::new_assuming_finite(|x: T| p(x)).finite(),
         Set::new_assuming_finite(|x: T| p(x)).len() == Set::new_assuming_finite(|x: T| p(x)).filter(
             q,
         ).len(),
@@ -161,12 +156,9 @@ pub open spec fn is_partition<A>(s: Set<A>, parts: Set<Set<A>>) -> bool {
 /// then the cardinality of the union is the sum of cardinalities.
 pub proof fn lemma_flatten_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
     requires
-        parts.finite(),
         pairwise_disjoint(parts),
-        forall|p: Set<A>| #[trigger] parts.contains(p) ==> p.finite(),
     ensures
         parts.flatten().len() == parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()),
-        parts.flatten().finite(),
     decreases parts.len(),
 {
     if parts.is_empty() {
@@ -192,12 +184,10 @@ pub proof fn lemma_flatten_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
 /// then the cardinality of the union is the product of the number of sets and `c`.
 pub proof fn lemma_flatten_cardinality_under_disjointness_same_length<A>(parts: Set<Set<A>>, c: nat)
     requires
-        parts.finite(),
         pairwise_disjoint(parts),
-        parts.all(|p: Set<A>| p.finite() && p.len() == c),
+        parts.all(|p: Set<A>| p.len() == c),
     ensures
         parts.flatten().len() == parts.len() * c,
-        parts.flatten().finite(),
     decreases parts.len(),
 {
     if parts.is_empty() {
@@ -225,7 +215,6 @@ pub open spec fn set_prop_mutual_exclusion<A>(s: Set<A>, f: spec_fn(A) -> bool) 
 
 proof fn lemma_set_prop_mutual_exclusion_internal<A>(s: Set<A>, f: spec_fn(A) -> bool)
     requires
-        s.finite(),
         set_prop_mutual_exclusion(s, f),
     ensures
         s.filter(f).len() <= 1,
@@ -251,8 +240,6 @@ proof fn lemma_set_prop_mutual_exclusion_internal<A>(s: Set<A>, f: spec_fn(A) ->
 }
 
 pub proof fn lemma_set_prop_mutual_exclusion<A>(s: Set<A>, f: spec_fn(A) -> bool)
-    requires
-        s.finite(),
     ensures
         set_prop_mutual_exclusion(s, f) <==> s.filter(f).len() <= 1,
 {

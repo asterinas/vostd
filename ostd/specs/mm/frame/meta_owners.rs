@@ -293,14 +293,7 @@ impl Inv for MetaSlotOwner {
             &&& self.inner_perms.in_list.value() == 0
         }
         &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
-        &&& self.self_addr % META_SLOT_SIZE
-            == 0
-        // `paths_in_pt` is built by finitely many `.insert(path)` (map +
-        // huge-page split) and `.remove(path)` (unmap, Stage 2) from an
-        // empty initial set — universally finite. Needed wherever
-        // `paths_in_pt.len()` is meaningful (e.g. exact ref-count
-        // accounting).
-        &&& self.paths_in_pt.finite()
+        &&& self.self_addr % META_SLOT_SIZE == 0
     }
 }
 
