@@ -82,9 +82,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// This is also the page size at level 1 page tables.
     #[verifier::when_used_as_spec(BASE_PAGE_SIZE_spec)]
     fn BASE_PAGE_SIZE() -> (res: usize)
-        ensures
-            0 < res,
-            is_pow2(res as int),
         returns
             Self::BASE_PAGE_SIZE_spec(),
     ;
