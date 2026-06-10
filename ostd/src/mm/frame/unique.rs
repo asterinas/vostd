@@ -21,9 +21,8 @@ use super::meta::mapping::{
 };
 use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::frame::MetaPerm;
-use crate::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE, Paddr, PagingLevel};
+use crate::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE, Paddr, PagingConsts, PagingLevel};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_owners::Metadata;
 use crate::specs::mm::frame::meta_specs::lemma_meta_addr_to_index;

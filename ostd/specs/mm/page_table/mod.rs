@@ -913,7 +913,7 @@ impl AbstractVaddr {
                 // Set up arithmetic relation: page_size(level+1) == NR_ENTRIES * page_size(level).
                 let ps = page_size(level as PagingLevel) as int;
                 assert(ps1 as int == NR_ENTRIES * ps) by {
-                    crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+                    crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
                     (level + 1) as PagingLevel);
                 };
@@ -1457,7 +1457,7 @@ impl AbstractVaddr {
         lemma_page_size_spec_level1();
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
-        crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         let path = self.to_path(level);
         if level == 3 {

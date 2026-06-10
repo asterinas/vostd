@@ -6,13 +6,13 @@ use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
+use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr, meta_to_frame};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -364,10 +364,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
         let child_pa = (pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr;
         assert(self.parent_level == 2 || self.parent_level == 3);
         assert(NR_ENTRIES == 512) by {
-            crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+            crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
         };
         assert(crate::mm::nr_subpage_per_huge::<PagingConsts>() == 512usize) by {
-            crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+            crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
         };
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();

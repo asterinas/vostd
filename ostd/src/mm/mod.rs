@@ -39,7 +39,7 @@ use core::ops::Range;
 pub use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS};
 
 #[doc(hidden)]
-pub use crate::specs::arch::paging_consts::PagingConsts;
+pub use crate::arch::mm::PagingConsts;
 
 // Re-export paddr_to_vaddr from kspace
 #[doc(hidden)]
@@ -73,6 +73,8 @@ pub const MAX_USERSPACE_VADDR: usize = 0x0000_8000_0000_0000 - PAGE_SIZE;
 /// architectures.
 pub const KERNEL_VADDR_RANGE: Range<Vaddr> = 0xffff_8000_0000_0000..0xffff_ffff_ffff_0000;
 
+/// A minimal set of constants that determines the paging system.
+/// This provides an abstraction over most paging modes in common architectures.
 pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     spec fn BASE_PAGE_SIZE_spec() -> usize;
 
@@ -158,6 +160,8 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             res == Self::ADDRESS_WIDTH_spec(),
     ;
 
+    spec fn VA_SIGN_EXT_spec() -> bool;
+
     /// Whether virtual addresses are sign-extended.
     ///
     /// The sign bit of a [`Vaddr`] is the bit at index [`PagingConstsTrait::ADDRESS_WIDTH`] - 1.
@@ -169,8 +173,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     ///
     /// Regardless of sign extension, [`Vaddr`] is always not signed upon calculation.
     /// That means, `0xffff_ffff_ffff_0000 < 0xffff_ffff_ffff_0001` is `true`.
-    spec fn VA_SIGN_EXT_spec() -> bool;
-
     #[verifier::when_used_as_spec(VA_SIGN_EXT_spec)]
     fn VA_SIGN_EXT() -> (res: bool)
         ensures

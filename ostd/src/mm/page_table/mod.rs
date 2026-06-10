@@ -28,11 +28,10 @@ use crate::Pod;
 use crate::specs::mm::page_table::*;
 
 use crate::specs::arch::mm::*;
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
-use crate::arch::mm::PageTableEntry;
+use crate::arch::mm::{PageTableEntry, PagingConsts};
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
