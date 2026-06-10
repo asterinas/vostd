@@ -47,9 +47,7 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    fn BASE_PAGE_SIZE() -> (res: usize)
-        ensures
-            res == Self::BASE_PAGE_SIZE_spec(),
+    fn BASE_PAGE_SIZE() -> usize
     {
         proof {
             Self::lemma_BASE_PAGE_SIZE_properties();
@@ -64,9 +62,7 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    fn NR_LEVELS() -> (res: PagingLevel)
-        ensures
-            res == Self::NR_LEVELS_spec(),
+    fn NR_LEVELS() -> PagingLevel
     {
         4
     }
@@ -85,9 +81,7 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    fn ADDRESS_WIDTH() -> (res: usize)
-        ensures
-            res == Self::ADDRESS_WIDTH_spec(),
+    fn ADDRESS_WIDTH() -> usize
     {
         48
     }
@@ -99,9 +93,7 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    fn HIGHEST_TRANSLATION_LEVEL() -> (res: PagingLevel)
-        ensures
-            res == Self::HIGHEST_TRANSLATION_LEVEL_spec(),
+    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
     {
         2
     }
@@ -123,17 +115,12 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     proof fn lemma_PTE_SIZE_properties()
-        ensures
-            0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE(),
-            is_pow2(Self::PTE_SIZE_spec() as int),
     {
         lemma_pow2_is_pow2_to64();
     }
 
     #[inline(always)]
     fn PTE_SIZE() -> (res: usize)
-        ensures
-            res == Self::PTE_SIZE_spec(),
     {
         proof {
             Self::lemma_PTE_SIZE_properties();

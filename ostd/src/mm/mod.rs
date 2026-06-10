@@ -89,9 +89,10 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(BASE_PAGE_SIZE_spec)]
     fn BASE_PAGE_SIZE() -> (res: usize)
         ensures
-            res == Self::BASE_PAGE_SIZE_spec(),
             0 < res,
             is_pow2(res as int),
+        returns
+            Self::BASE_PAGE_SIZE_spec(),
     ;
 
     spec fn NR_LEVELS_spec() -> PagingLevel;
@@ -104,8 +105,9 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(NR_LEVELS_spec)]
     fn NR_LEVELS() -> (res: PagingLevel)
         ensures
-            res == Self::NR_LEVELS_spec(),
             res > 0,
+        returns
+            Self::NR_LEVELS_spec(),
     ;
 
     /// All configs in vostd use the same value for the per-config
@@ -128,9 +130,9 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// The highest level that a PTE can be directly used to translate a VA.
     /// This affects the the largest page size supported by the page table.
     #[verifier::when_used_as_spec(HIGHEST_TRANSLATION_LEVEL_spec)]
-    fn HIGHEST_TRANSLATION_LEVEL() -> (res: PagingLevel)
-        ensures
-            res == Self::HIGHEST_TRANSLATION_LEVEL_spec(),
+    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
+        returns
+            Self::HIGHEST_TRANSLATION_LEVEL_spec(),
     ;
 
     spec fn PTE_SIZE_spec() -> usize;
@@ -139,9 +141,10 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(PTE_SIZE_spec)]
     fn PTE_SIZE() -> (res: usize)
         ensures
-            res == Self::PTE_SIZE_spec(),
             is_pow2(res as int),
             0 < res <= Self::BASE_PAGE_SIZE(),
+        returns
+            Self::PTE_SIZE_spec(),
     ;
 
     proof fn lemma_PTE_SIZE_properties()
@@ -156,8 +159,8 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// If it is shorter than that, the higher bits in the highest level are ignored.
     #[verifier::when_used_as_spec(ADDRESS_WIDTH_spec)]
     fn ADDRESS_WIDTH() -> (res: usize)
-        ensures
-            res == Self::ADDRESS_WIDTH_spec(),
+        returns
+            Self::ADDRESS_WIDTH_spec(),
     ;
 
     spec fn VA_SIGN_EXT_spec() -> bool;
