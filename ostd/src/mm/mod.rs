@@ -169,7 +169,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             is_pow2(Self::PTE_SIZE_spec() as int),
             0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE_spec(),
     ;
-
 }
 
 #[verifier::inline]
@@ -184,7 +183,9 @@ pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
     ensures
         res == nr_subpage_per_huge_spec::<C>(),
 {
-    proof { C::lemma_paging_consts_properties();}
+    proof {
+        C::lemma_paging_consts_properties();
+    }
     C::BASE_PAGE_SIZE() / C::PTE_SIZE()
 }
 

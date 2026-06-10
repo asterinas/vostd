@@ -464,8 +464,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::VA_SIGN_EXT()
     }
 
-    proof fn lemma_paging_consts_properties()
-    {
+    proof fn lemma_paging_consts_properties() {
         C::C::lemma_paging_consts_properties();
     }
 }
