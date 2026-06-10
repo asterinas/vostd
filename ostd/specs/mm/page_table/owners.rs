@@ -1202,16 +1202,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    /// `view_rec` is finite (trivially true: `Set` is now always finite).
-    pub proof fn view_rec_finite(self, path: TreePath<NR_ENTRIES>)
-        requires
-            self.0.inv(),
-            path.len() <= INC_LEVELS - 1,
-            path.len() == self.0.level,
-        decreases INC_LEVELS - path.len(),
-    {
-    }
-
     /// Every mapping in `view_rec` has `page_size ∈ {4K, 2M, 1G}`.
     ///
     /// Structural induction using the invariant that `parent_level` of each

@@ -1042,18 +1042,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         pto.view_rec_mapping_page_size(root_path);
     }
 
-    /// Finiteness of the cursor view.
-    ///
-    /// Collapses the union-over-continuations `view_mappings` into a single
-    /// `view_rec` rooted at the reconstructed root page table, then uses
-    /// `view_rec_finite` (bounded depth / branching).
-    /// Trivially true: `Set` is now always finite.
-    pub proof fn view_mappings_finite(self)
-        requires
-            self.inv(),
-    {
-    }
-
     /// Non-overlapping mappings in the cursor view.
     ///
     /// Collapses the union-over-continuations `view_mappings` into a single
