@@ -1,5 +1,5 @@
 //! Extra properties of [`vstd::set::Set`](https://verus-lang.github.io/verus/verusdoc/vstd/set/struct.Set.html).
-use vstd::{prelude::*, iset::fold::*, set::fold::*, set_lib::*};
+use vstd::{iset::fold::*, prelude::*, set::fold::*, set_lib::*};
 
 verus! {
 
@@ -61,9 +61,8 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
         assert(Set::new_assuming_finite(|p: nat| l <= p < r) == Set::<nat>::empty());
     } else {
         lemma_nat_range_finite(l, (r - 1) as nat);
-        assert(Set::new_assuming_finite(|p| l <= p < r - 1).insert((r - 1) as nat) == Set::new_assuming_finite(
-            |p: nat| l <= p < r,
-        ));
+        assert(Set::new_assuming_finite(|p| l <= p < r - 1).insert((r - 1) as nat)
+            == Set::new_assuming_finite(|p: nat| l <= p < r));
     }
 }
 
@@ -126,7 +125,9 @@ pub proof fn lemma_empty_bad_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spe
 pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
     requires
         Set::new_assuming_finite(|x: T| p(x)).finite(),
-        Set::new_assuming_finite(|x: T| p(x)).len() == Set::new_assuming_finite(|x: T| p(x)).filter(q).len(),
+        Set::new_assuming_finite(|x: T| p(x)).len() == Set::new_assuming_finite(|x: T| p(x)).filter(
+            q,
+        ).len(),
     ensures
         forall|x: T| #[trigger] p(x) ==> q(x),
 {

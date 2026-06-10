@@ -2675,10 +2675,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ) -> Self {
         let va = AbstractVaddr {
             offset: 0,
-            index: Map::new(Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS), |i: int| 0).insert(
-                NR_LEVELS - 1,
-                idx as int,
-            ),
+            index: Map::new(
+                Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS),
+                |i: int| 0,
+            ).insert(NR_LEVELS - 1, idx as int),
             // Canonical-high-half shift for this config. `UserPtConfig` has
             // `LEADING_BITS_spec() == 0`, making this identical to the old
             // hard-coded 0 and preserving all existing user-cursor proofs.

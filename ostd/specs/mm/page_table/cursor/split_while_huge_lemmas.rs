@@ -103,7 +103,9 @@ impl<C: PageTableConfig> CursorView<C> {
         );
         assert(new_filter.contains(sub));
         assert(new_self.mappings.finite()) by {
-            let domain = Set::<int>::new_assuming_finite(|n: int| 0 <= n < ps as int / new_size as int);
+            let domain = Set::<int>::new_assuming_finite(
+                |n: int| 0 <= n < ps as int / new_size as int,
+            );
             assert(domain =~= int::range_set(0int, ps as int / new_size as int));
             vstd::set_lib::range_set_properties::<int>(0int, ps as int / new_size as int);
         };
@@ -151,7 +153,9 @@ impl<C: PageTableConfig> CursorView<C> {
                 |m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end,
             );
             assert(new_self.mappings.finite()) by {
-                let domain = Set::<int>::new_assuming_finite(|n: int| 0 <= n < ps as int / new_size as int);
+                let domain = Set::<int>::new_assuming_finite(
+                    |n: int| 0 <= n < ps as int / new_size as int,
+                );
                 assert(domain =~= int::range_set(0int, ps as int / new_size as int));
                 vstd::set_lib::range_set_properties::<int>(0int, ps as int / new_size as int);
             };
@@ -164,9 +168,9 @@ impl<C: PageTableConfig> CursorView<C> {
             assert(false);
         }
         assert(!v.mappings.remove(m).contains(m2));
-        let new_mappings = Set::<int>::new_assuming_finite(|n: int| 0 <= n < ps as int / new_size as int).map(
-            |n: int| Self::split_index(m, new_size, n as usize),
-        );
+        let new_mappings = Set::<int>::new_assuming_finite(
+            |n: int| 0 <= n < ps as int / new_size as int,
+        ).map(|n: int| Self::split_index(m, new_size, n as usize));
         assert(new_mappings.contains(m2));
         let k = choose|k: int|
             0 <= k < ps as int / new_size as int && #[trigger] Self::split_index(

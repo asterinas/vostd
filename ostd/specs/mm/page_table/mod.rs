@@ -874,7 +874,9 @@ impl AbstractVaddr {
             assert(self.next_index(level) == advanced);
             assert(self.align_up(level) == advanced);
             assert(advanced.inv()) by {
-                assert(advanced.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
+                assert(advanced.index.dom() =~= Set::new_assuming_finite(
+                    |i: int| 0 <= i < NR_LEVELS,
+                ));
                 assert forall|i: int|
                     #![trigger advanced.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {
@@ -1030,7 +1032,9 @@ impl AbstractVaddr {
                 assert(self.align_up(NR_LEVELS as int) == advanced_top);
 
                 assert(advanced_top.inv()) by {
-                    assert(advanced_top.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
+                    assert(advanced_top.index.dom() =~= Set::new_assuming_finite(
+                        |i: int| 0 <= i < NR_LEVELS,
+                    ));
                     assert forall|i: int|
                         #![trigger advanced_top.index.contains_key(i)]
                         0 <= i < NR_LEVELS implies {
@@ -1336,7 +1340,9 @@ impl AbstractVaddr {
         if next_index == NR_ENTRIES && start_level < NR_LEVELS {
             let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
             assert(next_va.inv()) by {
-                assert(next_va.index.dom() =~= Set::new_assuming_finite(|i: int| 0 <= i < NR_LEVELS));
+                assert(next_va.index.dom() =~= Set::new_assuming_finite(
+                    |i: int| 0 <= i < NR_LEVELS,
+                ));
                 assert forall|i: int|
                     #![trigger next_va.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {
@@ -1538,7 +1544,8 @@ impl AbstractVaddr {
                 assert(vaddr_make::<NR_LEVELS>(1, path.index(1)) == 0x4000_0000usize * path.index(
                     1,
                 )) by (compute);
-                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2)) by {
+                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2))
+                    by {
                     reveal(pow2);
                 }
             };
@@ -1584,7 +1591,8 @@ impl AbstractVaddr {
                 assert(vaddr_make::<NR_LEVELS>(1, path.index(1)) == 0x4000_0000usize * path.index(
                     1,
                 )) by (compute);
-                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2)) by {
+                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2))
+                    by {
                     reveal(pow2);
                 }
                 assert(vaddr_make::<NR_LEVELS>(3, path.index(3)) == 0x1000usize * path.index(3))
