@@ -493,7 +493,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 ///
 /// Note that a default PTE should be a PTE that points to nothing.
 pub trait PageTableEntryTrait:
-    Clone + Copy + Debug + Default + Sized + Send + Sync + Pod + PodOnce + 'static {
+    Clone + Copy + Debug + Default + Sized + Pod + PodOnce + Send + Sync + 'static {
     spec fn new_absent_spec() -> Self;
 
     /// Create a set of new invalid page table flags that indicates an absent page.

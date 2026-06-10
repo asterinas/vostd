@@ -249,7 +249,8 @@ impl PageTableEntryTrait for PageTableEntry {
         // as the most permissive child (to reduce hardware page walk accesses). But we
         // don't have a mechanism to keep it generic across architectures, thus just
         // setting it to be the most permissive.
-        let flags = PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits()
+        let flags = PageTableFlags::PRESENT().bits()
+            | PageTableFlags::WRITABLE().bits()
             | PageTableFlags::USER().bits();
         proof {
             Self::lemma_page_table_entry_properties();
@@ -273,18 +274,18 @@ impl PageTableEntryTrait for PageTableEntry {
             lemma_auxiliary_bit_properties(self.0);
             lemma_page_property_flag_constants();
         }
-        let flags = (parse_flags!(self.0, PageTableFlags::PRESENT(), PageFlags::R())) | (
-        parse_flags!(self.0, PageTableFlags::WRITABLE(), PageFlags::W())) | (
-        parse_flags!(!self.0, PageTableFlags::NO_EXECUTE(), PageFlags::X())) | (
-        parse_flags!(self.0, PageTableFlags::ACCESSED(), PageFlags::ACCESSED())) | (
-        parse_flags!(self.0, PageTableFlags::DIRTY(), PageFlags::DIRTY())) | (
-        parse_flags!(self.0, PageTableFlags::HIGH_IGN1(), PageFlags::AVAIL1())) | (
-        parse_flags!(self.0, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2()));
-        let priv_flags = (parse_flags!(self.0, PageTableFlags::USER(), PrivFlags::USER())) | (
-        parse_flags!(self.0, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL()));
+        let flags = (parse_flags!(self.0, PageTableFlags::PRESENT(), PageFlags::R()))
+            | (parse_flags!(self.0, PageTableFlags::WRITABLE(), PageFlags::W()))
+            | (parse_flags!(!self.0, PageTableFlags::NO_EXECUTE(), PageFlags::X()))
+            | (parse_flags!(self.0, PageTableFlags::ACCESSED(), PageFlags::ACCESSED()))
+            | (parse_flags!(self.0, PageTableFlags::DIRTY(), PageFlags::DIRTY()))
+            | (parse_flags!(self.0, PageTableFlags::HIGH_IGN1(), PageFlags::AVAIL1()))
+            | (parse_flags!(self.0, PageTableFlags::HIGH_IGN2(), PageFlags::AVAIL2()));
+        let priv_flags = (parse_flags!(self.0, PageTableFlags::USER(), PrivFlags::USER()))
+            | (parse_flags!(self.0, PageTableFlags::GLOBAL(), PrivFlags::GLOBAL()));
         #[cfg(feature = "cvm_guest")]
-        let priv_flags = priv_flags | (
-        parse_flags!(self.0, PageTableFlags::SHARED(), PrivFlags::SHARED()));
+        let priv_flags =
+            priv_flags | (parse_flags!(self.0, PageTableFlags::SHARED(), PrivFlags::SHARED()));
         let cache = if self.0 & PageTableFlags::NO_CACHE().bits() != 0 {
             CachePolicy::Uncacheable
         } else if self.0 & PageTableFlags::WRITE_THROUGH().bits() != 0 {
@@ -340,34 +341,31 @@ impl PageTableEntryTrait for PageTableEntry {
         }
         let mut flags = PageTableFlags::empty().bits();
         flags = flags |
-        (parse_flags!(prop.flags.bits(), PageFlags::R(), PageTableFlags::PRESENT())) | (
-        parse_flags!(prop.flags.bits(), PageFlags::W(), PageTableFlags::WRITABLE())) | (
-        parse_flags!(!prop.flags.bits(), PageFlags::X(), PageTableFlags::NO_EXECUTE())) | (
-        parse_flags!(
+            (parse_flags!(prop.flags.bits(), PageFlags::R(), PageTableFlags::PRESENT()))
+            | (parse_flags!(prop.flags.bits(), PageFlags::W(), PageTableFlags::WRITABLE()))
+            | (parse_flags!(!prop.flags.bits(), PageFlags::X(), PageTableFlags::NO_EXECUTE()))
+            | (parse_flags!(
                 prop.flags.bits(),
                 PageFlags::ACCESSED(),
                 PageTableFlags::ACCESSED()
             ))
-            | (parse_flags!(prop.flags.bits(), PageFlags::DIRTY(), PageTableFlags::DIRTY())) | (
-        parse_flags!(
+            | (parse_flags!(prop.flags.bits(), PageFlags::DIRTY(), PageTableFlags::DIRTY()))
+            | (parse_flags!(
                 prop.flags.bits(),
                 PageFlags::AVAIL1(),
                 PageTableFlags::HIGH_IGN1()
             ))
-            | (
-        parse_flags!(
+            | (parse_flags!(
                 prop.flags.bits(),
                 PageFlags::AVAIL2(),
                 PageTableFlags::HIGH_IGN2()
             ))
-            | (
-        parse_flags!(
+            | (parse_flags!(
                 prop.priv_flags.bits(),
                 PrivFlags::USER(),
                 PageTableFlags::USER()
             ))
-            | (
-        parse_flags!(
+            | (parse_flags!(
                 prop.priv_flags.bits(),
                 PrivFlags::GLOBAL(),
                 PageTableFlags::GLOBAL()
