@@ -42,10 +42,12 @@
 //! safe reclamation callback.
 //!
 //! The monitor also has a weak-memory `is_monitoring` flag with an RCU-specific
-//! invariant. Today that invariant records whether a flag-history message may
-//! correspond to pending monitor work. The next step is to tie that flag summary
-//! to `monitor::State::pending_summaries()` and to prove callback execution only
-//! after the relevant grace period has completed.
+//! invariant: every flag-history message records a snapshot of the
+//! lock-protected monitor state (`specs::sync::rcu::MonitorStateView`), and a
+//! `false` message certifies that its snapshot has no pending callbacks and no
+//! incomplete grace period. The next step is to implement
+//! `set_monitoring`/`finish_grace_period` against this invariant and to prove
+//! callback execution only after the relevant grace period has completed.
 //!
 //! # Usage outline
 //!

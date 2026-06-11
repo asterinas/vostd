@@ -8,7 +8,8 @@ use crate::specs::{
     mm::cpu::{AtomicCpuSet, CpuSet},
     sync::{
         rcu as rcu_spec,
-        weak_memory::WeakAtomicBool,
+        rcu::{GracePeriodView, MonitorStateView},
+        weak_memory::{History, WeakAtomicBool},
     },
 };
 use crate::sync::{LocalIrqDisabled, SpinLock};
@@ -70,23 +71,9 @@ pub open spec fn callback_summaries(callbacks: Callbacks) -> Seq<rcu_spec::RcuCa
     Seq::new(callbacks@.len(), |i: int| callbacks@[i]@)
 }
 
-/// Proof-facing summary of one grace period.
-///
-/// The executable CPU mask is intentionally not part of this first state model:
-/// the next proof cut only needs to connect pending callbacks to the monitor
-/// flag. A later epoch/quiescent-state invariant should refine this view with
-/// CPU progress.
-pub ghost struct GracePeriodView {
-    pub callbacks: Seq<rcu_spec::RcuCallbackSummary>,
-    pub is_complete: bool,
-}
-
-impl GracePeriodView {
-    pub open spec fn has_pending_work(self) -> bool {
-        !self.is_complete || self.callbacks.len() > 0
-    }
-}
-
+// The proof-facing views `GracePeriodView` and `MonitorStateView` live in
+// `specs::sync::rcu` so that the monitor flag's weak-memory ghost state can
+// record a state snapshot per flag message without depending on this module.
 pub(super) struct GracePeriod {
     callbacks: Callbacks,
     cpu_mask: AtomicCpuSet,
@@ -112,25 +99,13 @@ impl GracePeriod {
     closed spec fn has_pending_work(self) -> bool {
         self@.has_pending_work()
     }
-}
 
-/// Proof-facing summary of the monitor state protected by `RcuMonitor::state`.
-pub ghost struct MonitorStateView {
-    pub current_gp: GracePeriodView,
-    pub next_callbacks: Seq<rcu_spec::RcuCallbackSummary>,
-}
-
-impl MonitorStateView {
-    pub open spec fn pending_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
-        self.current_gp.callbacks.add(self.next_callbacks)
-    }
-
-    pub open spec fn has_pending_work(self) -> bool {
-        self.current_gp.has_pending_work() || self.next_callbacks.len() > 0
-    }
-
-    pub open spec fn no_pending_work(self) -> bool {
-        !self.has_pending_work()
+    /// Lock-protected invariant: a completed grace period has already had its
+    /// callbacks taken. Monitor methods may break this transiently inside a
+    /// critical section (between completing a grace period and taking its
+    /// callbacks), but must restore it before releasing the monitor lock.
+    closed spec fn wf(self) -> bool {
+        self@.wf()
     }
 }
 
@@ -162,39 +137,80 @@ impl State {
     closed spec fn no_pending_work(self) -> bool {
         self@.no_pending_work()
     }
+
+    /// Lock-protected invariant of the whole monitor state: the current grace
+    /// period is well-formed, and a complete grace period implies an empty
+    /// next-callback queue (the monitor either restarted the grace period with
+    /// the queued callbacks or stopped monitoring). Holds whenever the monitor
+    /// lock is free.
+    closed spec fn wf(self) -> bool {
+        self@.wf()
+    }
 }
 
-/// Relationship later maintained between the weak `is_monitoring` flag and the
-/// lock-protected monitor state. A `true` flag may over-approximate work, but a
-/// `false` flag must be precise enough to certify no pending callbacks or grace
-/// period.
+/// Relationship maintained between one message of the weak `is_monitoring`
+/// flag and the monitor-state snapshot recorded with it. A `true` flag may
+/// over-approximate work, but a `false` flag must be precise enough to certify
+/// no pending callbacks or grace period.
 pub open spec fn monitor_flag_matches_state(flag: bool, state: MonitorStateView) -> bool {
     !flag ==> state.no_pending_work()
 }
 
-/// Bridge used by the future `set_monitoring` helper: the weak atomic flag
-/// invariant already requires `!flag ==> !pending`; once the caller proves that
-/// `pending` exactly summarizes the lock-protected state, we get the stronger
-/// state-level fact needed by the monitor fast path.
-proof fn monitor_flag_matches_state_from_pending(
-    flag: bool,
-    pending: bool,
+/// Every message of the monitor flag matches the state snapshot recorded with
+/// it: the weak-memory history invariant implies the per-message relation
+/// above, for stale messages as well as the latest one.
+proof fn monitor_flag_message_matches_state(
+    history: History<bool>,
+    flag_ghost: rcu_spec::RcuMonitorFlagGhost,
+    ts: nat,
+)
+    requires
+        rcu_spec::rcu_monitor_flag_history_inv(history, flag_ghost),
+        ts < history.len(),
+    ensures
+        monitor_flag_matches_state(history[ts as int].value, flag_ghost.states[ts as int]),
+{
+    if !history[ts as int].value {
+        rcu_spec::rcu_monitor_flag_false_has_no_pending(history, flag_ghost, ts);
+    }
+}
+
+/// The fast-path certificate at the executable `State` level: reading a
+/// `false` flag message whose snapshot agrees with the lock-protected state
+/// proves that this state has no queued callbacks and no incomplete grace
+/// period. The agreement precondition is discharged by the writer protocol:
+/// every flag store happens under the monitor lock and records the
+/// lock-protected state as its snapshot.
+proof fn monitor_flag_false_certifies_no_pending(
+    history: History<bool>,
+    flag_ghost: rcu_spec::RcuMonitorFlagGhost,
+    ts: nat,
     state: State,
 )
     requires
-        !flag ==> !pending,
-        pending == state.has_pending_work(),
-    ensures
-        monitor_flag_matches_state(flag, state@),
-{
-}
-
-proof fn monitor_flag_false_has_no_pending_state(flag: bool, state: State)
-    requires
-        monitor_flag_matches_state(flag, state@),
-        !flag,
+        rcu_spec::rcu_monitor_flag_history_inv(history, flag_ghost),
+        ts < history.len(),
+        !history[ts as int].value,
+        flag_ghost.states[ts as int] == state@,
     ensures
         state.no_pending_work(),
+        state.pending_summaries() =~= Seq::<rcu_spec::RcuCallbackSummary>::empty(),
+{
+    rcu_spec::rcu_monitor_flag_false_has_no_pending(history, flag_ghost, ts);
+}
+
+/// Bridge for the future `set_monitoring` helper: while holding the monitor
+/// lock with a well-formed state, writing any flag value that over-approximates
+/// the state's pending work discharges the push obligation of
+/// [`rcu_spec::preserve_rcu_monitor_flag_inv_on_push`].
+proof fn monitor_flag_push_obligation(flag: bool, state: State)
+    requires
+        state.wf(),
+        state.has_pending_work() ==> flag,
+    ensures
+        state@.wf(),
+        !flag ==> state@.no_pending_work(),
+        monitor_flag_matches_state(flag, state@),
 {
 }
 
