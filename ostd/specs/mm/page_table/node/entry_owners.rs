@@ -1008,19 +1008,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// Structural invariant without `!in_scope`. Used by `Child::invariants`
     /// for entries that have been taken out of the tree (`in_scope == true`).
     pub open spec fn inv_base(self) -> bool {
-        &&& self.node() is Some ==> {
-            &&& self.frame() is None
-            &&& self.locked() is None
-            &&& self.borrowed() is None
+        &&& self.is_node() ==> {
             &&& self.node().unwrap().inv()
-            &&& !self.is_absent()
             &&& self.parent_level == self.node().unwrap().level + 1
         }
-        &&& self.frame() is Some ==> {
-            &&& self.node() is None
-            &&& self.locked() is None
-            &&& self.borrowed() is None
-            &&& !self.is_absent()
+        &&& self.is_frame() ==> {
             // Architectural constraint: frames only exist at PT levels that the
             // ISA actually supports as leaves (4K, 2M, 1G on x86). `parent_level
             // == NR_LEVELS` would be a 512 GiB huge page, which no current arch
@@ -1032,18 +1024,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.frame().unwrap().mapped_pa % page_size(self.parent_level) == 0
             &&& self.frame().unwrap().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
         }
-        &&& self.locked() is Some ==> {
-            &&& self.frame() is None
-            &&& self.node() is None
-            &&& self.borrowed() is None
-            &&& !self.is_absent()
-        }
-        &&& self.borrowed() is Some ==> {
-            &&& self.node() is None
-            &&& self.frame() is None
-            &&& self.locked() is None
-            &&& !self.is_absent()
-        }
+        &&& self.is_locked() ==> { true }
+        &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()
     }
 
