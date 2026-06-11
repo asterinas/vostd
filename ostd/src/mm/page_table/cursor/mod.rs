@@ -3963,15 +3963,43 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(cont0.view_mappings_take_child_spec() =~= PageTableOwner(
                 owner0.cur_subtree(),
             )@.mappings);
-            // TODO: prove via set arithmetic from view_mappings_replace_lowest,
-            // view_mappings_take_child, and view_mappings_put_child.
-            // Holds because: owner.vm = (owner0.vm - cont0.vm) + final_cont.vm
-            //   = (owner0.vm - cont0.vm) + (cont1.vm + new_sub)
-            //   = (owner0.vm - cont0.vm) + ((cont0.vm - old_sub) + new_sub)
-            //   = owner0.vm - old_sub + new_sub
-            assume(owner@.mappings =~= owner0@.mappings - PageTableOwner(
-                owner0.cur_subtree(),
-            )@.mappings + PageTableOwner(new_owner)@.mappings);
+            let old_sub = cont0.view_mappings_take_child_spec();
+            let new_sub = PageTableOwner(new_owner).view_rec(
+                cont1.path().push_tail(cont1.idx as usize),
+            );
+            assert(cont1.view_mappings() == cont0.view_mappings() - old_sub);
+            assert(owner.view_mappings() == (owner0.view_mappings()
+                - cont0.view_mappings()).union(final_cont.view_mappings()));
+            assert(final_cont.children =~= cont1.put_child(new_owner).children);
+            assert(final_cont.view_mappings() =~= cont1.put_child(new_owner).view_mappings()) by {
+                assert forall|m: Mapping| final_cont.view_mappings().contains(m)
+                    implies cont1.put_child(new_owner).view_mappings().contains(m) by {
+                    final_cont.view_mappings_contains(m);
+                    let j = choose|j: int|
+                        #![auto]
+                        0 <= j < final_cont.children.len() && final_cont.children[j] is Some
+                            && PageTableOwner(final_cont.children[j].unwrap()).view_rec(
+                            final_cont.path().push_tail(j as usize),
+                        ).contains(m);
+                    cont1.put_child(new_owner).view_mappings_intro(m, j);
+                };
+                assert forall|m: Mapping| cont1.put_child(new_owner).view_mappings().contains(m)
+                    implies final_cont.view_mappings().contains(m) by {
+                    cont1.put_child(new_owner).view_mappings_contains(m);
+                    let j = choose|j: int|
+                        #![auto]
+                        0 <= j < cont1.put_child(new_owner).children.len()
+                            && cont1.put_child(new_owner).children[j] is Some
+                            && PageTableOwner(
+                                cont1.put_child(new_owner).children[j].unwrap(),
+                            ).view_rec(
+                                cont1.put_child(new_owner).path().push_tail(j as usize),
+                            ).contains(m);
+                    final_cont.view_mappings_intro(m, j);
+                };
+            };
+            assert(cont1.put_child(new_owner).view_mappings() == cont1.view_mappings() + new_sub);
+            assert(owner@.mappings =~= owner0@.mappings - old_sub + new_sub);
 
             let level = owner0.level;
             let idx = cont0.idx as int;
