@@ -222,7 +222,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.cur_entry_frame_present();
         let subtree = self.cur_subtree();
         let path = subtree.value.path;
-        let frame = self.cur_entry_owner().frame.unwrap();
+        let frame = self.cur_entry_owner().frame().unwrap();
         let pt_level = INC_LEVELS - path.len();
         let cont = self.continuations[self.level - 1];
 
@@ -431,3 +431,4 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 }
 
 } // verus!
+

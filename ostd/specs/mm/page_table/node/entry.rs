@@ -48,7 +48,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         new_owner: EntryOwner<C>,
     ) -> bool {
         if new_owner.is_node() {
-            parent_owner.level - 1 == new_owner.node.unwrap().level
+            parent_owner.level - 1 == new_owner.node().unwrap().level
         } else if new_owner.is_frame() {
             parent_owner.level == new_owner.parent_level
         } else {
@@ -184,3 +184,4 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 }
 
 } // verus!
+

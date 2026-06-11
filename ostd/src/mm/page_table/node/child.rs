@@ -73,8 +73,8 @@ impl<C: PageTableConfig> Child<C> {
             final(owner).pte_invariants(res, *final(regions)),
             *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
             *final(owner) == old(owner).into_pte_owner_spec(),
-            old(owner).node is Some ==> res == C::E::new_pt_spec(
-                meta_to_frame(old(owner).node.unwrap().meta_addr_self()),
+            old(owner).node() is Some ==> res == C::E::new_pt_spec(
+                meta_to_frame(old(owner).node().unwrap().meta_addr_self()),
             ),
     {
         proof {
@@ -83,7 +83,7 @@ impl<C: PageTableConfig> Child<C> {
 
         match self {
             Child::PageTable(node) => {
-                let ghost node_owner = owner.node.unwrap();
+                let ghost node_owner = owner.node().unwrap();
                 let ghost node_index = frame_to_index(meta_to_frame(node.ptr.addr()));
 
                 let tracked node_slot_perm = regions.slots.tracked_borrow(node_index);
@@ -306,3 +306,4 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 }
 
 } // verus!
+

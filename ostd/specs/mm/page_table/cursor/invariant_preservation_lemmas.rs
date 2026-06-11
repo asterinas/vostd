@@ -201,7 +201,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         // preserved (this lemma only changes paths_in_pt), so the
                         // r0 facts (from frame_sub_pages_valid) carry to r1.
                         assert(entry.is_frame() && entry.parent_level > 1 ==> {
-                            let pa = entry.frame.unwrap().mapped_pa;
+                            let pa = entry.frame().unwrap().mapped_pa;
                             let nr_pages = page_size(entry.parent_level) / PAGE_SIZE;
                             forall|j: usize|
                                 0 < j < nr_pages ==> {
@@ -240,7 +240,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if cont_entry.meta_slot_paddr() is Some {
                 // Same sub-page bridge as above (continuations branch).
                 assert(cont_entry.is_frame() && cont_entry.parent_level > 1 ==> {
-                    let pa = cont_entry.frame.unwrap().mapped_pa;
+                    let pa = cont_entry.frame().unwrap().mapped_pa;
                     let nr_pages = page_size(cont_entry.parent_level) / PAGE_SIZE;
                     forall|j: usize|
                         0 < j < nr_pages ==> {
@@ -500,7 +500,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         // there (inner_perms / usage preserved), so the
                         // r0 sub-page facts carry to r1.
                         assert(entry.is_frame() && entry.parent_level > 1 ==> {
-                            let pa = entry.frame.unwrap().mapped_pa;
+                            let pa = entry.frame().unwrap().mapped_pa;
                             let nr_pages = page_size(entry.parent_level) / PAGE_SIZE;
                             forall|j: usize|
                                 0 < j < nr_pages ==> {
@@ -553,7 +553,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let eidx = frame_to_index(cont_entry.meta_slot_paddr().unwrap());
                 if eidx != changed_idx {
                     assert(cont_entry.is_frame() && cont_entry.parent_level > 1 ==> {
-                        let pa = cont_entry.frame.unwrap().mapped_pa;
+                        let pa = cont_entry.frame().unwrap().mapped_pa;
                         let nr_pages = page_size(cont_entry.parent_level) / PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
@@ -590,3 +590,4 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 }
 
 } // verus!
+

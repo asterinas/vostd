@@ -738,8 +738,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
         &&& prop == prop0
-        &&& entry_owner.frame.unwrap().mapped_pa == paddr
-        &&& entry_owner.frame.unwrap().prop == prop
+        &&& entry_owner.frame().unwrap().mapped_pa == paddr
+        &&& entry_owner.frame().unwrap().prop == prop
         &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
         &&& 1 <= level <= NR_LEVELS
         &&& level < self.pt_cursor.0.guard_level
@@ -767,3 +767,4 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 }
 
 } // verus!
+

@@ -515,25 +515,25 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).inv(),
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
-            res.ptr.addr() == owner@.value.node.unwrap().meta_addr_self(),
-            guards.unlocked(owner@.value.node.unwrap().meta_addr_self()),
-            MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
-            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), *old(regions), *final(regions)),
+            res.ptr.addr() == owner@.value.node().unwrap().meta_addr_self(),
+            guards.unlocked(owner@.value.node().unwrap().meta_addr_self()),
+            MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node().unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
+            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value.node().unwrap().meta_addr_self()), *old(regions), *final(regions)),
 
             final(regions).frame_obligations == old(regions).frame_obligations.insert(
-                frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
+                frame_to_index(meta_to_frame(owner@.value.node().unwrap().meta_addr_self()))),
+            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node().unwrap().meta_addr_self()))),
 
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                meta_to_frame(owner@.value.node.unwrap().meta_addr_self())),
+                meta_to_frame(owner@.value.node().unwrap().meta_addr_self())),
             owner@.value.metaregion_sound(*final(regions)),
             forall|i: usize|
                 #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> i != frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self())),
-            owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self())), level as PagingLevel),
-            *final(parent_owner) == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
-            final(regions).slots.contains_key(owner@.value.node.unwrap().slot_index),
-            owner@.value.node.unwrap().metaregion_sound_node(*final(regions)),
+                ==> i != frame_to_index(meta_to_frame(owner@.value.node().unwrap().meta_addr_self())),
+            owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node().unwrap().meta_addr_self())), level as PagingLevel),
+            *final(parent_owner) == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node().unwrap().meta_addr_self()))),
+            final(regions).slots.contains_key(owner@.value.node().unwrap().slot_index),
+            owner@.value.node().unwrap().metaregion_sound_node(*final(regions)),
     )]
     #[verifier::external_body]
     pub fn alloc<'rcu>(level: PagingLevel) -> Self {
@@ -1065,3 +1065,4 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
 }
 
 } // verus!
+
