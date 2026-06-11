@@ -3970,36 +3970,81 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(cont1.view_mappings() == cont0.view_mappings() - old_sub);
             assert(owner.view_mappings() == (owner0.view_mappings()
                 - cont0.view_mappings()).union(final_cont.view_mappings()));
+            assert(cont1.put_child(new_owner).view_mappings() == cont1.view_mappings() + new_sub);
             assert(final_cont.children =~= cont1.put_child(new_owner).children);
-            assert(final_cont.view_mappings() =~= cont1.put_child(new_owner).view_mappings()) by {
-                assert forall|m: Mapping| final_cont.view_mappings().contains(m)
-                    implies cont1.put_child(new_owner).view_mappings().contains(m) by {
-                    final_cont.view_mappings_contains(m);
-                    let j = choose|j: int|
-                        #![auto]
-                        0 <= j < final_cont.children.len() && final_cont.children[j] is Some
-                            && PageTableOwner(final_cont.children[j].unwrap()).view_rec(
-                            final_cont.path().push_tail(j as usize),
+            assert forall|m: Mapping| final_cont.view_mappings().contains(m)
+                implies cont1.put_child(new_owner).view_mappings().contains(m) by {
+                final_cont.view_mappings_contains(m);
+                let j = choose|j: int|
+                    #![auto]
+                    0 <= j < final_cont.children.len() && final_cont.children[j] is Some
+                        && PageTableOwner(final_cont.children[j].unwrap()).view_rec(
+                        final_cont.path().push_tail(j as usize),
+                    ).contains(m);
+                cont1.put_child(new_owner).view_mappings_intro(m, j);
+            };
+            assert forall|m: Mapping| cont1.put_child(new_owner).view_mappings().contains(m)
+                implies final_cont.view_mappings().contains(m) by {
+                cont1.put_child(new_owner).view_mappings_contains(m);
+                let j = choose|j: int|
+                    #![auto]
+                    0 <= j < cont1.put_child(new_owner).children.len()
+                        && cont1.put_child(new_owner).children[j] is Some
+                        && PageTableOwner(
+                            cont1.put_child(new_owner).children[j].unwrap(),
+                        ).view_rec(
+                            cont1.put_child(new_owner).path().push_tail(j as usize),
                         ).contains(m);
-                    cont1.put_child(new_owner).view_mappings_intro(m, j);
+                final_cont.view_mappings_intro(m, j);
+            };
+            assert(final_cont.view_mappings() =~= cont1.view_mappings() + new_sub);
+            // Set arithmetic: (A - B) + C =~= A - D + E
+            //   where C =~= (B - D) + E  (i.e., C = cont1.vm + new_sub = (cont0.vm - old_sub) + new_sub)
+            //   and   B = cont0.vm, D = old_sub, E = new_sub, A = owner0.vm
+            assert(owner@.mappings =~= owner0@.mappings - old_sub + new_sub) by {
+                let a = owner0.view_mappings();
+                let b = cont0.view_mappings();
+                let c = final_cont.view_mappings();
+                let d = old_sub;
+                let e = new_sub;
+                // Known: owner.vm == (a - b).union(c)
+                // Known: c =~= (b - d) + e
+                // Want:  (a - b).union(c) =~= (a - d) + e
+                assert forall|m: Mapping| owner.view_mappings().contains(m)
+                    implies (a - d + e).contains(m) by {
+                    if c.contains(m) {
+                        if e.contains(m) {
+                        } else {
+                            assert((b - d).contains(m));
+                            assert(b.contains(m));
+                            owner0.view_mappings_intro(m, (owner0.level - 1) as int);
+                            assert(a.contains(m));
+                            assert(!d.contains(m));
+                        }
+                    } else {
+                        assert((a - b).contains(m));
+                        assert(a.contains(m));
+                        assert(!b.contains(m));
+                        if d.contains(m) {
+                            cont0.view_mappings_intro(m, cont0.idx as int);
+                            assert(false);
+                        }
+                    }
                 };
-                assert forall|m: Mapping| cont1.put_child(new_owner).view_mappings().contains(m)
-                    implies final_cont.view_mappings().contains(m) by {
-                    cont1.put_child(new_owner).view_mappings_contains(m);
-                    let j = choose|j: int|
-                        #![auto]
-                        0 <= j < cont1.put_child(new_owner).children.len()
-                            && cont1.put_child(new_owner).children[j] is Some
-                            && PageTableOwner(
-                                cont1.put_child(new_owner).children[j].unwrap(),
-                            ).view_rec(
-                                cont1.put_child(new_owner).path().push_tail(j as usize),
-                            ).contains(m);
-                    final_cont.view_mappings_intro(m, j);
+                assert forall|m: Mapping| (a - d + e).contains(m)
+                    implies owner.view_mappings().contains(m) by {
+                    if e.contains(m) {
+                        // m in new_sub => m in c (since c =~= (b-d) + e)
+                        // => m in (a-b).union(c) = owner.vm
+                    } else {
+                        // m in a - d and not in e
+                        // m in a and not in d
+                        // Need: m in (a - b).union(c)
+                        // Case 1: m not in b => m in a - b => done
+                        // Case 2: m in b => m in b - d (since not in d) => m in c => done
+                    }
                 };
             };
-            assert(cont1.put_child(new_owner).view_mappings() == cont1.view_mappings() + new_sub);
-            assert(owner@.mappings =~= owner0@.mappings - old_sub + new_sub);
 
             let level = owner0.level;
             let idx = cont0.idx as int;
