@@ -11,8 +11,8 @@ pub proof fn seq_tracked_split_at<T>(tracked s: &mut Seq<T>, n: int) -> (tracked
     requires
         0 <= n <= old(s).len(),
     ensures
-        *final(s) =~= old(s).subrange(0, n),
-        result =~= old(s).subrange(n, old(s).len() as int),
+        *final(s) == old(s).subrange(0, n),
+        result == old(s).subrange(n, old(s).len() as int),
     decreases old(s).len() - n,
 {
     if n == s.len() {
@@ -43,7 +43,7 @@ pub broadcast proof fn lemma_seq_push_head<T>(s: Seq<T>, hd: T)
 
 pub broadcast proof fn lemma_seq_drop_pushed_head<T>(s: Seq<T>, hd: T)
     ensures
-        #[trigger] seq![hd].add(s).drop_first() =~= s,
+        #[trigger] seq![hd].add(s).drop_first() == s,
 {
 }
 

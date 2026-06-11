@@ -183,11 +183,11 @@ pub proof fn lemma_injective_map_cardinality<T, U>(f: spec_fn(T) -> U, dom: Set<
     decreases s.len(),
 {
     if s.is_empty() {
-        assert(s.map(f) =~= Set::empty());
+        assert(s.map(f) == Set::empty());
     } else {
         let x = s.choose();
         lemma_injective_map_cardinality(f, dom, s.remove(x));
-        assert(s.map(f) =~= s.remove(x).map(f).insert(f(x)));
+        assert(s.map(f) == s.remove(x).map(f).insert(f(x)));
     }
 }
 

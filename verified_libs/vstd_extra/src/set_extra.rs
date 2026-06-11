@@ -21,7 +21,7 @@ pub proof fn lemma_insert_filter_true<T>(s: Set<T>, f: spec_fn(T) -> bool, x: T)
         !s.contains(x),
         f(x),
     ensures
-        s.insert(x).filter(f) =~= s.filter(f).insert(x),
+        s.insert(x).filter(f) == s.filter(f).insert(x),
 {
 }
 
@@ -32,7 +32,7 @@ pub proof fn lemma_insert_filter_false<T>(s: Set<T>, f: spec_fn(T) -> bool, x: T
         !s.contains(x),
         !f(x),
     ensures
-        s.insert(x).filter(f) =~= s.filter(f),
+        s.insert(x).filter(f) == s.filter(f),
 {
 }
 
@@ -44,7 +44,7 @@ pub proof fn lemma_remove_filter_true<T>(s: Set<T>, f: spec_fn(T) -> bool, x: T)
         s.contains(x),
         f(x),
     ensures
-        s.remove(x).filter(f) =~= s.filter(f).remove(x),
+        s.remove(x).filter(f) == s.filter(f).remove(x),
 {
 }
 
@@ -64,7 +64,7 @@ pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
     ensures
         #![trigger s.filter(f)]
         s.filter(f).disjoint(s.filter(|x| !f(x))),
-        s =~= s.filter(f) + s.filter(|x| !f(x)),
+        s == s.filter(f) + s.filter(|x| !f(x)),
         s.filter(f).len() + s.filter(|x| !f(x)).len() == s.len(),
     decreases s.len(),
 {
@@ -90,7 +90,7 @@ pub proof fn lemma_filter_len_unchanged_implies_equal<T>(s: Set<T>, f: spec_fn(T
     requires
         s.filter(f).len() == s.len(),
     ensures
-        s.filter(f) =~= s,
+        s.filter(f) == s,
 {
     lemma_set_separation(s, f)
 }
@@ -154,7 +154,7 @@ pub proof fn lemma_flatten_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
 {
     if parts.is_empty() {
         assert(parts.flatten() == Set::<A>::empty());
-        assert(parts.to_iset() =~= ISet::empty());
+        assert(parts.to_iset() == ISet::empty());
         lemma_fold_empty(0nat, |acc: nat, p: Set<A>| acc + p.len());
     } else {
         let p = parts.choose();
@@ -166,7 +166,7 @@ pub proof fn lemma_flatten_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
         assert(parts.flatten().len() == rest.flatten().len() + p.len()) by {
             lemma_set_disjoint_lens(rest.flatten(), p);
         }
-        assert(parts.to_iset() =~= rest.to_iset().insert(p));
+        assert(parts.to_iset() == rest.to_iset().insert(p));
         lemma_fold_insert(rest.to_iset(), 0nat, |acc: nat, p: Set<A>| acc + p.len(), p);
     }
 }

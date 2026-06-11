@@ -463,11 +463,11 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
             #![all_triggers]
             FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p2, q), t2) && t2.dom().disjoint(
                 b2.dom(),
-            ) && t1 =~= t2.union_prefer_right(b2) by {
+            ) && t1 == t2.union_prefer_right(b2) by {
             let t2 = imap![];
             assert(FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p2, q), t2));
             assert(t2.dom().disjoint(b2.dom()));
-            assert(t1 =~= t2.union_prefer_right(b2));
+            assert(t1 == t2.union_prefer_right(b2));
         }
         let tracked Self { r } = self;
         let tracked (new_r, mut m) = r.withdraw(p2, b2);
@@ -517,10 +517,10 @@ impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
             #![all_triggers]
             FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p2, q), t2) && t1.dom().disjoint(
                 b1.dom(),
-            ) && t1.union_prefer_right(b1) =~= t2 by {
+            ) && t1.union_prefer_right(b1) == t2 by {
             let t2 = imap![() => resource];
             assert(FractionalCarrierOpt::rel(FractionalCarrierOpt::op(p2, q), t2)
-                && t1.dom().disjoint(b1.dom()) && t1.union_prefer_right(b1) =~= t2);
+                && t1.dom().disjoint(b1.dom()) && t1.union_prefer_right(b1) == t2);
         }
         let tracked mut m = IMap::tracked_empty();
         m.tracked_insert((), resource);

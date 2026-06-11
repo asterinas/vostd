@@ -175,11 +175,11 @@ impl<A, B, const TOTAL: u64> SumSP<A, B, TOTAL> {
                     #![auto]
                     SumSP::rel(SumSP::op(new_protocol_monoid, q), t2) && t2.dom().disjoint(
                         resource_map.dom(),
-                    ) && t1 =~= t2.union_prefer_right(resource_map) by {
+                    ) && t1 == t2.union_prefer_right(resource_map) by {
                     let t2 = IMap::empty();
                     assert(SumSP::rel(SumSP::op(new_protocol_monoid, q), t2));
                     assert(t2.dom().disjoint(resource_map.dom()));
-                    assert(t1 =~= t2.union_prefer_right(resource_map));
+                    assert(t1 == t2.union_prefer_right(resource_map));
                 }
             },
             _ => {
@@ -208,11 +208,11 @@ impl<A, B, const TOTAL: u64> SumSP<A, B, TOTAL> {
                     #![auto]
                     SumSP::rel(SumSP::op(new_protocol_monoid, q), t2) && t2.dom().disjoint(
                         resource_map.dom(),
-                    ) && t1 =~= t2.union_prefer_right(resource_map) by {
+                    ) && t1 == t2.union_prefer_right(resource_map) by {
                     let t2 = IMap::empty();
                     assert(SumSP::rel(SumSP::op(new_protocol_monoid, q), t2));
                     assert(t2.dom().disjoint(resource_map.dom()));
-                    assert(t1 =~= t2.union_prefer_right(resource_map));
+                    assert(t1 == t2.union_prefer_right(resource_map));
                 }
             },
             _ => {

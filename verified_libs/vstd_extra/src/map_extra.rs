@@ -69,7 +69,7 @@ pub proof fn lemma_value_filter_all_true<K, V>(m: Map<K, V>, f: spec_fn(V) -> bo
     requires
         forall|k: K| m.contains_key(k) ==> #[trigger] f(m[k]),
     ensures
-        value_filter(m, f) =~= m,
+        value_filter(m, f) == m,
 {
 }
 
@@ -95,7 +95,7 @@ pub proof fn lemma_remove_value_filter_true<K, V>(m: Map<K, V>, f: spec_fn(V) ->
     requires
         f(m[k]),
     ensures
-        value_filter(m.remove(k), f) =~= value_filter(m, f).remove(k),
+        value_filter(m.remove(k), f) == value_filter(m, f).remove(k),
 {
 }
 
@@ -106,7 +106,7 @@ pub proof fn lemma_remove_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -
     requires
         !f(m[k]),
     ensures
-        value_filter(m.remove(k), f) =~= value_filter(m, f),
+        value_filter(m.remove(k), f) == value_filter(m, f),
 {
 }
 
@@ -118,7 +118,7 @@ pub proof fn lemma_insert_value_filter_true<K, V>(m: Map<K, V>, f: spec_fn(V) ->
     requires
         f(v),
     ensures
-        value_filter(m.insert(k, v), f) =~= value_filter(m, f).insert(k, v),
+        value_filter(m.insert(k, v), f) == value_filter(m, f).insert(k, v),
 {
 }
 
@@ -131,12 +131,12 @@ pub proof fn lemma_insert_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -
     requires
         !f(v),
     ensures
-        value_filter(m.insert(k, v), f) =~= if m.contains_key(k) {
+        value_filter(m.insert(k, v), f) == if m.contains_key(k) {
             value_filter(m, f).remove(k)
         } else {
             value_filter(m, f)
         },
-        value_filter(m.insert(k, v), f) =~= if m.contains_key(k) {
+        value_filter(m.insert(k, v), f) == if m.contains_key(k) {
             value_filter(m, f).remove(k)
         } else {
             value_filter(m, f)
