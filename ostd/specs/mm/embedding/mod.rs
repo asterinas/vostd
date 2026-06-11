@@ -300,8 +300,7 @@ pub proof fn lemma_segment_cover_witness(
 /// Number of outstanding `Frame` handles whose paddr maps to slot
 /// `idx` — i.e. the `#handles(idx)` term of the exact reference-count
 /// accounting `ref_count(idx) == #handles(idx) + paths_in_pt(idx).len()`
-/// (Stage 5 / full #4). Well-defined as a `nat` only when
-/// `frames.dom()` is finite, which [`VmStore::inv`] maintains.
+/// (Stage 5 / full #4).
 pub open spec fn handle_count(frames: Map<FrameId, FrameEntry>, idx: usize) -> nat {
     frames.dom().filter(|fid: FrameId| frame_to_index(frames[fid].paddr) == idx).len()
 }
@@ -748,13 +747,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
                     frame_to_index(paddr)]
             self.segments.dom().contains(sid) && self.segments[sid].range.start <= paddr
                 < self.segments[sid].range.end && paddr % PAGE_SIZE == 0
-                ==> self.regions.slot_owners[frame_to_index(paddr)].usage
-                == PageUsage::Frame
-            // `paths_in_pt.finite()` is now a per-slot fact in
-            // `MetaSlotOwner::inv` (main verification), implied here via
-            // `regions.inv() → slot_owners[i].inv()` for any `i <
-            // max_meta_slots()`.
-
+                ==> self.regions.slot_owners[frame_to_index(paddr)].usage == PageUsage::Frame
     }
 
     /// Stage 5 / full #4 — EXACT reference-count accounting.

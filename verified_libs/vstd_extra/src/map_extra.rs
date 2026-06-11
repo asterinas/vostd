@@ -4,10 +4,6 @@ use vstd::{map::*, set::*};
 
 verus! {
 
-broadcast use {group_map_lemmas, group_set_lemmas};
-
-pub broadcast group group_map_remove_keys_lemmas {}
-
 /// The length of inserting a key-value pair `(k,v)` into a map `m` depends on whether
 /// the key `k` already exists in the map. If it does, the length remains the same;
 /// if it doesn't, the length increases by 1.

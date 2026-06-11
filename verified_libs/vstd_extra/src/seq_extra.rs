@@ -5,8 +5,6 @@ use vstd::seq_lib::*;
 
 verus! {
 
-broadcast use {group_seq_axioms, group_seq_lib_default};
-
 /// Splits a tracked sequence at position `n`, leaving `[0, n)` in `s`
 /// and returning `[n, len)`.
 pub proof fn seq_tracked_split_at<T>(tracked s: &mut Seq<T>, n: int) -> (tracked result: Seq<T>)
