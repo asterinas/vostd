@@ -265,9 +265,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         // Lift cont =~= cont0 to self.view_mappings() =~= owner0.view_mappings()
         assert(self.view_mappings() =~= owner0.view_mappings()) by {
-            assert forall|m: Mapping| self.view_mappings().contains(m) implies owner0.view_mappings().contains(
-                m,
-            ) by {
+            assert forall|m: Mapping|
+                self.view_mappings().contains(m) implies owner0.view_mappings().contains(m) by {
                 self.view_mappings_contains(m);
                 let i = choose|i: int|
                     self.level - 1 <= i < NR_LEVELS
@@ -280,9 +279,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     owner0.view_mappings_intro(m, i);
                 }
             };
-            assert forall|m: Mapping| owner0.view_mappings().contains(m) implies self.view_mappings().contains(
-                m,
-            ) by {
+            assert forall|m: Mapping|
+                owner0.view_mappings().contains(m) implies self.view_mappings().contains(m) by {
                 owner0.view_mappings_contains(m);
                 let i = choose|i: int|
                     owner0.level - 1 <= i < NR_LEVELS

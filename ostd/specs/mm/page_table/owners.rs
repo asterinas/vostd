@@ -691,11 +691,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 && self.0.children[i].unwrap().value.is_absent()
     }
 
-    pub open spec fn view_rec_children_union(
-        self,
-        path: TreePath<NR_ENTRIES>,
-        up_to: int,
-    ) -> Set<Mapping>
+    pub open spec fn view_rec_children_union(self, path: TreePath<NR_ENTRIES>, up_to: int) -> Set<
+        Mapping,
+    >
         decreases INC_LEVELS - path.len(), up_to,
         when self.0.inv() && path.len() < INC_LEVELS - 1 && up_to >= 0
     {
@@ -772,12 +770,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    pub proof fn view_rec_contains_intro(
-        self,
-        path: TreePath<NR_ENTRIES>,
-        m: Mapping,
-        i: int,
-    )
+    pub proof fn view_rec_contains_intro(self, path: TreePath<NR_ENTRIES>, m: Mapping, i: int)
         requires
             self.0.inv(),
             path.len() < INC_LEVELS - 1,

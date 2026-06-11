@@ -3968,12 +3968,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont1.path().push_tail(cont1.idx as usize),
             );
             assert(cont1.view_mappings() == cont0.view_mappings() - old_sub);
-            assert(owner.view_mappings() == (owner0.view_mappings()
-                - cont0.view_mappings()).union(final_cont.view_mappings()));
+            assert(owner.view_mappings() == (owner0.view_mappings() - cont0.view_mappings()).union(
+                final_cont.view_mappings(),
+            ));
             assert(cont1.put_child(new_owner).view_mappings() == cont1.view_mappings() + new_sub);
             assert(final_cont.children =~= cont1.put_child(new_owner).children);
-            assert forall|m: Mapping| final_cont.view_mappings().contains(m)
-                implies cont1.put_child(new_owner).view_mappings().contains(m) by {
+            assert forall|m: Mapping|
+                final_cont.view_mappings().contains(m) implies cont1.put_child(
+                new_owner,
+            ).view_mappings().contains(m) by {
                 final_cont.view_mappings_contains(m);
                 let j = choose|j: int|
                     #![auto]
@@ -3983,18 +3986,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     ).contains(m);
                 cont1.put_child(new_owner).view_mappings_intro(m, j);
             };
-            assert forall|m: Mapping| cont1.put_child(new_owner).view_mappings().contains(m)
-                implies final_cont.view_mappings().contains(m) by {
+            assert forall|m: Mapping|
+                cont1.put_child(new_owner).view_mappings().contains(
+                    m,
+                ) implies final_cont.view_mappings().contains(m) by {
                 cont1.put_child(new_owner).view_mappings_contains(m);
                 let j = choose|j: int|
                     #![auto]
-                    0 <= j < cont1.put_child(new_owner).children.len()
-                        && cont1.put_child(new_owner).children[j] is Some
-                        && PageTableOwner(
-                            cont1.put_child(new_owner).children[j].unwrap(),
-                        ).view_rec(
-                            cont1.put_child(new_owner).path().push_tail(j as usize),
-                        ).contains(m);
+                    0 <= j < cont1.put_child(new_owner).children.len() && cont1.put_child(
+                        new_owner,
+                    ).children[j] is Some && PageTableOwner(
+                        cont1.put_child(new_owner).children[j].unwrap(),
+                    ).view_rec(cont1.put_child(new_owner).path().push_tail(j as usize)).contains(m);
                 final_cont.view_mappings_intro(m, j);
             };
             assert(final_cont.view_mappings() =~= cont1.view_mappings() + new_sub);
@@ -4010,8 +4013,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // Known: owner.vm == (a - b).union(c)
                 // Known: c =~= (b - d) + e
                 // Want:  (a - b).union(c) =~= (a - d) + e
-                assert forall|m: Mapping| owner.view_mappings().contains(m)
-                    implies (a - d + e).contains(m) by {
+                assert forall|m: Mapping| owner.view_mappings().contains(m) implies (a - d
+                    + e).contains(m) by {
                     if c.contains(m) {
                         if e.contains(m) {
                         } else {
@@ -4031,8 +4034,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         }
                     }
                 };
-                assert forall|m: Mapping| (a - d + e).contains(m)
-                    implies owner.view_mappings().contains(m) by {
+                assert forall|m: Mapping|
+                    (a - d + e).contains(m) implies owner.view_mappings().contains(m) by {
                     if e.contains(m) {
                         // m in new_sub => m in c (since c =~= (b-d) + e)
                         // => m in (a-b).union(c) = owner.vm
@@ -4368,35 +4371,40 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         assert(owner.continuations[i].view_mappings()
                             =~= owner_before_dfs.continuations[i].view_mappings()) by {
                             assert forall|m: Mapping|
-                                owner.continuations[i].view_mappings().contains(m) implies
-                                owner_before_dfs.continuations[i].view_mappings().contains(m) by {
+                                owner.continuations[i].view_mappings().contains(
+                                    m,
+                                ) implies owner_before_dfs.continuations[i].view_mappings().contains(
+                            m) by {
                                 owner.continuations[i].view_mappings_contains(m);
                                 let j = choose|j: int|
                                     #![auto]
                                     0 <= j < owner.continuations[i].children.len()
                                         && owner.continuations[i].children[j] is Some
                                         && PageTableOwner(
-                                            owner.continuations[i].children[j].unwrap(),
-                                        ).view_rec(
-                                            owner.continuations[i].path().push_tail(j as usize),
-                                        ).contains(m);
+                                        owner.continuations[i].children[j].unwrap(),
+                                    ).view_rec(
+                                        owner.continuations[i].path().push_tail(j as usize),
+                                    ).contains(m);
                                 assert(owner_before_dfs.continuations[i].children[j]
                                     == owner.continuations[i].children[j]);
                                 owner_before_dfs.continuations[i].view_mappings_intro(m, j);
                             };
                             assert forall|m: Mapping|
-                                owner_before_dfs.continuations[i].view_mappings().contains(m) implies
-                                owner.continuations[i].view_mappings().contains(m) by {
+                                owner_before_dfs.continuations[i].view_mappings().contains(
+                                    m,
+                                ) implies owner.continuations[i].view_mappings().contains(m) by {
                                 owner_before_dfs.continuations[i].view_mappings_contains(m);
                                 let j = choose|j: int|
                                     #![auto]
                                     0 <= j < owner_before_dfs.continuations[i].children.len()
                                         && owner_before_dfs.continuations[i].children[j] is Some
                                         && PageTableOwner(
-                                            owner_before_dfs.continuations[i].children[j].unwrap(),
-                                        ).view_rec(
-                                            owner_before_dfs.continuations[i].path().push_tail(j as usize),
-                                        ).contains(m);
+                                        owner_before_dfs.continuations[i].children[j].unwrap(),
+                                    ).view_rec(
+                                        owner_before_dfs.continuations[i].path().push_tail(
+                                            j as usize,
+                                        ),
+                                    ).contains(m);
                                 assert(owner.continuations[i].children[j]
                                     == owner_before_dfs.continuations[i].children[j]);
                                 owner.continuations[i].view_mappings_intro(m, j);
@@ -4408,21 +4416,26 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         owner.view_mappings().contains(m)
                             <==> #[trigger] owner_before_dfs.view_mappings().contains(m)) by {
                         assert forall|m: Mapping|
-                            owner.view_mappings().contains(m) implies
-                            owner_before_dfs.view_mappings().contains(m) by {
+                            owner.view_mappings().contains(
+                                m,
+                            ) implies owner_before_dfs.view_mappings().contains(m) by {
                             owner.view_mappings_contains(m);
                             let i = choose|i: int|
                                 owner.level - 1 <= i < NR_LEVELS
-                                    && #[trigger] owner.continuations[i].view_mappings().contains(m);
+                                    && #[trigger] owner.continuations[i].view_mappings().contains(
+                                    m,
+                                );
                             owner_before_dfs.view_mappings_intro(m, i);
                         };
                         assert forall|m: Mapping|
-                            owner_before_dfs.view_mappings().contains(m) implies
-                            owner.view_mappings().contains(m) by {
+                            owner_before_dfs.view_mappings().contains(
+                                m,
+                            ) implies owner.view_mappings().contains(m) by {
                             owner_before_dfs.view_mappings_contains(m);
                             let i = choose|i: int|
                                 owner_before_dfs.level - 1 <= i < NR_LEVELS
-                                    && #[trigger] owner_before_dfs.continuations[i].view_mappings().contains(m);
+                                    && #[trigger] owner_before_dfs.continuations[i].view_mappings().contains(
+                                m);
                             owner.view_mappings_intro(m, i);
                         };
                     };

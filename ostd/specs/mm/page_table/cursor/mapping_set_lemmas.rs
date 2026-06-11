@@ -48,9 +48,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     ).view_rec(self.path().push_tail(i as usize)).contains(m);
                 pto.view_rec_contains_intro(self.path(), m, i);
             };
-            assert forall|m: Mapping| pto.view_rec(self.path()).contains(m) implies self.view_mappings().contains(
-                m,
-            ) by {
+            assert forall|m: Mapping|
+                pto.view_rec(self.path()).contains(m) implies self.view_mappings().contains(m) by {
                 pto.view_rec_contains(self.path(), m);
                 let i = choose|i: int|
                     #![auto]
@@ -167,11 +166,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert forall|m: Mapping| def.contains(m) implies sum.contains(m) by {
             self.put_child(child).view_mappings_contains(m);
             let i = choose|i: int|
-                0 <= i < self.put_child(child).children.len()
-                    && #[trigger] self.put_child(child).children[i] is Some
-                    && PageTableOwner(self.put_child(child).children[i].unwrap()).view_rec(
-                    self.put_child(child).path().push_tail(i as usize),
-                ).contains(m);
+                0 <= i < self.put_child(child).children.len() && #[trigger] self.put_child(
+                    child,
+                ).children[i] is Some && PageTableOwner(
+                    self.put_child(child).children[i].unwrap(),
+                ).view_rec(self.put_child(child).path().push_tail(i as usize)).contains(m);
             if i == self.idx as int {
             } else {
                 assert(self.children[i] == self.put_child(child).children[i]);
@@ -795,14 +794,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[3].as_page_table_owner_preserves_view_mappings();
             self.inv_continuation(3);
             assert(self.view_mappings() =~= self.continuations[3].view_mappings()) by {
-                assert forall|m: Mapping| self.view_mappings().contains(m) implies self.continuations[3].view_mappings().contains(
-                    m,
-                ) by {
+                assert forall|m: Mapping|
+                    self.view_mappings().contains(
+                        m,
+                    ) implies self.continuations[3].view_mappings().contains(m) by {
                     self.view_mappings_contains(m);
                 };
-                assert forall|m: Mapping| self.continuations[3].view_mappings().contains(m) implies self.view_mappings().contains(
-                    m,
-                ) by {
+                assert forall|m: Mapping|
+                    self.continuations[3].view_mappings().contains(
+                        m,
+                    ) implies self.view_mappings().contains(m) by {
                     self.view_mappings_intro(m, 3);
                 };
             };
@@ -864,8 +865,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
                 assert forall|m: Mapping|
                     (self.continuations[2].view_mappings().contains(m)
-                        || self.continuations[3].view_mappings().contains(m)) implies #[trigger]
-                        self.view_mappings().contains(m) by {
+                        || self.continuations[3].view_mappings().contains(
+                        m,
+                    )) implies #[trigger] self.view_mappings().contains(m) by {
                     if self.continuations[2].view_mappings().contains(m) {
                         self.view_mappings_intro(m, 2);
                     } else {
@@ -1102,8 +1104,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
                 assert forall|m: Mapping|
                     (c0.view_mappings().contains(m) || c1.view_mappings().contains(m)
-                        || c2.view_mappings().contains(m) || c3.view_mappings().contains(m))
-                        implies self.view_mappings().contains(m) by {
+                        || c2.view_mappings().contains(m) || c3.view_mappings().contains(
+                        m,
+                    )) implies self.view_mappings().contains(m) by {
                     if c0.view_mappings().contains(m) {
                         self.view_mappings_intro(m, 0);
                     } else if c1.view_mappings().contains(m) {

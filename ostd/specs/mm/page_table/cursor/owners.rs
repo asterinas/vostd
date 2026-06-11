@@ -1083,8 +1083,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             exists|i: int|
                 #![trigger self.continuations[i]]
-                self.level - 1 <= i < up_to
-                    && self.continuations[i].view_mappings().contains(m),
+                self.level - 1 <= i < up_to && self.continuations[i].view_mappings().contains(m),
         decreases up_to - (self.level - 1),
     {
         if up_to <= self.level - 1 {
@@ -1121,8 +1120,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             exists|i: int|
                 #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS
-                    && self.continuations[i].view_mappings().contains(m),
+                self.level - 1 <= i < NR_LEVELS && self.continuations[i].view_mappings().contains(
+                    m,
+                ),
     {
         self.view_mappings_conts_union_contains(NR_LEVELS as int, m);
     }
