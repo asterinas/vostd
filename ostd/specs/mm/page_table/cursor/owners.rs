@@ -901,7 +901,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
-            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().unwrap().meta_addr_self(),
+            guard.inner.inner@.ptr.addr()
+                == self.cur_entry_owner().node().unwrap().meta_addr_self(),
         ensures
             self.children_not_locked(guards1),
     {
@@ -3064,4 +3065,3 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> ModelOf for Cursor<'rcu, C, A> {
 }
 
 } // verus!
-

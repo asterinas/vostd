@@ -112,12 +112,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> Self {
-        EntryOwner {
-            kind: EntryOwnerKind::Absent,
-            in_scope: true,
-            path,
-            parent_level,
-        }
+        EntryOwner { kind: EntryOwnerKind::Absent, in_scope: true, path, parent_level }
     }
 
     pub open spec fn new_frame(
@@ -158,12 +153,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         parent_level: PagingLevel,
         mappings: Set<Mapping>,
     ) -> Self {
-        EntryOwner {
-            kind: EntryOwnerKind::Borrowed(mappings),
-            in_scope: true,
-            path,
-            parent_level,
-        }
+        EntryOwner { kind: EntryOwnerKind::Borrowed(mappings), in_scope: true, path, parent_level }
     }
 
     pub axiom fn tracked_new_borrowed(
@@ -438,8 +428,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
             1 < self.parent_level < NR_LEVELS,
             idx < NR_ENTRIES,
         ensures
-            self.frame().unwrap().mapped_pa + idx * page_size((self.parent_level - 1) as PagingLevel)
-                < MAX_PADDR,
+            self.frame().unwrap().mapped_pa + idx * page_size(
+                (self.parent_level - 1) as PagingLevel,
+            ) < MAX_PADDR,
             ((self.frame().unwrap().mapped_pa + idx * page_size(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % page_size((self.parent_level - 1) as PagingLevel) == 0,
@@ -1124,4 +1115,3 @@ impl<'a, 'rcu, C: PageTableConfig> OwnerOf for Entry<'a, 'rcu, C> {
 }
 
 } // verus!
-

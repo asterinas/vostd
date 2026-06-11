@@ -171,4 +171,3 @@ impl<C: PageTableConfig> EntryOwner<C> {
 }
 
 } // verus!
-

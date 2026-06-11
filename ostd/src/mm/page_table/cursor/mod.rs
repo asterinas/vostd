@@ -1963,9 +1963,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             *final(owner) == *old(owner),
             final(owner).metaregion_sound(*regions),
             res.idx == final(owner).continuations[final(owner).level - 1].idx,
-            final(owner).continuations[final(owner).level - 1].entry_own.node().unwrap().relate_guard(
-                *res.node,
-            ),
+            final(owner).continuations[final(owner).level
+                - 1].entry_own.node().unwrap().relate_guard(*res.node),
     {
         let ghost owner0 = *owner;
 
@@ -4183,9 +4182,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
                     assert(eo_idx == eo.node().unwrap().slot_index);
-                    assert(eo.node().unwrap().meta_perm_of(*regions) == eo.node().unwrap().meta_perm_of(
-                        regions0,
-                    ));
+                    assert(eo.node().unwrap().meta_perm_of(*regions)
+                        == eo.node().unwrap().meta_perm_of(regions0));
                 };
             };
 
@@ -4475,5 +4473,3 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 }
 
 } // verus!
-
-

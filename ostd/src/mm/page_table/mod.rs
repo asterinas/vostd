@@ -1875,4 +1875,3 @@ pub unsafe fn store_pte<E: PageTableEntryTrait>(
 );
 
 } // verus!
-

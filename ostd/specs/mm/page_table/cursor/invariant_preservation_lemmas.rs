@@ -590,4 +590,3 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 }
 
 } // verus!
-

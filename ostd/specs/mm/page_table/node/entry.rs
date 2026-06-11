@@ -184,4 +184,3 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 }
 
 } // verus!
-

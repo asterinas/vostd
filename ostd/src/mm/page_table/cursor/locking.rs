@@ -846,5 +846,3 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
 }
 
 } // verus!
-
-

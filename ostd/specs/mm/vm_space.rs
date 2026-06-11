@@ -767,4 +767,3 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 }
 
 } // verus!
-

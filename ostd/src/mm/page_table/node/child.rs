@@ -306,4 +306,3 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 }
 
 } // verus!
-
