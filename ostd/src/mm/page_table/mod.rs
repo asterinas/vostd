@@ -364,8 +364,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             // at the slot (`Frame::clone`); an untracked clone is net-zero.
             Self::tracked(item) ==> new_regions.frame_obligations
                 == old_regions.frame_obligations.insert(frame_to_index(pa)),
-            !Self::tracked(item) ==> new_regions.frame_obligations
-                == old_regions.frame_obligations,
+            !Self::tracked(item) ==> new_regions.frame_obligations == old_regions.frame_obligations,
     ;
 
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)

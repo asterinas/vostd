@@ -948,10 +948,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         requires
             0 <= i <= owners.len(),
         ensures
-            Self::view_helper(owners.insert(i, v)) == Self::view_helper(owners).insert(
-                i,
-                v.view(),
-            ),
+            Self::view_helper(owners.insert(i, v)) == Self::view_helper(owners).insert(i, v.view()),
     {
         Self::view_preserves_len(owners);
         Self::view_preserves_len(owners.insert(i, v));

@@ -3120,8 +3120,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 idx != pa_idx2 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED implies #[trigger] regions.slot_owners[idx].paths_in_pt
                 == old(regions).slot_owners[idx].paths_in_pt by {
-                assert(regions_after_new_child.slot_owners
-                    == regions_before_new_child.slot_owners);
+                assert(regions_after_new_child.slot_owners == regions_before_new_child.slot_owners);
             };
 
             assert(regions_before_new_child.slots == regions_after_new_child.slots);
