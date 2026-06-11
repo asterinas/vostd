@@ -35,7 +35,7 @@ pub tracked struct FrameEntryOwner {
 pub tracked struct EntryOwner<C: PageTableConfig> {
     pub node: Option<NodeOwner<C>>,
     pub frame: Option<FrameEntryOwner>,
-    pub locked: Option<Ghost<Seq<FrameView<C>>>>,
+    pub ghost locked: Option<Seq<FrameView<C>>>,
     /// Translation-only / borrowed-sub-tree variant.
     ///
     /// Present when the slot's PTE references a sub-tree owned by *another*
@@ -45,7 +45,7 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     /// embedding can reason about what the borrowed translation provides
     /// without descending into a sub-tree it does not own. Mutually
     /// exclusive with `node`, `frame`, and `locked`.
-    pub borrowed: Option<Ghost<Set<Mapping>>>,
+    pub ghost borrowed: Option<Set<Mapping>>,
     pub absent: bool,
     pub in_scope: bool,
     pub path: TreePath<NR_ENTRIES>,
@@ -136,7 +136,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             node: None,
             frame: None,
             locked: None,
-            borrowed: Some(Ghost(mappings)),
+            borrowed: Some(mappings),
             absent: false,
             in_scope: true,
             path,
@@ -1007,7 +1007,7 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                 },
             }
         } else if let Some(view) = self.locked {
-            EntryView::LockedSubtree { views: view@ }
+            EntryView::LockedSubtree { views: view }
         } else {
             EntryView::Absent
         }
