@@ -3959,7 +3959,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // and connect cont0/final_cont to PageTableOwner views by path equality.
             assert(owner0.cur_subtree().value.path == cont0.path().push_tail(cont0.idx as usize));
             assert(new_owner.value.path == cont1.path().push_tail(cont1.idx as usize));
-            assert(owner@.mappings =~= owner0@.mappings - PageTableOwner(
+            cont0.view_mappings_take_child();
+            assert(cont0.view_mappings_take_child_spec() =~= PageTableOwner(
+                owner0.cur_subtree(),
+            )@.mappings);
+            // TODO: prove via set arithmetic from view_mappings_replace_lowest,
+            // view_mappings_take_child, and view_mappings_put_child.
+            // Holds because: owner.vm = (owner0.vm - cont0.vm) + final_cont.vm
+            //   = (owner0.vm - cont0.vm) + (cont1.vm + new_sub)
+            //   = (owner0.vm - cont0.vm) + ((cont0.vm - old_sub) + new_sub)
+            //   = owner0.vm - old_sub + new_sub
+            assume(owner@.mappings =~= owner0@.mappings - PageTableOwner(
                 owner0.cur_subtree(),
             )@.mappings + PageTableOwner(new_owner)@.mappings);
 
@@ -4282,11 +4292,67 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         == owner_before_dfs.continuations[i].view_mappings() by {
                         assert(owner.continuations[i].children
                             =~= owner_before_dfs.continuations[i].children);
+                        assert(owner.continuations[i].view_mappings()
+                            =~= owner_before_dfs.continuations[i].view_mappings()) by {
+                            assert forall|m: Mapping|
+                                owner.continuations[i].view_mappings().contains(m) implies
+                                owner_before_dfs.continuations[i].view_mappings().contains(m) by {
+                                owner.continuations[i].view_mappings_contains(m);
+                                let j = choose|j: int|
+                                    #![auto]
+                                    0 <= j < owner.continuations[i].children.len()
+                                        && owner.continuations[i].children[j] is Some
+                                        && PageTableOwner(
+                                            owner.continuations[i].children[j].unwrap(),
+                                        ).view_rec(
+                                            owner.continuations[i].path().push_tail(j as usize),
+                                        ).contains(m);
+                                assert(owner_before_dfs.continuations[i].children[j]
+                                    == owner.continuations[i].children[j]);
+                                owner_before_dfs.continuations[i].view_mappings_intro(m, j);
+                            };
+                            assert forall|m: Mapping|
+                                owner_before_dfs.continuations[i].view_mappings().contains(m) implies
+                                owner.continuations[i].view_mappings().contains(m) by {
+                                owner_before_dfs.continuations[i].view_mappings_contains(m);
+                                let j = choose|j: int|
+                                    #![auto]
+                                    0 <= j < owner_before_dfs.continuations[i].children.len()
+                                        && owner_before_dfs.continuations[i].children[j] is Some
+                                        && PageTableOwner(
+                                            owner_before_dfs.continuations[i].children[j].unwrap(),
+                                        ).view_rec(
+                                            owner_before_dfs.continuations[i].path().push_tail(j as usize),
+                                        ).contains(m);
+                                assert(owner.continuations[i].children[j]
+                                    == owner_before_dfs.continuations[i].children[j]);
+                                owner.continuations[i].view_mappings_intro(m, j);
+                            };
+                        };
                     };
 
                     assert(forall|m: Mapping|
                         owner.view_mappings().contains(m)
-                            <==> #[trigger] owner_before_dfs.view_mappings().contains(m));
+                            <==> #[trigger] owner_before_dfs.view_mappings().contains(m)) by {
+                        assert forall|m: Mapping|
+                            owner.view_mappings().contains(m) implies
+                            owner_before_dfs.view_mappings().contains(m) by {
+                            owner.view_mappings_contains(m);
+                            let i = choose|i: int|
+                                owner.level - 1 <= i < NR_LEVELS
+                                    && #[trigger] owner.continuations[i].view_mappings().contains(m);
+                            owner_before_dfs.view_mappings_intro(m, i);
+                        };
+                        assert forall|m: Mapping|
+                            owner_before_dfs.view_mappings().contains(m) implies
+                            owner.view_mappings().contains(m) by {
+                            owner_before_dfs.view_mappings_contains(m);
+                            let i = choose|i: int|
+                                owner_before_dfs.level - 1 <= i < NR_LEVELS
+                                    && #[trigger] owner_before_dfs.continuations[i].view_mappings().contains(m);
+                            owner.view_mappings_intro(m, i);
+                        };
+                    };
                 }
 
                 // num_frames == subtree mappings count: from dfs_mark_stray_and_unlock postcondition.

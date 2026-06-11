@@ -691,6 +691,109 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 && self.0.children[i].unwrap().value.is_absent()
     }
 
+    pub open spec fn view_rec_children_union(
+        self,
+        path: TreePath<NR_ENTRIES>,
+        up_to: int,
+    ) -> Set<Mapping>
+        decreases INC_LEVELS - path.len(), up_to,
+        when self.0.inv() && path.len() < INC_LEVELS - 1 && up_to >= 0
+    {
+        if up_to <= 0 {
+            Set::empty()
+        } else if up_to - 1 < self.0.children.len() && self.0.children[up_to - 1] is Some {
+            self.view_rec_children_union(path, up_to - 1).union(
+                PageTableOwner(self.0.children[up_to - 1].unwrap()).view_rec(
+                    path.push_tail((up_to - 1) as usize),
+                ),
+            )
+        } else {
+            self.view_rec_children_union(path, up_to - 1)
+        }
+    }
+
+    proof fn view_rec_children_union_contains(
+        self,
+        path: TreePath<NR_ENTRIES>,
+        up_to: int,
+        m: Mapping,
+    )
+        requires
+            self.0.inv(),
+            path.len() < INC_LEVELS - 1,
+            self.0.value.is_node(),
+            0 <= up_to <= self.0.children.len(),
+            self.view_rec_children_union(path, up_to).contains(m),
+        ensures
+            exists|i: int|
+                #![trigger self.0.children[i]]
+                0 <= i < up_to && self.0.children[i] is Some && PageTableOwner(
+                    self.0.children[i].unwrap(),
+                ).view_rec(path.push_tail(i as usize)).contains(m),
+        decreases up_to,
+    {
+        if up_to <= 0 {
+        } else if up_to - 1 < self.0.children.len() && self.0.children[up_to - 1] is Some {
+            if PageTableOwner(self.0.children[up_to - 1].unwrap()).view_rec(
+                path.push_tail((up_to - 1) as usize),
+            ).contains(m) {
+            } else {
+                self.view_rec_children_union_contains(path, up_to - 1, m);
+            }
+        } else {
+            self.view_rec_children_union_contains(path, up_to - 1, m);
+        }
+    }
+
+    proof fn view_rec_children_union_intro(
+        self,
+        path: TreePath<NR_ENTRIES>,
+        up_to: int,
+        m: Mapping,
+        witness: int,
+    )
+        requires
+            self.0.inv(),
+            path.len() < INC_LEVELS - 1,
+            self.0.value.is_node(),
+            0 <= witness < up_to,
+            up_to <= self.0.children.len(),
+            self.0.children[witness] is Some,
+            PageTableOwner(self.0.children[witness].unwrap()).view_rec(
+                path.push_tail(witness as usize),
+            ).contains(m),
+        ensures
+            self.view_rec_children_union(path, up_to).contains(m),
+        decreases up_to,
+    {
+        if witness == up_to - 1 {
+        } else {
+            self.view_rec_children_union_intro(path, up_to - 1, m, witness);
+        }
+    }
+
+    pub proof fn view_rec_contains_intro(
+        self,
+        path: TreePath<NR_ENTRIES>,
+        m: Mapping,
+        i: int,
+    )
+        requires
+            self.0.inv(),
+            path.len() < INC_LEVELS - 1,
+            path.len() == self.0.level,
+            self.0.value.is_node(),
+            0 <= i < self.0.children.len(),
+            self.0.children[i] is Some,
+            PageTableOwner(self.0.children[i].unwrap()).view_rec(
+                path.push_tail(i as usize),
+            ).contains(m),
+        ensures
+            self.view_rec(path).contains(m),
+    {
+        self.view_rec_children_union_intro(path, self.0.children.len() as int, m, i);
+    }
+
     pub open spec fn view_rec(self, path: TreePath<NR_ENTRIES>) -> Set<Mapping>
         decreases INC_LEVELS - path.len(),
         when self.0.inv() && path.len() <= INC_LEVELS - 1
@@ -710,15 +813,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 property: self.0.value.frame.unwrap().prop,
             }]
         } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
-            Set::new_assuming_finite(
-                |m: Mapping|
-                    exists|i: int|
-                        #![trigger self.0.children[i]]
-                        0 <= i < self.0.children.len() && self.0.children[i] is Some
-                            && PageTableOwner(self.0.children[i].unwrap()).view_rec(
-                            path.push_tail(i as usize),
-                        ).contains(m),
-            )
+            self.view_rec_children_union(path, self.0.children.len() as int)
         } else {
             set![]
         }
@@ -738,6 +833,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     self.0.children[i].unwrap(),
                 ).view_rec(path.push_tail(i as usize)).contains(m),
     {
+        self.view_rec_children_union_contains(path, self.0.children.len() as int, m);
     }
 
     pub proof fn view_rec_contains_choose(self, path: TreePath<NR_ENTRIES>, m: Mapping) -> (i: int)
@@ -752,6 +848,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 self.0.children[i].unwrap(),
             ).view_rec(path.push_tail(i as usize)).contains(m),
     {
+        self.view_rec_contains(path, m);
         choose|i: int|
             #![auto]
             0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
@@ -943,6 +1040,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(m == expected);
             assert(page_size(pt_level) > 0);
         } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
+            self.view_rec_contains(path, m);
             let i = choose|i: int|
                 #![trigger self.0.children[i]]
                 0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
@@ -1121,7 +1219,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                         child.view_rec(path.push_tail(i as usize)).contains(
                             mm,
                         ) implies ambient.contains(mm) by {
-                        assert(self.view_rec(path).contains(mm));
+                        self.view_rec_contains_intro(path, mm, i);
                     };
                     // path-correctness passes to the child.
                     self.0.map_unroll_once(path, Self::path_correct_pred(), i);
@@ -1227,6 +1325,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 self.view_rec(path).contains(
                     m,
                 ) implies set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size) by {
+                self.view_rec_contains(path, m);
                 let i = choose|i: int|
                     #![trigger self.0.children[i]]
                     0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
@@ -1500,6 +1599,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
             assert forall|m: Mapping| #[trigger]
                 self.view_rec(path).contains(m) implies m.inv() by {
+                self.view_rec_contains(path, m);
                 let i = choose|i: int|
                     #![trigger self.0.children[i]]
                     0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
@@ -1809,8 +1909,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         decreases INC_LEVELS - path.len(),
     {
         if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
+            self.view_rec_children_union_contains(path, self.0.children.len() as int, m);
             let i = choose|i: int|
-                #![auto]
+                #![trigger self.0.children[i]]
                 0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
                     self.0.children[i].unwrap(),
                 ).view_rec(path.push_tail(i as usize)).contains(m);
@@ -1837,8 +1938,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             m.page_size <= page_size(((INC_LEVELS - path.len()) - 1) as PagingLevel),
         decreases INC_LEVELS - path.len(),
     {
+        self.view_rec_children_union_contains(path, self.0.children.len() as int, m);
         let i = choose|i: int|
-            #![auto]
+            #![trigger self.0.children[i]]
             0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
                 self.0.children[i].unwrap(),
             ).view_rec(path.push_tail(i as usize)).contains(m);

@@ -336,15 +336,95 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         guards.lock_held(self.guard.inner.inner@.ptr.addr())
     }
 
+    pub open spec fn view_mappings_children_union(self, up_to: int) -> Set<Mapping>
+        decreases up_to,
+        when up_to >= 0
+    {
+        if up_to <= 0 {
+            Set::empty()
+        } else if up_to - 1 < self.children.len() && self.children[up_to - 1] is Some {
+            self.view_mappings_children_union(up_to - 1).union(
+                PageTableOwner(self.children[up_to - 1].unwrap()).view_rec(
+                    self.path().push_tail((up_to - 1) as usize),
+                ),
+            )
+        } else {
+            self.view_mappings_children_union(up_to - 1)
+        }
+    }
+
     pub open spec fn view_mappings(self) -> Set<Mapping> {
-        Set::new_assuming_finite(
-            |m: Mapping|
-                exists|i: int|
-                    #![auto]
-                    0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
-                        self.children[i].unwrap(),
-                    ).view_rec(self.path().push_tail(i as usize)).contains(m),
-        )
+        self.view_mappings_children_union(self.children.len() as int)
+    }
+
+    proof fn view_mappings_children_union_contains(self, up_to: int, m: Mapping)
+        requires
+            0 <= up_to <= self.children.len(),
+            self.view_mappings_children_union(up_to).contains(m),
+        ensures
+            exists|i: int|
+                #![auto]
+                0 <= i < up_to && self.children[i] is Some && PageTableOwner(
+                    self.children[i].unwrap(),
+                ).view_rec(self.path().push_tail(i as usize)).contains(m),
+        decreases up_to,
+    {
+        if up_to <= 0 {
+        } else if up_to - 1 < self.children.len() && self.children[up_to - 1] is Some {
+            if PageTableOwner(self.children[up_to - 1].unwrap()).view_rec(
+                self.path().push_tail((up_to - 1) as usize),
+            ).contains(m) {
+            } else {
+                self.view_mappings_children_union_contains(up_to - 1, m);
+            }
+        } else {
+            self.view_mappings_children_union_contains(up_to - 1, m);
+        }
+    }
+
+    proof fn view_mappings_children_union_intro(self, up_to: int, m: Mapping, witness: int)
+        requires
+            0 <= witness < up_to,
+            up_to <= self.children.len(),
+            self.children[witness] is Some,
+            PageTableOwner(self.children[witness].unwrap()).view_rec(
+                self.path().push_tail(witness as usize),
+            ).contains(m),
+        ensures
+            self.view_mappings_children_union(up_to).contains(m),
+        decreases up_to,
+    {
+        if witness == up_to - 1 {
+        } else {
+            self.view_mappings_children_union_intro(up_to - 1, m, witness);
+        }
+    }
+
+    pub proof fn view_mappings_contains(self, m: Mapping)
+        requires
+            self.children.len() > 0,
+            self.view_mappings().contains(m),
+        ensures
+            exists|i: int|
+                #![auto]
+                0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
+                    self.children[i].unwrap(),
+                ).view_rec(self.path().push_tail(i as usize)).contains(m),
+    {
+        self.view_mappings_children_union_contains(self.children.len() as int, m);
+    }
+
+    pub proof fn view_mappings_intro(self, m: Mapping, i: int)
+        requires
+            0 <= i < self.children.len(),
+            self.children[i] is Some,
+            PageTableOwner(self.children[i].unwrap()).view_rec(
+                self.path().push_tail(i as usize),
+            ).contains(m),
+        ensures
+            self.view_mappings().contains(m),
+    {
+        self.view_mappings_children_union_intro(self.children.len() as int, m, i);
     }
 
     pub open spec fn as_subtree(self) -> OwnerSubtree<C> {
@@ -977,14 +1057,86 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.continuations.contains_key(i));
     }
 
+    pub open spec fn view_mappings_conts_union(self, up_to: int) -> Set<Mapping>
+        decreases up_to - (self.level - 1),
+        when up_to >= self.level - 1
+    {
+        if up_to <= self.level - 1 {
+            Set::empty()
+        } else if up_to - 1 < NR_LEVELS && self.continuations.contains_key(up_to - 1) {
+            self.view_mappings_conts_union(up_to - 1).union(
+                self.continuations[up_to - 1].view_mappings(),
+            )
+        } else {
+            self.view_mappings_conts_union(up_to - 1)
+        }
+    }
+
     pub open spec fn view_mappings(self) -> Set<Mapping> {
-        Set::new_assuming_finite(
-            |m: Mapping|
-                exists|i: int|
-                    #![trigger self.continuations[i]]
-                    self.level - 1 <= i < NR_LEVELS
-                        && self.continuations[i].view_mappings().contains(m),
-        )
+        self.view_mappings_conts_union(NR_LEVELS as int)
+    }
+
+    proof fn view_mappings_conts_union_contains(self, up_to: int, m: Mapping)
+        requires
+            self.level - 1 <= up_to <= NR_LEVELS,
+            self.view_mappings_conts_union(up_to).contains(m),
+        ensures
+            exists|i: int|
+                #![trigger self.continuations[i]]
+                self.level - 1 <= i < up_to
+                    && self.continuations[i].view_mappings().contains(m),
+        decreases up_to - (self.level - 1),
+    {
+        if up_to <= self.level - 1 {
+        } else if up_to - 1 < NR_LEVELS && self.continuations.contains_key(up_to - 1) {
+            if self.continuations[up_to - 1].view_mappings().contains(m) {
+            } else {
+                self.view_mappings_conts_union_contains(up_to - 1, m);
+            }
+        } else {
+            self.view_mappings_conts_union_contains(up_to - 1, m);
+        }
+    }
+
+    proof fn view_mappings_conts_union_intro(self, up_to: int, m: Mapping, witness: int)
+        requires
+            self.level - 1 <= witness < up_to,
+            up_to <= NR_LEVELS,
+            self.continuations.contains_key(witness),
+            self.continuations[witness].view_mappings().contains(m),
+        ensures
+            self.view_mappings_conts_union(up_to).contains(m),
+        decreases up_to - (self.level - 1),
+    {
+        if witness == up_to - 1 {
+        } else {
+            self.view_mappings_conts_union_intro(up_to - 1, m, witness);
+        }
+    }
+
+    pub proof fn view_mappings_contains(self, m: Mapping)
+        requires
+            1 <= self.level <= NR_LEVELS,
+            self.view_mappings().contains(m),
+        ensures
+            exists|i: int|
+                #![trigger self.continuations[i]]
+                self.level - 1 <= i < NR_LEVELS
+                    && self.continuations[i].view_mappings().contains(m),
+    {
+        self.view_mappings_conts_union_contains(NR_LEVELS as int, m);
+    }
+
+    pub proof fn view_mappings_intro(self, m: Mapping, i: int)
+        requires
+            1 <= self.level <= NR_LEVELS,
+            self.level - 1 <= i < NR_LEVELS,
+            self.continuations.contains_key(i),
+            self.continuations[i].view_mappings().contains(m),
+        ensures
+            self.view_mappings().contains(m),
+    {
+        self.view_mappings_conts_union_intro(NR_LEVELS as int, m, i);
     }
 
     pub open spec fn as_page_table_owner(self) -> PageTableOwner<C> {
@@ -2375,7 +2527,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             property: frame.prop,
         };
         assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
-        assert(self.view_mappings().contains(m));
+        assert(PageTableOwner(subtree).view_rec(path).contains(m));
+        cont.view_mappings_intro(m, cont.idx as int);
+        self.view_mappings_intro(m, (self.level - 1) as int);
         assert(m.inv());
         assert(m.va_range.start <= self@.cur_va < m.va_range.end) by {
             self.cur_va_in_subtree_range();
