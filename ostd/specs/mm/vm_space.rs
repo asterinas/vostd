@@ -354,7 +354,7 @@ impl<'a> VmSpaceOwner {
             va,
         ) is Some by {
             if owner_r.range.start <= va && va < owner_r.range.end {
-                assert(borrowed_mv.mappings =~= mv.mappings.filter(
+                assert(borrowed_mv.mappings == mv.mappings.filter(
                     |m: Mapping|
                         m.va_range.start < (owner_r.range.end) && m.va_range.end
                             > owner_r.range.start,
@@ -429,7 +429,7 @@ impl<'a> VmSpaceOwner {
             #![auto]
             owner_w.range.start <= va < owner_w.range.end implies lhs.addr_transl(va) is Some by {
             if owner_w.range.start <= va && va < owner_w.range.end {
-                assert(lhs.mappings =~= old_mv.mappings.filter(
+                assert(lhs.mappings == old_mv.mappings.filter(
                     |m: Mapping|
                         m.va_range.start < (owner_w.range.end) && m.va_range.end
                             > owner_w.range.start,
@@ -518,8 +518,8 @@ impl<'a> VmSpaceOwner {
         assert(self.mem_view_wf()) by {
             let ghost total_view = self.mv_range@.unwrap();
 
-            assert(remaining.mappings =~= old_remaining.mappings.union(mv.mappings));
-            assert(remaining.memory =~= old_remaining.memory.union_prefer_right(mv.memory));
+            assert(remaining.mappings == old_remaining.mappings.union(mv.mappings));
+            assert(remaining.memory == old_remaining.memory.union_prefer_right(mv.memory));
             assert(self.mv_range == old(self).mv_range);
             assert(self.mem_view == Some(remaining));
 

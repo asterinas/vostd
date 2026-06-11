@@ -57,9 +57,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
         ensures
             final(regions).inv(),
             r.inner.0.ptr.addr() == frame_to_meta(raw),
-            final(regions).slot_owners =~= old(regions).slot_owners,
+            final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
@@ -88,7 +88,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
         proof {
             // `from_raw` did `insert(idx)`; `MD::new` did `remove(idx)`.
             // The pair is identity on the multiset.
-            assert(regions.frame_obligations =~= regions0.frame_obligations);
+            assert(regions.frame_obligations == regions0.frame_obligations);
         }
 
         Self { inner, _marker: PhantomData }

@@ -344,7 +344,7 @@ impl MemView {
 
         assert forall|va: usize| vaddr <= va < vaddr + len implies original.addr_transl(va)
             == left.addr_transl(va) by {
-            assert(left.mappings =~= original.mappings.filter(
+            assert(left.mappings == original.mappings.filter(
                 |m: Mapping| m.va_range.start < vaddr + len && m.va_range.end > vaddr,
             ));
             let o_mappings = original.mappings.filter(
@@ -475,7 +475,7 @@ impl MemView {
         let right_pas = original.memory.dom().filter(
             |pa: usize| exists|va: usize| va >= split_end && original.is_mapped(va, pa),
         );
-        assert(right.memory =~= original.memory.restrict(right_pas));
+        assert(right.memory == original.memory.restrict(right_pas));
         assert forall|va: usize|
             va >= split_end && original.addr_transl(va) is Some && original.memory.contains_key(
                 original.addr_transl(va).unwrap().0,

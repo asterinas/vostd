@@ -42,7 +42,7 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: int, hi
         let below = rest.filter(|n: Mapping| n.va_range.end <= m.va_range.start);
         let above = rest.filter(|n: Mapping| n.va_range.start >= m.va_range.end);
 
-        assert(rest =~= below.union(above)) by {
+        assert(rest == below.union(above)) by {
             assert forall|n: Mapping| rest.contains(n) implies below.contains(n) || above.contains(
                 n,
             ) by {

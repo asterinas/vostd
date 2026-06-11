@@ -509,7 +509,7 @@ impl KVirtArea {
                 *regions).slot_owners[idx].inner_perms.ref_count.value());
                 assert(cursor_owner@.mappings == owner.cursor_view_at(addr).mappings);
                 assert(cursor_owner@.cur_va == owner.cursor_view_at(addr).cur_va);
-                assert(cursor_owner@ =~= owner.cursor_view_at(addr));
+                assert(cursor_owner@ == owner.cursor_view_at(addr));
                 assert(self.query_panic_condition(owner, addr, *old(regions)));
                 assert(may_panic());
             }
@@ -538,7 +538,7 @@ impl KVirtArea {
             let pa = owner.cursor_view_at(addr).query_mapping().pa_range.start;
             let idx = frame_to_index(pa);
             assert(self.range.start <= addr < self.range.end);
-            assert(pre_query_view =~= owner.cursor_view_at(addr));
+            assert(pre_query_view == owner.cursor_view_at(addr));
             if owner.cursor_view_at(addr).present() && !is_mmio_paddr(pa) && (*old(
                 regions,
             )).slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX {
@@ -548,8 +548,8 @@ impl KVirtArea {
                 )).slot_owners[idx].inner_perms.ref_count.value());
                 // cursor.query's `ensures !P_cursor`: with in-range (always) +
                 // pre_query_view.present() (== owner.cursor_view_at(addr).present()
-                // via =~=) + !is_mmio_paddr(pa') where pa' = pre_query_view's
-                // query_mapping().pa_range.start (== pa via =~=), the saturation
+                // via ==) + !is_mmio_paddr(pa') where pa' = pre_query_view's
+                // query_mapping().pa_range.start (== pa via ==), the saturation
                 // conjunct must be false: pre_query_regions[idx].value < MAX.
                 assert(false);
             }

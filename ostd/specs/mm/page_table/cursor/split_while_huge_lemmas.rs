@@ -593,7 +593,7 @@ impl<C: PageTableConfig> CursorView<C> {
             self.query_mapping().page_size % size == 0,
             set![4096usize, 2097152, 1073741824].contains(size),
         ensures
-            self.split_while_huge(size).mappings =~= self.split_if_mapped_huge_spec(size).mappings,
+            self.split_while_huge(size).mappings == self.split_if_mapped_huge_spec(size).mappings,
     {
         let m = self.query_mapping();
         let new_size = m.page_size / NR_ENTRIES;
@@ -1285,7 +1285,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 page_size(self.level as PagingLevel),
             ).mappings,
         ensures
-            self@.mappings =~= old_view.split_while_huge(
+            self@.mappings == old_view.split_while_huge(
                 page_size(self.level as PagingLevel),
             ).mappings,
     {
@@ -1339,10 +1339,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // had no mapping. Supplied by `find_next_impl`'s ensures.
             v1.cur_va < v2.cur_va ==> !v1.present(),
         ensures
-            v1.split_while_huge(size).mappings =~= v2.split_while_huge(size).mappings,
+            v1.split_while_huge(size).mappings == v2.split_while_huge(size).mappings,
     {
         if v1.cur_va == v2.cur_va {
-            assert(v1 =~= v2);
+            assert(v1 == v2);
         }
     }
 }

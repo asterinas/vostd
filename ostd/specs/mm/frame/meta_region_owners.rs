@@ -12,12 +12,12 @@ use vstd_extra::ownership::*;
 
 use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage};
 use super::*;
-use crate::mm::Paddr;
-use crate::mm::frame::Link;
 use crate::mm::frame::meta::{
+    mapping::{frame_to_index, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
     AnyFrameMeta, MetaSlot, REF_COUNT_MAX,
-    mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr},
 };
+use crate::mm::frame::Link;
+use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;
@@ -198,7 +198,7 @@ impl MetaRegionOwners {
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
             final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
-            final(self).frame_obligations =~= old(self).frame_obligations,
+            final(self).frame_obligations == old(self).frame_obligations,
     ;
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
@@ -269,7 +269,7 @@ impl MetaRegionOwners {
             perm.points_to == old(self).slots[index],
             final(self).slots == old(self).slots.remove(index),
             final(self).slot_owners == old(self).slot_owners,
-            final(self).frame_obligations =~= old(self).frame_obligations,
+            final(self).frame_obligations == old(self).frame_obligations,
     ;
 
     /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
@@ -284,7 +284,7 @@ impl MetaRegionOwners {
         ensures
             final(self).slots == old(self).slots.insert(index, *perm),
             final(self).slot_owners == old(self).slot_owners,
-            final(self).frame_obligations =~= old(self).frame_obligations,
+            final(self).frame_obligations == old(self).frame_obligations,
     ;
 
     // ----------------------------------------------------------------------
@@ -317,9 +317,9 @@ impl MetaRegionOwners {
         DropObligation<usize>)
         ensures
             obl.value() == slot_idx,
-            final(self).frame_obligations =~= old(self).frame_obligations.insert(slot_idx),
-            final(self).slots =~= old(self).slots,
-            final(self).slot_owners =~= old(self).slot_owners,
+            final(self).frame_obligations == old(self).frame_obligations.insert(slot_idx),
+            final(self).slots == old(self).slots,
+            final(self).slot_owners == old(self).slot_owners,
     ;
 
     /// Redeems a per-Frame obligation, decrementing `frame_obligations`
@@ -332,9 +332,9 @@ impl MetaRegionOwners {
         requires
             old(self).frame_obligations.count(obl.value()) > 0,
         ensures
-            final(self).frame_obligations =~= old(self).frame_obligations.remove(obl.value()),
-            final(self).slots =~= old(self).slots,
-            final(self).slot_owners =~= old(self).slot_owners,
+            final(self).frame_obligations == old(self).frame_obligations.remove(obl.value()),
+            final(self).slots == old(self).slots,
+            final(self).slot_owners == old(self).slot_owners,
     ;
 }
 

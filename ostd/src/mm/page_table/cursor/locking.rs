@@ -81,7 +81,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // For *in-use* slots, refcount value and usage are exactly
         // preserved across `lock_range` — composes
         // `try_traverse_and_lock_subtree_root`'s in-use preservation with
-        // `dfs_acquire_lock`'s `slot_owners =~=` preservation.
+        // `dfs_acquire_lock`'s `slot_owners ==` preservation.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
             old(regions).slot_owners.contains_key(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
@@ -505,7 +505,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             !#[trigger] final(guards).guards.contains(addr),
         // regions preserved
         final(regions).inv(),
-        final(regions).slot_owners =~= old(regions).slot_owners,
+        final(regions).slot_owners == old(regions).slot_owners,
 )]
 #[verifier::external_body]
 fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(

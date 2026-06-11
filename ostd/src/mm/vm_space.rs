@@ -957,7 +957,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             assert(end_va <= 0x0000_8000_0000_0000usize);
 
             assert((self.pt_cursor.0.va + len) % PAGE_SIZE as int == 0) by (compute);
-            assert(adjusted_base.difference(removed) =~= adjusted_base);
+            assert(adjusted_base.difference(removed) == adjusted_base);
         }
 
         #[verus_spec(
@@ -971,7 +971,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 start_va <= cursor_owner@.cur_va,
                 // Split-aware invariant: adjusted_base tracks accumulated splits,
                 // removed tracks the explicitly removed set.
-                cursor_owner@.mappings =~= adjusted_base.difference(removed),
+                cursor_owner@.mappings == adjusted_base.difference(removed),
                 removed.subset_of(adjusted_base),
                 num_unmapped as nat == removed.len(),
                 crate::specs::mm::page_table::mapping_set_lemmas::wf_mapping_set(adjusted_base),
@@ -1240,7 +1240,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 old_removed.contains(e) implies !subtree.contains(e) by {};
                         };
                         vstd::set_lib::lemma_set_disjoint_lens(old_removed, subtree);
-                        assert(removed =~= old_removed + subtree);
+                        assert(removed == old_removed + subtree);
                     },
                     PageTableFrag::Mapped { .. } => {
                         assert(old_removed.disjoint(set![mm])) by {
@@ -1248,9 +1248,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 old_removed.contains(e) implies !set![mm].contains(e) by {};
                         };
                         vstd::set_lib::lemma_set_disjoint_lens(old_removed, set![mm]);
-                        assert(removed =~= old_removed + set![mm]);
+                        assert(removed == old_removed + set![mm]);
                         vstd::set_lib::lemma_set_empty_equivalency_len(Set::<Mapping>::empty());
-                        assert(set![mm] =~= Set::<Mapping>::empty().insert(mm));
+                        assert(set![mm] == Set::<Mapping>::empty().insert(mm));
                         vstd::set::lemma_set_insert_len(Set::<Mapping>::empty(), mm);
                     },
                 }
@@ -1281,12 +1281,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         old_removed,
                     );
                 }
-                // Maintain mappings =~= adjusted_base \ removed.
+                // Maintain mappings == adjusted_base \ removed.
 
                 assert forall|e: Mapping| #[trigger]
                     adjusted_base.difference(removed).contains(e)
                         <==> cursor_owner@.mappings.contains(e) by {};
-                assert(cursor_owner@.mappings =~= adjusted_base.difference(removed));
+                assert(cursor_owner@.mappings == adjusted_base.difference(removed));
 
                 assert(removed.subset_of(adjusted_base)) by {
                     assert forall|e: Mapping| #[trigger]
@@ -1703,7 +1703,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         assert(forall|i: usize|
             i != frame_idx ==> #[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]);
         // Canonical: the cloned frame minted one obligation at its slot.
-        assert(new_regions.frame_obligations =~= old_regions.frame_obligations.insert(frame_idx));
+        assert(new_regions.frame_obligations == old_regions.frame_obligations.insert(frame_idx));
     }
 
     proof fn clone_requires_concrete(

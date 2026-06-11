@@ -574,7 +574,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
         perm_u64_with_value(perm.in_list, self.in_list);
         pptr_usize_with_value(perm.vtable_ptr, self.vtable_ptr);
         let (r, np) = self.to_repr_spec(perm);
-        assert(Self::from_repr_spec(r, np) =~= self);
+        assert(Self::from_repr_spec(r, np) == self);
     }
 
     proof fn to_from_repr(r: MetaSlot, perm: MetadataInnerPerms) {
@@ -593,7 +593,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
         //   np2.in_list    = perm.in_list                   (perm_u64_with_identity)
         let md = Self::from_repr_spec(r, perm);
         let (r2, np2) = md.to_repr_spec(perm);
-        assert(np2 =~= perm);
+        assert(np2 == perm);
         // r2 is produced from np2 == perm; its ids match perm's; perm's ids match r's (by wf).
         meta_slot_from_perm_ids(np2);
         meta_slot_eq_by_ids(r2, r);

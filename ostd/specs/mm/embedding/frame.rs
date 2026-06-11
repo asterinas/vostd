@@ -146,7 +146,7 @@ pub axiom fn frame_from_in_use_embedded(
         // `from_in_use` only `inc_ref_count`s — it never touches the
         // slot-perm map, so the `slots` domain is preserved on *both*
         // branches (needed for `VmStore::inv`'s coverage clause).
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -205,8 +205,8 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
             ).slot_owners[i],
-        final(regions).slots =~= old(regions).slots,
-        final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
+        final(regions).slots == old(regions).slots,
+        final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
         final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].self_addr,
@@ -324,7 +324,7 @@ pub(super) proof fn from_in_use_step(
             &&& so.inner_perms.storage.is_init()
             &&& so.usage == PageUsage::Frame
         },
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -364,7 +364,7 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
         drop_pre(*old(regions), entry.paddr),
     ensures
         final(regions).inv(),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(entry.paddr) ==> final(regions).slot_owners[i] == old(

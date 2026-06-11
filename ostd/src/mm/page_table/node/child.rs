@@ -97,9 +97,9 @@ impl<C: PageTableConfig> Child<C> {
                 proof {
                     // `MD::new` removed one entry at `node_index`, matching
                     // `into_pte_regions_spec`'s `.remove(index)`.
-                    assert(regions.frame_obligations =~= fo0.remove(node_index));
+                    assert(regions.frame_obligations == fo0.remove(node_index));
                     let spec_regions = owner.into_pte_regions_spec(*old(regions));
-                    assert(regions.slot_owners =~= spec_regions.slot_owners);
+                    assert(regions.slot_owners == spec_regions.slot_owners);
                     owner.in_scope = false;
                 }
 
@@ -186,10 +186,10 @@ impl<C: PageTableConfig> Child<C> {
                 // `into_pte`'s `MD::new` consume.
                 entry_own.in_scope = true;
 
-                assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(
+                assert(regions.slot_owners == entry_own.from_pte_regions_spec(
                     *old(regions),
                 ).slot_owners);
-                assert(regions.slots =~= entry_own.from_pte_regions_spec(*old(regions)).slots);
+                assert(regions.slots == entry_own.from_pte_regions_spec(*old(regions)).slots);
             }
 
             return Child::PageTable(node);
@@ -241,7 +241,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             level == entry_owner.parent_level,
         ensures
             res.invariants(*entry_owner, *final(regions)),
-            final(regions).slot_owners =~= old(regions).slot_owners,
+            final(regions).slot_owners == old(regions).slot_owners,
             forall|k: usize|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
                     k,
@@ -273,7 +273,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 // borrow_paddr postcondition gives raw_count == 1 and field-by-field preservation.
                 // Since raw_count was already 1 (entry is in PTE, in_scope == false),
                 // slot_owners[idx] == old(slot_owners[idx]) follows field by field.
-                assert(regions.slot_owners =~= old(regions).slot_owners);
+                assert(regions.slot_owners == old(regions).slot_owners);
                 // slots: borrow_paddr inserts at borrow_idx. Prove existing keys preserved.
                 // The node's slot was NOT in old.slots: by active_entry_not_in_free_pool,
                 // a node entry's index can't equal any free-pool index.

@@ -520,7 +520,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), false, *old(regions), *final(regions)),
             MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()), *old(regions), *final(regions)),
 
-            final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
+            final(regions).frame_obligations == old(regions).frame_obligations.insert(
                 frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_addr_self()))),
 

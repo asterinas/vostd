@@ -90,7 +90,7 @@ pub axiom fn segment_from_unused_embedded(
     ensures
         final(regions).inv(),
         // `slots` domain preserved (Design B re-parking).
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         // On success: each frame in range transitions to a Frame-usage,
         // rc=1, raw_count=1 SHARED slot.
         res is Some ==> forall|paddr: Paddr|
@@ -165,7 +165,7 @@ pub axiom fn segment_drop_embedded(
                 },
     ensures
         final(regions).inv(),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         // For each covered slot: `raw_count -= 1`; rc -= 1 or
         // transition to UNUSED (when pre rc == 1).
         forall|paddr: Paddr|
@@ -229,7 +229,7 @@ pub axiom fn segment_next_embedded(
             == PageUsage::Frame,
     ensures
         final(regions).inv(),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         // At paddr: raw_count -= 1, rc unchanged, other fields preserved.
         {
             let idx = frame_to_index(paddr);
@@ -279,7 +279,7 @@ pub(super) proof fn from_unused_step(
                 ==> old(regions).slots.contains_key(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         res matches Some(e) ==> e.range == range,
         res is Some ==> forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
@@ -335,7 +335,7 @@ pub(super) proof fn drop_step(
             },
     ensures
         final(regions).inv(),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
             (entry.range.start <= paddr < entry.range.end

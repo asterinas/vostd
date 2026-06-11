@@ -1007,7 +1007,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.index.tracked_insert(self.level - 1, cont.idx as int);
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
-        assert(self.va.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
+        assert(self.va.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
 
         old(self).va.index_increment_adds_page_size(old(self).level as int);
         lemma_page_size_ge_page_size(old(self).level as PagingLevel);
@@ -1035,7 +1035,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(cont.pt_inv_children());
         assert(self.va.inv()) by {
             assert(0 <= self.va.offset < PAGE_SIZE);
-            assert(self.va.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
+            assert(self.va.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int| 0 <= i < NR_LEVELS implies self.va.index.contains_key(i) && 0
                 <= self.va.index[i] < NR_ENTRIES by {
                 assert(self.va.index.contains_key(i));
@@ -1426,8 +1426,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(from_view.va_range.start == vaddr_of::<C>(path) as int);
         assert(target.va_range.start == from_view.va_range.start);
         assert(target.va_range.end == from_view.va_range.end);
-        assert(target.va_range =~= from_view.va_range);
-        assert(target =~= from_view);
+        assert(target.va_range == from_view.va_range);
+        assert(target == from_view);
         assert(PageTableOwner(new_subtree).view_rec(path) == set![from_view]);
         assert(PageTableOwner(new_subtree)@.mappings == set![target]);
     }
@@ -2096,7 +2096,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(self.prefix.index[i] == 0);
             }
         };
-        assert(aligned.index =~= self.prefix.index);
+        assert(aligned.index == self.prefix.index);
         assert(aligned == self.prefix);
 
         // Combine align_down_concrete + reflect_prop to get prefix.to_vaddr() == nat_align_down.
@@ -2159,7 +2159,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(self.prefix.index.contains_key(i));
             assert(aligned.index.contains_key(i));
         };
-        assert(aligned.index =~= self.prefix.index);
+        assert(aligned.index == self.prefix.index);
         assert(aligned == self.prefix);
         assert(self.locked_range().start as int == lb * big);
         assert(self.locked_range().end as int == lb * big + ps_nr);
@@ -2442,7 +2442,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let filtered = self@.mappings.filter(
             |m: Mapping| m.va_range.start <= self@.cur_va < m.va_range.end,
         );
-        assert(filtered =~= set![]) by {
+        assert(filtered == set![]) by {
             assert forall|m: Mapping| !filtered.contains(m) by {
                 if self@.mappings.contains(m) && m.va_range.start <= self@.cur_va < m.va_range.end {
                     assert(self.view_mappings().contains(m));
@@ -2472,7 +2472,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let filtered = self@.mappings.filter(
             |m: Mapping| m.va_range.start <= self@.cur_va < m.va_range.end,
         );
-        assert(filtered =~= set![]) by {
+        assert(filtered == set![]) by {
             assert forall|m: Mapping| !filtered.contains(m) by {
                 if self@.mappings.contains(m) && m.va_range.start <= self@.cur_va < m.va_range.end {
                     assert(self.view_mappings().contains(m));
@@ -2526,7 +2526,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             page_size: page_size(pt_level as PagingLevel),
             property: frame.prop,
         };
-        assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
+        assert(PageTableOwner(subtree).view_rec(path) == set![m]);
         assert(PageTableOwner(subtree).view_rec(path).contains(m));
         cont.view_mappings_intro(m, cont.idx as int);
         self.view_mappings_intro(m, (self.level - 1) as int);

@@ -306,7 +306,7 @@ impl AbstractVaddr {
             } else if i == 3 {
             }
         }
-        assert(back.index =~= abs.index);
+        assert(back.index == abs.index);
     }
 
     /// If two AbstractVaddrs reflect the same va, they are equal.
@@ -344,12 +344,12 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
-            assert(self.align_down(1).index =~= self.index);
+            assert(self.align_down(1).index == self.index);
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_inv(level - 1);
             let new = self.align_down(level);
-            assert(new.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
+            assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
                 &&& new.index.contains_key(i)
                 &&& 0 <= new.index[i]
@@ -388,12 +388,12 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
-            assert(self.align_down(1).index =~= self.index);
+            assert(self.align_down(1).index == self.index);
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_shape(level - 1);
             let new = self.align_down(level);
-            assert(new.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
+            assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
                 &&& new.index.contains_key(i)
                 &&& 0 <= new.index[i]
@@ -782,7 +782,7 @@ impl AbstractVaddr {
         assert(self.align_up(level) == advanced);
 
         assert(advanced.inv()) by {
-            assert(advanced.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
+            assert(advanced.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int|
                 #![trigger advanced.index.contains_key(i)]
                 0 <= i < NR_LEVELS implies {
@@ -874,7 +874,7 @@ impl AbstractVaddr {
             assert(self.next_index(level) == advanced);
             assert(self.align_up(level) == advanced);
             assert(advanced.inv()) by {
-                assert(advanced.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
+                assert(advanced.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
                 assert forall|i: int|
                     #![trigger advanced.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {
@@ -1030,7 +1030,7 @@ impl AbstractVaddr {
                 assert(self.align_up(NR_LEVELS as int) == advanced_top);
 
                 assert(advanced_top.inv()) by {
-                    assert(advanced_top.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
+                    assert(advanced_top.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
                     assert forall|i: int|
                         #![trigger advanced_top.index.contains_key(i)]
                         0 <= i < NR_LEVELS implies {
@@ -1182,7 +1182,7 @@ impl AbstractVaddr {
     {
         self.align_down_shape(level);
         self.align_down_shape(level + 1);
-        assert(self.align_down(level).index.insert(level - 1, 0) =~= self.align_down(
+        assert(self.align_down(level).index.insert(level - 1, 0) == self.align_down(
             level + 1,
         ).index);
     }
@@ -1336,7 +1336,7 @@ impl AbstractVaddr {
         if next_index == NR_ENTRIES && start_level < NR_LEVELS {
             let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
             assert(next_va.inv()) by {
-                assert(next_va.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int));
+                assert(next_va.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
                 assert forall|i: int|
                     #![trigger next_va.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {

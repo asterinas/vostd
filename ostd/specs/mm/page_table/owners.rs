@@ -1029,7 +1029,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 page_size: page_size(pt_level),
                 property: frame.prop,
             };
-            assert(self.view_rec(path) =~= set![expected]);
+            assert(self.view_rec(path) == set![expected]);
             assert(m == expected);
             assert(page_size(pt_level) > 0);
         } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
@@ -1189,7 +1189,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 page_size: page_size(pt_level),
                 property: frame.prop,
             };
-            assert(self.view_rec(path) =~= set![expected]);
+            assert(self.view_rec(path) == set![expected]);
             assert(self.view_rec(path).contains(expected));
             assert(ambient.contains(expected));
             assert(vaddr_of::<C>(path) as int != vaddr_of::<C>(removed_path) as int);
@@ -1532,7 +1532,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 page_size: page_size(pt_level),
                 property: frame.prop,
             };
-            assert(self.view_rec(path) =~= set![m]);
+            assert(self.view_rec(path) == set![m]);
             assert(set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size));
             let ps = page_size(pt_level) as int;
             assert(ps > 0);
@@ -1613,7 +1613,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.value.is_absent(),
             path.len() <= INC_LEVELS - 1,
         ensures
-            self.view_rec(path) =~= set![],
+            self.view_rec(path) == set![],
     {
     }
 
@@ -1630,7 +1630,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level,
         ensures
-            self.view_rec(path) =~= set![],
+            self.view_rec(path) == set![],
     ;
 
     pub open spec fn metaregion_sound_pred(regions: MetaRegionOwners) -> (spec_fn(
@@ -1721,7 +1721,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             forall|i: usize|
                 #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
-            r0.slot_owners.dom() =~= r1.slot_owners.dom(),
+            r0.slot_owners.dom() == r1.slot_owners.dom(),
             forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
             forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
             // No tree entry's primary slot is at changed_idx.
@@ -1777,7 +1777,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             forall|i: usize|
                 #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
-            r0.slot_owners.dom() =~= r1.slot_owners.dom(),
+            r0.slot_owners.dom() == r1.slot_owners.dom(),
             forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
             forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
             subtree.tree_predicate_map(
@@ -2162,7 +2162,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     == dest_path.0[i] by {
                     assert(root_path.index(i) == dest_path.index(i));
                 };
-                assert(root_path =~= dest_path);
+                assert(root_path == dest_path);
                 assert(root_path == dest_path);
                 assert(false);
             }

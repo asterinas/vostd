@@ -218,14 +218,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ),
             ) =~= Set::<Mapping>::empty(),
         ensures
-            self.view_mappings() =~= owner0.view_mappings(),
+            self.view_mappings() == owner0.view_mappings(),
     {
         let L = self.level as int;
         let cont = self.continuations[L - 1];
         let cont0 = owner0.continuations[L - 1];
         let idx = cont0.idx as int;
 
-        assert(cont.view_mappings() =~= cont0.view_mappings()) by {
+        assert(cont.view_mappings() == cont0.view_mappings()) by {
             cont0.inv_children_unroll(idx);
             PageTableOwner(cont0.children[idx].unwrap()).view_rec_absent_empty(
                 cont0.path().push_tail(idx as usize),
@@ -239,7 +239,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         cont.path().push_tail(j as usize),
                     ).contains(m);
                 if j == idx {
-                    // cont.children[idx]'s view_rec =~= empty (from precondition)
+                    // cont.children[idx]'s view_rec == empty (from precondition)
                     assert(false);
                 } else {
                     assert(cont.children[j] == cont0.children[j]);
@@ -263,8 +263,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        // Lift cont =~= cont0 to self.view_mappings() =~= owner0.view_mappings()
-        assert(self.view_mappings() =~= owner0.view_mappings()) by {
+        // Lift cont == cont0 to self.view_mappings() == owner0.view_mappings()
+        assert(self.view_mappings() == owner0.view_mappings()) by {
             assert forall|m: Mapping|
                 self.view_mappings().contains(m) implies owner0.view_mappings().contains(m) by {
                 self.view_mappings_contains(m);

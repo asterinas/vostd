@@ -246,7 +246,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             page_size: ps,
             property: frame.prop,
         };
-        assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
+        assert(PageTableOwner(subtree).view_rec(path) == set![m]);
         assert(PageTableOwner(subtree).view_rec(path).contains(m));
         cont.view_mappings_intro(m, cont.idx as int);
         self.view_mappings_intro(m, (self.level - 1) as int);

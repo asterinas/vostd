@@ -151,7 +151,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             parent_owner.metaregion_sound_node(*old(regions)),
         ensures
             res.invariants(*owner, *final(regions)),
-            final(regions).slot_owners =~= old(regions).slot_owners,
+            final(regions).slot_owners == old(regions).slot_owners,
             forall|k: usize|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
                     k,
@@ -385,7 +385,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // it is preserved. Lets the huge-page split loop carry the
                 // freshly-allocated node's obligation across the per-child
                 // `replace` calls up to its own `into_pte`.
-                &&& final(regions).frame_obligations =~= old(regions).frame_obligations
+                &&& final(regions).frame_obligations == old(regions).frame_obligations
             },
             // When old child is absent and new child is not a node: slots values unchanged.
             (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: usize|
@@ -588,7 +588,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value.node.unwrap().meta_addr_self()))
                 &&& final(owner).tree_predicate_map(final(owner).value.path, PageTableOwner::<C>::metaregion_sound_pred(*final(regions)))
                 &&& final(owner).tree_predicate_map(final(owner).value.path, PageTableOwner::<C>::path_tracked_pred(*final(regions)))
-                &&& PageTableOwner(*final(owner)).view_rec(final(owner).value.path) =~= set![]
+                &&& PageTableOwner(*final(owner)).view_rec(final(owner).value.path) == set![]
                 // All children of the newly allocated node are absent (empty PT node).
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
                     #[trigger] final(owner).children[i] is Some && final(owner).children[i].unwrap().value.is_absent()

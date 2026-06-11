@@ -328,9 +328,9 @@ pub proof fn lemma_handle_count_insert_fresh(
     let frames2 = frames.insert(id, entry);
     let new_filt = frames2.dom().filter(|fid: FrameId| frame_to_index(frames2[fid].paddr) == idx);
     let old_filt = frames.dom().filter(|fid: FrameId| frame_to_index(frames[fid].paddr) == idx);
-    assert(frames2.dom() =~= frames.dom().insert(id));
+    assert(frames2.dom() == frames.dom().insert(id));
     if frame_to_index(entry.paddr) == idx {
-        assert(new_filt =~= old_filt.insert(id)) by {
+        assert(new_filt == old_filt.insert(id)) by {
             assert forall|fid: FrameId| #[trigger] new_filt.contains(fid) implies old_filt.insert(
                 id,
             ).contains(fid) by {
@@ -350,7 +350,7 @@ pub proof fn lemma_handle_count_insert_fresh(
         assert(!old_filt.contains(id));
         assert(new_filt.len() == old_filt.len() + 1);
     } else {
-        assert(new_filt =~= old_filt) by {
+        assert(new_filt == old_filt) by {
             assert forall|fid: FrameId| #[trigger] new_filt.contains(fid) implies old_filt.contains(
                 fid,
             ) by {
@@ -388,10 +388,10 @@ pub proof fn lemma_handle_count_remove(frames: Map<FrameId, FrameEntry>, fid: Fr
     let frames2 = frames.remove(fid);
     let new_filt = frames2.dom().filter(|gid: FrameId| frame_to_index(frames2[gid].paddr) == idx);
     let old_filt = frames.dom().filter(|gid: FrameId| frame_to_index(frames[gid].paddr) == idx);
-    assert(frames2.dom() =~= frames.dom().remove(fid));
+    assert(frames2.dom() == frames.dom().remove(fid));
     if frame_to_index(frames[fid].paddr) == idx {
         assert(old_filt.contains(fid));
-        assert(new_filt =~= old_filt.remove(fid)) by {
+        assert(new_filt == old_filt.remove(fid)) by {
             assert forall|gid: FrameId| #[trigger] new_filt.contains(gid) implies old_filt.remove(
                 fid,
             ).contains(gid) by {
@@ -407,7 +407,7 @@ pub proof fn lemma_handle_count_remove(frames: Map<FrameId, FrameEntry>, fid: Fr
         assert(new_filt.len() == (old_filt.len() - 1) as nat);
     } else {
         assert(!old_filt.contains(fid));
-        assert(new_filt =~= old_filt) by {
+        assert(new_filt == old_filt) by {
             assert forall|gid: FrameId| #[trigger] new_filt.contains(gid) implies old_filt.contains(
                 gid,
             ) by {
@@ -498,7 +498,7 @@ pub proof fn lemma_frame_drop_pre_derivable<'rcu>(s: VmStore<'rcu>, fid: FrameId
     if rc == 1 {
         assert(handle_count(s.frames, idx) + so.paths_in_pt.len() == 1);
         assert(so.paths_in_pt.len() == 0);
-        assert(so.paths_in_pt =~= Set::empty());
+        assert(so.paths_in_pt == Set::empty());
         assert(handle_count(s.frames, idx) == 1);
     }
 }
@@ -2116,7 +2116,7 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
             // Post.paths empty: Frame ∧ post UNUSED + MetaSlotOwner::inv
             // (UNUSED ∧ non-MMIO ⟹ paths empty).
             assert(s.regions.slot_owners[idx].usage != PageUsage::MMIO);
-            assert(s.regions.slot_owners[idx].paths_in_pt =~= Set::empty());
+            assert(s.regions.slot_owners[idx].paths_in_pt == Set::empty());
             // Post.H == 0: at Frame post UNUSED, pre rc == pre paths
             // (from rc-paths invariant: post rc + pre paths = pre rc +
             // post paths ⟹ 0 + pre paths = pre rc + 0). If pre rc !=
@@ -2131,7 +2131,7 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
             // Non-Frame non-MMIO (PT-node): MetaSlotOwner::inv UNUSED
             // gives paths empty. H == 0 from no-FrameId-at-non-Frame.
             assert(s.regions.slot_owners[idx].usage != PageUsage::MMIO);
-            assert(s.regions.slot_owners[idx].paths_in_pt =~= Set::empty());
+            assert(s.regions.slot_owners[idx].paths_in_pt == Set::empty());
             assert(handle_count(s.frames, idx) == 0) by {
                 let filt = s.frames.dom().filter(
                     |gid: FrameId| frame_to_index(s.frames[gid].paddr) == idx,
@@ -2144,7 +2144,7 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
                     assert(frame_to_index(s.frames[fid].paddr) == idx);
                     assert(s.regions.slot_owners[idx].usage == PageUsage::Frame);
                 };
-                assert(filt =~= Set::empty());
+                assert(filt == Set::empty());
             };
         }
     };
@@ -2173,7 +2173,7 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
                 // Trigger MetaSlotOwner::inv on pre at this idx.
                 assert(old_regions.slot_owners.contains_key(idx));
                 assert(old_regions.slot_owners[idx].inv());
-                assert(old_regions.slot_owners[idx].paths_in_pt =~= Set::empty());
+                assert(old_regions.slot_owners[idx].paths_in_pt == Set::empty());
                 // rc-paths invariant: post rc + 0 == UNUSED + post paths
                 //                  ⟹ post rc == UNUSED + post paths.
                 // post rc <= pre rc == UNUSED ⟹ post paths == 0
@@ -2469,7 +2469,7 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
         },
         Option::None => {
             // regions unchanged ⇒ accounting preserved from old.
-            assert(s.regions =~= old_regions);
+            assert(s.regions == old_regions);
         },
     }
 }
@@ -2562,7 +2562,7 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
             };
         },
         Option::None => {
-            assert(s.regions =~= old_regions);
+            assert(s.regions == old_regions);
         },
     }
 }
@@ -2888,8 +2888,8 @@ proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Ra
             };
         },
         Option::None => {
-            assert(s.regions =~= old_regions);
-            assert(s.segments =~= old_segments);
+            assert(s.regions == old_regions);
+            assert(s.segments == old_segments);
         },
     }
 }
@@ -2949,7 +2949,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
                 paddr,
             ) == 1);
             assert(so.paths_in_pt.len() == 0);
-            assert(so.paths_in_pt =~= Set::empty());
+            assert(so.paths_in_pt == Set::empty());
         }
     };
     let tracked entry = s.extract_segment(sid);
@@ -3009,7 +3009,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             lemma_segment_cover_remove_inside(old_segments, sid, paddr);
             assert(old_regions.slot_owners[idx].inner_perms.ref_count.value() == 1);
             assert(handle_count(old_frames, idx) == 0);
-            assert(s.regions.slot_owners[idx].paths_in_pt =~= Set::empty());
+            assert(s.regions.slot_owners[idx].paths_in_pt == Set::empty());
         } else {
             // Outside: fully preserved; segments removal doesn't affect cover.
             assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
@@ -3398,10 +3398,10 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     if !will_become_empty {
         let tracked new_entry = axiom_segment_entry_new(new_range_start..new_range_end);
         s.insert_segment(sid, new_entry);
-        assert(new_entry =~= new_entry_ghost);
-        assert(s.segments =~= old_segments.remove(sid).insert(sid, new_entry_ghost));
+        assert(new_entry == new_entry_ghost);
+        assert(s.segments == old_segments.remove(sid).insert(sid, new_entry_ghost));
     } else {
-        assert(s.segments =~= old_segments.remove(sid));
+        assert(s.segments == old_segments.remove(sid));
     }
     assert(s.frames == old_frames.insert(fid, frame_entry));
 
@@ -3588,9 +3588,9 @@ pub proof fn lemma_segment_cover_insert_inside(
     let pred2 = |s: SegmentId| segments2[s].range.start <= paddr && paddr < segments2[s].range.end;
     let old_filt = segments.dom().filter(pred);
     let new_filt = segments2.dom().filter(pred2);
-    assert(segments2.dom() =~= segments.dom().insert(sid));
+    assert(segments2.dom() == segments.dom().insert(sid));
     assert(!old_filt.contains(sid));
-    assert(new_filt =~= old_filt.insert(sid)) by {
+    assert(new_filt == old_filt.insert(sid)) by {
         assert forall|s: SegmentId| #[trigger] new_filt.contains(s) implies old_filt.insert(
             sid,
         ).contains(s) by {
@@ -3633,8 +3633,8 @@ pub proof fn lemma_segment_cover_insert_outside(
     let pred2 = |s: SegmentId| segments2[s].range.start <= paddr && paddr < segments2[s].range.end;
     let old_filt = segments.dom().filter(pred);
     let new_filt = segments2.dom().filter(pred2);
-    assert(segments2.dom() =~= segments.dom().insert(sid));
-    assert(new_filt =~= old_filt) by {
+    assert(segments2.dom() == segments.dom().insert(sid));
+    assert(new_filt == old_filt) by {
         assert forall|s: SegmentId| #[trigger] new_filt.contains(s) implies old_filt.contains(
             s,
         ) by {
@@ -3692,9 +3692,9 @@ pub proof fn lemma_segment_cover_remove_inside(
     let pred2 = |s: SegmentId| segments2[s].range.start <= paddr && paddr < segments2[s].range.end;
     let old_filt = segments.dom().filter(pred);
     let new_filt = segments2.dom().filter(pred2);
-    assert(segments2.dom() =~= segments.dom().remove(sid));
+    assert(segments2.dom() == segments.dom().remove(sid));
     assert(old_filt.contains(sid));
-    assert(new_filt =~= old_filt.remove(sid)) by {
+    assert(new_filt == old_filt.remove(sid)) by {
         assert forall|s: SegmentId| #[trigger] new_filt.contains(s) implies old_filt.remove(
             sid,
         ).contains(s) by {
@@ -3880,7 +3880,7 @@ pub proof fn lemma_segment_cover_split(
 {
     let mid_segments = segments.remove(sid);
     let with_left = mid_segments.insert(new_left, entry_left);
-    assert(with_left.dom() =~= mid_segments.dom().insert(new_left));
+    assert(with_left.dom() == mid_segments.dom().insert(new_left));
     assert(!with_left.dom().contains(new_right));
     let sid_covers = segments[sid].range.start <= paddr && paddr < segments[sid].range.end;
     let left_covers = entry_left.range.start <= paddr && paddr < entry_left.range.end;
@@ -3961,9 +3961,9 @@ pub proof fn lemma_segment_cover_remove_outside(
     let pred2 = |s: SegmentId| segments2[s].range.start <= paddr && paddr < segments2[s].range.end;
     let old_filt = segments.dom().filter(pred);
     let new_filt = segments2.dom().filter(pred2);
-    assert(segments2.dom() =~= segments.dom().remove(sid));
+    assert(segments2.dom() == segments.dom().remove(sid));
     assert(!old_filt.contains(sid));
-    assert(new_filt =~= old_filt) by {
+    assert(new_filt == old_filt) by {
         assert forall|s: SegmentId| #[trigger] new_filt.contains(s) implies old_filt.contains(
             s,
         ) by {

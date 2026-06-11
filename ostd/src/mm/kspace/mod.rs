@@ -320,7 +320,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 assert(frame_to_index(pa) == frame_idx);
                 assert(frame.clone_ensures(old_regions, new_regions, res_frame));
                 // Canonical: the cloned frame minted one obligation at its slot.
-                assert(new_regions.frame_obligations =~= old_regions.frame_obligations.insert(
+                assert(new_regions.frame_obligations == old_regions.frame_obligations.insert(
                     frame_idx,
                 ));
             },

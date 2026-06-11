@@ -35,7 +35,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         // map nor the `raw_count` / `in_list` fields. Preserving the
         // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
         // partial) keeps `VmStore::inv`'s coverage clauses chainable.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -76,7 +76,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         // map nor the `raw_count` / `in_list` fields. Preserving the
         // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
         // partial) keeps `VmStore::inv`'s coverage clauses chainable.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(

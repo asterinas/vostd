@@ -78,10 +78,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             !has_safe_slot(paddr) ==> res is Err,
             res is Ok ==> res.unwrap().wf(owner@.unwrap()),
             // Creating a live value mints its pending-Drop obligation.
-            res is Ok ==> final(regions).frame_obligations =~= old(
+            res is Ok ==> final(regions).frame_obligations == old(
                 regions,
             ).frame_obligations.insert(frame_to_index(paddr)),
-            res is Err ==> final(regions).frame_obligations =~= old(regions).frame_obligations,
+            res is Err ==> final(regions).frame_obligations == old(regions).frame_obligations,
             final(regions).inv(),
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
@@ -359,9 +359,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     ) -> bool {
         &&& r == meta_to_frame(self.ptr.addr())
         &&& regions.inv()
-        &&& regions.slots =~= old_regions.slots
-        &&& regions.slot_owners =~= old_regions.slot_owners
-        &&& regions.frame_obligations =~= old_regions.frame_obligations.remove(
+        &&& regions.slots == old_regions.slots
+        &&& regions.slot_owners == old_regions.slot_owners
+        &&& regions.frame_obligations == old_regions.frame_obligations.remove(
             frame_to_index(meta_to_frame(self.ptr.addr())),
         )
     }
@@ -467,8 +467,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             final(regions).slots == old(regions).slots,
             // `from_raw` reconstitutes a live value (`slot_owners` unchanged,
             // `raw_count` dormant) and MINTS its pending-Drop obligation.
-            final(regions).slot_owners =~= old(regions).slot_owners,
-            final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
+            final(regions).slot_owners == old(regions).slot_owners,
+            final(regions).frame_obligations == old(regions).frame_obligations.insert(
                 frame_to_index(paddr),
             ),
     )]
@@ -536,11 +536,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).frame_obligations.count(owner.slot_index) > 0,
         ensures
             final(regions).inv(),
-            final(regions).slots =~= old(regions).slots,
+            final(regions).slots == old(regions).slots,
             forall|i: usize| #![trigger final(regions).slot_owners[i]]
                 i != owner.slot_index ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
-            final(regions).frame_obligations =~= old(regions).frame_obligations.remove(
+            final(regions).frame_obligations == old(regions).frame_obligations.remove(
                 owner.slot_index,
             ),
     )]

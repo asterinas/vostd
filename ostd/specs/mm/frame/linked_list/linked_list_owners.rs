@@ -920,12 +920,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     }
 
     /// Proves that view_helper commutes with remove:
-    /// view_helper(s.remove(i)) =~= view_helper(s).remove(i)
+    /// view_helper(s.remove(i)) == view_helper(s).remove(i)
     pub proof fn view_helper_remove(owners: Seq<LinkOwner>, i: int)
         requires
             0 <= i < owners.len(),
         ensures
-            Self::view_helper(owners.remove(i)) =~= Self::view_helper(owners).remove(i),
+            Self::view_helper(owners.remove(i)) == Self::view_helper(owners).remove(i),
     {
         Self::view_preserves_len(owners);
         Self::view_preserves_len(owners.remove(i));
@@ -943,12 +943,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     }
 
     /// Proves that view_helper commutes with insert:
-    /// view_helper(s.insert(i, v)) =~= view_helper(s).insert(i, v.view())
+    /// view_helper(s.insert(i, v)) == view_helper(s).insert(i, v.view())
     pub proof fn view_helper_insert(owners: Seq<LinkOwner>, i: int, v: LinkOwner)
         requires
             0 <= i <= owners.len(),
         ensures
-            Self::view_helper(owners.insert(i, v)) =~= Self::view_helper(owners).insert(
+            Self::view_helper(owners.insert(i, v)) == Self::view_helper(owners).insert(
                 i,
                 v.view(),
             ),
@@ -995,7 +995,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     pub proof fn tracked_take(tracked owner: &mut Self) -> (tracked res: Self)
         ensures
             res == *old(owner),
-            final(owner).list =~= Seq::<LinkOwner>::empty(),
+            final(owner).list == Seq::<LinkOwner>::empty(),
             final(owner).inv(),
     {
         unimplemented!()

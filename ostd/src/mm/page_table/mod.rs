@@ -79,8 +79,8 @@ pub trait RCClone: Sized {
             res == *self,
             self.clone_ensures(*old(perm), *final(perm), res),
             final(perm).inv(),
-            final(perm).slots =~= old(perm).slots,
-            final(perm).slot_owners.dom() =~= old(
+            final(perm).slots == old(perm).slots,
+            final(perm).slot_owners.dom() == old(
                 perm,
             ).slot_owners.dom(),
     // Linear-drop pilot: `RCClone::clone` doesn't mint/redeem
@@ -88,7 +88,7 @@ pub trait RCClone: Sized {
     // is left to each impl's `clone_ensures` — canonically a clone
     // creates a fresh live value, so `Frame::clone` MINTS one entry
     // (`.insert(idx)`); ref-count-only clones (`Segment`) stay
-    // net-zero. Hardcoding `=~= old` here would forbid the mint.
+    // net-zero. Hardcoding `== old` here would forbid the mint.
 
     ;
 }
@@ -363,9 +363,9 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             // Canonical model: a tracked clone MINTS one per-frame obligation
             // at the slot (`Frame::clone`); an untracked clone is net-zero.
             Self::tracked(item) ==> new_regions.frame_obligations
-                =~= old_regions.frame_obligations.insert(frame_to_index(pa)),
+                == old_regions.frame_obligations.insert(frame_to_index(pa)),
             !Self::tracked(item) ==> new_regions.frame_obligations
-                =~= old_regions.frame_obligations,
+                == old_regions.frame_obligations,
     ;
 
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
@@ -1252,7 +1252,7 @@ impl PageTable<KernelPtConfig> {
                 kernel_owner.0.value.meta_slot_paddr().unwrap(),
             );
             assert(regions_before_self_borrow.slot_owners
-                =~= regions_after_kroot_borrow.slot_owners);
+                == regions_after_kroot_borrow.slot_owners);
             assert forall|k: usize|
                 regions_before_self_borrow.slots.contains_key(
                     k,

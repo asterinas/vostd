@@ -36,7 +36,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         self.as_subtree_inv();
         self.as_page_table_owner_pt_inv();
         let pto = self.as_page_table_owner();
-        assert(self.as_page_table_owner().view_rec(self.path()) =~= self.view_mappings()) by {
+        assert(self.as_page_table_owner().view_rec(self.path()) == self.view_mappings()) by {
             assert forall|m: Mapping| self.view_mappings().contains(m) implies pto.view_rec(
                 self.path(),
             ).contains(m) by {
@@ -336,7 +336,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
         };
 
-        assert(subtree_mappings =~= filtered);
+        assert(subtree_mappings == filtered);
     }
 
     /// Version using nat_align_down(cur_va, page_size(level)) in the filter.
@@ -775,7 +775,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
         };
 
-        assert(new_self.view_mappings() =~= (old_self.view_mappings()
+        assert(new_self.view_mappings() == (old_self.view_mappings()
             - old_cont.view_mappings()).union(new_cont.view_mappings()));
     }
 
@@ -793,7 +793,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if self.level == 4 {
             self.continuations[3].as_page_table_owner_preserves_view_mappings();
             self.inv_continuation(3);
-            assert(self.view_mappings() =~= self.continuations[3].view_mappings()) by {
+            assert(self.view_mappings() == self.continuations[3].view_mappings()) by {
                 assert forall|m: Mapping|
                     self.view_mappings().contains(
                         m,
@@ -850,7 +850,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.inv_children_unroll_all();
             l4.as_page_table_owner_preserves_view_mappings();
 
-            assert(self.view_mappings() =~= self.continuations[2].view_mappings().union(
+            assert(self.view_mappings() == self.continuations[2].view_mappings().union(
                 self.continuations[3].view_mappings(),
             )) by {
                 assert forall|m: Mapping| #[trigger]
@@ -954,7 +954,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.inv_children_unroll_all();
             l4.as_page_table_owner_preserves_view_mappings();
 
-            assert(self.view_mappings() =~= c1.view_mappings().union(c2.view_mappings()).union(
+            assert(self.view_mappings() == c1.view_mappings().union(c2.view_mappings()).union(
                 c3.view_mappings(),
             )) by {
                 assert forall|m: Mapping| self.view_mappings().contains(m) implies (
@@ -1091,7 +1091,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.inv_children_unroll_all();
             l4.as_page_table_owner_preserves_view_mappings();
 
-            assert(self.view_mappings() =~= c0.view_mappings().union(c1.view_mappings()).union(
+            assert(self.view_mappings() == c0.view_mappings().union(c1.view_mappings()).union(
                 c2.view_mappings(),
             ).union(c3.view_mappings())) by {
                 assert forall|m: Mapping| self.view_mappings().contains(m) implies (

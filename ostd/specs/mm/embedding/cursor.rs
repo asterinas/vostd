@@ -99,7 +99,7 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
         // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -146,7 +146,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
         // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -220,7 +220,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
         final(owner).metaregion_sound(*final(regions)),
         !final(owner).popped_too_high,
         // `slots` preserved (the boot-fixed metadata perm map).
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         // `None` ⟹ slot_owners fully preserved (no clone happened).
         res is None ==> forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
@@ -300,7 +300,7 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
         // entire `slot_owners` map is preserved, which subsumes the
         // earlier `raw_count` / `in_list` clauses and lets
         // `accounting_inv` chain across this axiom.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -343,7 +343,7 @@ pub axiom fn cursor_jump_embedded<'rcu>(
         // `jump` repositions the cursor but touches no frame slot — no
         // PTE writes, no leaf clone. Full `slot_owners` preservation,
         // same shape as `find_next`.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -398,7 +398,7 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         final(owner).metaregion_sound(*final(regions)),
         !final(owner).popped_too_high,
         final(tlb_model).inv(),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         // Universal `raw_count` / `in_list` preservation (map doesn't
         // forget references or touch the free-list).
         forall|i: usize|
@@ -509,7 +509,7 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         !final(owner).popped_too_high,
         final(tlb_model).inv(),
         // `slots` (the boot-fixed metadata perm map) preserved.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         // **Universal per-slot preservation.** Unmap doesn't change a
         // slot's identity (`usage`/`self_addr`/`raw_count`/`in_list`/
         // `vtable_ptr`) and never bumps `rc` to `UNIQUE` (UNIQUE is a
@@ -616,7 +616,7 @@ pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
         // bumps refcounts nor mutates `paths_in_pt` (the path set is
         // about *which* tree positions map a frame, not *how*). So the
         // entire `slot_owners` map is preserved.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -665,7 +665,7 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
         // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
         // partial) keeps `VmStore::inv`'s coverage clauses chainable
         // across cursor methods.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -715,7 +715,7 @@ pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
         old(regions).inv(),
     ensures
         final(regions).inv(),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -781,7 +781,7 @@ pub(super) proof fn cursor_query_step<'rcu>(
         final(entry).inv(),
         final(regions).inv(),
         final(entry).owner.metaregion_sound(*final(regions)),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         res is None ==> forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -836,7 +836,7 @@ pub(super) proof fn cursor_find_next_step<'rcu>(
         final(entry).inv(),
         final(regions).inv(),
         final(entry).owner.metaregion_sound(*final(regions)),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         // Full `slot_owners` preservation — `find_next` writes no PTE
         // and clones no leaf.
         forall|i: usize|
@@ -867,7 +867,7 @@ pub(super) proof fn cursor_jump_step<'rcu>(
         final(entry).inv(),
         final(regions).inv(),
         final(entry).owner.metaregion_sound(*final(regions)),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -897,7 +897,7 @@ pub(super) proof fn cursor_protect_next_step<'rcu>(
         final(entry).inv(),
         final(regions).inv(),
         final(entry).owner.metaregion_sound(*final(regions)),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
@@ -936,7 +936,7 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         // preserved at non-UNUSED post; and at Frame slots, the
         // "non-mapping count" `rc - paths.len()` is invariant with
         // `rc` and `paths.len` monotonically non-increasing.
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             {
@@ -1017,7 +1017,7 @@ pub(super) proof fn map_step<'rcu>(
         final(regions).inv(),
         final(entry).owner.metaregion_sound(*final(regions)),
         final(tlb_model).inv(),
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         // Mirror the strengthened `cursor_mut_map_embedded` ensures.
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]

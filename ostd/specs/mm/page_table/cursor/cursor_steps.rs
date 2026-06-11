@@ -371,7 +371,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         let taken = old_cont.take_child().1;
 
-        assert(modified_cont.children =~= taken.children) by {
+        assert(modified_cont.children == taken.children) by {
             assert forall|j: int|
                 0 <= j < modified_cont.children.len() implies modified_cont.children[j]
                 == taken.children[j] by {
@@ -383,7 +383,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-        assert(modified_cont.view_mappings() =~= taken.view_mappings()) by {
+        assert(modified_cont.view_mappings() == taken.view_mappings()) by {
             assert(modified_cont.path() == taken.path());
         };
 
@@ -401,7 +401,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old_cont.inv_children_unroll(old_cont.idx as int);
         assert(child_subtree.inv());
         let pto = PageTableOwner(child_subtree);
-        assert(pto.view_rec(child_path) =~= child_cont.view_mappings()) by {
+        assert(pto.view_rec(child_path) == child_cont.view_mappings()) by {
             assert forall|m: Mapping| #[trigger]
                 child_cont.view_mappings().contains(m) implies pto.view_rec(child_path).contains(
                 m,
@@ -432,7 +432,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 child_cont.view_mappings_intro(m, j);
             };
         };
-        assert(child_cont.view_mappings() =~= old_cont.view_mappings_take_child_spec());
+        assert(child_cont.view_mappings() == old_cont.view_mappings_take_child_spec());
 
         assert forall|m: Mapping|
             self.view_mappings().contains(m) implies new_owner.view_mappings().contains(m) by {
@@ -482,7 +482,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.view_mappings_intro(m, i);
             }
         };
-        assert(new_owner.view_mappings() =~= self.view_mappings());
+        assert(new_owner.view_mappings() == self.view_mappings());
     }
 
     pub proof fn push_level_owner_preserves_inv(self, guard: PageTableGuard<'rcu, C>)
@@ -2265,8 +2265,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(r.children[j] == parent.children[j]);
             }
         };
-        assert(r.children =~= p.children);
-        assert(restored_parent.view_mappings() =~= parent.put_child(child_subtree).view_mappings())
+        assert(r.children == p.children);
+        assert(restored_parent.view_mappings() == parent.put_child(child_subtree).view_mappings())
             by {
             assert(r.path() == p.path());
             assert forall|m: Mapping|
@@ -2299,7 +2299,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(popped.level == (self.level + 1) as u8);
         assert(popped.continuations[self.level as int] == restored_parent);
 
-        assert(popped.view_mappings() =~= self.view_mappings()) by {
+        assert(popped.view_mappings() == self.view_mappings()) by {
             assert forall|m: Mapping|
                 self.view_mappings().contains(m) implies popped.view_mappings().contains(m) by {
                 self.view_mappings_contains(m);
@@ -2358,16 +2358,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let result = inc.zero_below_level();
 
             inc.zero_preserves_all_but_va();
-            assert(result.continuations =~= inc.continuations);
+            assert(result.continuations == inc.continuations);
             assert(result.level == inc.level);
 
             let old_cont = self.continuations[self.level - 1];
             let new_cont = old_cont.inc_index();
-            assert(new_cont.children =~= old_cont.children);
+            assert(new_cont.children == old_cont.children);
             assert(new_cont.entry_own == old_cont.entry_own);
             assert(new_cont.path() == old_cont.path());
 
-            assert(new_cont.view_mappings() =~= old_cont.view_mappings()) by {
+            assert(new_cont.view_mappings() == old_cont.view_mappings()) by {
                 assert forall|m: Mapping|
                     old_cont.view_mappings().contains(m) implies new_cont.view_mappings().contains(
                     m,
@@ -2398,7 +2398,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
             };
 
-            assert(result.view_mappings() =~= self.view_mappings()) by {
+            assert(result.view_mappings() == self.view_mappings()) by {
                 assert forall|m: Mapping|
                     self.view_mappings().contains(m) implies result.view_mappings().contains(m) by {
                     self.view_mappings_contains(m);
@@ -2429,7 +2429,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
             };
             assert(result == self.move_forward_owner_spec());
-            assert(result.view_mappings() =~= self.view_mappings());
+            assert(result.view_mappings() == self.view_mappings());
             assert(self.move_forward_owner_spec()@.mappings == self@.mappings);
         } else if self.level < NR_LEVELS {
             let popped = self.pop_level_owner().0;
@@ -2446,9 +2446,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else {
             // level == NR_LEVELS, last index: move_forward_owner_spec only changes va/popped_too_high
             let fwd = self.move_forward_owner_spec();
-            assert(fwd.continuations =~= self.continuations);
+            assert(fwd.continuations == self.continuations);
             assert(fwd.level == self.level);
-            assert(fwd.view_mappings() =~= self.view_mappings()) by {
+            assert(fwd.view_mappings() == self.view_mappings()) by {
                 assert forall|m: Mapping|
                     self.view_mappings().contains(m) implies fwd.view_mappings().contains(m) by {
                     self.view_mappings_contains(m);
