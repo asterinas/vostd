@@ -1029,7 +1029,6 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
 impl<C: PageTableConfig> View for EntryOwner<C> {
     type V = EntryView<C>;
 
-    #[verifier::external_body]
     open spec fn view(&self) -> <Self as View>::V {
         if self.is_frame() {
             let frame = self.frame();
