@@ -1359,10 +1359,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     let ghost cont_pre_split = continuation;
                     let ghost parent_pre_split = continuation.entry_own.node();
                     let tracked mut child_owner = continuation.tracked_take_child();
-                    let tracked mut parent_owner = continuation.entry_own.tracked_borrow_mut_node();
 
                     proof {
-                        assert(parent_owner.level > 1) by {
+                        assert(continuation.entry_own.node().level > 1) by {
                             owner0.cur_va_range().start.reflect_prop(cur_va_range.start);
                             owner0.cur_va_range().end.reflect_prop(cur_va_range.end);
                             assert(cur_entry_fits_range == (cur_va
@@ -1386,7 +1385,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         }
                     }
                     let split_child = (
-                    #[verus_spec(with Tracked(&mut child_owner), Tracked(parent_owner), Tracked(regions),
+                    #[verus_spec(with Tracked(&mut child_owner), Tracked(continuation.entry_own.tracked_borrow_mut_node()), Tracked(regions),
                         Tracked(guards))]
                     cur_entry.split_if_mapped_huge(rcu_guard)).expect(
                         "The entry must be a huge page",
@@ -1402,13 +1401,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         let ghost child_not_in_scope = !child_owner.value.in_scope;
                         assert(cur_entry.idx == cont0.idx);
                         let ghost reconstructed_entry_own = EntryOwner {
-                            kind: EntryOwnerKind::Node(parent_owner),
+                            kind: EntryOwnerKind::Node(continuation.entry_own.node()),
                             ..cont0.entry_own
                         };
                         CursorContinuation::<'rcu, C>::rel_children_from_node_matching(
                             &cur_entry,
                             child_owner.value,
-                            parent_owner,
+                            continuation.entry_own.node(),
                             continuation.guard,
                             reconstructed_entry_own,
                             cont0.idx,

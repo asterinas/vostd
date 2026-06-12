@@ -1032,13 +1032,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(!new_owner.children[i as int].unwrap().value.in_scope);
 
                 OwnerSubtree::child_some_properties(new_owner, i as usize);
-            }
-
-            proof {
-                let ghost old_children_perm = new_owner.value.node();
-            }
-
-            proof {
                 EntryOwner::huge_frame_split_child_at(owner.value, *regions, i as usize);
             }
 
