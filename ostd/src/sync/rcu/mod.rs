@@ -189,22 +189,22 @@ struct RcuInner<P: NonNullPtr> {
 }
 
 closed spec fn wf(self) -> bool {
-        invariant on ptr with (ghost_nullable, _marker) is (
-            v: *mut <P as NonNullPtr>::Target,
-            g: RcuPtrGhost<P>,
-        ) {
-            &&& retired_pools_inv::<P>(g.retired)
-            &&& returned_tokens_inv::<P>(g.returned)
-            &&& match g.current {
-                Some(perm) => {
-                    &&& !v.is_null()
-                    &&& P::ptr_perm_match(v, perm@)
-                    &&& perm@.inv()
-                    &&& perm.wf()
-                    &&& perm.not_empty()
-                },
-                None => ghost_nullable@ && v.is_null(),
-            }
+    invariant on ptr with (ghost_nullable, _marker) is (
+        v: *mut <P as NonNullPtr>::Target,
+        g: RcuPtrGhost<P>,
+    ) {
+        &&& retired_pools_inv::<P>(g.retired)
+        &&& returned_tokens_inv::<P>(g.returned)
+        &&& match g.current {
+            Some(perm) => {
+                &&& !v.is_null()
+                &&& P::ptr_perm_match(v, perm@)
+                &&& perm@.inv()
+                &&& perm.wf()
+                &&& perm.not_empty()
+            },
+            None => ghost_nullable@ && v.is_null(),
+        }
     }
 }
 }
@@ -728,13 +728,13 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
 }
 
 impl<P: NonNullPtr + Send> Rcu<P> {
-    /// Creates a new RCU primitive that contains nothing.
-    ///
-    /// This is a constant equivalence to [`RcuOption::new(None)`].
-    #[inline(always)]
-    pub const fn new_none() -> Self {
-        Self(RcuInner::new_none())
-    }
+    // Creates a new RCU primitive that contains nothing.
+    //
+    // This is a constant equivalence to [`RcuOption::new(None)`].
+    // #[inline(always)]
+    // pub const fn new_none() -> Self {
+    //     Self(RcuInner::new_none())
+    // }
 }
 
 #[verus_verify]
@@ -1086,6 +1086,7 @@ impl<P: NonNullPtr> Rcu<P> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.0.type_inv()
+        &&& !self.0.is_nullable()
     }
 }
 
