@@ -274,9 +274,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         };
 
         proof {
-            let tracked mut frame_owner = owner.tracked_take_frame();
-            frame_owner.prop = new_prop;
-            owner.tracked_put_frame(frame_owner);
+            owner.tracked_borrow_mut_frame().prop = new_prop;
         }
         assert(owner.match_pte(self.pte, owner.parent_level));
     }

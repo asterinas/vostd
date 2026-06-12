@@ -251,6 +251,19 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
+    pub proof fn tracked_borrow_mut_frame(tracked &mut self) -> (tracked res: &mut FrameEntryOwner)
+        requires
+            old(self).kind is Frame,
+        ensures
+            *res == old(self).frame(),
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Frame(*final(res)), ..*old(self) }),
+    {
+        match self.kind {
+            EntryOwnerKind::Frame(ref mut frame) => frame,
+            _ => { proof_from_false() },
+        }
+    }
+
     pub axiom fn tracked_new_frame(
         paddr: Paddr,
         path: TreePath<NR_ENTRIES>,
