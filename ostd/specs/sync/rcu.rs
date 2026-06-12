@@ -158,8 +158,8 @@ pub proof fn monitor_state_no_pending_no_summaries(state: MonitorStateView)
 /// callback vectors live in the monitor state protected by its lock, and the
 /// agreement between `states[i]` and that state is established by the writer,
 /// which performs every flag store while holding the monitor lock.
-pub ghost struct RcuMonitorFlagGhost {
-    pub states: Seq<MonitorStateView>,
+pub tracked struct RcuMonitorFlagGhost {
+    pub ghost states: Seq<MonitorStateView>,
 }
 
 impl RcuMonitorFlagGhost {
@@ -167,7 +167,23 @@ impl RcuMonitorFlagGhost {
         RcuMonitorFlagGhost { states: seq![MonitorStateView::initial()] }
     }
 
+    /// Proof-mode constructor for the tracked ghost state stored inside the
+    /// monitor flag's weak atomic invariant.
+    pub proof fn tracked_initial() -> (tracked res: Self)
+        ensures
+            res == Self::initial(),
+    {
+        RcuMonitorFlagGhost { states: seq![MonitorStateView::initial()] }
+    }
+
     pub open spec fn push(self, state: MonitorStateView) -> Self {
+        RcuMonitorFlagGhost { states: self.states.push(state) }
+    }
+
+    pub proof fn tracked_push(tracked self, state: MonitorStateView) -> (tracked res: Self)
+        ensures
+            res == self.push(state),
+    {
         RcuMonitorFlagGhost { states: self.states.push(state) }
     }
 
@@ -287,7 +303,7 @@ pub proof fn rcu_monitor_flag_false_has_no_pending(
         !history[ts as int].value,
     ensures
         ghost.states[ts as int].no_pending_work(),
-        ghost.states[ts as int].pending_summaries() =~= Seq::<RcuCallbackSummary>::empty(),
+        ghost.states[ts as int].pending_summaries() == Seq::<RcuCallbackSummary>::empty(),
         ghost.states[ts as int].current_gp.is_complete,
 {
     monitor_state_pending_iff_incomplete(ghost.states[ts as int]);

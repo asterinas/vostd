@@ -9,7 +9,7 @@ use crate::specs::{
     sync::{
         rcu as rcu_spec,
         rcu::{GracePeriodView, MonitorStateView},
-        weak_memory::{History, WeakAtomicBool},
+        weak_memory::{History, ThreadView, WeakAtomicBool},
     },
 };
 use crate::sync::{LocalIrqDisabled, SpinLock};
@@ -71,6 +71,18 @@ pub open spec fn callback_summaries(callbacks: Callbacks) -> Seq<rcu_spec::RcuCa
     Seq::new(callbacks@.len(), |i: int| callbacks@[i]@)
 }
 
+proof fn callback_summaries_empty(callbacks: Callbacks)
+    requires
+        callbacks@ == Seq::<RcuCallback>::empty(),
+    ensures
+        callback_summaries(callbacks) == Seq::<rcu_spec::RcuCallbackSummary>::empty(),
+{
+    assert(callback_summaries(callbacks).len() == 0);
+    vstd::seq_lib::assert_seqs_equal!(
+        callback_summaries(callbacks) == Seq::<rcu_spec::RcuCallbackSummary>::empty()
+    );
+}
+
 // The proof-facing views `GracePeriodView` and `MonitorStateView` live in
 // `specs::sync::rcu` so that the monitor flag's weak-memory ghost state can
 // record a state snapshot per flag message without depending on this module.
@@ -92,6 +104,35 @@ impl View for GracePeriod {
 }
 
 impl GracePeriod {
+    /// Creates the initial completed grace period. A completed grace period may
+    /// not retain callbacks, so both executable callback storage and the proof
+    /// summary start empty.
+    pub(super) fn new() -> (res: Self)
+        ensures
+            res@ == GracePeriodView::initial(),
+    {
+        let callbacks = Vec::new();
+        let cpu_mask = AtomicCpuSet::new(CpuSet::new_empty());
+        let res = Self { callbacks, cpu_mask, is_complete: true };
+        proof {
+            callback_summaries_empty(res.callbacks);
+        }
+        res
+    }
+
+    /// Starts a new incomplete grace period with the callbacks that should run
+    /// after it completes. The CPU mask is reset because all CPUs must pass a
+    /// fresh quiescent state for this new batch.
+    fn restart(&mut self, callbacks: Callbacks)
+        ensures
+            final(self).callback_summaries() == callback_summaries(callbacks),
+            !final(self).is_complete,
+    {
+        self.is_complete = false;
+        self.callbacks = callbacks;
+        self.cpu_mask = AtomicCpuSet::new(CpuSet::new_empty());
+    }
+
     closed spec fn callback_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
         self@.callbacks
     }
@@ -106,6 +147,11 @@ impl GracePeriod {
     /// callbacks), but must restore it before releasing the monitor lock.
     closed spec fn wf(self) -> bool {
         self@.wf()
+    }
+
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
     }
 }
 
@@ -126,6 +172,45 @@ impl View for State {
 }
 
 impl State {
+    /// Creates the lock-protected initial monitor state: there is no active
+    /// grace period and no callbacks waiting to be attached to the next one.
+    pub(super) fn new() -> (res: Self)
+        ensures
+            res@ == MonitorStateView::initial(),
+            res.no_pending_work(),
+    {
+        let current_gp = GracePeriod::new();
+        let next_callbacks = Vec::new();
+        let res = Self { current_gp, next_callbacks };
+        proof {
+            callback_summaries_empty(res.next_callbacks);
+        }
+        res
+    }
+
+    /// Enqueues one callback and starts a grace period if the monitor was idle.
+    ///
+    /// The method preserves the lock-protected state invariant. Returning with
+    /// pending work lets the caller publish `is_monitoring = true` with the
+    /// resulting state view.
+    fn enqueue_after_grace_period(&mut self, callback: RcuCallback)
+        ensures
+            final(self).wf(),
+            final(self).has_pending_work(),
+    {
+        if self.current_gp.is_complete {
+            let mut callbacks = Vec::new();
+            callbacks.push(callback);
+            let cpu_mask = AtomicCpuSet::new(CpuSet::new_empty());
+            self.current_gp = GracePeriod { callbacks, cpu_mask, is_complete: false };
+        } else {
+            let mut next_callbacks = Vec::new();
+            core::mem::swap(&mut next_callbacks, &mut self.next_callbacks);
+            next_callbacks.push(callback);
+            self.next_callbacks = next_callbacks;
+        }
+    }
+
     closed spec fn pending_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
         self@.pending_summaries()
     }
@@ -134,7 +219,7 @@ impl State {
         self@.has_pending_work()
     }
 
-    closed spec fn no_pending_work(self) -> bool {
+    pub closed spec fn no_pending_work(self) -> bool {
         self@.no_pending_work()
     }
 
@@ -146,6 +231,11 @@ impl State {
     closed spec fn wf(self) -> bool {
         self@.wf()
     }
+
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
 }
 
 /// Relationship maintained between one message of the weak `is_monitoring`
@@ -154,6 +244,20 @@ impl State {
 /// no pending callbacks or grace period.
 pub open spec fn monitor_flag_matches_state(flag: bool, state: MonitorStateView) -> bool {
     !flag ==> state.no_pending_work()
+}
+
+/// View-level form of the monitor flag write obligation. Executable monitor
+/// code can call this while holding a guard by passing the protected state's
+/// view, without moving the `State` value out of the lock.
+proof fn monitor_flag_view_push_obligation(flag: bool, state: MonitorStateView)
+    requires
+        state.wf(),
+        state.has_pending_work() ==> flag,
+    ensures
+        state.wf(),
+        !flag ==> state.no_pending_work(),
+        monitor_flag_matches_state(flag, state),
+{
 }
 
 /// Every message of the monitor flag matches the state snapshot recorded with
@@ -194,7 +298,7 @@ proof fn monitor_flag_false_certifies_no_pending(
         flag_ghost.states[ts as int] == state@,
     ensures
         state.no_pending_work(),
-        state.pending_summaries() =~= Seq::<rcu_spec::RcuCallbackSummary>::empty(),
+        state.pending_summaries() == Seq::<rcu_spec::RcuCallbackSummary>::empty(),
 {
     rcu_spec::rcu_monitor_flag_false_has_no_pending(history, flag_ghost, ts);
 }
@@ -212,6 +316,7 @@ proof fn monitor_flag_push_obligation(flag: bool, state: State)
         !flag ==> state@.no_pending_work(),
         monitor_flag_matches_state(flag, state@),
 {
+    monitor_flag_view_push_obligation(flag, state@);
 }
 
 /// A RCU monitor ensures the completion of _grace periods_ by keeping track
@@ -222,6 +327,74 @@ pub(super) struct RcuMonitor {
 }
 
 impl RcuMonitor {
+    /// Creates the monitor with an initially false weak flag. The flag ghost
+    /// records the same initial lock-protected state snapshot, so every
+    /// possible read of the initial `false` message certifies that there is no
+    /// pending monitor work.
+    pub(super) fn new() -> (res: Self) {
+        let state = State::new();
+        proof {
+            rcu_spec::rcu_monitor_flag_initial_inv();
+        }
+        proof_decl! {
+            let tracked flag_ghost = rcu_spec::RcuMonitorFlagGhost::tracked_initial();
+        }
+        let is_monitoring = MonitorAtomicBool::new(
+            Ghost(()),
+            false,
+            Tracked(flag_ghost),
+        );
+        let state = SpinLock::new(state);
+        proof {
+            use_type_invariant(&is_monitoring);
+            assert(is_monitoring.well_formed());
+            use_type_invariant(&state);
+        }
+        let res = Self { is_monitoring, state };
+        res
+    }
+
+    /// Stores the monitor fast-path flag together with the monitor-state
+    /// snapshot that justifies the new flag message. Callers should hold the
+    /// monitor lock and pass the view of the lock-protected state.
+    fn set_monitoring(
+        &self,
+        value: bool,
+        Ghost(state): Ghost<MonitorStateView>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    )
+        requires
+            self.wf(),
+            state.wf(),
+            state.has_pending_work() ==> value,
+    {
+        proof {
+            use_type_invariant(self);
+            monitor_flag_view_push_obligation(value, state);
+        }
+        self.is_monitoring.store_relaxed_rcu_monitor(value, Ghost(state), Tracked(tv));
+    }
+
+    /// Schedules `callback` to run after a future grace period and publishes a
+    /// conservative `true` monitor flag message for the resulting state.
+    pub(super) fn after_grace_period(&self, callback: RcuCallback) {
+        proof {
+            use_type_invariant(self);
+        }
+        let mut state = self.state.lock();
+        state.enqueue_after_grace_period(callback);
+        proof {
+            assert(state.view().wf());
+            assert(state.view().has_pending_work());
+            use_type_invariant(self);
+        }
+        proof_decl! {
+            let tracked mut tv = ThreadView::new();
+        }
+        self.set_monitoring(true, Ghost(state.view()@), Tracked(&mut tv));
+        state.drop();
+    }
+
     closed spec fn wf(self) -> bool {
         &&& self.is_monitoring.well_formed()
         &&& self.state.type_inv()

@@ -350,6 +350,7 @@ macro_rules! declare_weak_atomic_type {
                 requires
                     Pred::atomic_inv(k, seq![Msg { value: init, view: WmView::empty() }], g),
                 ensures
+                    res.well_formed(),
                     res.constant() == k,
             {
                 let (atomic, Tracked(hist)) = $raw_atomic::new(init);
@@ -752,6 +753,55 @@ impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
             }
         });
         result
+    }
+}
+
+impl WeakAtomicBool<(), rcu_spec::RcuMonitorFlagGhost, rcu_spec::RcuMonitorFlagInv> {
+    /// Relaxed-store helper for the RCU monitor flag.
+    ///
+    /// The executable flag remains a relaxed atomic flag, matching the old
+    /// monitor protocol. The proof-side effect is stronger: each stored flag
+    /// message appends the lock-protected monitor-state snapshot supplied by
+    /// the writer.
+    #[inline(always)]
+    pub fn store_relaxed_rcu_monitor(
+        &self,
+        value: bool,
+        Ghost(state): Ghost<rcu_spec::MonitorStateView>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    )
+        requires
+            self.well_formed(),
+            state.wf(),
+            !value ==> state.no_pending_work(),
+    {
+        proof {
+            use_type_invariant(self);
+        }
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (mut hist, mut g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
+            let ghost prev = hist.history();
+            let snap = self.atomic.store_relaxed(Tracked(&mut hist), Tracked(tv), value);
+            let ghost next = hist.history();
+            proof {
+                assert(snap@.msg().value == value);
+                rcu_spec::preserve_rcu_monitor_flag_inv_on_push(
+                    prev,
+                    next,
+                    snap@.msg(),
+                    g,
+                    g.push(state),
+                    state,
+                );
+                g = g.tracked_push(state);
+                pair = (hist, g);
+            }
+        });
     }
 }
 
