@@ -218,6 +218,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_va_range().start.reflect(self@.query_range().start as Vaddr),
             self.cur_va_range().end.reflect(self@.query_range().end as Vaddr),
     {
+        broadcast use CursorContinuation::group_lemmas;
+
         self.cur_subtree_inv();
         self.cur_va_in_subtree_range();
         self.view_preserves_inv();
@@ -250,8 +252,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(PageTableOwner(subtree).view_rec(path) == set![m]);
         assert(PageTableOwner(subtree).view_rec(path).contains(m));
-        cont.view_mappings_intro(m, cont.idx as int);
-        self.view_mappings_intro(m, (self.level - 1) as int);
+        self.lemma_view_mappings_intro(m, (self.level - 1) as int);
         assert(m.inv());
 
         self.cur_va_in_subtree_range();

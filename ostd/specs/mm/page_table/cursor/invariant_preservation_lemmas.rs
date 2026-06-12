@@ -328,6 +328,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.no_frame_with_path(removed_path),
     {
+        broadcast use CursorContinuation::group_lemmas;
+
         let g = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
             e.is_frame() ==> e.path != removed_path;
 
@@ -361,8 +363,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     PageTableOwner(child).view_rec(child_path).contains(
                         m,
                     ) implies self@.mappings.contains(m) by {
-                    cont.view_mappings_intro(m, j);
-                    self.view_mappings_intro(m, i);
+                    self.lemma_view_mappings_intro(m, i);
                 };
                 // L-rec: no frame entry in this subtree carries removed_path.
                 PageTableOwner(child).no_frame_with_path_rec(

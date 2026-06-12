@@ -346,17 +346,19 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub broadcast proof fn lemma_view_mappings_contains(self)
         ensures
             #![trigger self.view_mappings()]
-            forall |m: Mapping|
-                #[trigger] self.view_mappings().contains(m) ==> exists |i: int| #![auto]
+            forall|m: Mapping| #[trigger]
+                self.view_mappings().contains(m) ==> exists|i: int|
+                    #![auto]
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                         self.children[i]->0,
                     ).view_rec(self.path().push_tail(i as usize)).contains(m),
     {
         broadcast use vstd::seq_lib::group_seq_properties;
 
-        assert forall |m: Mapping| self.view_mappings().contains(m) implies exists|i: int|
-            0 <= i < self.children.len() && self.children[i] is Some
-                && PageTableOwner(self.children[i]->0).view_rec(self.path().push_tail(i as usize)).contains(m) by {
+        assert forall|m: Mapping| self.view_mappings().contains(m) implies exists|i: int|
+            0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
+                self.children[i]->0,
+            ).view_rec(self.path().push_tail(i as usize)).contains(m) by {
             let mapped = self.children.map(
                 |i, child: Option<OwnerSubtree<C>>|
                     if child is Some {
@@ -383,11 +385,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         }
     }
 
-    pub proof fn view_mappings_intro(self, m: Mapping, i: int)
+    pub broadcast proof fn lemma_view_mappings_intro(self, m: Mapping, i: int)
         requires
             0 <= i < self.children.len(),
             self.children[i] is Some,
-            PageTableOwner(self.children[i]->0).view_rec(
+            #[trigger] PageTableOwner(self.children[i]->0).view_rec(
                 self.path().push_tail(i as usize),
             ).contains(m),
         ensures
@@ -638,6 +640,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         );
         owner.in_scope = false;
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
+    }
+
+    pub broadcast group group_lemmas {
+        CursorContinuation::lemma_view_mappings_contains,
+        CursorContinuation::lemma_view_mappings_intro,
     }
 }
 
@@ -1072,7 +1079,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(mapped[i] == self.continuations[i].view_mappings());
     }
 
-    pub proof fn view_mappings_intro(self, m: Mapping, i: int)
+    pub proof fn lemma_view_mappings_intro(self, m: Mapping, i: int)
         requires
             1 <= self.level <= NR_LEVELS,
             self.level - 1 <= i < NR_LEVELS,
@@ -1082,8 +1089,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.view_mappings().contains(m),
     {
         broadcast use vstd::map_lib::group_map_properties;
-        broadcast use vstd::set::group_set_lemmas;
-        broadcast use vstd::set_lib::group_set_lib_default;
 
         let filtered = self.continuations.filter_keys(|k| self.level - 1 <= k < NR_LEVELS);
         let mapped = filtered.map_values(|cont: CursorContinuation<'rcu, C>| cont.view_mappings());
@@ -2485,8 +2490,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(PageTableOwner(subtree).view_rec(path) == set![m]);
         assert(PageTableOwner(subtree).view_rec(path).contains(m));
-        cont.view_mappings_intro(m, cont.idx as int);
-        self.view_mappings_intro(m, (self.level - 1) as int);
+        self.lemma_view_mappings_intro(m, (self.level - 1) as int);
         assert(m.inv());
         assert(m.va_range.start <= self@.cur_va < m.va_range.end) by {
             self.cur_va_in_subtree_range();

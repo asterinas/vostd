@@ -219,7 +219,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.view_mappings() == owner0.view_mappings(),
     {
-        broadcast use CursorContinuation::lemma_view_mappings_contains; 
+        broadcast use CursorContinuation::group_lemmas;
+
         let L = self.level as int;
         let cont = self.continuations[L - 1];
         let cont0 = owner0.continuations[L - 1];
@@ -242,7 +243,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(false);
                 } else {
                     assert(cont.children[j] == cont0.children[j]);
-                    cont0.view_mappings_intro(m, j);
                 }
             };
             assert forall|m: Mapping|
@@ -257,7 +257,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(false);
                 } else {
                     assert(cont0.children[j] == cont.children[j]);
-                    cont.view_mappings_intro(m, j);
                 }
             };
         };
@@ -271,10 +270,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         && #[trigger] self.continuations[i].view_mappings().contains(m);
                 if i == L - 1 {
                     assert(cont0.view_mappings().contains(m));
-                    owner0.view_mappings_intro(m, i);
+                    owner0.lemma_view_mappings_intro(m, i);
                 } else {
                     assert(owner0.continuations[i] == self.continuations[i]);
-                    owner0.view_mappings_intro(m, i);
+                    owner0.lemma_view_mappings_intro(m, i);
                 }
             };
             assert forall|m: Mapping|
@@ -285,10 +284,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         && #[trigger] owner0.continuations[i].view_mappings().contains(m);
                 if i == L - 1 {
                     assert(cont.view_mappings().contains(m));
-                    self.view_mappings_intro(m, i);
+                    self.lemma_view_mappings_intro(m, i);
                 } else {
                     assert(self.continuations[i] == owner0.continuations[i]);
-                    self.view_mappings_intro(m, i);
+                    self.lemma_view_mappings_intro(m, i);
                 }
             };
         };

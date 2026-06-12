@@ -32,15 +32,16 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.as_subtree().inv(),
             PageTableOwner(self.as_subtree()).pt_inv(),
     {
-        broadcast use CursorContinuation::lemma_view_mappings_contains; 
+        broadcast use CursorContinuation::group_lemmas;
+
         self.inv_children_unroll_all();
         self.as_subtree_inv();
         self.as_page_table_owner_pt_inv();
         let pto = self.as_page_table_owner();
         assert(self.as_page_table_owner().view_rec(self.path()) == self.view_mappings()) by {
-            assert forall|m: Mapping| self.view_mappings().contains(m) implies pto.view_rec(
-                self.path(),
-            ).contains(m) by {
+            assert forall|m: Mapping|
+                #![auto]
+                self.view_mappings().contains(m) implies pto.view_rec(self.path()).contains(m) by {
                 let i = choose|i: int|
                     #![auto]
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
@@ -49,14 +50,15 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 pto.view_rec_contains_intro(self.path(), m, i);
             };
             assert forall|m: Mapping|
-                pto.view_rec(self.path()).contains(m) implies self.view_mappings().contains(m) by {
+                pto.view_rec(self.path()).contains(
+                    m,
+                ) implies #[trigger] self.view_mappings().contains(m) by {
                 pto.view_rec_contains(self.path(), m);
                 let i = choose|i: int|
                     #![auto]
                     0 <= i < pto.0.children.len() && pto.0.children[i] is Some && PageTableOwner(
                         pto.0.children[i].unwrap(),
                     ).view_rec(self.path().push_tail(i as usize)).contains(m);
-                self.view_mappings_intro(m, i);
             };
         };
     }
@@ -69,7 +71,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.take_child().1.view_mappings() == self.view_mappings()
                 - self.view_mappings_take_child_spec(),
     {
-        broadcast use CursorContinuation::lemma_view_mappings_contains; 
+        broadcast use CursorContinuation::group_lemmas;
+
         self.inv_children_unroll_all();
         let def = self.take_child().1.view_mappings();
         let diff = self.view_mappings() - self.view_mappings_take_child_spec();
@@ -81,7 +84,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 ).contains(m);
             assert(i != self.idx);
             assert(self.take_child().1.children[i] is Some);
-            self.take_child().1.view_mappings_intro(m, i);
         };
         assert forall|m: Mapping| #![trigger def.contains(m)] def.contains(m) implies diff.contains(
             m,
@@ -95,7 +97,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     left.children[i].unwrap(),
                 ).view_rec(left.path().push_tail(i as usize)).contains(m);
             assert(self.children[wi] == left.children[wi]);
-            self.view_mappings_intro(m, wi);
             if self.view_mappings_take_child_spec().contains(m) {
                 assert(PageTableOwner(self.children[self.idx as int].unwrap()).view_rec(
                     self.path().push_tail(self.idx as usize),
@@ -138,8 +139,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 child,
             ).view_rec(self.path().push_tail(self.idx as usize)),
     {
-        broadcast use CursorContinuation::lemma_view_mappings_contains; 
-        
+        broadcast use CursorContinuation::group_lemmas;
+
         let def = self.put_child(child).view_mappings();
         let sum = self.view_mappings() + PageTableOwner(child).view_rec(
             self.path().push_tail(self.idx as usize),
@@ -153,13 +154,13 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     ).contains(m);
                 assert(i != self.idx);
                 assert(self.put_child(child).children[i] == self.children[i]);
-                self.put_child(child).view_mappings_intro(m, i);
+                self.put_child(child).lemma_view_mappings_intro(m, i);
             } else {
                 assert(PageTableOwner(child).view_rec(
                     self.path().push_tail(self.idx as usize),
                 ).contains(m));
                 assert(self.put_child(child).children[self.idx as int] == Some(child));
-                self.put_child(child).view_mappings_intro(m, self.idx as int);
+                self.put_child(child).lemma_view_mappings_intro(m, self.idx as int);
             }
         };
         assert forall|m: Mapping| def.contains(m) implies sum.contains(m) by {
@@ -172,7 +173,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             if i == self.idx as int {
             } else {
                 assert(self.children[i] == self.put_child(child).children[i]);
-                self.view_mappings_intro(m, i);
             }
         };
     }
@@ -228,8 +228,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 )
             }),
     {
-        broadcast use CursorContinuation::lemma_view_mappings_contains; 
-        
+        broadcast use CursorContinuation::group_lemmas;
+
         let cur_subtree = self.cur_subtree();
         let cur_path = cur_subtree.value.path;
         let subtree_va = vaddr_of::<C>(cur_path) as int;
@@ -252,8 +252,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // m is in the current subtree's view_rec => in cont[level-1].view_mappings() => in self.view_mappings()
             assert(cont.children[self.index() as int] is Some);
             assert(cont.children[self.index() as int].unwrap() == cur_subtree);
-            cont.view_mappings_intro(m, self.index() as int);
-            self.view_mappings_intro(m, (self.level - 1) as int);
+            self.lemma_view_mappings_intro(m, (self.level - 1) as int);
 
             // view_rec_vaddr_range gives m.va_range.start in
             // [vaddr_of(cur_path), vaddr_of(cur_path) + page_size(level)),
@@ -587,8 +586,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(m),
     {
-        broadcast use CursorContinuation::lemma_view_mappings_contains; 
-        
+        broadcast use CursorContinuation::group_lemmas;
+
         let cur_va = self.cur_va();
 
         // m comes from some continuation level i
@@ -651,7 +650,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 new_cont.view_mappings(),
             ),
     {
-        broadcast use CursorContinuation::lemma_view_mappings_contains; 
+        broadcast use CursorContinuation::group_lemmas;
+
         let level = old_self.level;
 
         assert forall|m: Mapping| new_self.view_mappings().contains(m) implies ((
@@ -666,7 +666,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             } else {
                 assert(old_self.continuations[i] == new_self.continuations[i]);
                 assert(old_self.continuations[i].view_mappings().contains(m));
-                old_self.view_mappings_intro(m, i);
+                old_self.lemma_view_mappings_intro(m, i);
 
                 if old_cont.view_mappings().contains(m) {
                     old_self.inv_continuation(i);
@@ -756,7 +756,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ) by {
             if new_cont.view_mappings().contains(m) {
                 assert(new_self.continuations[level - 1].view_mappings().contains(m));
-                new_self.view_mappings_intro(m, level - 1);
+                new_self.lemma_view_mappings_intro(m, level - 1);
             } else {
                 // m in old.vm() and not in old_cont.vm(), so m in some higher cont
                 old_self.view_mappings_contains(m);
@@ -769,7 +769,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 } else {
                     assert(new_self.continuations[i] == old_self.continuations[i]);
                     assert(new_self.continuations[i].view_mappings().contains(m));
-                    new_self.view_mappings_intro(m, i);
+                    new_self.lemma_view_mappings_intro(m, i);
                 }
             }
         };
@@ -794,16 +794,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv_continuation(3);
             assert(self.view_mappings() == self.continuations[3].view_mappings()) by {
                 assert forall|m: Mapping|
+                    #![auto]
                     self.view_mappings().contains(
                         m,
                     ) implies self.continuations[3].view_mappings().contains(m) by {
                     self.view_mappings_contains(m);
                 };
                 assert forall|m: Mapping|
+                    #![auto]
                     self.continuations[3].view_mappings().contains(
                         m,
                     ) implies self.view_mappings().contains(m) by {
-                    self.view_mappings_intro(m, 3);
+                    self.lemma_view_mappings_intro(m, 3);
                 };
             };
         } else if self.level == 3 {
@@ -868,9 +870,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         m,
                     )) implies #[trigger] self.view_mappings().contains(m) by {
                     if self.continuations[2].view_mappings().contains(m) {
-                        self.view_mappings_intro(m, 2);
+                        self.lemma_view_mappings_intro(m, 2);
                     } else {
-                        self.view_mappings_intro(m, 3);
+                        self.lemma_view_mappings_intro(m, 3);
                     }
                 };
             };
@@ -970,11 +972,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     m,
                 ) by {
                     if c1.view_mappings().contains(m) {
-                        self.view_mappings_intro(m, 1);
+                        self.lemma_view_mappings_intro(m, 1);
                     } else if c2.view_mappings().contains(m) {
-                        self.view_mappings_intro(m, 2);
+                        self.lemma_view_mappings_intro(m, 2);
                     } else {
-                        self.view_mappings_intro(m, 3);
+                        self.lemma_view_mappings_intro(m, 3);
                     }
                 };
             };
@@ -1107,13 +1109,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         m,
                     )) implies self.view_mappings().contains(m) by {
                     if c0.view_mappings().contains(m) {
-                        self.view_mappings_intro(m, 0);
+                        self.lemma_view_mappings_intro(m, 0);
                     } else if c1.view_mappings().contains(m) {
-                        self.view_mappings_intro(m, 1);
+                        self.lemma_view_mappings_intro(m, 1);
                     } else if c2.view_mappings().contains(m) {
-                        self.view_mappings_intro(m, 2);
+                        self.lemma_view_mappings_intro(m, 2);
                     } else {
-                        self.view_mappings_intro(m, 3);
+                        self.lemma_view_mappings_intro(m, 3);
                     }
                 };
             };
