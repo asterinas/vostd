@@ -20,8 +20,6 @@ use super::meta::mapping::{
     META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
 };
 use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::mm::frame::MetaPerm;
-use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE, Paddr, PagingConsts, PagingLevel};
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_owners::Metadata;
