@@ -116,8 +116,8 @@ impl View for MetaRegionOwners {
 }
 
 impl InvView for MetaRegionOwners {
-    // XXX: verus `map_values` does not preserves the `finite()` attribute.
-    axiom fn view_preserves_inv(self);
+    proof fn view_preserves_inv(self) {
+    }
 }
 
 impl OwnerOf for MetaRegion {
