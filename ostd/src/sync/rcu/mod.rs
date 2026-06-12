@@ -243,11 +243,13 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             ptr: AtomicPtr::new(
                 Ghost((Ghost(true), PhantomData::<*const <P as NonNullPtr>::Target>)),
                 core::ptr::null_mut(),
-                Tracked(RcuPtrGhost {
-                    current: None,
-                    retired: Map::tracked_empty(),
-                    returned: Map::tracked_empty(),
-                }),
+                Tracked(
+                    RcuPtrGhost {
+                        current: None,
+                        retired: Map::tracked_empty(),
+                        returned: Map::tracked_empty(),
+                    },
+                ),
             ),
             _marker: PhantomData::<*const <P as NonNullPtr>::Target>,
             ghost_nullable: Ghost(true),
