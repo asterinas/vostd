@@ -20,13 +20,13 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.ptr.addr() == owner.node.unwrap().meta_addr_self()
+                &&& node.ptr.addr() == owner.node().meta_addr_self()
                 &&& node.index() == frame_to_index(meta_to_frame(node.ptr.addr()))
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
-                &&& owner.frame.unwrap().mapped_pa == paddr
-                &&& owner.frame.unwrap().prop == prop
+                &&& owner.frame().mapped_pa == paddr
+                &&& owner.frame().prop == prop
                 &&& level == owner.parent_level
             },
             Self::None => owner.is_absent(),
@@ -41,12 +41,12 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.inner.0.ptr.addr() == owner.node.unwrap().meta_addr_self()
+                &&& node.inner.0.ptr.addr() == owner.node().meta_addr_self()
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
-                &&& owner.frame.unwrap().mapped_pa == paddr
-                &&& owner.frame.unwrap().prop == prop
+                &&& owner.frame().mapped_pa == paddr
+                &&& owner.frame().prop == prop
             },
             Self::None => owner.is_absent(),
         }
@@ -121,7 +121,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn from_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
         if self.is_node() {
-            let index = frame_to_index(self.meta_slot_paddr().unwrap());
+            let index = frame_to_index(self.meta_slot_paddr()->0);
             MetaRegionOwners {
                 frame_obligations: regions.frame_obligations.insert(index),
                 ..regions
@@ -133,7 +133,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn into_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
         if self.is_node() {
-            let index = frame_to_index(self.meta_slot_paddr().unwrap());
+            let index = frame_to_index(self.meta_slot_paddr()->0);
             // Canonical model: forgetting a live PT-node into a PTE CONSUMES
             // its pending-Drop obligation (the body's `MD::new` redeems one
             // entry at the node's slot), mirroring `Frame::into_raw`. `slots`

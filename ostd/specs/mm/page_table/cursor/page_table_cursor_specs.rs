@@ -118,7 +118,7 @@ impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn find_next_spec(self, len: usize) -> (Self, Option<Vaddr>) {
         let (cursor, mapping) = self.find_next_impl_spec(len, false, false);
         if mapping is Some {
-            (cursor, Some(mapping.unwrap().va_range.start as Vaddr))
+            (cursor, Some(mapping->0.va_range.start as Vaddr))
         } else {
             (cursor, None)
         }
@@ -291,7 +291,7 @@ impl<C: PageTableConfig> CursorView<C> {
     ) -> (Self, Option<Range<Vaddr>>) {
         let (find_cursor, next) = self.find_next_impl_spec(len, false, true);
         if next is Some {
-            let found = next.unwrap();
+            let found = next->0;
             // Position cursor at the found mapping and split to target size
             let at_found = CursorView { cur_va: found.va_range.start as Vaddr, ..self };
             let split_view = at_found.split_while_huge(target_page_size);

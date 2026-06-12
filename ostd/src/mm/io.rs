@@ -140,8 +140,8 @@ pub struct Infallible {}
             #![trigger mem_src.addr_transl(i)]
             src.vaddr <= i < src.vaddr + len ==> {
                 &&& mem_src.addr_transl(i) is Some
-                &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
-                &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
+                &&& mem_src.memory.contains_key((mem_src.addr_transl(i)->0).0)
+                &&& mem_src.memory[(mem_src.addr_transl(i)->0).0].contents[(mem_src.addr_transl(i)->0).1 as int] is Init
             },
         dst.vaddr + len <= dst.range@.end,
         forall|i: usize|
@@ -1005,7 +1005,7 @@ impl<'a> VmReader<'a, Infallible> {
                         final(self).cursor.vaddr <= va < old(self).end.vaddr
                         && crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va) is Some
                         && crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).memory.contains_key(
-                            crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va).unwrap().0
+                            (crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va)->0).0
                         ) ==> {
                             &&& crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va)
                                 == crate::specs::mm::io::VmIoOwner::read_view_of(*final(owner)).addr_transl(va)
@@ -1716,7 +1716,7 @@ impl<Fallibility> VmReader<'_, Fallibility> {
                     final(self).cursor.vaddr <= va < old(self).end.vaddr
                     && crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va) is Some
                     && crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).memory.contains_key(
-                        crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va).unwrap().0
+                            (crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va)->0).0
                     ) ==> {
                         &&& crate::specs::mm::io::VmIoOwner::read_view_of(*old(owner)).addr_transl(va)
                             == crate::specs::mm::io::VmIoOwner::read_view_of(*final(owner)).addr_transl(va)

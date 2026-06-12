@@ -1,6 +1,7 @@
 use vstd::prelude::*;
 
 use vstd::cell;
+use vstd::modes::tracked_swap;
 use vstd::simple_pptr::PointsTo;
 use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
@@ -32,10 +33,16 @@ pub tracked struct FrameEntryOwner {
     pub is_tracked: bool,
 }
 
+pub tracked enum EntryOwnerKind<C: PageTableConfig> {
+    Node(NodeOwner<C>),
+    Frame(FrameEntryOwner),
+    Locked(ghost Seq<FrameView<C>>),
+    Borrowed(ghost Set<Mapping>),
+    Absent,
+}
+
 pub tracked struct EntryOwner<C: PageTableConfig> {
-    pub node: Option<NodeOwner<C>>,
-    pub frame: Option<FrameEntryOwner>,
-    pub locked: Option<Ghost<Seq<FrameView<C>>>>,
+    pub kind: EntryOwnerKind<C>,
     /// Translation-only / borrowed-sub-tree variant.
     ///
     /// Present when the slot's PTE references a sub-tree owned by *another*
@@ -44,46 +51,56 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     /// records the mappings reachable through that sub-tree so the
     /// embedding can reason about what the borrowed translation provides
     /// without descending into a sub-tree it does not own. Mutually
-    /// exclusive with `node`, `frame`, and `locked`.
-    pub borrowed: Option<Ghost<Set<Mapping>>>,
-    pub absent: bool,
+    /// exclusive with `node`, `frame`, `locked`, and `absent` by construction.
     pub in_scope: bool,
     pub path: TreePath<NR_ENTRIES>,
     pub parent_level: PagingLevel,
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
+    #[verifier::inline]
     pub open spec fn is_node(self) -> bool {
-        self.node is Some
+        self.kind is Node
     }
 
+    #[verifier::inline]
     pub open spec fn is_frame(self) -> bool {
-        self.frame is Some
+        self.kind is Frame
     }
 
+    #[verifier::inline]
     pub open spec fn is_locked(self) -> bool {
-        self.locked is Some
+        self.kind is Locked
     }
 
+    #[verifier::inline]
     pub open spec fn is_absent(self) -> bool {
-        self.absent
+        self.kind is Absent
     }
 
+    #[verifier::inline]
     pub open spec fn is_borrowed(self) -> bool {
-        self.borrowed is Some
+        self.kind is Borrowed
+    }
+
+    pub open spec fn node(self) -> NodeOwner<C> {
+        self.kind->Node_0
+    }
+
+    pub open spec fn frame(self) -> FrameEntryOwner {
+        self.kind->Frame_0
+    }
+
+    pub open spec fn locked(self) -> Seq<FrameView<C>> {
+        self.kind->Locked_0
+    }
+
+    pub open spec fn borrowed(self) -> Set<Mapping> {
+        self.kind->Borrowed_0
     }
 
     pub open spec fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> Self {
-        EntryOwner {
-            node: None,
-            frame: None,
-            locked: None,
-            borrowed: None,
-            absent: true,
-            in_scope: true,
-            path,
-            parent_level,
-        }
+        EntryOwner { kind: EntryOwnerKind::Absent, in_scope: true, path, parent_level }
     }
 
     pub open spec fn new_frame(
@@ -94,8 +111,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         is_tracked: bool,
     ) -> Self {
         EntryOwner {
-            node: None,
-            frame: Some(
+            kind: EntryOwnerKind::Frame(
                 FrameEntryOwner {
                     mapped_pa: paddr,
                     size: page_size(parent_level),
@@ -103,9 +119,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     is_tracked,
                 },
             ),
-            locked: None,
-            borrowed: None,
-            absent: false,
             in_scope: true,
             path,
             parent_level,
@@ -114,11 +127,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> Self {
         EntryOwner {
-            node: Some(node),
-            frame: None,
-            locked: None,
-            borrowed: None,
-            absent: false,
+            kind: EntryOwnerKind::Node(node),
             in_scope: true,
             path,
             parent_level: (node.level + 1) as PagingLevel,
@@ -132,16 +141,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         parent_level: PagingLevel,
         mappings: Set<Mapping>,
     ) -> Self {
-        EntryOwner {
-            node: None,
-            frame: None,
-            locked: None,
-            borrowed: Some(Ghost(mappings)),
-            absent: false,
-            in_scope: true,
-            path,
-            parent_level,
-        }
+        EntryOwner { kind: EntryOwnerKind::Borrowed(mappings), in_scope: true, path, parent_level }
     }
 
     pub axiom fn tracked_new_borrowed(
@@ -169,6 +169,87 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             *final(self) == (EntryOwner { path, ..*old(self) }),
     ;
+
+    pub proof fn tracked_take_node(tracked &mut self) -> (tracked res: NodeOwner<C>)
+        requires
+            old(self).kind is Node,
+        ensures
+            res == old(self).node(),
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Absent, ..*old(self) }),
+    {
+        let tracked mut tmp = EntryOwnerKind::Absent;
+        tracked_swap(&mut self.kind, &mut tmp);
+        match tmp {
+            EntryOwnerKind::Node(node) => node,
+            _ => { proof_from_false() },
+        }
+    }
+
+    pub proof fn tracked_put_node(tracked &mut self, tracked node: NodeOwner<C>)
+        ensures
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Node(node), ..*old(self) }),
+    {
+        self.kind = EntryOwnerKind::Node(node);
+    }
+
+    pub proof fn tracked_borrow_node(tracked &self) -> (tracked res: &NodeOwner<C>)
+        requires
+            self.kind is Node,
+        ensures
+            *res == self.node(),
+    {
+        match self.kind {
+            EntryOwnerKind::Node(ref node) => node,
+            _ => { proof_from_false() },
+        }
+    }
+
+    pub proof fn tracked_borrow_mut_node(tracked &mut self) -> (tracked res: &mut NodeOwner<C>)
+        requires
+            old(self).kind is Node,
+        ensures
+            *res == old(self).node(),
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Node(*final(res)), ..*old(self) }),
+    {
+        match self.kind {
+            EntryOwnerKind::Node(ref mut node) => node,
+            _ => { proof_from_false() },
+        }
+    }
+
+    pub proof fn tracked_take_frame(tracked &mut self) -> (tracked res: FrameEntryOwner)
+        requires
+            old(self).kind is Frame,
+        ensures
+            res == old(self).frame(),
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Absent, ..*old(self) }),
+    {
+        let tracked mut tmp = EntryOwnerKind::Absent;
+        tracked_swap(&mut self.kind, &mut tmp);
+        match tmp {
+            EntryOwnerKind::Frame(frame) => frame,
+            _ => { proof_from_false() },
+        }
+    }
+
+    pub proof fn tracked_put_frame(tracked &mut self, tracked frame: FrameEntryOwner)
+        ensures
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Frame(frame), ..*old(self) }),
+    {
+        self.kind = EntryOwnerKind::Frame(frame);
+    }
+
+    pub proof fn tracked_borrow_frame(tracked &self) -> (tracked res: &FrameEntryOwner)
+        requires
+            self.kind is Frame,
+        ensures
+            *res == self.frame(),
+    {
+        match self.kind {
+            EntryOwnerKind::Frame(ref frame) => frame,
+            _ => { proof_from_false() },
+        }
+    }
 
     pub axiom fn tracked_new_frame(
         paddr: Paddr,
@@ -201,11 +282,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
             entry.is_frame(),
             entry.inv_base(),
         ensures
-            entry.frame.unwrap().is_tracked == C::tracked(
+            entry.frame().is_tracked == C::tracked(
                 C::item_from_raw_spec(
-                    entry.frame.unwrap().mapped_pa,
+                    entry.frame().mapped_pa,
                     entry.parent_level,
-                    entry.frame.unwrap().prop,
+                    entry.frame().prop,
                 ),
             ),
     ;
@@ -220,10 +301,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             entry.is_frame(),
             entry.inv_base(),
         ensures
-            #[trigger] entry.frame.unwrap().is_tracked
-                != crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                entry.frame.unwrap().mapped_pa,
-            ),
+            #[trigger] entry.frame().is_tracked
+                != crate::specs::mm::frame::meta_owners::is_mmio_paddr(entry.frame().mapped_pa),
     ;
 
     pub axiom fn tracked_new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> tracked Self
@@ -250,10 +329,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             parent_level <= NR_LEVELS,
         ensures
             res.is_frame(),
-            res.frame.unwrap().mapped_pa == paddr,
-            res.frame.unwrap().prop == prop,
-            res.frame.unwrap().size == page_size(parent_level),
-            res.frame.unwrap().is_tracked == false,
+            res.frame().mapped_pa == paddr,
+            res.frame().prop == prop,
+            res.frame().size == page_size(parent_level),
+            res.frame().is_tracked == false,
             res.parent_level == parent_level,
             res.path.inv(),
             res.in_scope,
@@ -270,12 +349,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
         &&& pte.is_present() && !pte.is_last(parent_level) ==> {
             &&& self.is_node()
-            &&& meta_to_frame(self.node.unwrap().meta_addr_self()) == pte.paddr()
+            &&& meta_to_frame(self.node().meta_addr_self()) == pte.paddr()
         }
         &&& pte.is_present() && pte.is_last(parent_level) ==> {
             &&& self.is_frame()
-            &&& self.frame.unwrap().mapped_pa == pte.paddr()
-            &&& self.frame.unwrap().prop == pte.prop()
+            &&& self.frame().mapped_pa == pte.paddr()
+            &&& self.frame().prop == pte.prop()
         }
     }
 
@@ -327,8 +406,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             pte.is_last(parent_level),
         ensures
             self.is_frame(),
-            self.frame.unwrap().mapped_pa == pte.paddr(),
-            self.frame.unwrap().prop == pte.prop(),
+            self.frame().mapped_pa == pte.paddr(),
+            self.frame().prop == pte.prop(),
     {
         if !pte.is_present() {
             assert(self.is_absent());
@@ -336,8 +415,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             assert(false);
         }
         assert(self.is_frame());
-        assert(self.frame.unwrap().mapped_pa == pte.paddr());
-        assert(self.frame.unwrap().prop == pte.prop());
+        assert(self.frame().mapped_pa == pte.paddr());
+        assert(self.frame().prop == pte.prop());
     }
 
     pub proof fn huge_frame_split_child_at(self, regions: MetaRegionOwners, idx: usize)
@@ -348,19 +427,19 @@ impl<C: PageTableConfig> EntryOwner<C> {
             1 < self.parent_level < NR_LEVELS,
             idx < NR_ENTRIES,
         ensures
-            self.frame.unwrap().mapped_pa + idx * page_size((self.parent_level - 1) as PagingLevel)
+            self.frame().mapped_pa + idx * page_size((self.parent_level - 1) as PagingLevel)
                 < MAX_PADDR,
-            ((self.frame.unwrap().mapped_pa + idx * page_size(
+            ((self.frame().mapped_pa + idx * page_size(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % page_size((self.parent_level - 1) as PagingLevel) == 0,
-            ((self.frame.unwrap().mapped_pa + idx * page_size(
+            ((self.frame().mapped_pa + idx * page_size(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) + page_size((self.parent_level - 1) as PagingLevel) <= MAX_PADDR,
-            ((self.frame.unwrap().mapped_pa + idx * page_size(
+            ((self.frame().mapped_pa + idx * page_size(
                 (self.parent_level - 1) as PagingLevel,
             )) as Paddr) % PAGE_SIZE == 0,
     {
-        let pa = self.frame.unwrap().mapped_pa;
+        let pa = self.frame().mapped_pa;
         let child_pa = (pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr;
         assert(self.parent_level == 2 || self.parent_level == 3);
         assert(NR_ENTRIES == 512) by {
@@ -439,14 +518,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
             forall|i: usize|
                 #![trigger r1.slot_owners[i]]
-                i != frame_to_index(self.meta_slot_paddr().unwrap()) && r0.slot_owners.contains_key(
-                    i,
-                ) ==> r0.slot_owners[i] == r1.slot_owners[i],
+                i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
+                    ==> r0.slot_owners[i] == r1.slot_owners[i],
         ensures
             self.frame_sub_pages_valid(r1),
     {
         if self.parent_level > 1 {
-            let pa = self.frame.unwrap().mapped_pa;
+            let pa = self.frame().mapped_pa;
             let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
             let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
             assert forall|j: usize|
@@ -509,7 +587,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// the corresponding subrange of indices.
     pub open spec fn frame_sub_pages_valid(self, regions: MetaRegionOwners) -> bool {
         self.is_frame() && self.parent_level > 1 ==> {
-            let pa = self.frame.unwrap().mapped_pa;
+            let pa = self.frame().mapped_pa;
             let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
             forall|j: usize|
                 #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
@@ -535,15 +613,15 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
-            let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+            let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
-            &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_addr_self()
+            &&& regions.slot_owners[idx].self_addr == self.node().meta_addr_self()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
-            &&& self.node.unwrap().metaregion_sound_node(regions)
+            &&& self.node().metaregion_sound_node(regions)
         } else if self.is_frame() {
-            let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+            let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slots.contains_key(idx)
             &&& regions.slots[idx].addr() == meta_addr(idx)
             &&& regions.slots[idx].is_init()
@@ -583,7 +661,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             entry.metaregion_sound(regions),
             regions.slots.contains_key(free_idx),
         ensures
-            frame_to_index(entry.meta_slot_paddr().unwrap()) != free_idx,
+            frame_to_index(entry.meta_slot_paddr()->0) != free_idx,
     ;
 
     pub axiom fn get_path(self) -> tracked TreePath<NR_ENTRIES>
@@ -593,9 +671,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn meta_slot_paddr(self) -> Option<Paddr> {
         if self.is_node() {
-            Some(meta_to_frame(self.node.unwrap().meta_addr_self()))
+            Some(meta_to_frame(self.node().meta_addr_self()))
         } else if self.is_frame() {
-            Some(self.frame.unwrap().mapped_pa)
+            Some(self.frame().mapped_pa)
         } else {
             None
         }
@@ -603,7 +681,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn meta_slot_paddr_neq(self, other: Self) -> bool {
         self.meta_slot_paddr() is Some ==> other.meta_slot_paddr() is Some
-            ==> self.meta_slot_paddr().unwrap() != other.meta_slot_paddr().unwrap()
+            ==> self.meta_slot_paddr()->0 != other.meta_slot_paddr()->0
     }
 
     /// `metaregion_sound` transfers when `slot_owners` matches and `slots` is a superset.
@@ -620,9 +698,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.metaregion_sound(r1),
     {
         if self.is_node() {
-            let slot_idx = self.node.unwrap().slot_index;
+            let slot_idx = self.node().slot_index;
             assert(r0.slots.contains_key(slot_idx));
-            assert(self.node.unwrap().meta_perm_of(r1) == self.node.unwrap().meta_perm_of(r0));
+            assert(self.node().meta_perm_of(r1) == self.node().meta_perm_of(r0));
         }
     }
 
@@ -644,13 +722,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // slots preserved at the entry's index (frames read from slots)
             forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
             forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
-            self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr().unwrap())
+            self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr()->0)
                 != changed_idx,
             // Huge frames: if changed_idx is one of this frame's 4KB sub-page slots and
             // that sub-slot is non-MMIO, the sub-page validity at changed_idx must still
             // hold in r1. MMIO sub-pages keep `usage == MMIO` and `rc == UNUSED`.
             self.is_frame() && self.parent_level > 1 ==> {
-                let pa = self.frame.unwrap().mapped_pa;
+                let pa = self.frame().mapped_pa;
                 let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
                 forall|j: usize|
                     0 < j < nr_pages ==> {
@@ -667,12 +745,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.metaregion_sound(r1),
     {
         if self.is_node() {
-            let slot_idx = self.node.unwrap().slot_index;
+            let slot_idx = self.node().slot_index;
             let outer_idx = frame_to_index(self.meta_slot_paddr().unwrap());
             assert(r0.slots.contains_key(slot_idx));
             assert(slot_idx != changed_idx);
             assert(r1.slot_owners[slot_idx] == r0.slot_owners[slot_idx]);
-            assert(self.node.unwrap().meta_perm_of(r1) == self.node.unwrap().meta_perm_of(r0));
+            assert(self.node().meta_perm_of(r1) == self.node().meta_perm_of(r0));
         }
     }
 
@@ -700,16 +778,16 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r1.slot_owners[changed_idx].usage == r0.slot_owners[changed_idx].usage,
             // For nodes at changed_idx: the new paths_in_pt must match this entry's path.
             self.is_node() && self.meta_slot_paddr() is Some && frame_to_index(
-                self.meta_slot_paddr().unwrap(),
+                self.meta_slot_paddr()->0,
             ) == changed_idx ==> r1.slot_owners[changed_idx].paths_in_pt == set![self.path],
             // For frames at changed_idx: the new paths_in_pt must still contain this entry's path.
             self.is_frame() && self.meta_slot_paddr() is Some && frame_to_index(
-                self.meta_slot_paddr().unwrap(),
+                self.meta_slot_paddr()->0,
             ) == changed_idx ==> r1.slot_owners[changed_idx].paths_in_pt.contains(self.path),
             // For huge frames: if changed_idx is one of this frame's sub-page slots (j > 0),
             // the new paths_in_pt at changed_idx must remain empty.
             self.is_frame() && self.parent_level > 1 ==> {
-                let pa = self.frame.unwrap().mapped_pa;
+                let pa = self.frame().mapped_pa;
                 let sub_level = (self.parent_level - 1) as PagingLevel;
                 forall|j: usize|
                     0 < j < NR_ENTRIES ==> {
@@ -735,7 +813,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 // Sub-page validity for huge frames: slot existence (unconditional)
                 // plus `rc` bookkeeping when tracked.
                 if self.parent_level > 1 {
-                    let pa = self.frame.unwrap().mapped_pa;
+                    let pa = self.frame().mapped_pa;
                     let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
                     let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
                     assert forall|j: usize|
@@ -772,9 +850,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             self.meta_slot_paddr() is Some,
             self.meta_slot_paddr() == other.meta_slot_paddr(),
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].paths_in_pt
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr()->0)].paths_in_pt
                 == set![self.path],
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].paths_in_pt
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr()->0)].paths_in_pt
                 == set![other.path],
         ensures
             self.path == other.path,
@@ -792,7 +870,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.meta_slot_paddr() is Some,
             r0.slots == r1.slots,
             ({
-                let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+                let idx = frame_to_index(self.meta_slot_paddr()->0);
                 &&& r1.slot_owners[idx].inner_perms.ref_count.id()
                     == r0.slot_owners[idx].inner_perms.ref_count.id()
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value()
@@ -813,14 +891,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // All other slot_owners unchanged: preserves sub-page validity for huge frames.
             forall|i: usize|
                 #![trigger r1.slot_owners[i]]
-                i != frame_to_index(self.meta_slot_paddr().unwrap()) && r0.slot_owners.contains_key(
-                    i,
-                ) ==> r0.slot_owners[i] == r1.slot_owners[i],
+                i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
+                    ==> r0.slot_owners[i] == r1.slot_owners[i],
         ensures
             self.metaregion_sound(r1),
     {
         if self.is_frame() && self.parent_level > 1 {
-            let pa = self.frame.unwrap().mapped_pa;
+            let pa = self.frame().mapped_pa;
             let nr_pages = page_size(self.parent_level) / PAGE_SIZE;
             let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
             assert forall|j: usize|
@@ -872,17 +949,17 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.is_node(),
             other.is_node(),
             self.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(
-                self.meta_slot_paddr().unwrap(),
+                self.meta_slot_paddr()->0,
             )].paths_in_pt == set![self.path],
             other.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(
-                other.meta_slot_paddr().unwrap(),
+                other.meta_slot_paddr()->0,
             )].paths_in_pt == set![other.path],
             self.path != other.path,
         ensures
-            self.node.unwrap().meta_addr_self() != other.node.unwrap().meta_addr_self(),
+            self.node().meta_addr_self() != other.node().meta_addr_self(),
     {
-        let self_addr = self.node.unwrap().meta_addr_self();
-        let other_addr = other.node.unwrap().meta_addr_self();
+        let self_addr = self.node().meta_addr_self();
+        let other_addr = other.node().meta_addr_self();
         let self_idx = frame_to_index(meta_to_frame(self_addr));
         let other_idx = frame_to_index(meta_to_frame(other_addr));
 
@@ -927,42 +1004,24 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// Structural invariant without `!in_scope`. Used by `Child::invariants`
     /// for entries that have been taken out of the tree (`in_scope == true`).
     pub open spec fn inv_base(self) -> bool {
-        &&& self.node is Some ==> {
-            &&& self.frame is None
-            &&& self.locked is None
-            &&& self.borrowed is None
-            &&& self.node.unwrap().inv()
-            &&& !self.absent
-            &&& self.parent_level == self.node.unwrap().level + 1
+        &&& self.is_node() ==> {
+            &&& self.node().inv()
+            &&& self.parent_level == self.node().level + 1
         }
-        &&& self.frame is Some ==> {
-            &&& self.node is None
-            &&& self.locked is None
-            &&& self.borrowed is None
-            &&& !self.absent
+        &&& self.is_frame() ==> {
             // Architectural constraint: frames only exist at PT levels that the
             // ISA actually supports as leaves (4K, 2M, 1G on x86). `parent_level
             // == NR_LEVELS` would be a 512 GiB huge page, which no current arch
             // permits — and `Mapping::inv` would reject its page_size.
             &&& 1 <= self.parent_level < NR_LEVELS
-            &&& self.frame.unwrap().mapped_pa % PAGE_SIZE == 0
-            &&& self.frame.unwrap().mapped_pa < MAX_PADDR
-            &&& self.frame.unwrap().size == page_size(self.parent_level)
-            &&& self.frame.unwrap().mapped_pa % page_size(self.parent_level) == 0
-            &&& self.frame.unwrap().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
+            &&& self.frame().mapped_pa % PAGE_SIZE == 0
+            &&& self.frame().mapped_pa < MAX_PADDR
+            &&& self.frame().size == page_size(self.parent_level)
+            &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
+            &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
         }
-        &&& self.locked is Some ==> {
-            &&& self.frame is None
-            &&& self.node is None
-            &&& self.borrowed is None
-            &&& !self.absent
-        }
-        &&& self.borrowed is Some ==> {
-            &&& self.node is None
-            &&& self.frame is None
-            &&& self.locked is None
-            &&& !self.absent
-        }
+        &&& self.is_locked() ==> { true }
+        &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()
     }
 
@@ -981,9 +1040,9 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
 impl<C: PageTableConfig> View for EntryOwner<C> {
     type V = EntryView<C>;
 
-    #[verifier::external_body]
     open spec fn view(&self) -> <Self as View>::V {
-        if let Some(frame) = self.frame {
+        if self.is_frame() {
+            let frame = self.frame();
             EntryView::Leaf {
                 leaf: LeafPageTableEntryView {
                     map_va: vaddr(self.path) as int,
@@ -995,7 +1054,8 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                     phantom: PhantomData,
                 },
             }
-        } else if let Some(node) = self.node {
+        } else if self.is_node() {
+            let node = self.node();
             EntryView::Intermediate {
                 node: IntermediatePageTableEntryView {
                     map_va: vaddr(self.path) as int,
@@ -1006,8 +1066,9 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                     phantom: PhantomData,
                 },
             }
-        } else if let Some(view) = self.locked {
-            EntryView::LockedSubtree { views: view@ }
+        } else if self.is_locked() {
+            let view = self.locked();
+            EntryView::LockedSubtree { views: view }
         } else {
             EntryView::Absent
         }

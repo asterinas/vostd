@@ -306,7 +306,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
     }
 
     pub closed spec fn resource(self) -> T {
-        self.r.value()->v.unwrap()
+        self.r.value()->v->0
     }
 
     pub closed spec fn frac(self) -> int {
@@ -369,8 +369,8 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         ensures
             result.id() == final(r).loc(),
             final(r).loc() == old(r).loc(),
-            final(r).value()->v.unwrap() == old(r).value()->v.unwrap(),
-            result.resource() == old(r).value()->v.unwrap(),
+            final(r).value()->v->0 == old(r).value()->v->0,
+            result.resource() == old(r).value()->v->0,
             final(r).value()->n + result.frac() == old(r).value()->n,
             result.frac() == n,
             final(r).value() matches FractionalCarrierOpt::Value { v: Some(_), .. },
@@ -411,8 +411,8 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
             old(r).value() matches FractionalCarrierOpt::Value { v: Some(_), .. },
         ensures
             final(r).loc() == old(r).loc(),
-            final(r).value()->v.unwrap() == old(r).value()->v.unwrap(),
-            final(r).value()->v.unwrap() == other.resource(),
+            final(r).value()->v->0 == old(r).value()->v->0,
+            final(r).value()->v->0 == other.resource(),
             final(r).value()->n == old(r).value()->n + other.frac(),
             final(r).value() matches FractionalCarrierOpt::Value { v: Some(_), .. },
     {

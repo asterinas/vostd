@@ -76,7 +76,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             old(regions).inv(),
         ensures
             !has_safe_slot(paddr) ==> res is Err,
-            res is Ok ==> res.unwrap().wf(owner@.unwrap()),
+            res is Ok ==> res.unwrap().wf(owner@->0),
             // Creating a live value mints its pending-Drop obligation.
             res is Ok ==> final(regions).frame_obligations == old(
                 regions,

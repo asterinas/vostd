@@ -294,27 +294,27 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             paddr_to_vaddr(self.start_paddr()) <= vaddr < paddr_to_vaddr(self.start_paddr())
                 + self.end_paddr() - self.start_paddr() ==> {
                 &&& view.addr_transl(vaddr) is Some
-                &&& view.memory.contains_key(view.addr_transl(vaddr).unwrap().0)
-                &&& view.memory[view.addr_transl(vaddr).unwrap().0].inv()
-                &&& view.memory[view.addr_transl(vaddr).unwrap().0].contents[view.addr_transl(
+                &&& view.memory.contains_key((view.addr_transl(vaddr)->0).0)
+                &&& view.memory[(view.addr_transl(vaddr)->0).0].inv()
+                &&& view.memory[(view.addr_transl(vaddr)->0).0].contents[(view.addr_transl(
                     vaddr,
-                ).unwrap().1 as int] is Init
+                )->0).1 as int] is Init
             }
         &&& forall|paddr: Paddr|
             #![trigger paddr_to_vaddr(paddr)]
             self.start_paddr() <= paddr < self.end_paddr() ==> {
                 let vaddr = paddr_to_vaddr(paddr);
                 &&& view.addr_transl(vaddr) is Some
-                &&& view.addr_transl(vaddr).unwrap().0 <= paddr
-                &&& paddr < view.addr_transl(vaddr).unwrap().0 + view.memory[view.addr_transl(
+                &&& (view.addr_transl(vaddr)->0).0 <= paddr
+                &&& paddr < (view.addr_transl(vaddr)->0).0 + view.memory[(view.addr_transl(
                     vaddr,
-                ).unwrap().0].size@
-                &&& view.addr_transl(vaddr).unwrap().1 == paddr - view.addr_transl(vaddr).unwrap().0
-                &&& view.memory.contains_key(view.addr_transl(vaddr).unwrap().0)
-                &&& view.memory[view.addr_transl(vaddr).unwrap().0].inv()
-                &&& view.memory[view.addr_transl(vaddr).unwrap().0].contents[view.addr_transl(
+                )->0).0].size@
+                &&& (view.addr_transl(vaddr)->0).1 == paddr - (view.addr_transl(vaddr)->0).0
+                &&& view.memory.contains_key((view.addr_transl(vaddr)->0).0)
+                &&& view.memory[(view.addr_transl(vaddr)->0).0].inv()
+                &&& view.memory[(view.addr_transl(vaddr)->0).0].contents[(view.addr_transl(
                     vaddr,
-                ).unwrap().1 as int] is Init
+                )->0).1 as int] is Init
             }
     }
 }

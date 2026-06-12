@@ -225,8 +225,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             owner.relate_region(*old(regions)),
         ensures
             owner.list.len() == 0 ==> r.is_none(),
-            r.is_some() ==> r.unwrap().0.model(r.unwrap().1@).meta == owner.list[0]@,
-            r.is_some() ==> r.unwrap().1@.frame_link_inv(*final(regions)),
+            r.is_some() ==> (r->0).0.model((r->0).1@).meta == owner.list[0]@,
+            r.is_some() ==> (r->0).1@.frame_link_inv(*final(regions)),
     )]
     pub fn pop_front(&mut self) -> Option<
         (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),
@@ -320,8 +320,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             owner.relate_region(*old(regions)),
         ensures
             owner.list.len() == 0 ==> r.is_none(),
-            r.is_some() ==> r.unwrap().0.model(r.unwrap().1@).meta == owner.list[owner.list.len() - 1]@,
-            r.is_some() ==> r.unwrap().1@.frame_link_inv(*final(regions)),
+            r.is_some() ==> (r->0).0.model((r->0).1@).meta == owner.list[owner.list.len() - 1]@,
+            r.is_some() ==> (r->0).1@.frame_link_inv(*final(regions)),
     )]
     pub fn pop_back(&mut self) -> Option<
         (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),
@@ -853,13 +853,13 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         ensures
             old(owner).length() == 0 ==> res.is_none(),
             old(self).current.is_some() ==> res.is_some(),
-            res.is_some() ==> res.unwrap().0.model(res.unwrap().1@).meta == old(
+            res.is_some() ==> (res->0).0.model((res->0).1@).meta == old(owner).list_own.list[old(
                 owner,
-            ).list_own.list[old(owner).index]@,
+            ).index]@,
             res.is_some() ==> final(self).model(*final(owner)) == old(self).model(
                 *old(owner),
             ).remove(),
-            res.is_some() ==> res.unwrap().1@.frame_link_inv(*final(regions)),
+            res.is_some() ==> (res->0).1@.frame_link_inv(*final(regions)),
             // Invariant preservation
             res.is_some() ==> final(owner).inv_region(*final(regions)),
             res.is_some() ==> final(self).wf_region(*final(owner), *final(regions)),
@@ -872,7 +872,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             ),
             final(owner).list_own.list_id == old(owner).list_own.list_id,
             res.is_some() ==> {
-                let paddr = old(self).current.unwrap().addr();
+                let paddr = old(self).current->0.addr();
                 let idx = frame_to_index(meta_to_frame(paddr));
                 &&& final(regions).slots.dom() == old(regions).slots.dom()
                 &&& final(regions).slot_owners[idx].inner_perms.ref_count.value()
@@ -887,7 +887,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             },
             res.is_some() ==> forall|j: usize|
                 #![trigger final(regions).slot_owners[j]]
-                j != frame_to_index(meta_to_frame(old(self).current.unwrap().addr())) ==> {
+                j != frame_to_index(meta_to_frame(old(self).current->0.addr())) ==> {
                     &&& final(regions).slot_owners[j].usage == old(regions).slot_owners[j].usage
                     &&& final(regions).slot_owners[j].self_addr == old(
                         regions,
@@ -898,17 +898,15 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 },
             res.is_none() ==> *final(regions) == *old(regions),
             // Properties of the returned frame needed for UniqueFrame::drop
-            res.is_some() ==> res.unwrap().0.wf(res.unwrap().1@),
-            res.is_some() ==> res.unwrap().1@.inv(),
-            res.is_some() ==> res.unwrap().1@.slot_index == frame_to_index(
-                meta_to_frame(old(self).current.unwrap().addr()),
+            res.is_some() ==> (res->0).0.wf((res->0).1@),
+            res.is_some() ==> (res->0).1@.inv(),
+            res.is_some() ==> (res->0).1@.slot_index == frame_to_index(
+                meta_to_frame(old(self).current->0.addr()),
             ),
-            res.is_some() ==> res.unwrap().0.ptr.addr() == old(self).current.unwrap().addr(),
+            res.is_some() ==> (res->0).0.ptr.addr() == old(self).current->0.addr(),
             res.is_some() ==> final(regions).frame_obligations == old(
                 regions,
-            ).frame_obligations.insert(
-                frame_to_index(meta_to_frame(old(self).current.unwrap().addr())),
-            ),
+            ).frame_obligations.insert(frame_to_index(meta_to_frame(old(self).current->0.addr()))),
     {
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;

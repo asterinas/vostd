@@ -36,7 +36,7 @@ pub tracked struct VmIoPermission {
 ///
 /// This struct serves as a bookkeeper for all _active_ readers/writers within a specific
 /// virtual memory space. It maintains a holistic view of the memory range covered by the
-/// VM space it is tracking using a [`Ghost<MemView>`]. It also maintains a [`Tracked<MemView>`]
+/// VM space it is tracking using a ghost [`MemView`]. It also maintains a tracked [`MemView`]
 /// for the current memories it is holding permissions for, which is a subset of the total
 /// memory range.
 ///
@@ -81,7 +81,7 @@ pub tracked struct VmSpaceOwner {
     /// of the mappings may be  transferred to the writers.
     pub mem_view: Option<MemView>,
     /// This is the holistic view of the memory range covered by this VM space owner.
-    pub mv_range: Ghost<Option<MemView>>,
+    pub ghost mv_range: Option<MemView>,
     /// Whether we allow shared reading.
     pub shared_reader: bool,
 }
@@ -177,9 +177,9 @@ impl<'a> VmSpaceOwner {
     /// * **Translation Consistency**: Reader translations must be consistent with the total view.
     pub open spec fn mem_view_wf(self) -> bool {
         &&& self.mem_view is Some
-            <==> self.mv_range@ is Some
+            <==> self.mv_range is Some
         // This requires that TotalMapping (mvv) = mv ∪ writer mappings ∪ reader mappings
-        &&& self.mem_view matches Some(remaining_view) ==> self.mv_range@ matches Some(total_view)
+        &&& self.mem_view matches Some(remaining_view) ==> self.mv_range matches Some(total_view)
             ==> {
             &&& remaining_view.mappings_are_disjoint()
             &&& total_view.mappings_are_disjoint()
@@ -327,7 +327,7 @@ impl<'a> VmSpaceOwner {
             reader.inv(),
         ensures
             reader.wf(*final(owner_r)),
-            final(owner_r).mem_view == Some(VmIoMemView::ReadView(old(self).mem_view@.unwrap().borrow_at(
+            final(owner_r).mem_view == Some(VmIoMemView::ReadView(old(self).mem_view@->0.borrow_at(
                 old(owner_r).range.start,
                 (old(owner_r).range.end - old(owner_r).range.start) as usize,
             ))),
@@ -405,7 +405,7 @@ impl<'a> VmSpaceOwner {
             writer.inv(),
         ensures
             writer.wf(*final(owner_w)),
-            final(owner_w).mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@.unwrap().split(
+            final(owner_w).mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@->0.split(
                 old(owner_w).range.start,
                 (old(owner_w).range.end - old(owner_w).range.start) as usize,
             ).0)),
@@ -495,7 +495,7 @@ impl<'a> VmSpaceOwner {
             old(self).inv(),
             old(self).active,
             old(self).mem_view is Some,
-            old(self).mv_range@ is Some,
+            old(self).mv_range is Some,
             0 <= idx < old(self).writers.len() as int,
         ensures
             final(self).inv(),
@@ -516,7 +516,7 @@ impl<'a> VmSpaceOwner {
         self.mem_view = Some(remaining);
 
         assert(self.mem_view_wf()) by {
-            let ghost total_view = self.mv_range@.unwrap();
+            let ghost total_view = self.mv_range.unwrap();
 
             assert(remaining.mappings == old_remaining.mappings.union(mv.mappings));
             assert(remaining.memory == old_remaining.memory.union_prefer_right(mv.memory));
@@ -590,7 +590,7 @@ impl<'a> VmSpaceOwner {
             owner.inv(),
             old(self).inv(),
             old(self).active,
-            old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
+            old(self).mv_range matches Some(total_view) && owner.mem_view matches Some(
                 VmIoMemView::ReadView(mv),
             ) && old(self).mem_view matches Some(remaining) && {
                 forall|va: usize|
@@ -630,7 +630,7 @@ impl<'a> VmSpaceOwner {
             old(self).inv(),
             old(self).active,
             owner.inv(),
-            old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
+            old(self).mv_range matches Some(total_view) && owner.mem_view matches Some(
                 VmIoMemView::WriteView(mv),
             ) && old(self).mem_view matches Some(remaining) && {
                 &&& forall|va: usize|
@@ -710,7 +710,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     ) -> bool {
         if view.present() {
             &&& item is Some
-            &&& view.query_item_spec(item.unwrap()) == Some(range)
+            &&& view.query_item_spec(item->0) == Some(range)
         } else {
             &&& range.start == self.0.va
             &&& item is None
@@ -738,8 +738,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
         &&& prop == prop0
-        &&& entry_owner.frame.unwrap().mapped_pa == paddr
-        &&& entry_owner.frame.unwrap().prop == prop
+        &&& entry_owner.frame().mapped_pa == paddr
+        &&& entry_owner.frame().prop == prop
         &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
         &&& 1 <= level <= NR_LEVELS
         &&& level < self.pt_cursor.0.guard_level

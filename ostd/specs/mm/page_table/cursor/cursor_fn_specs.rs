@@ -78,7 +78,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         &&& res.1 is Some
         &&& {
             let qr = owner@.query_range();
-            owner@.query_item_spec(res.1.unwrap()) == Some(qr.start as Vaddr..qr.end as Vaddr)
+            owner@.query_item_spec(res.1->0) == Some(qr.start as Vaddr..qr.end as Vaddr)
         }
     }
 

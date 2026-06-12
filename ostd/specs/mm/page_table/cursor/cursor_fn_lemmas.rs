@@ -48,8 +48,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.cur_entry_owner().is_frame(),
             other.cur_entry_owner().inv(),
             // protect preserves PA, path, parent_level
-            other.cur_entry_owner().frame.unwrap().mapped_pa
-                == self.cur_entry_owner().frame.unwrap().mapped_pa,
+            other.cur_entry_owner().frame().mapped_pa == self.cur_entry_owner().frame().mapped_pa,
             other.cur_entry_owner().path == self.cur_entry_owner().path,
             other.cur_entry_owner().parent_level == self.cur_entry_owner().parent_level,
             // cursor level and structural fields unchanged
@@ -78,7 +77,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     == self.continuations[self.level - 1].children[j],
             ({
                 let new_child = other.continuations[self.level
-                    - 1].children[other.continuations[self.level - 1].idx as int].unwrap();
+                    - 1].children[other.continuations[self.level - 1].idx as int]->0;
                 let new_path = other.continuations[self.level - 1].path().push_tail(
                     other.continuations[self.level - 1].idx as usize,
                 );
@@ -196,11 +195,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             owner0.continuations[owner0.level - 1].children[owner0.continuations[owner0.level
                 - 1].idx as int] is Some,
             owner0.continuations[owner0.level - 1].children[owner0.continuations[owner0.level
-                - 1].idx as int].unwrap().value.is_absent(),
+                - 1].idx as int]->0.value.is_absent(),
             self.continuations[self.level - 1].children[self.continuations[self.level
                 - 1].idx as int] is Some,
             self.continuations[self.level - 1].children[self.continuations[self.level
-                - 1].idx as int].unwrap().value.is_node(),
+                - 1].idx as int]->0.value.is_node(),
             // Non-idx children and path preserved
             self.continuations[self.level - 1].path() == owner0.continuations[owner0.level
                 - 1].path(),
@@ -211,7 +210,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // The new node's subtree has empty view_rec (from alloc_if_none postcondition)
             PageTableOwner(
                 self.continuations[self.level - 1].children[self.continuations[self.level
-                    - 1].idx as int].unwrap(),
+                    - 1].idx as int]->0,
             ).view_rec(
                 self.continuations[self.level - 1].path().push_tail(
                     self.continuations[self.level - 1].idx as usize,
@@ -308,7 +307,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int|
                 0 <= i < NR_ENTRIES ==> #[trigger] self.continuations[self.level
                     - 1].children[i] is Some && self.continuations[self.level
-                    - 1].children[i].unwrap().value.is_absent(),
+                    - 1].children[i]->0.value.is_absent(),
         ensures
             self.cur_entry_owner().is_absent(),
     {
