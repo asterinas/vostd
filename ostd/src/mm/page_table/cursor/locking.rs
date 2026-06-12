@@ -258,13 +258,13 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             let cont = final(cursor_own).continuations[(final(cursor_own).level - 1) as int];
             &&& cont.entry_own.is_node()
             &&& cont.entry_own.inv()
-            &&& cont.entry_own.node().unwrap().relate_guard(cont.guard)
+            &&& cont.entry_own.node().relate_guard(cont.guard)
             &&& cont.entry_own.metaregion_sound(*final(regions))
         },
         // The subtree root is lock_held in guards.
         final(guards).lock_held(
             final(cursor_own).continuations[(final(cursor_own).level - 1) as int]
-                .entry_own.node().unwrap().meta_addr_self()),
+                .entry_own.node().meta_addr_self()),
         // regions invariant preserved
         final(regions).inv(),
         // Locking only allocates fresh page-table nodes from UNUSED slots;
@@ -485,17 +485,17 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     requires
         entry_own.is_node(),
         entry_own.inv(),
-        entry_own.node().unwrap().relate_guard(*cur_node),
-        old(guards).lock_held(entry_own.node().unwrap().meta_addr_self()),
+        entry_own.node().relate_guard(*cur_node),
+        old(guards).lock_held(entry_own.node().meta_addr_self()),
         cur_node_va <= va_range.start,
         va_range.start < va_range.end,
         old(regions).inv(),
     ensures
         // The root node is still lock_held (not ManuallyDrop'd by this fn).
-        final(guards).lock_held(entry_own.node().unwrap().meta_addr_self()),
+        final(guards).lock_held(entry_own.node().meta_addr_self()),
         // All other locks are preserved: addresses not in this subtree are unchanged.
         forall |addr: usize|
-            addr != entry_own.node().unwrap().meta_addr_self()
+            addr != entry_own.node().meta_addr_self()
             && old(guards).guards.contains(addr) ==>
             #[trigger] final(guards).guards.contains(addr),
         // Addresses not in old guards don't appear in final guards

@@ -48,8 +48,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.cur_entry_owner().is_frame(),
             other.cur_entry_owner().inv(),
             // protect preserves PA, path, parent_level
-            other.cur_entry_owner().frame().unwrap().mapped_pa
-                == self.cur_entry_owner().frame().unwrap().mapped_pa,
+            other.cur_entry_owner().frame().mapped_pa == self.cur_entry_owner().frame().mapped_pa,
             other.cur_entry_owner().path == self.cur_entry_owner().path,
             other.cur_entry_owner().parent_level == self.cur_entry_owner().parent_level,
             // cursor level and structural fields unchanged

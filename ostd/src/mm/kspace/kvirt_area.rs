@@ -205,14 +205,14 @@ pub(crate) fn get_kernel_page_table<'rcu>(
     ensures
         final(kernel_owner)@ is Some,
         final(kernel_owner)@.unwrap().inv(),
-        final(kernel_owner)@.unwrap().0.value.node() is Some,
-        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node().unwrap().meta_addr_self(),
+        final(kernel_owner)@.unwrap().0.value.is_node(),
+        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node().meta_addr_self(),
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
-            final(kernel_owner)@.unwrap().0.value.node().unwrap(),
+            final(kernel_owner)@.unwrap().0.value.node(),
         ),
         final(kernel_owner)@.unwrap().0.value.metaregion_sound(*regions),
         final(kernel_owner)@.unwrap().metaregion_sound(*regions),
-        guards.unlocked(final(kernel_owner)@.unwrap().0.value.node().unwrap().meta_addr_self()),
+        guards.unlocked(final(kernel_owner)@.unwrap().0.value.node().meta_addr_self()),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }
@@ -802,9 +802,9 @@ impl KVirtArea {
             let ghost cur_parent_level = entry_owners[cur_mapped_pa].parent_level;
             // Capture the original-owner facts now (Verus can lose them across the
             // cursor.map call, which churns enormous proof context).
-            let ghost orig_mapped_pa = pre_remove_owners[cur_mapped_pa].frame().unwrap().mapped_pa;
-            let ghost orig_size = pre_remove_owners[cur_mapped_pa].frame().unwrap().size;
-            let ghost orig_prop = pre_remove_owners[cur_mapped_pa].frame().unwrap().prop;
+            let ghost orig_mapped_pa = pre_remove_owners[cur_mapped_pa].frame().mapped_pa;
+            let ghost orig_size = pre_remove_owners[cur_mapped_pa].frame().size;
+            let ghost orig_prop = pre_remove_owners[cur_mapped_pa].frame().prop;
             proof {
                 KernelPtConfig::item_into_raw_spec_tracked_level(MappedItem::Tracked(frame, prop));
                 KernelPtConfig::item_into_raw_spec_tracked_pa(

@@ -407,9 +407,9 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& owner.value.in_scope
     &&& owner.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty())
     &&& owner.value.parent_level == (level + 1) as PagingLevel
-    &&& owner.value.node().unwrap().level == level
-    &&& owner.value.node().unwrap().inv()
-    &&& !owner.value.node().unwrap().children_perm.value().all(|child: C::E| child.is_present())
+    &&& owner.value.node().level == level
+    &&& owner.value.node().inv()
+    &&& !owner.value.node().children_perm.value().all(|child: C::E| child.is_present())
     &&& forall|i: int|
         #![auto]
         0 <= i < NR_ENTRIES ==> {
@@ -422,19 +422,19 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& forall|i: int|
         #![auto]
         0 <= i < NR_ENTRIES ==> owner.children[i].unwrap().value.match_pte(
-            owner.value.node().unwrap().children_perm.value()[i],
+            owner.value.node().children_perm.value()[i],
             owner.children[i].unwrap().value.parent_level,
         )
     &&& forall|i: int|
         #![auto]
         0 <= i < NR_ENTRIES ==> owner.children[i].unwrap().value.parent_level
-            == owner.value.node().unwrap().level
+            == owner.value.node().level
     // The freshly-allocated PT node is zero-filled, so every PTE in
     // `children_perm` is the absent PTE. (Stronger than the existing
     // "not all are present" clause; needed by `split_if_mapped_huge`'s
     // loop invariant which inspects each slot's PTE.)
     &&& forall|j: int|
-        0 <= j < NR_ENTRIES ==> #[trigger] owner.value.node().unwrap().children_perm.value()[j]
+        0 <= j < NR_ENTRIES ==> #[trigger] owner.value.node().children_perm.value()[j]
             == C::E::new_absent_spec()
 }
 
@@ -539,14 +539,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Per-edge constraint between a node-parent and its child at index `i`.
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
         &&& parent.children[i] is Some
-        &&& parent.children[i].unwrap().value.path.len() == parent.value.node().unwrap().tree_level
-            + 1
+        &&& parent.children[i].unwrap().value.path.len() == parent.value.node().tree_level + 1
         &&& parent.children[i].unwrap().value.match_pte(
-            parent.value.node().unwrap().children_perm.value()[i],
-            parent.value.node().unwrap().level,
+            parent.value.node().children_perm.value()[i],
+            parent.value.node().level,
         )
         &&& parent.children[i].unwrap().value.path == parent.value.path.push_tail(i as usize)
-        &&& parent.children[i].unwrap().value.parent_level == parent.value.node().unwrap().level
+        &&& parent.children[i].unwrap().value.parent_level == parent.value.node().level
     }
 
     /// Depth-indexed PT-specific per-edge invariant. `depth` is a manifest
@@ -643,13 +642,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     let c = #[trigger] owner.children[i];
                     &&& c is Some
                     &&& c.unwrap().value.is_absent()
-                    &&& c.unwrap().value.path.len() == owner.value.node().unwrap().tree_level + 1
+                    &&& c.unwrap().value.path.len() == owner.value.node().tree_level + 1
                     &&& c.unwrap().value.match_pte(
-                        owner.value.node().unwrap().children_perm.value()[i],
-                        owner.value.node().unwrap().level,
+                        owner.value.node().children_perm.value()[i],
+                        owner.value.node().level,
                     )
                     &&& c.unwrap().value.path == owner.value.path.push_tail(i as usize)
-                    &&& c.unwrap().value.parent_level == owner.value.node().unwrap().level
+                    &&& c.unwrap().value.parent_level == owner.value.node().level
                 },
             allocated_empty_node_grandchildren_none(owner),
         ensures
@@ -798,11 +797,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             set![Mapping {
                 va_range: Range { start: va as int, end: va as int + page_size as int },
                 pa_range: Range {
-                    start: self.0.value.frame().unwrap().mapped_pa,
-                    end: (self.0.value.frame().unwrap().mapped_pa + page_size) as Paddr,
+                    start: self.0.value.frame().mapped_pa,
+                    end: (self.0.value.frame().mapped_pa + page_size) as Paddr,
                 },
                 page_size: page_size,
-                property: self.0.value.frame().unwrap().prop,
+                property: self.0.value.frame().prop,
             }]
         } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
             self.view_rec_children_union(path, self.0.children.len() as int)
@@ -1014,7 +1013,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         lemma_page_size_spec_values();
         if self.0.value.is_frame() {
             Self::lemma_vaddr_path_alignment_and_bound(path);
-            let frame = self.0.value.frame().unwrap();
+            let frame = self.0.value.frame();
             let pt_level = (INC_LEVELS - path.len()) as PagingLevel;
             let expected = Mapping {
                 va_range: Range {
@@ -1174,7 +1173,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
         // Root entry satisfies `g`.
         if self.0.value.is_frame() {
-            let frame = self.0.value.frame().unwrap();
+            let frame = self.0.value.frame();
             let pt_level = (INC_LEVELS - path.len()) as PagingLevel;
             let expected = Mapping {
                 va_range: Range {
@@ -1516,7 +1515,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
         if self.0.value.is_frame() {
             lemma_page_size_spec_values();
-            let frame = self.0.value.frame().unwrap();
+            let frame = self.0.value.frame();
             let pt_level = (INC_LEVELS - path.len()) as PagingLevel;
             Self::lemma_vaddr_path_alignment_and_bound(path);
             let m = Mapping {
@@ -1625,7 +1624,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         requires
             self.0.inv(),
             self.0.value.is_node(),
-            self.0.value.node().unwrap().meta_own.nr_children.value() == 0,
+            self.0.value.node().meta_own.nr_children.value() == 0,
             path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level,
         ensures
@@ -1737,7 +1736,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 self.0.value.path,
                 |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
                     e.is_frame() && e.parent_level > 1 ==> {
-                        let pa = e.frame().unwrap().mapped_pa;
+                        let pa = e.frame().mapped_pa;
                         let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
@@ -1789,7 +1788,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 path,
                 |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
                     e.is_frame() && e.parent_level > 1 ==> {
-                        let pa = e.frame().unwrap().mapped_pa;
+                        let pa = e.frame().mapped_pa;
                         let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
@@ -2198,7 +2197,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             m.va_range.start == vaddr_of::<C>(entry.path) as int,
             m.page_size == page_size((INC_LEVELS - entry.path.len()) as PagingLevel),
             entry.is_frame(),
-            m.property == entry.frame().unwrap().prop,
+            m.property == entry.frame().prop,
             self.0.tree_predicate_map(path, Self::is_at_pred(entry, entry.path)),
             self.0.tree_predicate_map(path, Self::path_in_tree_pred(entry.path)),
             entry.inv(),
@@ -2318,7 +2317,7 @@ impl<C: PageTableConfig> Inv for PageTableOwner<C> {
         &&& self.0.value.path.inv()
         &&& self.0.value.path.len() == self.0.level
         &&& self.0.value.parent_level == (INC_LEVELS - self.0.level) as PagingLevel
-        &&& self.0.value.node().unwrap().tree_level == self.0.value.path.len()
+        &&& self.0.value.node().tree_level == self.0.value.path.len()
         &&& self.0.tree_predicate_map(self.0.value.path, Self::path_correct_pred())
     }
 }
