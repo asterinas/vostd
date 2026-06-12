@@ -652,7 +652,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         if entry_is_present || level <= 1 {
             None
         } else {
-            let tracked old_path = owner.value.get_path();
+            let ghost old_path = owner.value.path;
 
             proof_decl! {
                 let tracked mut new_node_owner: Tracked<OwnerSubtree<C>>;

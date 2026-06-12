@@ -490,7 +490,7 @@ pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
     if i < NR_ENTRIES {
         let tracked mut child_opt = owner.children.tracked_remove(i as int);
         let tracked mut child = child_opt.tracked_unwrap();
-        child.value.set_path_axiom(new_path.push_tail(i));
+        child.value.path = new_path.push_tail(i);
         owner.children.tracked_insert(i as int, Some(child));
         rebase_freshly_allocated_children_at(owner, new_path, (i + 1) as usize);
     }
