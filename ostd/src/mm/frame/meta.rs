@@ -101,7 +101,6 @@ use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        kspace::FRAME_METADATA_RANGE,
         MAX_NR_PAGES,
         MAX_PADDR,
         /*VmReader,*/ PAGE_SIZE,
@@ -109,6 +108,7 @@ use crate::{
         PagingLevel,
         //Segment,
         Vaddr,
+        kspace::FRAME_METADATA_RANGE,
         //        frame::allocator::{self, EarlyAllocatedFrameMeta},
         paddr_to_vaddr,
         //        page_table::boot_pt,

@@ -21,10 +21,7 @@ use crate::{
         paddr_to_vaddr,
     },
     specs::{
-        arch::{
-            PAGE_SIZE,
-            kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
-        },
+        arch::{PAGE_SIZE, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
         mm::frame::segment::SegmentOwner,
         mm::io::{VmIoMemView, VmIoOwner},
         mm::virt_mem::{MemView, VirtPtr},

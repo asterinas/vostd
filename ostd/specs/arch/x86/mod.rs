@@ -1,22 +1,36 @@
-use vstd::arithmetic::div_mod::*;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr};
+use crate::mm::{Paddr, Vaddr};
+use crate::specs::mm::frame::mapping::{
+    META_SLOT_SIZE, lemma_meta_to_frame_soundness, meta_to_frame,
+};
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
-use super::*;
-use crate::mm::{
-    Paddr, PagingConsts, Vaddr,
-    frame::meta::mapping::{lemma_meta_to_frame_soundness, meta_to_frame},
-    frame::*,
-    kspace::{
-        ADDR_WIDTH_SHIFT, FRAME_METADATA_BASE_VADDR, FRAME_METADATA_CAP_VADDR, KERNEL_BASE_VADDR,
-        KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, LINEAR_MAPPING_VADDR_RANGE,
-        VMALLOC_BASE_VADDR,
-    },
-};
-use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
+verus! {
 
-use core::ops::Range;
+// Asterinas is designed for 64-bit architectures.
+global size_of usize == 8;
 
+global size_of isize == 8;
+
+// The following constants are the same as those defined in `ostd::arch::mm::x86_64`,
+// but we record their actual values for better proof automation.
+/// Page size.
+pub const PAGE_SIZE: usize = 4096;
+
+/// The maximum number of entries in a page table node
+pub const NR_ENTRIES: usize = 512;
+
+/// The maximum level of a page table node.
+pub const NR_LEVELS: usize = 4;
+
+/// Parameterized maximum physical address.
+pub const MAX_PADDR: usize = 0x8000_0000;
+
+pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
+
+} // verus!
 verus! {
 
 pub proof fn lemma_linear_mapping_base_vaddr_properties()
@@ -28,21 +42,11 @@ pub proof fn lemma_linear_mapping_base_vaddr_properties()
     assert(LINEAR_MAPPING_BASE_VADDR < VMALLOC_BASE_VADDR) by (compute_only);
 }
 
+/// There is not an executable version in the source code.
 #[verifier::inline]
-pub open spec fn vaddr_to_paddr_spec(va: Vaddr) -> usize
+pub open spec fn vaddr_to_paddr(va: Vaddr) -> usize
     recommends
         LINEAR_MAPPING_BASE_VADDR <= va < VMALLOC_BASE_VADDR,
-{
-    (va - LINEAR_MAPPING_BASE_VADDR) as usize
-}
-
-#[inline(always)]
-#[verifier::when_used_as_spec(vaddr_to_paddr_spec)]
-pub fn vaddr_to_paddr(va: Vaddr) -> (res: usize)
-    requires
-        LINEAR_MAPPING_BASE_VADDR <= va < VMALLOC_BASE_VADDR,
-    ensures
-        res == vaddr_to_paddr(va),
 {
     (va - LINEAR_MAPPING_BASE_VADDR) as usize
 }

@@ -171,7 +171,6 @@ pub proof fn lemma_mod_0_add(a: int, b: int, m: int)
     lemma_mod_adds(a, b, m);
 }
 
-
 broadcast group group_arithmetic_lemmas {
     lemma_nat_align_up_sound,
     lemma_nat_align_down_sound,
