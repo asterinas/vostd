@@ -25,7 +25,7 @@ use core::ops::Range;
 use crate::Pod;
 use crate::mm::{Paddr, PodOnce, Vaddr};
 use crate::prelude::Inv;
-use crate::specs::arch::mm::MAX_PADDR;
+use crate::specs::arch::MAX_PADDR;
 use crate::specs::mm::page_table::Mapping;
 use ostd_pod::{decode_pod, lemma_decode_pod_inverse, pod_bytes};
 

@@ -6,7 +6,7 @@ use vstd_extra::ownership::*;
 use super::meta_owners::*;
 use crate::mm::frame::*;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::Paddr;
 use crate::specs::mm::frame::mapping::{
     frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,

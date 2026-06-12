@@ -19,7 +19,7 @@ use vstd_extra::arithmetic::{
 
 use crate::mm::page_table::*;
 use crate::mm::{PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Mapping;

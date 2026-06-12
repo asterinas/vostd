@@ -30,7 +30,7 @@ use crate::mm::frame::DynFrame;
 use crate::mm::kspace::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::PageTableGuard;
-use crate::specs::arch::mm::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
+use crate::specs::arch::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::{
     MetaSlotStorage, PageUsage, REF_COUNT_MAX, is_mmio_paddr,

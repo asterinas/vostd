@@ -19,7 +19,7 @@ use crate::mm::frame::meta::{
     mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr},
 };
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
+use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;
 use crate::specs::mm::frame::meta_owners::Metadata;
 

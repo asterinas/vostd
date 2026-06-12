@@ -27,7 +27,7 @@ use super::{
 use crate::Pod;
 use crate::specs::mm::page_table::*;
 
-use crate::specs::arch::mm::*;
+use crate::specs::arch::*;
 use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
@@ -203,7 +203,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// auto-derive from `axiom_nr_subpage_per_huge` + `axiom_pte_size`.
     proof fn axiom_pte_walk_fills_page()
         ensures
-            NR_ENTRIES * core::mem::size_of::<Self::E>() == crate::specs::arch::mm::PAGE_SIZE,
+            NR_ENTRIES * core::mem::size_of::<Self::E>() == crate::specs::arch::PAGE_SIZE,
     ;
 
     /// The top-level index range fits within a single PT-node. Concretely
@@ -252,11 +252,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             1 <= res.1 <= NR_LEVELS,
             res == Self::item_into_raw_spec(item),
-            res.0 % crate::specs::arch::mm::PAGE_SIZE == 0,
-            res.0 < crate::specs::arch::mm::MAX_PADDR,
+            res.0 % crate::specs::arch::PAGE_SIZE == 0,
+            res.0 < crate::specs::arch::MAX_PADDR,
             res.0 % crate::mm::page_table::cursor::page_size(res.1) == 0,
             res.0 + crate::mm::page_table::cursor::page_size(res.1)
-                <= crate::specs::arch::mm::MAX_PADDR,
+                <= crate::specs::arch::MAX_PADDR,
     ;
 
     /// Restores the item from the physical address and the paging level.
@@ -552,7 +552,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            res % crate::specs::arch::mm::PAGE_SIZE == 0,
+            res % crate::specs::arch::PAGE_SIZE == 0,
         returns
             self.paddr(),
     ;
@@ -624,8 +624,8 @@ pub trait PageTableEntryTrait:
     /// Absent (zero) PTE has well-formed paddr for match_pte.
     proof fn lemma_page_table_entry_properties()
         ensures
-            Self::new_absent().paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
-            Self::new_absent().paddr() < crate::specs::arch::mm::MAX_PADDR,
+            Self::new_absent().paddr() % crate::specs::arch::PAGE_SIZE == 0,
+            Self::new_absent().paddr() < crate::specs::arch::MAX_PADDR,
             !Self::new_absent().is_present(),
             forall|level: PagingLevel|
                 #![trigger Self::new_absent().is_last(level)]
@@ -659,7 +659,7 @@ pub trait PageTableEntryTrait:
 
     proof fn lemma_paddr_is_page_aligned(self)
         ensures
-            self.paddr() % crate::specs::arch::mm::PAGE_SIZE == 0,
+            self.paddr() % crate::specs::arch::PAGE_SIZE == 0,
     ;
 }
 
@@ -1305,12 +1305,12 @@ impl PageTable<KernelPtConfig> {
                     e.is_frame() && e.parent_level > 1 ==> {
                         let pa = e.frame().mapped_pa;
                         let nr_pages = crate::mm::page_table::cursor::page_size_spec(e.parent_level)
-                            / crate::specs::arch::mm::PAGE_SIZE;
+                            / crate::specs::arch::PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx =
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                    (pa + j * crate::specs::arch::mm::PAGE_SIZE) as usize,
+                                    (pa + j * crate::specs::arch::PAGE_SIZE) as usize,
                                 );
                                 sub_idx != new_idx
                             }
@@ -1322,12 +1322,12 @@ impl PageTable<KernelPtConfig> {
                     e.is_frame() && e.parent_level > 1 ==> {
                         let pa = e.frame().mapped_pa;
                         let nr_pages = crate::mm::page_table::cursor::page_size_spec(e.parent_level)
-                            / crate::specs::arch::mm::PAGE_SIZE;
+                            / crate::specs::arch::PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx =
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                    (pa + j * crate::specs::arch::mm::PAGE_SIZE) as usize,
+                                    (pa + j * crate::specs::arch::PAGE_SIZE) as usize,
                                 );
                                 sub_idx != new_idx || (regions.slots.contains_key(sub_idx)
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -1585,11 +1585,11 @@ impl<C: PageTableConfig> PageTable<C> {
                         e.is_frame() && e.parent_level > 1 ==> {
                             let pa = e.frame().mapped_pa;
                             let nr_pages = crate::mm::page_table::cursor::page_size_spec(
-                                e.parent_level) / crate::specs::arch::mm::PAGE_SIZE;
+                                e.parent_level) / crate::specs::arch::PAGE_SIZE;
                             forall |j: usize| 0 < j < nr_pages ==> {
                                 let sub_idx =
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                        (pa + j * crate::specs::arch::mm::PAGE_SIZE) as usize);
+                                        (pa + j * crate::specs::arch::PAGE_SIZE) as usize);
                                 sub_idx != crate::specs::mm::frame::mapping::frame_to_index(
                                     (final(owner)@->0).0.value.meta_slot_paddr()->0)
                             }

@@ -54,7 +54,7 @@ use super::{
 };
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;
-use crate::specs::arch::mm::NR_LEVELS;
+use crate::specs::arch::NR_LEVELS;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -201,7 +201,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
         ensures
-            1 <= res.1 <= crate::specs::arch::mm::NR_LEVELS,
+            1 <= res.1 <= crate::specs::arch::NR_LEVELS,
             res == Self::item_into_raw_spec(item),
     {
         match item {
@@ -373,7 +373,7 @@ impl KernelPtConfig {
     /// The spec agrees with the exec, which ensures 1 <= level <= NR_LEVELS.
     pub axiom fn item_into_raw_spec_level_bounds(item: MappedItem)
         ensures
-            1 <= KernelPtConfig::item_into_raw_spec(item).1 <= crate::specs::arch::mm::NR_LEVELS,
+            1 <= KernelPtConfig::item_into_raw_spec(item).1 <= crate::specs::arch::NR_LEVELS,
     ;
 
     /// Tracked frames use 4K pages (level 1). Used to prove alignment in map_frames.

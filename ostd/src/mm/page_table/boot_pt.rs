@@ -28,7 +28,7 @@ use crate::{
 
 use crate::mm::frame::Frame;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 
 verus! {

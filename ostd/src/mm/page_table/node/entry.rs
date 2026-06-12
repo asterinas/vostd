@@ -12,7 +12,7 @@ use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_fra
 use crate::mm::frame::{Frame, FrameRef};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};

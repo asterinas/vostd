@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
 use crate::mm::{Paddr, Vaddr};
-use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::memory_region_specs::{MemRegionModel, MemoryRegionArrayModel};
 
 use core::ops::Deref;

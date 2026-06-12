@@ -37,7 +37,7 @@ use core::ops::Range;
 use crate::mm::frame::has_safe_slot;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
-use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::{PageUsage, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

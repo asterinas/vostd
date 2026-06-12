@@ -10,7 +10,8 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace};
 use crate::mm::{MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_LEVELS, current_page_table_paddr_spec};
+use crate::arch::mm::current_page_table_paddr;
+use crate::specs::arch::NR_LEVELS;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::io::{VmIoMemView, VmIoOwner};
 use crate::specs::mm::page_table::cursor::CursorView;
@@ -679,7 +680,7 @@ impl<'a> VmSpaceOwner {
 impl<'a> VmSpace<'a> {
     pub open spec fn reader_success_cond(self, vaddr: Vaddr, len: usize) -> bool {
         &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
-        &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
+        &&& current_page_table_paddr() == self.pt.root_paddr_spec()
     }
 
     pub open spec fn writer_requires(
@@ -693,7 +694,7 @@ impl<'a> VmSpace<'a> {
 
     pub open spec fn writer_success_cond(self, vaddr: Vaddr, len: usize) -> bool {
         &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
-        &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
+        &&& current_page_table_paddr() == self.pt.root_paddr_spec()
     }
 }
 

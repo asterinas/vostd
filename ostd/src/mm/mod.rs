@@ -36,7 +36,7 @@ mod test;
 use core::ops::Range;
 
 // Import types and constants from arch
-pub use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS};
+pub use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS};
 
 #[doc(hidden)]
 pub use crate::arch::mm::PagingConsts;

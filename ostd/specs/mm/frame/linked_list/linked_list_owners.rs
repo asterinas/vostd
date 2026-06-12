@@ -15,7 +15,7 @@ use super::*;
 use crate::mm::Paddr;
 use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::MAX_NR_PAGES;
+use crate::specs::arch::MAX_NR_PAGES;
 use crate::specs::mm::frame::mapping::{
     META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_to_frame_spec,
 };

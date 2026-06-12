@@ -11,7 +11,7 @@ use crate::mm::frame::MetaPerm;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, has_safe_slot};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 

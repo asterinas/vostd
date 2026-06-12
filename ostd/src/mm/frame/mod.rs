@@ -76,7 +76,7 @@ use crate::mm::{
     MAX_PADDR, Paddr, PagingLevel, Vaddr,
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
-use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
+use crate::specs::arch::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

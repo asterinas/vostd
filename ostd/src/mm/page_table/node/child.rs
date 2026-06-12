@@ -7,7 +7,7 @@ use crate::mm::frame::Frame;
 use crate::mm::frame::meta::has_safe_slot;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::page_table::*;
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 

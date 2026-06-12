@@ -133,7 +133,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     ) -> bool {
         &&& reader.inv()
         &&& reader.wf(vm_io_owner)
-        &&& reader.remain_spec() >= crate::specs::arch::mm::PAGE_SIZE
+        &&& reader.remain_spec() >= crate::specs::arch::PAGE_SIZE
         &&& reader.cursor.vaddr % core::mem::align_of::<C::E>() == 0
         &&& vm_io_owner.inv()
         &&& vm_io_owner.read_view_initialized()

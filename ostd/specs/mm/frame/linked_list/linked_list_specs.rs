@@ -8,7 +8,7 @@ use super::linked_list_owners::*;
 use crate::mm::frame::linked_list::Link;
 use crate::mm::frame::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 
 verus! {
 

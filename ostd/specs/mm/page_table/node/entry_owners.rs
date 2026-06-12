@@ -13,7 +13,7 @@ use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr, meta_to_frame};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

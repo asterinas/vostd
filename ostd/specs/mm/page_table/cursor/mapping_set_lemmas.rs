@@ -8,7 +8,7 @@ use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
 use crate::mm::{PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides;
 use crate::specs::mm::page_table::owners::{

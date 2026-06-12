@@ -8,7 +8,7 @@ use core::ops::Range;
 
 use crate::mm::page_prop::PageProperty;
 use crate::mm::{Paddr, Vaddr};
-use crate::specs::arch::mm::MAX_PADDR;
+use crate::specs::arch::MAX_PADDR;
 
 use super::*;
 

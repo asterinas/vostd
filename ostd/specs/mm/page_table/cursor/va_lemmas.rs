@@ -17,7 +17,7 @@ use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};

@@ -34,7 +34,7 @@ pub(crate) mod mapping {
     use crate::mm::frame::meta::meta_slot_size;
     use crate::mm::{PAGE_SIZE, Paddr, Vaddr};
     use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-    use crate::specs::arch::mm::MAX_PADDR;
+    use crate::specs::arch::MAX_PADDR;
     pub use crate::specs::mm::frame::mapping::*;
     use vstd::prelude::*;
 
