@@ -269,7 +269,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             r is Ok ==> MetaSlot::live_frame_obligations_ok_spec(paddr, *old(regions), *final(regions)),
             r is Err ==> MetaSlot::live_frame_obligations_err_spec(*old(regions), *final(regions)),
             // On failure nothing was claimed: the region state is untouched.
-            r is Err ==> *final(regions) =~= *old(regions),
+            r is Err ==> *final(regions) == *old(regions),
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         let ghost pre = *regions;
@@ -527,9 +527,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         ensures
             final(regions).inv(),
             res.inner@.ptr.addr() == self.ptr.addr(),
-            final(regions).slot_owners =~= old(regions).slot_owners,
-            final(regions).slots =~= old(regions).slots,
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            final(regions).slot_owners == old(regions).slot_owners,
+            final(regions).slots == old(regions).slots,
+            final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     pub fn borrow(&self) -> FrameRef<'a, M> {
         proof {
@@ -592,7 +592,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
                 == old(regions).slot_owners[self.index()].usage,
             self.into_raw_post_noninterference(*old(regions), *final(regions)),
             final(regions).slots == old(regions).slots,
-            final(regions).frame_obligations =~= old(regions).frame_obligations.remove(self.index()),
+            final(regions).frame_obligations == old(regions).frame_obligations.remove(self.index()),
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
@@ -679,11 +679,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& new_perm.slot_owners[idx].usage
             == old_perm.slot_owners[idx].usage
         // Other slot_owners unchanged
-        &&& new_perm.slots =~= old_perm.slots
+        &&& new_perm.slots == old_perm.slots
         &&& forall|i: usize|
             i != idx ==> (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
-        &&& new_perm.slot_owners.dom() =~= old_perm.slot_owners.dom()
-        &&& new_perm.frame_obligations =~= old_perm.frame_obligations.insert(idx)
+        &&& new_perm.slot_owners.dom() == old_perm.slot_owners.dom()
+        &&& new_perm.frame_obligations == old_perm.frame_obligations.insert(idx)
     }
 
     fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self {
@@ -804,8 +804,8 @@ impl<M: ?Sized> Drop for Frame<M> {
 
             assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i]
                 == old_regions.slot_owners[i] by {}
-            assert(regions.slots =~= old_regions.slots);
-            assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());
+            assert(regions.slots == old_regions.slots);
+            assert(regions.slot_owners.dom() == old_regions.slot_owners.dom());
 
             // Strengthened `drop_ensures`: `so0` is exactly the
             // pre-drop owner at `idx`, and `regions.slot_owners[idx]`
@@ -827,8 +827,6 @@ impl<M: ?Sized> Drop for Frame<M> {
             // indices, the invariant carries over from `old_regions.inv()`.
             // For `idx`, `slot_own.inv()` and the perm/slot agreement at
             // `idx` are already asserted above.
-            assert(regions.slots.dom().finite());
-
             assert forall|i: usize|
                 i < crate::mm::frame::meta::mapping::max_meta_slots()
                     <==> #[trigger] regions.slot_owners.contains_key(i) by {}
@@ -983,15 +981,15 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         final(regions).slot_owners[frame_to_index(paddr)].usage == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].usage,
-        final(regions).slots =~= old(regions).slots,
+        final(regions).slots == old(regions).slots,
         forall|i: usize|
             i != frame_to_index(paddr) ==> (#[trigger] final(regions).slot_owners[i] == old(
                 regions,
             ).slot_owners[i]),
-        final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
+        final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
         // Linear-drop pilot: refcount bump doesn't touch segment or frame
         // obligation ledgers.
-        final(regions).frame_obligations =~= old(regions).frame_obligations,
+        final(regions).frame_obligations == old(regions).frame_obligations,
 )]
 pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));

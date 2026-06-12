@@ -182,9 +182,7 @@ impl<'a> VmSpaceOwner {
         &&& self.mem_view matches Some(remaining_view) ==> self.mv_range@ matches Some(total_view)
             ==> {
             &&& remaining_view.mappings_are_disjoint()
-            &&& remaining_view.mappings.finite()
             &&& total_view.mappings_are_disjoint()
-            &&& total_view.mappings.finite()
             // ======================
             // Remaining Consistency
             // ======================
@@ -223,7 +221,6 @@ impl<'a> VmSpaceOwner {
                                 // So we cannot directly reason on `self.range` here; we need
                                 // to instead ensure that the memory view it holds is consistent
                                 // with the total view and remaining view.
-                                &&& writer_mv.mappings.finite()
                                 &&& writer_mv.addr_transl(va) == total_view.addr_transl(va)
                                 &&& writer_mv.addr_transl(va) matches Some(_) ==> {
                                     &&& remaining_view.addr_transl(va) is None
@@ -250,7 +247,6 @@ impl<'a> VmSpaceOwner {
                             {
                                 // For readers there is no need to check remaining_view
                                 // because it is borrowed from remaining_view directly.
-                                &&& reader_mv.mappings.finite()
                                 &&& reader_mv.addr_transl(va) == total_view.addr_transl(va)
                             }
                     }
@@ -358,7 +354,7 @@ impl<'a> VmSpaceOwner {
             va,
         ) is Some by {
             if owner_r.range.start <= va && va < owner_r.range.end {
-                assert(borrowed_mv.mappings =~= mv.mappings.filter(
+                assert(borrowed_mv.mappings == mv.mappings.filter(
                     |m: Mapping|
                         m.va_range.start < (owner_r.range.end) && m.va_range.end
                             > owner_r.range.start,
@@ -370,7 +366,7 @@ impl<'a> VmSpaceOwner {
                 assert(mv.addr_transl(va) is Some);
                 assert(o_mv.len() > 0);
                 let m = o_mv.choose();
-                vstd::set::axiom_set_choose_len(o_mv);
+                vstd::set::lemma_set_choose_len(o_mv);
                 assert(o_mv.contains(m));
                 assert(o_borrow_mv.contains(m));
                 assert(o_borrow_mv.len() > 0);
@@ -433,7 +429,7 @@ impl<'a> VmSpaceOwner {
             #![auto]
             owner_w.range.start <= va < owner_w.range.end implies lhs.addr_transl(va) is Some by {
             if owner_w.range.start <= va && va < owner_w.range.end {
-                assert(lhs.mappings =~= old_mv.mappings.filter(
+                assert(lhs.mappings == old_mv.mappings.filter(
                     |m: Mapping|
                         m.va_range.start < (owner_w.range.end) && m.va_range.end
                             > owner_w.range.start,
@@ -447,7 +443,7 @@ impl<'a> VmSpaceOwner {
 
                 assert(old_mv.addr_transl(va) is Some);
                 assert(o_mv.len() > 0);
-                broadcast use vstd::set::axiom_set_choose_len;
+                broadcast use vstd::set::lemma_set_choose_len;
 
                 let m = o_mv.choose();
                 assert(o_mv.contains(m));
@@ -522,8 +518,8 @@ impl<'a> VmSpaceOwner {
         assert(self.mem_view_wf()) by {
             let ghost total_view = self.mv_range@.unwrap();
 
-            assert(remaining.mappings =~= old_remaining.mappings.union(mv.mappings));
-            assert(remaining.memory =~= old_remaining.memory.union_prefer_right(mv.memory));
+            assert(remaining.mappings == old_remaining.mappings.union(mv.mappings));
+            assert(remaining.memory == old_remaining.memory.union_prefer_right(mv.memory));
             assert(self.mv_range == old(self).mv_range);
             assert(self.mem_view == Some(remaining));
 
@@ -545,7 +541,7 @@ impl<'a> VmSpaceOwner {
 
                 if r_mappings.len() > 0 {
                     let r = r_mappings.choose();
-                    vstd::set::axiom_set_choose_len(r_mappings);
+                    vstd::set::lemma_set_choose_len(r_mappings);
                     assert(r_mappings.contains(r));
                     assert(t_mappings.contains(r));
                     assert(t_mappings.len() > 0);
@@ -596,12 +592,11 @@ impl<'a> VmSpaceOwner {
             old(self).active,
             old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
                 VmIoMemView::ReadView(mv),
-            ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
+            ) && old(self).mem_view matches Some(remaining) && {
                 forall|va: usize|
                     #![auto]
                     {
                         &&& total_view.addr_transl(va) == mv.addr_transl(va)
-                        &&& mv.mappings.finite()
                     }
             },
             forall|i: int|
@@ -637,7 +632,7 @@ impl<'a> VmSpaceOwner {
             owner.inv(),
             old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
                 VmIoMemView::WriteView(mv),
-            ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
+            ) && old(self).mem_view matches Some(remaining) && {
                 &&& forall|va: usize|
                     #![auto]
                     {

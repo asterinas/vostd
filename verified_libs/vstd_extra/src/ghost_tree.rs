@@ -654,7 +654,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     {
         self.child_some_properties(key);
         self.insert_property(key, node);
-        assert(self.insert(key, node).children =~= self.children);
+        assert(self.insert(key, node).children == self.children);
     }
 
     pub open spec fn remove(self, key: usize) -> Self
@@ -1166,7 +1166,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         let path2 = path.push_tail(idx);
 
         if path.len() == 0 {
-            assert(self.recursive_trace(path2) =~= seq![
+            assert(self.recursive_trace(path2) == seq![
                 self.value,
                 self.children[idx as int]->0.value,
             ]) by { reveal_with_fuel(Node::recursive_trace, 2) }
@@ -1234,7 +1234,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
                 let c = self.child(hd)->0;
-                assert(self.recursive_visit(path) =~= seq![c].add(c.recursive_visit(tl)));
+                assert(self.recursive_visit(path) == seq![c].add(c.recursive_visit(tl)));
                 c.lemma_recursive_visited_node_inv(tl);
             }
         }
@@ -1261,7 +1261,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             path.pop_head_preserves_inv();
             if self.child(hd) is Some {
                 let c = self.child(hd)->0;
-                assert(self.recursive_visit(path) =~= seq![c].add(c.recursive_visit(tl)));
+                assert(self.recursive_visit(path) == seq![c].add(c.recursive_visit(tl)));
                 c.lemma_recursive_visited_node_levels(tl);
             }
         }
@@ -1329,10 +1329,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             path.len() < L - self.level,
             path.len() == 1,
         ensures
-            self.child(path.index(0)) is Some ==> #[trigger] self.recursive_visit(path) =~= seq![
+            self.child(path.index(0)) is Some ==> #[trigger] self.recursive_visit(path) == seq![
                 self.child(path.index(0))->0,
             ],
-            self.child(path.index(0)) is None ==> #[trigger] self.recursive_visit(path) =~= seq![],
+            self.child(path.index(0)) is None ==> #[trigger] self.recursive_visit(path) == seq![],
     {
     }
 

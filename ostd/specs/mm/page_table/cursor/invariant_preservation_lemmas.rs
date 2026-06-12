@@ -361,8 +361,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     PageTableOwner(child).view_rec(child_path).contains(
                         m,
                     ) implies self@.mappings.contains(m) by {
-                    assert(cont.view_mappings().contains(m));
-                    assert(self.view_mappings().contains(m));
+                    cont.view_mappings_intro(m, j);
+                    self.view_mappings_intro(m, i);
                 };
                 // L-rec: no frame entry in this subtree carries removed_path.
                 PageTableOwner(child).no_frame_with_path_rec(

@@ -24,11 +24,11 @@ impl<A> Protocol<(), A> for ExclusiveSP<A> {
         }
     }
 
-    open spec fn rel(self, s: Map<(), A>) -> bool {
+    open spec fn rel(self, s: IMap<(), A>) -> bool {
         match self {
             ExclusiveSP::Unit => s.is_empty(),
             ExclusiveSP::Exclusive(None) => s.is_empty(),
-            ExclusiveSP::Exclusive(Some(x)) => s =~= map![() => x],
+            ExclusiveSP::Exclusive(Some(x)) => s =~= imap![() => x],
             ExclusiveSP::Invalid => false,
         }
     }
@@ -60,17 +60,17 @@ impl<A> ExclusiveSP<A> {
             self is Exclusive,
             self->Exclusive_0 is None,
         ensures
-            deposits(self, map![() => value], ExclusiveSP::Exclusive(Some(value))),
+            deposits(self, imap![() => value], ExclusiveSP::Exclusive(Some(value))),
     {
-        let m = map![() => value];
-        assert forall|q: Self, s: Map<(), A>|
+        let m = imap![() => value];
+        assert forall|q: Self, s: IMap<(), A>|
             #![auto]
-            Self::rel(Self::op(self, q), s) implies exists|s1: Map<(), A>|
+            Self::rel(Self::op(self, q), s) implies exists|s1: IMap<(), A>|
             #![auto]
             Self::rel(Self::op(ExclusiveSP::Exclusive(Some(value)), q), s1) && s.dom().disjoint(
                 m.dom(),
             ) && s.union_prefer_right(m) == s1 by {
-            assert(s == Map::<(), A>::empty());
+            assert(s == IMap::<(), A>::empty());
             assert(Self::rel(Self::op(ExclusiveSP::Exclusive(Some(value)), q), m));
             assert(s.dom().disjoint(m.dom()));
             assert(s.union_prefer_right(m) == m);
@@ -147,7 +147,7 @@ impl<T> Exclusive<T> {
             *res == self.resource(),
     {
         use_type_invariant(&*self);
-        StorageResource::guard(&self.r, map![() => self.resource()]).tracked_borrow(())
+        StorageResource::guard(&self.r, imap![() => self.resource()]).tracked_borrow(())
     }
 
     /// Takes out the owned resource.
@@ -177,12 +177,12 @@ impl<T> Exclusive<T> {
     {
         let tracked mut tmp = StorageResource::<(), T, ExclusiveSP<T>>::alloc(
             ExclusiveSP::Unit,
-            Map::tracked_empty(),
+            IMap::tracked_empty(),
         );
         tracked_swap(r, &mut tmp);
         let tracked (mut r1, mut r2) = tmp.withdraw(
             ExclusiveSP::Exclusive(None),
-            map![()=> tmp.value().value()],
+            imap![()=> tmp.value().value()],
         );
         tracked_swap(r, &mut r1);
         r2.tracked_remove(())
@@ -217,10 +217,10 @@ impl<T> Exclusive<T> {
         let ghost g = value;
         let tracked mut tmp = StorageResource::<(), T, ExclusiveSP<T>>::alloc(
             ExclusiveSP::Unit,
-            Map::tracked_empty(),
+            IMap::tracked_empty(),
         );
         tracked_swap(r, &mut tmp);
-        let tracked mut m = Map::tracked_empty();
+        let tracked mut m = IMap::tracked_empty();
         m.tracked_insert((), value);
         tmp.value().lemma_deposits(g);
         let tracked mut r1 = tmp.deposit(m, ExclusiveSP::Exclusive(Some(g)));

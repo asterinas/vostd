@@ -492,11 +492,18 @@ proof fn lemma_aligned_addr_clears_tag_bit(
     ensures
         addr & tag == 0,
 {
-    assert(addr & tag == 0) by (bit_vector)
+    assert(addr & (1usize << align_bits) == 0) by (bit_vector)
         requires
             addr % (1usize << ptr_align_bits) == 0,
+            0u32 < ptr_align_bits,
+            align_bits < ptr_align_bits,
+            ptr_align_bits <= 63u32,
+    ;
+    assert(addr & tag == 0) by (bit_vector)
+        requires
+            addr & (1usize << align_bits) == 0,
             tag == 1usize << align_bits,
-            align_bits < ptr_align_bits < usize::BITS,
+            align_bits < 64u32,
     ;
 }
 

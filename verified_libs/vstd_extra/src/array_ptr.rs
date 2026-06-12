@@ -335,11 +335,7 @@ pub tracked struct PointsTo<V, const N: usize> {
     dealloc: Option<raw_ptr::Dealloc>,
 }
 
-broadcast use {
-    raw_ptr::group_raw_ptr_axioms,
-    set_lib::group_set_lib_default,
-    set::group_set_axioms,
-};
+broadcast use {raw_ptr::group_raw_ptr_axioms, set_lib::group_set_lib_default};
 
 impl<V, const N: usize> ArrayPtr<V, N> {
     /// Impl: cast the pointer to an integer

@@ -49,7 +49,7 @@ impl Inv for AbstractVaddr {
         &&& 0 <= self.offset
             < PAGE_SIZE
         // `index` has exactly `[0, NR_LEVELS)` as its domain.
-        &&& self.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS)
+        &&& self.index.dom() =~= Set::<int>::range(0, NR_LEVELS as int)
         &&& forall|i: int|
             #![trigger self.index.contains_key(i)]
             0 <= i < NR_LEVELS ==> {
@@ -70,7 +70,7 @@ impl AbstractVaddr {
         AbstractVaddr {
             offset: (va % PAGE_SIZE) as int,
             index: Map::new(
-                |i: int| 0 <= i < NR_LEVELS,
+                Set::<int>::range(0, NR_LEVELS as int),
                 |i: int| ((va / pow2((12 + 9 * i) as nat) as usize) % NR_ENTRIES) as int,
             ),
             leading_bits: (va as int / 0x1_0000_0000_0000int),
@@ -306,7 +306,7 @@ impl AbstractVaddr {
             } else if i == 3 {
             }
         }
-        assert(back.index =~= abs.index);
+        assert(back.index == abs.index);
     }
 
     /// If two AbstractVaddrs reflect the same va, they are equal.
@@ -344,12 +344,12 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
-            assert(self.align_down(1).index =~= self.index);
+            assert(self.align_down(1).index == self.index);
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_inv(level - 1);
             let new = self.align_down(level);
-            assert(new.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
                 &&& new.index.contains_key(i)
                 &&& 0 <= new.index[i]
@@ -388,12 +388,12 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
-            assert(self.align_down(1).index =~= self.index);
+            assert(self.align_down(1).index == self.index);
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_shape(level - 1);
             let new = self.align_down(level);
-            assert(new.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
                 &&& new.index.contains_key(i)
                 &&& 0 <= new.index[i]
@@ -782,7 +782,7 @@ impl AbstractVaddr {
         assert(self.align_up(level) == advanced);
 
         assert(advanced.inv()) by {
-            assert(advanced.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert(advanced.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int|
                 #![trigger advanced.index.contains_key(i)]
                 0 <= i < NR_LEVELS implies {
@@ -874,7 +874,7 @@ impl AbstractVaddr {
             assert(self.next_index(level) == advanced);
             assert(self.align_up(level) == advanced);
             assert(advanced.inv()) by {
-                assert(advanced.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+                assert(advanced.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
                 assert forall|i: int|
                     #![trigger advanced.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {
@@ -913,7 +913,7 @@ impl AbstractVaddr {
                 // Set up arithmetic relation: page_size(level+1) == NR_ENTRIES * page_size(level).
                 let ps = page_size(level as PagingLevel) as int;
                 assert(ps1 as int == NR_ENTRIES * ps) by {
-                    crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+                    crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
                     (level + 1) as PagingLevel);
                 };
@@ -1030,7 +1030,7 @@ impl AbstractVaddr {
                 assert(self.align_up(NR_LEVELS as int) == advanced_top);
 
                 assert(advanced_top.inv()) by {
-                    assert(advanced_top.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+                    assert(advanced_top.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
                     assert forall|i: int|
                         #![trigger advanced_top.index.contains_key(i)]
                         0 <= i < NR_LEVELS implies {
@@ -1182,7 +1182,7 @@ impl AbstractVaddr {
     {
         self.align_down_shape(level);
         self.align_down_shape(level + 1);
-        assert(self.align_down(level).index.insert(level - 1, 0) =~= self.align_down(
+        assert(self.align_down(level).index.insert(level - 1, 0) == self.align_down(
             level + 1,
         ).index);
     }
@@ -1336,7 +1336,7 @@ impl AbstractVaddr {
         if next_index == NR_ENTRIES && start_level < NR_LEVELS {
             let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
             assert(next_va.inv()) by {
-                assert(next_va.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+                assert(next_va.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
                 assert forall|i: int|
                     #![trigger next_va.index.contains_key(i)]
                     0 <= i < NR_LEVELS implies {
@@ -1457,7 +1457,7 @@ impl AbstractVaddr {
         lemma_page_size_spec_level1();
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
-        crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         let path = self.to_path(level);
         if level == 3 {
@@ -1474,6 +1474,10 @@ impl AbstractVaddr {
             assert(aligned.rec_compute_vaddr(3) == self.index[3] * 0x80_0000_0000usize) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
                     + aligned.rec_compute_vaddr(4)) as Vaddr);
+            };
+            assert(aligned.rec_compute_vaddr(2) == self.index[3] * 0x80_0000_0000usize) by {
+                assert(aligned.rec_compute_vaddr(2) == (aligned.index[2] * page_size(3)
+                    + aligned.rec_compute_vaddr(3)) as Vaddr);
             };
             assert(aligned.rec_compute_vaddr(1) == self.index[3] * 0x80_0000_0000usize) by {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
@@ -1584,7 +1588,10 @@ impl AbstractVaddr {
                     1,
                 )) by (compute);
                 assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2))
-                    by (compute);
+                    by {
+                    assert(vaddr_shift_bits::<NR_LEVELS>(2) == 21nat) by (compute);
+                    assert(pow2(21nat) == 0x20_0000) by (compute);
+                }
                 assert(vaddr_make::<NR_LEVELS>(3, path.index(3)) == 0x1000usize * path.index(3))
                     by (compute);
             };

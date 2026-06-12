@@ -39,7 +39,7 @@ use core::ops::Range;
 pub use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS};
 
 #[doc(hidden)]
-pub use crate::specs::arch::paging_consts::PagingConsts;
+pub use crate::arch::mm::PagingConsts;
 
 // Re-export paddr_to_vaddr from kspace
 #[doc(hidden)]
@@ -73,23 +73,17 @@ pub const MAX_USERSPACE_VADDR: usize = 0x0000_8000_0000_0000 - PAGE_SIZE;
 /// architectures.
 pub const KERNEL_VADDR_RANGE: Range<Vaddr> = 0xffff_8000_0000_0000..0xffff_ffff_ffff_0000;
 
+/// A minimal set of constants that determines the paging system.
+/// This provides an abstraction over most paging modes in common architectures.
 pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     spec fn BASE_PAGE_SIZE_spec() -> usize;
-
-    proof fn lemma_BASE_PAGE_SIZE_properties()
-        ensures
-            0 < Self::BASE_PAGE_SIZE_spec(),
-            is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
-    ;
 
     /// The smallest page size.
     /// This is also the page size at level 1 page tables.
     #[verifier::when_used_as_spec(BASE_PAGE_SIZE_spec)]
     fn BASE_PAGE_SIZE() -> (res: usize)
-        ensures
-            res == Self::BASE_PAGE_SIZE_spec(),
-            0 < res,
-            is_pow2(res as int),
+        returns
+            Self::BASE_PAGE_SIZE_spec(),
     ;
 
     spec fn NR_LEVELS_spec() -> PagingLevel;
@@ -101,24 +95,8 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// Table, respectively.
     #[verifier::when_used_as_spec(NR_LEVELS_spec)]
     fn NR_LEVELS() -> (res: PagingLevel)
-        ensures
-            res == Self::NR_LEVELS_spec(),
-            res > 0,
-    ;
-
-    /// All configs in vostd use the same value for the per-config
-    /// `NR_LEVELS_spec()` as the architecture-level constant `NR_LEVELS`
-    /// (= 4 for x86_64). This is *implicit* in the cursor framework:
-    /// `CursorOwner::inv()` hardcodes `self.level <= NR_LEVELS` (const)
-    /// for cursors over any `C: PagingConstsTrait`, so a config whose
-    /// `NR_LEVELS_spec()` exceeded `NR_LEVELS` would be unusable. This
-    /// lemma exposes that equality as a usable fact so generic proofs
-    /// can chain `level != C::NR_LEVELS_spec()` to `level < NR_LEVELS`
-    /// (e.g. `Cursor::find_next_impl`'s PageTable-branch gate ⟹
-    /// `CursorMut::take_next`'s `replace_cur_entry` discharge).
-    proof fn lemma_NR_LEVELS_eq()
-        ensures
-            Self::NR_LEVELS_spec() as int == NR_LEVELS as int,
+        returns
+            Self::NR_LEVELS_spec(),
     ;
 
     spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel;
@@ -126,9 +104,9 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// The highest level that a PTE can be directly used to translate a VA.
     /// This affects the the largest page size supported by the page table.
     #[verifier::when_used_as_spec(HIGHEST_TRANSLATION_LEVEL_spec)]
-    fn HIGHEST_TRANSLATION_LEVEL() -> (res: PagingLevel)
-        ensures
-            res == Self::HIGHEST_TRANSLATION_LEVEL_spec(),
+    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
+        returns
+            Self::HIGHEST_TRANSLATION_LEVEL_spec(),
     ;
 
     spec fn PTE_SIZE_spec() -> usize;
@@ -136,16 +114,8 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// The size of a PTE.
     #[verifier::when_used_as_spec(PTE_SIZE_spec)]
     fn PTE_SIZE() -> (res: usize)
-        ensures
-            res == Self::PTE_SIZE_spec(),
-            is_pow2(res as int),
-            0 < res <= Self::BASE_PAGE_SIZE(),
-    ;
-
-    proof fn lemma_PTE_SIZE_properties()
-        ensures
-            0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE(),
-            is_pow2(Self::PTE_SIZE_spec() as int),
+        returns
+            Self::PTE_SIZE_spec(),
     ;
 
     spec fn ADDRESS_WIDTH_spec() -> usize;
@@ -154,9 +124,11 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// If it is shorter than that, the higher bits in the highest level are ignored.
     #[verifier::when_used_as_spec(ADDRESS_WIDTH_spec)]
     fn ADDRESS_WIDTH() -> (res: usize)
-        ensures
-            res == Self::ADDRESS_WIDTH_spec(),
+        returns
+            Self::ADDRESS_WIDTH_spec(),
     ;
+
+    spec fn VA_SIGN_EXT_spec() -> bool;
 
     /// Whether virtual addresses are sign-extended.
     ///
@@ -169,12 +141,30 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     ///
     /// Regardless of sign extension, [`Vaddr`] is always not signed upon calculation.
     /// That means, `0xffff_ffff_ffff_0000 < 0xffff_ffff_ffff_0001` is `true`.
-    spec fn VA_SIGN_EXT_spec() -> bool;
-
     #[verifier::when_used_as_spec(VA_SIGN_EXT_spec)]
-    fn VA_SIGN_EXT() -> (res: bool)
+    fn VA_SIGN_EXT() -> bool
+        returns
+            Self::VA_SIGN_EXT_spec(),
+    ;
+
+    /// All configs in vostd use the same value for the per-config
+    /// `NR_LEVELS_spec()` as the architecture-level constant `NR_LEVELS`
+    /// (= 4 for x86_64). This is *implicit* in the cursor framework:
+    /// `CursorOwner::inv()` hardcodes `self.level <= NR_LEVELS` (const)
+    /// for cursors over any `C: PagingConstsTrait`, so a config whose
+    /// `NR_LEVELS_spec()` exceeded `NR_LEVELS` would be unusable. This
+    /// lemma exposes that equality as a usable fact so generic proofs
+    /// can chain `level != C::NR_LEVELS_spec()` to `level < NR_LEVELS`
+    /// (e.g. `Cursor::find_next_impl`'s PageTable-branch gate ⟹
+    /// `CursorMut::take_next`'s `replace_cur_entry` discharge).
+    proof fn lemma_paging_consts_properties()
         ensures
-            res == Self::VA_SIGN_EXT_spec(),
+            0 < Self::BASE_PAGE_SIZE_spec(),
+            is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
+            Self::NR_LEVELS_spec() > 0,
+            Self::NR_LEVELS_spec() == NR_LEVELS,
+            is_pow2(Self::PTE_SIZE_spec() as int),
+            0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE_spec(),
     ;
 }
 
@@ -190,6 +180,9 @@ pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
     ensures
         res == nr_subpage_per_huge_spec::<C>(),
 {
+    proof {
+        C::lemma_paging_consts_properties();
+    }
     C::BASE_PAGE_SIZE() / C::PTE_SIZE()
 }
 
@@ -197,7 +190,7 @@ pub proof fn lemma_nr_subpage_per_huge_bounded<C: PagingConstsTrait>()
     ensures
         0 < nr_subpage_per_huge::<C>() <= C::BASE_PAGE_SIZE(),
 {
-    C::lemma_PTE_SIZE_properties();
+    C::lemma_paging_consts_properties();
     broadcast use group_div_basics;
 
     assert(C::PTE_SIZE() <= C::BASE_PAGE_SIZE());

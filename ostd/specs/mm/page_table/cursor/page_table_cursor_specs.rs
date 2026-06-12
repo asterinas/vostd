@@ -5,11 +5,11 @@ use vstd::set_lib::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
 
+use crate::arch::mm::PagingConsts;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
 use vstd_extra::arithmetic::*;
@@ -153,7 +153,7 @@ impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn split_if_mapped_huge_spec(self, new_size: usize) -> Self {
         let m = self.query_mapping();
         let size = m.page_size;
-        let new_mappings = Set::<int>::new(|n: int| 0 <= n < size / new_size).map(
+        let new_mappings = Set::<int>::range(0int, (size / new_size) as int).map(
             |n: int| Self::split_index(m, new_size, n as usize),
         );
         CursorView { cur_va: self.cur_va, mappings: self.mappings - set![m] + new_mappings, ..self }
@@ -172,11 +172,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     let f = self.mappings.filter(
                         |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
                     );
-                    vstd::set::axiom_set_intersect_finite::<Mapping>(
-                        self.mappings,
-                        Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end),
-                    );
-                    vstd::set::axiom_set_choose_len(f);
+                    vstd::set::lemma_set_choose_len(f);
                     assert(self.mappings.contains(m));
                     assert(m.inv());
                     assert(NR_ENTRIES == 512);

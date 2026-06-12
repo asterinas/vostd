@@ -1,7 +1,7 @@
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 use vstd::seq_lib::*;
-use vstd::set::{axiom_set_choose_len, axiom_set_contains_len, axiom_set_intersect_finite};
+use vstd::set::{lemma_set_choose_len, lemma_set_contains_len};
 
 use vstd_extra::arithmetic::{
     lemma_nat_align_down_monotone, lemma_nat_align_down_sound, lemma_nat_align_down_within_block,
@@ -16,12 +16,12 @@ use vstd_extra::seq_extra::{forall_seq, lemma_forall_seq_index};
 use core::marker::PhantomData;
 use core::ops::Range;
 
+use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge};
 use crate::specs::arch::mm::{MAX_PADDR, MAX_USERSPACE_VADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::AbstractVaddr;
@@ -336,15 +336,95 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         guards.lock_held(self.guard.inner.inner@.ptr.addr())
     }
 
+    pub open spec fn view_mappings_children_union(self, up_to: int) -> Set<Mapping>
+        decreases up_to,
+        when up_to >= 0
+    {
+        if up_to <= 0 {
+            Set::empty()
+        } else if up_to - 1 < self.children.len() && self.children[up_to - 1] is Some {
+            self.view_mappings_children_union(up_to - 1).union(
+                PageTableOwner(self.children[up_to - 1].unwrap()).view_rec(
+                    self.path().push_tail((up_to - 1) as usize),
+                ),
+            )
+        } else {
+            self.view_mappings_children_union(up_to - 1)
+        }
+    }
+
     pub open spec fn view_mappings(self) -> Set<Mapping> {
-        Set::new(
-            |m: Mapping|
-                exists|i: int|
-                    #![auto]
-                    0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
-                        self.children[i].unwrap(),
-                    ).view_rec(self.path().push_tail(i as usize)).contains(m),
-        )
+        self.view_mappings_children_union(self.children.len() as int)
+    }
+
+    proof fn view_mappings_children_union_contains(self, up_to: int, m: Mapping)
+        requires
+            0 <= up_to <= self.children.len(),
+            self.view_mappings_children_union(up_to).contains(m),
+        ensures
+            exists|i: int|
+                #![auto]
+                0 <= i < up_to && self.children[i] is Some && PageTableOwner(
+                    self.children[i].unwrap(),
+                ).view_rec(self.path().push_tail(i as usize)).contains(m),
+        decreases up_to,
+    {
+        if up_to <= 0 {
+        } else if up_to - 1 < self.children.len() && self.children[up_to - 1] is Some {
+            if PageTableOwner(self.children[up_to - 1].unwrap()).view_rec(
+                self.path().push_tail((up_to - 1) as usize),
+            ).contains(m) {
+            } else {
+                self.view_mappings_children_union_contains(up_to - 1, m);
+            }
+        } else {
+            self.view_mappings_children_union_contains(up_to - 1, m);
+        }
+    }
+
+    proof fn view_mappings_children_union_intro(self, up_to: int, m: Mapping, witness: int)
+        requires
+            0 <= witness < up_to,
+            up_to <= self.children.len(),
+            self.children[witness] is Some,
+            PageTableOwner(self.children[witness].unwrap()).view_rec(
+                self.path().push_tail(witness as usize),
+            ).contains(m),
+        ensures
+            self.view_mappings_children_union(up_to).contains(m),
+        decreases up_to,
+    {
+        if witness == up_to - 1 {
+        } else {
+            self.view_mappings_children_union_intro(up_to - 1, m, witness);
+        }
+    }
+
+    pub proof fn view_mappings_contains(self, m: Mapping)
+        requires
+            self.children.len() > 0,
+            self.view_mappings().contains(m),
+        ensures
+            exists|i: int|
+                #![auto]
+                0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
+                    self.children[i].unwrap(),
+                ).view_rec(self.path().push_tail(i as usize)).contains(m),
+    {
+        self.view_mappings_children_union_contains(self.children.len() as int, m);
+    }
+
+    pub proof fn view_mappings_intro(self, m: Mapping, i: int)
+        requires
+            0 <= i < self.children.len(),
+            self.children[i] is Some,
+            PageTableOwner(self.children[i].unwrap()).view_rec(
+                self.path().push_tail(i as usize),
+            ).contains(m),
+        ensures
+            self.view_mappings().contains(m),
+    {
+        self.view_mappings_children_union_intro(self.children.len() as int, m, i);
     }
 
     pub open spec fn as_subtree(self) -> OwnerSubtree<C> {
@@ -927,7 +1007,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.index.tracked_insert(self.level - 1, cont.idx as int);
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
-        assert(self.va.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+        assert(self.va.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
 
         old(self).va.index_increment_adds_page_size(old(self).level as int);
         lemma_page_size_ge_page_size(old(self).level as PagingLevel);
@@ -955,7 +1035,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(cont.pt_inv_children());
         assert(self.va.inv()) by {
             assert(0 <= self.va.offset < PAGE_SIZE);
-            assert(self.va.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert(self.va.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
             assert forall|i: int| 0 <= i < NR_LEVELS implies self.va.index.contains_key(i) && 0
                 <= self.va.index[i] < NR_ENTRIES by {
                 assert(self.va.index.contains_key(i));
@@ -977,14 +1057,86 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.continuations.contains_key(i));
     }
 
+    pub open spec fn view_mappings_conts_union(self, up_to: int) -> Set<Mapping>
+        decreases up_to - (self.level - 1),
+        when up_to >= self.level - 1
+    {
+        if up_to <= self.level - 1 {
+            Set::empty()
+        } else if up_to - 1 < NR_LEVELS && self.continuations.contains_key(up_to - 1) {
+            self.view_mappings_conts_union(up_to - 1).union(
+                self.continuations[up_to - 1].view_mappings(),
+            )
+        } else {
+            self.view_mappings_conts_union(up_to - 1)
+        }
+    }
+
     pub open spec fn view_mappings(self) -> Set<Mapping> {
-        Set::new(
-            |m: Mapping|
-                exists|i: int|
-                    #![trigger self.continuations[i]]
-                    self.level - 1 <= i < NR_LEVELS
-                        && self.continuations[i].view_mappings().contains(m),
-        )
+        self.view_mappings_conts_union(NR_LEVELS as int)
+    }
+
+    proof fn view_mappings_conts_union_contains(self, up_to: int, m: Mapping)
+        requires
+            self.level - 1 <= up_to <= NR_LEVELS,
+            self.view_mappings_conts_union(up_to).contains(m),
+        ensures
+            exists|i: int|
+                #![trigger self.continuations[i]]
+                self.level - 1 <= i < up_to && self.continuations[i].view_mappings().contains(m),
+        decreases up_to - (self.level - 1),
+    {
+        if up_to <= self.level - 1 {
+        } else if up_to - 1 < NR_LEVELS && self.continuations.contains_key(up_to - 1) {
+            if self.continuations[up_to - 1].view_mappings().contains(m) {
+            } else {
+                self.view_mappings_conts_union_contains(up_to - 1, m);
+            }
+        } else {
+            self.view_mappings_conts_union_contains(up_to - 1, m);
+        }
+    }
+
+    proof fn view_mappings_conts_union_intro(self, up_to: int, m: Mapping, witness: int)
+        requires
+            self.level - 1 <= witness < up_to,
+            up_to <= NR_LEVELS,
+            self.continuations.contains_key(witness),
+            self.continuations[witness].view_mappings().contains(m),
+        ensures
+            self.view_mappings_conts_union(up_to).contains(m),
+        decreases up_to - (self.level - 1),
+    {
+        if witness == up_to - 1 {
+        } else {
+            self.view_mappings_conts_union_intro(up_to - 1, m, witness);
+        }
+    }
+
+    pub proof fn view_mappings_contains(self, m: Mapping)
+        requires
+            1 <= self.level <= NR_LEVELS,
+            self.view_mappings().contains(m),
+        ensures
+            exists|i: int|
+                #![trigger self.continuations[i]]
+                self.level - 1 <= i < NR_LEVELS && self.continuations[i].view_mappings().contains(
+                    m,
+                ),
+    {
+        self.view_mappings_conts_union_contains(NR_LEVELS as int, m);
+    }
+
+    pub proof fn view_mappings_intro(self, m: Mapping, i: int)
+        requires
+            1 <= self.level <= NR_LEVELS,
+            self.level - 1 <= i < NR_LEVELS,
+            self.continuations.contains_key(i),
+            self.continuations[i].view_mappings().contains(m),
+        ensures
+            self.view_mappings().contains(m),
+    {
+        self.view_mappings_conts_union_intro(NR_LEVELS as int, m, i);
     }
 
     pub open spec fn as_page_table_owner(self) -> PageTableOwner<C> {
@@ -1274,8 +1426,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(from_view.va_range.start == vaddr_of::<C>(path) as int);
         assert(target.va_range.start == from_view.va_range.start);
         assert(target.va_range.end == from_view.va_range.end);
-        assert(target.va_range =~= from_view.va_range);
-        assert(target =~= from_view);
+        assert(target.va_range == from_view.va_range);
+        assert(target == from_view);
         assert(PageTableOwner(new_subtree).view_rec(path) == set![from_view]);
         assert(PageTableOwner(new_subtree)@.mappings == set![target]);
     }
@@ -1944,7 +2096,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(self.prefix.index[i] == 0);
             }
         };
-        assert(aligned.index =~= self.prefix.index);
+        assert(aligned.index == self.prefix.index);
         assert(aligned == self.prefix);
 
         // Combine align_down_concrete + reflect_prop to get prefix.to_vaddr() == nat_align_down.
@@ -2007,7 +2159,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(self.prefix.index.contains_key(i));
             assert(aligned.index.contains_key(i));
         };
-        assert(aligned.index =~= self.prefix.index);
+        assert(aligned.index == self.prefix.index);
         assert(aligned == self.prefix);
         assert(self.locked_range().start as int == lb * big);
         assert(self.locked_range().end as int == lb * big + ps_nr);
@@ -2100,7 +2252,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // usize::MAX + 1 == 2^64.
         let tvi = self.prefix.to_vaddr_indices(gl as int) as int;
         assert(pow2((12 + 9 * gl) as nat) as int == NR_ENTRIES * ps) by {
-            crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+            crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
             (gl + 1) as PagingLevel);
         };
@@ -2182,7 +2334,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
         };
         assert(pow2((12 + 9 * gl) as nat) as int == NR_ENTRIES * ps) by {
-            crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+            crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
             (gl + 1) as PagingLevel);
         };
@@ -2242,7 +2394,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.prefix.to_vaddr_indices_gap_bound(0);
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
-        crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         page_size_monotonic(gl as PagingLevel, NR_LEVELS as PagingLevel);
         vstd::arithmetic::power2::lemma_pow2_adds(12nat, 27nat);
@@ -2290,7 +2442,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let filtered = self@.mappings.filter(
             |m: Mapping| m.va_range.start <= self@.cur_va < m.va_range.end,
         );
-        assert(filtered =~= set![]) by {
+        assert(filtered == set![]) by {
             assert forall|m: Mapping| !filtered.contains(m) by {
                 if self@.mappings.contains(m) && m.va_range.start <= self@.cur_va < m.va_range.end {
                     assert(self.view_mappings().contains(m));
@@ -2320,7 +2472,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let filtered = self@.mappings.filter(
             |m: Mapping| m.va_range.start <= self@.cur_va < m.va_range.end,
         );
-        assert(filtered =~= set![]) by {
+        assert(filtered == set![]) by {
             assert forall|m: Mapping| !filtered.contains(m) by {
                 if self@.mappings.contains(m) && m.va_range.start <= self@.cur_va < m.va_range.end {
                     assert(self.view_mappings().contains(m));
@@ -2374,8 +2526,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             page_size: page_size(pt_level as PagingLevel),
             property: frame.prop,
         };
-        assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
-        assert(self.view_mappings().contains(m));
+        assert(PageTableOwner(subtree).view_rec(path) == set![m]);
+        assert(PageTableOwner(subtree).view_rec(path).contains(m));
+        cont.view_mappings_intro(m, cont.idx as int);
+        self.view_mappings_intro(m, (self.level - 1) as int);
         assert(m.inv());
         assert(m.va_range.start <= self@.cur_va < m.va_range.end) by {
             self.cur_va_in_subtree_range();
@@ -2386,11 +2540,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
         );
         assert(filtered.contains(m));
-        axiom_set_intersect_finite::<Mapping>(
-            self@.mappings,
-            Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end),
-        );
-        axiom_set_contains_len(filtered, m);
+        lemma_set_contains_len(filtered, m);
     }
 
     /// The entry_own at each continuation level satisfies `metaregion_sound`.
@@ -2679,7 +2829,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ) -> Self {
         let va = AbstractVaddr {
             offset: 0,
-            index: Map::new(|i: int| 0 <= i < NR_LEVELS, |i: int| 0).insert(
+            index: Map::new(Set::<int>::range(0, NR_LEVELS as int), |i: int| 0).insert(
                 NR_LEVELS - 1,
                 idx as int,
             ),
@@ -2729,7 +2879,6 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
 
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
-        &&& self.mappings.finite()
         &&& forall|m: Mapping|
             #![auto]
             self.mappings.contains(m)
@@ -2796,9 +2945,7 @@ impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
         // (1) Non-overlapping: tree collapse + view_rec_disjoint_vaddrs.
         self.view_non_overlapping();
-        // (2) Finite: tree collapse + view_rec_finite.
-        self.view_mappings_finite();
-        // (3) Per-mapping `Mapping::inv()`: page_size ∈ {4K,2M,1G}, PA/VA
+        // (2) Per-mapping `Mapping::inv()`: page_size ∈ {4K,2M,1G}, PA/VA
         //     alignment, PA/VA size equal page_size, and PA bound.
         self.view_mapping_inv();
         // (4) Config-aware VA bound: every mapping's VA range is contained

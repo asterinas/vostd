@@ -130,7 +130,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Sum<A, B>,
         SumSP<A, B, TOTAL>,
     >) {
-        StorageResource::alloc(SumSP::Unit, Map::tracked_empty())
+        StorageResource::alloc(SumSP::Unit, IMap::tracked_empty())
     }
 
     /// Allocates a new `SumResource` with the resource of type `A`.
@@ -145,7 +145,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.frac() == TOTAL,
             res.wf(),
     {
-        let tracked mut m = Map::tracked_empty();
+        let tracked mut m = IMap::tracked_empty();
         m.tracked_insert((), Sum::<A, B>::Left(a));
         let tracked r = StorageResource::alloc(SumSP::Left(Some(a), TOTAL as int, true), m);
         Self { r }
@@ -163,7 +163,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.frac() == TOTAL,
             res.wf(),
     {
-        let tracked mut m = Map::tracked_empty();
+        let tracked mut m = IMap::tracked_empty();
         m.tracked_insert((), Sum::<A, B>::Right(b));
         let tracked r = StorageResource::alloc(SumSP::Right(Some(b), TOTAL as int, true), m);
         Self { r }
@@ -312,7 +312,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         ensures
             *res == self.resource_left(),
     {
-        StorageResource::guard(&self.r, map![() => self.resource()]).tracked_borrow(
+        StorageResource::guard(&self.r, imap![() => self.resource()]).tracked_borrow(
             (),
         ).tracked_borrow_left()
     }
@@ -326,7 +326,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         ensures
             *res == self.resource()->Right_0,
     {
-        StorageResource::guard(&self.r, map![() => self.resource()]).tracked_borrow(
+        StorageResource::guard(&self.r, imap![() => self.resource()]).tracked_borrow(
             (),
         ).tracked_borrow_right()
     }
@@ -730,7 +730,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         tmp.value().lemma_withdraws_left();
         let tracked (mut r1, mut s) = tmp.withdraw(
             SumSP::Left(None, tmp.value().frac(), true),
-            map![() => tmp.value().resource()],
+            imap![() => tmp.value().resource()],
         );
         tracked_swap(r, &mut r1);
         s.tracked_remove(()).tracked_take_left()
@@ -777,7 +777,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         tmp.value().lemma_withdraws_right();
         let tracked (mut r1, mut s) = tmp.withdraw(
             SumSP::Right(None, tmp.value().frac(), true),
-            map![() => tmp.value().resource()],
+            imap![() => tmp.value().resource()],
         );
         tracked_swap(r, &mut r1);
         s.tracked_remove(()).tracked_take_right()
@@ -821,7 +821,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             final(r).value().frac() == old(r).value().frac(),
     {
         let ghost a_ghost = a;
-        let tracked mut m = Map::tracked_empty();
+        let tracked mut m = IMap::tracked_empty();
         m.tracked_insert((), Sum::<A, B>::Left(a));
         let tracked mut tmp = Self::alloc_unit_storage();
         tracked_swap(r, &mut tmp);
@@ -868,7 +868,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             final(r).value().frac() == old(r).value().frac(),
     {
         let ghost b_ghost = b;
-        let tracked mut m = Map::tracked_empty();
+        let tracked mut m = IMap::tracked_empty();
         m.tracked_insert((), Sum::<A, B>::Right(b));
         let tracked mut tmp = Self::alloc_unit_storage();
         tracked_swap(r, &mut tmp);
@@ -1365,7 +1365,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
         use_type_invariant(&*self);
         StorageResource::guard(
             &self.r,
-            map![() => Sum::<A, B>::Left(self.resource())],
+            imap![() => Sum::<A, B>::Left(self.resource())],
         ).tracked_borrow(()).tracked_borrow_left()
     }
 
@@ -1574,7 +1574,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
         use_type_invariant(&*self);
         StorageResource::guard(
             &self.r,
-            map![() => Sum::<A, B>::Right(self.resource())],
+            imap![() => Sum::<A, B>::Right(self.resource())],
         ).tracked_borrow(()).tracked_borrow_right()
     }
 

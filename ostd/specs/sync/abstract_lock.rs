@@ -41,8 +41,8 @@ pub open spec fn init(num_procs: nat) -> StatePred<ProgramState> {
             {
                 &&& s.ProcSet == set_int_range(0, num_procs as int)
                 &&& s.locked == false
-                &&& s.stack == s.ProcSet.mk_map(|i: Tid| Seq::<StackFrame>::empty())
-                &&& s.pc == s.ProcSet.mk_map(|i: Tid| Label::start)
+                &&& s.stack == Map::new(s.ProcSet, |i: Tid| Seq::<StackFrame>::empty())
+                &&& s.pc == Map::new(s.ProcSet, |i: Tid| Label::start)
             },
     )
 }
@@ -206,7 +206,6 @@ impl ProgramState {
 
     pub open spec fn inv_unchanged(self, n: nat) -> bool {
         &&& self.ProcSet == set_int_range(0, n as int)
-        &&& self.ProcSet.finite()
         &&& self.pc.dom() == self.ProcSet
         &&& self.stack.dom() == self.ProcSet
     }

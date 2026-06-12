@@ -230,7 +230,7 @@ impl MemView {
     pub open spec fn borrow_at(&self, vaddr: usize, len: usize) -> MemView {
         let range_end = vaddr + len;
 
-        let valid_pas = Set::new(
+        let valid_pas = self.memory.dom().filter(
             |pa: usize|
                 exists|va: usize| vaddr <= va < range_end && #[trigger] self.is_mapped(va, pa),
         );
@@ -266,10 +266,10 @@ impl MemView {
         );
         let right_mappings = self.mappings.filter(|m: Mapping| m.va_range.end > split_end);
 
-        let left_pas = Set::new(
+        let left_pas = self.memory.dom().filter(
             |pa: usize| exists|va: usize| vaddr <= va < split_end && self.is_mapped(va, pa),
         );
-        let right_pas = Set::new(
+        let right_pas = self.memory.dom().filter(
             |pa: usize| exists|va: usize| va >= split_end && self.is_mapped(va, pa),
         );
 
@@ -344,7 +344,7 @@ impl MemView {
 
         assert forall|va: usize| vaddr <= va < vaddr + len implies original.addr_transl(va)
             == left.addr_transl(va) by {
-            assert(left.mappings =~= original.mappings.filter(
+            assert(left.mappings == original.mappings.filter(
                 |m: Mapping| m.va_range.start < vaddr + len && m.va_range.end > vaddr,
             ));
             let o_mappings = original.mappings.filter(
@@ -472,10 +472,10 @@ impl MemView {
     {
         Self::lemma_split_preserves_transl(original, vaddr, len, left, right);
         let split_end = vaddr + len;
-        let right_pas = Set::new(
+        let right_pas = original.memory.dom().filter(
             |pa: usize| exists|va: usize| va >= split_end && original.is_mapped(va, pa),
         );
-        assert(right.memory =~= original.memory.restrict(right_pas));
+        assert(right.memory == original.memory.restrict(right_pas));
         assert forall|va: usize|
             va >= split_end && original.addr_transl(va) is Some && original.memory.contains_key(
                 original.addr_transl(va).unwrap().0,
@@ -1080,9 +1080,6 @@ impl Inv for GlobalMemView {
                 self.tlb_mappings.contains(m) ==> self.tlb_mappings.contains(n) ==> m != n
                     ==> #[trigger] m.va_range.end <= n.va_range.start || n.va_range.end
                     <= m.va_range.start
-        &&& self.tlb_mappings.finite()
-        &&& self.pt_mappings.finite()
-        &&& self.memory.dom().finite()
         &&& self.all_pas_accounted_for()
         &&& self.pas_uniquely_mapped()
         &&& self.unmapped_correct()
@@ -1135,12 +1132,12 @@ impl GlobalMemView {
             |m: Mapping| m.va_range.start < range_end && m.va_range.end > vaddr,
         );
 
-        let leave_pas = Set::new(
+        let leave_pas = self.memory.dom().filter(
             |pa: usize|
                 exists|m: Mapping|
                     leave_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end,
         );
-        let take_pas = Set::new(
+        let take_pas = self.memory.dom().filter(
             |pa: usize|
                 exists|m: Mapping|
                     take_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end,
@@ -1210,7 +1207,7 @@ impl GlobalMemView {
     pub open spec fn pt_map(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.insert(m);
         let unmapped_pas = self.unmapped_pas.difference(
-            Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end),
+            Set::<usize>::range(m.pa_range.start, m.pa_range.end),
         );
         GlobalMemView { pt_mappings, unmapped_pas, ..self }
     }
@@ -1227,7 +1224,7 @@ impl GlobalMemView {
     pub open spec fn pt_unmap(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.remove(m);
         let unmapped_pas = self.unmapped_pas.union(
-            Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end),
+            Set::<usize>::range(m.pa_range.start, m.pa_range.end),
         );
         GlobalMemView { pt_mappings, unmapped_pas, ..self }
     }

@@ -174,7 +174,7 @@ impl PageFlags {
         requires
             left.bits() == right.bits(),
         ensures
-            left =~= right,
+            left == right,
     {
     }
 }
@@ -192,7 +192,7 @@ impl PrivilegedPageFlags {
         requires
             left.bits() == right.bits(),
         ensures
-            left =~= right,
+            left == right,
     {
     }
 }

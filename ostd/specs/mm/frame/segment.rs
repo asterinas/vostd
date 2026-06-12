@@ -288,7 +288,6 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     /// presence of initialized backing frame contents.
     pub open spec fn kernel_mem_view_covers(&self, view: &MemView) -> bool {
         &&& self.inv()
-        &&& view.mappings.finite()
         &&& view.mappings_are_disjoint()
         &&& forall|vaddr: Vaddr|
             #![trigger view.addr_transl(vaddr)]
@@ -391,8 +390,8 @@ pub proof fn tracked_mint_seg_obligations(
         old(regions).inv(),
     ensures
         final(regions).inv(),
-        final(regions).slots =~= old(regions).slots,
-        final(regions).slot_owners =~= old(regions).slot_owners,
+        final(regions).slots == old(regions).slots,
+        final(regions).slot_owners == old(regions).slot_owners,
         // Counts only grow.
         forall|idx: usize|
             #![trigger final(regions).frame_obligations.count(idx)]
@@ -473,8 +472,8 @@ pub proof fn tracked_redeem_seg_obligations(
                 != frame_to_index((range_start + j * PAGE_SIZE) as usize),
     ensures
         final(regions).inv(),
-        final(regions).slots =~= old(regions).slots,
-        final(regions).slot_owners =~= old(regions).slot_owners,
+        final(regions).slots == old(regions).slots,
+        final(regions).slot_owners == old(regions).slot_owners,
     decreases n,
 {
     if n > 0 {

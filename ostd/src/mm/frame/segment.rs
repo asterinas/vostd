@@ -129,12 +129,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             invariant
                 perm.inv(),
                 self.inv(),
-                perm.slots =~= old_perm.slots,
-                perm.slot_owners.dom() =~= old_perm.slot_owners.dom(),
+                perm.slots == old_perm.slots,
+                perm.slot_owners.dom() == old_perm.slot_owners.dom(),
                 // Linear-drop pilot: cloning a Segment doesn't mint or
                 // redeem its obligation — the per-frame ref-count bump is
                 // an Arc-style operation.
-                perm.frame_obligations =~= old_perm.frame_obligations,
+                perm.frame_obligations == old_perm.frame_obligations,
                 self.range.start <= paddr <= self.range.end,
                 paddr % PAGE_SIZE == 0,
                 paddr <= MAX_PADDR,
@@ -215,7 +215,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             !(range.end <= MAX_PADDR ==> range.start < range.end) ==> may_panic(),
         ensures
             final(regions).inv(),
-            r is Err ==> final(regions).frame_obligations =~= old(regions).frame_obligations,
+            r is Err ==> final(regions).frame_obligations == old(regions).frame_obligations,
             (range.start % PAGE_SIZE != 0 || range.end % PAGE_SIZE != 0)
                 ==> r == Err::<Self, _>(GetFrameError::NotAligned),
             (range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0 && range.end > MAX_PADDR)
@@ -306,8 +306,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& addrs[j] == range.start + (j as u64) * PAGE_SIZE
                     },
                 regions.inv(),
-                regions.frame_obligations =~= old(regions).frame_obligations,
-                regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+                regions.frame_obligations == old(regions).frame_obligations,
+                regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                 segment.range.start == range.start,
                 segment.range.end == range.start + i * PAGE_SIZE,
             ensures
@@ -328,8 +328,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     while p < segment.range.end
                         invariant
                             regions.inv(),
-                            regions.frame_obligations =~= old(regions).frame_obligations,
-                            regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+                            regions.frame_obligations == old(regions).frame_obligations,
+                            regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                             range.start % PAGE_SIZE == 0,
                             i as int == addrs.len(),
                             segment.range.end == range.start + i * PAGE_SIZE,
@@ -418,8 +418,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 axiom_mmio_usage_iff_mmio_paddr(regions_pre.slot_owners[idx]);
                 assert(regions_pre.slot_owners[idx].paths_in_pt.is_empty());
                 assert(regions.slot_owners[idx].paths_in_pt
-                    =~= regions_pre.slot_owners[idx].paths_in_pt);
-                assert(regions.frame_obligations =~= regions_pre.frame_obligations);
+                    == regions_pre.slot_owners[idx].paths_in_pt);
+                assert(regions.frame_obligations == regions_pre.frame_obligations);
                 addrs.tracked_push(paddr);
             }
 
@@ -436,7 +436,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             // The construction loop preserved `frame_obligations`, so the mint
             // helper's exact delta (stated against the pre-mint state) telescopes
             // to the function's entry state for the postcondition.
-            assert(regions.frame_obligations =~= old(regions).frame_obligations);
+            assert(regions.frame_obligations == old(regions).frame_obligations);
             crate::specs::mm::frame::segment::tracked_mint_seg_obligations(
                 regions,
                 range.start,
@@ -496,7 +496,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             r.inv(),
             r.wf(&owner),
             final(regions).inv(),
-            *final(regions) =~= *old(regions),
+            *final(regions) == *old(regions),
     )]
     pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
         Self { range, _marker: core::marker::PhantomData }
@@ -573,9 +573,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             offset % PAGE_SIZE != 0 ==> may_panic(),
             !(0 < offset && offset < self.size()) ==> may_panic(),
         ensures
-            final(regions).slots =~= old(regions).slots,
-            final(regions).slot_owners =~= old(regions).slot_owners,
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            final(regions).slots == old(regions).slots,
+            final(regions).slot_owners == old(regions).slot_owners,
+            final(regions).frame_obligations == old(regions).frame_obligations,
             (r.0, r.1) == self.split_spec(offset),
             r.0.invariants(&result_owners.0@, *final(regions)),
             r.1.invariants(&result_owners.1@, *final(regions)),
@@ -601,9 +601,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             _marker: core::marker::PhantomData,
         };
         proof {
-            assert(*regions =~= old_regions);
-            assert(regions.slot_owners =~= old_regions.slot_owners);
-            assert(regions.frame_obligations =~= old_regions.frame_obligations);
+            assert(*regions == old_regions);
+            assert(regions.slot_owners == old_regions.slot_owners);
+            assert(regions.frame_obligations == old_regions.frame_obligations);
             assert forall|i: int|
                 #![trigger frame_to_index((frame_own1.range.start + i * PAGE_SIZE) as usize)]
                 0 <= i < crate::specs::mm::frame::segment::seg_nframes(frame_own1.range) implies {
@@ -728,9 +728,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             r.end_paddr() == self.start_paddr() + range.end,
             r.end_paddr() <= self.end_paddr(),
             final(regions).inv(),
-            final(regions).slots =~= old(regions).slots,
-            final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            final(regions).slots == old(regions).slots,
+            final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
+            final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     #[verifier::rlimit(8000)]
     pub fn slice(&self, range: &Range<usize>) -> Self {
@@ -754,9 +754,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
                 old_regions == *old(regions),
                 regions.inv(),
-                regions.slots =~= old_regions.slots,
-                regions.slot_owners.dom() =~= old_regions.slot_owners.dom(),
-                regions.frame_obligations =~= old_regions.frame_obligations,
+                regions.slots == old_regions.slots,
+                regions.slot_owners.dom() == old_regions.slot_owners.dom(),
+                regions.frame_obligations == old_regions.frame_obligations,
                 start == self.range.start + range.start,
                 end == self.range.start + range.end,
                 start <= end <= self.range.end,
@@ -854,7 +854,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         ensures
             r == self.range(),
             final(regions).inv(),
-            *final(regions) =~= *old(regions),
+            *final(regions) == *old(regions),
             frame_perms@ == owner,
     )]
     pub(crate) fn into_raw(self) -> Range<Paddr> {
@@ -931,7 +931,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     frame.index(),
                 );
                 regions.tracked_redeem_frame_obligation(redeem_tok);
-                assert(regions.frame_obligations =~= old(regions).frame_obligations);
+                assert(regions.frame_obligations == old(regions).frame_obligations);
                 owner.range = new_range;
 
                 assert forall|i: int|
@@ -1135,7 +1135,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     ) && regions.slot_owners[frame_idx_at(self.range.start, j)] == old(
                         regions,
                     ).slot_owners[frame_idx_at(self.range.start, j)],
-                regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+                regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                 self.wf(&old_owner),
                 old_owner.inv(),
                 old(regions).inv(),
@@ -1219,12 +1219,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             invariant
                 perm.inv(),
                 self.inv(),
-                perm.slots =~= old_perm.slots,
-                perm.slot_owners.dom() =~= old_perm.slot_owners.dom(),
+                perm.slots == old_perm.slots,
+                perm.slot_owners.dom() == old_perm.slot_owners.dom(),
                 // Linear-drop pilot: cloning a Segment doesn't mint or
                 // redeem its obligation — the per-frame ref-count bump is
                 // an Arc-style operation.
-                perm.frame_obligations =~= old_perm.frame_obligations,
+                perm.frame_obligations == old_perm.frame_obligations,
                 self.range.start <= paddr <= self.range.end,
                 paddr % PAGE_SIZE == 0,
                 paddr <= MAX_PADDR,

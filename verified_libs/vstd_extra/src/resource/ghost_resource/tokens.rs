@@ -7,8 +7,6 @@ use vstd::resource::Loc;
 
 verus! {
 
-broadcast use {vstd::map::group_map_axioms, vstd::set::group_set_axioms};
-
 /// A struct that stores and dispatches `CountGhost<T>`.
 /// Unlike `CountGhost`, it provides an `empty` state.
 /// It also remembers the value even it is empty.

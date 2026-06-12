@@ -102,7 +102,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         let vh_s = LinkedListOwner::<M>::view_helper(s);
         let vh_ps = LinkedListOwner::<M>::view_helper(ps);
 
-        assert(post@.fore =~= self@.fore) by {
+        assert(post@.fore == self@.fore) by {
             assert forall|j: int| 0 <= j < vh_ps.take(idx).len() implies vh_ps.take(idx)[j]
                 == vh_s.take(idx)[j] by {
                 LinkedListOwner::<M>::view_helper_index(ps, j);
@@ -110,7 +110,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
             };
         };
 
-        assert(post@.rear =~= self@.remove().rear) by {
+        assert(post@.rear == self@.remove().rear) by {
             assert forall|j: int| 0 <= j < vh_ps.skip(idx).len() implies #[trigger] vh_ps.skip(
                 idx,
             )[j] == vh_s.skip(idx).remove(0)[j] by {
@@ -129,7 +129,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
                 LinkedListOwner::<M>::view_helper_index(s, j + 1);
             }
         };
-        assert(vh_ps =~= vh_s.take(idx).add(vh_s.skip(idx).remove(0)));
+        assert(vh_ps == vh_s.take(idx).add(vh_s.skip(idx).remove(0)));
         assert(post@.list_model == self@.remove().list_model);
     }
 
@@ -162,7 +162,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         let vh_s = LinkedListOwner::<M>::view_helper(s);
         let vh_ps = LinkedListOwner::<M>::view_helper(ps);
 
-        assert(post@.fore =~= self@.insert(link@).fore) by {
+        assert(post@.fore == self@.insert(link@).fore) by {
             assert forall|j: int| 0 <= j < vh_ps.take(idx + 1).len() implies vh_ps.take(idx + 1)[j]
                 == vh_s.take(idx).insert(idx as int, link@)[j] by {
                 LinkedListOwner::<M>::view_helper_index(ps, j);
@@ -172,7 +172,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
             };
         };
 
-        assert(post@.rear =~= self@.insert(link@).rear) by {
+        assert(post@.rear == self@.insert(link@).rear) by {
             assert forall|j: int| 0 <= j < vh_ps.skip(idx + 1).len() implies vh_ps.skip(idx + 1)[j]
                 == vh_s.skip(idx)[j] by {
                 LinkedListOwner::<M>::view_helper_index(ps, idx + 1 + j);
@@ -191,7 +191,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
                 LinkedListOwner::<M>::view_helper_index(s, j - 1);
             }
         };
-        assert(vh_ps =~= new_fore.add(vh_s.skip(idx)));
+        assert(vh_ps == new_fore.add(vh_s.skip(idx)));
         assert(post@.list_model == self@.insert(link@).list_model);
     }
 

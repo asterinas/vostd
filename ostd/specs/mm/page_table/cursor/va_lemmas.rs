@@ -246,8 +246,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             page_size: ps,
             property: frame.prop,
         };
-        assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
-        assert(self.view_mappings().contains(m));
+        assert(PageTableOwner(subtree).view_rec(path) == set![m]);
+        assert(PageTableOwner(subtree).view_rec(path).contains(m));
+        cont.view_mappings_intro(m, cont.idx as int);
+        self.view_mappings_intro(m, (self.level - 1) as int);
         assert(m.inv());
 
         self.cur_va_in_subtree_range();
@@ -258,11 +260,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
         );
         assert(filtered.contains(m));
-        vstd::set::axiom_set_intersect_finite::<Mapping>(
-            self@.mappings,
-            Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end),
-        );
-        vstd::set::axiom_set_choose_len(filtered);
+        vstd::set::lemma_set_choose_len(filtered);
         let qm = self@.query_mapping();
         assert(filtered.contains(qm));
         assert(qm == m) by {

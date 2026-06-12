@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 #![expect(dead_code)]
 
-use crate::specs::arch::MAX_PADDR;
+use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS};
+use vstd::arithmetic::power2::*;
 use vstd::prelude::*;
 use vstd_extra::panic::may_panic;
 use vstd_extra::panic::panic_diverge;
@@ -25,6 +26,96 @@ use crate::{
 };
 
 mod util;
+
+verus! {
+#[derive(Clone,Debug, Default)]
+pub struct PagingConsts {}
+
+impl PagingConstsTrait for PagingConsts {
+    // Expansion for BASE_PAGE_SIZE
+    #[verifier::inline]
+    open spec fn BASE_PAGE_SIZE_spec() -> usize {
+        4096
+    }
+
+    #[inline(always)]
+    fn BASE_PAGE_SIZE() -> usize
+    {
+        4096
+    }
+
+    // Expansion for NR_LEVELS
+    #[verifier::inline]
+    open spec fn NR_LEVELS_spec() -> PagingLevel {
+        4
+    }
+
+    #[inline(always)]
+    fn NR_LEVELS() -> PagingLevel
+    {
+        4
+    }
+
+    // Expansion for ADDRESS_WIDTH
+    #[verifier::inline]
+    open spec fn ADDRESS_WIDTH_spec() -> usize {
+        48
+    }
+
+    #[inline(always)]
+    fn ADDRESS_WIDTH() -> usize
+    {
+        48
+    }
+
+    // Expansion for HIGHEST_TRANSLATION_LEVEL
+    #[verifier::inline]
+    open spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel {
+        2
+    }
+
+    #[inline(always)]
+    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
+    {
+        2
+    }
+
+    #[verifier::inline]
+    open spec fn VA_SIGN_EXT_spec() -> bool {
+        true
+    }
+
+    #[inline(always)]
+    fn VA_SIGN_EXT() -> bool {
+        true
+    }
+
+    // Expansion for PTE_SIZE
+    #[verifier::inline]
+    open spec fn PTE_SIZE_spec() -> usize {
+        8
+    }
+
+    #[inline(always)]
+    fn PTE_SIZE() -> (res: usize)
+    {
+        8
+    }
+
+    proof fn lemma_paging_consts_properties()
+    {
+        lemma_pow2_is_pow2_to64();
+    }
+}
+
+pub proof fn lemma_nr_subpage_per_huge_eq_nr_entries()
+    ensures
+        crate::mm::nr_subpage_per_huge::<PagingConsts>() == NR_ENTRIES,
+{
+    assert(crate::mm::nr_subpage_per_huge::<PagingConsts>() == 4096usize / 8usize);
+    assert(NR_ENTRIES == 512usize);
+}
+}
 
 verified_bitflags::bitflags! {
     //#[derive(Pod)]

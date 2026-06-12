@@ -28,11 +28,10 @@ use crate::Pod;
 use crate::specs::mm::page_table::*;
 
 use crate::specs::arch::mm::*;
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
-use crate::arch::mm::PageTableEntry;
+use crate::arch::mm::{PageTableEntry, PagingConsts};
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
@@ -80,8 +79,8 @@ pub trait RCClone: Sized {
             res == *self,
             self.clone_ensures(*old(perm), *final(perm), res),
             final(perm).inv(),
-            final(perm).slots =~= old(perm).slots,
-            final(perm).slot_owners.dom() =~= old(
+            final(perm).slots == old(perm).slots,
+            final(perm).slot_owners.dom() == old(
                 perm,
             ).slot_owners.dom(),
     // Linear-drop pilot: `RCClone::clone` doesn't mint/redeem
@@ -89,7 +88,7 @@ pub trait RCClone: Sized {
     // is left to each impl's `clone_ensures` — canonically a clone
     // creates a fresh live value, so `Frame::clone` MINTS one entry
     // (`.insert(idx)`); ref-count-only clones (`Segment`) stay
-    // net-zero. Hardcoding `=~= old` here would forbid the mint.
+    // net-zero. Hardcoding `== old` here would forbid the mint.
 
     ;
 }
@@ -364,9 +363,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             // Canonical model: a tracked clone MINTS one per-frame obligation
             // at the slot (`Frame::clone`); an untracked clone is net-zero.
             Self::tracked(item) ==> new_regions.frame_obligations
-                =~= old_regions.frame_obligations.insert(frame_to_index(pa)),
-            !Self::tracked(item) ==> new_regions.frame_obligations
-                =~= old_regions.frame_obligations,
+                == old_regions.frame_obligations.insert(frame_to_index(pa)),
+            !Self::tracked(item) ==> new_regions.frame_obligations == old_regions.frame_obligations,
     ;
 
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
@@ -465,27 +463,8 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::VA_SIGN_EXT()
     }
 
-    proof fn lemma_BASE_PAGE_SIZE_properties()
-        ensures
-            0 < Self::BASE_PAGE_SIZE_spec(),
-            is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
-    {
-        C::C::lemma_BASE_PAGE_SIZE_properties();
-    }
-
-    proof fn lemma_NR_LEVELS_eq()
-        ensures
-            Self::NR_LEVELS_spec() as int == NR_LEVELS as int,
-    {
-        C::C::lemma_NR_LEVELS_eq();
-    }
-
-    proof fn lemma_PTE_SIZE_properties()
-        ensures
-            0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE(),
-            is_pow2(Self::PTE_SIZE_spec() as int),
-    {
-        C::C::lemma_PTE_SIZE_properties();
+    proof fn lemma_paging_consts_properties() {
+        C::C::lemma_paging_consts_properties();
     }
 }
 
@@ -1272,7 +1251,7 @@ impl PageTable<KernelPtConfig> {
                 kernel_owner.0.value.meta_slot_paddr().unwrap(),
             );
             assert(regions_before_self_borrow.slot_owners
-                =~= regions_after_kroot_borrow.slot_owners);
+                == regions_after_kroot_borrow.slot_owners);
             assert forall|k: usize|
                 regions_before_self_borrow.slots.contains_key(
                     k,

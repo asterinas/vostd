@@ -59,10 +59,9 @@ use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::{
-    arch::mm::PageTableEntry,
+    arch::mm::{PageTableEntry, PagingConsts},
     boot::memory_region::MemoryRegionType,
     mm::{PagingLevel, largest_pages},
-    specs::arch::PagingConsts,
     //task::disable_preempt,
 };
 
@@ -321,7 +320,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 assert(frame_to_index(pa) == frame_idx);
                 assert(frame.clone_ensures(old_regions, new_regions, res_frame));
                 // Canonical: the cloned frame minted one obligation at its slot.
-                assert(new_regions.frame_obligations =~= old_regions.frame_obligations.insert(
+                assert(new_regions.frame_obligations == old_regions.frame_obligations.insert(
                     frame_idx,
                 ));
             },

@@ -367,7 +367,7 @@ impl MetaSlot {
             !has_safe_slot(paddr) ==> res is Err,
             // Linear-drop pilot: claiming an unused slot doesn't mint or
             // redeem segment or frame obligations on any path.
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         paddr: Paddr,
@@ -411,8 +411,8 @@ impl MetaSlot {
                     old(regions).slot_owners[idx].inner_perms.ref_count,
                 );
                 assert(regions.slot_owners[idx] == old(regions).slot_owners[idx]);
-                assert(regions.slot_owners =~= old(regions).slot_owners);
-                assert(regions.slots =~= old(regions).slots);
+                assert(regions.slot_owners == old(regions).slot_owners);
+                assert(regions.slots == old(regions).slots);
                 assert(*regions == *old(regions));
             }
 
@@ -535,7 +535,7 @@ impl MetaSlot {
             res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *final(regions)),
             res matches Ok(ptr) ==> ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
             res is Err ==> *final(regions) == *old(regions),
-            final(regions).frame_obligations =~= old(regions).frame_obligations,
+            final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     #[verifier::exec_allows_no_decreases_clause]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
@@ -604,7 +604,7 @@ impl MetaSlot {
                 regions.slots == regions0.slots,
                 // Linear-drop pilot: this path doesn't mint/redeem segment
                 // obligations, so the ledger is invariant.
-                regions.frame_obligations =~= regions0.frame_obligations,
+                regions.frame_obligations == regions0.frame_obligations,
         {
             match #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms))]
             Self::get_from_in_use_loop(slot) {
@@ -656,8 +656,8 @@ impl MetaSlot {
                         }
                         regions.slot_owners.tracked_insert(idx, slot_own);
 
-                        assert(regions.slot_owners.dom() =~= regions0.slot_owners.dom());
-                        assert(regions.slots =~= regions0.slots);
+                        assert(regions.slot_owners.dom() == regions0.slot_owners.dom());
+                        assert(regions.slots == regions0.slots);
 
                         assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i]
                             == regions0.slot_owners[i] by {};
@@ -690,7 +690,7 @@ impl MetaSlot {
                                 regions0.slot_owners[idx].inner_perms.ref_count,
                             );
                             assert(regions.slot_owners[idx] == regions0.slot_owners[idx]);
-                            assert(regions.slot_owners =~= regions0.slot_owners);
+                            assert(regions.slot_owners == regions0.slot_owners);
                             assert(*regions == *old(regions));
                         }
                     }

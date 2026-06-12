@@ -176,13 +176,21 @@ macro_rules! bitflags {
                 }
             }
 
+            impl ::vstd::set_lib::FiniteFull for [< __ghost $name >] {
+                proof fn full_properties() {
+                    let s = ::vstd::iset::ISet::empty()
+                        $(.insert([< __ghost $name >]::[< __ghost $Flag >]))*;
+                    assert(::vstd::iset::ISet::new(|a: [< __ghost $name >]| true) =~= s);
+                }
+            }
+
             impl $name {
                 $vis open spec fn flags_spec(&self) -> ::vstd::set::Set<[< __ghost $name >]> {
                     Self::flags_from_bits(self.bits())
                 }
 
                 $vis open spec fn flags_from_bits(bits: $T) -> ::vstd::set::Set<[< __ghost $name >]> {
-                    ::vstd::set::Set::new(|flag: [< __ghost $name >]| {
+                    ::vstd::set::Set::< [< __ghost $name >] >::from_finite_type(|flag: [< __ghost $name >]| {
                         flag.enabled() && (bits & flag.bit()) == flag.bit()
                     })
                 }
