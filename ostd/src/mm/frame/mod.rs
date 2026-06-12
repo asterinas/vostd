@@ -380,6 +380,24 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     }
 }
 
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
+    /// Gets the map level of this page.
+    ///
+    /// This is the level of the page table entry that maps the frame,
+    /// which determines the size of the frame.
+    ///
+    /// Currently, the level is always 1, which means the frame is a regular
+    /// page frame.
+    pub const fn map_level(&self) -> PagingLevel {
+        1
+    }
+
+    /// Gets the size of this page in bytes.
+    pub const fn size(&self) -> usize {
+        PAGE_SIZE
+    }
+}
+
 #[verus_verify]
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     /// Gets the physical address of the start of the frame.
@@ -451,22 +469,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         (#[verus_spec(with Tracked(self_perm))]
         self.start_paddr() == #[verus_spec(with Tracked(other_perm))]
         other.start_paddr())
-    }
-
-    /// Gets the map level of this page.
-    ///
-    /// This is the level of the page table entry that maps the frame,
-    /// which determines the size of the frame.
-    ///
-    /// Currently, the level is always 1, which means the frame is a regular
-    /// page frame.
-    pub const fn map_level(&self) -> PagingLevel {
-        1
-    }
-
-    /// Gets the size of this page in bytes.
-    pub const fn size(&self) -> usize {
-        PAGE_SIZE
     }
 
     /*    /// Gets the dynamically-typed metadata of this frame.
