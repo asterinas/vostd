@@ -772,6 +772,16 @@ impl<P: NonNullPtr + Send> Rcu<P> {
 
 }
 
+impl<P: NonNullPtr + Send> RcuOption<P> {
+    /// Creates a new RCU primitive that contains nothing.
+    ///
+    /// This is a constant equivalence to [`RcuOption::new(None)`].
+    #[inline(always)]
+    pub const fn new_none() -> Self {
+        Self(RcuInner::new_none())
+    }
+}
+
 #[verus_verify]
 impl<P: NonNullPtr + Send> RcuOption<P> {
     /// Creates a new RCU primitive with the given pointer.
