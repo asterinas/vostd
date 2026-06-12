@@ -37,7 +37,7 @@ use crate::mm::frame::meta::mapping::{
     META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_addr, meta_to_frame, meta_to_frame_spec,
 };
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, get_slot, has_safe_slot};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 
 verus! {
 

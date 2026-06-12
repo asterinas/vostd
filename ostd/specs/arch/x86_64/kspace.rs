@@ -1,5 +1,6 @@
 use vstd::arithmetic::div_mod::*;
 use vstd::prelude::*;
+use vstd_extra::prelude::*;
 
 use super::*;
 use crate::mm::{
@@ -17,28 +18,6 @@ use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 use core::ops::Range;
 
 verus! {
-
-/// Kernel virtual address range for storing the page frame metadata.
-pub const FRAME_METADATA_RANGE: Range<Vaddr> = 0xffff_e000_0000_0000..0xffff_e100_0000_0000;
-
-#[verifier::inline]
-pub open spec fn paddr_to_vaddr_spec(pa: Paddr) -> usize
-    recommends
-        pa < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
-{
-    (pa + LINEAR_MAPPING_BASE_VADDR) as usize
-}
-
-#[inline(always)]
-#[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
-pub fn paddr_to_vaddr(pa: Paddr) -> (res: usize)
-    requires
-        pa < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
-    ensures
-        res == paddr_to_vaddr_spec(pa),
-{
-    (pa + LINEAR_MAPPING_BASE_VADDR) as usize
-}
 
 pub proof fn lemma_linear_mapping_base_vaddr_properties()
     ensures
@@ -93,17 +72,6 @@ pub proof fn lemma_max_paddr_range()
 {
     assert(MAX_PADDR < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR) by (compute_only);
     assert(MAX_PADDR + LINEAR_MAPPING_BASE_VADDR < usize::MAX) by (compute_only);
-}
-
-pub proof fn lemma_mod_0_add(a: int, b: int, m: int)
-    requires
-        0 < m,
-        a % m == 0,
-        b % m == 0,
-    ensures
-        (a + b) % m == 0,
-{
-    lemma_mod_adds(a, b, m);
 }
 
 pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)

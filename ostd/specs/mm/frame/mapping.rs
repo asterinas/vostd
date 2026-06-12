@@ -11,7 +11,7 @@ pub use crate::mm::frame::meta::mapping::{
 };
 use crate::mm::frame::meta::{meta_slot_size, size_of_meta_slot};
 use crate::mm::{Paddr, Vaddr};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 
 verus! {

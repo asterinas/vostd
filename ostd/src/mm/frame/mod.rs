@@ -61,7 +61,7 @@ use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 pub use segment::Segment;
 
 // Re-export commonly used types
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
