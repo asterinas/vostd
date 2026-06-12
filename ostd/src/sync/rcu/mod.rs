@@ -1086,7 +1086,6 @@ impl<P: NonNullPtr> Rcu<P> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.0.type_inv()
-        &&& !self.0.is_nullable()
     }
 }
 
