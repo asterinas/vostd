@@ -3895,8 +3895,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
         assert(owner.continuations == owner0.continuations.remove(owner.level - 1));
 
-        let tracked mut parent_owner = continuation.entry_own.tracked_take_node();
-
         let ghost pre_new_owner_value = new_owner.value;
         // Capture the old child value before Entry::replace mutates it (from_pte_owner_spec
         // only changes in_scope, so meta_slot_paddr() is unchanged, but we need the pre-replace
@@ -3910,7 +3908,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         #[verus_spec(with Tracked(regions),
             Tracked(&mut old_child_owner.value),
             Tracked(&mut new_owner.value),
-            Tracked(&mut parent_owner),
+            Tracked(continuation.entry_own.tracked_borrow_mut_node()),
         )]
         let old = cur_entry.replace(new_child);
         let ghost old_child_snap = old;  // ghost alias to avoid `old(...)` keyword ambiguity in proofs
@@ -3936,7 +3934,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         };
 
         proof {
-            continuation.entry_own.tracked_put_node(parent_owner);
             continuation.tracked_put_child(new_owner);
             cont1.view_mappings_put_child(new_owner);
 
