@@ -327,7 +327,7 @@ impl<'a> VmSpaceOwner {
             reader.inv(),
         ensures
             reader.wf(*final(owner_r)),
-            final(owner_r).mem_view == Some(VmIoMemView::ReadView(old(self).mem_view@.unwrap().borrow_at(
+            final(owner_r).mem_view == Some(VmIoMemView::ReadView(old(self).mem_view@->0.borrow_at(
                 old(owner_r).range.start,
                 (old(owner_r).range.end - old(owner_r).range.start) as usize,
             ))),
@@ -405,7 +405,7 @@ impl<'a> VmSpaceOwner {
             writer.inv(),
         ensures
             writer.wf(*final(owner_w)),
-            final(owner_w).mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@.unwrap().split(
+            final(owner_w).mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@->0.split(
                 old(owner_w).range.start,
                 (old(owner_w).range.end - old(owner_w).range.start) as usize,
             ).0)),
@@ -710,7 +710,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     ) -> bool {
         if view.present() {
             &&& item is Some
-            &&& view.query_item_spec(item.unwrap()) == Some(range)
+            &&& view.query_item_spec(item->0) == Some(range)
         } else {
             &&& range.start == self.0.va
             &&& item is None

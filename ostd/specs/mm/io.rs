@@ -51,10 +51,10 @@ pub axiom fn axiom_kernel_mem_view(range: Range<usize>) -> (tracked mv: MemView)
             #![trigger mv.addr_transl(va)]
             range.start <= va < range.end ==> {
                 &&& mv.addr_transl(va) is Some
-                &&& mv.memory.contains_key(mv.addr_transl(va).unwrap().0)
-                &&& mv.memory[mv.addr_transl(va).unwrap().0].contents[mv.addr_transl(
+                &&& mv.memory.contains_key((mv.addr_transl(va)->0).0)
+                &&& mv.memory[(mv.addr_transl(va)->0).0].contents[(mv.addr_transl(
                     va,
-                ).unwrap().1 as int] is Init
+                )->0).1 as int] is Init
             },
 ;
 
@@ -164,10 +164,9 @@ impl VmIoOwner {
                     #![trigger mem_src.addr_transl(i)]
                     self.range.start <= i < self.range.end ==> {
                         &&& mem_src.addr_transl(i) is Some
-                        &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
-                        &&& mem_src.memory[mem_src.addr_transl(
-                            i,
-                        ).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
+                        &&& mem_src.memory.contains_key((mem_src.addr_transl(i)->0).0)
+                        &&& mem_src.memory[(mem_src.addr_transl(i)->0).0].contents[(
+                        mem_src.addr_transl(i)->0).1 as int] is Init
                     }
             },
             _ => false,
@@ -276,7 +275,7 @@ impl VmIoOwner {
                 ).read_view_of().addr_transl(va) is Some && old(
                     self,
                 ).read_view_of().memory.contains_key(
-                    old(self).read_view_of().addr_transl(va).unwrap().0,
+                    (old(self).read_view_of().addr_transl(va)->0).0,
                 ) ==> {
                     &&& old(self).read_view_of().addr_transl(va)
                         == final(self).read_view_of().addr_transl(va)
@@ -525,7 +524,7 @@ impl VmIoOwner {
             self.inv(),
             self.mem_view matches Some(VmIoMemView::ReadView(_)),
         ensures
-            VmIoMemView::ReadView(*r) == self.mem_view.unwrap(),
+            VmIoMemView::ReadView(*r) == self.mem_view->0,
             *r == Self::read_view_of(*self),
     {
         match &self.mem_view {

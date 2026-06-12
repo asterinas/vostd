@@ -467,7 +467,7 @@ impl MemView {
             forall|va: usize|
                 #![trigger original.read(va)]
                 va >= vaddr + len && original.addr_transl(va) is Some
-                    && original.memory.contains_key(original.addr_transl(va).unwrap().0)
+                    && original.memory.contains_key((original.addr_transl(va)->0).0)
                     ==> original.read(va) == right.read(va),
     {
         Self::lemma_split_preserves_transl(original, vaddr, len, left, right);
@@ -561,9 +561,9 @@ impl VirtPtr {
     pub fn read(self, Tracked(mem): Tracked<&MemView>) -> u8
         requires
             mem.addr_transl(self.vaddr) is Some,
-            mem.memory[mem.addr_transl(self.vaddr).unwrap().0].contents[mem.addr_transl(
+            mem.memory[(mem.addr_transl(self.vaddr)->0).0].contents[(mem.addr_transl(
                 self.vaddr,
-            ).unwrap().1 as int] is Init,
+            )->0).1 as int] is Init,
             self.is_valid(),
         returns
             mem.read(self.vaddr).value(),
@@ -615,10 +615,10 @@ impl VirtPtr {
                 #![trigger mem.addr_transl(i)]
                 self.vaddr <= i < self.vaddr + core::mem::size_of::<T>() ==> {
                     &&& mem.addr_transl(i) is Some
-                    &&& mem.memory.contains_key(mem.addr_transl(i).unwrap().0)
-                    &&& mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(
+                    &&& mem.memory.contains_key((mem.addr_transl(i)->0).0)
+                    &&& mem.memory[(mem.addr_transl(i)->0).0].contents[(mem.addr_transl(
                         i,
-                    ).unwrap().1 as int] is Init
+                    )->0).1 as int] is Init
                 },
         ensures
             pod_bytes(val) == mem.read_bytes(self.vaddr, core::mem::size_of::<T>()),
@@ -784,11 +784,9 @@ impl VirtPtr {
             self.vaddr + n < usize::MAX,
             self.range@.start <= self.vaddr + n < self.range@.end,
             mem.addr_transl((self.vaddr + n) as usize) is Some,
-            mem.memory[mem.addr_transl(
+            mem.memory[(mem.addr_transl((self.vaddr + n) as usize)->0).0].contents[(mem.addr_transl(
                 (self.vaddr + n) as usize,
-            ).unwrap().0].contents[mem.addr_transl(
-                (self.vaddr + n) as usize,
-            ).unwrap().1 as int] is Init,
+            )->0).1 as int] is Init,
         returns
             self.read_offset_spec(*mem, n),
     {
@@ -864,12 +862,9 @@ impl VirtPtr {
             dst.vaddr + n < usize::MAX,
             src.range@.start <= src.vaddr + n < src.range@.end,
             mem_src.addr_transl((src.vaddr + n) as usize) is Some,
-            mem_src.memory.contains_key(mem_src.addr_transl((src.vaddr + n) as usize).unwrap().0),
-            mem_src.memory[mem_src.addr_transl(
-                (src.vaddr + n) as usize,
-            ).unwrap().0].contents[mem_src.addr_transl(
-                (src.vaddr + n) as usize,
-            ).unwrap().1 as int] is Init,
+            mem_src.memory.contains_key((mem_src.addr_transl((src.vaddr + n) as usize)->0).0),
+            mem_src.memory[(mem_src.addr_transl((src.vaddr + n) as usize)->0).0].contents[(
+            mem_src.addr_transl((src.vaddr + n) as usize)->0).1 as int] is Init,
             dst.range@.start <= dst.vaddr + n < dst.range@.end,
             old(mem_dst).addr_transl((dst.vaddr + n) as usize) is Some,
         ensures
@@ -934,10 +929,10 @@ impl VirtPtr {
                 #![trigger mem_src.addr_transl(i)]
                 src.vaddr <= i < src.vaddr + n ==> {
                     &&& mem_src.addr_transl(i) is Some
-                    &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
-                    &&& mem_src.memory[mem_src.addr_transl(
+                    &&& mem_src.memory.contains_key((mem_src.addr_transl(i)->0).0)
+                    &&& mem_src.memory[(mem_src.addr_transl(i)->0).0].contents[(mem_src.addr_transl(
                         i,
-                    ).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
+                    )->0).1 as int] is Init
                 },
             dst.range@.start <= dst.vaddr,
             dst.vaddr + n <= dst.range@.end,

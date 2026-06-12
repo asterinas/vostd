@@ -78,7 +78,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             forall|j: int|
                 #![auto]
                 0 <= j < NR_ENTRIES && j != idx ==> self.children[j] == cont0.children[j],
-            self.children[idx] is Some ==> self.children[idx].unwrap().tree_predicate_map(
+            self.children[idx] is Some ==> self.children[idx]->0.tree_predicate_map(
                 self.path().push_tail(idx as usize),
                 g,
             ),

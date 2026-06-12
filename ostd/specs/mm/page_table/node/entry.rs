@@ -103,16 +103,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old_child.inv(),
             new_child.is_node(),
             regions0.inv(),
-            regions0.slots.contains_key(frame_to_index(new_child.meta_slot_paddr().unwrap())),
+            regions0.slots.contains_key(frame_to_index(new_child.meta_slot_paddr()->0)),
             regions0.slot_owners[frame_to_index(
-                new_child.meta_slot_paddr().unwrap(),
+                new_child.meta_slot_paddr()->0,
             )].inner_perms.ref_count.value() == REF_COUNT_UNUSED,
             // Allocator-pool / MMIO disjointness: the freshly-allocated node's
             // paddr is non-MMIO. Rules out an MMIO-frame entry sitting at the
             // same idx as the new node (delivered by `PageTableNode::alloc`).
-            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                new_child.meta_slot_paddr().unwrap(),
-            ),
+            !crate::specs::mm::frame::meta_owners::is_mmio_paddr(new_child.meta_slot_paddr()->0),
             Self::metaregion_sound_neq_preserved(old_child, new_child, regions0, regions1),
         ensures
             Self::metaregion_sound_preserved(regions0, regions1),
@@ -160,9 +158,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         &&& old_owner.parent_level == new_owner.parent_level
         &&& new_owner.in_scope
         &&& new_owner.is_node() ==> {
-            &&& regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap()))
+            &&& regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr()->0))
             &&& regions.slot_owners[frame_to_index(
-                new_owner.meta_slot_paddr().unwrap(),
+                new_owner.meta_slot_paddr()->0,
             )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
         }
     }

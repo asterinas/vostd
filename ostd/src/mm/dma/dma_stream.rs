@@ -184,11 +184,11 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 &&& r.unwrap().inv()
                 &&& r.unwrap().remain_spec() == self.len
                 &&& reader_perm@ is Some
-                &&& reader_perm@.unwrap().inv()
-                &&& reader_perm@.unwrap().is_kernel
-                &&& reader_perm@.unwrap().has_read_view()
-                &&& reader_perm@.unwrap().read_view_initialized()
-                &&& r.unwrap().wf(reader_perm@.unwrap())
+                &&& reader_perm@->0.inv()
+                &&& reader_perm@->0.is_kernel
+                &&& reader_perm@->0.has_read_view()
+                &&& reader_perm@->0.read_view_initialized()
+                &&& r.unwrap().wf(reader_perm@->0)
                 &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
                 &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
@@ -272,10 +272,10 @@ impl<M: AnyUFrameMeta + ?Sized, Dma: AsRef<DmaStream<M>>> DmaStreamSlice<Dma, M>
                 &&& r.unwrap().inv()
                 &&& r.unwrap().avail_spec() == self.len
                 &&& writer_perm@ is Some
-                &&& writer_perm@.unwrap().inv()
-                &&& writer_perm@.unwrap().is_kernel
-                &&& writer_perm@.unwrap().has_write_view()
-                &&& r.unwrap().wf(writer_perm@.unwrap())
+                &&& writer_perm@->0.inv()
+                &&& writer_perm@->0.is_kernel
+                &&& writer_perm@->0.has_write_view()
+                &&& r.unwrap().wf(writer_perm@->0)
                 &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
                 &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
@@ -442,7 +442,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
                     /*
                     // Original IOMMU map (removed during Verus migration):
                     unsafe {
-                        iommu::map(paddr as Daddr, paddr).unwrap();
+                        iommu::map(paddr as Daddr, paddr)->0;
                     }
                     */
 
@@ -875,10 +875,10 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             r is Ok ==> {
                 &&& r.unwrap().inv()
                 &&& reader_perm@ is Some
-                &&& reader_perm@.unwrap().inv()
-                &&& reader_perm@.unwrap().is_kernel
-                &&& reader_perm@.unwrap().has_read_view()
-                &&& r.unwrap().wf(reader_perm@.unwrap())
+                &&& reader_perm@->0.inv()
+                &&& reader_perm@->0.is_kernel
+                &&& reader_perm@->0.has_read_view()
+                &&& r.unwrap().wf(reader_perm@->0)
                 &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
                 &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
             },
@@ -927,10 +927,10 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             r is Ok ==> {
                 &&& r.unwrap().inv()
                 &&& writer_perm@ is Some
-                &&& writer_perm@.unwrap().inv()
-                &&& writer_perm@.unwrap().is_kernel
-                &&& writer_perm@.unwrap().has_write_view()
-                &&& r.unwrap().wf(writer_perm@.unwrap())
+                &&& writer_perm@->0.inv()
+                &&& writer_perm@->0.is_kernel
+                &&& writer_perm@->0.has_write_view()
+                &&& r.unwrap().wf(writer_perm@->0)
             },
     )]
     pub fn writer<'a>(&'a self) -> core::result::Result<VmWriter<'a, Infallible>, Error> {

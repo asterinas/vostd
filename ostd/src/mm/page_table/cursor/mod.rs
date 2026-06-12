@@ -134,8 +134,8 @@ impl<C: PageTableConfig, A: InAtomicMode> Iterator for Cursor<'_, C, A> {
         idx < NR_LEVELS,
         old(path)[idx as int] is Some,
     ensures
-        *res == old(path)[idx as int].unwrap(),
-        *final(res) == old(path)[idx as int].unwrap(),
+        *res == old(path)[idx as int]->0,
+        *final(res) == old(path)[idx as int]->0,
         *final(path) == *old(path),
 )]
 fn path_slot_as_mut<'a, 'rcu, C: PageTableConfig>(
@@ -833,7 +833,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             !old(self).find_next_panic_condition(len),
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
-                &&& res.unwrap() == final(self).va
+                &&& res->0 == final(self).va
                 &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },
@@ -915,7 +915,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).guard_level == old(self).guard_level,
             final(self).va >= old(self).va,
             res is Some ==> {
-                &&& res.unwrap() == final(self).va
+                &&& res->0 == final(self).va
                 &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
                 &&& final(self).va < old(self).va + len
@@ -2184,7 +2184,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
-                &&& res.unwrap() == final(self).0.va
+                &&& res->0 == final(self).0.va
                 &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },
@@ -3223,48 +3223,48 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& old(owner)@.mappings.filter(|m: Mapping|
                     old(owner)@.cur_va <= m.va_range.start < (old(owner)@.cur_va + len) as Vaddr) == Set::<Mapping>::empty()
             },
-            res is Some && res.unwrap() is Mapped ==>
+            res is Some && res->0 is Mapped ==>
                 old(owner)@.mappings.filter(|m: Mapping|
-                    old(self).0.va <= m.va_range.start < res.unwrap()->Mapped_va)
+                    old(self).0.va <= m.va_range.start < res->0->Mapped_va)
                     == Set::<Mapping>::empty(),
-            res is Some && res.unwrap() is StrayPageTable ==>
+            res is Some && res->0 is StrayPageTable ==>
                 old(owner)@.mappings.filter(|m: Mapping|
-                    old(self).0.va <= m.va_range.start < res.unwrap()->StrayPageTable_va)
+                    old(self).0.va <= m.va_range.start < res->0->StrayPageTable_va)
                     == Set::<Mapping>::empty(),
-            res is Some && res.unwrap() is Mapped ==> {
+            res is Some && res->0 is Mapped ==> {
                 let m = CursorView::<C>::item_into_mapping(
-                    res.unwrap()->Mapped_va, res.unwrap()->Mapped_item);
+                    res->0->Mapped_va, res->0->Mapped_item);
                 final(owner)@.mappings.filter(|m2: Mapping|
-                    res.unwrap()->Mapped_va <= m2.va_range.start < final(self).0.va)
+                    res->0->Mapped_va <= m2.va_range.start < final(self).0.va)
                     == Set::<Mapping>::empty()
             },
-            res is Some && res.unwrap() is StrayPageTable ==>
+            res is Some && res->0 is StrayPageTable ==>
                 final(owner)@.mappings.filter(|m2: Mapping|
-                    res.unwrap()->StrayPageTable_va <= m2.va_range.start < final(self).0.va)
+                    res->0->StrayPageTable_va <= m2.va_range.start < final(self).0.va)
                     == Set::<Mapping>::empty(),
             // F2c-stable: mappings with start in [old_va, frag_va) are unchanged.
             // (Splits only affect the entry at frag_va; entries before it are untouched.)
-            res is Some && res.unwrap() is Mapped ==>
+            res is Some && res->0 is Mapped ==>
                 forall |m2: Mapping|
                     #![auto] final(owner)@.mappings.contains(m2) && old(self).0.va <= m2.va_range.start
-                    && m2.va_range.start < res.unwrap()->Mapped_va
+                    && m2.va_range.start < res->0->Mapped_va
                     ==> old(owner)@.mappings.contains(m2),
-            res is Some && res.unwrap() is StrayPageTable ==>
+            res is Some && res->0 is StrayPageTable ==>
                 forall |m2: Mapping|
                     #![auto] final(owner)@.mappings.contains(m2) && old(self).0.va <= m2.va_range.start
-                    && m2.va_range.start < res.unwrap()->StrayPageTable_va
+                    && m2.va_range.start < res->0->StrayPageTable_va
                     ==> old(owner)@.mappings.contains(m2),
-            res is Some && res.unwrap() is Mapped ==>
-                res.unwrap()->Mapped_va >= old(self).0.va
-                && (res.unwrap()->Mapped_va as usize) < old(self).0.va + len,
-            res is Some && res.unwrap() is StrayPageTable ==> {
-                &&& res.unwrap()->StrayPageTable_va >= old(self).0.va
-                &&& res.unwrap()->StrayPageTable_va + res.unwrap()->StrayPageTable_len
+            res is Some && res->0 is Mapped ==>
+                res->0->Mapped_va >= old(self).0.va
+                && (res->0->Mapped_va as usize) < old(self).0.va + len,
+            res is Some && res->0 is StrayPageTable ==> {
+                &&& res->0->StrayPageTable_va >= old(self).0.va
+                &&& res->0->StrayPageTable_va + res->0->StrayPageTable_len
                     <= old(self).0.va + len
             },
-            res is Some && res.unwrap() is Mapped ==> {
-                let va = res.unwrap()->Mapped_va;
-                let item = res.unwrap()->Mapped_item;
+            res is Some && res->0 is Mapped ==> {
+                let va = res->0->Mapped_va;
+                let item = res->0->Mapped_item;
                 let m = CursorView::<C>::item_into_mapping(va, item);
                 let view = CursorView::<C> {
                     cur_va: va as Vaddr,
@@ -3275,13 +3275,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& view.split_while_huge(m.page_size).mappings.contains(m)
                 &&& m.page_size >= PAGE_SIZE
             },
-            res is Some && res.unwrap() is StrayPageTable ==> {
-                let va = res.unwrap()->StrayPageTable_va;
-                let len_frag = res.unwrap()->StrayPageTable_len;
+            res is Some && res->0 is StrayPageTable ==> {
+                let va = res->0->StrayPageTable_va;
+                let len_frag = res->0->StrayPageTable_len;
                 let subtree = old(owner)@.mappings.filter(
                     |m: Mapping| va <= m.va_range.start < va + len_frag);
                 &&& final(owner)@.mappings == old(owner)@.mappings.difference(subtree)
-                &&& subtree.len() == (res.unwrap()->StrayPageTable_num_frames) as nat
+                &&& subtree.len() == (res->0->StrayPageTable_num_frames) as nat
             },
     )]
     #[verifier::rlimit(1000)]
@@ -3817,35 +3817,31 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(owner).cur_entry_owner().is_absent() ==> res is None,
             !old(owner).cur_entry_owner().is_absent() ==> res is Some,
             // Mapped result implies old entry was a frame.
-            res is Some && res.unwrap() is Mapped ==> old(owner).cur_entry_owner().is_frame(),
+            res is Some && res->0 is Mapped ==> old(owner).cur_entry_owner().is_frame(),
             // The returned fragment's VA and level match the cursor's state at call time.
-            res is Some && res.unwrap() is Mapped ==> res.unwrap()->Mapped_va == old(self).0.va,
-            res is Some && res.unwrap() is Mapped ==> {
-                let (pa, lvl, prop) = C::item_into_raw_spec(res.unwrap()->Mapped_item);
+            res is Some && res->0 is Mapped ==> res->0->Mapped_va == old(self).0.va,
+            res is Some && res->0 is Mapped ==> {
+                let (pa, lvl, prop) = C::item_into_raw_spec(res->0->Mapped_item);
                 &&& lvl == old(self).0.level
                 &&& pa == old(owner).cur_entry_owner().frame().mapped_pa
                 &&& prop == old(owner).cur_entry_owner().frame().prop
             },
             // StrayPageTable: VA and len match cursor state at call time.
-            res is Some && res.unwrap() is StrayPageTable ==> {
-                &&& res.unwrap()->StrayPageTable_va == old(self).0.va
-                &&& res.unwrap()->StrayPageTable_len == page_size_spec(old(self).0.level)
+            res is Some && res->0 is StrayPageTable ==> {
+                &&& res->0->StrayPageTable_va == old(self).0.va
+                &&& res->0->StrayPageTable_len == page_size_spec(old(self).0.level)
             },
             // StrayPageTable implies old entry was a node (PT).
-            res is Some && res.unwrap() is StrayPageTable ==> old(
-                owner,
-            ).cur_entry_owner().is_node(),
+            res is Some && res->0 is StrayPageTable ==> old(owner).cur_entry_owner().is_node(),
             // StrayPageTable: num_frames equals the number of mappings in the old subtree.
-            res is Some && res.unwrap() is StrayPageTable ==> (
-            res.unwrap()->StrayPageTable_num_frames) as nat == PageTableOwner(
-                old(owner).cur_subtree(),
-            )@.mappings.len(),
+            res is Some && res->0 is StrayPageTable ==> (res->0->StrayPageTable_num_frames) as nat
+                == PageTableOwner(old(owner).cur_subtree())@.mappings.len(),
             // paths_in_pt is changed only for new_owner's slot; all others are preserved.
             // (new_owner.value here is the post-into_pte state; meta_slot_paddr() is unchanged.)
             forall|idx: usize|
                 #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 (new_owner.value.is_absent() || idx != frame_to_index(
-                    new_owner.value.meta_slot_paddr().unwrap(),
+                    new_owner.value.meta_slot_paddr()->0,
                 )) ==> final(regions).slot_owners[idx].paths_in_pt == old(
                     regions,
                 ).slot_owners[idx].paths_in_pt,

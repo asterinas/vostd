@@ -268,9 +268,9 @@ pub open spec fn wake_up() -> Action<ProgramState, Tid, ()> {
             },
         transition: |tid: Tid, s: ProgramState|
             {
-                let s_prime = if s.has_woken[s.waker[tid].unwrap()] == false {
+                let s_prime = if s.has_woken[s.waker[tid]->0] == false {
                     ProgramState {
-                        has_woken: s.has_woken.insert(s.waker[tid].unwrap(), true),
+                        has_woken: s.has_woken.insert(s.waker[tid]->0, true),
                         pc: s.pc.insert(tid, s.stack[tid].first().pc),
                         waker: s.waker.insert(tid, s.stack[tid].first().waker),
                         stack: s.stack.insert(tid, s.stack[tid].drop_first()),

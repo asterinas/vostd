@@ -414,20 +414,20 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
         #![auto]
         0 <= i < NR_ENTRIES ==> {
             &&& owner.children[i] is Some
-            &&& owner.children[i].unwrap().value.is_absent()
-            &&& !owner.children[i].unwrap().value.in_scope
-            &&& owner.children[i].unwrap().value.inv()
-            &&& owner.children[i].unwrap().value.path == owner.value.path.push_tail(i as usize)
+            &&& owner.children[i]->0.value.is_absent()
+            &&& !owner.children[i]->0.value.in_scope
+            &&& owner.children[i]->0.value.inv()
+            &&& owner.children[i]->0.value.path == owner.value.path.push_tail(i as usize)
         }
     &&& forall|i: int|
         #![auto]
-        0 <= i < NR_ENTRIES ==> owner.children[i].unwrap().value.match_pte(
+        0 <= i < NR_ENTRIES ==> owner.children[i]->0.value.match_pte(
             owner.value.node().children_perm.value()[i],
-            owner.children[i].unwrap().value.parent_level,
+            owner.children[i]->0.value.parent_level,
         )
     &&& forall|i: int|
         #![auto]
-        0 <= i < NR_ENTRIES ==> owner.children[i].unwrap().value.parent_level
+        0 <= i < NR_ENTRIES ==> owner.children[i]->0.value.parent_level
             == owner.value.node().level
     // The freshly-allocated PT node is zero-filled, so every PTE in
     // `children_perm` is the absent PTE. (Stronger than the existing
@@ -450,7 +450,7 @@ pub open spec fn allocated_empty_node_grandchildren_none<C: PageTableConfig>(
 ) -> bool {
     forall|i: int, j: int|
         0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES
-            ==> #[trigger] owner.children[i].unwrap().children[j] is None
+            ==> #[trigger] owner.children[i]->0.children[j] is None
 }
 
 /// Recursive worker for `rebase_freshly_allocated_children`. Rebases
@@ -475,8 +475,8 @@ pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
             0 <= j < i ==> (#[trigger] final(owner).children[j]) == old(owner).children[j],
         forall|j: int|
             i <= j < NR_ENTRIES ==> {
-                let c_old = old(owner).children[j].unwrap();
-                let c_new = (#[trigger] final(owner).children[j]).unwrap();
+                let c_old = old(owner).children[j]->0;
+                let c_new = (#[trigger] final(owner).children[j])->0;
                 &&& final(owner).children[j] is Some
                 &&& c_new.value == EntryOwner {
                     path: new_path.push_tail(j as usize),
@@ -519,8 +519,8 @@ pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
         final(owner).children.len() == NR_ENTRIES,
         forall|i: int|
             0 <= i < NR_ENTRIES ==> {
-                let c_old = old(owner).children[i].unwrap();
-                let c_new = (#[trigger] final(owner).children[i]).unwrap();
+                let c_old = old(owner).children[i]->0;
+                let c_new = (#[trigger] final(owner).children[i])->0;
                 &&& final(owner).children[i] is Some
                 &&& c_new.value == EntryOwner {
                     path: new_path.push_tail(i as usize),
@@ -539,13 +539,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Per-edge constraint between a node-parent and its child at index `i`.
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
         &&& parent.children[i] is Some
-        &&& parent.children[i].unwrap().value.path.len() == parent.value.node().tree_level + 1
-        &&& parent.children[i].unwrap().value.match_pte(
+        &&& parent.children[i]->0.value.path.len() == parent.value.node().tree_level + 1
+        &&& parent.children[i]->0.value.match_pte(
             parent.value.node().children_perm.value()[i],
             parent.value.node().level,
         )
-        &&& parent.children[i].unwrap().value.path == parent.value.path.push_tail(i as usize)
-        &&& parent.children[i].unwrap().value.parent_level == parent.value.node().level
+        &&& parent.children[i]->0.value.path == parent.value.path.push_tail(i as usize)
+        &&& parent.children[i]->0.value.parent_level == parent.value.node().level
     }
 
     /// Depth-indexed PT-specific per-edge invariant. `depth` is a manifest
@@ -560,7 +560,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             forall|i: int|
                 #![trigger self.0.children[i]]
                 0 <= i < NR_ENTRIES ==> Self::pt_edge_at(self.0, i) && PageTableOwner(
-                    self.0.children[i].unwrap(),
+                    self.0.children[i]->0,
                 ).pt_inv_at_depth((depth - 1) as nat)
         } else {
             forall|i: int|
@@ -585,7 +585,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             0 <= i < NR_ENTRIES,
         ensures
             Self::pt_edge_at(self.0, i),
-            PageTableOwner(self.0.children[i].unwrap()).pt_inv(),
+            PageTableOwner(self.0.children[i]->0).pt_inv(),
     {
         // la_inv + is_node() gives tree_level < L-1, so depth > 0 and the
         // node branch of pt_inv_at_depth fires.
@@ -641,14 +641,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 0 <= i < NR_ENTRIES ==> {
                     let c = #[trigger] owner.children[i];
                     &&& c is Some
-                    &&& c.unwrap().value.is_absent()
-                    &&& c.unwrap().value.path.len() == owner.value.node().tree_level + 1
-                    &&& c.unwrap().value.match_pte(
+                    &&& c->0.value.is_absent()
+                    &&& c->0.value.path.len() == owner.value.node().tree_level + 1
+                    &&& c->0.value.match_pte(
                         owner.value.node().children_perm.value()[i],
                         owner.value.node().level,
                     )
-                    &&& c.unwrap().value.path == owner.value.path.push_tail(i as usize)
-                    &&& c.unwrap().value.parent_level == owner.value.node().level
+                    &&& c->0.value.path == owner.value.path.push_tail(i as usize)
+                    &&& c->0.value.parent_level == owner.value.node().level
                 },
             allocated_empty_node_grandchildren_none(owner),
         ensures
@@ -686,7 +686,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         self.0.value.is_node() ==> forall|i: int|
             #![trigger self.0.children[i]]
             0 <= i < NR_ENTRIES && !(range.start <= i < range.end) ==> self.0.children[i] is Some
-                && self.0.children[i].unwrap().value.is_absent()
+                && self.0.children[i]->0.value.is_absent()
     }
 
     pub open spec fn view_rec_children_union(self, path: TreePath<NR_ENTRIES>, up_to: int) -> Set<
@@ -699,7 +699,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             Set::empty()
         } else if up_to - 1 < self.0.children.len() && self.0.children[up_to - 1] is Some {
             self.view_rec_children_union(path, up_to - 1).union(
-                PageTableOwner(self.0.children[up_to - 1].unwrap()).view_rec(
+                PageTableOwner(self.0.children[up_to - 1]->0).view_rec(
                     path.push_tail((up_to - 1) as usize),
                 ),
             )
@@ -724,7 +724,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             exists|i: int|
                 #![trigger self.0.children[i]]
                 0 <= i < up_to && self.0.children[i] is Some && PageTableOwner(
-                    self.0.children[i].unwrap(),
+                    self.0.children[i]->0,
                 ).view_rec(path.push_tail(i as usize)).contains(m),
         decreases up_to,
     {
@@ -755,7 +755,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             0 <= witness < up_to,
             up_to <= self.0.children.len(),
             self.0.children[witness] is Some,
-            PageTableOwner(self.0.children[witness].unwrap()).view_rec(
+            PageTableOwner(self.0.children[witness]->0).view_rec(
                 path.push_tail(witness as usize),
             ).contains(m),
         ensures
@@ -776,9 +776,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.value.is_node(),
             0 <= i < self.0.children.len(),
             self.0.children[i] is Some,
-            PageTableOwner(self.0.children[i].unwrap()).view_rec(
-                path.push_tail(i as usize),
-            ).contains(m),
+            PageTableOwner(self.0.children[i]->0).view_rec(path.push_tail(i as usize)).contains(m),
         ensures
             self.view_rec(path).contains(m),
     {
@@ -821,7 +819,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             exists|i: int|
                 #![auto]
                 0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
-                    self.0.children[i].unwrap(),
+                    self.0.children[i]->0,
                 ).view_rec(path.push_tail(i as usize)).contains(m),
     {
         self.view_rec_children_union_contains(path, self.0.children.len() as int, m);
@@ -836,7 +834,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.value.is_node(),
         ensures
             0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
-                self.0.children[i].unwrap(),
+                self.0.children[i]->0,
             ).view_rec(path.push_tail(i as usize)).contains(m),
     {
         self.view_rec_contains(path, m);
@@ -1726,7 +1724,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.tree_predicate_map(
                 self.0.value.path,
                 |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-                    e.meta_slot_paddr() is Some ==> frame_to_index(e.meta_slot_paddr().unwrap())
+                    e.meta_slot_paddr() is Some ==> frame_to_index(e.meta_slot_paddr()->0)
                         != changed_idx,
             ),
             // For huge-frame entries, none of their sub-page slots is at changed_idx
@@ -1781,7 +1779,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             subtree.tree_predicate_map(
                 path,
                 |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-                    e.meta_slot_paddr() is Some ==> frame_to_index(e.meta_slot_paddr().unwrap())
+                    e.meta_slot_paddr() is Some ==> frame_to_index(e.meta_slot_paddr()->0)
                         != changed_idx,
             ),
             subtree.tree_predicate_map(
@@ -1834,12 +1832,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             {
                 // Only nodes track paths_in_pt as a singleton (frames can be shared).
                 entry.is_node() && entry.meta_slot_paddr() is Some ==> {
-                    &&& regions.slot_owners.contains_key(
-                        frame_to_index(entry.meta_slot_paddr().unwrap()),
-                    )
-                    &&& regions.slot_owners[frame_to_index(
-                        entry.meta_slot_paddr().unwrap(),
-                    )].paths_in_pt == set![entry.path]
+                    &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr()->0))
+                    &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr()->0)].paths_in_pt
+                        == set![entry.path]
                 }
             }
     }
@@ -1851,12 +1846,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             {
                 &&& entry.meta_slot_paddr() is Some
-                &&& regions.slot_owners.contains_key(
-                    frame_to_index(entry.meta_slot_paddr().unwrap()),
-                )
-                &&& regions.slot_owners[frame_to_index(
-                    entry.meta_slot_paddr().unwrap(),
-                )].paths_in_pt == set![path]
+                &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr()->0))
+                &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr()->0)].paths_in_pt
+                    == set![path]
             }
     }
 
@@ -2115,7 +2107,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             subtree.tree_predicate_map(path_j, Self::metaregion_sound_pred(regions)),
             old_entry.is_node(),
             old_entry.meta_slot_paddr() is Some,
-            regions.slot_owners[frame_to_index(old_entry.meta_slot_paddr().unwrap())].paths_in_pt
+            regions.slot_owners[frame_to_index(old_entry.meta_slot_paddr()->0)].paths_in_pt
                 == set![old_entry.path],
             !Self::is_prefix_of(path_j, old_entry.path),
         ensures

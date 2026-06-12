@@ -518,9 +518,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
             forall|i: usize|
                 #![trigger r1.slot_owners[i]]
-                i != frame_to_index(self.meta_slot_paddr().unwrap()) && r0.slot_owners.contains_key(
-                    i,
-                ) ==> r0.slot_owners[i] == r1.slot_owners[i],
+                i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
+                    ==> r0.slot_owners[i] == r1.slot_owners[i],
         ensures
             self.frame_sub_pages_valid(r1),
     {
@@ -614,7 +613,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
-            let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+            let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
             &&& regions.slot_owners[idx].self_addr == self.node().meta_addr_self()
@@ -622,7 +621,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node().metaregion_sound_node(regions)
         } else if self.is_frame() {
-            let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+            let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slots.contains_key(idx)
             &&& regions.slots[idx].addr() == meta_addr(idx)
             &&& regions.slots[idx].is_init()
@@ -662,7 +661,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             entry.metaregion_sound(regions),
             regions.slots.contains_key(free_idx),
         ensures
-            frame_to_index(entry.meta_slot_paddr().unwrap()) != free_idx,
+            frame_to_index(entry.meta_slot_paddr()->0) != free_idx,
     ;
 
     pub axiom fn get_path(self) -> tracked TreePath<NR_ENTRIES>
@@ -682,7 +681,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn meta_slot_paddr_neq(self, other: Self) -> bool {
         self.meta_slot_paddr() is Some ==> other.meta_slot_paddr() is Some
-            ==> self.meta_slot_paddr().unwrap() != other.meta_slot_paddr().unwrap()
+            ==> self.meta_slot_paddr()->0 != other.meta_slot_paddr()->0
     }
 
     /// `metaregion_sound` transfers when `slot_owners` matches and `slots` is a superset.
@@ -723,7 +722,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // slots preserved at the entry's index (frames read from slots)
             forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
             forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
-            self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr().unwrap())
+            self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr()->0)
                 != changed_idx,
             // Huge frames: if changed_idx is one of this frame's 4KB sub-page slots and
             // that sub-slot is non-MMIO, the sub-page validity at changed_idx must still
@@ -779,11 +778,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r1.slot_owners[changed_idx].usage == r0.slot_owners[changed_idx].usage,
             // For nodes at changed_idx: the new paths_in_pt must match this entry's path.
             self.is_node() && self.meta_slot_paddr() is Some && frame_to_index(
-                self.meta_slot_paddr().unwrap(),
+                self.meta_slot_paddr()->0,
             ) == changed_idx ==> r1.slot_owners[changed_idx].paths_in_pt == set![self.path],
             // For frames at changed_idx: the new paths_in_pt must still contain this entry's path.
             self.is_frame() && self.meta_slot_paddr() is Some && frame_to_index(
-                self.meta_slot_paddr().unwrap(),
+                self.meta_slot_paddr()->0,
             ) == changed_idx ==> r1.slot_owners[changed_idx].paths_in_pt.contains(self.path),
             // For huge frames: if changed_idx is one of this frame's sub-page slots (j > 0),
             // the new paths_in_pt at changed_idx must remain empty.
@@ -851,9 +850,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             self.meta_slot_paddr() is Some,
             self.meta_slot_paddr() == other.meta_slot_paddr(),
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].paths_in_pt
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr()->0)].paths_in_pt
                 == set![self.path],
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].paths_in_pt
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr()->0)].paths_in_pt
                 == set![other.path],
         ensures
             self.path == other.path,
@@ -871,7 +870,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.meta_slot_paddr() is Some,
             r0.slots == r1.slots,
             ({
-                let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+                let idx = frame_to_index(self.meta_slot_paddr()->0);
                 &&& r1.slot_owners[idx].inner_perms.ref_count.id()
                     == r0.slot_owners[idx].inner_perms.ref_count.id()
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value()
@@ -892,9 +891,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // All other slot_owners unchanged: preserves sub-page validity for huge frames.
             forall|i: usize|
                 #![trigger r1.slot_owners[i]]
-                i != frame_to_index(self.meta_slot_paddr().unwrap()) && r0.slot_owners.contains_key(
-                    i,
-                ) ==> r0.slot_owners[i] == r1.slot_owners[i],
+                i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
+                    ==> r0.slot_owners[i] == r1.slot_owners[i],
         ensures
             self.metaregion_sound(r1),
     {
@@ -951,10 +949,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.is_node(),
             other.is_node(),
             self.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(
-                self.meta_slot_paddr().unwrap(),
+                self.meta_slot_paddr()->0,
             )].paths_in_pt == set![self.path],
             other.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(
-                other.meta_slot_paddr().unwrap(),
+                other.meta_slot_paddr()->0,
             )].paths_in_pt == set![other.path],
             self.path != other.path,
         ensures

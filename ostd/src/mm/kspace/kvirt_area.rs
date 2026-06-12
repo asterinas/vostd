@@ -204,15 +204,15 @@ pub(crate) fn get_kernel_page_table<'rcu>(
         regions.inv(),
     ensures
         final(kernel_owner)@ is Some,
-        final(kernel_owner)@.unwrap().inv(),
-        final(kernel_owner)@.unwrap().0.value.is_node(),
-        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node().meta_addr_self(),
+        final(kernel_owner)@->0.inv(),
+        (final(kernel_owner)@->0).0.value.is_node(),
+        r.root.ptr.addr() == (final(kernel_owner)@->0).0.value.node().meta_addr_self(),
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
-            final(kernel_owner)@.unwrap().0.value.node(),
+            (final(kernel_owner)@->0).0.value.node(),
         ),
-        final(kernel_owner)@.unwrap().0.value.metaregion_sound(*regions),
-        final(kernel_owner)@.unwrap().metaregion_sound(*regions),
-        guards.unlocked(final(kernel_owner)@.unwrap().0.value.node().meta_addr_self()),
+        (final(kernel_owner)@->0).0.value.metaregion_sound(*regions),
+        final(kernel_owner)@->0.metaregion_sound(*regions),
+        guards.unlocked((final(kernel_owner)@->0).0.value.node().meta_addr_self()),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }
@@ -387,7 +387,7 @@ impl KVirtArea {
         addr: Vaddr,
         r: Option<super::MappedItem>,
     ) -> bool {
-        r is Some && owner.cursor_view_at(addr).query_item_spec(r.unwrap()) is Some
+        r is Some && owner.cursor_view_at(addr).query_item_spec(r->0) is Some
     }
 
     /// Postcondition when no mapping exists at the page.

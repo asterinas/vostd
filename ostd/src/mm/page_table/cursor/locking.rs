@@ -251,7 +251,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& 1 <= final(cursor_own).level <= NR_LEVELS
             &&& final(cursor_own).continuations.dom().contains(final(cursor_own).level - 1)
             &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].inv()
-            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard == r.unwrap()
+            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard == r->0
         },
         // The subtree root's entry_own is a valid node with matching guard.
         {
@@ -618,7 +618,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         final(owner).level <= 3 ==> final(owner).continuations[2].guard == old(owner).continuations[2].guard,
         final(owner).level <= 2 ==> final(owner).continuations[1].guard == old(owner).continuations[1].guard,
         final(owner).level == 1 ==> final(owner).continuations[0].guard == old(owner).continuations[0].guard,
-        final(owner).continuations[final(owner).level - 1].children[final(owner).continuations[final(owner).level - 1].idx as int].unwrap().value.is_absent(),
+        final(owner).continuations[final(owner).level - 1].children[final(owner).continuations[final(owner).level - 1].idx as int]->0.value.is_absent(),
         // entry_own at current level is preserved
         final(owner).continuations[final(owner).level - 1].entry_own == old(owner).continuations[old(owner).level - 1].entry_own,
         // Children at current level are preserved

@@ -363,9 +363,9 @@ impl<'a> VmSpace<'a> {
             final(owner).inv(),
             self.reader_success_cond(vaddr, len) ==> r is Ok && reader_owner@ is Some,
             r is Ok && reader_owner@ is Some ==> {
-                &&& r.unwrap().wf(reader_owner@.unwrap())
-                &&& reader_owner@.unwrap().mem_view is None
-                &&& reader_owner@.unwrap().inv()
+                &&& r.unwrap().wf(reader_owner@->0)
+                &&& reader_owner@->0.mem_view is None
+                &&& reader_owner@->0.inv()
             },
             // Range bound is necessary for success: the body's `checked_add`
             // guard rejects any out-of-range request before constructing a
@@ -422,9 +422,9 @@ impl<'a> VmSpace<'a> {
             final(owner).inv(),
             self.writer_success_cond(vaddr, len) ==> r is Ok && writer_owner@ is Some,
             r is Ok && writer_owner@ is Some ==> {
-                &&& r.unwrap().wf(writer_owner@.unwrap())
-                &&& writer_owner@.unwrap().mem_view is None
-                &&& writer_owner@.unwrap().inv()
+                &&& r.unwrap().wf(writer_owner@->0)
+                &&& writer_owner@->0.mem_view is None
+                &&& writer_owner@->0.inv()
             },
             // Range bound is necessary for success: see `reader` above.
             r is Ok ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
@@ -547,7 +547,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
-                &&& res.unwrap() == final(self).0.va
+                &&& res->0 == final(self).0.va
                 &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },
@@ -714,7 +714,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
-                &&& res.unwrap() == final(self).pt_cursor.0.va
+                &&& res->0 == final(self).pt_cursor.0.va
                 &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },

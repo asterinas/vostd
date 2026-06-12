@@ -1518,29 +1518,29 @@ impl<C: PageTableConfig> PageTable<C> {
             old(regions).inv(),
         ensures
             final(owner)@ is Some,
-            final(owner)@.unwrap().inv(),
-            final(owner)@.unwrap().0.value.is_node(),
-            final(owner)@.unwrap().0.value.is_node(),
-            r.root.ptr.addr() == final(owner)@.unwrap().0.value.node().meta_addr_self(),
-            final(owner)@.unwrap().0.value.metaregion_sound(*final(regions)),
+            final(owner)@->0.inv(),
+            (final(owner)@->0).0.value.is_node(),
+            (final(owner)@->0).0.value.is_node(),
+            r.root.ptr.addr() == (final(owner)@->0).0.value.node().meta_addr_self(),
+            (final(owner)@->0).0.value.metaregion_sound(*final(regions)),
             final(regions).inv(),
-            final(guards).unlocked(final(owner)@.unwrap().0.value.node().meta_addr_self()),
+            final(guards).unlocked((final(owner)@->0).0.value.node().meta_addr_self()),
             // Allocating a fresh node does not change the lock set, so any node
             // that was (un)locked before remains so.
             final(guards).guards == old(guards).guards,
             // The newly allocated slot was in the free pool before the call.
             old(regions).slots.contains_key(
                 crate::specs::mm::frame::mapping::frame_to_index(
-                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())),
+                    (final(owner)@->0).0.value.meta_slot_paddr()->0)),
             // After the alloc, the slot is removed from the free pool (now owned
             // by the new pt's NodeOwner).
             !final(regions).slots.contains_key(
                 crate::specs::mm::frame::mapping::frame_to_index(
-                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())),
+                    (final(owner)@->0).0.value.meta_slot_paddr()->0)),
             // Other slots and lock state are preserved.
             forall |i: usize| #![trigger final(regions).slot_owners[i]]
                 i != crate::specs::mm::frame::mapping::frame_to_index(
-                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())
+                    (final(owner)@->0).0.value.meta_slot_paddr()->0)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
             forall |a: usize| old(guards).lock_held(a) ==> final(guards).lock_held(a),
             forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
@@ -1568,9 +1568,9 @@ impl<C: PageTableConfig> PageTable<C> {
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
                         e.meta_slot_paddr() is Some
                             ==> crate::specs::mm::frame::mapping::frame_to_index(
-                                e.meta_slot_paddr().unwrap()) !=
+                                e.meta_slot_paddr()->0) !=
                                 crate::specs::mm::frame::mapping::frame_to_index(
-                                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap()),
+                                    (final(owner)@->0).0.value.meta_slot_paddr()->0),
                 ),
             // Sub-page freshness: for any huge frame entry in any pre-existing
             // sound KernelPtConfig tree, the new PT's slot index isn't a sub-page
@@ -1591,7 +1591,7 @@ impl<C: PageTableConfig> PageTable<C> {
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
                                         (pa + j * crate::specs::arch::mm::PAGE_SIZE) as usize);
                                 sub_idx != crate::specs::mm::frame::mapping::frame_to_index(
-                                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())
+                                    (final(owner)@->0).0.value.meta_slot_paddr()->0)
                             }
                         },
                 ),

@@ -42,7 +42,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         &&& self.map_full_tree(
             |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
                 e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
-                    e.meta_slot_paddr().unwrap(),
+                    e.meta_slot_paddr()->0,
                 ) != idx,
         )
         &&& forall|i: int|
@@ -50,7 +50,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level - 1 <= i < NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
                 e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
-                    e.meta_slot_paddr().unwrap(),
+                    e.meta_slot_paddr()->0,
                 ) != idx
             }
     }
@@ -274,14 +274,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ) -> bool {
         &&& self.map_full_tree(
             |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr()->0) == idx
                     ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path),
         )
         &&& forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
-                e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr().unwrap()) == idx
+                e.meta_slot_paddr() is Some && frame_to_index(e.meta_slot_paddr()->0) == idx
                     ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
             }
     }
