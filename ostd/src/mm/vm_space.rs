@@ -13,14 +13,17 @@ use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 use vstd::vpanic;
 
-use crate::arch::mm::{current_page_table_paddr, PageTableEntry, PagingConsts};
+use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
 use crate::error::Error;
 use crate::mm::frame::MetaSlot;
 use crate::mm::frame::meta::mapping::meta_to_frame;
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::kspace::KernelPtConfig;
 use crate::mm::page_table::*;
-use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
+use crate::mm::{
+    KERNEL_VADDR_RANGE,
+    page_table::{EntryOwner, PageTableFrag, PageTableGuard},
+};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage, MetadataInnerPerms};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

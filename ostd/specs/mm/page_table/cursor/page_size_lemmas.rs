@@ -4,8 +4,8 @@ use vstd::prelude::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::PagingLevel;
 use crate::mm::page_table::{page_size, page_size_spec};
-use crate::mm::{MAX_PADDR, Paddr, Vaddr, nr_subpage_per_huge};
-use crate::specs::arch::{KERNEL_VADDR_RANGE, NR_LEVELS, PAGE_SIZE};
+use crate::mm::{KERNEL_VADDR_RANGE, MAX_PADDR, Paddr, Vaddr, nr_subpage_per_huge};
+use crate::specs::arch::{NR_LEVELS, PAGE_SIZE};
 
 verus! {
 
@@ -156,9 +156,8 @@ pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
     requires
         2 <= level <= NR_LEVELS + 1,
     ensures
-        crate::specs::arch::NR_ENTRIES as int * page_size_spec(
-            (level - 1) as PagingLevel,
-        ) as int == page_size_spec(level) as int,
+        crate::specs::arch::NR_ENTRIES as int * page_size_spec((level - 1) as PagingLevel) as int
+            == page_size_spec(level) as int,
 {
     lemma_page_size_spec_values();
     crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
