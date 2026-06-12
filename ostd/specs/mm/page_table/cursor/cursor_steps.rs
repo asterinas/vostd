@@ -406,7 +406,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 child_cont.view_mappings().contains(m) implies pto.view_rec(child_path).contains(
                 m,
             ) by {
-                child_cont.view_mappings_contains(m);
+                child_cont.lemma_view_mappings_contains(m);
                 let j = choose|j: int|
                     #![auto]
                     0 <= j < child_cont.children.len() && child_cont.children[j] is Some
@@ -2271,7 +2271,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(r.path() == p.path());
             assert forall|m: Mapping|
                 r.view_mappings().contains(m) implies p.view_mappings().contains(m) by {
-                r.view_mappings_contains(m);
+                r.lemma_view_mappings_contains(m);
                 let j = choose|j: int|
                     #![auto]
                     0 <= j < r.children.len() && r.children[j] is Some && PageTableOwner(
@@ -2282,7 +2282,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
             assert forall|m: Mapping|
                 p.view_mappings().contains(m) implies r.view_mappings().contains(m) by {
-                p.view_mappings_contains(m);
+                p.lemma_view_mappings_contains(m);
                 let j = choose|j: int|
                     #![auto]
                     0 <= j < p.children.len() && p.children[j] is Some && PageTableOwner(
@@ -2372,7 +2372,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     old_cont.view_mappings().contains(m) implies new_cont.view_mappings().contains(
                     m,
                 ) by {
-                    old_cont.view_mappings_contains(m);
+                    old_cont.lemma_view_mappings_contains(m);
                     let i = choose|i: int|
                         #![auto]
                         0 <= i < old_cont.children.len() && old_cont.children[i] is Some
@@ -2386,7 +2386,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     new_cont.view_mappings().contains(m) implies old_cont.view_mappings().contains(
                     m,
                 ) by {
-                    new_cont.view_mappings_contains(m);
+                    new_cont.lemma_view_mappings_contains(m);
                     let i = choose|i: int|
                         #![auto]
                         0 <= i < new_cont.children.len() && new_cont.children[i] is Some

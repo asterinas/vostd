@@ -206,6 +206,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     // ─── Proofs: VA range / view ─────────────────────────────────────────
+    #[verifier::spinoff_prover]
+    #[verifier::rlimit(100)]
     pub proof fn cur_va_range_reflects_view(self)
         requires
             self.inv(),

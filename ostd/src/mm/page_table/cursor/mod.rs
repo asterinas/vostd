@@ -3957,7 +3957,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 final_cont.view_mappings().contains(m) implies cont1.put_child(
                 new_owner,
             ).view_mappings().contains(m) by {
-                final_cont.view_mappings_contains(m);
+                final_cont.lemma_view_mappings_contains(m);
                 let j = choose|j: int|
                     #![auto]
                     0 <= j < final_cont.children.len() && final_cont.children[j] is Some
@@ -3970,7 +3970,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont1.put_child(new_owner).view_mappings().contains(
                     m,
                 ) implies final_cont.view_mappings().contains(m) by {
-                cont1.put_child(new_owner).view_mappings_contains(m);
+                cont1.put_child(new_owner).lemma_view_mappings_contains(m);
                 let j = choose|j: int|
                     #![auto]
                     0 <= j < cont1.put_child(new_owner).children.len() && cont1.put_child(
@@ -4353,7 +4353,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     m,
                                 ) implies owner_before_dfs.continuations[i].view_mappings().contains(
                             m) by {
-                                owner.continuations[i].view_mappings_contains(m);
+                                owner.continuations[i].lemma_view_mappings_contains(m);
                                 let j = choose|j: int|
                                     #![auto]
                                     0 <= j < owner.continuations[i].children.len()
@@ -4371,7 +4371,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 owner_before_dfs.continuations[i].view_mappings().contains(
                                     m,
                                 ) implies owner.continuations[i].view_mappings().contains(m) by {
-                                owner_before_dfs.continuations[i].view_mappings_contains(m);
+                                owner_before_dfs.continuations[i].lemma_view_mappings_contains(m);
                                 let j = choose|j: int|
                                     #![auto]
                                     0 <= j < owner_before_dfs.continuations[i].children.len()

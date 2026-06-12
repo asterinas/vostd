@@ -231,7 +231,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             );
             assert forall|m: Mapping|
                 cont.view_mappings().contains(m) implies cont0.view_mappings().contains(m) by {
-                cont.view_mappings_contains(m);
+                cont.lemma_view_mappings_contains(m);
                 let j = choose|j: int|
                     0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some
                         && PageTableOwner(cont.children[j].unwrap()).view_rec(
@@ -247,7 +247,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
             assert forall|m: Mapping|
                 cont0.view_mappings().contains(m) implies cont.view_mappings().contains(m) by {
-                cont0.view_mappings_contains(m);
+                cont0.lemma_view_mappings_contains(m);
                 let j = choose|j: int|
                     0 <= j < cont0.children.len() && #[trigger] cont0.children[j] is Some
                         && PageTableOwner(cont0.children[j].unwrap()).view_rec(

@@ -332,71 +332,18 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         guards.lock_held(self.guard.inner.inner@.ptr.addr())
     }
 
-    pub open spec fn view_mappings_children_union(self, up_to: int) -> Set<Mapping>
-        decreases up_to,
-        when up_to >= 0
-    {
-        if up_to <= 0 {
-            Set::empty()
-        } else if up_to - 1 < self.children.len() && self.children[up_to - 1] is Some {
-            self.view_mappings_children_union(up_to - 1).union(
-                PageTableOwner(self.children[up_to - 1]->0).view_rec(
-                    self.path().push_tail((up_to - 1) as usize),
-                ),
-            )
-        } else {
-            self.view_mappings_children_union(up_to - 1)
-        }
-    }
-
     pub open spec fn view_mappings(self) -> Set<Mapping> {
-        self.view_mappings_children_union(self.children.len() as int)
+        self.children.map(
+            |i, child: Option<OwnerSubtree<C>>|
+                if child is Some {
+                    PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                } else {
+                    Set::empty()
+                },
+        ).to_set().flatten()
     }
 
-    proof fn view_mappings_children_union_contains(self, up_to: int, m: Mapping)
-        requires
-            0 <= up_to <= self.children.len(),
-            self.view_mappings_children_union(up_to).contains(m),
-        ensures
-            exists|i: int|
-                #![auto]
-                0 <= i < up_to && self.children[i] is Some && PageTableOwner(
-                    self.children[i]->0,
-                ).view_rec(self.path().push_tail(i as usize)).contains(m),
-        decreases up_to,
-    {
-        if up_to <= 0 {
-        } else if up_to - 1 < self.children.len() && self.children[up_to - 1] is Some {
-            if PageTableOwner(self.children[up_to - 1].unwrap()).view_rec(
-                self.path().push_tail((up_to - 1) as usize),
-            ).contains(m) {
-            } else {
-                self.view_mappings_children_union_contains(up_to - 1, m);
-            }
-        } else {
-            self.view_mappings_children_union_contains(up_to - 1, m);
-        }
-    }
-
-    proof fn view_mappings_children_union_intro(self, up_to: int, m: Mapping, witness: int)
-        requires
-            0 <= witness < up_to,
-            up_to <= self.children.len(),
-            self.children[witness] is Some,
-            PageTableOwner(self.children[witness]->0).view_rec(
-                self.path().push_tail(witness as usize),
-            ).contains(m),
-        ensures
-            self.view_mappings_children_union(up_to).contains(m),
-        decreases up_to,
-    {
-        if witness == up_to - 1 {
-        } else {
-            self.view_mappings_children_union_intro(up_to - 1, m, witness);
-        }
-    }
-
-    pub proof fn view_mappings_contains(self, m: Mapping)
+    pub proof fn lemma_view_mappings_contains(self, m: Mapping)
         requires
             self.children.len() > 0,
             self.view_mappings().contains(m),
@@ -407,7 +354,31 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     self.children[i]->0,
                 ).view_rec(self.path().push_tail(i as usize)).contains(m),
     {
-        self.view_mappings_children_union_contains(self.children.len() as int, m);
+        broadcast use vstd::seq_lib::group_seq_properties;
+
+        let mapped = self.children.map(
+            |i, child: Option<OwnerSubtree<C>>|
+                if child is Some {
+                    PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                } else {
+                    Set::empty()
+                },
+        );
+        mapped.to_set().lemma_flatten_contains(m);
+        let elem_s = choose|elem_s: Set<Mapping>| #[trigger]
+            mapped.to_set().contains(elem_s) && elem_s.contains(m);
+        mapped.to_set_ensures();
+        assert(mapped.contains(elem_s));
+        let i = mapped.lemma_contains_to_index(elem_s);
+        assert(0 <= i < self.children.len());
+        if self.children[i] is Some {
+            assert(mapped[i] == PageTableOwner(self.children[i]->0).view_rec(
+                self.path().push_tail(i as usize),
+            ));
+        } else {
+            assert(mapped[i] == Set::<Mapping>::empty());
+            assert(false);
+        }
     }
 
     pub proof fn view_mappings_intro(self, m: Mapping, i: int)
@@ -420,7 +391,22 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.view_mappings().contains(m),
     {
-        self.view_mappings_children_union_intro(self.children.len() as int, m, i);
+        broadcast use vstd::set::group_set_lemmas;
+        broadcast use vstd::set_lib::group_set_lib_default;
+        broadcast use vstd::seq_lib::group_seq_properties;
+
+        let mapped = self.children.map(
+            |i, child: Option<OwnerSubtree<C>>|
+                if child is Some {
+                    PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                } else {
+                    Set::empty()
+                },
+        );
+        assert(mapped[i].contains(m));
+        mapped.to_set_ensures();
+        assert(mapped.to_set().contains(mapped[i]));
+        mapped.to_set().lemma_flatten_contains(m);
     }
 
     pub open spec fn as_subtree(self) -> OwnerSubtree<C> {
@@ -1051,60 +1037,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.continuations.contains_key(i));
     }
 
-    pub open spec fn view_mappings_conts_union(self, up_to: int) -> Set<Mapping>
-        decreases up_to - (self.level - 1),
-        when up_to >= self.level - 1
-    {
-        if up_to <= self.level - 1 {
-            Set::empty()
-        } else if up_to - 1 < NR_LEVELS && self.continuations.contains_key(up_to - 1) {
-            self.view_mappings_conts_union(up_to - 1).union(
-                self.continuations[up_to - 1].view_mappings(),
-            )
-        } else {
-            self.view_mappings_conts_union(up_to - 1)
-        }
-    }
-
     pub open spec fn view_mappings(self) -> Set<Mapping> {
-        self.view_mappings_conts_union(NR_LEVELS as int)
-    }
-
-    proof fn view_mappings_conts_union_contains(self, up_to: int, m: Mapping)
-        requires
-            self.level - 1 <= up_to <= NR_LEVELS,
-            self.view_mappings_conts_union(up_to).contains(m),
-        ensures
-            exists|i: int|
-                #![trigger self.continuations[i]]
-                self.level - 1 <= i < up_to && self.continuations[i].view_mappings().contains(m),
-        decreases up_to - (self.level - 1),
-    {
-        if up_to <= self.level - 1 {
-        } else if up_to - 1 < NR_LEVELS && self.continuations.contains_key(up_to - 1) {
-            if self.continuations[up_to - 1].view_mappings().contains(m) {
-            } else {
-                self.view_mappings_conts_union_contains(up_to - 1, m);
-            }
-        } else {
-            self.view_mappings_conts_union_contains(up_to - 1, m);
-        }
-    }
-
-    proof fn view_mappings_conts_union_intro(self, up_to: int, m: Mapping, witness: int)
-        requires
-            self.level - 1 <= witness < up_to,
-            up_to <= NR_LEVELS,
-            self.continuations.contains_key(witness),
-            self.continuations[witness].view_mappings().contains(m),
-        ensures
-            self.view_mappings_conts_union(up_to).contains(m),
-        decreases up_to - (self.level - 1),
-    {
-        if witness == up_to - 1 {
-        } else {
-            self.view_mappings_conts_union_intro(up_to - 1, m, witness);
-        }
+        self.continuations.filter_keys(|k| self.level - 1 <= k < NR_LEVELS).map_values(
+            |cont: CursorContinuation<'rcu, C>| cont.view_mappings(),
+        ).values().flatten()
     }
 
     pub proof fn view_mappings_contains(self, m: Mapping)
@@ -1118,7 +1054,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     m,
                 ),
     {
-        self.view_mappings_conts_union_contains(NR_LEVELS as int, m);
+        broadcast use vstd::map_lib::group_map_properties;
+        broadcast use vstd::set::group_set_lemmas;
+        broadcast use vstd::set_lib::group_set_lib_default;
+
+        let filtered = self.continuations.filter_keys(|k| self.level - 1 <= k < NR_LEVELS);
+        let mapped = filtered.map_values(|cont: CursorContinuation<'rcu, C>| cont.view_mappings());
+        let values = mapped.values();
+        values.lemma_flatten_contains(m);
+        let elem_s = choose|elem_s: Set<Mapping>| #[trigger]
+            values.contains(elem_s) && elem_s.contains(m);
+        assert(exists|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s);
+        let i = choose|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s;
+        assert(filtered.dom().contains(i));
+        assert(self.level - 1 <= i < NR_LEVELS);
+        assert(filtered[i] == self.continuations[i]);
+        assert(mapped[i] == self.continuations[i].view_mappings());
     }
 
     pub proof fn view_mappings_intro(self, m: Mapping, i: int)
@@ -1130,7 +1081,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.view_mappings().contains(m),
     {
-        self.view_mappings_conts_union_intro(NR_LEVELS as int, m, i);
+        broadcast use vstd::map_lib::group_map_properties;
+        broadcast use vstd::set::group_set_lemmas;
+        broadcast use vstd::set_lib::group_set_lib_default;
+
+        let filtered = self.continuations.filter_keys(|k| self.level - 1 <= k < NR_LEVELS);
+        let mapped = filtered.map_values(|cont: CursorContinuation<'rcu, C>| cont.view_mappings());
+        let values = mapped.values();
+        assert(filtered.dom().contains(i));
+        assert(filtered[i] == self.continuations[i]);
+        assert(mapped.dom().contains(i));
+        assert(mapped[i] == self.continuations[i].view_mappings());
+        assert(values.contains(mapped[i]));
+        values.lemma_flatten_contains(m);
     }
 
     pub open spec fn as_page_table_owner(self) -> PageTableOwner<C> {
