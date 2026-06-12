@@ -174,7 +174,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             old(self).kind is Node,
         ensures
-            res == old(self).kind->Node_0,
+            res == old(self).node(),
             *final(self) == (EntryOwner { kind: EntryOwnerKind::Absent, ..*old(self) }),
     {
         let tracked mut tmp = EntryOwnerKind::Absent;
@@ -196,7 +196,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             self.kind is Node,
         ensures
-            *res == self.kind->Node_0,
+            *res == self.node(),
     {
         match self.kind {
             EntryOwnerKind::Node(ref node) => node,
@@ -204,11 +204,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub proof fn tracked_borrow_node_mut(tracked &mut self) -> (tracked res: &mut NodeOwner<C>)
+    pub proof fn tracked_borrow_mut_node(tracked &mut self) -> (tracked res: &mut NodeOwner<C>)
         requires
             old(self).kind is Node,
         ensures
-            *res == old(self).kind->Node_0,
+            *res == old(self).node(),
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Node(*final(res)), ..*old(self) }),
     {
         match self.kind {
             EntryOwnerKind::Node(ref mut node) => node,
@@ -220,7 +221,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             old(self).kind is Frame,
         ensures
-            res == old(self).kind->Frame_0,
+            res == old(self).frame(),
             *final(self) == (EntryOwner { kind: EntryOwnerKind::Absent, ..*old(self) }),
     {
         let tracked mut tmp = EntryOwnerKind::Absent;
@@ -236,6 +237,18 @@ impl<C: PageTableConfig> EntryOwner<C> {
             *final(self) == (EntryOwner { kind: EntryOwnerKind::Frame(frame), ..*old(self) }),
     {
         self.kind = EntryOwnerKind::Frame(frame);
+    }
+
+    pub proof fn tracked_borrow_frame(tracked &self) -> (tracked res: &FrameEntryOwner)
+        requires
+            self.kind is Frame,
+        ensures
+            *res == self.frame(),
+    {
+        match self.kind {
+            EntryOwnerKind::Frame(ref frame) => frame,
+            _ => { proof_from_false() },
+        }
     }
 
     pub axiom fn tracked_new_frame(

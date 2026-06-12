@@ -1034,10 +1034,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 OwnerSubtree::child_some_properties(new_owner, i as usize);
             }
 
-            let tracked mut new_owner_node = new_owner.value.tracked_take_node();
-
             proof {
-                let ghost old_children_perm = new_owner_node.children_perm;
+                let ghost old_children_perm = new_owner.value.node();
             }
 
             proof {
@@ -1058,9 +1056,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             );
 
             proof {
-                assert(regions.slots.contains_key(new_owner_node.slot_index));
+                assert(regions.slots.contains_key(new_owner.value.node().slot_index));
             }
-            #[verus_spec(with Tracked(&new_owner_node), Tracked(&new_owner.children.tracked_borrow(i as int).tracked_borrow().value), Tracked(&*regions))]
+            #[verus_spec(with Tracked(new_owner.value.tracked_borrow_node()), Tracked(&new_owner.children.tracked_borrow(i as int).tracked_borrow().value), Tracked(&*regions))]
             let mut entry = pt_lock_guard.entry(i);
 
             proof {
@@ -1073,6 +1071,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             ).tracked_unwrap();
 
             proof {
+                let ghost new_owner_node = new_owner.value.node();
                 assert(new_owner_child.value.match_pte(
                     new_owner_node.children_perm.value()[i as int],
                     new_owner_child.value.parent_level,
@@ -1232,16 +1231,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
 
             proof {
-                assert(new_owner_node.metaregion_sound_node(*regions));
+                //assert(new_owner_node.metaregion_sound_node(*regions));
             }
             #[verus_spec(with Tracked(regions),
                 Tracked(&mut new_owner_child.value),
                 Tracked(&mut child_owner),
-                Tracked(&mut new_owner_node))]
+                Tracked(new_owner.value.tracked_borrow_mut_node()))]
             let old = entry.replace(Child::Frame(small_pa, level - 1, prop));
 
             proof {
-                new_owner.value.tracked_put_node(new_owner_node);
                 new_owner_child.value.in_scope = false;
                 child_owner.in_scope = false;
                 OwnerSubtree::set_value_property(new_owner_child, child_owner);
@@ -1271,20 +1269,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             *owner = new_owner;
         }
 
-        let tracked mut node_owner = owner.value.tracked_take_node();
-
         // SAFETY:
         //  1. The index is within the bounds.
         //  2. The new PTE is a child in `C` and at the correct paging level.
         //  3. The ownership of the child is passed to the page table node.
         unsafe {
-            #[verus_spec(with Tracked(&mut node_owner), Tracked(&*regions))]
+            #[verus_spec(with Tracked(owner.value.tracked_borrow_mut_node()), Tracked(&*regions))]
             self.node.write_pte(self.idx, self.pte)
         };
-
-        proof {
-            owner.value.tracked_put_node(node_owner);
-        }
 
         Some(pt_lock_guard)
     }

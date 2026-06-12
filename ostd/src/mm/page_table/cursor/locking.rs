@@ -375,16 +375,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         };
 
         let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
-        let tracked node_owner = cont.entry_own.tracked_take_node();
         let tracked node_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            node_owner.slot_index,
+            cont.entry_own.node().slot_index,
         );
         #[verus_spec(with Tracked(node_meta_perm))]
         let stray = pt_guard.stray_mut();
-        let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
+        let is_stray = *(stray.borrow(
+            Tracked(&cont.entry_own.tracked_borrow_node().meta_own.stray),
+        ));
 
         proof {
-            cont.entry_own.tracked_put_node(node_owner);
             cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
         }
 
@@ -452,16 +452,14 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     };
 
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
-    let tracked node_owner = cont.entry_own.tracked_take_node();
     let tracked node_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-        node_owner.slot_index,
+        cont.entry_own.node().slot_index,
     );
     #[verus_spec(with Tracked(node_meta_perm))]
     let stray = pt_guard.stray_mut();
-    let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
+    let is_stray = *(stray.borrow(Tracked(&cont.entry_own.tracked_borrow_node().meta_own.stray)));
 
     proof {
-        cont.entry_own.tracked_put_node(node_owner);
         cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
     }
 
