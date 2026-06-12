@@ -37,12 +37,6 @@ pub tracked enum EntryOwnerKind<C: PageTableConfig> {
     Node(NodeOwner<C>),
     Frame(FrameEntryOwner),
     Locked(ghost Seq<FrameView<C>>),
-    Borrowed(ghost Set<Mapping>),
-    Absent,
-}
-
-pub tracked struct EntryOwner<C: PageTableConfig> {
-    pub kind: EntryOwnerKind<C>,
     /// Translation-only / borrowed-sub-tree variant.
     ///
     /// Present when the slot's PTE references a sub-tree owned by *another*
@@ -52,9 +46,15 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     /// embedding can reason about what the borrowed translation provides
     /// without descending into a sub-tree it does not own. Mutually
     /// exclusive with `node`, `frame`, `locked`, and `absent` by construction.
-    pub in_scope: bool,
-    pub path: TreePath<NR_ENTRIES>,
-    pub parent_level: PagingLevel,
+    Borrowed(ghost Set<Mapping>),
+    Absent,
+}
+
+pub tracked struct EntryOwner<C: PageTableConfig> {
+    pub kind: EntryOwnerKind<C>,
+    pub ghost in_scope: bool,
+    pub ghost path: TreePath<NR_ENTRIES>,
+    pub ghost parent_level: PagingLevel,
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
@@ -144,22 +144,26 @@ impl<C: PageTableConfig> EntryOwner<C> {
         EntryOwner { kind: EntryOwnerKind::Borrowed(mappings), in_scope: true, path, parent_level }
     }
 
-    pub axiom fn tracked_new_borrowed(
+    pub proof fn tracked_new_borrowed(
         path: TreePath<NR_ENTRIES>,
         parent_level: PagingLevel,
         mappings: Set<Mapping>,
     ) -> tracked Self
         returns
             Self::new_borrowed(path, parent_level, mappings),
-    ;
+    {
+        Self { kind: EntryOwnerKind::Borrowed(mappings), in_scope: true, path, parent_level }
+    }
 
-    pub axiom fn tracked_new_absent(
+    pub proof fn tracked_new_absent(
         path: TreePath<NR_ENTRIES>,
         parent_level: PagingLevel,
     ) -> tracked Self
         returns
             Self::new_absent(path, parent_level),
-    ;
+    {
+        Self { kind: EntryOwnerKind::Absent, in_scope: true, path, parent_level }
+    }
 
     /// Rewrites the `path` field of a tracked `EntryOwner` in place. Used by
     /// `rebase_freshly_allocated_children` to propagate the cursor path down
