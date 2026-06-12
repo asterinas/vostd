@@ -343,41 +343,43 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ).to_set().flatten()
     }
 
-    pub proof fn lemma_view_mappings_contains(self, m: Mapping)
-        requires
-            self.children.len() > 0,
-            self.view_mappings().contains(m),
+    pub broadcast proof fn lemma_view_mappings_contains(self)
         ensures
-            exists|i: int|
-                #![auto]
-                0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
-                    self.children[i]->0,
-                ).view_rec(self.path().push_tail(i as usize)).contains(m),
+            #![trigger self.view_mappings()]
+            forall |m: Mapping|
+                #[trigger] self.view_mappings().contains(m) ==> exists |i: int| #![auto]
+                    0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
+                        self.children[i]->0,
+                    ).view_rec(self.path().push_tail(i as usize)).contains(m),
     {
         broadcast use vstd::seq_lib::group_seq_properties;
 
-        let mapped = self.children.map(
-            |i, child: Option<OwnerSubtree<C>>|
-                if child is Some {
-                    PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
-                } else {
-                    Set::empty()
-                },
-        );
-        mapped.to_set().lemma_flatten_contains(m);
-        let elem_s = choose|elem_s: Set<Mapping>| #[trigger]
-            mapped.to_set().contains(elem_s) && elem_s.contains(m);
-        mapped.to_set_ensures();
-        assert(mapped.contains(elem_s));
-        let i = mapped.lemma_contains_to_index(elem_s);
-        assert(0 <= i < self.children.len());
-        if self.children[i] is Some {
-            assert(mapped[i] == PageTableOwner(self.children[i]->0).view_rec(
-                self.path().push_tail(i as usize),
-            ));
-        } else {
-            assert(mapped[i] == Set::<Mapping>::empty());
-            assert(false);
+        assert forall |m: Mapping| self.view_mappings().contains(m) implies exists|i: int|
+            0 <= i < self.children.len() && self.children[i] is Some
+                && PageTableOwner(self.children[i]->0).view_rec(self.path().push_tail(i as usize)).contains(m) by {
+            let mapped = self.children.map(
+                |i, child: Option<OwnerSubtree<C>>|
+                    if child is Some {
+                        PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                    } else {
+                        Set::empty()
+                    },
+            );
+            mapped.to_set().lemma_flatten_contains(m);
+            let elem_s = choose|elem_s: Set<Mapping>| #[trigger]
+                mapped.to_set().contains(elem_s) && elem_s.contains(m);
+            mapped.to_set_ensures();
+            assert(mapped.contains(elem_s));
+            let i = mapped.lemma_contains_to_index(elem_s);
+            assert(0 <= i < self.children.len());
+            if self.children[i] is Some {
+                assert(mapped[i] == PageTableOwner(self.children[i]->0).view_rec(
+                    self.path().push_tail(i as usize),
+                ));
+            } else {
+                assert(mapped[i] == Set::<Mapping>::empty());
+                assert(false);
+            }
         }
     }
 
@@ -391,8 +393,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.view_mappings().contains(m),
     {
-        broadcast use vstd::set::group_set_lemmas;
-        broadcast use vstd::set_lib::group_set_lib_default;
         broadcast use vstd::seq_lib::group_seq_properties;
 
         let mapped = self.children.map(
