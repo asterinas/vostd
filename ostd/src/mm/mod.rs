@@ -18,7 +18,7 @@ pub const MAX_NR_LEVELS: usize = 4;
 
 pub(crate) mod dma;
 pub mod frame;
-//pub mod heap;
+pub mod heap;
 pub mod io;
 pub use io::{
     Fallible, FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoOnce, VmReader,

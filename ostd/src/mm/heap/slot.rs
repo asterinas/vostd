@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Heap slots for allocations.
+use vstd::prelude::*;
+use vstd_extra::external::nonnull::NonNullAdditionalFns;
+
 use core::{alloc::AllocError, ptr::NonNull};
 
-use crate::{
-    impl_frame_meta_for,
-    mm::{
-        FrameAllocOptions, PAGE_SIZE, Paddr, Segment, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR,
-        paddr_to_vaddr,
-    },
+use crate::mm::{
+    PAGE_SIZE, Paddr, Vaddr,
+    frame::meta::AnyFrameMeta,
+    kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
+
+verus! {
 
 /// A slot that will become or has been turned from a heap allocation.
 ///
@@ -44,8 +47,18 @@ pub enum SlotInfo {
 }
 
 impl SlotInfo {
+    pub open spec fn size_spec(self) -> usize {
+        match self {
+            Self::SlabSlot(size) => size,
+            Self::LargeSlot(size) => size,
+        }
+    }
+
     /// Gets the size of the slot.
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> (res: usize)
+        ensures
+            res == (*self).size_spec(),
+    {
         match self {
             Self::SlabSlot(size) => *size,
             Self::LargeSlot(size) => *size,
@@ -54,6 +67,22 @@ impl SlotInfo {
 }
 
 impl HeapSlot {
+    pub closed spec fn info_spec(&self) -> SlotInfo {
+        self.info
+    }
+
+    pub closed spec fn size_spec(&self) -> usize {
+        self.info_spec().size_spec()
+    }
+
+    pub closed spec fn vaddr_spec(&self) -> Vaddr {
+        self.addr.view_ptr_mut().addr()
+    }
+
+    pub closed spec fn in_linear_mapping_spec(&self) -> bool {
+        LINEAR_MAPPING_BASE_VADDR <= self.vaddr_spec() < VMALLOC_BASE_VADDR
+    }
+
     /// Creates a new pointer to a heap slot.
     ///
     /// # Safety
@@ -64,7 +93,11 @@ impl HeapSlot {
     ///
     /// If the pointer is from a [`super::Slab`] or [`Segment`], the slot must
     /// have a size that matches the slot size of the slab or segment respectively.
-    pub(super) unsafe fn new(addr: NonNull<u8>, info: SlotInfo) -> Self {
+    pub(super) unsafe fn new(addr: NonNull<u8>, info: SlotInfo) -> (res: Self)
+        ensures
+            res.info_spec() == info,
+            res.size_spec() == info.size_spec(),
+    {
         Self { addr, info }
     }
 
@@ -77,8 +110,8 @@ impl HeapSlot {
     /// # Panics
     ///
     /// This function panics if the size is not a multiple of [`PAGE_SIZE`].
+    /*
     pub fn alloc_large(size: usize) -> Result<Self, AllocError> {
-        #[cfg(feature = "allow_panic")]
         assert_eq!(size % PAGE_SIZE, 0);
         let nframes = size / PAGE_SIZE;
         let segment = FrameAllocOptions::new()
@@ -97,7 +130,7 @@ impl HeapSlot {
             info: SlotInfo::LargeSlot(size),
         })
     }
-
+    */
     /// Deallocates a large slot.
     ///
     /// # Panics
@@ -105,15 +138,13 @@ impl HeapSlot {
     /// This function aborts if the slot was not allocated with
     /// [`HeapSlot::alloc_large`], as it requires specific memory management
     /// operations that only apply to large slots.
+    /*
     pub fn dealloc_large(self) {
         let SlotInfo::LargeSlot(size) = self.info else {
             log::error!(
                 "Deallocating a large slot that was not allocated with `HeapSlot::alloc_large`"
             );
-            #[cfg(feature = "allow_panic")]
             crate::panic::abort();
-            #[cfg(not(feature = "allow_panic"))]
-            return;
         };
 
         debug_assert_eq!(size % PAGE_SIZE, 0);
@@ -123,14 +154,26 @@ impl HeapSlot {
         // SAFETY: The segment was once forgotten when allocated.
         drop(unsafe { Segment::<LargeAllocFrameMeta>::from_raw(range) });
     }
-
+    */
     /// Gets the physical address of the slot.
-    pub fn paddr(&self) -> Paddr {
-        self.addr.as_ptr() as Vaddr - LINEAR_MAPPING_BASE_VADDR
+    pub fn paddr(&self) -> (res: Paddr)
+        requires
+            self.in_linear_mapping_spec(),
+        ensures
+            res == crate::specs::arch::kspace::vaddr_to_paddr_spec(self.vaddr_spec()),
+    {
+        let vaddr = self.addr.as_ptr() as Vaddr;
+        proof {
+            self.addr.lemma_addr_view_eq_view_ptr_mut();
+        }
+        crate::specs::arch::kspace::vaddr_to_paddr(vaddr)
     }
 
     /// Gets the size of the slot.
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> (res: usize)
+        ensures
+            res == self.size_spec(),
+    {
         match self.info {
             SlotInfo::SlabSlot(size) => size,
             SlotInfo::LargeSlot(size) => size,
@@ -138,12 +181,18 @@ impl HeapSlot {
     }
 
     /// Gets the type and size of the slot.
-    pub fn info(&self) -> SlotInfo {
+    pub fn info(&self) -> (res: SlotInfo)
+        ensures
+            res == self.info_spec(),
+    {
         self.info
     }
 
     /// Gets the pointer to the slot.
-    pub fn as_ptr(&self) -> *mut u8 {
+    pub fn as_ptr(&self) -> (res: *mut u8)
+        ensures
+            !res.is_null(),
+    {
         self.addr.as_ptr()
     }
 }
@@ -152,4 +201,8 @@ impl HeapSlot {
 #[derive(Debug)]
 pub struct LargeAllocFrameMeta;
 
-impl_frame_meta_for!(LargeAllocFrameMeta);
+unsafe impl AnyFrameMeta for LargeAllocFrameMeta {
+    uninterp spec fn vtable_ptr(&self) -> usize;
+}
+
+} // verus!
