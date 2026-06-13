@@ -219,7 +219,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.view_mappings() == owner0.view_mappings(),
     {
-        broadcast use CursorContinuation::group_lemmas;
+        broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         let L = self.level as int;
         let cont = self.continuations[L - 1];
@@ -264,30 +264,24 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.view_mappings() == owner0.view_mappings()) by {
             assert forall|m: Mapping|
                 self.view_mappings().contains(m) implies owner0.view_mappings().contains(m) by {
-                self.lemma_view_mappings_contains();
                 let i = choose|i: int|
                     self.level - 1 <= i < NR_LEVELS
                         && #[trigger] self.continuations[i].view_mappings().contains(m);
                 if i == L - 1 {
                     assert(cont0.view_mappings().contains(m));
-                    owner0.lemma_view_mappings_intro(m, i);
                 } else {
                     assert(owner0.continuations[i] == self.continuations[i]);
-                    owner0.lemma_view_mappings_intro(m, i);
                 }
             };
             assert forall|m: Mapping|
                 owner0.view_mappings().contains(m) implies self.view_mappings().contains(m) by {
-                owner0.lemma_view_mappings_contains();
                 let i = choose|i: int|
                     owner0.level - 1 <= i < NR_LEVELS
                         && #[trigger] owner0.continuations[i].view_mappings().contains(m);
                 if i == L - 1 {
                     assert(cont.view_mappings().contains(m));
-                    self.lemma_view_mappings_intro(m, i);
                 } else {
                     assert(self.continuations[i] == owner0.continuations[i]);
-                    self.lemma_view_mappings_intro(m, i);
                 }
             };
         };
