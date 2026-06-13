@@ -252,7 +252,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // m is in the current subtree's view_rec => in cont[level-1].view_mappings() => in self.view_mappings()
             assert(cont.children[self.index() as int] is Some);
             assert(cont.children[self.index() as int].unwrap() == cur_subtree);
-            self.lemma_view_mappings_intro(m, (self.level - 1) as int);
 
             // view_rec_vaddr_range gives m.va_range.start in
             // [vaddr_of(cur_path), vaddr_of(cur_path) + page_size(level)),
@@ -752,7 +751,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ) by {
             if new_cont.view_mappings().contains(m) {
                 assert(new_self.continuations[level - 1].view_mappings().contains(m));
-                new_self.lemma_view_mappings_intro(m, level - 1);
             } else {
                 let i = choose|i: int|
                     level - 1 <= i < NR_LEVELS
