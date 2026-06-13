@@ -2336,7 +2336,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec()@.mappings == self@.mappings,
         decreases NR_LEVELS - self.level,
     {
-        broadcast use CursorContinuation::group_lemmas;
+        broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         if self.index() + 1 < NR_ENTRIES {
             let inc = self.inc_index();
@@ -2382,7 +2382,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(result.view_mappings() == self.view_mappings()) by {
                 assert forall|m: Mapping|
                     self.view_mappings().contains(m) implies result.view_mappings().contains(m) by {
-                    self.lemma_view_mappings_contains();
                     let i = choose|i: int|
                         self.level - 1 <= i < NR_LEVELS && (
                         #[trigger] self.continuations[i]).view_mappings().contains(m);
@@ -2396,16 +2395,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
                 assert forall|m: Mapping|
                     result.view_mappings().contains(m) implies self.view_mappings().contains(m) by {
-                    result.lemma_view_mappings_contains();
                     let i = choose|i: int|
                         result.level - 1 <= i < NR_LEVELS && (
                         #[trigger] result.continuations[i]).view_mappings().contains(m);
                     if i == self.level - 1 {
                         assert(self.continuations[i].view_mappings().contains(m));
-                        self.lemma_view_mappings_intro(m, i);
                     } else {
                         assert(self.continuations[i] == result.continuations[i]);
-                        self.lemma_view_mappings_intro(m, i);
                     }
                 };
             };
@@ -2432,7 +2428,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(fwd.view_mappings() == self.view_mappings()) by {
                 assert forall|m: Mapping|
                     self.view_mappings().contains(m) implies fwd.view_mappings().contains(m) by {
-                    self.lemma_view_mappings_contains();
                     let i = choose|i: int|
                         self.level - 1 <= i < NR_LEVELS
                             && #[trigger] self.continuations[i].view_mappings().contains(m);
@@ -2441,7 +2436,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
                 assert forall|m: Mapping|
                     fwd.view_mappings().contains(m) implies self.view_mappings().contains(m) by {
-                    fwd.lemma_view_mappings_contains();
                     let i = choose|i: int|
                         fwd.level - 1 <= i < NR_LEVELS
                             && #[trigger] fwd.continuations[i].view_mappings().contains(m);
