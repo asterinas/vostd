@@ -838,21 +838,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         m,
                     ) implies self.continuations[2].view_mappings().contains(m)
                     || self.continuations[3].view_mappings().contains(m) by {
-                    self.lemma_view_mappings_contains();
                     let i = choose|i: int|
                         2 <= i < NR_LEVELS
                             && #[trigger] self.continuations[i].view_mappings().contains(m);
-                };
-                assert forall|m: Mapping|
-                    (self.continuations[2].view_mappings().contains(m)
-                        || self.continuations[3].view_mappings().contains(
-                        m,
-                    )) implies #[trigger] self.view_mappings().contains(m) by {
-                    if self.continuations[2].view_mappings().contains(m) {
-                        self.lemma_view_mappings_intro(m, 2);
-                    } else {
-                        self.lemma_view_mappings_intro(m, 3);
-                    }
                 };
             };
         } else if self.level == 2 {
