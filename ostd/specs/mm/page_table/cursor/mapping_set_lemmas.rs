@@ -781,6 +781,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.as_page_table_owner().pt_inv(),
     {
         broadcast use CursorOwner::group_lemmas;
+
         if self.level == 4 {
             self.continuations[3].as_page_table_owner_preserves_view_mappings();
             self.inv_continuation(3);
