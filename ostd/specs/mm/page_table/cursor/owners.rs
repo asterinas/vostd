@@ -347,7 +347,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             #![trigger self.view_mappings()]
             forall|m: Mapping| #[trigger]
-                self.view_mappings().contains(m) ==> exists|i: int|
+                self.view_mappings().contains(m) ==> exists |i: int|
                     #![auto]
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                         self.children[i]->0,
@@ -1050,41 +1050,43 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ).values().flatten()
     }
 
-    pub proof fn view_mappings_contains(self, m: Mapping)
+    pub broadcast proof fn lemma_view_mappings_contains(self)
         requires
-            1 <= self.level <= NR_LEVELS,
-            self.view_mappings().contains(m),
+        1 <= self.level <= NR_LEVELS,
         ensures
-            exists|i: int|
+        #![trigger self.view_mappings()]
+            forall |m: Mapping| #[trigger] self.view_mappings().contains(m) ==> exists |i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS && self.continuations[i].view_mappings().contains(
                     m,
                 ),
     {
         broadcast use vstd::map_lib::group_map_properties;
-        broadcast use vstd::set::group_set_lemmas;
-        broadcast use vstd::set_lib::group_set_lib_default;
 
-        let filtered = self.continuations.filter_keys(|k| self.level - 1 <= k < NR_LEVELS);
-        let mapped = filtered.map_values(|cont: CursorContinuation<'rcu, C>| cont.view_mappings());
-        let values = mapped.values();
-        values.lemma_flatten_contains(m);
-        let elem_s = choose|elem_s: Set<Mapping>| #[trigger]
-            values.contains(elem_s) && elem_s.contains(m);
-        assert(exists|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s);
-        let i = choose|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s;
-        assert(filtered.dom().contains(i));
-        assert(self.level - 1 <= i < NR_LEVELS);
-        assert(filtered[i] == self.continuations[i]);
-        assert(mapped[i] == self.continuations[i].view_mappings());
+        assert forall |m: Mapping| #[trigger] self.view_mappings().contains(m) implies exists |i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS && self.continuations[i].view_mappings().contains(m) by {
+                let filtered = self.continuations.filter_keys(|k| self.level - 1 <= k < NR_LEVELS);
+                let mapped = filtered.map_values(|cont: CursorContinuation<'rcu, C>| cont.view_mappings());
+                let values = mapped.values();
+                values.lemma_flatten_contains(m);
+                let elem_s = choose|elem_s: Set<Mapping>| #[trigger]
+                    values.contains(elem_s) && elem_s.contains(m);
+                assert(exists|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s);
+                let i = choose|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s;
+                assert(filtered.dom().contains(i));
+                assert(self.level - 1 <= i < NR_LEVELS);
+                assert(filtered[i] == self.continuations[i]);
+                assert(mapped[i] == self.continuations[i].view_mappings());
+            }
     }
 
-    pub proof fn lemma_view_mappings_intro(self, m: Mapping, i: int)
+    pub broadcast proof fn lemma_view_mappings_intro(self, m: Mapping, i: int)
         requires
             1 <= self.level <= NR_LEVELS,
             self.level - 1 <= i < NR_LEVELS,
             self.continuations.contains_key(i),
-            self.continuations[i].view_mappings().contains(m),
+            #[trigger] self.continuations[i].view_mappings().contains(m),
         ensures
             self.view_mappings().contains(m),
     {
@@ -2823,6 +2825,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             res == Self::new(owner_subtree, idx, guard),
     ;
+
+    pub broadcast group group_lemmas {
+        CursorOwner::lemma_view_mappings_contains,
+        CursorOwner::lemma_view_mappings_intro,
+    }
 }
 
 pub ghost struct CursorView<C: PageTableConfig> {

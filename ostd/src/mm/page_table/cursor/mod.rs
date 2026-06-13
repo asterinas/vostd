@@ -4389,7 +4389,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             owner.view_mappings().contains(
                                 m,
                             ) implies owner_before_dfs.view_mappings().contains(m) by {
-                            owner.view_mappings_contains(m);
+                            owner.lemma_view_mappings_contains();
                             let i = choose|i: int|
                                 owner.level - 1 <= i < NR_LEVELS
                                     && #[trigger] owner.continuations[i].view_mappings().contains(
@@ -4401,7 +4401,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             owner_before_dfs.view_mappings().contains(
                                 m,
                             ) implies owner.view_mappings().contains(m) by {
-                            owner_before_dfs.view_mappings_contains(m);
+                            owner_before_dfs.lemma_view_mappings_contains();
                             let i = choose|i: int|
                                 owner_before_dfs.level - 1 <= i < NR_LEVELS
                                     && #[trigger] owner_before_dfs.continuations[i].view_mappings().contains(
