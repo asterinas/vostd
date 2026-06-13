@@ -3861,7 +3861,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // fully preserves `regions.slots`.
             res is None ==> final(regions).slots == old(regions).slots,
     {
-        broadcast use CursorContinuation::group_lemmas;
+        broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
@@ -3998,7 +3998,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         } else {
                             assert((b - d).contains(m));
                             assert(b.contains(m));
-                            owner0.lemma_view_mappings_intro(m, (owner0.level - 1) as int);
                             assert(a.contains(m));
                             assert(!d.contains(m));
                         }
@@ -4358,7 +4357,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     ).contains(m);
                                 assert(owner_before_dfs.continuations[i].children[j]
                                     == owner.continuations[i].children[j]);
-                                owner_before_dfs.continuations[i].lemma_view_mappings_intro(m, j);
                             };
                             assert forall|m: Mapping|
                                 owner_before_dfs.continuations[i].view_mappings().contains(
@@ -4377,7 +4375,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     ).contains(m);
                                 assert(owner.continuations[i].children[j]
                                     == owner_before_dfs.continuations[i].children[j]);
-                                owner.continuations[i].lemma_view_mappings_intro(m, j);
                             };
                         };
                     };
@@ -4389,24 +4386,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             owner.view_mappings().contains(
                                 m,
                             ) implies owner_before_dfs.view_mappings().contains(m) by {
-                            owner.lemma_view_mappings_contains();
                             let i = choose|i: int|
                                 owner.level - 1 <= i < NR_LEVELS
                                     && #[trigger] owner.continuations[i].view_mappings().contains(
                                     m,
                                 );
-                            owner_before_dfs.lemma_view_mappings_intro(m, i);
                         };
                         assert forall|m: Mapping|
                             owner_before_dfs.view_mappings().contains(
                                 m,
                             ) implies owner.view_mappings().contains(m) by {
-                            owner_before_dfs.lemma_view_mappings_contains();
                             let i = choose|i: int|
                                 owner_before_dfs.level - 1 <= i < NR_LEVELS
                                     && #[trigger] owner_before_dfs.continuations[i].view_mappings().contains(
                                 m);
-                            owner.lemma_view_mappings_intro(m, i);
                         };
                     };
                 }
