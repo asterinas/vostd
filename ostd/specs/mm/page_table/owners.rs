@@ -135,7 +135,6 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
         assert(rec_vaddr(path, 0) == 0);
     } else if path.len() == 1 {
         let i0 = path.index(0);
-        assert(0 <= i0 < NR_ENTRIES);
         assert(rec_vaddr(path, 1) == 0);
         assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
         assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
@@ -146,8 +145,6 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     } else if path.len() == 2 {
         let i0 = path.index(0);
         let i1 = path.index(1);
-        assert(0 <= i0 < NR_ENTRIES);
-        assert(0 <= i1 < NR_ENTRIES);
         assert(rec_vaddr(path, 2) == 0);
         assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
         assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
@@ -166,9 +163,6 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
         let i0 = path.index(0);
         let i1 = path.index(1);
         let i2 = path.index(2);
-        assert(0 <= i0 < NR_ENTRIES);
-        assert(0 <= i1 < NR_ENTRIES);
-        assert(0 <= i2 < NR_ENTRIES);
         assert(rec_vaddr(path, 3) == 0);
         assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
         assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(
@@ -195,10 +189,6 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
         let i1 = path.index(1);
         let i2 = path.index(2);
         let i3 = path.index(3);
-        assert(0 <= i0 < NR_ENTRIES);
-        assert(0 <= i1 < NR_ENTRIES);
-        assert(0 <= i2 < NR_ENTRIES);
-        assert(0 <= i3 < NR_ENTRIES);
         assert(rec_vaddr(path, 4) == 0);
         assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3) as usize);
         assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(
@@ -618,9 +608,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.pt_inv_at_depth(depth),
         decreases depth,
     {
-        if depth == 0 {
-        } else {
-        }
     }
 
     /// `pt_inv` for a freshly-allocated PT node after `alloc_if_none`'s rebase.
@@ -857,7 +844,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
         } else if path.len() == 1 {
             let i0 = path.index(0);
-            assert(0 <= i0 < NR_ENTRIES);
             assert(rec_vaddr(path, 1) == 0);
             assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
             assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
@@ -880,8 +866,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         } else if path.len() == 2 {
             let i0 = path.index(0);
             let i1 = path.index(1);
-            assert(0 <= i0 < NR_ENTRIES);
-            assert(0 <= i1 < NR_ENTRIES);
             assert(rec_vaddr(path, 2) == 0);
             assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
             assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
@@ -918,9 +902,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let i0 = path.index(0);
             let i1 = path.index(1);
             let i2 = path.index(2);
-            assert(0 <= i0 < NR_ENTRIES);
-            assert(0 <= i1 < NR_ENTRIES);
-            assert(0 <= i2 < NR_ENTRIES);
             assert(rec_vaddr(path, 3) == 0);
             assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
             assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(
@@ -1332,7 +1313,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(rec_vaddr(path, 0) == 0);
         } else if path.len() == 1 {
             let i0 = path.index(0);
-            assert(0 <= i0 < NR_ENTRIES);
             assert(rec_vaddr(path, 1) == 0);
             assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + rec_vaddr(
                 path,
@@ -1349,8 +1329,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         } else if path.len() == 2 {
             let i0 = path.index(0);
             let i1 = path.index(1);
-            assert(0 <= i0 < NR_ENTRIES);
-            assert(0 <= i1 < NR_ENTRIES);
             assert(rec_vaddr(path, 2) == 0);
             assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + rec_vaddr(
                 path,
@@ -1379,9 +1357,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let i0 = path.index(0);
             let i1 = path.index(1);
             let i2 = path.index(2);
-            assert(0 <= i0 < NR_ENTRIES);
-            assert(0 <= i1 < NR_ENTRIES);
-            assert(0 <= i2 < NR_ENTRIES);
             assert(rec_vaddr(path, 3) == 0);
             assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + rec_vaddr(
                 path,
@@ -1418,10 +1393,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let i1 = path.index(1);
             let i2 = path.index(2);
             let i3 = path.index(3);
-            assert(0 <= i0 < NR_ENTRIES);
-            assert(0 <= i1 < NR_ENTRIES);
-            assert(0 <= i2 < NR_ENTRIES);
-            assert(0 <= i3 < NR_ENTRIES);
             assert(rec_vaddr(path, 4) == 0);
             assert(rec_vaddr(path, 3) == (vaddr_make::<NR_LEVELS>(3, i3) + rec_vaddr(
                 path,
@@ -2126,12 +2097,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     assert(root_path.index(i) == dest_path.index(i));
                 };
                 assert(root_path == dest_path);
-                assert(root_path == dest_path);
                 assert(false);
             }
             assert(root_path.len() < dest_path.len());
             let i = dest_path.index(root_path.len() as int);
-            assert(0 <= i < NR_ENTRIES);
             PageTableOwner(subtree).pt_inv_unroll(i as int);
             assert(Self::is_prefix_of(root_path.push_tail(i), dest_path));
             Self::is_at_eq_rec(

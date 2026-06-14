@@ -81,7 +81,6 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
             i_end > 0,
             p_off > 0,
     ;
-    assert(e_pre <= p_aw);
     // p_aw <= 2^64 — from `ADDRESS_WIDTH <= 64` plus monotonicity of pow2.
     if aw < 64 {
         vstd::arithmetic::power2::lemma_pow2_strictly_increases(aw, 64);
@@ -89,7 +88,6 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
     assert(pow2(64) == 0x1_0000_0000_0000_0000nat) by {
         vstd::arithmetic::power2::lemma2_to64();
     };
-    assert(p_aw <= 0x1_0000_0000_0000_0000int);
     // No-wrap: 0 < e_pre <= 2^64, so (e_pre - 1) % 2^64 = e_pre - 1.
     assert(0 <= e_pre - 1);
     assert((e_pre - 1) < 0x1_0000_0000_0000_0000int);

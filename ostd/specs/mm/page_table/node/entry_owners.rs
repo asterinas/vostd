@@ -320,8 +320,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
         returns
             Self::new_node(node, path),
     {
-        let ghost parent_level = (node.level + 1) as PagingLevel;
-        Self { kind: EntryOwnerKind::Node(node), in_scope: true, path, parent_level }
+        Self {
+            parent_level: (node.level + 1) as PagingLevel,
+            kind: EntryOwnerKind::Node(node),
+            in_scope: true,
+            path,
+        }
     }
 
     /// Creates a ghost entry owner for mapping an untracked (device memory) frame.
