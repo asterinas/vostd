@@ -1049,7 +1049,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert forall|m: Mapping| self.view_mappings().contains(m) implies (
                 c0.view_mappings().contains(m) || c1.view_mappings().contains(m)
                     || c2.view_mappings().contains(m) || c3.view_mappings().contains(m)) by {
-                    self.lemma_view_mappings_contains();
                     let i = choose|i: int|
                         0 <= i < NR_LEVELS
                             && #[trigger] self.continuations[i].view_mappings().contains(m);
