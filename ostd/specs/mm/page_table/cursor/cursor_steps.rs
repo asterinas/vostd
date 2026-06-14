@@ -359,7 +359,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner(guard)@.mappings == self@.mappings,
     {
-        broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
+        broadcast use {
+            CursorContinuation::group_lemmas,
+            CursorOwner::group_lemmas,
+            PageTableOwner::group_lemmas,
+        };
 
         let new_owner = self.push_level_owner(guard);
         let old_cont = self.continuations[self.level - 1];
@@ -416,13 +420,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     ).contains(m);
                 assert(pto.0.children[j] is Some);
                 assert(pto.0.children[j] == child_cont.children[j]);
-                pto.lemma_view_rec_contains_intro(child_path, m, j);
+                assert(pto.view_rec(child_path).contains(m));
             };
             assert forall|m: Mapping|
                 pto.view_rec(child_path).contains(
                     m,
                 ) implies #[trigger] child_cont.view_mappings().contains(m) by {
-                pto.lemma_view_rec_contains(child_path, m);
                 let j = choose|j: int|
                     #![trigger pto.0.children[j]]
                     0 <= j < pto.0.children.len() && pto.0.children[j] is Some && PageTableOwner(

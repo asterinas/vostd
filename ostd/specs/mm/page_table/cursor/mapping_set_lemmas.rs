@@ -32,7 +32,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.as_subtree().inv(),
             PageTableOwner(self.as_subtree()).pt_inv(),
     {
-        broadcast use CursorContinuation::group_lemmas;
+        broadcast use {CursorContinuation::group_lemmas, PageTableOwner::group_lemmas};
 
         self.inv_children_unroll_all();
         self.as_subtree_inv();
@@ -47,13 +47,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                         self.children[i].unwrap(),
                     ).view_rec(self.path().push_tail(i as usize)).contains(m);
-                pto.lemma_view_rec_contains_intro(self.path(), m, i);
+                assert(pto.view_rec(self.path()).contains(m));
             };
             assert forall|m: Mapping|
                 pto.view_rec(self.path()).contains(
                     m,
                 ) implies #[trigger] self.view_mappings().contains(m) by {
-                pto.lemma_view_rec_contains(self.path(), m);
                 let i = choose|i: int|
                     #![auto]
                     0 <= i < pto.0.children.len() && pto.0.children[i] is Some && PageTableOwner(
