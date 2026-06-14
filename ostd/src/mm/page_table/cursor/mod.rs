@@ -3283,6 +3283,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& subtree.len() == (res->0->StrayPageTable_num_frames) as nat
             },
     )]
+    #[verifier::spinoff_prover]
     #[verifier::rlimit(1000)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         proof {
