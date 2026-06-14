@@ -63,16 +63,12 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: int, hi
         assert(wf_mapping_set(below)) by {
             assert forall|a: Mapping, b: Mapping| #[trigger]
                 below.contains(a) && #[trigger] below.contains(b) && a != b implies a.va_range.end
-                <= b.va_range.start || b.va_range.end <= a.va_range.start by {
-                assert(s.contains(a) && s.contains(b));
-            };
+                <= b.va_range.start || b.va_range.end <= a.va_range.start by {};
         };
         assert(wf_mapping_set(above)) by {
             assert forall|a: Mapping, b: Mapping| #[trigger]
                 above.contains(a) && #[trigger] above.contains(b) && a != b implies a.va_range.end
-                <= b.va_range.start || b.va_range.end <= a.va_range.start by {
-                assert(s.contains(a) && s.contains(b));
-            };
+                <= b.va_range.start || b.va_range.end <= a.va_range.start by {};
         };
 
         lemma_mapping_set_cardinality_in_range(below, lo, m.va_range.start);
