@@ -1379,10 +1379,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(nad <= self@.cur_va as nat) by {
             vstd_extra::arithmetic::lemma_nat_align_down_sound(self@.cur_va as nat, ps as nat);
         };
-        assert(nad <= usize::MAX);
-        assert(vaddr_of::<C>(path) as int == nad as int);
         assert(target.va_range.start == nad as int);
-        assert(from_view.va_range.start == vaddr_of::<C>(path) as int);
         assert(target == from_view);
         assert(PageTableOwner(new_subtree).view_rec(path) == set![from_view]);
         assert(PageTableOwner(new_subtree)@.mappings == set![target]);

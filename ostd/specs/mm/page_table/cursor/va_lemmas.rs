@@ -253,10 +253,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let filtered = self@.mappings.filter(
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
         );
-        assert(filtered.contains(m));
         vstd::set::lemma_set_choose_len(filtered);
         let qm = self@.query_mapping();
-        assert(filtered.contains(qm));
         assert(qm == m) by {
             if qm != m {
                 assert(self@.mappings.contains(qm));
