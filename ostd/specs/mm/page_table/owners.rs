@@ -1181,12 +1181,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     path.push_tail_preserves_inv(i as usize);
                     path.push_tail_property_len(i as usize);
                     // child.view_rec ⊆ self.view_rec(path) ⊆ ambient
-                    assert forall|mm: Mapping|
-                        child.view_rec(path.push_tail(i as usize)).contains(
-                            mm,
-                        ) implies ambient.contains(mm) by {
-                        assert(self.view_rec(path).contains(mm));
-                    };
                     // path-correctness passes to the child.
                     self.0.map_unroll_once(path, Self::path_correct_pred(), i);
                     child.no_frame_with_path_rec(path.push_tail(i as usize), removed_path, ambient);
