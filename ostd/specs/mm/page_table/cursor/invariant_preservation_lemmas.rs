@@ -383,8 +383,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             self.inv_continuation(i);
         };
-
-        assert(self.no_frame_with_path(removed_path));
     }
 
     /// Bridge: `path_removable_at_idx` follows from the (mechanically

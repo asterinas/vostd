@@ -227,11 +227,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let subtree = self.cur_subtree();
         let path = subtree.value.path;
         let frame = self.cur_entry_owner().frame();
-        let pt_level = INC_LEVELS - path.len();
         let cont = self.continuations[self.level - 1];
 
         cont.path().push_tail_property_len(cont.idx as usize);
-        assert(pt_level == self.level);
 
         let ps = page_size(self.level as PagingLevel);
         let m = Mapping {
