@@ -10,8 +10,7 @@ use verified_bitflags::bitflags;
 
 use core::ops::{Add, BitAnd, BitOr, BitXor, Sub};
 
-verus! {
-
+#[verus_verify]
 #[verifier::ext_equal]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageProperty {
@@ -22,13 +21,28 @@ pub struct PageProperty {
     pub priv_flags: PrivilegedPageFlags,
 }
 
-global layout PageProperty is size == 3, align == 1;
-
 #[verus_verify]
-impl Inv for PageProperty {
-    open spec fn inv(self) -> bool {
-        &&& self.flags.bits() & PageFlags::all_bits() == self.flags.bits()
-        &&& self.priv_flags.bits() & PrivilegedPageFlags::all_bits() == self.priv_flags.bits()
+impl PageProperty {
+    /// Creates a new `PageProperty` with the given flags and cache policy for the user.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::new_user(flags, cache))]
+    pub fn new_user(flags: PageFlags, cache: CachePolicy) -> Self {
+        Self {
+            flags,
+            cache,
+            priv_flags: PrivilegedPageFlags::USER(),
+        }
+    }
+
+    /// Creates a page property that implies an invalid page without mappings.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(returns Self::new_absent())]
+    pub fn new_absent() -> Self {
+        Self {
+            flags: PageFlags::empty(),
+            cache: CachePolicy::Writeback,
+            priv_flags: PrivilegedPageFlags::empty(),
+        }
     }
 }
 
@@ -36,6 +50,7 @@ impl Inv for PageProperty {
 /// A type to control the cacheability of the main memory.
 ///
 /// The type currently follows the definition as defined by the AMD64 manual.
+#[verus_verify]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CachePolicy {
     /// Uncacheable (UC).
@@ -92,7 +107,6 @@ pub enum CachePolicy {
     Writeback,
 }
 
-} // verus!
 bitflags! {
     /// Page protection permissions and access status.
     pub struct PageFlags: u8 {
@@ -176,28 +190,11 @@ impl PrivilegedPageFlags {
     }
 }
 
-} // verus!
-#[verus_verify]
-impl PageProperty {
-    /// Creates a new `PageProperty` with the given flags and cache policy for the user.
-    #[verus_verify(dual_spec)]
-    #[verus_spec(returns Self::new_user(flags, cache))]
-    pub fn new_user(flags: PageFlags, cache: CachePolicy) -> Self {
-        Self {
-            flags,
-            cache,
-            priv_flags: PrivilegedPageFlags::USER(),
-        }
-    }
-
-    /// Creates a page property that implies an invalid page without mappings.
-    #[verus_verify(dual_spec)]
-    #[verus_spec(returns Self::new_absent())]
-    pub fn new_absent() -> Self {
-        Self {
-            flags: PageFlags::empty(),
-            cache: CachePolicy::Writeback,
-            priv_flags: PrivilegedPageFlags::empty(),
-        }
+impl Inv for PageProperty {
+    open spec fn inv(self) -> bool {
+        &&& self.flags.bits() & PageFlags::all_bits() == self.flags.bits()
+        &&& self.priv_flags.bits() & PrivilegedPageFlags::all_bits() == self.priv_flags.bits()
     }
 }
+
+} // verus!
