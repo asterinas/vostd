@@ -47,13 +47,13 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                         self.children[i].unwrap(),
                     ).view_rec(self.path().push_tail(i as usize)).contains(m);
-                pto.view_rec_contains_intro(self.path(), m, i);
+                pto.lemma_view_rec_contains_intro(self.path(), m, i);
             };
             assert forall|m: Mapping|
                 pto.view_rec(self.path()).contains(
                     m,
                 ) implies #[trigger] self.view_mappings().contains(m) by {
-                pto.view_rec_contains(self.path(), m);
+                pto.lemma_view_rec_contains(self.path(), m);
                 let i = choose|i: int|
                     #![auto]
                     0 <= i < pto.0.children.len() && pto.0.children[i] is Some && PageTableOwner(
