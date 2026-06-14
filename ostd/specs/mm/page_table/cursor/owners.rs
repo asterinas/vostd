@@ -1310,13 +1310,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cont = self.continuations[self.level as int - 1];
 
         cont.path().push_tail_property_len(cont.idx as usize);
-        assert(cont.level() == self.level) by {
-            if self.level == 1 {
-            } else if self.level == 2 {
-            } else if self.level == 3 {
-            } else {
-            }
-        };
         assert(pt_level == self.level);
 
         // Bridge `nat_align_down(cur_va, ps) == vaddr_of::<C>(path) as Vaddr`:
@@ -2474,13 +2467,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cont = self.continuations[self.level - 1];
 
         cont.path().push_tail_property_len(cont.idx as usize);
-        assert(cont.level() == self.level) by {
-            if self.level == 1 {
-            } else if self.level == 2 {
-            } else if self.level == 3 {
-            } else {
-            }
-        };
         assert(pt_level == self.level);
 
         let m = Mapping {

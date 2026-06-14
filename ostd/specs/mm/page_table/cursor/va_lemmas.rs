@@ -231,13 +231,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cont = self.continuations[self.level - 1];
 
         cont.path().push_tail_property_len(cont.idx as usize);
-        assert(cont.level() == self.level) by {
-            if self.level == 1 {
-            } else if self.level == 2 {
-            } else if self.level == 3 {
-            } else {
-            }
-        };
         assert(pt_level == self.level);
 
         let ps = page_size(self.level as PagingLevel);
@@ -349,13 +342,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         self.va.to_path_len(L - 1);
         cont.path().push_tail_property_len(cont.idx as usize);
-        assert(cont.level() == self.level) by {
-            if L == 1 {
-            } else if L == 2 {
-            } else if L == 3 {
-            } else {
-            }
-        };
 
         assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path.index(i)
             == va_path.index(i) by {

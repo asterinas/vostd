@@ -290,13 +290,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(subtree_mappings.contains(m));
                 } else {
                     // Disjointness: sibling j's VA range doesn't overlap [subtree_va, subtree_va + page_size(level))
-                    assert(cont.level() == self.level) by {
-                        if self.level == 1 {
-                        } else if self.level == 2 {
-                        } else if self.level == 3 {
-                        } else {
-                        }
-                    };
                     let sib_size = page_size((INC_LEVELS - cont.path().len() - 1) as PagingLevel);
                     sibling_paths_disjoint::<C>(cont.path(), self.index(), j as usize, sib_size);
                     // Lift positional disjointness to canonical by adding
@@ -311,13 +304,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     self.subtree_va_in_ancestor_range(i);
 
                     // Sibling j is disjoint from cont_i.idx child
-                    assert(cont_i.level() == (i + 1) as PagingLevel) by {
-                        if i == 0 {
-                        } else if i == 1 {
-                        } else if i == 2 {
-                        } else {
-                        }
-                    };
                     let sib_size = page_size((INC_LEVELS - cont_i.path().len() - 1) as PagingLevel);
                     sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx, j as usize, sib_size);
                     lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(cont_i.idx as usize));
@@ -398,14 +384,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         self.va.to_path_len(lvl);
         cont.path().push_tail_property_len(cont.idx as usize);
-        assert(cont.level() == (lvl + 1) as PagingLevel) by {
-            if lvl == 0 {
-            } else if lvl == 1 {
-            } else if lvl == 2 {
-            } else {
-            }
-        };
-
         assert forall|k: int| 0 <= k < child_path.len() implies child_path.index(k)
             == va_path.index(k) by {
             self.va.to_path_index(lvl, k);
@@ -519,14 +497,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let idx = self.index();
 
         // Establish cont.level() == self.level via case split
-        assert(cont.level() == self.level) by {
-            if self.level == 1 {
-            } else if self.level == 2 {
-            } else if self.level == 3 {
-            } else {
-            }
-        };
-
         // cur_va is within the child at cont[level-1].idx
         self.cur_va_in_cont_child_range(self.level - 1);
 
@@ -555,14 +525,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cont = self.continuations[i];
 
         // Establish cont.level() == i + 1 via case split
-        assert(cont.level() == (i + 1) as PagingLevel) by {
-            if i == 0 {
-            } else if i == 1 {
-            } else if i == 2 {
-            } else {
-            }
-        };
-
         // cur_va is within the child at cont[i].idx
         self.cur_va_in_cont_child_range(i);
 
@@ -689,14 +651,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     );
 
                     if j as usize != cont_i.idx as usize {
-                        assert(cont_i.level() == (i + 1) as PagingLevel) by {
-                            if i == 0 {
-                            } else if i == 1 {
-                            } else if i == 2 {
-                            } else {
-                            }
-                        };
-
                         old_self.cur_va_in_cont_child_range(level as int);
                         old_self.va.to_path_vaddr_concrete(level as int);
                         old_self.cur_va_in_cont_child_range(i);
