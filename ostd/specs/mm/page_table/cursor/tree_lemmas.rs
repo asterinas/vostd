@@ -168,9 +168,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level > 1,
     {
         self.cur_subtree_inv();
-        let cont = self.continuations[self.level - 1];
-        let child = self.cur_subtree();
-        assert(child.level < INC_LEVELS - 1);
     }
 
     /// A frame entry at the cursor's current level that doesn't fit the aligned range

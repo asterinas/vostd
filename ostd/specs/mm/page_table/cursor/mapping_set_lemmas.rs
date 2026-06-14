@@ -95,7 +95,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 0 <= i < left.children.len() && left.children[i] is Some && PageTableOwner(
                     left.children[i].unwrap(),
                 ).view_rec(left.path().push_tail(i as usize)).contains(m);
-            assert(self.children[wi] == left.children[wi]);
             if self.view_mappings_take_child_spec().contains(m) {
                 assert(PageTableOwner(self.children[self.idx as int].unwrap()).view_rec(
                     self.path().push_tail(self.idx as usize),
@@ -105,7 +104,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                         && PageTableOwner(left.children[i].unwrap()).view_rec(
                         left.path().push_tail(i as usize),
                     ).contains(m);
-                assert(i != self.idx);
                 assert(PageTableOwner(left.children[i as int].unwrap()).view_rec(
                     left.path().push_tail(i as usize),
                 ).contains(m));
@@ -151,7 +149,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                         && PageTableOwner(self.children[i].unwrap()).view_rec(
                         self.path().push_tail(i as usize),
                     ).contains(m);
-                assert(i != self.idx);
                 assert(self.put_child(child).children[i] == self.children[i]);
                 self.put_child(child).lemma_view_mappings_intro(m, i);
             } else {
@@ -352,8 +349,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // nat_align_down(x, _) <= x <= usize::MAX).
         vstd_extra::arithmetic::lemma_nat_align_down_sound(self@.cur_va as nat, ps as nat);
         let nad = nat_align_down(self@.cur_va as nat, ps as nat);
-        assert(nad <= self@.cur_va as nat);
-        assert(nad <= usize::MAX);
         assert((nad as Vaddr) as int == nad as int);
         assert((nad as Vaddr) as int == vaddr_of::<C>(cur_path) as int);
     }
@@ -749,15 +744,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.as_subtree_restore(c2);
 
             let l4 = c3.restore(c2).0;
-            assert(l4.all_some()) by {
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
-                    if i == c3.idx as int {
-                    } else {
-                        assert(l4.children[i] == c3.children[i]);
-                    }
-                };
-            };
-
             c2.as_page_table_owner_pt_inv();
             assert(l4.pt_inv_children()) by {
                 assert forall|i: int|
@@ -806,14 +792,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c2.as_subtree_restore(c1);
 
             let l3 = c2.restore(c1).0;
-            assert(l3.all_some()) by {
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies l3.children[i] is Some by {
-                    if i == c2.idx as int {
-                    } else {
-                        assert(l3.children[i] == c2.children[i]);
-                    }
-                };
-            };
             c1.as_page_table_owner_pt_inv();
             assert(l3.pt_inv_children()) by {
                 assert forall|i: int|
@@ -842,15 +820,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.view_mappings_put_child(l3.as_subtree());
 
             let l4 = c3.restore(l3).0;
-            assert(l4.all_some()) by {
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
-                    if i == c3.idx as int {
-                        assert(l4.children[i] == Some(l3.as_subtree()));
-                    } else {
-                        assert(l4.children[i] == c3.children[i]);
-                    }
-                };
-            };
             l3.as_page_table_owner_pt_inv();
             assert(l4.pt_inv_children()) by {
                 assert forall|i: int|
@@ -897,14 +866,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c1.view_mappings_put_child(c0.as_subtree());
             c1.as_subtree_restore(c0);
             let l2 = c1.restore(c0).0;
-            assert(l2.all_some()) by {
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies l2.children[i] is Some by {
-                    if i == c1.idx as int {
-                    } else {
-                        assert(l2.children[i] == c1.children[i]);
-                    }
-                };
-            };
             c0.as_page_table_owner_pt_inv();
             assert(l2.pt_inv_children()) by {
                 assert forall|i: int|
@@ -932,14 +893,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c2.view_mappings_put_child(l2.as_subtree());
             c2.as_subtree_restore(l2);
             let l3 = c2.restore(l2).0;
-            assert(l3.all_some()) by {
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies l3.children[i] is Some by {
-                    if i == c2.idx as int {
-                    } else {
-                        assert(l3.children[i] == c2.children[i]);
-                    }
-                };
-            };
             l2.as_page_table_owner_pt_inv();
             assert(l3.pt_inv_children()) by {
                 assert forall|i: int|
@@ -966,14 +919,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.view_mappings_put_child(l3.as_subtree());
             c3.as_subtree_restore(l3);
             let l4 = c3.restore(l3).0;
-            assert(l4.all_some()) by {
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
-                    if i == c3.idx as int {
-                    } else {
-                        assert(l4.children[i] == c3.children[i]);
-                    }
-                };
-            };
             l3.as_page_table_owner_pt_inv();
             assert(l4.pt_inv_children()) by {
                 assert forall|i: int|
@@ -1075,8 +1020,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // continuations[3].tree_level == INC_LEVELS - continuations[3].level() - 1
             // and continuations[3].level() == 4 (root).
         };
-        assert(root_path.len() == 0);
-        assert(pto.0.level == 0);
 
         assert forall|m: Mapping, n: Mapping| #[trigger]
             self@.mappings.contains(m) && #[trigger] self@.mappings.contains(n) && m
