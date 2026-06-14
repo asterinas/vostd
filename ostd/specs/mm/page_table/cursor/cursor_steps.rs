@@ -445,7 +445,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if i == self.level - 1 {
                 if old_cont.view_mappings_take_child_spec().contains(m) {
                     assert(new_owner.continuations[self.level - 2].view_mappings().contains(m));
-                    new_owner.lemma_view_mappings_intro(m, self.level - 2);
                 } else {
                     assert(taken.view_mappings().contains(m));
                     assert(modified_cont.view_mappings().contains(m));
@@ -453,7 +452,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             } else {
                 assert(new_owner.continuations[i] == self.continuations[i]);
-                new_owner.lemma_view_mappings_intro(m, i);
             }
         };
         assert forall|m: Mapping|
@@ -2390,10 +2388,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         #[trigger] self.continuations[i]).view_mappings().contains(m);
                     if i == self.level - 1 {
                         assert(result.continuations[i].view_mappings().contains(m));
-                        result.lemma_view_mappings_intro(m, i);
                     } else {
                         assert(result.continuations[i] == self.continuations[i]);
-                        result.lemma_view_mappings_intro(m, i);
                     }
                 };
                 assert forall|m: Mapping|
@@ -2435,7 +2431,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         self.level - 1 <= i < NR_LEVELS
                             && #[trigger] self.continuations[i].view_mappings().contains(m);
                     assert(fwd.continuations[i] == self.continuations[i]);
-                    fwd.lemma_view_mappings_intro(m, i);
                 };
                 assert forall|m: Mapping|
                     fwd.view_mappings().contains(m) implies self.view_mappings().contains(m) by {
@@ -2443,7 +2438,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         fwd.level - 1 <= i < NR_LEVELS
                             && #[trigger] fwd.continuations[i].view_mappings().contains(m);
                     assert(self.continuations[i] == fwd.continuations[i]);
-                    self.lemma_view_mappings_intro(m, i);
                 };
             };
         }
