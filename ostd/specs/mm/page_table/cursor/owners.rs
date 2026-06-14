@@ -1383,9 +1383,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(vaddr_of::<C>(path) as int == nad as int);
         assert(target.va_range.start == nad as int);
         assert(from_view.va_range.start == vaddr_of::<C>(path) as int);
-        assert(target.va_range.start == from_view.va_range.start);
-        assert(target.va_range.end == from_view.va_range.end);
-        assert(target.va_range == from_view.va_range);
         assert(target == from_view);
         assert(PageTableOwner(new_subtree).view_rec(path) == set![from_view]);
         assert(PageTableOwner(new_subtree)@.mappings == set![target]);
