@@ -2424,22 +2424,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let fwd = self.move_forward_owner_spec();
             assert(fwd.continuations == self.continuations);
             assert(fwd.level == self.level);
-            assert(fwd.view_mappings() == self.view_mappings()) by {
-                assert forall|m: Mapping|
-                    self.view_mappings().contains(m) implies fwd.view_mappings().contains(m) by {
-                    let i = choose|i: int|
-                        self.level - 1 <= i < NR_LEVELS
-                            && #[trigger] self.continuations[i].view_mappings().contains(m);
-                    assert(fwd.continuations[i] == self.continuations[i]);
-                };
-                assert forall|m: Mapping|
-                    fwd.view_mappings().contains(m) implies self.view_mappings().contains(m) by {
-                    let i = choose|i: int|
-                        fwd.level - 1 <= i < NR_LEVELS
-                            && #[trigger] fwd.continuations[i].view_mappings().contains(m);
-                    assert(self.continuations[i] == fwd.continuations[i]);
-                };
-            };
+            assert(fwd.view_mappings() == self.view_mappings());
         }
     }
 }
