@@ -1257,8 +1257,6 @@ impl AbstractVaddr {
         decreases NR_LEVELS - level,
     {
         let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
-        assert forall|i: int| start_level <= i < NR_LEVELS implies next_va.index[i]
-            == self.index[i] by {};
         if level < NR_LEVELS {
             self.wrapped_after_carry_equiv(start_level, level + 1);
         }
@@ -1747,13 +1745,11 @@ impl AbstractVaddr {
         vstd::arithmetic::power2::lemma2_to64_rest();
         if level == 1 {
             lemma_page_size_spec_level1();
-            assert forall|i: int| 1 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 1);
             assert((self.index[0] + 1) * 0x1000 == self.index[0] * 0x1000 + 0x1000)
                 by (nonlinear_arith);
         } else if level == 2 {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-            assert forall|i: int| 2 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 2);
             assert(self.to_vaddr_indices(0) == self.index[0] * pow2(12nat) as int
                 + self.to_vaddr_indices(1));
@@ -1762,7 +1758,6 @@ impl AbstractVaddr {
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x20_0000);
         } else if level == 3 {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-            assert forall|i: int| 3 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 3);
             assert(self.index.contains_key(2));
             assert(new_va.index.contains_key(2));
@@ -1773,7 +1768,6 @@ impl AbstractVaddr {
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x4000_0000);
         } else {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-            assert forall|i: int| 4 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 4);
             assert(self.to_vaddr_indices(1) == self.index[1] * pow2(21nat) as int
                 + self.to_vaddr_indices(2));

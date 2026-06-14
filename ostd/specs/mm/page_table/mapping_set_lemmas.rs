@@ -152,11 +152,6 @@ pub proof fn lemma_wf_subset(s: Set<Mapping>, sub: Set<Mapping>)
     ensures
         wf_mapping_set(sub),
 {
-    assert forall|m: Mapping| #![auto] sub.contains(m) implies m.inv() by {};
-    assert forall|m: Mapping, n: Mapping|
-        #![auto]
-        sub.contains(m) && sub.contains(n) && m != n implies m.va_range.end <= n.va_range.start
-        || n.va_range.end <= m.va_range.start by {};
 }
 
 /// A union of two wf sets is wf if every element of one is VA-disjoint from every element of the other.
@@ -170,11 +165,6 @@ pub proof fn lemma_wf_union(a: Set<Mapping>, b: Set<Mapping>)
     ensures
         wf_mapping_set(a.union(b)),
 {
-    assert forall|m: Mapping| #![auto] a.union(b).contains(m) implies m.inv() by {};
-    assert forall|m: Mapping, n: Mapping|
-        #![auto]
-        a.union(b).contains(m) && a.union(b).contains(n) && m != n implies m.va_range.end
-        <= n.va_range.start || n.va_range.end <= m.va_range.start by {};
 }
 
 /// If `m` is a sub-mapping of `p` and `p` is a sub-mapping of `orig`,
