@@ -107,7 +107,7 @@ closed spec fn wf(self) -> bool {
 }
 }
 
-verus!{
+verus! {
 impl<T> SpinLockInner<T>
 {
     #[verifier::type_invariant]
@@ -380,7 +380,7 @@ pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     tracked_perm: Tracked<PointsTo<T>>,
 }
 
-verus!{
+verus! {
 impl<'a, T, G: SpinGuardian> SpinLockGuard<'a, T, G>
 {
     #[verifier::type_invariant]

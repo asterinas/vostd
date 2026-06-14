@@ -437,19 +437,16 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         }
     }
 }
-}
 
+} // verus!
 // A `min` implementation for use in constant evaluation.
 #[verus_verify(dual_spec)]
 const fn min(a: u32, b: u32) -> u32 {
-    if a < b {
-        a
-    } else {
-        b
-    }
+    if a < b { a } else { b }
 }
 
-verus!{
+verus! {
+
 /// # Safety
 ///
 /// The caller must ensure that removing the bits from the non-null pointer will result in another
