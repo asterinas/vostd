@@ -307,12 +307,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // va.index[l-2] < NR_ENTRIES (from va.inv()).
         assert(self.va.index.contains_key(self.level - 2));
         let new_child = new_self.continuations[lm1 - 1];
-        assert(new_child.idx < NR_ENTRIES);
         Self::max_steps_subtree_positive(lm1);
         Self::max_steps_subtree_positive(l);
         // subtree(l) == NR * (subtree(lm1) + 1) (from def of max_steps_subtree, l > 1).
-        assert(Self::max_steps_subtree(l) == (NR_ENTRIES as nat) * (Self::max_steps_subtree(lm1)
-            + 1));
         // subtree(lm1) * (NR - new_child.idx) <= subtree(lm1) * NR < subtree(l).
         vstd::arithmetic::mul::lemma_mul_inequality(
             (NR_ENTRIES - new_child.idx) as int,

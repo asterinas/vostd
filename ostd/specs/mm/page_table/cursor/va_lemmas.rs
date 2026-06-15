@@ -172,7 +172,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_page_size_ge_page_size(self.level as PagingLevel);
 
         // Step 1: inc_index adds page_size to the vaddr.
-        assert(self.va.index[self.level - 1] == self.continuations[self.level - 1].idx);
         self.va.index_increment_adds_page_size(self.level as int);
         let inc_va = inc.va.to_vaddr() as nat;
         assert(inc_va == self_va + ps);
@@ -187,7 +186,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Step 3: align_down(self_va + ps, ps) = align_down(self_va, ps) + ps.
         // Because (self_va + ps) % ps == self_va % ps, adding a full ps doesn't
         // change the remainder.
-        assert(self_va + ps == ps * 1 + self_va) by (nonlinear_arith);
         vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(1int, self_va as int, ps as int);
 
         // Step 4: align_down(self_va, ps) + ps > self_va.
