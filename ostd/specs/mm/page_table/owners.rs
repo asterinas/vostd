@@ -750,10 +750,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path.len() < INC_LEVELS - 1,
             self.0.value.is_node(),
         ensures
+            #![trigger self.view_rec(path)]
             forall|m: Mapping|
                 #![trigger self.view_rec(path).contains(m)]
                 self.view_rec(path).contains(m) ==> exists|i: int|
-                    #![auto]
+                    #![trigger self.0.children[i]]
                     0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
                         self.0.children[i]->0,
                     ).view_rec(path.push_tail(i as usize)).contains(m),
@@ -761,7 +762,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         broadcast use vstd::seq_lib::group_seq_properties;
 
         assert forall|m: Mapping| #[trigger] self.view_rec(path).contains(m) implies exists|i: int|
-            #![auto]
+            #![trigger self.0.children[i]]
             0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
                 self.0.children[i]->0,
             ).view_rec(path.push_tail(i as usize)).contains(m) by {
