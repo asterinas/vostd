@@ -1319,7 +1319,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     continue;
                 },
                 ChildRef::Frame(_, _, _) => {
-                    assert(owner.max_steps() == owner0.max_steps());
                     if cur_entry_fits_range || !split_huge {
                         assert(!find_unmap_subtree && old(owner).cur_entry_owner().is_frame()
                             ==> owner.cur_entry_owner().frame().prop == old(
