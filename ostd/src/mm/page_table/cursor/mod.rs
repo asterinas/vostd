@@ -1722,7 +1722,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             decreases self.guard_level - self.level,
         {
             proof {
-                assert(abs_next_va.index[self.level - 1] == 0);
                 abs_va_down.wrapped_unwrap(start_level as int, self.level as int);
                 abs_va_down.use_wrapped(start_level as int, self.level as int);
                 assert(owner0.va.index[self.level - 1] + 1 == NR_ENTRIES);
