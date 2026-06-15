@@ -260,7 +260,6 @@ pub proof fn lemma_va_plus_page_size_no_overflow(va: Vaddr, len: usize)
         va + len <= usize::MAX,
 {
     assert(KERNEL_VADDR_RANGE.end == 0xffff_ffff_ffff_0000usize) by (compute_only);
-    assert(va + len <= 0xffff_ffff_ffff_0000usize);
 }
 
 /// The number of base pages in the address space fits in usize.
