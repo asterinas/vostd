@@ -950,7 +950,6 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         ensures
             self.walk_coverage_at(view, dom, c),
     {
-        assert(Self::walk_pte_at_view(view, c) == Self::walk_pte_at_view(view, c));
     }
 
     /// Instantiate [`walk_uniqueness_from_view`]'s forall at one cursor pair.
