@@ -1623,6 +1623,25 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type C = PagingConsts;
 
+    proof fn lemma_top_level_index_range_bounds() {
+        use crate::mm::nr_subpage_per_huge;
+        use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
+        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
+        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
+
+        lemma2_to64();
+        lemma2_to64_rest();
+        lemma_usize_pow2_ilog2(12);
+        lemma_usize_pow2_ilog2(9);
+        lemma_pow2_adds(9, 39);
+        assert(usize::BITS == 64) by (compute);
+        vstd::layout::unsigned_int_max_values();
+    }
+
+    proof fn lemma_leading_bits_only_when_high_half() {
+        assert(Self::LEADING_BITS_spec() == 0usize);
+    }
+
     type Item = MappedItem;
 
     open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {

@@ -183,11 +183,52 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// The paging constants.
     type C: PagingConstsTrait;
 
+    /// Bounds enforced by the upstream `vaddr_range` const assertions:
+    /// the configured top-level range must fit inside the architecture's
+    /// positional virtual-address width.
+    proof fn lemma_top_level_index_range_bounds()
+        ensures
+            (Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) < (pow2(
+                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                    Self::C::NR_LEVELS(),
+                )) as nat,
+            ) as int),
+            Self::TOP_LEVEL_INDEX_RANGE_spec().end as int <= pow2(
+                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                    Self::C::NR_LEVELS(),
+                )) as nat,
+            ) as int,
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS())
+                <= Self::C::ADDRESS_WIDTH() as int,
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS as int,
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) >= 0,
+            0 < Self::C::ADDRESS_WIDTH() as int,
+            (Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) < (
+            Self::TOP_LEVEL_INDEX_RANGE_spec().end as int),
+            Self::C::ADDRESS_WIDTH() as int <= 64,
+            (Self::TOP_LEVEL_INDEX_RANGE_spec().end as int) * (pow2(
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+            ) as int) <= usize::MAX as int,
+    ;
+
+    /// A non-zero high-bit prefix is only valid for configs whose managed
+    /// range starts in the sign-extended high half.
+    proof fn lemma_leading_bits_only_when_high_half()
+        ensures
+            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && (((
+            Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
+    ;
+
+    // dubious: why is this an axiom
     proof fn axiom_nr_subpage_per_huge_eq_nr_entries()
         ensures
             Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES,
     ;
 
+    // dubious: why is this an axiom
+    //
     /// Layout identity: the PTE type's Rust `size_of` matches the config's
     /// `PTE_SIZE_spec`. Concrete impls satisfy this via their `global
     /// layout` declaration. Exposed for generic code that calls
@@ -196,6 +237,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE_spec(),
     ;
+    // dubious: why is this an axiom
 
     /// A full PT-node's worth of PTEs fills exactly one base page.
     /// `NR_ENTRIES * size_of::<E>() == PAGE_SIZE`. Bundles the
@@ -214,6 +256,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             Self::TOP_LEVEL_INDEX_RANGE_spec().end <= NR_ENTRIES,
     ;
+
+    // dubious: why is this an axiom
 
     /// `align_of::<E>()` divides `size_of::<E>()`. True for any sized Rust
     /// type (the alignment divides the size by the layout rules), but
@@ -760,94 +804,107 @@ pub fn largest_pages<C: PageTableConfig>(
     )
 }
 
-/// Gets the managed virtual addresses range for the page table.
-///
-/// It returns a [`RangeInclusive`] because the end address, if being
-/// [`Vaddr::MAX`], overflows [`Range<Vaddr>`].
-#[verifier::external_body]
-fn top_level_index_width<C: PageTableConfig>() -> usize {
+/// Gets the top-level index width, in bits, for the page table.
+fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
+    ensures
+        ret as int == C::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<C::C>(
+            C::C::NR_LEVELS(),
+        ),
+{
+    proof {
+        C::lemma_top_level_index_range_bounds();
+    }
+
     C::ADDRESS_WIDTH() - pte_index_bit_offset::<C>(C::NR_LEVELS())
 }
 
 /// Concrete positional start of the VA range: `idx_range.start * 2^offset`.
-#[verifier::external_body]
 fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
         ret as int == C::TOP_LEVEL_INDEX_RANGE_spec().start as int * pow2(
             pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
         ) as int,
 {
-    C::TOP_LEVEL_INDEX_RANGE().start << pte_index_bit_offset::<C>(C::NR_LEVELS())
+    let idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
+    let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
+
+    proof {
+        crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_start_shift_facts::<C>(
+            idx_start,
+            offset,
+        );
+        vstd::bits::lemma_usize_shl_is_mul(idx_start, offset);
+    }
+
+    let ret = idx_start << offset;
+
+    ret
 }
 
 /// Concrete positional end of the VA range (inclusive):
-/// `(idx_range.end * 2^offset) - 1`, with wrap semantics when
-/// `idx_range.end * 2^offset == 2^64` (e.g. kernel top-level with all
-/// entries mapped — `2^64 - 1 = usize::MAX`).
-#[verifier::external_body]
+/// `(idx_range.end * 2^offset) - 1`, stated modulo `2^64` to match
+/// the inclusive-end spec. The verified configs prove the pre-subtraction
+/// product fits in `usize`, so the executable path can use an ordinary
+/// left shift followed by `wrapping_sub(1)`.
 fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
         ret as int == (C::TOP_LEVEL_INDEX_RANGE_spec().end as int * pow2(
             pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
         ) as int - 1) % 0x1_0000_0000_0000_0000int,
 {
-    C::TOP_LEVEL_INDEX_RANGE().end.unbounded_shl(
-        pte_index_bit_offset::<C>(C::NR_LEVELS()) as u32,
-    ).wrapping_sub(1)  // Inclusive end.
+    let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
+    let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
 
+    proof {
+        crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_end_shift_facts::<C>(
+            idx_end,
+            offset,
+        );
+        vstd::bits::lemma_usize_shl_is_mul(idx_end, offset);
+    }
+
+    let shifted = idx_end << offset;
+    let ret = shifted.wrapping_sub(1);
+
+    proof {
+        assert(shifted == idx_end * pow2(offset as nat));
+        crate::specs::mm::page_table::vaddr_range_proofs::lemma_pt_va_range_end_wrapping_sub::<C>(
+            idx_end,
+            offset,
+            shifted,
+            ret,
+        );
+    }
+    ret
 }
 
 /// Test whether bit `ADDRESS_WIDTH - 1` of `va` is set.
-#[verifier::external_body]
 fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     ensures
         ret == ((va as int / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1),
 {
-    (va >> (C::ADDRESS_WIDTH() - 1)) & 1 != 0
+    let address_width = C::ADDRESS_WIDTH();
+    proof {
+        C::lemma_top_level_index_range_bounds();
+        assert(C::C::ADDRESS_WIDTH() == address_width);
+        assert(0 < address_width as int <= 64);
+    }
+
+    let shift = address_width - 1;
+    let shifted = va >> shift;
+    let bit = shifted & 1;
+
+    proof {
+        crate::specs::mm::page_table::vaddr_range_proofs::lemma_sign_bit_facts::<C>(
+            va,
+            address_width,
+            shift,
+            shifted,
+            bit,
+        );
+    }
+    bit != 0
 }
-
-/// Trait-level invariant the upstream enforces via `const` assertions in
-/// `vaddr_range`'s prologue. Captured here as an axiom so we can use it in
-/// proofs (Verus has no `const { ... }` form for trait constants).
-///
-/// `idx.start < 2^(ADDRESS_WIDTH - offset)` and `idx.end <= 2^(...)`
-/// together bound the positional VA at `pt_va_range_start` /
-/// `pt_va_range_end` by `2^ADDRESS_WIDTH`.
-pub axiom fn axiom_top_level_index_range_bounds<C: PageTableConfig>()
-    ensures
-        (C::TOP_LEVEL_INDEX_RANGE_spec().start as int) < (pow2(
-            (C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS())) as nat,
-        ) as int),
-        C::TOP_LEVEL_INDEX_RANGE_spec().end as int <= pow2(
-            (C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS())) as nat,
-        ) as int,
-        pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) <= C::ADDRESS_WIDTH() as int,
-        pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) >= 0,
-        // Non-empty index range: idx.start < idx.end (matches the upstream
-        // `const` assertion).
-        (C::TOP_LEVEL_INDEX_RANGE_spec().start as int) < (
-        C::TOP_LEVEL_INDEX_RANGE_spec().end as int),
-        // 64-bit hardware bound (Rust `usize` is 64 bits on supported targets).
-        C::ADDRESS_WIDTH() as int <= 64,
-;
-
-/// Per-config relationship between `LEADING_BITS_spec` and the sign-ext
-/// branch of `vaddr_range`: a non-zero `LEADING_BITS` requires both
-/// `VA_SIGN_EXT` and that bit `ADDRESS_WIDTH - 1` of `pt_va_range_start`
-/// is set. Equivalently (contrapositive), if either of those fails, then
-/// `LEADING_BITS == 0`.
-///
-/// For `UserPtConfig` (`LB=0`) the conclusion is vacuous; for
-/// `KernelPtConfig` (`LB=0xffff`, `idx.start=256`, `off=39`,
-/// `ADDRESS_WIDTH=48`), `2^47 / 2^47 % 2 == 1` and `VA_SIGN_EXT == true`
-/// — so the implication holds.
-pub axiom fn axiom_leading_bits_only_when_high_half<C: PageTableConfig>()
-    ensures
-        C::LEADING_BITS_spec() != 0usize ==> (C::VA_SIGN_EXT() && (((
-        C::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
-        ) as int)) / (pow2((C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
-;
 
 #[verifier::inline]
 pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> int {
@@ -892,7 +949,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
 
     proof {
         lemma_vaddr_range_bounds_spec_unfold::<C>();
-        axiom_top_level_index_range_bounds::<C>();
+        C::lemma_top_level_index_range_bounds();
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
             start,
             end,
@@ -908,8 +965,8 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
         proof {
             // The if-condition was false, so either va_sign_ext is false
             // or sign_bit_set is false. The contrapositive of
-            // `axiom_leading_bits_only_when_high_half` gives LEADING_BITS == 0.
-            axiom_leading_bits_only_when_high_half::<C>();
+            // `lemma_leading_bits_only_when_high_half` gives LEADING_BITS == 0.
+            C::lemma_leading_bits_only_when_high_half();
             assert(!va_sign_ext || !sign_bit_set);
             // Bridge exec bool to spec form. `va_sign_ext == C::VA_SIGN_EXT()`
             // by `when_used_as_spec`; `sign_bit_set == ((pt_start as int /
@@ -920,6 +977,9 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
             let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
             let p_off = pow2(off) as int;
             let p_aw_m1 = pow2(aw_m1) as int;
+            assert(C::C::VA_SIGN_EXT() == C::VA_SIGN_EXT());
+            assert(C::C::NR_LEVELS() == C::NR_LEVELS());
+            assert(C::C::ADDRESS_WIDTH() == C::ADDRESS_WIDTH());
             assert(pt_start as int == i_start * p_off);
             assert(sign_bit_set == ((pt_start as int / p_aw_m1) % 2 == 1));
             assert(sign_bit_set == ((i_start * p_off / p_aw_m1) % 2 == 1));
@@ -1108,7 +1168,10 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
 /// x86-64 as an example, the `pte_index_bit_offset(2)` should return 21, which
 /// is 12 (the 4KiB in-page offset) plus 9 (index width in the level-1 table).
 #[verifier::external_body]
-fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize {
+fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> (ret: usize)
+    ensures
+        ret as int == pte_index_bit_offset_spec::<C>(level),
+{
     C::BASE_PAGE_SIZE().ilog2() as usize + nr_pte_index_bits::<C>() * (level as usize - 1)
 }
 
