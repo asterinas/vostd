@@ -162,21 +162,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
     {
         let L = self.level as int;
-        assert(self.continuations[L - 1].level() == self.level) by {
-            assert(self.continuations[L - 1].path() == owner0.continuations[L - 1].path());
-            if L == 1 {
-            } else if L == 2 {
-            } else if L == 3 {
-            } else {
-            }
-        };
-        assert(self.continuations.contains_key(L - 1)) by {
-            if L == 1 {
-            } else if L == 2 {
-            } else if L == 3 {
-            } else {
-            }
-        };
+        assert(self.continuations[L - 1].level() == self.level);
+        assert(self.continuations.contains_key(L - 1));
     }
 
     /// After alloc_if_none (absent->node), `view_mappings` is unchanged (both contribute zero mappings).
