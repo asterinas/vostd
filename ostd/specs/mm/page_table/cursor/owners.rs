@@ -348,7 +348,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             #![trigger self.view_mappings()]
             forall|m: Mapping| #[trigger]
                 self.view_mappings().contains(m) ==> exists|i: int|
-                    #![auto]
+                    #![trigger self.children[i]]
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                         self.children[i]->0,
                     ).view_rec(self.path().push_tail(i as usize)).contains(m),
@@ -356,6 +356,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         broadcast use vstd::seq_lib::group_seq_properties;
 
         assert forall|m: Mapping| self.view_mappings().contains(m) implies exists|i: int|
+            #![trigger self.children[i]]
             0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                 self.children[i]->0,
             ).view_rec(self.path().push_tail(i as usize)).contains(m) by {

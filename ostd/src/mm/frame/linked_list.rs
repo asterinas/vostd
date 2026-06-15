@@ -946,7 +946,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             assert(regions.slots.dom() == regions0.slots.dom());
-            assert forall|j: usize| j != idx implies {
+            assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                 &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -981,7 +981,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -996,7 +996,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             self.list.front = next_ptr;
             proof {
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1025,7 +1025,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1042,7 +1042,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             self.current = None;
             proof {
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1069,7 +1069,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(regions.inv());
             assert(regions.slots.dom() == regions0.slots.dom());
             assert(regions.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt);
-            assert forall|j: usize| j != idx implies {
+            assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                 &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
