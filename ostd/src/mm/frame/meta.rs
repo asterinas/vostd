@@ -13,7 +13,7 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
-use vstd::atomic::{PAtomicU8, PAtomicU64, PermissionU64};
+use vstd::atomic::{PAtomicU64, PermissionU64};
 use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
@@ -254,6 +254,25 @@ pub unsafe trait AnyFrameMeta {
 
     spec fn vtable_ptr(&self) -> usize where Self: Sized;
 }
+
+/*/// Makes a structure usable as a frame metadata.
+#[macro_export]
+macro_rules! impl_frame_meta_for {
+    // Implement without specifying the drop behavior.
+    ($t:ty) => {
+        // SAFETY: `on_drop` won't read the page.
+        unsafe impl $crate::mm::frame::meta::AnyFrameMeta for $t {}
+
+        $crate::const_assert!(
+            core::mem::size_of::<$t>() <= $crate::mm::frame::meta::FRAME_METADATA_MAX_SIZE
+        );
+        $crate::const_assert!(
+            $crate::mm::frame::meta::FRAME_METADATA_MAX_ALIGN % core::mem::align_of::<$t>() == 0
+        );
+    };
+}
+
+pub use impl_frame_meta_for;*/
 
 /// The error type for getting the frame from a physical address.
 #[derive(Debug)]
