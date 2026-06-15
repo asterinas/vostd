@@ -1024,15 +1024,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value.frame().is_tracked,
             );
 
-            proof {
-                assert(regions.slots.contains_key(new_owner.value.node().slot_index));
-            }
             #[verus_spec(with Tracked(new_owner.value.tracked_borrow_node()), Tracked(&new_owner.children.tracked_borrow(i as int).tracked_borrow().value), Tracked(&*regions))]
             let mut entry = pt_lock_guard.entry(i);
 
             proof {
                 let ghost child_before_remove = new_owner.child(i as usize).unwrap();
-                assert(child_before_remove.inv());
             }
             let tracked mut new_owner_child = new_owner.children.tracked_remove(
                 i as int,
@@ -1040,20 +1036,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             proof {
                 let ghost new_owner_node = new_owner.value.node();
-                assert(new_owner_child.value.match_pte(
-                    new_owner_node.children_perm.value()[i as int],
-                    new_owner_child.value.parent_level,
-                ));
 
                 let idx = frame_to_index(small_pa);
-                assert(idx == frame_to_index(
-                    (pa + i * page_size((level - 1) as PagingLevel)) as usize,
-                ));
                 if i != 0 {
                     let ghost big_j =
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
                     pa, level, i);
-                    assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                 }
                 assert(entry.node_matching(new_owner_child.value, new_owner_node, *entry.node)) by {
                     let pte = new_owner_node.children_perm.value()[i as int];
