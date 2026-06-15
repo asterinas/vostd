@@ -1012,12 +1012,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             proof {
                 C::axiom_nr_subpage_per_huge_eq_nr_entries();
             }
-            assert(i < NR_ENTRIES);
 
             proof {
                 // Prove required facts while we still have new_owner.value.node available.
                 let ghost the_node = new_owner.value.node();
-                assert(0 <= i < NR_ENTRIES);
                 assert(new_owner.children[i as int].unwrap().value.match_pte(
                     the_node.children_perm.value()[i as int],
                     new_owner.children[i as int].unwrap().value.parent_level,
@@ -1031,8 +1029,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
 
             let small_pa = pa + i * page_size(level - 1);
-
-            assert(small_pa % PAGE_SIZE == 0);
 
             let tracked child_owner = EntryOwner::tracked_new_frame(
                 small_pa,
@@ -1050,7 +1046,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let mut entry = pt_lock_guard.entry(i);
 
             proof {
-                assert(entry.idx == i as usize);
                 let ghost child_before_remove = new_owner.child(i as usize).unwrap();
                 assert(child_before_remove.inv());
             }
@@ -1184,14 +1179,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 regions.slot_owners.tracked_insert(small_idx, small_slot);
 
                 // Post-insert: ref_count and slots.contains_key are preserved.
-                assert(regions.slot_owners[small_idx].inner_perms == orig_inner_perms);
                 assert(regions.slots.contains_key(small_idx));
 
                 if (level - 1) > 1 {
                     assert(child_owner.frame_sub_pages_valid(*regions));
                 }
                 let ghost target_idx = frame_to_index(small_pa);
-                assert(target_idx == small_idx);
                 if i != 0 {
                     let ghost big_j =
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
