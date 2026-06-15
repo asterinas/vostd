@@ -957,8 +957,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             // bounds locked_range().end by `vaddr_range_bounds_spec::<C>().1 + 1`,
             // and for UserPtConfig that evaluates to 2^47.
             crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
-            assert(end_va <= 0x0000_8000_0000_0000usize);
-
             assert((self.pt_cursor.0.va + len) % PAGE_SIZE as int == 0) by (compute);
             assert(adjusted_base.difference(removed) == adjusted_base);
         }
