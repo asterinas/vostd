@@ -1744,7 +1744,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // level NR_LEVELS). va doesn't change in the pop loop, so owner.va == owner0.va,
             // and owner0 had !popped_too_high && in_locked_range, which forces va below
             // locked_range.end and hence idx[NR_LEVELS-1] < top_end (strict).
-            assert(owner.va == owner0.va);
             if owner.level == NR_LEVELS {
                 owner0.in_locked_range_top_index_lt_top_end();
                 assert(owner0.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
