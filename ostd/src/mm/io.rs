@@ -516,7 +516,6 @@ impl<'a> VmWriter<'a, Infallible> {
         }
 
         proof {
-            assert(i == written_num);
             assert(cursor_i.vaddr == start + written_num * len);
             assert(cursor_i.vaddr == end);
             writer_owner.mem_view = Some(VmIoMemView::WriteView(mv));

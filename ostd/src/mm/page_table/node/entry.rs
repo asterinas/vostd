@@ -446,7 +446,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp - 1);
         }
-
         #[verus_spec(with Tracked(new_owner), Tracked(regions))]
         let new_pte = new_child.into_pte();
 
@@ -651,6 +650,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
             }
 
             let pt_ref = unsafe {
