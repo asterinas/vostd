@@ -18,8 +18,11 @@ verus! {
 
 pub type Callbacks = Vec<RcuCallback>;
 
-type MonitorAtomicBool =
-    WeakAtomicBool<(), rcu_spec::RcuMonitorFlagGhost, rcu_spec::RcuMonitorFlagInv>;
+type MonitorAtomicBool = WeakAtomicBool<
+    (),
+    rcu_spec::RcuMonitorFlagGhost,
+    rcu_spec::RcuMonitorFlagInv,
+>;
 
 /// RCU-specific wrapper around a type-erased executable callback.
 ///
@@ -44,10 +47,8 @@ impl RcuCallback {
     /// Converts a raw callback into an RCU callback, given a proof that the callback is
     /// safe to run after a grace period.
     #[inline]
-    pub fn from_raw(
-        raw: RawCallback,
-        Tracked(cert): Tracked<rcu_spec::RcuCallbackSafety>,
-    ) -> (res: Self)
+    pub fn from_raw(raw: RawCallback, Tracked(cert): Tracked<rcu_spec::RcuCallbackSafety>) -> (res:
+        Self)
         ensures
             res@ == cert@,
     {
@@ -339,11 +340,7 @@ impl RcuMonitor {
         proof_decl! {
             let tracked flag_ghost = rcu_spec::RcuMonitorFlagGhost::tracked_initial();
         }
-        let is_monitoring = MonitorAtomicBool::new(
-            Ghost(()),
-            false,
-            Tracked(flag_ghost),
-        );
+        let is_monitoring = MonitorAtomicBool::new(Ghost(()), false, Tracked(flag_ghost));
         let state = SpinLock::new(state);
         proof {
             use_type_invariant(&is_monitoring);
@@ -407,19 +404,15 @@ impl RcuMonitor {
 }
 
 } // verus!
-
 // use vstd::{
 //     atomic_ghost::AtomicBool, atomic_with_ghost, predicate::Predicate as DataPredicate, prelude::*,
 // };
 // use vstd_extra::ownership::Inv;
-
 // use crate::{
 //     specs::mm::cpu::{AtomicCpuSet, CpuSet},
 //     sync::{AtomicDataWithOwner, LocalIrqDisabled, SpinLock, once::Predicate as OncePredicate},
 // };
-
 // verus! {
-
 // // This thing can be very tricky to deal with
 // // type Callbacks = VecDeque<Box<dyn FnOnce() + Send + 'static>>;
 // pub(super) struct GracePeriod {
@@ -427,55 +420,45 @@ impl RcuMonitor {
 //     cpu_mask: AtomicCpuSet,
 //     is_complete: bool,
 // }
-
 // pub(super) struct State {
 //     current_gp: GracePeriod,
 //     // next_callbacks: Callbacks,
 // }
-
 // /// Owner of this [`RcuMonitor`].
 // pub(super) tracked struct RcuMonitorOwner {}
-
 // impl DataPredicate<RcuMonitor> for RcuMonitorOwner {
 //     closed spec fn predicate(&self, v: RcuMonitor) -> bool {
 //         true
 //     }
 // }
-
 // impl RcuMonitor {
 //     #[verifier::type_invariant]
 //     closed spec fn type_inv(self) -> bool {
 //         self.wf()
 //     }
 // }
-
 // pub(super) struct RcuMonitorPred;
-
 // impl OncePredicate<AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner>> for RcuMonitorPred {
 //     closed spec fn inv(self, v: AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner>) -> bool {
 //         &&& v.permission@.predicate(v.data)
 //         &&& v.data.inv()
 //     }
 // }
-
 // impl Inv for RcuMonitor {
 //     closed spec fn inv(self) -> bool {
 //         self.wf()
 //     }
 // }
-
 // impl Inv for State {
 //     closed spec fn inv(self) -> bool {
 //         self.current_gp.inv()
 //     }
 // }
-
 // impl Inv for GracePeriod {
 //     closed spec fn inv(self) -> bool {
 //         true
 //     }
 // }
-
 // #[verus_verify]
 // impl RcuMonitor {
 //     /// Creates a new RCU monitor.
@@ -489,7 +472,6 @@ impl RcuMonitor {
 //             is_monitoring: AtomicBool::new(Ghost(state), false, Tracked(false)),
 //             state,
 //         };
-
 //         proof {
 //             use_type_invariant(&res.state);
 //             assert(res.state.type_inv());
@@ -497,7 +479,6 @@ impl RcuMonitor {
 //         }
 //         res
 //     }
-
 //     /// Creates a new RCU monitor together with its tracked owner for `Once`.
 //     #[verus_spec(r =>
 //         ensures
@@ -513,14 +494,12 @@ impl RcuMonitor {
 //         }
 //         AtomicDataWithOwner { data, permission: Tracked(RcuMonitorOwner {  }) }
 //     }
-
 //     fn is_monitoring(&self) -> bool {
 //         proof {
 //             use_type_invariant(self);
 //         }
 //         self.is_monitoring.load()
 //     }
-
 //     fn set_monitoring(&self, value: bool) {
 //         proof {
 //             use_type_invariant(self);
@@ -533,7 +512,6 @@ impl RcuMonitor {
 //         }
 //     }
 // }
-
 // impl State {
 //     fn new() -> (res: Self)
 //         ensures
@@ -542,7 +520,6 @@ impl RcuMonitor {
 //         Self { current_gp: GracePeriod::new() }
 //     }
 // }
-
 // impl GracePeriod {
 //     fn new() -> (res: Self)
 //         ensures
@@ -551,21 +528,18 @@ impl RcuMonitor {
 //         Self { cpu_mask: AtomicCpuSet::new(CpuSet::new_empty()), is_complete: true }
 //     }
 // }
-
 // } // verus!
 // /*use alloc::collections::VecDeque;
 // use core::sync::atomic::{
 //     AtomicBool,
 //     Ordering::{self, Relaxed},
 // };
-
 // use crate::{
 //     cpu::{AtomicCpuSet, CpuId, CpuSet, PinCurrentCpu},
 //     prelude::*,
 //     sync::SpinLock,
 //     task::atomic_mode::AsAtomicModeGuard,
 // };
-
 // impl RcuMonitor {
 //     /// Creates a new RCU monitor.
 //     ///
@@ -577,13 +551,11 @@ impl RcuMonitor {
 //             state: SpinLock::new(State::new()),
 //         }
 //     }
-
 //     pub(super) unsafe fn finish_grace_period(&self) {
 //         // Fast path
 //         if !self.is_monitoring.load(Relaxed) {
 //             return;
 //         }
-
 //         // Check if the current GP is complete after passing the quiescent state
 //         // on the current CPU. If GP is complete, take the callbacks of the current
 //         // GP.
@@ -593,15 +565,12 @@ impl RcuMonitor {
 //             if state.current_gp.is_complete() {
 //                 return;
 //             }
-
 //             state.current_gp.finish_grace_period(cpu);
 //             if !state.current_gp.is_complete() {
 //                 return;
 //             }
-
 //             // Now that the current GP is complete, take its callbacks
 //             let current_callbacks = state.current_gp.take_callbacks();
-
 //             // Check if we need to watch for a next GP
 //             if !state.next_callbacks.is_empty() {
 //                 let callbacks = core::mem::take(&mut state.next_callbacks);
@@ -609,34 +578,27 @@ impl RcuMonitor {
 //             } else {
 //                 self.is_monitoring.store(false, Relaxed);
 //             }
-
 //             current_callbacks
 //         };
-
 //         // Invoke the callbacks to notify the completion of GP
 //         for f in callbacks {
 //             (f)();
 //         }
 //     }
-
 //     pub(super) fn after_grace_period<F>(&self, f: F)
 //     where
 //         F: FnOnce() + Send + 'static,
 //     {
 //         let mut state = self.state.disable_irq().lock();
-
 //         state.next_callbacks.push_back(Box::new(f));
-
 //         if !state.current_gp.is_complete() {
 //             return;
 //         }
-
 //         let callbacks = core::mem::take(&mut state.next_callbacks);
 //         state.current_gp.restart(callbacks);
 //         self.is_monitoring.store(true, Relaxed);
 //     }
 // }
-
 // impl State {
 //     fn new() -> Self {
 //         Self {
@@ -645,7 +607,6 @@ impl RcuMonitor {
 //         }
 //     }
 // }
-
 // impl GracePeriod {
 //     fn new() -> Self {
 //         Self {
@@ -654,23 +615,18 @@ impl RcuMonitor {
 //             is_complete: true,
 //         }
 //     }
-
 //     fn is_complete(&self) -> bool {
 //         self.is_complete
 //     }
-
 //     fn finish_grace_period(&mut self, this_cpu: CpuId) {
 //         self.cpu_mask.add(this_cpu, Ordering::Relaxed);
-
 //         if self.cpu_mask.load(Ordering::Relaxed).is_full() {
 //             self.is_complete = true;
 //         }
 //     }
-
 //     fn take_callbacks(&mut self) -> Callbacks {
 //         core::mem::take(&mut self.callbacks)
 //     }
-
 //     fn restart(&mut self, callbacks: Callbacks) {
 //         self.is_complete = false;
 //         self.cpu_mask.store(&CpuSet::new_empty(), Ordering::Relaxed);

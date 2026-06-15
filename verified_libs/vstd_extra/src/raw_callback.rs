@@ -4,7 +4,6 @@
 //! module therefore exposes callbacks as sized capture objects implementing
 //! [`RawCallbackContext`], while the executable runner erasure is kept behind
 //! trusted `external_body` wrappers.
-
 use alloc::boxed::Box;
 
 use vstd::prelude::*;
@@ -39,7 +38,9 @@ struct RawDropContext<T: Send + 'static> {
 // SAFETY: `RawCallback::new` only accepts `C: Send + 'static` payloads, and
 // `call_once` consumes the payload through the matching monomorphized runner.
 #[verifier::external]
-unsafe impl Send for RawCallback {}
+unsafe impl Send for RawCallback {
+
+}
 
 impl<T: Send + 'static> RawCallbackContext for RawDropContext<T> {
     #[inline]
@@ -56,10 +57,7 @@ impl RawCallback {
     #[verifier::external_body]
     pub fn new<C: RawCallbackContext>(context: C) -> Self {
         let payload = Box::new(RawCallbackPayload { context });
-        Self {
-            data: Box::into_raw(payload).cast::<()>(),
-            run: raw_callback_runner::<C>(),
-        }
+        Self { data: Box::into_raw(payload).cast::<()>(), run: raw_callback_runner::<C>() }
     }
 
     /// Builds the common "drop this value later" callback.
@@ -97,7 +95,7 @@ fn raw_callback_runner<C: RawCallbackContext>() -> usize {
 #[inline]
 #[verifier::external_body]
 unsafe fn call_raw_callback(data: *mut (), run: usize) {
-    let run: unsafe fn(*mut ()) = unsafe { core::mem::transmute(run) };
+    let run: unsafe fn (*mut ()) = unsafe { core::mem::transmute(run) };
     unsafe {
         run(data);
     }

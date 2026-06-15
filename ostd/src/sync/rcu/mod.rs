@@ -79,8 +79,8 @@ use crate::{
 
 use non_null::{NonNullPtr, NonNullPtrRef};
 
-pub mod non_null;
 pub mod monitor;
+pub mod non_null;
 
 verus! {
 

@@ -102,10 +102,7 @@ impl MonitorStateView {
     /// The monitor state at creation: a complete grace period and no queued
     /// callbacks.
     pub open spec fn initial() -> Self {
-        MonitorStateView {
-            current_gp: GracePeriodView::initial(),
-            next_callbacks: Seq::empty(),
-        }
+        MonitorStateView { current_gp: GracePeriodView::initial(), next_callbacks: Seq::empty() }
     }
 
     /// All callback summaries the monitor is still responsible for.
@@ -222,11 +219,7 @@ pub open spec fn rcu_monitor_flag_history_inv(
 pub struct RcuMonitorFlagInv;
 
 impl WeakAtomicInvariantPredicate<(), bool, RcuMonitorFlagGhost> for RcuMonitorFlagInv {
-    open spec fn atomic_inv(
-        _k: (),
-        history: History<bool>,
-        ghost: RcuMonitorFlagGhost,
-    ) -> bool {
+    open spec fn atomic_inv(_k: (), history: History<bool>, ghost: RcuMonitorFlagGhost) -> bool {
         rcu_monitor_flag_history_inv(history, ghost)
     }
 }
@@ -552,19 +545,11 @@ pub proof fn certify_callback_from_retire_perm<T>(
         object.ptr() == retire.ptr(),
         retire.ready_to_reclaim(),
     ensures
-        cert@ == (RcuCallbackSummary {
-            domain: retire.domain(),
-            obj: object.obj(),
-            retire_epoch,
-        }),
+        cert@ == (RcuCallbackSummary { domain: retire.domain(), obj: object.obj(), retire_epoch }),
         callback_safety_from_traversal(cert, *object, retire_epoch),
 {
     RcuCallbackSafety {
-        summary: RcuCallbackSummary {
-            domain: retire.domain(),
-            obj: object.obj(),
-            retire_epoch,
-        },
+        summary: RcuCallbackSummary { domain: retire.domain(), obj: object.obj(), retire_epoch },
     }
 }
 
