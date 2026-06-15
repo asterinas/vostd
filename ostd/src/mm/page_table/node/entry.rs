@@ -667,7 +667,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 );
                 old(parent_owner).set_children_perm_axiom(self.idx, pte);
                 C::E::lemma_page_table_entry_properties();
-                assert(!pte.is_last_spec(level as PagingLevel));
             }
 
             let ghost new_node_slot_idx = new_node_owner.value.node().slot_index;
@@ -675,25 +674,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             #[verus_spec(with Tracked(new_node_slot_perm))]
             let paddr = new_page.start_paddr();
 
-            assert(new_node_owner.value.metaregion_sound(*regions));
-
-            proof {
-                // Canonical: `alloc` minted the new node's pending-Drop
-                // obligation; the intervening slot borrows don't touch the
-                // ledger, so it is still outstanding — discharging
-                // `into_pte`'s `count(node_index) > 0` precondition.
-                assert(regions.frame_obligations.count(
-                    frame_to_index(meta_to_frame(new_page.ptr.addr())),
-                ) > 0);
-            }
-
             #[verus_spec(with Tracked(&mut new_node_owner.value), Tracked(regions))]
             let new_pte = Child::PageTable(new_page).into_pte();
             self.pte = new_pte;
 
             proof {
-                assert(new_node_owner.value.pte_invariants(self.pte, *regions));
-                assert(new_node_owner.value.match_pte(self.pte, new_node_owner.value.parent_level));
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
             }
 
