@@ -1631,11 +1631,11 @@ unsafe impl PageTableConfig for UserPtConfig {
 
         lemma2_to64();
         lemma2_to64_rest();
+        assert(usize::BITS == 64) by (compute);
+        vstd::layout::unsigned_int_max_values();
         lemma_usize_pow2_ilog2(12);
         lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(9, 39);
-        assert(usize::BITS == 64) by (compute);
-        vstd::layout::unsigned_int_max_values();
     }
 
     proof fn lemma_leading_bits_only_when_high_half() {

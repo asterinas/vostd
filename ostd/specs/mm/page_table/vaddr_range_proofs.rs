@@ -169,10 +169,11 @@ pub proof fn lemma_sign_bit_facts<C: PageTableConfig>(
     assert(shifted as int == va as int / pow2(shift as nat) as int);
 
     vstd::bits::lemma_usize_low_bits_mask_is_mod(shifted, 1);
-    assert(vstd::bits::low_bits_mask(1) == 1) by (compute);
-    assert(pow2(1) == 2) by (compute);
+    vstd::bits::lemma_low_bits_mask_values();
+    vstd::arithmetic::power2::lemma2_to64();
     assert(bit == shifted % 2);
-    assert(bit != 0 ==> bit == 1) by (bit_vector);
+    assert(bit < 2);
+    assert(bit != 0 ==> bit == 1);
     assert(bit == 1 ==> bit != 0);
     assert((bit != 0) == (bit == 1));
     assert(bit as int == (shifted as int) % 2);
