@@ -57,13 +57,13 @@ pub type Timestamp = nat;
 /// and the reader reads the message via some atomic operations, then the reader's
 /// thread view will advance to at least `ts` for `id`.
 pub ghost struct WmView {
-    pub seen: Map<AtomicId, Timestamp>,
+    pub seen: IMap<AtomicId, Timestamp>,
 }
 
 impl WmView {
     /// Creates an empty view.
     pub open spec fn empty() -> Self {
-        WmView { seen: Map::empty() }
+        WmView { seen: IMap::empty() }
     }
 
     pub open spec fn seen_at(self, id: AtomicId) -> Timestamp {
@@ -103,7 +103,7 @@ impl WmView {
     /// release view carried by the message it read.
     pub open spec fn join(self, other: Self) -> Self {
         WmView {
-            seen: Map::new(
+            seen: IMap::new(
                 |id: AtomicId| self.seen.contains_key(id) || other.seen.contains_key(id),
                 |id: AtomicId|
                     if self.seen_at(id) <= other.seen_at(id) {
@@ -160,7 +160,7 @@ impl<V> HistAuth<V> {
         self.auth.id()
     }
 
-    pub closed spec fn map(self) -> Map<Timestamp, Msg<V>> {
+    pub closed spec fn map(self) -> IMap<Timestamp, Msg<V>> {
         self.auth@
     }
 
@@ -177,7 +177,7 @@ impl<V> HistAuth<V> {
 
     pub open spec fn wf(self) -> bool {
         &&& self.len() > 0
-        &&& self.map().dom() =~= Set::new(|ts: Timestamp| ts < self.len())
+        &&& self.map().dom() =~= ISet::new(|ts: Timestamp| ts < self.len())
     }
 
     pub open spec fn valid_ts(self, ts: Timestamp) -> bool {
