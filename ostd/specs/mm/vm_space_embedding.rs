@@ -447,7 +447,6 @@ proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
     let ghost id = fresh_vm_space_id(s.vm_spaces);
     axiom_fresh_vm_space_id_not_in_dom(s.vm_spaces);
     s.vm_spaces.tracked_insert(id, owner);
-    assert(final(s).inv()) by {};
 }
 
 proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId)
@@ -465,7 +464,6 @@ proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpace
         s.vm_ios.dom().contains(v) ==> s.vm_ios[v].vm_space != vs) {
         let _ = s.vm_spaces.tracked_remove(vs);
     }
-    assert(final(s).inv()) by {};
 }
 
 proof fn open_cursor_step<'a, 'rcu>(
