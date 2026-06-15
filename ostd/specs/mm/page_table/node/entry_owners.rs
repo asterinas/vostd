@@ -402,17 +402,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             owner.match_pte(pte, parent_level),
     {
         C::E::lemma_page_table_entry_properties();
-        assert(!pte.is_present());
         if parent_level > 1 {
             assert(!pte.is_last(parent_level));
-        }
-        if pte.is_present() && !pte.is_last(parent_level) {
-            assert(pte.is_present());
-            assert(!pte.is_present());
-        }
-        if pte.is_present() && pte.is_last(parent_level) {
-            assert(pte.is_present());
-            assert(!pte.is_present());
         }
     }
 
@@ -469,14 +460,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
         assert(512usize.ilog2() == 9);
-        assert(crate::mm::nr_subpage_per_huge::<PagingConsts>().ilog2() == 512usize.ilog2());
         vstd::arithmetic::power2::lemma2_to64();
         if self.parent_level == 2 {
-            assert(page_size_spec(1) == 4096);
             assert(page_size_spec(2) == (PAGE_SIZE * pow2(
                 (512usize.ilog2() * 1usize) as nat,
             )) as usize);
-            assert(page_size_spec(2) == (4096 * pow2(9)) as usize);
             assert(page_size_spec(2) == 2097152);
             assert(pa % page_size(2) == 0);
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(1, 2);
@@ -488,18 +476,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
             };
         } else {
             assert(self.parent_level == 3);
-            assert(page_size_spec(2) == (PAGE_SIZE * pow2(
-                (512usize.ilog2() * 1usize) as nat,
-            )) as usize);
-            assert(page_size_spec(2) == (4096 * pow2(9)) as usize);
-            assert(page_size_spec(2) == 2097152);
             assert(page_size_spec(3) == (PAGE_SIZE * pow2(
                 (512usize.ilog2() * 2usize) as nat,
             )) as usize);
-            assert(page_size_spec(3) == (4096 * pow2(18)) as usize);
             assert(page_size_spec(3) == 1073741824);
             assert(pa % page_size(3) == 0);
-            assert(pa % PAGE_SIZE == 0);
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size(pa, 2);
             assert(child_pa == pa + idx * page_size(2));
             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(idx as int, page_size(2) as int);

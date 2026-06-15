@@ -74,8 +74,6 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: int, hi
         lemma_mapping_set_cardinality_in_range(below, lo, m.va_range.start);
         lemma_mapping_set_cardinality_in_range(above, m.va_range.end, hi);
 
-        assert(m.page_size >= PAGE_SIZE);
-        assert(m.page_size == m.va_range.end - m.va_range.start);
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(
             PAGE_SIZE as int,
             (below.len() + above.len()) as int,
@@ -186,18 +184,6 @@ pub proof fn lemma_sub_mapping_pa_compose(m: Mapping, p: Mapping, orig: Mapping)
         m.property == orig.property,
 {
     assert(MAX_PADDR < usize::MAX) by (compute_only);
-    // All VA offsets fit within orig's page_size, so PA offsets don't overflow.
-    assert(p.va_range.start - orig.va_range.start <= orig.page_size);
-    assert(m.va_range.start - orig.va_range.start <= orig.page_size);
-    assert(orig.pa_range.start + (p.va_range.start - orig.va_range.start) < usize::MAX);
-    assert(p.pa_range.start as int == orig.pa_range.start as int + (p.va_range.start as int
-        - orig.va_range.start as int));
-    assert(orig.pa_range.start + (m.va_range.start - orig.va_range.start) < usize::MAX);
-    assert(p.pa_range.start + (m.va_range.start - p.va_range.start) < usize::MAX);
-    assert(m.pa_range.start as int == p.pa_range.start as int + (m.va_range.start as int
-        - p.va_range.start as int));
-    assert(m.pa_range.start as int == orig.pa_range.start as int + (m.va_range.start as int
-        - orig.va_range.start as int));
 }
 
 } // verus!
