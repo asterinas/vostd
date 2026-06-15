@@ -695,9 +695,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(new_node_owner.value.pte_invariants(self.pte, *regions));
                 assert(new_node_owner.value.match_pte(self.pte, new_node_owner.value.parent_level));
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
-                assert(new_node_owner.value.metaregion_sound(*regions));
-                assert(new_node_owner.value.meta_slot_paddr().unwrap() == paddr);
             }
 
             let pt_ref = unsafe {
@@ -1165,7 +1162,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             page_size((level - 1) as PagingLevel) as int,
                         );
                     }
-                    assert(small_pa == pa);
                 } else {
                     let ghost big_j =
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
@@ -1211,8 +1207,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     });
                 } else {
                     assert(0 * page_size((level - 1) as PagingLevel) == 0) by (nonlinear_arith);
-                    assert(small_pa as int == pa as int);
-                    assert(target_idx == frame_to_index(pa));
                 }
                 assert(child_owner.metaregion_sound(*regions));
                 assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop).invariants(
