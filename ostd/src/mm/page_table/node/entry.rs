@@ -276,7 +276,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         proof {
             owner.tracked_borrow_mut_frame().prop = new_prop;
         }
-        assert(owner.match_pte(self.pte, owner.parent_level));
     }
 
     /// Replaces the entry with a new child.
@@ -424,10 +423,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         let ghost regions_after_from = *regions;
 
-        assert(new_owner.is_node() ==> regions.slots.contains_key(
-            frame_to_index(new_owner.meta_slot_paddr().unwrap()),
-        ));
-
         if old_child.is_none() && !new_child.is_none() {
             let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
                 parent_owner.slot_index,
@@ -451,18 +446,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp - 1);
         }
-        proof {
-            assert(owner.metaregion_sound(*regions));
-        }
 
         #[verus_spec(with Tracked(new_owner), Tracked(regions))]
         let new_pte = new_child.into_pte();
 
         let ghost regions_after_into = *regions;
-
-        proof {
-            assert(owner.metaregion_sound(*regions));
-        }
 
         // SAFETY:
         //  1. The index is within the bounds.
@@ -493,13 +481,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             owner.in_scope = true;
         }
 
-        assert(Self::metaregion_sound_neq_preserved(
-            *old(owner),
-            *new_owner,
-            *old(regions),
-            *regions,
-        ));
-
         proof {
             // When both old and new are not nodes:
             // from_pte/into_pte are identity, no slot_owners change. Regions unchanged.
@@ -512,16 +493,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             if new_owner.is_node() || new_owner.is_frame() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 regions.inv_implies_correct_addr(paddr);
-            }
-            // Sub-page validity for new_owner (if a huge frame): preserved because
-            // replace only modifies slots/paths_in_pt at new_owner's own slot, not
-            // at sub-page slots (which have different indices for j > 0).
-
-            if new_owner.is_frame() && new_owner.parent_level > 1 {
-                assert(new_owner.frame_sub_pages_valid(*regions));
-            }
-            if owner.is_frame() && owner.parent_level > 1 {
-                assert(owner.frame_sub_pages_valid(*regions));
             }
         }
 
