@@ -71,10 +71,7 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
 
 /// Facts needed to turn `idx.end << offset` into
 /// `idx.end * 2^offset` for `pt_va_range_end`.
-pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(
-    idx_end: usize,
-    offset: usize,
-)
+pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(idx_end: usize, offset: usize)
     requires
         idx_end == C::TOP_LEVEL_INDEX_RANGE_spec().end,
         offset as int == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()),

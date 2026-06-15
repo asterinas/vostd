@@ -237,8 +237,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE_spec(),
     ;
-    // dubious: why is this an axiom
 
+    // dubious: why is this an axiom
     /// A full PT-node's worth of PTEs fills exactly one base page.
     /// `NR_ENTRIES * size_of::<E>() == PAGE_SIZE`. Bundles the
     /// `pow2-divides-pow2 ⇒ mul-equals-div` arithmetic Verus doesn't
@@ -258,7 +258,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ;
 
     // dubious: why is this an axiom
-
     /// `align_of::<E>()` divides `size_of::<E>()`. True for any sized Rust
     /// type (the alignment divides the size by the layout rules), but
     /// Verus's `size_of`/`align_of` are uninterpreted so we expose it as
