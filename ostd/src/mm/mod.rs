@@ -36,7 +36,7 @@ mod test;
 use core::ops::Range;
 
 // Import types and constants from arch
-pub use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS};
+pub use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS};
 
 #[doc(hidden)]
 pub use crate::arch::mm::PagingConsts;
@@ -53,25 +53,6 @@ pub use page_table::largest_pages;
 pub type PagingLevel = u8;
 
 verus! {
-
-/// The maximum virtual address of user space (non inclusive).
-///
-/// Typical 64-bit systems have at least 48-bit virtual address space.
-/// A typical way to reserve half of the address space for the kernel is
-/// to use the highest 48-bit virtual address space.
-///
-/// Also, the top page is not regarded as usable since it's a workaround
-/// for some x86_64 CPUs' bugs. See
-/// <https://github.com/torvalds/linux/blob/480e035fc4c714fb5536e64ab9db04fedc89e910/arch/x86/include/asm/page_64.h#L68-L78>
-/// for the rationale.
-/// Page size.
-pub const MAX_USERSPACE_VADDR: usize = 0x0000_8000_0000_0000 - PAGE_SIZE;
-
-/// The kernel address space.
-///
-/// There are the high canonical addresses defined in most 48-bit width
-/// architectures.
-pub const KERNEL_VADDR_RANGE: Range<Vaddr> = 0xffff_8000_0000_0000..0xffff_ffff_ffff_0000;
 
 /// A minimal set of constants that determines the paging system.
 /// This provides an abstraction over most paging modes in common architectures.
@@ -199,6 +180,25 @@ pub proof fn lemma_nr_subpage_per_huge_bounded<C: PagingConstsTrait>()
         lemma_div_non_zero(C::BASE_PAGE_SIZE() as int, C::PTE_SIZE() as int);
     };
 }
+
+/// The maximum virtual address of user space (non inclusive).
+///
+/// Typical 64-bit systems have at least 48-bit virtual address space.
+/// A typical way to reserve half of the address space for the kernel is
+/// to use the highest 48-bit virtual address space.
+///
+/// Also, the top page is not regarded as usable since it's a workaround
+/// for some x86_64 CPUs' bugs. See
+/// <https://github.com/torvalds/linux/blob/480e035fc4c714fb5536e64ab9db04fedc89e910/arch/x86/include/asm/page_64.h#L68-L78>
+/// for the rationale.
+pub const MAX_USERSPACE_VADDR: Vaddr = 0x0000_8000_0000_0000_usize - PAGE_SIZE;
+
+/// The kernel address space.
+///
+/// There are the high canonical addresses defined in most 48-bit width
+/// architectures.
+pub const KERNEL_VADDR_RANGE: Range<Vaddr> =
+    0xffff_8000_0000_0000_usize..0xffff_ffff_ffff_0000_usize;
 
 /// Gets physical address trait
 pub trait HasPaddr {

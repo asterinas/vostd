@@ -21,7 +21,7 @@ use vstd_extra::ownership::*;
 use crate::mm::page_table::PageTableConfig;
 use crate::mm::page_table::{page_size, page_size_spec};
 use crate::mm::{PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 
 use align_ext::AlignExt;
 
@@ -1257,8 +1257,6 @@ impl AbstractVaddr {
         decreases NR_LEVELS - level,
     {
         let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
-        assert forall|i: int| start_level <= i < NR_LEVELS implies next_va.index[i]
-            == self.index[i] by {};
         if level < NR_LEVELS {
             self.wrapped_after_carry_equiv(start_level, level + 1);
         }
@@ -1483,7 +1481,6 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
                     + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
-            assert(aligned.compute_vaddr() == aligned.compute_vaddr());
             assert(aligned.compute_vaddr() == (aligned.index[0] * page_size(1)
                 + aligned.rec_compute_vaddr(1)) as Vaddr);
             assert(vaddr(path) == aligned.compute_vaddr());
@@ -1554,7 +1551,6 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
                     + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
-            assert(aligned.compute_vaddr() == aligned.compute_vaddr());
             assert(aligned.compute_vaddr() == (aligned.index[0] * page_size(1)
                 + aligned.rec_compute_vaddr(1)) as Vaddr);
             assert(vaddr(path) == aligned.compute_vaddr());
@@ -1605,7 +1601,6 @@ impl AbstractVaddr {
             assert(aligned.compute_vaddr() == self.index[0] * 0x1000usize + self.index[1]
                 * 0x20_0000usize + self.index[2] * 0x4000_0000usize + self.index[3]
                 * 0x80_0000_0000usize) by {
-                assert(aligned.compute_vaddr() == aligned.compute_vaddr());
                 assert(aligned.compute_vaddr() == (aligned.index[0] * page_size(1)
                     + aligned.rec_compute_vaddr(1)) as Vaddr);
             };
@@ -1750,13 +1745,11 @@ impl AbstractVaddr {
         vstd::arithmetic::power2::lemma2_to64_rest();
         if level == 1 {
             lemma_page_size_spec_level1();
-            assert forall|i: int| 1 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 1);
             assert((self.index[0] + 1) * 0x1000 == self.index[0] * 0x1000 + 0x1000)
                 by (nonlinear_arith);
         } else if level == 2 {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-            assert forall|i: int| 2 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 2);
             assert(self.to_vaddr_indices(0) == self.index[0] * pow2(12nat) as int
                 + self.to_vaddr_indices(1));
@@ -1765,7 +1758,6 @@ impl AbstractVaddr {
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x20_0000);
         } else if level == 3 {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-            assert forall|i: int| 3 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 3);
             assert(self.index.contains_key(2));
             assert(new_va.index.contains_key(2));
@@ -1776,7 +1768,6 @@ impl AbstractVaddr {
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x4000_0000);
         } else {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-            assert forall|i: int| 4 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 4);
             assert(self.to_vaddr_indices(1) == self.index[1] * pow2(21nat) as int
                 + self.to_vaddr_indices(2));

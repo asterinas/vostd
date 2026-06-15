@@ -196,7 +196,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::{MAX_USERSPACE_VADDR, Paddr, Vaddr};
-use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, index_to_frame, max_meta_slots};
 use crate::specs::mm::frame::meta_owners::{
     PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,

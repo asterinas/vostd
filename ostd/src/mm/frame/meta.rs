@@ -33,8 +33,8 @@ pub(crate) mod mapping {
     use crate::mm::frame::MetaSlot;
     use crate::mm::frame::meta::meta_slot_size;
     use crate::mm::{PAGE_SIZE, Paddr, Vaddr};
-    use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-    use crate::specs::arch::mm::MAX_PADDR;
+    use crate::mm::kspace::FRAME_METADATA_RANGE;
+    use crate::specs::arch::MAX_PADDR;
     pub use crate::specs::mm::frame::mapping::*;
     use vstd::prelude::*;
 
@@ -108,12 +108,12 @@ use crate::{
         PagingLevel,
         //Segment,
         Vaddr,
+        kspace::FRAME_METADATA_RANGE,
         //        frame::allocator::{self, EarlyAllocatedFrameMeta},
         paddr_to_vaddr,
         //        page_table::boot_pt,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     },
-    specs::arch::kspace::FRAME_METADATA_RANGE,
     //    panic::abort,
     //    util::ops::range_difference,
 };

@@ -447,31 +447,7 @@ proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
     let ghost id = fresh_vm_space_id(s.vm_spaces);
     axiom_fresh_vm_space_id_not_in_dom(s.vm_spaces);
     s.vm_spaces.tracked_insert(id, owner);
-    assert(final(s).inv()) by {
-        assert forall|j: VmSpaceId| #[trigger]
-            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
-            if j == id {
-                assert(final(s).vm_spaces[j] == owner);
-            } else {
-                assert(old(s).vm_spaces.dom().contains(j));
-            }
-        };
-        // cursor/vm_io->vm_space refs are still valid since we only added,
-        // never removed, vm_spaces.
-        assert forall|j: CursorId| #[trigger]
-            final(s).cursors.dom().contains(j) implies final(s).vm_spaces.dom().contains(
-            final(s).cursors[j].vm_space,
-        ) by {
-            assert(old(s).cursors.dom().contains(j));
-            assert(old(s).vm_spaces.dom().contains(old(s).cursors[j].vm_space));
-        };
-        assert forall|j: VmIoId| #[trigger]
-            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
-            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
-            assert(old(s).vm_ios.dom().contains(j));
-            assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
-        };
-    };
+    assert(final(s).inv()) by {};
 }
 
 proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId)
@@ -489,25 +465,7 @@ proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpace
         s.vm_ios.dom().contains(v) ==> s.vm_ios[v].vm_space != vs) {
         let _ = s.vm_spaces.tracked_remove(vs);
     }
-    assert(final(s).inv()) by {
-        assert forall|j: VmSpaceId| #[trigger]
-            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
-            assert(old(s).vm_spaces.dom().contains(j));
-        };
-        assert forall|j: CursorId| #[trigger]
-            final(s).cursors.dom().contains(j) implies final(s).vm_spaces.dom().contains(
-            final(s).cursors[j].vm_space,
-        ) by {
-            assert(old(s).cursors.dom().contains(j));
-            assert(final(s).cursors[j] == old(s).cursors[j]);
-        };
-        assert forall|j: VmIoId| #[trigger]
-            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
-            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
-            assert(old(s).vm_ios.dom().contains(j));
-            assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
-        };
-    };
+    assert(final(s).inv()) by {};
 }
 
 proof fn open_cursor_step<'a, 'rcu>(

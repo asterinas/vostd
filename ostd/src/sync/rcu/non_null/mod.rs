@@ -181,6 +181,7 @@ pub unsafe trait NonNullPtrRef<'a>: NonNullPtr {
     ;
 }
 
+} // verus!
 /// A type that represents `&'a Box<T>`.
 #[verus_verify]
 #[derive(Debug)]
@@ -188,24 +189,6 @@ pub struct BoxRef<'a, T> {
     inner: *mut T,
     _marker: PhantomData<&'a T>,
     tracked_perm: Tracked<BoxPointsToRef<'a, T>>,
-}
-
-impl<'a, T> BoxRef<'a, T> {
-    #[verifier::type_invariant]
-    spec fn type_inv(self) -> bool {
-        &&& self.inner@.addr != 0
-        &&& self.inner@.addr as int % vstd::layout::align_of::<T>() as int == 0
-        &&& self.tracked_perm@@.ptr() == self.inner
-        &&& self.tracked_perm@.inv()
-    }
-
-    pub closed spec fn ptr(self) -> *mut T {
-        self.inner
-    }
-
-    pub closed spec fn value(self) -> T {
-        self.tracked_perm@@.value()
-    }
 }
 
 /*
@@ -223,6 +206,8 @@ impl<T> Deref for BoxRef<'_, T> {
 }
 */
 
+verus! {
+
 #[verus_verify]
 impl<'a, T> BoxRef<'a, T> {
     /// Dereferences `self` to get a reference to `T` with the lifetime `'a`.
@@ -237,6 +222,7 @@ impl<'a, T> BoxRef<'a, T> {
 
         // The function body of ptr_ref is exactly the same as `unsafe { &*(self.inner) }`
         //unsafe { &*(self.inner) }
+        // FIXME: Fix when verus supports attribute syntax for raw pointers.
         vstd::raw_ptr::ptr_ref(
             self.inner,
             Tracked(self.tracked_perm.borrow().tracked_borrow_points_to()),
@@ -351,6 +337,25 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Box<T> {
     }
 }
 
+impl<'a, T> BoxRef<'a, T> {
+    #[verifier::type_invariant]
+    spec fn type_inv(self) -> bool {
+        &&& self.inner@.addr != 0
+        &&& self.inner@.addr as int % vstd::layout::align_of::<T>() as int == 0
+        &&& self.tracked_perm@@.ptr() == self.inner
+        &&& self.tracked_perm@.inv()
+    }
+
+    pub closed spec fn ptr(self) -> *mut T {
+        self.inner
+    }
+
+    pub closed spec fn value(self) -> T {
+        self.tracked_perm@@.value()
+    }
+}
+
+} // verus!
 /// A type that represents `&'a Arc<T>`.
 ///
 /// Note there is no verification-only permission field, because `ArcRef` uses `Arc` instead of a raw pointer internally.
@@ -359,14 +364,6 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Box<T> {
 pub struct ArcRef<'a, T: 'static> {
     inner: ManuallyDrop<Arc<T>>,
     _marker: PhantomData<&'a Arc<T>>,
-}
-
-impl<T> View for ArcRef<'_, T> {
-    type V = Arc<T>;
-
-    closed spec fn view(&self) -> Arc<T> {
-        self.inner@
-    }
 }
 
 #[verus_verify]
@@ -395,6 +392,8 @@ impl<'a, T> ArcRef<'a, T> {
         unsafe { &*(self.deref().deref() as *const T) }
     }
 }
+
+verus! {
 
 unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     type Target = T;
@@ -491,6 +490,14 @@ unsafe impl<'a, T: 'static> NonNullPtrRef<'a> for Arc<T> {
 
     fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
         NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
+    }
+}
+
+impl<T> View for ArcRef<'_, T> {
+    type V = Arc<T>;
+
+    closed spec fn view(&self) -> Arc<T> {
+        self.inner@
     }
 }
 

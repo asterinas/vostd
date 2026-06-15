@@ -9,9 +9,9 @@ use crate::mm::frame::meta::{
     mapping::{META_SLOT_SIZE, frame_to_index, meta_to_frame},
 };
 use crate::mm::frame::*;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 

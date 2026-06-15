@@ -61,7 +61,7 @@ use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 pub use segment::Segment;
 
 // Re-export commonly used types
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
@@ -76,7 +76,7 @@ use crate::mm::{
     MAX_PADDR, Paddr, PagingLevel, Vaddr,
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
-use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
+use crate::specs::arch::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -380,6 +380,24 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     }
 }
 
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
+    /// Gets the map level of this page.
+    ///
+    /// This is the level of the page table entry that maps the frame,
+    /// which determines the size of the frame.
+    ///
+    /// Currently, the level is always 1, which means the frame is a regular
+    /// page frame.
+    pub const fn map_level(&self) -> PagingLevel {
+        1
+    }
+
+    /// Gets the size of this page in bytes.
+    pub const fn size(&self) -> usize {
+        PAGE_SIZE
+    }
+}
+
 #[verus_verify]
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     /// Gets the physical address of the start of the frame.
@@ -451,22 +469,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         (#[verus_spec(with Tracked(self_perm))]
         self.start_paddr() == #[verus_spec(with Tracked(other_perm))]
         other.start_paddr())
-    }
-
-    /// Gets the map level of this page.
-    ///
-    /// This is the level of the page table entry that maps the frame,
-    /// which determines the size of the frame.
-    ///
-    /// Currently, the level is always 1, which means the frame is a regular
-    /// page frame.
-    pub const fn map_level(&self) -> PagingLevel {
-        1
-    }
-
-    /// Gets the size of this page in bytes.
-    pub const fn size(&self) -> usize {
-        PAGE_SIZE
     }
 
     /*    /// Gets the dynamically-typed metadata of this frame.

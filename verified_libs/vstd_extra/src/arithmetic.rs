@@ -160,6 +160,17 @@ pub proof fn lemma_nat_align_down_within_block(x: nat, k1: nat, k2: nat)
     }
 }
 
+pub proof fn lemma_mod_0_add(a: int, b: int, m: int)
+    requires
+        0 < m,
+        a % m == 0,
+        b % m == 0,
+    ensures
+        (a + b) % m == 0,
+{
+    lemma_mod_adds(a, b, m);
+}
+
 broadcast group group_arithmetic_lemmas {
     lemma_nat_align_up_sound,
     lemma_nat_align_down_sound,

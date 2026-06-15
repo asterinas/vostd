@@ -5,7 +5,7 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_table::*;
-use crate::specs::arch::mm::NR_ENTRIES;
+use crate::specs::arch::NR_ENTRIES;
 use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::*;

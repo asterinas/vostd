@@ -68,6 +68,8 @@ impl<'a, V, Own, G: SpinGuardian> RwLockReadGuard<'a, crate::sync::AtomicDataWit
     }
 }
 
+} // verus!
+#[verus_verify]
 impl<V, Own> Deref for AtomicDataWithOwner<V, Own> {
     type Target = V;
 
@@ -77,6 +79,8 @@ impl<V, Own> Deref for AtomicDataWithOwner<V, Own> {
         &self.data
     }
 }
+
+verus! {
 
 impl<V, Own> AtomicDataWithOwner<V, Own> {
     #[inline]

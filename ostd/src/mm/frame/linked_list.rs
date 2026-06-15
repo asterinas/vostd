@@ -18,7 +18,7 @@ use crate::mm::frame::UniqueFrame;
 use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::linked_list::linked_list_owners::*;
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, Metadata};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -37,7 +37,7 @@ use crate::mm::frame::meta::mapping::{
     META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_addr, meta_to_frame, meta_to_frame_spec,
 };
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, get_slot, has_safe_slot};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 
 verus! {
 

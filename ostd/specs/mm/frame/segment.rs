@@ -8,8 +8,7 @@ use core::ops::Range;
 
 use crate::mm::frame::{AnyFrameMeta, MetaSlot, Segment};
 use crate::mm::{Paddr, Vaddr, paddr_to_vaddr};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_index, meta_addr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::virt_mem::MemView;

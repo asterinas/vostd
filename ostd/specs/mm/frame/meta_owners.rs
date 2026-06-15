@@ -14,9 +14,9 @@ use vstd_extra::ownership::*;
 use super::*;
 use crate::mm::frame::AnyFrameMeta;
 use crate::mm::frame::meta::MetaSlot;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::NR_ENTRIES;
+use crate::specs::arch::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
 use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, meta_addr, meta_to_frame};
 

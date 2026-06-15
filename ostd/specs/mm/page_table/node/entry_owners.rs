@@ -13,8 +13,8 @@ use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::*;
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr, meta_to_frame};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::entry_view::*;
@@ -37,12 +37,6 @@ pub tracked enum EntryOwnerKind<C: PageTableConfig> {
     Node(NodeOwner<C>),
     Frame(FrameEntryOwner),
     Locked(ghost Seq<FrameView<C>>),
-    Borrowed(ghost Set<Mapping>),
-    Absent,
-}
-
-pub tracked struct EntryOwner<C: PageTableConfig> {
-    pub kind: EntryOwnerKind<C>,
     /// Translation-only / borrowed-sub-tree variant.
     ///
     /// Present when the slot's PTE references a sub-tree owned by *another*
@@ -52,9 +46,15 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     /// embedding can reason about what the borrowed translation provides
     /// without descending into a sub-tree it does not own. Mutually
     /// exclusive with `node`, `frame`, `locked`, and `absent` by construction.
-    pub in_scope: bool,
-    pub path: TreePath<NR_ENTRIES>,
-    pub parent_level: PagingLevel,
+    Borrowed(ghost Set<Mapping>),
+    Absent,
+}
+
+pub tracked struct EntryOwner<C: PageTableConfig> {
+    pub kind: EntryOwnerKind<C>,
+    pub ghost in_scope: bool,
+    pub ghost path: TreePath<NR_ENTRIES>,
+    pub ghost parent_level: PagingLevel,
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
@@ -144,31 +144,26 @@ impl<C: PageTableConfig> EntryOwner<C> {
         EntryOwner { kind: EntryOwnerKind::Borrowed(mappings), in_scope: true, path, parent_level }
     }
 
-    pub axiom fn tracked_new_borrowed(
+    pub proof fn tracked_new_borrowed(
         path: TreePath<NR_ENTRIES>,
         parent_level: PagingLevel,
         mappings: Set<Mapping>,
     ) -> tracked Self
         returns
             Self::new_borrowed(path, parent_level, mappings),
-    ;
+    {
+        Self { kind: EntryOwnerKind::Borrowed(mappings), in_scope: true, path, parent_level }
+    }
 
-    pub axiom fn tracked_new_absent(
+    pub proof fn tracked_new_absent(
         path: TreePath<NR_ENTRIES>,
         parent_level: PagingLevel,
     ) -> tracked Self
         returns
             Self::new_absent(path, parent_level),
-    ;
-
-    /// Rewrites the `path` field of a tracked `EntryOwner` in place. Used by
-    /// `rebase_freshly_allocated_children` to propagate the cursor path down
-    /// to a freshly-allocated PT node's children, whose paths come from
-    /// `PageTableNode::alloc` rooted at the empty path.
-    pub axiom fn set_path_axiom(tracked &mut self, path: TreePath<NR_ENTRIES>)
-        ensures
-            *final(self) == (EntryOwner { path, ..*old(self) }),
-    ;
+    {
+        Self { kind: EntryOwnerKind::Absent, in_scope: true, path, parent_level }
+    }
 
     pub proof fn tracked_take_node(tracked &mut self) -> (tracked res: NodeOwner<C>)
         requires
@@ -251,6 +246,19 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
+    pub proof fn tracked_borrow_mut_frame(tracked &mut self) -> (tracked res: &mut FrameEntryOwner)
+        requires
+            old(self).kind is Frame,
+        ensures
+            *res == old(self).frame(),
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Frame(*final(res)), ..*old(self) }),
+    {
+        match self.kind {
+            EntryOwnerKind::Frame(ref mut frame) => frame,
+            _ => { proof_from_false() },
+        }
+    }
+
     pub axiom fn tracked_new_frame(
         paddr: Paddr,
         path: TreePath<NR_ENTRIES>,
@@ -305,10 +313,20 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 != crate::specs::mm::frame::meta_owners::is_mmio_paddr(entry.frame().mapped_pa),
     ;
 
-    pub axiom fn tracked_new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> tracked Self
+    pub proof fn tracked_new_node(
+        tracked node: NodeOwner<C>,
+        path: TreePath<NR_ENTRIES>,
+    ) -> tracked Self
         returns
             Self::new_node(node, path),
-    ;
+    {
+        Self {
+            parent_level: (node.level + 1) as PagingLevel,
+            kind: EntryOwnerKind::Node(node),
+            in_scope: true,
+            path,
+        }
+    }
 
     /// Creates a ghost entry owner for mapping an untracked (device memory) frame.
     /// Unlike `new_frame`, this does not consume a slot permission from the meta region,
@@ -662,11 +680,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             regions.slots.contains_key(free_idx),
         ensures
             frame_to_index(entry.meta_slot_paddr()->0) != free_idx,
-    ;
-
-    pub axiom fn get_path(self) -> tracked TreePath<NR_ENTRIES>
-        returns
-            self.path,
     ;
 
     pub open spec fn meta_slot_paddr(self) -> Option<Paddr> {

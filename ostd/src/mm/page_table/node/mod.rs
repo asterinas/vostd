@@ -53,7 +53,6 @@ use crate::mm::frame::{AnyFrameMeta, Frame, frame_to_index};
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::meta_owners::{
     MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED,
 };
@@ -133,7 +132,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     ) -> bool {
         &&& reader.inv()
         &&& reader.wf(vm_io_owner)
-        &&& reader.remain_spec() >= crate::specs::arch::mm::PAGE_SIZE
+        &&& reader.remain_spec() >= crate::specs::arch::PAGE_SIZE
         &&& reader.cursor.vaddr % core::mem::align_of::<C::E>() == 0
         &&& vm_io_owner.inv()
         &&& vm_io_owner.read_view_initialized()

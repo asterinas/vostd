@@ -15,7 +15,6 @@ use core::{
 use super::{guard::SpinGuardian, LocalIrqDisabled /*, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
-verus! {
 /// A spin lock.
 ///
 /// # Guard behavior
@@ -82,6 +81,7 @@ verus! {
 ///
 /// [`type_inv`]: Self::type_inv
 #[repr(transparent)]
+#[verus_verify]
 //pub struct SpinLock<T: ?Sized, G = PreemptDisabled> {
 pub struct SpinLock<T, G> {
     phantom: PhantomData<G>,
@@ -107,6 +107,7 @@ closed spec fn wf(self) -> bool {
 }
 }
 
+verus! {
 impl<T> SpinLockInner<T>
 {
     #[verifier::type_invariant]
@@ -203,7 +204,6 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
     ///    }
     ///}.is_ok()
     /// ```
-    #[verus_spec]
     pub fn lock(&self) -> SpinLockGuard<'_, T, G> {
         // Notice the guard must be created before acquiring the lock.
         proof!{ use_type_invariant(self);}
@@ -231,7 +231,6 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
     /// If `Some(guard)` is returned, it satisfies its type invariant:
     /// - An exclusive permission to access the protected data is held by the guard.
     /// - The guard's permission matches the lock's internal cell ID.
-    #[verus_spec]
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T, G>> {
         let inner_guard = G::guard();
         proof_decl!{
@@ -331,7 +330,7 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
         }
     }
 }
-
+}
 
 /*
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for SpinLock<T, G> {
@@ -381,6 +380,7 @@ pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     tracked_perm: Tracked<PointsTo<T>>,
 }
 
+verus! {
 impl<'a, T, G: SpinGuardian> SpinLockGuard<'a, T, G>
 {
     #[verifier::type_invariant]
@@ -405,6 +405,7 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for SpinLockGuard<'_, T, G> {
     }
 }*/
 
+// FIXME: fix when verus attribute syntax supports Tracked.
 #[verus_verify]
 impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
     type Target = T;
@@ -450,6 +451,7 @@ impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
 }
 */
 
+#[verus_verify]
 impl<'a, T /*:?Sized */, G: SpinGuardian> SpinLockGuard<'a, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]

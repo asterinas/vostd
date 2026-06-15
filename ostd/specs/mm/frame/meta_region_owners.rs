@@ -18,8 +18,8 @@ use crate::mm::frame::meta::{
     AnyFrameMeta, MetaSlot, REF_COUNT_MAX,
     mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr},
 };
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
+use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;
 use crate::specs::mm::frame::meta_owners::Metadata;
 
@@ -116,8 +116,8 @@ impl View for MetaRegionOwners {
 }
 
 impl InvView for MetaRegionOwners {
-    // XXX: verus `map_values` does not preserves the `finite()` attribute.
-    axiom fn view_preserves_inv(self);
+    proof fn view_preserves_inv(self) {
+    }
 }
 
 impl OwnerOf for MetaRegion {

@@ -159,30 +159,38 @@ verified_bitflags::bitflags! {
     }
 }
 
-/*
+verus! {
+
 /// Flush any TLB entry that contains the map of the given virtual address.
 ///
 /// This flush performs regardless of the global-page bit. So it can flush both global
 /// and non-global entries.
+#[verifier::external_body]
 pub(crate) fn tlb_flush_addr(vaddr: Vaddr) {
-    tlb::flush(VirtAddr::new(vaddr as u64));
+    //tlb::flush(VirtAddr::new(vaddr as u64));
+    unimplemented!()
 }
 
 /// Flush any TLB entry that intersects with the given address range.
+#[verifier::external_body]
 pub(crate) fn tlb_flush_addr_range(range: &Range<Vaddr>) {
-    for vaddr in range.clone().step_by(PAGE_SIZE) {
-        tlb_flush_addr(vaddr);
-    }
+    // for vaddr in range.clone().step_by(PAGE_SIZE) {
+    //    tlb_flush_addr(vaddr);
+    //}
+    unimplemented!()
 }
 
 /// Flush all TLB entries except for the global-page entries.
+#[verifier::external_body]
 pub(crate) fn tlb_flush_all_excluding_global() {
-    tlb::flush_all();
+    //tlb::flush_all();
+    unimplemented!()
 }
 
 /// Flush all TLB entries, including global-page entries.
+#[verifier::external_body]
 pub(crate) fn tlb_flush_all_including_global() {
-    // SAFETY: updates to CR4 here only change the global-page bit, the side effect
+    /* // SAFETY: updates to CR4 here only change the global-page bit, the side effect
     // is only to invalidate the TLB, which doesn't affect the memory safety.
     unsafe {
         // To invalidate all entries, including global-page
@@ -193,10 +201,8 @@ pub(crate) fn tlb_flush_all_including_global() {
         x86_64::registers::control::Cr4::update(|cr4| {
             *cr4 |= x86_64::registers::control::Cr4Flags::PAGE_GLOBAL;
         });
-    }
+    }*/
 }
-*/
-verus! {
 
 #[verifier::ext_equal]
 #[derive(Clone, Copy/*, Pod, Default*/)]
@@ -230,35 +236,47 @@ impl Default for PageTableEntry {
     }
 }
 
+/// Activates the given level 4 page table.
+/// The cache policy of the root page table node is controlled by `root_pt_cache`.
+///
+/// # Safety
+///
+/// Changing the level 4 page table is unsafe, because it's possible to violate memory safety by
+/// changing the page mapping.
+#[verifier::external_body]
+pub unsafe fn activate_page_table(root_paddr: Paddr, root_pt_cache: CachePolicy) {
+    /*let addr = PhysFrame::from_start_address(x86_64::PhysAddr::new(root_paddr as u64)).unwrap();
+    let flags = match root_pt_cache {
+        CachePolicy::Writeback => x86_64::registers::control::Cr3Flags::empty(),
+        CachePolicy::Writethrough => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_WRITETHROUGH,
+        CachePolicy::Uncacheable => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_CACHE_DISABLE,
+        _ => panic!("unsupported cache policy for the root page table"),
+    };
+
+    // SAFETY: The safety is upheld by the caller.
+    unsafe { x86_64::registers::control::Cr3::write(addr, flags) };*/
+    unimplemented!()
+}
+
+pub uninterp spec fn current_page_table_paddr_spec() -> Paddr;
+
 } // verus!
-  /*
-  /// Activates the given level 4 page table.
-  /// The cache policy of the root page table node is controlled by `root_pt_cache`.
-  ///
-  /// # Safety
-  ///
-  /// Changing the level 4 page table is unsafe, because it's possible to violate memory safety by
-  /// changing the page mapping.
-  pub unsafe fn activate_page_table(root_paddr: Paddr, root_pt_cache: CachePolicy) {
-      let addr = PhysFrame::from_start_address(x86_64::PhysAddr::new(root_paddr as u64)).unwrap();
-      let flags = match root_pt_cache {
-          CachePolicy::Writeback => x86_64::registers::control::Cr3Flags::empty(),
-          CachePolicy::Writethrough => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_WRITETHROUGH,
-          CachePolicy::Uncacheable => x86_64::registers::control::Cr3Flags::PAGE_LEVEL_CACHE_DISABLE,
-          _ => panic!("unsupported cache policy for the root page table"),
-      };
 
-      // SAFETY: The safety is upheld by the caller.
-      unsafe { x86_64::registers::control::Cr3::write(addr, flags) };
-  }
+#[verus_verify]
+#[verifier::external_body]
+#[verifier::when_used_as_spec(current_page_table_paddr_spec)]
+#[verus_spec(
+    returns
+        current_page_table_paddr_spec(),
+)]
+pub fn current_page_table_paddr() -> Paddr {
+    /* x86_64::registers::control::Cr3::read_raw()
+    .0
+    .start_address()
+    .as_u64() as Paddr*/
+    unimplemented!()
+}
 
-  pub fn current_page_table_paddr() -> Paddr {
-      x86_64::registers::control::Cr3::read_raw()
-          .0
-          .start_address()
-          .as_u64() as Paddr
-  }
-  */
 verus! {
 
 impl PageTableEntry {

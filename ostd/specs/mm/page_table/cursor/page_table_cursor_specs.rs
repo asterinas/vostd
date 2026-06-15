@@ -9,7 +9,7 @@ use crate::arch::mm::PagingConsts;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
 use vstd_extra::arithmetic::*;

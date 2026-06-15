@@ -29,7 +29,6 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
         "`L` and `R` alignments should be at least 2 to pack `Either` into one pointer",
     );
 
-    #[verus_spec]
     #[verifier::spinoff_prover]
     fn into_raw(self) -> (ret: (NonNull<Self::Target>, Tracked<Self::Permission>)) {
         proof_decl!{
@@ -439,20 +438,20 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
     }
 }
 
+} // verus!
 // A `min` implementation for use in constant evaluation.
-#[vstd::contrib::auto_spec]
+#[verus_verify(dual_spec)]
 const fn min(a: u32, b: u32) -> u32 {
-    if a < b {
-        a
-    } else {
-        b
-    }
+    if a < b { a } else { b }
 }
+
+verus! {
 
 /// # Safety
 ///
 /// The caller must ensure that removing the bits from the non-null pointer will result in another
 /// non-null pointer.
+// FIXEME: fix when verus attribute syntax supports closure postconditions.
 #[verus_spec(ret =>
     requires
         (ptr.view_ptr_mut().addr() & bits) < ptr.view_ptr_mut().addr(),

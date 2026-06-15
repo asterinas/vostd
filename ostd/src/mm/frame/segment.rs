@@ -11,8 +11,7 @@ use vstd_extra::prelude::*;
 
 use crate::mm::page_table::RCClone;
 use crate::mm::{Paddr, PagingLevel, Vaddr, paddr_to_vaddr};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::segment::*;

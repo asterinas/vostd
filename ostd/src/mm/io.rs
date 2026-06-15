@@ -49,14 +49,18 @@ use vstd_extra::assert;
 use vstd_extra::ownership::Inv;
 use vstd_extra::panic::may_panic;
 
-use crate::Pod;
 use crate::error::*;
-use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
-use crate::specs::arch::MAX_USERSPACE_VADDR;
 pub use crate::specs::mm::io::{
     VmIoMemView, VmIoOwner, axiom_kernel_mem_view, axiom_slice_in_kernel,
 };
 use crate::specs::mm::virt_mem::{MemView, VirtPtr};
+use crate::{
+    Pod,
+    mm::{
+        MAX_USERSPACE_VADDR,
+        kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR},
+    },
+};
 
 verus! {
 

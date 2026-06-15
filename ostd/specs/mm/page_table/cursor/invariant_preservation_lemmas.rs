@@ -19,8 +19,8 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_table::*;
-use crate::specs::arch::mm::PAGE_SIZE;
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::PAGE_SIZE;
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::Mapping;
@@ -328,6 +328,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.no_frame_with_path(removed_path),
     {
+        broadcast use CursorContinuation::group_lemmas;
+
         let g = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
             e.is_frame() ==> e.path != removed_path;
 
@@ -361,8 +363,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     PageTableOwner(child).view_rec(child_path).contains(
                         m,
                     ) implies self@.mappings.contains(m) by {
-                    cont.view_mappings_intro(m, j);
-                    self.view_mappings_intro(m, i);
+                    self.lemma_view_mappings_intro(m, i);
                 };
                 // L-rec: no frame entry in this subtree carries removed_path.
                 PageTableOwner(child).no_frame_with_path_rec(
@@ -382,8 +383,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             self.inv_continuation(i);
         };
-
-        assert(self.no_frame_with_path(removed_path));
     }
 
     /// Bridge: `path_removable_at_idx` follows from the (mechanically

@@ -41,7 +41,9 @@ pub struct TlbFlusher<'a  /*, G: PinCurrentCpu*/ > {
     //_pin_current: G,
 }
 
-impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
+} // verus!
+#[verus_verify]
+impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
     /// Creates a new TLB flusher with the specified CPUs to be flushed.
     ///
     /// The target CPUs should be a reference to an [`AtomicCpuSet`] that will
@@ -49,7 +51,7 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     ///
     /// The flusher needs to stick to the current CPU. So please provide a
     /// guard that implements [`PinCurrentCpu`].
-    pub fn new(target_cpus: &'a AtomicCpuSet  /*, pin_current_guard: G*/ ) -> Self {
+    pub fn new(target_cpus: &'a AtomicCpuSet /*, pin_current_guard: G*/) -> Self {
         Self {
             target_cpus,
             have_unsynced_flush: CpuSet::new_empty(),
@@ -112,10 +114,11 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
             final(model).inv(),
     )]
     pub fn dispatch_tlb_flush(&mut self) {
-        unimplemented!()/*let irq_guard = crate::trap::irq::disable_local();
+        unimplemented!() /*let irq_guard = crate::trap::irq::disable_local();
+        
 
         if self.ops_stack.is_empty() {
-            return;
+        return;
         }
 
         // `Release` to make sure our modification on the PT is visible to CPUs
@@ -126,32 +129,31 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
         let mut need_flush_on_self = false;
 
         if target_cpus.contains(cur_cpu) {
-            target_cpus.remove(cur_cpu);
-            need_flush_on_self = true;
+        target_cpus.remove(cur_cpu);
+        need_flush_on_self = true;
         }
 
         for cpu in target_cpus.iter() {
-            {
-                let mut flush_ops = FLUSH_OPS.get_on_cpu(cpu).lock();
-                flush_ops.push_from(&self.ops_stack);
+        {
+        let mut flush_ops = FLUSH_OPS.get_on_cpu(cpu).lock();
+        flush_ops.push_from(&self.ops_stack);
 
-                // Clear ACK before dropping the lock to avoid false ACKs.
-                ACK_REMOTE_FLUSH
-                    .get_on_cpu(cpu)
-                    .store(false, Ordering::Relaxed);
-            }
-            self.have_unsynced_flush.add(cpu);
+        // Clear ACK before dropping the lock to avoid false ACKs.
+        ACK_REMOTE_FLUSH
+        .get_on_cpu(cpu)
+        .store(false, Ordering::Relaxed);
+        }
+        self.have_unsynced_flush.add(cpu);
         }
 
         crate::smp::inter_processor_call(&target_cpus, do_remote_flush);
 
         // Flush ourselves after sending all IPIs to save some time.
         if need_flush_on_self {
-            self.ops_stack.flush_all();
+        self.ops_stack.flush_all();
         } else {
-            self.ops_stack.clear_without_flush();
+        self.ops_stack.clear_without_flush();
         }*/
-
     }
 
     /// Waits for all the previous TLB flush requests to be completed.
@@ -171,23 +173,24 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     /// other's TLB coherence.
     #[verifier::external_body]
     pub fn sync_tlb_flush(&mut self) {
-        unimplemented!()/*
+        unimplemented!() /*
         assert!(
-            irq::is_local_enabled(),
-            "Waiting for remote flush with IRQs disabled"
+        irq::is_local_enabled(),
+        "Waiting for remote flush with IRQs disabled"
         );
 
         for cpu in self.have_unsynced_flush.iter() {
-            while !ACK_REMOTE_FLUSH.get_on_cpu(cpu).load(Ordering::Relaxed) {
-                core::hint::spin_loop();
-            }
+        while !ACK_REMOTE_FLUSH.get_on_cpu(cpu).load(Ordering::Relaxed) {
+        core::hint::spin_loop();
+        }
         }
 
         self.have_unsynced_flush = CpuSet::new_empty();
-        */
-
+         */
     }
 }
+
+verus! {
 
 /// The operation to flush TLB entries.
 #[derive(Debug, Clone, PartialEq, Eq)]

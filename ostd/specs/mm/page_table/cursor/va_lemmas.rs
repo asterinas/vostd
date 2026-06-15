@@ -17,7 +17,7 @@ use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
@@ -206,6 +206,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     // ─── Proofs: VA range / view ─────────────────────────────────────────
+    #[verifier::spinoff_prover]
+    #[verifier::rlimit(100)]
     pub proof fn cur_va_range_reflects_view(self)
         requires
             self.inv(),
@@ -216,6 +218,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_va_range().start.reflect(self@.query_range().start as Vaddr),
             self.cur_va_range().end.reflect(self@.query_range().end as Vaddr),
     {
+        broadcast use CursorContinuation::group_lemmas;
+
         self.cur_subtree_inv();
         self.cur_va_in_subtree_range();
         self.view_preserves_inv();
@@ -223,18 +227,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let subtree = self.cur_subtree();
         let path = subtree.value.path;
         let frame = self.cur_entry_owner().frame();
-        let pt_level = INC_LEVELS - path.len();
         let cont = self.continuations[self.level - 1];
 
         cont.path().push_tail_property_len(cont.idx as usize);
-        assert(cont.level() == self.level) by {
-            if self.level == 1 {
-            } else if self.level == 2 {
-            } else if self.level == 3 {
-            } else {
-            }
-        };
-        assert(pt_level == self.level);
 
         let ps = page_size(self.level as PagingLevel);
         let m = Mapping {
@@ -248,8 +243,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(PageTableOwner(subtree).view_rec(path) == set![m]);
         assert(PageTableOwner(subtree).view_rec(path).contains(m));
-        cont.view_mappings_intro(m, cont.idx as int);
-        self.view_mappings_intro(m, (self.level - 1) as int);
+        self.lemma_view_mappings_intro(m, (self.level - 1) as int);
         assert(m.inv());
 
         self.cur_va_in_subtree_range();
@@ -259,10 +253,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let filtered = self@.mappings.filter(
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
         );
-        assert(filtered.contains(m));
         vstd::set::lemma_set_choose_len(filtered);
         let qm = self@.query_mapping();
-        assert(filtered.contains(qm));
         assert(qm == m) by {
             if qm != m {
                 assert(self@.mappings.contains(qm));
@@ -346,13 +338,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         self.va.to_path_len(L - 1);
         cont.path().push_tail_property_len(cont.idx as usize);
-        assert(cont.level() == self.level) by {
-            if L == 1 {
-            } else if L == 2 {
-            } else if L == 3 {
-            } else {
-            }
-        };
 
         assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path.index(i)
             == va_path.index(i) by {

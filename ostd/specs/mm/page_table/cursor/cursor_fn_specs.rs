@@ -2,7 +2,7 @@ use vstd::prelude::*;
 
 use crate::mm::page_table::*;
 use crate::mm::{PagingConstsTrait, Vaddr};
-use crate::specs::arch::mm::{NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED, is_mmio_paddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

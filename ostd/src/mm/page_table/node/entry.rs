@@ -12,7 +12,7 @@ use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_fra
 use crate::mm::frame::{Frame, FrameRef};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
@@ -274,9 +274,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         };
 
         proof {
-            let tracked mut frame_owner = owner.tracked_take_frame();
-            frame_owner.prop = new_prop;
-            owner.tracked_put_frame(frame_owner);
+            owner.tracked_borrow_mut_frame().prop = new_prop;
         }
         assert(owner.match_pte(self.pte, owner.parent_level));
     }
@@ -654,7 +652,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         if entry_is_present || level <= 1 {
             None
         } else {
-            let tracked old_path = owner.value.get_path();
+            let ghost old_path = owner.value.path;
 
             proof_decl! {
                 let tracked mut new_node_owner: Tracked<OwnerSubtree<C>>;
