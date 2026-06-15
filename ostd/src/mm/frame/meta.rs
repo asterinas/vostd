@@ -16,14 +16,15 @@
 use vstd::atomic::{PAtomicU64, PermissionU64};
 use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
-use vstd::simple_pptr::{self, PPtr};
-use vstd_extra::cast_ptr::*;
+use vstd::simple_pptr::{PPtr, PointsTo};
+use vstd_extra::cast_ptr::{Repr, ReprPtr};
 use vstd_extra::ownership::*;
 use vstd_extra::panic::{may_panic, panic_diverge};
 use vstd_extra::prelude::*;
 
 use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
@@ -295,11 +296,6 @@ pub enum GetFrameError {
     Retry,
 }
 
-pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
-    &&& paddr % PAGE_SIZE == 0
-    &&& paddr < MAX_PADDR
-}
-
 /// Gets the reference to a metadata slot.
 /// # Verified Properties
 /// ## Preconditions
@@ -337,7 +333,7 @@ impl MetaSlot {
     #[verifier::external_body]
     #[verus_spec(
         with
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
         requires
             self == perm.value(),
         returns
@@ -401,7 +397,7 @@ impl MetaSlot {
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
-    ) -> Result<(PPtr<Self>, Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>), GetFrameError> {
+    ) -> Result<(PPtr<Self>, Tracked<PointsTo<MetaSlot>>), GetFrameError> {
         let slot = get_slot(paddr)?;
 
         proof {
@@ -484,7 +480,7 @@ impl MetaSlot {
     /// ## Postconditions
     /// - The reference count of the inner permissions is increased by one.
     #[verus_spec(res =>
-        with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+        with Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
             Tracked(inner_perms): Tracked<&mut MetadataInnerPerms>,
         requires
             perm.pptr() == slot,
@@ -775,7 +771,7 @@ impl MetaSlot {
     /// This is an internal function, so it is fine to require the caller to verify this.
     #[verus_spec(
         with
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
         requires
             perm.value() == self,
             Self::frame_paddr_safety_cond(*perm),
@@ -830,7 +826,7 @@ impl MetaSlot {
     ///  - the returned pointer should not be dereferenced as mutable unless having exclusive access to the metadata slot.
     #[verus_spec(res =>
         with
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
         requires
             self == perm.value(),
         ensures
@@ -861,7 +857,7 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(meta_perm): Tracked<&mut vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
-            Tracked(vtable_perm): Tracked<&mut vstd::simple_pptr::PointsTo<usize>>,
+            Tracked(vtable_perm): Tracked<&mut PointsTo<usize>>,
         requires
             self.storage.id() == old(meta_perm).id(),
             self.vtable_ptr == old(vtable_perm).pptr(),

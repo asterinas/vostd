@@ -12,7 +12,7 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use super::Frame;
-use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
+use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 
 use core::{marker::PhantomData, sync::atomic::Ordering};
 
@@ -20,7 +20,8 @@ use super::meta::mapping::{
     META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
 };
 use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE, Paddr, PagingConsts, PagingLevel};
+use crate::mm::{Paddr, PagingConsts, PagingLevel};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_owners::Metadata;
 use crate::specs::mm::frame::meta_specs::lemma_meta_addr_to_index;
