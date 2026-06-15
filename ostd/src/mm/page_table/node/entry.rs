@@ -1198,14 +1198,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                         &&& regions.slot_owners[target_idx].inner_perms.ref_count.value() > 0
                     });
-                } else {
-                    assert(0 * page_size((level - 1) as PagingLevel) == 0) by (nonlinear_arith);
                 }
-                assert(child_owner.metaregion_sound(*regions));
-                assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop).invariants(
-                    child_owner,
-                    *regions,
-                ));
             }
 
             proof {
