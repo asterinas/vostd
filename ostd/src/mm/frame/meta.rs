@@ -30,53 +30,53 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 verus! {
 
 pub(crate) mod mapping {
-    use crate::mm::frame::MetaSlot;
-    use crate::mm::frame::meta::meta_slot_size;
-    use crate::mm::{PAGE_SIZE, Paddr, Vaddr};
-    use crate::mm::kspace::FRAME_METADATA_RANGE;
-    use crate::specs::arch::MAX_PADDR;
+    use crate::specs::arch::{PAGE_SIZE, MAX_PADDR};
     pub use crate::specs::mm::frame::mapping::*;
     use vstd::prelude::*;
+    use super::MetaSlot;
+    use crate::mm::{kspace::FRAME_METADATA_RANGE, Paddr, PagingConstsTrait, Vaddr};
 
-    #[verifier::inline]
     pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
-        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * meta_slot_size()) as usize
+        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE as int) as usize
     }
 
-    #[verifier::inline]
     pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr {
         ((vaddr - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int * PAGE_SIZE) as usize
     }
 
     /// Converts a physical address of a base frame to the virtual address of the metadata slot.
-    #[inline(always)]
     #[verifier::when_used_as_spec(frame_to_meta_spec)]
-    pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
+    pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
         requires
             paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
         ensures
-            res == frame_to_meta_spec(paddr),
             res % META_SLOT_SIZE == 0,
+        returns
+            frame_to_meta(paddr),
     {
+        broadcast use super::axiom_size_of_meta_slot;
+
         let base = FRAME_METADATA_RANGE.start;
         let offset = paddr / PAGE_SIZE;
-        base + offset * META_SLOT_SIZE
+        base + offset * size_of::<MetaSlot>()
     }
 
     /// Converts a virtual address of the metadata slot to the physical address of the frame.
-    #[inline(always)]
     #[verifier::when_used_as_spec(meta_to_frame_spec)]
-    pub fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
+    pub const fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
         requires
-            FRAME_METADATA_RANGE.start <= vaddr && vaddr < FRAME_METADATA_RANGE.end,
+            FRAME_METADATA_RANGE.start <= vaddr < FRAME_METADATA_RANGE.end,
             vaddr % META_SLOT_SIZE == 0,
         ensures
-            res == meta_to_frame_spec(vaddr),
             res % PAGE_SIZE == 0,
+        returns
+            meta_to_frame(vaddr),
     {
+        broadcast use super::axiom_size_of_meta_slot;
+
         let base = FRAME_METADATA_RANGE.start;
-        let offset = (vaddr - base) / META_SLOT_SIZE;
+        let offset = (vaddr - base) / size_of::<MetaSlot>();
         offset * PAGE_SIZE
     }
 
@@ -120,6 +120,14 @@ use crate::{
 
 verus! {
 
+/* /// The maximum number of bytes of the metadata of a frame.
+pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE
+    - size_of::<AtomicU64>()
+    - size_of::<FrameMetaVtablePtr>()
+    - size_of::<AtomicU64>(); */
+/// The maximum alignment in bytes of the metadata of a frame.
+pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE;
+
 #[repr(C)]
 pub struct MetaSlot {
     /// The metadata of a frame.
@@ -132,6 +140,9 @@ pub struct MetaSlot {
     ///  - the subsequent fields can utilize the padding of the
     ///    reference count to save space.
     ///
+    /// Don't interpret this field as an array of bytes. It is a
+    /// placeholder for the metadata of a frame.
+    // storage: UnsafeCell<[u8; FRAME_METADATA_MAX_SIZE]>
     /// # Verification Design
     /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
     /// types of metadata defined in the development.
@@ -147,9 +158,18 @@ pub struct MetaSlot {
     ///  - `REF_COUNT_MAX..REF_COUNT_UNIQUE`: Illegal values to
     ///    prevent the reference count from overflowing. Otherwise,
     ///    overflowing the reference count will cause soundness issue.
+    ///
+    /// [`Frame::from_unused`]: super::Frame::from_unused
+    /// [`UniqueFrame`]: super::unique::UniqueFrame
+    /// [`drop_last_in_place`]: Self::drop_last_in_place
+    //
+    // Other than this field the fields should be `MaybeUninit`.
+    // See initialization in `alloc_meta_frames`.
     pub ref_count: PAtomicU64,
-    /// The virtual table that indicates the type of the metadata. Currently we do not verify this because
+    /// The virtual table that indicates the type of the metadata.
+    /// VERUS LIMITATION: Currently we do not verify this because
     /// of the dependency on the `dyn Trait` pattern. But we can revisit it now that `dyn Trait` is supported by Verus.
+    // pub vtable_ptr: UnsafeCell<MaybeUninit<FrameMetaVtablePtr>>,
     pub vtable_ptr: PPtr<usize>,
     /// This is only accessed by [`crate::mm::frame::linked_list`].
     /// It stores 0 if the frame is not in any list, otherwise it stores the
@@ -169,6 +189,71 @@ pub const REF_COUNT_UNIQUE: u64 = u64::MAX - 1;
 pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 
 type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
+
+pub broadcast axiom fn axiom_size_of_meta_slot()
+    ensures
+        #![trigger size_of::<MetaSlot>()]
+        #![trigger align_of::<MetaSlot>()]
+        size_of::<MetaSlot>() == META_SLOT_SIZE,
+        align_of::<MetaSlot>() == 8,
+;
+
+/// All frame metadata types must implement this trait.
+///
+/// If a frame type needs specific drop behavior, it should specify
+/// when implementing this trait. When we drop the last handle to
+/// this frame, the `on_drop` method will be called. The `on_drop`
+/// method is called with the physical address of the frame.
+///
+/// The implemented structure should have a size less than or equal to
+/// [`FRAME_METADATA_MAX_SIZE`] and an alignment less than or equal to
+/// [`FRAME_METADATA_MAX_ALIGN`]. Otherwise, the metadata type cannot
+/// be used because storing it will fail compile-time assertions.
+///
+/// # Safety
+///
+/// If `on_drop` reads the page using the provided `VmReader`, the
+/// implementer must ensure that the frame is safe to read.
+pub unsafe trait AnyFrameMeta {
+    /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
+    /// Impls that need richer caller-side invariants (e.g. the PT-node's
+    /// reader/region invariants) override this; the trait method's
+    /// `requires` clause calls it.
+    open spec fn on_drop_pre(
+        &self,
+        reader: VmReader<'_, Infallible>,
+        regions: MetaRegionOwners,
+        vm_io_owner: crate::specs::mm::io::VmIoOwner,
+    ) -> bool {
+        true
+    }
+
+    fn on_drop(
+        &mut self,
+        _reader: &mut VmReader<'_, Infallible>,
+        Tracked(_regions): Tracked<&mut MetaRegionOwners>,
+        Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
+    )
+        requires
+            old(_regions).inv(),
+            old(_reader).inv(),
+            old(_vm_io_owner).inv(),
+            old(_reader).wf(*old(_vm_io_owner)),
+            old(self).on_drop_pre(*old(_reader), *old(_regions), *old(_vm_io_owner)),
+        ensures
+            final(_regions).inv(),
+            final(_reader).inv(),
+            final(_vm_io_owner).inv(),
+            final(_reader).wf(*final(_vm_io_owner)),
+    {
+    }
+
+    fn is_untyped(&self) -> bool {
+        false
+    }
+
+    spec fn vtable_ptr(&self) -> usize where Self: Sized;
+}
 
 /// The error type for getting the frame from a physical address.
 #[derive(Debug)]
@@ -191,82 +276,6 @@ pub enum GetFrameError {
     Retry,
 }
 
-pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
-    recommends
-        paddr % 4096 == 0,
-        paddr < MAX_PADDR,
-{
-    let slot = frame_to_meta(paddr);
-    PPtr(slot, PhantomData::<MetaSlot>)
-}
-
-/// Space-holder of the AnyFrameMeta virtual table.
-///
-/// Dyn-compatible: no `Self`-by-value, no associated types on dispatched
-/// methods, no dyn-incompatible supertrait. `vtable_ptr` is `Self: Sized`
-/// because it's only used statically (the runtime vtable pointer lives on
-/// the slot, not on the instance). Sites that need `Repr<MetaSlotStorage>`
-/// must spell it out — it was previously a supertrait.
-pub unsafe trait AnyFrameMeta {
-    /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
-    /// Impls that need richer caller-side invariants (e.g. the PT-node's
-    /// reader/region invariants) override this; the trait method's
-    /// `requires` clause calls it.
-    open spec fn on_drop_pre(
-        &self,
-        reader: VmReader<'_, Infallible>,
-        regions: MetaRegionOwners,
-        vm_io_owner: crate::specs::mm::io::VmIoOwner,
-    ) -> bool {
-        true
-    }
-
-    exec fn on_drop(
-        &mut self,
-        _reader: &mut VmReader<'_, Infallible>,
-        Tracked(_regions): Tracked<&mut MetaRegionOwners>,
-        Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
-    )
-        requires
-            old(_regions).inv(),
-            old(_reader).inv(),
-            old(_vm_io_owner).inv(),
-            old(_reader).wf(*old(_vm_io_owner)),
-            old(self).on_drop_pre(*old(_reader), *old(_regions), *old(_vm_io_owner)),
-        ensures
-            final(_regions).inv(),
-            final(_reader).inv(),
-            final(_vm_io_owner).inv(),
-            final(_reader).wf(*final(_vm_io_owner)),
-    {
-    }
-
-    exec fn is_untyped(&self) -> bool {
-        false
-    }
-
-    spec fn vtable_ptr(&self) -> usize where Self: Sized;
-}
-
-global layout MetaSlot is size == 64, align == 8;
-
-pub broadcast axiom fn size_of_meta_slot()
-    ensures
-        #![trigger size_of::<MetaSlot>()]
-        #![trigger align_of::<MetaSlot>()]
-        size_of::<MetaSlot>() == 64,
-        align_of::<MetaSlot>() == 8,
-;
-
-#[inline(always)]
-#[verifier::allow_in_spec]
-pub const fn meta_slot_size() -> (res: usize)
-    returns
-        64usize,
-{
-    size_of::<MetaSlot>()
-}
-
 pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
     &&& paddr % PAGE_SIZE == 0
     &&& paddr < MAX_PADDR
@@ -282,7 +291,7 @@ pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
 /// Verus ensures that the pointer will only be used when we have a permission object, so creating it is safe.
 #[verus_spec(res =>
     ensures
-        has_safe_slot(paddr) <==> res is Ok,
+        has_safe_slot(paddr) == res is Ok,
         res is Ok ==> res.unwrap().addr() == frame_to_meta(paddr),
 )]
 pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
@@ -292,7 +301,7 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
     if paddr >= MAX_PADDR {
         return Err(GetFrameError::OutOfBound);
     }
-    let vaddr = frame_to_meta(paddr);
+    let vaddr = mapping::frame_to_meta(paddr);
     let ptr = PPtr::<MetaSlot>::from_addr(vaddr);
 
     // SAFETY: `ptr` points to a valid `MetaSlot` that will never be

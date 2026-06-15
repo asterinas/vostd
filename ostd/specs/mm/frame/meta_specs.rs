@@ -11,7 +11,7 @@ use super::meta_owners::{
     MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, Metadata, PageUsage,
 };
 use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, get_slot_spec,
+    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
     mapping::{
         frame_to_index, frame_to_meta, frame_to_meta_spec, index_to_frame,
         lemma_paddr_to_meta_biinjective, meta_addr, meta_to_frame_spec,
