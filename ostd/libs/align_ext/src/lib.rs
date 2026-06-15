@@ -95,12 +95,12 @@ macro_rules! call_lemma_low_bits_mask_is_mod {
 macro_rules! impl_align_ext {
     ($( $uint_type:ty ),+,) => {
         $(
-            verus!{
             /// # Verified Properties
             /// ## Safety
             /// The implementation is written in safe Rust and there is no undefined behavior.
             /// ## Functional correctness
             /// The implementation meets the specification given in the trait `AlignExt`.
+            #[verus_verify]
             impl AlignExt for $uint_type {
                 /// ## Preconditions
                 /// - `self + (align - 1)` does not overflow.
@@ -114,7 +114,7 @@ macro_rules! impl_align_ext {
                 #[verus_spec(ret =>
                     requires
                         self + (align - 1) <= $uint_type::MAX,
-                        !(align >= 2 && is_pow2(align as int)) ==> may_panic(),
+                        (align >= 2 && is_pow2(align as int)) || may_panic(),
                     ensures
                         align >= 2,
                         is_pow2(align as int),
@@ -179,7 +179,7 @@ macro_rules! impl_align_ext {
                 #[inline]
                 #[verus_spec(ret =>
                     requires
-                        !(is_pow2(align as int) && align >= 2) ==> may_panic(),
+                        (is_pow2(align as int) && align >= 2) || may_panic(),
                     ensures
                         align >= 2,
                         is_pow2(align as int),
@@ -215,7 +215,6 @@ macro_rules! impl_align_ext {
                     }
                     self & !(align - 1)
                 }
-            }
         }
             )*
     }
