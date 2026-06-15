@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
-use alloc::vec::Vec;
+use alloc::collections::VecDeque;
+use core::sync::atomic::Ordering;
 
 use vstd::prelude::*;
 use vstd_extra::raw_callback::RawCallback;
 
 use crate::specs::{
-    mm::cpu::{AtomicCpuSet, CpuSet},
+    mm::cpu::{AtomicCpuSet, CpuId, CpuSet},
     sync::{
         rcu as rcu_spec,
         rcu::{GracePeriodView, MonitorStateView},
@@ -16,7 +17,7 @@ use crate::sync::{LocalIrqDisabled, SpinLock};
 
 verus! {
 
-pub type Callbacks = Vec<RcuCallback>;
+pub type Callbacks = VecDeque<RcuCallback>;
 
 type MonitorAtomicBool = WeakAtomicBool<
     (),
@@ -56,20 +57,92 @@ impl RcuCallback {
         Self { raw, summary: Ghost(summary) }
     }
 
-    /// Runs the underlying callback. The reclaim-safety precondition is not
-    /// encoded here yet; the next layer will prove it from the monitor/global
-    /// RCU invariant before invoking this method.
+    /// Runs the underlying callback once the monitor has completed the grace
+    /// period that contained this callback's retire summary.
     #[inline]
     #[verifier::external_body]
-    pub unsafe fn call_once(self) {
+    unsafe fn call_once(self, Tracked(completed): Tracked<&CompletedGracePeriod>)
+        requires
+            completed.covers(self@),
+    {
         unsafe {
             self.raw.call_once();
         }
     }
 }
 
+/// Proof token produced by the monitor when a grace period finishes.
+///
+/// The token is private to the monitor implementation. External code can
+/// certify that a callback is safe to enqueue, but cannot manufacture the
+/// completion fact needed to execute the callback.
+tracked struct CompletedGracePeriod {
+    ghost callbacks: Seq<rcu_spec::RcuCallbackSummary>,
+}
+
+impl View for CompletedGracePeriod {
+    type V = Seq<rcu_spec::RcuCallbackSummary>;
+
+    closed spec fn view(&self) -> Seq<rcu_spec::RcuCallbackSummary> {
+        self.callbacks
+    }
+}
+
+impl CompletedGracePeriod {
+    closed spec fn covers(self, callback: rcu_spec::RcuCallbackSummary) -> bool {
+        self@.contains(callback)
+    }
+}
+
 pub open spec fn callback_summaries(callbacks: Callbacks) -> Seq<rcu_spec::RcuCallbackSummary> {
     Seq::new(callbacks@.len(), |i: int| callbacks@[i]@)
+}
+
+fn run_completed_callbacks(
+    mut callbacks: Callbacks,
+    Tracked(completed): Tracked<CompletedGracePeriod>,
+)
+    requires
+        completed@ == callback_summaries(callbacks),
+{
+    proof {
+        assert forall|i: int|
+            0 <= i < callbacks@.len() implies completed.covers((#[trigger] callbacks@[i])@) by
+        {
+            let summaries = callback_summaries(callbacks);
+            assert(completed@ == summaries);
+            assert(summaries[i] == callbacks@[i]@);
+            summaries.lemma_index_contains(i);
+        }
+    }
+    while callbacks.len() > 0
+        invariant
+            forall|i: int|
+                0 <= i < callbacks@.len() ==> completed.covers((#[trigger] callbacks@[i])@),
+        decreases callbacks@.len(),
+    {
+        proof {
+            assert(callbacks@.len() > 0);
+            assert(completed.covers(callbacks@[0]@));
+        }
+        let ghost before = callbacks@;
+        let callback = callbacks.pop_front().unwrap();
+        proof {
+            assert(callback == before[0]);
+            assert(callback@ == before[0]@);
+            assert(completed.covers(callback@));
+            assert forall|i: int|
+                0 <= i < callbacks@.len() implies completed.covers((#[trigger] callbacks@[i])@) by
+            {
+                assert(callbacks@ == before.subrange(1, before.len() as int));
+                assert(callbacks@[i] == before[i + 1]);
+                assert(0 <= i + 1 < before.len());
+            }
+        }
+        unsafe {
+            callback.call_once(Tracked(&completed));
+        }
+    }
 }
 
 proof fn callback_summaries_empty(callbacks: Callbacks)
@@ -82,6 +155,12 @@ proof fn callback_summaries_empty(callbacks: Callbacks)
     vstd::seq_lib::assert_seqs_equal!(
         callback_summaries(callbacks) == Seq::<rcu_spec::RcuCallbackSummary>::empty()
     );
+}
+
+proof fn callback_summaries_len(callbacks: Callbacks)
+    ensures
+        callback_summaries(callbacks).len() == callbacks@.len(),
+{
 }
 
 // The proof-facing views `GracePeriodView` and `MonitorStateView` live in
@@ -112,7 +191,7 @@ impl GracePeriod {
         ensures
             res@ == GracePeriodView::initial(),
     {
-        let callbacks = Vec::new();
+        let callbacks = Callbacks::new();
         let cpu_mask = AtomicCpuSet::new(CpuSet::new_empty());
         let res = Self { callbacks, cpu_mask, is_complete: true };
         proof {
@@ -123,15 +202,30 @@ impl GracePeriod {
 
     /// Starts a new incomplete grace period with the callbacks that should run
     /// after it completes. The CPU mask is reset because all CPUs must pass a
-    /// fresh quiescent state for this new batch.
+    /// fresh quiescent state for this new batch. Keep the same atomic object so
+    /// later weak-memory ghost state can attach stable identity to this mask.
     fn restart(&mut self, callbacks: Callbacks)
         ensures
             final(self).callback_summaries() == callback_summaries(callbacks),
             !final(self).is_complete,
+        no_unwind
     {
         self.is_complete = false;
         self.callbacks = callbacks;
-        self.cpu_mask = AtomicCpuSet::new(CpuSet::new_empty());
+        self.cpu_mask.store(&CpuSet::new_empty(), Ordering::Relaxed);
+    }
+
+    /// Records that `this_cpu` has passed a quiescent state for this grace
+    /// period and returns whether the executable CPU mask now covers all CPUs.
+    ///
+    /// The CPU-mask contents are not part of the current proof view, so this
+    /// method refines only the executable monitor protocol. The higher-level
+    /// proof still treats the returned completion bit abstractly.
+    fn record_quiescent_state(&self, this_cpu: CpuId) -> (complete: bool)
+        no_unwind
+    {
+        self.cpu_mask.add(this_cpu, Ordering::Relaxed);
+        self.cpu_mask.load(Ordering::Relaxed).is_full()
     }
 
     closed spec fn callback_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
@@ -181,7 +275,7 @@ impl State {
             res.no_pending_work(),
     {
         let current_gp = GracePeriod::new();
-        let next_callbacks = Vec::new();
+        let next_callbacks = Callbacks::new();
         let res = Self { current_gp, next_callbacks };
         proof {
             callback_summaries_empty(res.next_callbacks);
@@ -191,25 +285,129 @@ impl State {
 
     /// Enqueues one callback and starts a grace period if the monitor was idle.
     ///
-    /// The method preserves the lock-protected state invariant. Returning with
-    /// pending work lets the caller publish `is_monitoring = true` with the
-    /// resulting state view.
-    fn enqueue_after_grace_period(&mut self, callback: RcuCallback)
+    /// This follows the upstream monitor protocol at the observable boundary:
+    /// an idle monitor starts a new current grace period and the caller must
+    /// publish `is_monitoring = true`; an already active monitor only appends
+    /// the callback to the next batch and does not publish another flag
+    /// message. The upstream implementation transiently stages the idle
+    /// callback in `next_callbacks` before promoting it, but our type invariant
+    /// keeps `next_callbacks` empty whenever the current grace period is
+    /// complete, so the idle case constructs the current batch directly.
+    fn enqueue_after_grace_period(&mut self, callback: RcuCallback) -> (started_gp: bool)
         ensures
             final(self).wf(),
             final(self).has_pending_work(),
+            started_gp ==> !final(self)@.current_gp.is_complete,
+            !started_gp ==> !old(self)@.current_gp.is_complete,
     {
         if self.current_gp.is_complete {
-            let mut callbacks = Vec::new();
-            callbacks.push(callback);
-            let cpu_mask = AtomicCpuSet::new(CpuSet::new_empty());
-            self.current_gp = GracePeriod { callbacks, cpu_mask, is_complete: false };
+            let mut callbacks = Callbacks::new();
+            callbacks.push_back(callback);
+            self.current_gp.restart(callbacks);
+            true
         } else {
-            let mut next_callbacks = Vec::new();
+            let mut next_callbacks = Callbacks::new();
             core::mem::swap(&mut next_callbacks, &mut self.next_callbacks);
-            next_callbacks.push(callback);
+            next_callbacks.push_back(callback);
             self.next_callbacks = next_callbacks;
+            false
         }
+    }
+
+    /// Records a quiescent state for the current CPU, returns the callbacks
+    /// that become reclaimable if this completes the grace period, and
+    /// immediately starts the next grace period if callbacks accumulated while
+    /// the current one was running.
+    ///
+    /// This mirrors the upstream state machine: an incomplete CPU mask leaves
+    /// the current grace period running and returns no completed callbacks.
+    /// The exact CPU-mask contents are still outside the proof view; the proof
+    /// treats `record_quiescent_state`'s boolean result as the completion cut.
+    fn finish_grace_period(
+        &mut self,
+        this_cpu: CpuId,
+    ) -> ((completed_gp, completed_callbacks, completed_token): (
+        bool,
+        Callbacks,
+        Tracked<CompletedGracePeriod>,
+    ))
+        ensures
+            final(self).wf(),
+            completed_token@@ == callback_summaries(completed_callbacks),
+            completed_gp ==> !old(self)@.current_gp.is_complete,
+            completed_gp ==> completed_token@@ == old(self)@.current_gp.callbacks,
+            !completed_gp ==> completed_token@@ == Seq::<rcu_spec::RcuCallbackSummary>::empty(),
+            (!completed_gp && !(old(self)@.current_gp.is_complete)) ==> !(
+                final(self)@.current_gp.is_complete
+            ),
+    {
+        proof {
+            use_type_invariant(&*self);
+        }
+        let ghost initially_complete = self.current_gp.is_complete;
+        let ghost initial_current_callbacks = self.current_gp@.callbacks;
+        let mut completed_callbacks = Callbacks::new();
+        let mut completed_gp = false;
+        if !self.current_gp.is_complete {
+            let is_complete = self.current_gp.record_quiescent_state(this_cpu);
+            if is_complete {
+                completed_gp = true;
+                core::mem::swap(&mut completed_callbacks, &mut self.current_gp.callbacks);
+                proof {
+                    assert(callback_summaries(completed_callbacks) == initial_current_callbacks);
+                    callback_summaries_empty(self.current_gp.callbacks);
+                }
+                if self.next_callbacks.len() > 0 {
+                    let mut next_callbacks = Callbacks::new();
+                    core::mem::swap(&mut next_callbacks, &mut self.next_callbacks);
+                    proof {
+                        callback_summaries_empty(self.next_callbacks);
+                    }
+                    self.current_gp.restart(next_callbacks);
+                } else {
+                    self.current_gp.is_complete = true;
+                    proof {
+                        callback_summaries_empty(self.current_gp.callbacks);
+                        callback_summaries_len(self.next_callbacks);
+                        assert(self.next_callbacks@.len() == 0);
+                        assert(callback_summaries(self.next_callbacks).len() == 0);
+                    }
+                }
+            }
+        }
+        proof_decl! {
+            let tracked completed = CompletedGracePeriod {
+                callbacks: callback_summaries(completed_callbacks),
+            };
+        }
+        proof {
+            callback_summaries_len(self.current_gp.callbacks);
+            callback_summaries_len(self.next_callbacks);
+            assert(completed@ == callback_summaries(completed_callbacks));
+            if !completed_gp {
+                callback_summaries_empty(completed_callbacks);
+            } else {
+                assert(!initially_complete);
+                assert(callback_summaries(completed_callbacks) == initial_current_callbacks);
+            }
+            if initially_complete {
+                assert(initial_current_callbacks.len() == 0);
+                vstd::seq_lib::assert_seqs_equal!(
+                    initial_current_callbacks == Seq::<rcu_spec::RcuCallbackSummary>::empty()
+                );
+            }
+            if self.current_gp.is_complete {
+                if initially_complete {
+                    assert(self.wf());
+                }
+                assert(self.current_gp@.callbacks.len() == 0);
+                assert(self.next_callbacks@.len() == 0);
+                assert(callback_summaries(self.next_callbacks).len() == 0);
+            }
+            assert(self.current_gp.wf());
+            assert(self.wf());
+        }
+        (completed_gp, completed_callbacks, Tracked(completed))
     }
 
     closed spec fn pending_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
@@ -372,24 +570,78 @@ impl RcuMonitor {
         self.is_monitoring.store_relaxed_rcu_monitor(value, Ghost(state), Tracked(tv));
     }
 
-    /// Schedules `callback` to run after a future grace period and publishes a
-    /// conservative `true` monitor flag message for the resulting state.
+    /// Schedules `callback` to run after a future grace period.
+    ///
+    /// Matches the upstream protocol: callbacks are first queued for the next
+    /// grace period. Only an idle monitor promotes that queue into a new
+    /// current grace period and publishes a `true` flag; if a grace period is
+    /// already running, the existing monitor flag is left unchanged.
     pub(super) fn after_grace_period(&self, callback: RcuCallback) {
         proof {
             use_type_invariant(self);
         }
         let mut state = self.state.lock();
-        state.enqueue_after_grace_period(callback);
+        let started_gp = state.enqueue_after_grace_period(callback);
+        if started_gp {
+            proof {
+                assert(state.view().wf());
+                assert(state.view().has_pending_work());
+                use_type_invariant(self);
+            }
+            proof_decl! {
+                let tracked mut tv = ThreadView::new();
+            }
+            self.set_monitoring(true, Ghost(state.view()@), Tracked(&mut tv));
+        }
+        state.drop();
+    }
+
+    /// Reports this CPU's quiescent state and runs a completed callback batch
+    /// outside the monitor lock.
+    ///
+    /// The control flow is aligned with upstream: a relaxed false flag returns
+    /// immediately, a stale true flag may still find a completed state under
+    /// the lock and return, an incomplete CPU mask keeps monitoring without
+    /// touching the flag, and callback bodies run outside the monitor lock.
+    pub(super) unsafe fn finish_grace_period(&self) {
         proof {
-            assert(state.view().wf());
-            assert(state.view().has_pending_work());
             use_type_invariant(self);
         }
         proof_decl! {
-            let tracked mut tv = ThreadView::new();
+            let tracked mut fast_tv = ThreadView::new();
         }
-        self.set_monitoring(true, Ghost(state.view()@), Tracked(&mut tv));
+        let is_monitoring = self.is_monitoring.load_relaxed(Tracked(&mut fast_tv)).0;
+        if !is_monitoring {
+            return;
+        }
+
+        let mut state = self.state.lock();
+        if state.current_gp.is_complete {
+            state.drop();
+            return;
+        }
+
+        let this_cpu = CpuId::current();
+        let (completed_gp, completed_callbacks, Tracked(completed)) =
+            state.finish_grace_period(this_cpu);
+        if !completed_gp {
+            state.drop();
+            return;
+        }
+        if state.current_gp.is_complete {
+            proof {
+                assert(state.view().wf());
+                rcu_spec::monitor_state_pending_iff_incomplete(state.view()@);
+                assert(state.view()@.no_pending_work());
+                use_type_invariant(self);
+            }
+            proof_decl! {
+                let tracked mut tv = ThreadView::new();
+            }
+            self.set_monitoring(false, Ghost(state.view()@), Tracked(&mut tv));
+        }
         state.drop();
+        run_completed_callbacks(completed_callbacks, Tracked(completed));
     }
 
     closed spec fn wf(self) -> bool {

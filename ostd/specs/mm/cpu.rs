@@ -1,8 +1,17 @@
+use core::sync::atomic::Ordering;
+
 use vstd::prelude::*;
 
 verus! {
 
 pub struct CpuId(u32);
+
+impl CpuId {
+    #[verifier::external_body]
+    pub fn current() -> Self {
+        unimplemented!()
+    }
+}
 
 pub struct AtomicCpuSet;
 
@@ -10,6 +19,23 @@ impl AtomicCpuSet {
     #[verifier::external_body]
     pub fn new(_initial: CpuSet) -> Self {
         unimplemented!()
+    }
+
+    #[verifier::external_body]
+    pub fn load(&self, _ordering: Ordering) -> CpuSet
+        no_unwind
+    {
+        unimplemented!()
+    }
+
+    pub fn store(&self, _value: &CpuSet, _ordering: Ordering)
+        no_unwind
+    {
+    }
+
+    pub fn add(&self, _cpu: CpuId, _ordering: Ordering)
+        no_unwind
+    {
     }
 }
 
@@ -27,6 +53,14 @@ impl CpuSet {
     pub fn new_empty() -> Self
         returns
             Self::new_empty_spec(),
+        no_unwind
+    {
+        unimplemented!()
+    }
+
+    #[verifier::external_body]
+    pub fn is_full(&self) -> bool
+        no_unwind
     {
         unimplemented!()
     }
