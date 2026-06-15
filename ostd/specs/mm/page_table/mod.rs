@@ -1597,7 +1597,7 @@ impl AbstractVaddr {
                     + aligned.rec_compute_vaddr(4)) as Vaddr);
             };
             assert(aligned.rec_compute_vaddr(2) == self.index[2] * 0x4000_0000usize + self.index[3]
-                * 0x80_0000_0000usize) by {};
+                * 0x80_0000_0000usize);
             assert(aligned.compute_vaddr() == self.index[0] * 0x1000usize + self.index[1]
                 * 0x20_0000usize + self.index[2] * 0x4000_0000usize + self.index[3]
                 * 0x80_0000_0000usize) by {
