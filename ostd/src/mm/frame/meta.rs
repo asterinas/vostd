@@ -948,7 +948,7 @@ impl MetaSlot {
             final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
     )]
     #[verifier::external_body]
-    pub(super) fn drop_meta_in_place(&self) {
+    pub(super) unsafe fn drop_meta_in_place(&self) {
         // Smoke test for the dyn-dispatch shape — body kept `external_body`
         // because (a) the args bundle isn't threaded through the call chain
         // yet (Tracked::assume_new forges it here), (b) `VmReader`,
