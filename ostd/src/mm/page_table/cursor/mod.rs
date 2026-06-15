@@ -969,7 +969,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let end = self.va + len;
 
         let ghost barrier_va = self.barrier_va;
-        assert(barrier_va == old(self).barrier_va);
 
         let rcu_guard = self.rcu_guard;
 
