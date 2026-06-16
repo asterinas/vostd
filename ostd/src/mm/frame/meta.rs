@@ -34,6 +34,7 @@ pub(crate) mod mapping {
     use crate::specs::arch::{PAGE_SIZE, MAX_PADDR};
     pub use crate::specs::mm::frame::mapping::*;
     use vstd::prelude::*;
+    use core::mem::size_of;
     use super::MetaSlot;
     use crate::mm::{kspace::FRAME_METADATA_RANGE, Paddr, PagingConstsTrait, Vaddr};
 
@@ -60,6 +61,9 @@ pub(crate) mod mapping {
 
         let base = FRAME_METADATA_RANGE.start;
         let offset = paddr / PAGE_SIZE;
+        proof {
+            assert(base + offset * size_of::<MetaSlot>() < usize::MAX);
+        }
         base + offset * size_of::<MetaSlot>()
     }
 
@@ -75,6 +79,8 @@ pub(crate) mod mapping {
             meta_to_frame(vaddr),
     {
         broadcast use super::axiom_size_of_meta_slot;
+
+        assert(size_of::<MetaSlot>() == META_SLOT_SIZE);
 
         let base = FRAME_METADATA_RANGE.start;
         let offset = (vaddr - base) / size_of::<MetaSlot>();
@@ -193,10 +199,10 @@ type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
 
 pub broadcast axiom fn axiom_size_of_meta_slot()
     ensures
-        #![trigger size_of::<MetaSlot>()]
-        #![trigger align_of::<MetaSlot>()]
-        size_of::<MetaSlot>() == META_SLOT_SIZE,
-        align_of::<MetaSlot>() == 8,
+        #![trigger core::mem::size_of::<MetaSlot>()]
+        #![trigger core::mem::align_of::<MetaSlot>()]
+        core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
+        core::mem::align_of::<MetaSlot>() == 8,
 ;
 
 /// All frame metadata types must implement this trait.
