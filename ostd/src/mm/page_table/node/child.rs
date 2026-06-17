@@ -38,6 +38,7 @@ pub enum Child<C: PageTableConfig> {
     pub None,
 }
 
+#[verus_verify]
 impl<C: PageTableConfig> Child<C> {
     /// Returns whether the child is not present.
     #[vstd::contrib::auto_spec]
@@ -58,11 +59,9 @@ impl<C: PageTableConfig> Child<C> {
     /// ## Safety
     /// The `PTE` safety invariants ensure that the raw pointer to the entry is tracked correctly
     /// so that we can guarantee the safety condition on `from_pte`.
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut EntryOwner<C>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn into_pte(self) -> (res: C::E)
+             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             self.invariants(*old(owner), *old(regions)),
             old(owner).in_scope,
@@ -76,7 +75,8 @@ impl<C: PageTableConfig> Child<C> {
             old(owner).is_node() ==> res == C::E::new_pt_spec(
                 meta_to_frame(old(owner).node().meta_addr_self()),
             ),
-    {
+    )]
+    pub fn into_pte(self) -> C::E {
         proof {
             C::E::lemma_page_table_entry_properties();
         }
@@ -135,11 +135,9 @@ impl<C: PageTableConfig> Child<C> {
     /// ## Safety
     /// The `PTE` safety invariants require that the `PTE` was previously obtained using [`Self::into_pte`]
     /// (or another function that calls `ManuallyDrop::new`, which is sufficient for safety).
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(entry_own): Tracked<&mut EntryOwner<C>>,
-    )]
-    pub unsafe fn from_pte(pte: C::E, level: PagingLevel) -> (res: Self)
+             Tracked(entry_own): Tracked<&mut EntryOwner<C>>,
         requires
             old(entry_own).pte_invariants(pte, *old(regions)),
             level == old(entry_own).parent_level,
@@ -148,7 +146,8 @@ impl<C: PageTableConfig> Child<C> {
             res == Child::<C>::from_pte_spec(pte, level, *final(regions)),
             *final(entry_own) == old(entry_own).from_pte_owner_spec(),
             *final(regions) == final(entry_own).from_pte_regions_spec(*old(regions)),
-    {
+    )]
+    pub unsafe fn from_pte(pte: C::E, level: PagingLevel) -> Self {
         if !pte.is_present() {
             proof {
                 entry_own.in_scope = true;
@@ -217,6 +216,7 @@ pub enum ChildRef<'a, C: PageTableConfig> {
     None,
 }
 
+#[verus_verify]
 impl<C: PageTableConfig> ChildRef<'_, C> {
     /// Converts a PTE to a reference to a child.
     ///
@@ -231,11 +231,9 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     /// ## Safety
     /// - The `PTE` safety invariants require that the `PTE` was previously obtained using [`Self::from_pte`]
     /// - The soundness of using the resulting `ChildRef` as a reference follows from `FrameRef` safety.
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(entry_owner): Tracked<&EntryOwner<C>>
-    )]
-    pub unsafe fn from_pte(pte: &C::E, level: PagingLevel) -> (res: Self)
+             Tracked(entry_owner): Tracked<&EntryOwner<C>>,
         requires
             entry_owner.pte_invariants(*pte, *old(regions)),
             level == entry_owner.parent_level,
@@ -249,7 +247,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             forall|k: usize|
                 old(regions).slots.contains_key(k) ==> old(regions).slots[k]
                     == #[trigger] final(regions).slots[k],
-    {
+    )]
+    pub unsafe fn from_pte(pte: &C::E, level: PagingLevel) -> Self {
         if !pte.is_present() {
             return ChildRef::None;
         }
