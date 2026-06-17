@@ -48,7 +48,6 @@ impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
     }
 }
 
-#[verus_verify]
 pub struct Entry<'a, 'rcu, C: PageTableConfig> {
     /// The page table entry.
     ///
@@ -75,6 +74,7 @@ pub struct Entry<'a, 'rcu, C: PageTableConfig> {
     pub node: &'a mut PageTableGuard<'rcu, C>,
 }
 
+#[verus_verify]
 impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub open spec fn new_spec(
         pte: C::E,
