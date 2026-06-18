@@ -64,7 +64,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(BASE_PAGE_SIZE_spec)]
     fn BASE_PAGE_SIZE() -> (res: usize)
         returns
-            Self::BASE_PAGE_SIZE_spec(),
+            Self::BASE_PAGE_SIZE(),
     ;
 
     spec fn NR_LEVELS_spec() -> PagingLevel;
@@ -77,7 +77,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(NR_LEVELS_spec)]
     fn NR_LEVELS() -> (res: PagingLevel)
         returns
-            Self::NR_LEVELS_spec(),
+            Self::NR_LEVELS(),
     ;
 
     spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel;
@@ -87,7 +87,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(HIGHEST_TRANSLATION_LEVEL_spec)]
     fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
         returns
-            Self::HIGHEST_TRANSLATION_LEVEL_spec(),
+            Self::HIGHEST_TRANSLATION_LEVEL(),
     ;
 
     spec fn PTE_SIZE_spec() -> usize;
@@ -96,7 +96,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(PTE_SIZE_spec)]
     fn PTE_SIZE() -> (res: usize)
         returns
-            Self::PTE_SIZE_spec(),
+            Self::PTE_SIZE(),
     ;
 
     spec fn ADDRESS_WIDTH_spec() -> usize;
@@ -106,7 +106,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(ADDRESS_WIDTH_spec)]
     fn ADDRESS_WIDTH() -> (res: usize)
         returns
-            Self::ADDRESS_WIDTH_spec(),
+            Self::ADDRESS_WIDTH(),
     ;
 
     spec fn VA_SIGN_EXT_spec() -> bool;
@@ -125,11 +125,11 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(VA_SIGN_EXT_spec)]
     fn VA_SIGN_EXT() -> bool
         returns
-            Self::VA_SIGN_EXT_spec(),
+            Self::VA_SIGN_EXT(),
     ;
 
     /// All configs in vostd use the same value for the per-config
-    /// `NR_LEVELS_spec()` as the architecture-level constant `NR_LEVELS`
+    /// `NR_LEVELS()` as the architecture-level constant `NR_LEVELS`
     /// (= 4 for x86_64). This is *implicit* in the cursor framework:
     /// `CursorOwner::inv()` hardcodes `self.level <= NR_LEVELS` (const)
     /// for cursors over any `C: PagingConstsTrait`, so a config whose
@@ -140,14 +140,15 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// `CursorMut::take_next`'s `replace_cur_entry` discharge).
     proof fn lemma_paging_consts_properties()
         ensures
-            0 < Self::BASE_PAGE_SIZE_spec(),
-            is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
-            Self::BASE_PAGE_SIZE_spec() == PAGE_SIZE,
-            Self::NR_LEVELS_spec() > 0,
-            Self::NR_LEVELS_spec() == NR_LEVELS,
-            is_pow2(Self::PTE_SIZE_spec() as int),
-            0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE_spec(),
-            Self::BASE_PAGE_SIZE_spec() / Self::PTE_SIZE_spec() == NR_ENTRIES,
+            0 < Self::BASE_PAGE_SIZE(),
+            is_pow2(Self::BASE_PAGE_SIZE() as int),
+            Self::NR_LEVELS() > 0,
+            is_pow2(Self::PTE_SIZE() as int),
+            0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            // FIXME: remove this once we have a more general
+            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
+            Self::NR_LEVELS() == NR_LEVELS,
+            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
     ;
 }
 
@@ -176,8 +177,6 @@ pub proof fn lemma_nr_subpage_per_huge_bounded<C: PagingConstsTrait>()
     C::lemma_paging_consts_properties();
     broadcast use group_div_basics;
 
-    assert(C::PTE_SIZE() <= C::BASE_PAGE_SIZE());
-    assert(C::BASE_PAGE_SIZE() / C::PTE_SIZE() <= C::BASE_PAGE_SIZE());
     assert(C::BASE_PAGE_SIZE() / C::PTE_SIZE() > 0) by {
         lemma_div_non_zero(C::BASE_PAGE_SIZE() as int, C::PTE_SIZE() as int);
     };

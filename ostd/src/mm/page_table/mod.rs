@@ -1243,9 +1243,6 @@ proof fn lemma_pte_index_consts<C: PagingConstsTrait>()
     lemma2_to64();
     lemma_usize_pow2_ilog2(12);
     lemma_usize_pow2_ilog2(9);
-    assert(usize::BITS == 64) by (compute);
-    assert(PAGE_SIZE == 4096usize);
-    assert(NR_ENTRIES == 512usize);
 }
 
 /// The index of a VA's PTE in a page table node at the given level.
