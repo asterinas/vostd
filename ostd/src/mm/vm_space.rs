@@ -38,21 +38,19 @@ use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
 use vstd_extra::panic::may_panic;
+use vstd_extra::prelude::*;
 use vstd_extra::{assert, assert_eq};
 
 use crate::mm::kspace::KERNEL_PAGE_TABLE;
 use crate::mm::tlb::*;
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
 
-use crate::specs::mm::io::VmIoOwner;
-use crate::{
-    mm::{
-        MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-        io::{Fallible, VmReader, VmWriter},
-        page_prop::PageProperty,
-    },
-    prelude::*,
+use crate::mm::{
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    io::{Fallible, VmReader, VmWriter},
+    page_prop::PageProperty,
 };
+use crate::specs::mm::io::VmIoOwner;
 
 use alloc::sync::Arc;
 

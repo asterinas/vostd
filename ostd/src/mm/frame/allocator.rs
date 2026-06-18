@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The physical memory allocator.
 use vstd::prelude::*;
+use vstd_extra::prelude::*;
 
 use core::{alloc::Layout, ops::Range};
 
@@ -13,7 +14,6 @@ use crate::{
     error::Error,
     //    impl_frame_meta_for,
     mm::{PAGE_SIZE, Paddr, paddr_to_vaddr},
-    prelude::*,
     //    util::ops::range_difference,
 };
 use vstd_extra::cast_ptr::Repr;
