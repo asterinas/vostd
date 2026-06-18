@@ -21,17 +21,17 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
 )
     requires
         idx_start == C::TOP_LEVEL_INDEX_RANGE_spec().start,
-        offset as int == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()),
+        offset as int == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
     ensures
         offset < usize::BITS,
         idx_start * pow2(offset as nat) <= usize::MAX,
-        offset as nat == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+        offset as nat == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
 {
     C::lemma_page_table_config_constant_requirements();
     vstd::layout::unsigned_int_max_values();
 
-    let off = pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat;
-    let aw = C::C::ADDRESS_WIDTH() as nat;
+    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
+    let aw = C::ADDRESS_WIDTH() as nat;
     let top_w = (aw as int - off as int) as nat;
     lemma_pow2_adds(top_w, off);
     lemma_pow2_pos(off);
@@ -43,8 +43,8 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
     let p_top = pow2(top_w) as int;
     let p_aw = pow2(aw) as int;
 
-    assert(C::C::NR_LEVELS() == C::NR_LEVELS());
-    assert(offset as int == pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()));
+    assert(C::NR_LEVELS() == C::NR_LEVELS());
+    assert(offset as int == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()));
     assert(offset as nat == off);
     assert(offset < usize::BITS);
     assert(i_start < p_top);
@@ -74,19 +74,19 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
 pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(idx_end: usize, offset: usize)
     requires
         idx_end == C::TOP_LEVEL_INDEX_RANGE_spec().end,
-        offset as int == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()),
+        offset as int == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
     ensures
         offset < usize::BITS,
         idx_end * pow2(offset as nat) <= usize::MAX,
         0 < idx_end * pow2(offset as nat),
-        offset as nat == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+        offset as nat == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
 {
     C::lemma_page_table_config_constant_requirements();
     lemma_pow2_pos(offset as nat);
 
-    assert(C::C::NR_LEVELS() == C::NR_LEVELS());
-    assert(offset as int == pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()));
-    assert(offset as nat == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat);
+    assert(C::NR_LEVELS() == C::NR_LEVELS());
+    assert(offset as int == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()));
+    assert(offset as nat == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat);
     assert(offset < usize::BITS);
     assert(idx_end * pow2(offset as nat) <= usize::MAX);
 
@@ -111,12 +111,12 @@ pub proof fn lemma_pt_va_range_end_wrapping_sub<C: PageTableConfig>(
 )
     requires
         idx_end == C::TOP_LEVEL_INDEX_RANGE_spec().end,
-        offset as int == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()),
+        offset as int == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
         shifted == idx_end * pow2(offset as nat),
         ret == vstd::wrapping::usize_specs::wrapping_sub(shifted, 1usize),
     ensures
         ret as int == (C::TOP_LEVEL_INDEX_RANGE_spec().end as int * pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int - 1) % 0x1_0000_0000_0000_0000int,
 {
     lemma_pt_va_range_end_shift_facts::<C>(idx_end, offset);
@@ -150,7 +150,7 @@ pub proof fn lemma_sign_bit_facts<C: PageTableConfig>(
     bit: usize,
 )
     requires
-        address_width == C::C::ADDRESS_WIDTH(),
+        address_width == C::ADDRESS_WIDTH(),
         shift == address_width - 1,
         shifted == va >> shift,
         bit == shifted & 1usize,
@@ -158,7 +158,7 @@ pub proof fn lemma_sign_bit_facts<C: PageTableConfig>(
         (bit != 0) == ((va as int / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1),
 {
     C::lemma_page_table_config_constant_requirements();
-    assert(C::C::ADDRESS_WIDTH() == C::ADDRESS_WIDTH());
+    assert(C::ADDRESS_WIDTH() == C::ADDRESS_WIDTH());
     assert(address_width == C::ADDRESS_WIDTH());
     assert(0 < address_width as int <= 64);
     assert(usize::BITS == 64) by (compute);
@@ -189,22 +189,22 @@ pub proof fn lemma_sign_bit_facts<C: PageTableConfig>(
 pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: Vaddr)
     requires
         start as int == (C::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int),
         end as int == ((C::TOP_LEVEL_INDEX_RANGE_spec().end as int) * (pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int) - 1) % 0x1_0000_0000_0000_0000int,
     ensures
         (start as int) < (pow2(C::ADDRESS_WIDTH() as nat) as int),
         (end as int) < (pow2(C::ADDRESS_WIDTH() as nat) as int),
         // For the end-of-range arithmetic ensures of `vaddr_range`:
         end as int == (C::TOP_LEVEL_INDEX_RANGE_spec().end as int) * (pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int) - 1,
 {
     C::lemma_page_table_config_constant_requirements();
-    let off = pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat;
-    let aw = C::C::ADDRESS_WIDTH() as nat;
+    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
+    let aw = C::ADDRESS_WIDTH() as nat;
     let top_w = (aw as int - off as int) as nat;
     lemma_pow2_adds(top_w, off);
     lemma_pow2_pos(off);

@@ -803,9 +803,7 @@ pub fn largest_pages<C: PageTableConfig>(
 /// Gets the top-level index width, in bits, for the page table.
 fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
     ensures
-        ret as int == C::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<C::C>(
-            C::C::NR_LEVELS(),
-        ),
+        ret as int == C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
     proof {
         C::lemma_paging_consts_properties();
@@ -819,7 +817,7 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
 fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
         ret as int == C::TOP_LEVEL_INDEX_RANGE_spec().start as int * pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int,
 {
     let idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
@@ -850,7 +848,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
 fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
         ret as int == (C::TOP_LEVEL_INDEX_RANGE_spec().end as int * pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int - 1) % 0x1_0000_0000_0000_0000int,
 {
     let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
@@ -958,7 +956,7 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
         proof {
             C::lemma_page_table_config_constant_requirements();
             assert(va_sign_ext == C::VA_SIGN_EXT());
-            let off = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
+            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
             let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
             let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
             let p_off = pow2(off) as int;
@@ -977,14 +975,14 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
             // by `when_used_as_spec`; `sign_bit_set == ((pt_start as int /
             // 2^(aw-1)) % 2 == 1)` by `sign_bit_of_va`'s ensures.
             assert(va_sign_ext == C::VA_SIGN_EXT());
-            let off = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
+            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
             let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
             let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
             let p_off = pow2(off) as int;
             let p_aw_m1 = pow2(aw_m1) as int;
-            assert(C::C::VA_SIGN_EXT() == C::VA_SIGN_EXT());
-            assert(C::C::NR_LEVELS() == C::NR_LEVELS());
-            assert(C::C::ADDRESS_WIDTH() == C::ADDRESS_WIDTH());
+            assert(C::VA_SIGN_EXT() == C::VA_SIGN_EXT());
+            assert(C::NR_LEVELS() == C::NR_LEVELS());
+            assert(C::ADDRESS_WIDTH() == C::ADDRESS_WIDTH());
             assert(pt_start as int == i_start * p_off);
             assert(sign_bit_set == ((pt_start as int / p_aw_m1) % 2 == 1));
             assert(sign_bit_set == ((i_start * p_off / p_aw_m1) % 2 == 1));
@@ -1005,11 +1003,11 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
         // matching the unfolded `vaddr_range_bounds_spec`.
         assert(start as int == (C::LEADING_BITS_spec() as int) * 0x1_0000_0000_0000int + (
         C::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int));
         assert(end as int == (C::LEADING_BITS_spec() as int) * 0x1_0000_0000_0000int + (
         C::TOP_LEVEL_INDEX_RANGE_spec().end as int) * (pow2(
-            pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
+            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int) - 1);
     }
     (start, end)
@@ -1150,7 +1148,7 @@ pub proof fn lemma_vaddr_range_bounds_spec_unfold<C: PageTableConfig>()
     ensures
         vaddr_range_bounds_spec::<C>() == {
             let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
-            let off = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
+            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
             let lb = C::LEADING_BITS_spec() as int;
             let base = lb * 0x1_0000_0000_0000int;
             let start = (base + (idx.start as int) * pow2(off)) as usize;
