@@ -45,6 +45,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).in_locked_range(),
         ret.0.level == ret.0.guard_level,
+        ret.0.guard_level == NR_LEVELS as PagingLevel,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
