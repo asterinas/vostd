@@ -14,12 +14,12 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
 use crate::mm::{
-    MAX_NR_LEVELS, Paddr, PagingLevel, Vaddr,
+    MAX_NR_LEVELS, Paddr, PagingLevel, Vaddr, page_size,
     page_table::{EntryOwner, EntryOwnerKind},
 };
 
 use crate::mm::frame::frame_to_index;
-use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard, page_size_spec};
+use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard};
 
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -234,7 +234,6 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
     let lb = C::LEADING_BITS_spec() as int;
     let v = vaddr(path) as int;
     // `0 <= v + lb * 2^48 < 2^64`: sum fits in usize, cast is lossless.
-    assert(0 <= v);
     assert(lb * 0x1_0000_0000_0000int <= 0xffff_int * 0x1_0000_0000_0000int) by (nonlinear_arith)
         requires
             lb < 0x1_0000int,
@@ -251,9 +250,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
 /// page_size is monotonically increasing in its argument.
 pub proof fn page_size_monotonic(a: PagingLevel, b: PagingLevel)
     requires
-        1 <= a <= NR_LEVELS + 1,
-        1 <= b <= NR_LEVELS + 1,
-        a <= b,
+        1 <= a <= b <= NR_LEVELS + 1,
     ensures
         page_size(a) <= page_size(b),
 {
@@ -262,13 +259,8 @@ pub proof fn page_size_monotonic(a: PagingLevel, b: PagingLevel)
         let ps_a = page_size(a);
         let ps_b = page_size(b);
 
-        assert(ps_a == page_size_spec(a));
-        assert(ps_b == page_size_spec(b));
-
         lemma_page_size_ge_page_size(a);
         lemma_page_size_ge_page_size(b);
-        assert(ps_a > 0);
-        assert(ps_b > 0);
 
         lemma_page_size_divides(a, b);
         assert(ps_b % ps_a == 0);

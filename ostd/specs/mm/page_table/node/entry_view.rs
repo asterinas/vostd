@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use crate::arch::mm::PagingConsts;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
 use crate::specs::arch::*;
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use vstd_extra::ownership::*;
@@ -56,7 +56,7 @@ impl<C: PageTableConfig> Inv for LeafPageTableEntryView<C> {
             self.level as int,
         )
         // The corresponding virtual address must be aligned to the page size.
-        &&& self.map_va % (page_size_spec(self.level) as int) == 0
+        &&& self.map_va % (page_size(self.level) as int) == 0
     }
 }
 
@@ -82,7 +82,7 @@ impl<C: PageTableConfig> Inv for IntermediatePageTableEntryView<C> {
         // No self-loop.
         //        &&& self.map_to_pa != self.frame_pa
         // The corresponding virtual address must be aligned to the page size.
-        &&& self.map_va % (page_size_spec(self.level) as int) == 0
+        &&& self.map_va % (page_size(self.level) as int) == 0
     }
 }
 

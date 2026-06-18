@@ -19,9 +19,8 @@ use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::PageTableConfig;
-use crate::mm::page_table::{page_size, page_size_spec};
-use crate::mm::{PagingLevel, Vaddr};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::mm::{PagingLevel, Vaddr, page_size};
+use crate::specs::arch::*;
 
 use align_ext::AlignExt;
 
@@ -1647,13 +1646,13 @@ impl AbstractVaddr {
             // For NR_LEVELS == 4, enumerate concrete cases so the constant
             // folds from `lemma_page_size_spec_values`.
             if start == 0 {
-                assert(page_size_spec(1) == pow2(12nat) as usize);
+                assert(page_size(1) == pow2(12nat) as usize);
             } else if start == 1 {
-                assert(page_size_spec(2) == pow2(21nat) as usize);
+                assert(page_size(2) == pow2(21nat) as usize);
             } else if start == 2 {
-                assert(page_size_spec(3) == pow2(30nat) as usize);
+                assert(page_size(3) == pow2(30nat) as usize);
             } else {
-                assert(page_size_spec(4) == pow2(39nat) as usize);
+                assert(page_size(4) == pow2(39nat) as usize);
             }
         }
     }

@@ -1,6 +1,6 @@
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr};
-use crate::mm::{Paddr, Vaddr};
+use crate::mm::{Paddr, Vaddr, page_size};
 use crate::specs::mm::frame::mapping::{
     META_SLOT_SIZE, lemma_meta_to_frame_soundness, meta_to_frame,
 };

@@ -462,10 +462,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         assert(512usize.ilog2() == 9);
         vstd::arithmetic::power2::lemma2_to64();
         if self.parent_level == 2 {
-            assert(page_size_spec(2) == (PAGE_SIZE * pow2(
-                (512usize.ilog2() * 1usize) as nat,
-            )) as usize);
-            assert(page_size_spec(2) == 2097152);
+            assert(page_size(2) == (PAGE_SIZE * pow2((512usize.ilog2() * 1usize) as nat)) as usize);
+            assert(page_size(2) == 2097152);
             assert(pa % page_size(2) == 0);
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(1, 2);
             assert(child_pa % page_size(1) == 0);
@@ -476,10 +474,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             };
         } else {
             assert(self.parent_level == 3);
-            assert(page_size_spec(3) == (PAGE_SIZE * pow2(
-                (512usize.ilog2() * 2usize) as nat,
-            )) as usize);
-            assert(page_size_spec(3) == 1073741824);
+            assert(page_size(3) == (PAGE_SIZE * pow2((512usize.ilog2() * 2usize) as nat)) as usize);
+            assert(page_size(3) == 1073741824);
             assert(pa % page_size(3) == 0);
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size(pa, 2);
             assert(child_pa == pa + idx * page_size(2));
@@ -491,13 +487,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             );
             assert(child_pa % page_size(2) == 0);
             assert(child_pa + page_size(2) <= MAX_PADDR) by {
-                assert(idx < 512);
                 assert(idx * 2097152 + 2097152 <= 1073741824);
                 assert(child_pa + page_size(2) <= pa + page_size(3));
             };
         }
-        assert(child_pa < MAX_PADDR);
-        assert(child_pa % PAGE_SIZE == 0);
     }
 
     /// Helper: sub-page validity is preserved when the only slot that changed is the

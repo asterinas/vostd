@@ -13,7 +13,7 @@ use vstd_extra::ownership::*;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingLevel, Vaddr, page_size};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::AbstractVaddr;

@@ -22,6 +22,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge,
+    page_size,
 };
 use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE, has_safe_slot};
 use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
@@ -1841,7 +1842,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.in_locked_range(),
             self.va.reflect(self_va),
-            node_size == page_size_spec((self.guard_level + 1) as PagingLevel),
+            node_size == page_size((self.guard_level + 1) as PagingLevel),
             self.locked_range().start <= va < self.locked_range().end,
         ensures
             nat_align_down(self_va as nat, node_size as nat) <= va as nat,
@@ -2077,7 +2078,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.va.reflect(self_va),
             self.guard_level == NR_LEVELS,
-            node_size == page_size_spec((NR_LEVELS + 1) as PagingLevel),
+            node_size == page_size((NR_LEVELS + 1) as PagingLevel),
             self.locked_range().start <= va < self.locked_range().end,
         ensures
             nat_align_down(self_va as nat, node_size as nat) <= va as nat,
@@ -2089,7 +2090,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ps_nr = page_size(NR_LEVELS as PagingLevel) as int;
 
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
-        // node_size == page_size_spec(5) == 2^48; page_size(NR_LEVELS) == 2^39 < 2^48.
+        // node_size == page_size(5) == 2^48; page_size(NR_LEVELS) == 2^39 < 2^48.
 
         // ---- prefix.to_vaddr() == lb * 2^48 -------------------------------
         // offset == 0 and every positional index is 0 (i < gl == NR_LEVELS).

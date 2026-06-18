@@ -3,19 +3,16 @@ use vstd::prelude::*;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::PagingLevel;
-use crate::mm::page_table::{page_size, page_size_spec};
-use crate::mm::{KERNEL_VADDR_RANGE, MAX_PADDR, Paddr, Vaddr, nr_subpage_per_huge};
+use crate::mm::{KERNEL_VADDR_RANGE, MAX_PADDR, Paddr, Vaddr, nr_subpage_per_huge, page_size};
 use crate::specs::arch::{NR_LEVELS, PAGE_SIZE};
 
 verus! {
 
-// ─── page_size_spec(1) ──────────────────────────────────────────────────────
-/// page_size_spec(1) == PAGE_SIZE.
-/// Both sides equal PAGE_SIZE * pow2(0) = PAGE_SIZE * 1 = PAGE_SIZE,
-/// because the exponent ilog2 * (1 - 1) = ilog2 * 0 = 0.
+// ─── page_size(1) ──────────────────────────────────────────────────────
+/// page_size(1) == PAGE_SIZE.
 pub proof fn lemma_page_size_spec_level1()
     ensures
-        page_size_spec(1) == PAGE_SIZE,
+        page_size(1) == PAGE_SIZE,
 {
     vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
         nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
@@ -28,25 +25,23 @@ pub proof fn lemma_page_size_spec_level1()
 // ─── VA alignment ────────────────────────────────────────────────────────────
 /// When `va` is aligned to `page_size(large_level)` and `level <= large_level` (so
 /// page_size(level) divides page_size(large_level)), then `va` is aligned to page_size(level).
-/// Note: page_size(level) for level >= 1 is always a multiple of PAGE_SIZE.
 pub proof fn lemma_va_align_page_size(va: Vaddr, level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS + 1,
         va % PAGE_SIZE == 0,
         exists|large_level: PagingLevel|
-            1 <= large_level <= NR_LEVELS + 1 && level <= large_level && va % page_size_spec(
-                large_level,
-            ) == 0,
+            1 <= large_level <= NR_LEVELS + 1 && level <= large_level && va % page_size(large_level)
+                == 0,
     ensures
-        va % page_size_spec(level) == 0,
+        va % page_size(level) == 0,
 {
     let large_level: PagingLevel = choose|l: PagingLevel|
-        1 <= l <= NR_LEVELS + 1 && level <= l && va % page_size_spec(l) == 0;
+        1 <= l <= NR_LEVELS + 1 && level <= l && va % page_size(l) == 0;
     if level == 1nat {
         lemma_page_size_spec_level1();
     } else {
-        let ps_l = page_size_spec(level) as int;
-        let ps_ll = page_size_spec(large_level) as int;
+        let ps_l = page_size(level) as int;
+        let ps_ll = page_size(large_level) as int;
         lemma_page_size_ge_page_size(level);
         lemma_page_size_ge_page_size(large_level);
         lemma_page_size_divides(level, large_level);
@@ -63,13 +58,13 @@ pub proof fn lemma_va_align_page_size(va: Vaddr, level: PagingLevel)
     }
 }
 
-/// Special case for level 1: page_size_spec(1) == PAGE_SIZE, so va % PAGE_SIZE == 0 implies
-/// va % page_size_spec(1) == 0.
+/// Special case for level 1: page_size(1) == PAGE_SIZE, so va % PAGE_SIZE == 0 implies
+/// va % page_size(1) == 0.
 pub proof fn lemma_va_align_page_size_level_1(va: Vaddr)
     requires
         va % PAGE_SIZE == 0,
     ensures
-        va % page_size_spec(1) == 0,
+        va % page_size(1) == 0,
 {
     lemma_page_size_spec_level1();
 }
@@ -79,14 +74,12 @@ pub proof fn lemma_page_size_multiple_of_page_size(level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS,
     ensures
-        page_size_spec(level) % PAGE_SIZE == 0,
+        page_size(level) % PAGE_SIZE == 0,
 {
     lemma_page_size_spec_values();
 }
 
 /// For any level in [1, NR_LEVELS+1], the page size is at least PAGE_SIZE.
-/// This follows from page_size(level) = PAGE_SIZE * pow2((ilog2 * (level-1)) as nat)
-/// with pow2(k) >= 1 for all k >= 0.
 #[verifier::spinoff_prover]
 pub proof fn lemma_page_size_ge_page_size(level: PagingLevel)
     requires
@@ -98,13 +91,9 @@ pub proof fn lemma_page_size_ge_page_size(level: PagingLevel)
 }
 
 /// `page_size` is monotone in the level: a higher level has a larger or equal page size.
-/// This follows from page_size(level) = PAGE_SIZE * 512^(level-1); incrementing level multiplies
-/// by 512, so page_size(l+1) = 512 * page_size(l) > page_size(l).
 pub proof fn lemma_page_size_monotone(l1: PagingLevel, l2: PagingLevel)
     requires
-        1 <= l1 <= NR_LEVELS + 1,
-        1 <= l2 <= NR_LEVELS + 1,
-        l1 <= l2,
+        1 <= l1 <= l2 <= NR_LEVELS + 1,
     ensures
         page_size(l1) <= page_size(l2),
 {
@@ -126,11 +115,11 @@ pub proof fn lemma_page_size_monotone(l1: PagingLevel, l2: PagingLevel)
 
 pub proof fn lemma_page_size_spec_values()
     ensures
-        page_size_spec(1) == 4096,
-        page_size_spec(2) == 2097152,
-        page_size_spec(3) == 1073741824,
-        page_size_spec(4) == 549755813888,
-        page_size_spec(5) == 281474976710656,
+        page_size(1) == 4096,
+        page_size(2) == 2097152,
+        page_size(3) == 1073741824,
+        page_size(4) == 549755813888,
+        page_size(5) == 281474976710656,
 {
     lemma_page_size_spec_level1();
     vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
@@ -145,7 +134,7 @@ pub proof fn lemma_page_size_div_mul_eq(level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS + 1,
     ensures
-        (page_size_spec(level) / PAGE_SIZE) * PAGE_SIZE == page_size_spec(level),
+        (page_size(level) / PAGE_SIZE) * PAGE_SIZE == page_size(level),
 {
     lemma_page_size_spec_values();
 }
@@ -156,8 +145,8 @@ pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
     requires
         2 <= level <= NR_LEVELS + 1,
     ensures
-        crate::specs::arch::NR_ENTRIES as int * page_size_spec((level - 1) as PagingLevel) as int
-            == page_size_spec(level) as int,
+        crate::specs::arch::NR_ENTRIES as int * page_size((level - 1) as PagingLevel) as int
+            == page_size(level) as int,
 {
     lemma_page_size_spec_values();
     crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
@@ -178,12 +167,12 @@ pub proof fn lemma_split_sub_page_big_j(pa: Paddr, level: PagingLevel, i: usize)
         2 <= level <= NR_LEVELS,
         0 < i < crate::specs::arch::NR_ENTRIES,
     ensures
-        0 < big_j < page_size_spec(level) / PAGE_SIZE,
-        (pa + i * page_size_spec((level - 1) as PagingLevel)) as int == pa as int + big_j as int
+        0 < big_j < page_size(level) / PAGE_SIZE,
+        (pa + i * page_size((level - 1) as PagingLevel)) as int == pa as int + big_j as int
             * PAGE_SIZE as int,
-        big_j as int == i as int * (page_size_spec((level - 1) as PagingLevel) / PAGE_SIZE) as int,
+        big_j as int == i as int * (page_size((level - 1) as PagingLevel) / PAGE_SIZE) as int,
 {
-    let sub_pages_per_entry: int = (page_size_spec((level - 1) as PagingLevel) / PAGE_SIZE) as int;
+    let sub_pages_per_entry: int = (page_size((level - 1) as PagingLevel) / PAGE_SIZE) as int;
     let big_j_int: int = i as int * sub_pages_per_entry;
     lemma_page_size_spec_values();
     lemma_page_size_div_mul_eq((level - 1) as PagingLevel);
@@ -219,7 +208,7 @@ pub proof fn lemma_page_size_divides(l1: PagingLevel, l2: PagingLevel)
     requires
         1 <= l1 <= l2 <= NR_LEVELS + 1,
     ensures
-        page_size_spec(l2) % page_size_spec(l1) == 0,
+        page_size(l2) % page_size(l1) == 0,
 {
     lemma_page_size_spec_values();
     // Enumerate pairs to keep SMT context narrow.

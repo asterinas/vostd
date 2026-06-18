@@ -16,7 +16,7 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingLevel, Vaddr, page_size};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Mapping;

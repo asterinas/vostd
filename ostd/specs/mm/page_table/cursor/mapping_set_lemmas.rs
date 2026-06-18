@@ -7,7 +7,7 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
-use crate::mm::{PagingLevel, Vaddr};
+use crate::mm::{PagingLevel, Vaddr, page_size};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides;
@@ -16,8 +16,6 @@ use crate::specs::mm::page_table::owners::{
     sibling_paths_disjoint, vaddr, vaddr_of,
 };
 use crate::specs::mm::page_table::{AbstractVaddr, Mapping};
-
-use crate::mm::page_table::page_size_spec as page_size;
 
 verus! {
 
