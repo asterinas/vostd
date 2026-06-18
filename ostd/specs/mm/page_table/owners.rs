@@ -102,15 +102,6 @@ pub open spec fn vaddr_of<C: PageTableConfig>(path: TreePath<NR_ENTRIES>) -> usi
     vaddr_at(path, C::LEADING_BITS_spec() as int)
 }
 
-/// Runtime bound on `LEADING_BITS_spec`: every valid config uses at most the
-/// 16 high bits. Proven via `PageTableConfig::lemma_page_table_config_constant_requirements`.
-pub proof fn lemma_leading_bits_bounded<C: PageTableConfig>()
-    ensures
-        C::LEADING_BITS_spec() < 0x1_0000_usize,
-{
-    C::lemma_page_table_config_constant_requirements();
-}
-
 /// `vaddr(path) < 2^48` for every valid path: each term in the positional
 /// sum is `i_k * 2^(12 + 9·k)` with `i_k < 512 = 2^9`, so the sum is
 /// strictly less than `2^48`.
@@ -226,7 +217,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         vaddr_of::<C>(path) as int == vaddr(path) as int + C::LEADING_BITS_spec() as int
             * 0x1_0000_0000_0000int,
 {
-    lemma_leading_bits_bounded::<C>();
+    C::lemma_page_table_config_constant_requirements();
     lemma_vaddr_strict_bound(path);
     let lb = C::LEADING_BITS_spec() as int;
     let v = vaddr(path) as int;
@@ -1472,7 +1463,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
             // Bridge `vaddr_of(path) as int == vaddr(path) + LB * 2^48`.
             lemma_vaddr_of_eq_int::<C>(path);
-            lemma_leading_bits_bounded::<C>();
+            C::lemma_page_table_config_constant_requirements();
             lemma_vaddr_strict_bound(path);
             let lb = C::LEADING_BITS_spec() as int;
             vstd::arithmetic::power2::lemma2_to64();

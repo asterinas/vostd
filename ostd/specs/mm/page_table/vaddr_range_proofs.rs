@@ -21,11 +21,11 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
 )
     requires
         idx_start == C::TOP_LEVEL_INDEX_RANGE_spec().start,
-        offset as int == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
+        offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
     ensures
         offset < usize::BITS,
         idx_start * pow2(offset as nat) <= usize::MAX,
-        offset as nat == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
+        offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
     C::lemma_page_table_config_constant_requirements();
     vstd::layout::unsigned_int_max_values();
@@ -58,12 +58,12 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
 pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(idx_end: usize, offset: usize)
     requires
         idx_end == C::TOP_LEVEL_INDEX_RANGE_spec().end,
-        offset as int == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
+        offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
     ensures
         offset < usize::BITS,
         idx_end * pow2(offset as nat) <= usize::MAX,
         0 < idx_end * pow2(offset as nat),
-        offset as nat == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
+        offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
     C::lemma_page_table_config_constant_requirements();
     lemma_pow2_pos(offset as nat);

@@ -803,7 +803,7 @@ pub fn largest_pages<C: PageTableConfig>(
 /// Gets the top-level index width, in bits, for the page table.
 fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
     ensures
-        ret as int == C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
+        ret == C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
     proof {
         C::lemma_paging_consts_properties();
