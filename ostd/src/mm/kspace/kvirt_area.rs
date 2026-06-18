@@ -1021,9 +1021,6 @@ impl KVirtArea {
         }
 
         proof {
-            assert(cursor.0.va as int == range.start as int + map_offset as int
-                + frames.len() as int * PAGE_SIZE as int);
-            assert(cursor.0.va <= cursor.0.barrier_va.end);
             assert(map_offset as int + frames.len() as int * PAGE_SIZE as int <= area_size as int)
                 by (nonlinear_arith)
                 requires
@@ -1210,14 +1207,7 @@ impl KVirtArea {
                 } by {
                     let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
                     assert(pre_cursor_regions.slots.contains_key(idx));
-                    assert(pre_cursor_regions.inv());
                     assert(pre_cursor_regions.slot_owners.contains_key(idx));
-                    assert(pre_cursor_regions.slot_owners[idx].inner_perms.ref_count.value()
-                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
-                    assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                        == pre_cursor_regions.slot_owners[idx].inner_perms.ref_count.value());
-                    assert(idx < crate::specs::mm::frame::mapping::max_meta_slots());
-                    assert(regions.inv());
                     assert(regions.slot_owners.contains_key(idx));
                     assert(regions.slots.contains_key(idx));
                 };
