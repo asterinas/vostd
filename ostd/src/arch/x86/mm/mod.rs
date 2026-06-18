@@ -28,7 +28,8 @@ use crate::{
 mod util;
 
 verus! {
-#[derive(Clone,Debug, Default)]
+#[verifier::allow(autoderive_clone_without_spec)]
+#[derive(Clone, Debug, Default)]
 pub struct PagingConsts {}
 
 impl PagingConstsTrait for PagingConsts {

@@ -153,6 +153,7 @@ pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPr
     Ghost(TrivialPred),
 );
 
+#[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Clone, Debug)]
 pub(crate) struct KernelPtConfig {}
 

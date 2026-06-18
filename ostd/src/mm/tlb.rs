@@ -193,6 +193,7 @@ impl<'a /*, G: PinCurrentCpu*/> TlbFlusher<'a /*, G*/> {
 verus! {
 
 /// The operation to flush TLB entries.
+#[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TlbFlushOp {
     /// Flush all TLB entries except for the global entries.

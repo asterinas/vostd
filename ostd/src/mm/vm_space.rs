@@ -1567,6 +1567,7 @@ pub(super) fn get_activated_vm_space() -> *const VmSpace {
 }*/
 
 /// The configuration for user page tables.
+#[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Clone, Debug)]
 pub struct UserPtConfig {}
 
