@@ -1647,11 +1647,7 @@ unsafe impl PageTableConfig for UserPtConfig {
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
         ) as int);
         let denominator = pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int;
-        assert(numerator == 0);
         lemma_pow2_pos((Self::C::ADDRESS_WIDTH() - 1) as nat);
-        assert(denominator > 0);
-        assert(numerator / denominator == 0);
-        assert((numerator / denominator) % 2 == 0);
     }
 
     type Item = MappedItem;

@@ -821,7 +821,6 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
     proof {
         C::lemma_paging_consts_properties();
         C::lemma_top_level_index_range_bounds();
-        assert(1 <= C::NR_LEVELS() <= NR_LEVELS);
     }
 
     C::ADDRESS_WIDTH() - pte_index_bit_offset::<C>(C::NR_LEVELS())
@@ -868,7 +867,6 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
     proof {
         C::lemma_paging_consts_properties();
-        assert(1 <= C::NR_LEVELS() <= NR_LEVELS);
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
 
@@ -903,7 +901,6 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     let address_width = C::ADDRESS_WIDTH();
     proof {
         C::lemma_top_level_index_range_bounds();
-        assert(C::C::ADDRESS_WIDTH() == address_width);
         assert(0 < address_width as int <= 64);
     }
 
@@ -1064,19 +1061,15 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
     let address_width = C::ADDRESS_WIDTH();
     let low_bit = 1usize << address_width;
     proof {
-        assert(usize::BITS == 64) by (compute);
         vstd::layout::unsigned_int_max_values();
         vstd::bits::lemma_usize_pow2_no_overflow(address_width as nat);
         vstd::bits::lemma_usize_shl_is_mul(1usize, address_width);
-        assert(low_bit as int == pow2(address_width as nat) as int);
-        assert(low_bit > 0);
     }
     let low_mask = low_bit - 1;
     let sign_ext_mask = !0 ^ low_mask;
     let ret = va | sign_ext_mask;
     proof {
-        assert(low_mask as int == pow2(address_width as nat) as int - 1);
-        assert(!0usize == 0xffff_ffff_ffff_ffffusize) by (bit_vector);
+        assert(!0usize == 0xffff_ffff_ffff_ffffusize) by (compute_only);
         assert(sign_ext_mask == usize::MAX - low_mask) by (bit_vector)
             requires
                 sign_ext_mask == (!0usize ^ low_mask),
