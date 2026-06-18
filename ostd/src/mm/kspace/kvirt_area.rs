@@ -725,20 +725,12 @@ impl KVirtArea {
                     pre_cursor_regions,
                 ));
                 assert(pre_cursor_regions.slots.contains_key(idx_i));
-                assert(pre_cursor_regions.inv());
                 assert(pre_cursor_regions.slot_owners.contains_key(idx_i));
-                assert(pre_cursor_regions.slot_owners[idx_i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
-                assert(regions.slot_owners[idx_i].inner_perms.ref_count.value()
-                    == pre_cursor_regions.slot_owners[idx_i].inner_perms.ref_count.value());
-                assert(idx_i < crate::specs::mm::frame::mapping::max_meta_slots());
-                assert(regions.inv());
                 assert(regions.slot_owners.contains_key(idx_i));
                 assert(regions.slots.contains_key(idx_i));
             };
         }
 
-        let ghost mut mapped_pages: int = 0;
         for frame in it: frames.into_iter()
             invariant
                 cursor.0.invariants(cursor_owner, *regions, *guards),
@@ -754,15 +746,13 @@ impl KVirtArea {
                 // > area_size` derivation that fires `map_frames_bounds_panic_condition`'s
                 // capacity disjunct ⟹ `may_panic()` via the invariant.
                 it.seq().len() == frames.len(),
-                0 <= mapped_pages <= frames.len(),
-                mapped_pages == it.index(),
+                0 <= it.index() <= frames.len(),
                 cursor.0.barrier_va.start == range.start + map_offset,
                 cursor.0.barrier_va.end == range.end,
                 cursor.0.guard_level == NR_LEVELS as u8,
                 cursor.0.va <= cursor.0.barrier_va.end,
                 range.end - range.start == area_size,
                 cursor.0.va == range.start + map_offset + it.index() * PAGE_SIZE,
-                cursor.0.va == range.start + map_offset + mapped_pages * PAGE_SIZE,
                 // For each remaining frame, the map contains a wf owner at its paddr.
                 // Duplicates among remaining frames are fine — one key, one owner.
                 forall|i: int|
@@ -1027,12 +1017,10 @@ impl KVirtArea {
                 );
                 fresh.in_scope = false;
                 entry_owners.tracked_insert(cur_mapped_pa, fresh);
-                mapped_pages = mapped_pages + 1;
             }
         }
 
         proof {
-            assert(mapped_pages == frames.len());
             assert(cursor.0.va as int == range.start as int + map_offset as int
                 + frames.len() as int * PAGE_SIZE as int);
             assert(cursor.0.va <= cursor.0.barrier_va.end);
