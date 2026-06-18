@@ -762,8 +762,7 @@ impl KVirtArea {
                 cursor.0.va <= cursor.0.barrier_va.end,
                 range.end - range.start == area_size,
                 cursor.0.va == range.start + map_offset + it.index() * PAGE_SIZE,
-                cursor.0.va as int == range.start as int + map_offset as int + mapped_pages
-                    * PAGE_SIZE as int,
+                cursor.0.va == range.start + map_offset + mapped_pages * PAGE_SIZE,
                 // For each remaining frame, the map contains a wf owner at its paddr.
                 // Duplicates among remaining frames are fine — one key, one owner.
                 forall|i: int|

@@ -105,9 +105,6 @@ impl PagingConstsTrait for PagingConsts {
     proof fn lemma_paging_consts_properties()
     {
         lemma_pow2_is_pow2_to64();
-        assert(PAGE_SIZE == 4096usize);
-        assert(NR_ENTRIES == 512usize);
-        assert(Self::BASE_PAGE_SIZE_spec() / Self::PTE_SIZE_spec() == NR_ENTRIES);
     }
 }
 
