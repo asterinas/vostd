@@ -190,6 +190,7 @@ use core::ops::Range;
 
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
+use vstd_extra::set_extra::*;
 
 use crate::mm::frame::{MetaSlot, UFrame};
 use crate::mm::page_prop::PageProperty;
@@ -4001,25 +4002,6 @@ pub open spec fn fresh_vm_io_id<'a>(m: Map<VmIoId, VmIoEntry>) -> VmIoId {
 /// Picks a [`FrameId`] not currently in `m.dom()`.
 pub open spec fn fresh_frame_id(m: Map<FrameId, FrameEntry>) -> FrameId {
     choose|id: FrameId| !m.dom().contains(id)
-}
-
-/// A finite `Set<int>` cannot contain every integer: there always exists
-/// an `int` outside the set. Used to prove the freshness axioms.
-proof fn lemma_finite_int_set_has_unused(s: Set<int>)
-    ensures
-        exists|id: int| !s.contains(id),
-{
-    let n = s.len() as int;
-    vstd::set_lib::lemma_int_range(0, n + 1);
-    if forall|i: int| 0 <= i < n + 1 ==> s.contains(i) {
-        assert(Set::range(0, n + 1).subset_of(s)) by {
-            assert forall|i: int| Set::<int>::range(0, n + 1).contains(i) implies s.contains(i) by {
-                assert(0 <= i < n + 1);
-            }
-        }
-        vstd::set_lib::lemma_len_subset(Set::range(0, n + 1), s);
-        assert(false);
-    }
 }
 
 pub proof fn lemma_fresh_vm_space_id_not_in_dom<'a>(m: Map<VmSpaceId, VmSpaceOwner>)
