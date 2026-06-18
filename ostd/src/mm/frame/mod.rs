@@ -65,7 +65,7 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
-pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
+pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
 pub use untyped::{AnyUFrameMeta, UFrame};
 
@@ -76,7 +76,7 @@ use crate::mm::{
     MAX_PADDR, Paddr, PagingLevel, Vaddr,
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
-use crate::specs::arch::{MAX_NR_PAGES, PAGE_SIZE};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

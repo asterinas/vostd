@@ -5,13 +5,13 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, get_slot_spec,
+    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
     mapping::{META_SLOT_SIZE, frame_to_index, meta_to_frame},
 };
 use crate::mm::frame::*;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 

@@ -54,7 +54,7 @@ use super::{
 };
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;
-use crate::specs::arch::NR_LEVELS;
+use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -476,7 +476,7 @@ impl KernelPtConfig {
     /// Once we have this address shape, `Frame::inv()` follows from `lemma_frame_to_meta_soundness`.
     pub axiom fn item_from_raw_spec_tracked_ptr(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            crate::mm::frame::meta::has_safe_slot(pa),
+            has_safe_slot(pa),
             prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
         ensures
             match KernelPtConfig::item_from_raw_spec(pa, level, prop) {

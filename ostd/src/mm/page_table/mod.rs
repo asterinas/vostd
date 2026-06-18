@@ -359,7 +359,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// well-formed (see `item_well_formed`).
     proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            crate::mm::frame::meta::has_safe_slot(pa),
+            has_safe_slot(pa),
         ensures
             Self::item_well_formed(Self::item_from_raw_spec(pa, level, prop)),
     ;
@@ -442,7 +442,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         requires
             regions.inv(),
             Self::item_from_raw_spec(pa, level, prop) == item,
-            crate::mm::frame::meta::has_safe_slot(pa),
+            has_safe_slot(pa),
             regions.slots.contains_key(frame_to_index(pa)),
             regions.slot_owners.contains_key(frame_to_index(pa)),
             Self::tracked(item) ==> regions.slot_owners[frame_to_index(

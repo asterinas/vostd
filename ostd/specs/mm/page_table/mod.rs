@@ -466,20 +466,19 @@ impl AbstractVaddr {
         assert(lhs.leading_bits == rhs.leading_bits);
     }
 
-    /// Concrete relation: `align_down(level).to_vaddr() == nat_align_down(to_vaddr(), page_size(level))`.
     /// The aligned form is a multiple of `page_size(level)` and the difference from `self.to_vaddr()`
     /// is the low-order bits (offset + indices below `level - 1`), which is strictly less than
     /// `page_size(level)`.
-    #[verifier::rlimit(400)]
-    pub proof fn align_down_to_vaddr_nat_align_down(self, level: int)
+    proof fn align_down_to_vaddr_arith(self, level: int)
         requires
             self.inv(),
             1 <= level <= NR_LEVELS,
         ensures
-            self.align_down(level).to_vaddr() as nat == nat_align_down(
-                self.to_vaddr() as nat,
-                page_size(level as PagingLevel) as nat,
-            ),
+            self.align_down(level).to_vaddr() as int % page_size(level as PagingLevel) as int == 0,
+            0 <= self.to_vaddr() as int - self.align_down(level).to_vaddr() as int,
+            (self.to_vaddr() as int - self.align_down(level).to_vaddr() as int) < page_size(
+                level as PagingLevel,
+            ) as int,
     {
         let aligned = self.align_down(level);
         vstd::arithmetic::power2::lemma2_to64();
@@ -591,29 +590,45 @@ impl AbstractVaddr {
                     ps == 0x80_0000_0000,
             ;
         }
+    }
 
-        // Uniqueness: av is the unique multiple of ps in (va - ps, va].
-        vstd_extra::arithmetic::lemma_nat_align_down_sound(va as nat, ps as nat);
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(va, ps);
+    /// Concrete relation: `align_down(level).to_vaddr() == nat_align_down(to_vaddr(), page_size(level))`.
+    /// Uses `align_down_to_vaddr_arith` to establish that `av` is a multiple of `ps` with
+    /// `0 <= va - av < ps`, then shows `va % ps == va - av`, so `nat_align_down(va, ps) = av`.
+    pub proof fn align_down_to_vaddr_nat_align_down(self, level: int)
+        requires
+            self.inv(),
+            1 <= level <= NR_LEVELS,
+        ensures
+            self.align_down(level).to_vaddr() as nat == nat_align_down(
+                self.to_vaddr() as nat,
+                page_size(level as PagingLevel) as nat,
+            ),
+    {
+        self.align_down_to_vaddr_arith(level);
+
+        let va = self.to_vaddr() as int;
+        let av = self.align_down(level).to_vaddr() as int;
+        let ps = page_size(level as PagingLevel) as int;
+
+        assert(av % ps == 0);
+        assert(0 <= va - av);
+        assert(va - av < ps);
+
+        // av = ps * q for some q, so va = ps * q + (va - av).
+        // Then va % ps == (va - av) % ps == va - av (since 0 <= va - av < ps).
+        // So nat_align_down(va, ps) = va - va%ps = va - (va - av) = av.
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(av, ps);
-        // av <= va ==> av <= nat_align_down(va, ps) by sound's forall.
-        // nat_align_down(va, ps) <= va, and va - av < ps ==> nat_align_down - av < ps.
-        // Both multiples of ps, diff < ps, nonneg ==> diff == 0.
-        let nad = nat_align_down(va as nat, ps as nat) as int;
-        assert(av as nat <= nad) by {
-            // from forall in sound
+        assert(av == ps * (av / ps)) by {
+            assert(av % ps == 0);
         };
-        assert(nad <= va);
-        assert(nad - av < ps) by (nonlinear_arith)
-            requires
-                nad <= va,
-                va - av < ps,
-                av <= nad,
-        ;
-        // nad - av is a multiple of ps (both multiples), so (nad - av) mod ps == 0.
-        // Combined with 0 <= nad - av < ps, gives nad - av == 0.
-        vstd::arithmetic::div_mod::lemma_mod_sub_multiples_vanish(nad - av, ps);
-        assert((nad - av) % ps == (nad - av) % ps - ((av % ps) as int) + ((av % ps) as int));
+        assert(va == ps * (av / ps) + (va - av));
+        vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(av / ps, va - av, ps);
+        assert((ps * (av / ps) + (va - av)) % ps == (va - av) % ps);
+        assert(va % ps == (va - av) % ps);
+        vstd::arithmetic::div_mod::lemma_small_mod((va - av) as nat, ps as nat);
+        assert((va - av) % ps == va - av);
+        assert(va % ps == va - av);
     }
 
     pub proof fn align_down_concrete(self, level: int)

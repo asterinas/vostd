@@ -6,10 +6,10 @@ use core::mem::size_of;
 use core::ops::Range;
 
 use crate::mm::frame::MetaSlot;
+use crate::mm::frame::meta::axiom_size_of_meta_slot;
 pub use crate::mm::frame::meta::mapping::{
     frame_to_meta, frame_to_meta_spec, meta_to_frame, meta_to_frame_spec,
 };
-use crate::mm::frame::meta::{meta_slot_size, size_of_meta_slot};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
@@ -123,7 +123,7 @@ pub broadcast proof fn lemma_meta_to_frame_alignment(meta: Vaddr)
 }
 
 pub broadcast group group_page_meta {
-    size_of_meta_slot,
+    axiom_size_of_meta_slot,
     lemma_FRAME_METADATA_RANGE_is_page_aligned,
     lemma_FRAME_METADATA_RANGE_is_large_enough,
     lemma_paddr_to_meta_biinjective,

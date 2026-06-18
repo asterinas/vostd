@@ -30,6 +30,11 @@ pub const MAX_PADDR: usize = 0x8000_0000;
 
 pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
 
+pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
+    &&& paddr % PAGE_SIZE == 0
+    &&& paddr < MAX_PADDR
+}
+
 } // verus!
 verus! {
 

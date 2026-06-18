@@ -1771,7 +1771,7 @@ impl UserPtConfig {
     /// `UFrame::from_raw(pa)` call whose ensures gives this address shape.
     pub axiom fn item_from_raw_spec_frame_ptr(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            crate::mm::frame::meta::has_safe_slot(pa),
+            has_safe_slot(pa),
         ensures
             UserPtConfig::item_from_raw_spec(pa, level, prop).frame.ptr.addr()
                 == crate::mm::frame::meta::mapping::frame_to_meta(pa),
