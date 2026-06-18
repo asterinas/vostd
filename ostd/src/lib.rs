@@ -31,8 +31,6 @@
 
 extern crate alloc;
 
-use vstd_extra::prelude;
-
 //#[cfg(target_arch = "x86_64")]
 #[path = "arch/x86/mod.rs"]
 pub mod arch;

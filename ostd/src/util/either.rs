@@ -5,6 +5,7 @@ use vstd::prelude::*;
 ///
 /// [`Left`]: Self::Left
 /// [`Right`]: Self::Right
+#[verifier::allow(autoderive_clone_without_spec)]
 #[verus_verify]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Either<L, R> {

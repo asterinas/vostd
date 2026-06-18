@@ -21,7 +21,8 @@ use crate::mm::{
     kspace::{KernelPtConfig, MappedItem},
     largest_pages,
     page_prop::PageProperty,
-    page_table::{Child, CursorMut, PageTable, PageTableConfig, is_valid_range_spec, page_size},
+    page_size,
+    page_table::{Child, CursorMut, PageTable, PageTableConfig, is_valid_range_spec},
 };
 
 use crate::arch::mm::PagingConsts;

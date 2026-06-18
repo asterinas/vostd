@@ -12,7 +12,7 @@ use crate::{
         irq::{self /* , IrqRemapping, IRQ_NUM_MAX, IRQ_NUM_MIN */},
         /* trap::TrapFrame, */
     },
-    prelude::*,
+    // prelude::*,
     sync::{GuardTransfer, RwLock, SpinLock /* WriteIrqDisabled */},
     // task::atomic_mode::InAtomicMode,
     // Error,

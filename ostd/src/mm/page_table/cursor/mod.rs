@@ -42,7 +42,7 @@ use vstd_extra::{assert, assert_eq};
 
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
-use crate::mm::{MAX_NR_LEVELS, MAX_PADDR, Paddr, Vaddr};
+use crate::mm::{MAX_NR_LEVELS, MAX_PADDR, Paddr, Vaddr, page_size};
 use crate::specs::mm::frame::mapping::{
     META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
 };
@@ -142,26 +142,6 @@ fn path_slot_as_mut<'a, 'rcu, C: PageTableConfig>(
     idx: usize,
 ) -> &'a mut PageTableGuard<'rcu, C> {
     path[idx].as_mut().unwrap()
-}
-
-pub open spec fn page_size_spec(level: PagingLevel) -> usize {
-    (PAGE_SIZE * pow2(
-        (nr_subpage_per_huge::<PagingConsts>().ilog2() * (level - 1)) as nat,
-    )) as usize
-}
-
-/// The page size at a given level.
-#[verifier::when_used_as_spec(page_size_spec)]
-#[verifier::external_body]
-pub fn page_size(level: PagingLevel) -> (ret: usize)
-    requires
-        1 <= level <= NR_LEVELS + 1,
-    ensures
-        ret == page_size_spec(level),
-        is_pow2(ret as int),
-        ret >= PAGE_SIZE,
-{
-    PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
 }
 
 /// Borrows a live `PageTableNode` as a `PageTableNodeRef` without requiring
@@ -925,9 +905,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // VA alignment: when split_huge, the found entry's VA is aligned to page_size(level).
             // split_huge forces cur_entry_fits_range at the Frame return, meaning cur_va == align_down(cur_va, page_size).
             res is Some && split_huge ==> {
-                &&& final(owner)@.mappings == old(owner)@.split_while_huge(page_size_spec(final(self).level)).mappings
-                &&& final(self).va + page_size_spec(final(self).level) <= old(self).va + len
-                &&& nat_align_down(final(self).va as nat, page_size_spec(final(self).level) as nat) as usize == final(self).va
+                &&& final(owner)@.mappings == old(owner)@.split_while_huge(page_size(final(self).level)).mappings
+                &&& final(self).va + page_size(final(self).level) <= old(self).va + len
+                &&& nat_align_down(final(self).va as nat, page_size(final(self).level) as nat) as usize == final(self).va
             },
             res is Some && !find_unmap_subtree ==> Self::find_not_unmap_subtree_ensures(*old(owner), *final(owner)),
             res is Some && final(owner).cur_entry_owner().is_node() ==>
@@ -1021,7 +1001,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     owner,
                 ).cur_entry_owner().frame().prop,
                 split_happened ==> owner@.mappings == old(owner)@.split_while_huge(
-                    page_size_spec(self.level),
+                    page_size(self.level),
                 ).mappings,
                 !split_happened && old(owner).cur_entry_owner().is_frame()
                     ==> owner.cur_entry_owner().is_frame() && owner.cur_entry_owner().frame().prop
@@ -1080,7 +1060,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     owner.va.align_down(self.level as int).reflect_prop(
                                         nat_align_down(
                                             self.va as nat,
-                                            page_size_spec(self.level) as nat,
+                                            page_size(self.level) as nat,
                                         ) as Vaddr,
                                     );
                                 } else {
@@ -1088,7 +1068,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     owner.va.align_down(self.level as int).reflect_prop(
                                         nat_align_down(
                                             self.va as nat,
-                                            page_size_spec(self.level) as nat,
+                                            page_size(self.level) as nat,
                                         ) as Vaddr,
                                     );
                                 }
@@ -1168,7 +1148,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.cur_subtree_eq_filtered_mappings();
                         }
 
-                        let ghost cur_slot_size = page_size_spec(self.level);
+                        let ghost cur_slot_size = page_size(self.level);
                         let ghost owner_before_move = *owner;
                         proof {
                             owner.va.reflect_prop(self.va);
@@ -1244,7 +1224,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     continue;
                 },
                 ChildRef::None => {
-                    let ghost cur_slot_size = page_size_spec(self.level);
+                    let ghost cur_slot_size = page_size(self.level);
                     proof {
                         owner.move_forward_increases_va();
                         owner.move_forward_not_popped_too_high();
@@ -1345,7 +1325,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 owner.va.align_down(self.level as int).reflect_prop(
                                     nat_align_down(
                                         self.va as nat,
-                                        page_size_spec(self.level) as nat,
+                                        page_size(self.level) as nat,
                                     ) as Vaddr,
                                 );
                             }
@@ -1441,7 +1421,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner.cur_entry_owner().is_frame());
 
                         let ghost old_view = if split_happened {
-                            old(owner)@.split_while_huge(page_size_spec(owner_before_push.level))
+                            old(owner)@.split_while_huge(page_size(owner_before_push.level))
                         } else {
                             old(owner)@
                         };
@@ -1646,7 +1626,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).nodes_locked(*final(guards)),
             final(owner).metaregion_sound(*final(regions)),
             final(owner).va == old(owner).va.align_up(old(self).level as int),
-            final(self).va <= old(self).va + page_size_spec(old(self).level),
+            final(self).va <= old(self).va + page_size(old(self).level),
             // move_forward only calls pop_level, which does not touch regions.
             forall|idx: usize|
                 #![trigger final(regions).slot_owners[idx].paths_in_pt]
@@ -2026,8 +2006,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner.cur_va_range().start.reflect(res.start),
             owner.cur_va_range().end.reflect(res.end),
             res.start <= self.va,
-            res.end <= self.va + page_size_spec(self.level),
-            res.start == self.va ==> res.end == self.va + page_size_spec(self.level),
+            res.end <= self.va + page_size(self.level),
+            res.start == self.va ==> res.end == self.va + page_size(self.level),
     )]
     fn cur_va_range(&self) -> Range<Vaddr> {
         let page_size = page_size(self.level);
@@ -3360,7 +3340,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             owner_before_move.move_forward_owner_preserves_mappings();
             assert(owner_before_replace@.mappings == old(owner)@.split_while_huge(
-                page_size_spec(level_after_find),
+                page_size(level_after_find),
             ).mappings);
 
             let ghost old_cur_subtree_mappings = PageTableOwner(
@@ -3375,7 +3355,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let item = frag.unwrap()->Mapped_item;
                 let m = CursorView::<C>::item_into_mapping(va, item);
                 assert(va == va_after_find);
-                assert(m.page_size == page_size_spec(level_after_find));
+                assert(m.page_size == page_size(level_after_find));
 
                 let ghost cur_st = owner_before_replace.cur_subtree();
                 owner_before_replace.cur_subtree_inv();
@@ -3398,13 +3378,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 if !old(owner)@.present() && view.present() {
                     owner_before_replace.split_while_huge_at_level_noop();
                     owner_before_replace@.split_while_huge_noop_implies_page_size_le(
-                        page_size_spec(level_after_find),
+                        page_size(level_after_find),
                     );
                 }
                 CursorOwner::<'rcu, C>::split_while_huge_cur_va_independent(
                     old(owner)@,
                     view,
-                    page_size_spec(level_after_find),
+                    page_size(level_after_find),
                 );
 
                 owner_before_replace.cur_subtree_eq_filtered_mappings();
@@ -3526,7 +3506,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(old(owner)@.mappings.filter(|m: Mapping| old_va <= m.va_range.start < frag_va)
                 == Set::<Mapping>::empty());
 
-            let ghost ps = page_size_spec(level_after_find);
+            let ghost ps = page_size(level_after_find);
             assert forall|m: Mapping|
                 #![auto]
                 owner@.mappings.contains(m) && old_va <= m.va_range.start && m.va_range.start
@@ -3573,7 +3553,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             owner_before_replace.va.reflect_prop(va_after_find);
             owner_before_replace.cur_subtree_eq_filtered_mappings();
-            let ghost ps = page_size_spec(level_after_find);
+            let ghost ps = page_size(level_after_find);
             let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
             assert(owner@.mappings == owner_before_replace@.mappings - obr_subtree);
             assert(obr_subtree == owner_before_replace@.mappings.filter(
@@ -3830,7 +3810,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // StrayPageTable: VA and len match cursor state at call time.
             res is Some && res->0 is StrayPageTable ==> {
                 &&& res->0->StrayPageTable_va == old(self).0.va
-                &&& res->0->StrayPageTable_len == page_size_spec(old(self).0.level)
+                &&& res->0->StrayPageTable_len == page_size(old(self).0.level)
             },
             // StrayPageTable implies old entry was a node (PT).
             res is Some && res->0 is StrayPageTable ==> old(owner).cur_entry_owner().is_node(),

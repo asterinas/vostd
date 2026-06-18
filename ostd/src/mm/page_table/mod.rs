@@ -4,8 +4,8 @@ use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr;
 use vstd::std_specs::clone::*;
-
-use vstd_extra::prelude::{lemma_usize_ilog2_ordered, lemma_usize_pow2_ilog2};
+use vstd_extra::assert;
+use vstd_extra::prelude::*;
 
 use core::{
     fmt::Debug,
@@ -21,6 +21,7 @@ use super::{
     kspace::KernelPtConfig,
     lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge,
     page_prop::{CachePolicy, PageProperty},
+    page_size,
     vm_space::UserPtConfig,
 };
 
@@ -294,9 +295,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             res == Self::item_into_raw_spec(item),
             res.0 % crate::specs::arch::PAGE_SIZE == 0,
             res.0 < crate::specs::arch::MAX_PADDR,
-            res.0 % crate::mm::page_table::cursor::page_size(res.1) == 0,
-            res.0 + crate::mm::page_table::cursor::page_size(res.1)
-                <= crate::specs::arch::MAX_PADDR,
+            res.0 % page_size(res.1) == 0,
+            res.0 + page_size(res.1) <= crate::specs::arch::MAX_PADDR,
     ;
 
     /// Restores the item from the physical address and the paging level.
@@ -1477,8 +1477,7 @@ impl PageTable<KernelPtConfig> {
                 |
                     e.is_frame() && e.parent_level > 1 ==> {
                         let pa = e.frame().mapped_pa;
-                        let nr_pages = crate::mm::page_table::cursor::page_size_spec(e.parent_level)
-                            / crate::specs::arch::PAGE_SIZE;
+                        let nr_pages = page_size(e.parent_level) / crate::specs::arch::PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx =
@@ -1494,8 +1493,7 @@ impl PageTable<KernelPtConfig> {
                 |
                     e.is_frame() && e.parent_level > 1 ==> {
                         let pa = e.frame().mapped_pa;
-                        let nr_pages = crate::mm::page_table::cursor::page_size_spec(e.parent_level)
-                            / crate::specs::arch::PAGE_SIZE;
+                        let nr_pages = page_size(e.parent_level) / crate::specs::arch::PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx =
@@ -1757,7 +1755,7 @@ impl<C: PageTableConfig> PageTable<C> {
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
                         e.is_frame() && e.parent_level > 1 ==> {
                             let pa = e.frame().mapped_pa;
-                            let nr_pages = crate::mm::page_table::cursor::page_size_spec(
+                            let nr_pages = page_size(
                                 e.parent_level) / crate::specs::arch::PAGE_SIZE;
                             forall |j: usize| 0 < j < nr_pages ==> {
                                 let sub_idx =

@@ -152,13 +152,32 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     ;
 }
 
+pub open spec fn page_size_spec(level: PagingLevel) -> usize {
+    (PAGE_SIZE * pow2(
+        (nr_subpage_per_huge::<PagingConsts>().ilog2() * (level - 1)) as nat,
+    )) as usize
+}
+
+/// The page size at a given level.
+#[verifier::when_used_as_spec(page_size_spec)]
+#[verifier::external_body]
+pub fn page_size(level: PagingLevel) -> (ret: usize)
+    requires
+        1 <= level <= NR_LEVELS + 1,
+    ensures
+        ret == page_size_spec(level),
+        is_pow2(ret as int),
+        ret >= PAGE_SIZE,
+{
+    PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
+}
+
 #[verifier::inline]
 pub open spec fn nr_subpage_per_huge_spec<C: PagingConstsTrait>() -> usize {
     C::BASE_PAGE_SIZE() / C::PTE_SIZE()
 }
 
 /// The number of sub pages in a huge page.
-#[inline(always)]
 #[verifier::when_used_as_spec(nr_subpage_per_huge_spec)]
 pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
     ensures
