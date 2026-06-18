@@ -27,7 +27,7 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
         idx_start * pow2(offset as nat) <= usize::MAX,
         offset as nat == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
 {
-    C::lemma_top_level_index_range_bounds();
+    C::lemma_page_table_config_constant_requirements();
     vstd::layout::unsigned_int_max_values();
 
     let off = pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat;
@@ -81,7 +81,7 @@ pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(idx_end: usiz
         0 < idx_end * pow2(offset as nat),
         offset as nat == pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
 {
-    C::lemma_top_level_index_range_bounds();
+    C::lemma_page_table_config_constant_requirements();
     lemma_pow2_pos(offset as nat);
 
     assert(C::C::NR_LEVELS() == C::NR_LEVELS());
@@ -157,7 +157,7 @@ pub proof fn lemma_sign_bit_facts<C: PageTableConfig>(
     ensures
         (bit != 0) == ((va as int / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1),
 {
-    C::lemma_top_level_index_range_bounds();
+    C::lemma_page_table_config_constant_requirements();
     assert(C::C::ADDRESS_WIDTH() == C::ADDRESS_WIDTH());
     assert(address_width == C::ADDRESS_WIDTH());
     assert(0 < address_width as int <= 64);
@@ -202,7 +202,7 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
             pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat,
         ) as int) - 1,
 {
-    C::lemma_top_level_index_range_bounds();
+    C::lemma_page_table_config_constant_requirements();
     let off = pte_index_bit_offset_spec::<C::C>(C::C::NR_LEVELS()) as nat;
     let aw = C::C::ADDRESS_WIDTH() as nat;
     let top_w = (aw as int - off as int) as nat;
@@ -236,7 +236,7 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
             i_end <= p_top,
             p_off > 0,
     ;
-    // i_end > 0 — from `lemma_top_level_index_range_bounds`'s
+    // i_end > 0 — from `lemma_page_table_config_constant_requirements`'s
     // `idx.start < idx.end` plus `idx.start >= 0` (usize).
     assert(i_end > 0);
     assert(e_pre > 0) by (nonlinear_arith)

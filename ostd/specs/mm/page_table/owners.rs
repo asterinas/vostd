@@ -103,13 +103,12 @@ pub open spec fn vaddr_of<C: PageTableConfig>(path: TreePath<NR_ENTRIES>) -> usi
 }
 
 /// Runtime bound on `LEADING_BITS_spec`: every valid config uses at most the
-/// 16 high bits. Proven via the `PageTableConfig::lemma_leading_bits_bounded`
-/// trait method that each concrete config must discharge.
+/// 16 high bits. Proven via `PageTableConfig::lemma_page_table_config_constant_requirements`.
 pub proof fn lemma_leading_bits_bounded<C: PageTableConfig>()
     ensures
         C::LEADING_BITS_spec() < 0x1_0000_usize,
 {
-    C::lemma_leading_bits_bounded();
+    C::lemma_page_table_config_constant_requirements();
 }
 
 /// `vaddr(path) < 2^48` for every valid path: each term in the positional

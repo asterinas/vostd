@@ -167,7 +167,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         0xffff
     }
 
-    proof fn lemma_top_level_index_range_bounds() {
+    proof fn lemma_page_table_config_constant_requirements() {
         use crate::mm::nr_subpage_per_huge;
         use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
@@ -180,19 +180,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         lemma_usize_pow2_ilog2(12);
         lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(9, 39);
-    }
-
-    proof fn lemma_leading_bits_only_when_high_half() {
-        use crate::mm::nr_subpage_per_huge;
-        use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
-        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
-        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
-
-        lemma2_to64();
-        lemma2_to64_rest();
-        vstd::layout::unsigned_int_max_values();
-        lemma_usize_pow2_ilog2(12);
-        lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(8, 39);
         assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
         assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
@@ -287,26 +274,11 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    proof fn lemma_nr_subpage_per_huge_eq_nr_entries() {
-        assert(Self::C::BASE_PAGE_SIZE() == 4096usize);
-        assert(Self::C::PTE_SIZE() == 8usize);
-        assert(crate::specs::arch::NR_ENTRIES == 512usize);
-    }
-
-    proof fn lemma_leading_bits_bounded() {
-        assert(Self::LEADING_BITS_spec() == 0xffff_usize);
-    }
-
     axiom fn axiom_pte_size_eq_size_of();
 
     proof fn lemma_pte_walk_fills_page() {
-        Self::lemma_nr_subpage_per_huge_eq_nr_entries();
+        Self::lemma_page_table_config_constant_requirements();
         Self::axiom_pte_size_eq_size_of();
-    }
-
-    proof fn lemma_top_level_index_range_within_nr_entries() {
-        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().end == 512usize);
-        assert(crate::specs::arch::NR_ENTRIES == 512usize);
     }
 
     axiom fn axiom_pte_align_divides_size();

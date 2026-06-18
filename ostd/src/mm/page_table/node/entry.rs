@@ -965,7 +965,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value.node().metaregion_sound_node(*regions),
         {
             proof {
-                C::lemma_nr_subpage_per_huge_eq_nr_entries();
+                C::lemma_page_table_config_constant_requirements();
             }
 
             proof {

@@ -163,9 +163,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
         proof {
             C::lemma_pte_walk_fills_page();
-            C::lemma_top_level_index_range_within_nr_entries();
-            C::lemma_nr_subpage_per_huge_eq_nr_entries();
-            C::lemma_top_level_index_range_bounds();
+            C::lemma_page_table_config_derived_properties();
+            C::lemma_page_table_config_constant_requirements();
             vstd::arithmetic::mul::lemma_mul_inequality(
                 range.start as int,
                 NR_ENTRIES as int,
@@ -212,9 +211,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
         proof {
             C::lemma_pte_walk_fills_page();
-            C::lemma_top_level_index_range_within_nr_entries();
-            C::lemma_nr_subpage_per_huge_eq_nr_entries();
-            C::lemma_top_level_index_range_bounds();
+            C::lemma_page_table_config_derived_properties();
+            C::lemma_page_table_config_constant_requirements();
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
                 size_of_e,
                 NR_ENTRIES as int,
