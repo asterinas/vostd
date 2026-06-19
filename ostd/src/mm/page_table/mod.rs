@@ -223,7 +223,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     == 0x1_0000_0000_0000_0000int - pow2(Self::C::ADDRESS_WIDTH() as nat) as int
             },
             Self::LEADING_BITS_spec() < 0x1_0000_usize,
-            Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES,
             pow2(
                 (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
                     Self::C::NR_LEVELS(),

@@ -14,7 +14,7 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
 use crate::mm::{
-    MAX_NR_LEVELS, Paddr, PagingLevel, Vaddr, page_size,
+    MAX_NR_LEVELS, Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size,
     page_table::{EntryOwner, EntryOwnerKind},
 };
 
