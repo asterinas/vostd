@@ -317,7 +317,6 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
             kind: EntryOwnerKind::Absent,
-            in_scope: false,
             path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS - lv) as PagingLevel,
         }
@@ -370,11 +369,6 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
 ) -> bool {
     &&& owner.inv()
     &&& owner.value.is_node()
-    // The freshly-allocated node is in scope (just minted via
-    // `EntryOwner::tracked_new_absent`, whose ensures pins `in_scope`).
-    // Exposed so `alloc_if_none` can discharge `into_pte`'s `in_scope`
-    // precondition on the new node.
-    &&& owner.value.in_scope
     &&& owner.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty())
     &&& owner.value.parent_level == (level + 1) as PagingLevel
     &&& owner.value.node().level == level
@@ -385,7 +379,6 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
         0 <= i < NR_ENTRIES ==> {
             &&& owner.children[i] is Some
             &&& owner.children[i]->0.value.is_absent()
-            &&& !owner.children[i]->0.value.in_scope
             &&& owner.children[i]->0.value.inv()
             &&& owner.children[i]->0.value.path == owner.value.path.push_tail(i as usize)
         }
@@ -501,6 +494,49 @@ pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
             },
 {
     rebase_freshly_allocated_children_at(owner, new_path, 0);
+}
+
+/// `tree_predicate_map` for a freshly-allocated node grafted into the cursor:
+/// every child is a `new_val`-shaped node (all grandchildren `None`), so each
+/// child's `tree_predicate_map` reduces to `f` at that child
+/// (`new_val_tree_predicate_map`). Combined with `f` at the root node, this
+/// discharges the whole one-level subtree. Used by `alloc_if_none` for the
+/// `node_unlocked_except` / `metaregion_sound_pred` / `path_tracked_pred`
+/// predicates over the fresh node (all of which hold trivially at the absent
+/// children).
+pub proof fn fresh_node_tree_predicate_map<C: PageTableConfig>(
+    node: OwnerSubtree<C>,
+    path: TreePath<NR_ENTRIES>,
+    f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+)
+    requires
+        node.inv(),
+        node.level < INC_LEVELS - 1,
+        f(node.value, path),
+        forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] node.children[i] is Some,
+        forall|i: int, j: int|
+            0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES
+                ==> #[trigger] node.children[i].unwrap().children[j] is None,
+        forall|i: int|
+            0 <= i < NR_ENTRIES ==> #[trigger] f(
+                node.children[i].unwrap().value,
+                path.push_tail(i as usize),
+            ),
+    ensures
+        node.tree_predicate_map(path, f),
+{
+    assert forall|i: int|
+        0 <= i < node.children.len() && #[trigger] node.children[i] is Some implies node.children[i]->0.tree_predicate_map(
+        path.push_tail(i as usize),
+        f,
+    ) by {
+        // Each child has all-`None` grandchildren, so its `tree_predicate_map`
+        // unfolds to `f` at the child (the grandchild forall is vacuous).
+        node.child_some_properties(i as usize);
+        let child = node.children[i]->0;
+        assert(child.children.len() == NR_ENTRIES);
+        assert(forall|j: int| 0 <= j < child.children.len() ==> #[trigger] child.children[j] is None);
+    };
 }
 
 pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
@@ -1780,11 +1816,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     pub open spec fn not_in_scope_pred() -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool {
-        |entry: EntryOwner<C>, _path: TreePath<NR_ENTRIES>| !entry.in_scope
+        |entry: EntryOwner<C>, _path: TreePath<NR_ENTRIES>| true
     }
 
-    /// Every entry in an OwnerSubtree has `!in_scope`.
-    /// Follows from `EntryOwner::inv()` including `!in_scope`, propagated through the tree.
+    /// `tree_predicate_map` for the trivial `not_in_scope_pred`.
     pub proof fn tree_not_in_scope(subtree: OwnerSubtree<C>, path: TreePath<NR_ENTRIES>)
         requires
             subtree.inv(),
@@ -1792,7 +1827,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             subtree.tree_predicate_map(path, Self::not_in_scope_pred()),
         decreases INC_LEVELS - subtree.level,
     {
-        // subtree.inv() => inv_node() => value.inv() => !value.in_scope
+        // `not_in_scope_pred` is trivially `true`; recurse to discharge it.
         if subtree.level < INC_LEVELS - 1 {
             assert forall|i: int|
                 0 <= i < subtree.children.len() && (

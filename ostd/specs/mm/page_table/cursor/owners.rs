@@ -238,7 +238,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 child is Some ==> {
                     &&& child->0.value.parent_level == self.level()
                     &&& child->0.level == self.tree_level + 1
-                    &&& !child->0.value.in_scope
                     &&& child->0.value.path.len() == self.entry_own.node().tree_level + 1
                     &&& child->0.value.match_pte(
                         self.entry_own.node().children_perm.value()[i],
@@ -280,7 +279,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.children[i]->0.value.parent_level == self.level(),
             self.children[i]->0.level == self.tree_level + 1,
-            !self.children[i]->0.value.in_scope,
             self.children[i]->0.value.path.len() == self.entry_own.node().tree_level + 1,
             self.children[i]->0.value.match_pte(
                 self.entry_own.node().children_perm.value()[i],
@@ -299,7 +297,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         &&& self.pt_inv_children()
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
-        &&& !self.entry_own.in_scope
         &&& self.entry_own.node().relate_guard(self.guard)
         &&& self.tree_level == INC_LEVELS - self.level() - 1
         &&& self.tree_level < INC_LEVELS - 1
@@ -493,7 +490,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             // entry_own changed only by the Node payload and otherwise keeps
             // the surrounding owner metadata.
             self.entry_own.is_absent() == cont_old.entry_own.is_absent(),
-            self.entry_own.in_scope == cont_old.entry_own.in_scope,
             self.entry_own.path == cont_old.entry_own.path,
             self.entry_own.parent_level == cont_old.entry_own.parent_level,
             // entry_own's new parent is well-formed and structurally matches the old
@@ -532,7 +528,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.entry_own.node().children_perm.value()[self.idx as int],
                 self.entry_own.node().level,
             ),
-            !self.children[self.idx as int]->0.value.in_scope,
             // The new child satisfies the PT-specific tree invariant. This is
             // operation-specific (alloc_if_none/protect/split_if_mapped_huge/
             // replace each establish it differently) so it's lifted to a
@@ -598,8 +593,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 }
             };
         };
-
-        assert(!self.entry_own.in_scope);
     }
 
     pub proof fn new_child(
@@ -628,7 +621,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.level(),
                 prop,
                 is_tracked,
-            ).set_in_scope(false),
+            ),
             res.inv(),
             res.level == self.tree_level + 1,
             res == OwnerSubtree::new_val(res.value, res.level as nat),
@@ -640,7 +633,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             prop,
             is_tracked,
         );
-        owner.in_scope = false;
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
     }
 
@@ -2636,7 +2628,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Transfers `metaregion_sound` when `raw_count` changed from 0 to 1 at one index.
-    /// Uses `map_implies_and` with `not_in_scope_pred` since tree entries have `!in_scope`.
+    /// Uses `map_implies_and` with the trivial `not_in_scope_pred`.
     pub proof fn metaregion_borrow_slot(
         self,
         regions0: MetaRegionOwners,

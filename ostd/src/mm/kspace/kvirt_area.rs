@@ -1007,16 +1007,13 @@ impl KVirtArea {
                 // same frame reuse it. `new_frame` fabricates an `EntryOwner` with
                 // the correct `new_frame` shape for the paddr/level/prop;
                 // `frame_entry_wf` holds for any future frame at the same paddr.
-                // Note: `new_frame` returns with `in_scope = true`; clear it for
-                // `inv()` to hold (which requires `!in_scope`).
-                let tracked mut fresh = EntryOwner::<KernelPtConfig>::tracked_new_frame(
+                let tracked fresh = EntryOwner::<KernelPtConfig>::tracked_new_frame(
                     cur_mapped_pa,
                     cur_path,
                     cur_parent_level,
                     prop,  /* is_tracked */
                     true,
                 );
-                fresh.in_scope = false;
                 entry_owners.tracked_insert(cur_mapped_pa, fresh);
             }
         }
@@ -1275,9 +1272,8 @@ impl KVirtArea {
                     assert(pa < MAX_PADDR);
                 }
                 proof_decl! {
-                    let tracked mut entry_owner =
+                    let tracked entry_owner =
                         EntryOwner::<KernelPtConfig>::new_untracked_frame(pa, level, prop);
-                    entry_owner.in_scope = false;
                 }
 
                 let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor.0.model(

@@ -52,7 +52,6 @@ pub tracked enum EntryOwnerKind<C: PageTableConfig> {
 
 pub tracked struct EntryOwner<C: PageTableConfig> {
     pub kind: EntryOwnerKind<C>,
-    pub ghost in_scope: bool,
     pub ghost path: TreePath<NR_ENTRIES>,
     pub ghost parent_level: PagingLevel,
 }
@@ -100,7 +99,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> Self {
-        EntryOwner { kind: EntryOwnerKind::Absent, in_scope: true, path, parent_level }
+        EntryOwner { kind: EntryOwnerKind::Absent, path, parent_level }
     }
 
     pub open spec fn new_frame(
@@ -119,7 +118,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     is_tracked,
                 },
             ),
-            in_scope: true,
             path,
             parent_level,
         }
@@ -128,7 +126,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> Self {
         EntryOwner {
             kind: EntryOwnerKind::Node(node),
-            in_scope: true,
             path,
             parent_level: (node.level + 1) as PagingLevel,
         }
@@ -141,7 +138,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         parent_level: PagingLevel,
         mappings: Set<Mapping>,
     ) -> Self {
-        EntryOwner { kind: EntryOwnerKind::Borrowed(mappings), in_scope: true, path, parent_level }
+        EntryOwner { kind: EntryOwnerKind::Borrowed(mappings), path, parent_level }
     }
 
     pub proof fn tracked_new_borrowed(
@@ -152,7 +149,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         returns
             Self::new_borrowed(path, parent_level, mappings),
     {
-        Self { kind: EntryOwnerKind::Borrowed(mappings), in_scope: true, path, parent_level }
+        Self { kind: EntryOwnerKind::Borrowed(mappings), path, parent_level }
     }
 
     pub proof fn tracked_new_absent(
@@ -162,7 +159,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         returns
             Self::new_absent(path, parent_level),
     {
-        Self { kind: EntryOwnerKind::Absent, in_scope: true, path, parent_level }
+        Self { kind: EntryOwnerKind::Absent, path, parent_level }
     }
 
     pub proof fn tracked_take_node(tracked &mut self) -> (tracked res: NodeOwner<C>)
@@ -323,7 +320,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         Self {
             parent_level: (node.level + 1) as PagingLevel,
             kind: EntryOwnerKind::Node(node),
-            in_scope: true,
             path,
         }
     }
@@ -353,7 +349,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             res.frame().is_tracked == false,
             res.parent_level == parent_level,
             res.path.inv(),
-            res.in_scope,
             res.inv_base(),
             crate::mm::page_table::Child::<C>::Frame(paddr, parent_level, prop).wf(res),
     ;
@@ -988,8 +983,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
-    /// Structural invariant without `!in_scope`. Used by `Child::invariants`
-    /// for entries that have been taken out of the tree (`in_scope == true`).
+    /// Structural invariant of an entry owner. This is the whole of `inv()`,
+    /// and is also used directly by `Child::invariants`.
     pub open spec fn inv_base(self) -> bool {
         &&& self.is_node() ==> {
             &&& self.node().inv()
@@ -1011,16 +1006,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()
     }
-
-    pub open spec fn set_in_scope(self, in_scope: bool) -> Self {
-        EntryOwner { in_scope, ..self }
-    }
 }
 
 impl<C: PageTableConfig> Inv for EntryOwner<C> {
     open spec fn inv(self) -> bool {
-        &&& !self.in_scope
-        &&& self.inv_base()
+        self.inv_base()
     }
 }
 

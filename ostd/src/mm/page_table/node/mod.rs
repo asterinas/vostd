@@ -701,7 +701,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             owner.inv(),
-            !child_owner.in_scope,
             child_owner.inv(),
             owner.relate_guard(*old(self)),
             child_owner.match_pte(

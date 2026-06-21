@@ -568,7 +568,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= j < NR_ENTRIES && #[trigger] child.children[j] is Some implies {
                 &&& child.children[j].unwrap().value.parent_level == child.level()
                 &&& child.children[j].unwrap().level == child.tree_level + 1
-                &&& !child.children[j].unwrap().value.in_scope
                 &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     child.entry_own,
                     j,
@@ -647,7 +646,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= i < NR_ENTRIES && #[trigger] modified_cont.children[i] is Some implies {
                 &&& modified_cont.children[i].unwrap().value.parent_level == modified_cont.level()
                 &&& modified_cont.children[i].unwrap().level == modified_cont.tree_level + 1
-                &&& !modified_cont.children[i].unwrap().value.in_scope
                 &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     modified_cont.entry_own,
                     i,
@@ -1368,7 +1366,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= i < NR_ENTRIES && #[trigger] new_cont.children[i] is Some implies {
                 &&& new_cont.children[i].unwrap().value.parent_level == new_cont.level()
                 &&& new_cont.children[i].unwrap().level == new_cont.tree_level + 1
-                &&& !new_cont.children[i].unwrap().value.in_scope
                 &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     new_cont.entry_own,
                     i,
@@ -1380,7 +1377,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             } by {
                 if i == cont.idx as int {
                     assert(new_cont.children[i].unwrap() == child_node);
-                    assert(!child.entry_own.in_scope);
                 } else {
                     assert(new_cont.children[i] == cont.children[i]);
                     cont.inv_children_rel_unroll(i);

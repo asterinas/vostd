@@ -156,7 +156,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ) -> bool {
         &&& old_owner.path == new_owner.path
         &&& old_owner.parent_level == new_owner.parent_level
-        &&& new_owner.in_scope
         &&& new_owner.is_node() ==> {
             &&& regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr()->0))
             &&& regions.slot_owners[frame_to_index(

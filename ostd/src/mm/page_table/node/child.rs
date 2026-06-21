@@ -63,7 +63,6 @@ impl<C: PageTableConfig> Child<C> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             self.invariants(*old(owner), *old(regions)),
-            old(owner).in_scope,
             self matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
                 frame_to_index(meta_to_frame(node.ptr.addr())),
             ) > 0,
@@ -99,22 +98,15 @@ impl<C: PageTableConfig> Child<C> {
                     assert(regions.frame_obligations == fo0.remove(node_index));
                     let spec_regions = owner.into_pte_regions_spec(*old(regions));
                     assert(regions.slot_owners == spec_regions.slot_owners);
-                    owner.in_scope = false;
                 }
 
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => {
-                proof {
-                    owner.in_scope = false;
-                }
                 assume(C::E::new_page_req(paddr, level, prop));
                 C::E::new_page(paddr, level, prop)
             },
             Child::None => {
-                proof {
-                    owner.in_scope = false;
-                }
                 C::E::new_absent()
             },
         }
@@ -148,9 +140,6 @@ impl<C: PageTableConfig> Child<C> {
     )]
     pub unsafe fn from_pte(pte: C::E, level: PagingLevel) -> Self {
         if !pte.is_present() {
-            proof {
-                entry_own.in_scope = true;
-            }
             return Child::None;
         }
         let paddr = pte.paddr();
@@ -182,8 +171,6 @@ impl<C: PageTableConfig> Child<C> {
                 // `frame.drop`). Net effect over `from_pte` is +1 on
                 // the ledger, balancing the prior `-1` from
                 // `into_pte`'s `MD::new` consume.
-                entry_own.in_scope = true;
-
                 assert(regions.slot_owners == entry_own.from_pte_regions_spec(
                     *old(regions),
                 ).slot_owners);
@@ -191,9 +178,6 @@ impl<C: PageTableConfig> Child<C> {
             }
 
             return Child::PageTable(node);
-        }
-        proof {
-            entry_own.in_scope = true;
         }
         Child::Frame(paddr, level, pte.prop())
     }
@@ -269,7 +253,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
             proof {
                 // borrow_paddr postcondition gives raw_count == 1 and field-by-field preservation.
-                // Since raw_count was already 1 (entry is in PTE, in_scope == false),
+                // Since raw_count was already 1 (entry is in PTE),
                 // slot_owners[idx] == old(slot_owners[idx]) follows field by field.
                 assert(regions.slot_owners == old(regions).slot_owners);
                 // slots: borrow_paddr inserts at borrow_idx. Prove existing keys preserved.

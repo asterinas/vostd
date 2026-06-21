@@ -26,6 +26,144 @@ use vstd_extra::ownership::*;
 
 verus! {
 
+// ─── Present-PTE counting ──────────────────────────────────────────────────────
+// The intended meaning of `nr_children`: the number of *present* PTEs in the
+// node's `children_perm` array. `metaregion_sound_node` ties `nr_children` to
+// `count_present(children_perm.value())` (a settled-node invariant), which lets
+// the `nr_children_*_slot_bound` boundary facts be proven rather than axiomatized.
+/// Number of present PTEs among the first `n` entries of `s`.
+pub open spec fn count_present_upto<E: PageTableEntryTrait>(s: Seq<E>, n: int) -> int
+    decreases n,
+{
+    if n <= 0 {
+        0
+    } else {
+        count_present_upto(s, n - 1) + if s[n - 1].is_present() {
+            1int
+        } else {
+            0int
+        }
+    }
+}
+
+/// Number of present PTEs in `s`.
+pub open spec fn count_present<E: PageTableEntryTrait>(s: Seq<E>) -> int {
+    count_present_upto(s, s.len() as int)
+}
+
+/// `count_present_upto` is between `0` and `n`.
+pub proof fn lemma_count_present_upto_bound<E: PageTableEntryTrait>(s: Seq<E>, n: int)
+    requires
+        0 <= n,
+    ensures
+        0 <= count_present_upto(s, n) <= n,
+    decreases n,
+{
+    if n > 0 {
+        lemma_count_present_upto_bound(s, n - 1);
+    }
+}
+
+/// An absent slot below `n` makes the count strictly less than `n`.
+pub proof fn lemma_count_present_upto_absent<E: PageTableEntryTrait>(s: Seq<E>, n: int, idx: int)
+    requires
+        0 <= idx < n,
+        !s[idx].is_present(),
+    ensures
+        count_present_upto(s, n) < n,
+    decreases n,
+{
+    lemma_count_present_upto_bound(s, n - 1);
+    if idx < n - 1 {
+        lemma_count_present_upto_absent(s, n - 1, idx);
+    }
+}
+
+/// A present slot below `n` makes the count at least `1`.
+pub proof fn lemma_count_present_upto_present<E: PageTableEntryTrait>(s: Seq<E>, n: int, idx: int)
+    requires
+        0 <= idx < n,
+        s[idx].is_present(),
+    ensures
+        count_present_upto(s, n) >= 1,
+    decreases n,
+{
+    lemma_count_present_upto_bound(s, n - 1);
+    if idx < n - 1 {
+        lemma_count_present_upto_present(s, n - 1, idx);
+    }
+}
+
+/// Updating slot `idx` (with `idx < n`) shifts the count by the change in that
+/// slot's present-indicator.
+pub proof fn lemma_count_present_upto_update<E: PageTableEntryTrait>(
+    s: Seq<E>,
+    n: int,
+    idx: int,
+    pte: E,
+)
+    requires
+        0 <= idx < n <= s.len(),
+    ensures
+        count_present_upto(s.update(idx, pte), n) == count_present_upto(s, n) - (
+        if s[idx].is_present() {
+            1int
+        } else {
+            0int
+        }) + (if pte.is_present() {
+            1int
+        } else {
+            0int
+        }),
+    decreases n,
+{
+    let s2 = s.update(idx, pte);
+    if n - 1 == idx {
+        // The first `idx` entries are unchanged.
+        assert(count_present_upto(s2, n - 1) == count_present_upto(s, n - 1)) by {
+            lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
+        }
+        assert(s2[n - 1] == pte);
+    } else {
+        lemma_count_present_upto_update(s, n - 1, idx, pte);
+        assert(s2[n - 1] == s[n - 1]);
+    }
+}
+
+/// A zero present-count up to `n` means every slot below `n` is absent.
+pub proof fn lemma_count_present_upto_zero_all_absent<E: PageTableEntryTrait>(s: Seq<E>, n: int)
+    requires
+        count_present_upto(s, n) == 0,
+        0 <= n,
+    ensures
+        forall|k: int| 0 <= k < n ==> !s[k].is_present(),
+    decreases n,
+{
+    if n > 0 {
+        lemma_count_present_upto_bound(s, n - 1);
+        lemma_count_present_upto_zero_all_absent(s, n - 1);
+    }
+}
+
+/// If two sequences agree on `[0, n)`, their counts up to `n` are equal.
+pub proof fn lemma_count_present_upto_unchanged<E: PageTableEntryTrait>(
+    s: Seq<E>,
+    s2: Seq<E>,
+    n: int,
+    idx: int,
+)
+    requires
+        0 <= n <= idx,
+        forall|k: int| 0 <= k < n ==> s[k] == s2[k],
+    ensures
+        count_present_upto(s2, n) == count_present_upto(s, n),
+    decreases n,
+{
+    if n > 0 {
+        lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
+    }
+}
+
 pub tracked struct PageMetaOwner {
     pub nr_children: pcell_maybe_uninit::PointsTo<u16>,
     pub stray: pcell_maybe_uninit::PointsTo<bool>,
@@ -135,6 +273,17 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& self.meta_own.nr_children.id() == self.meta_perm_of(
             regions,
         ).value().metadata.nr_children.id()
+        // `nr_children` counts the present PTEs in `children_perm`. A settled-node
+        // invariant (it is momentarily broken mid-`replace`/`alloc_if_none`, between
+        // the PTE write and the counter update, which is why it lives here rather
+        // than in `inv()`). Lets `nr_children_*_slot_bound` be proven, not axiomatized.
+        &&& self.count_consistent()
+    }
+
+    /// `nr_children` equals the number of present PTEs in `children_perm`.
+    /// Held by a settled node (see `metaregion_sound_node`'s use site).
+    pub open spec fn count_consistent(self) -> bool {
+        self.meta_own.nr_children.value() == count_present(self.children_perm.value())
     }
 }
 
@@ -159,36 +308,38 @@ impl<C: PageTableConfig> NodeOwner<C> {
                 == self.children_perm.value().update(idx as int, pte),
     ;
 
-    /// If any slot in `children_perm` holds a non-present PTE, then
-    /// `nr_children < NR_ENTRIES`.
-    ///
-    /// Axiomatizes the intended meaning of `nr_children`: it counts the
-    /// number of *present* PTEs in the node. When at least one slot is
-    /// absent, the count must be strictly less than the maximum. This
-    /// sidesteps a full `nr_children == count(present PTEs)` invariant
-    /// (which would thread through every PTE mutation); the axiom instead
-    /// exposes the single boundary fact that `Entry::replace` needs when
-    /// incrementing the counter.
-    pub axiom fn nr_children_absent_slot_bound(self, idx: usize)
+    /// If a slot in `children_perm` holds a non-present PTE, then
+    /// `nr_children < NR_ENTRIES`. Proven (no longer axiomatized) from the
+    /// `count_consistent` invariant: `nr_children` counts present PTEs, and an
+    /// absent slot means not all `NR_ENTRIES` slots are present.
+    pub proof fn nr_children_absent_slot_bound(self, idx: usize)
         requires
             self.inv(),
+            self.count_consistent(),
+            self.children_perm.value().len() == NR_ENTRIES,
             idx < NR_ENTRIES,
             !self.children_perm.value()[idx as int].is_present(),
         ensures
             self.meta_own.nr_children.value() < NR_ENTRIES,
-    ;
+    {
+        lemma_count_present_upto_absent(self.children_perm.value(), NR_ENTRIES as int, idx as int);
+    }
 
-    /// If any slot in `children_perm` holds a present PTE, then
-    /// `nr_children > 0`. Dual of [`Self::nr_children_absent_slot_bound`];
-    /// used by `Entry::replace` when decrementing the counter.
-    pub axiom fn nr_children_present_slot_bound(self, idx: usize)
+    /// If a slot in `children_perm` holds a present PTE, then `nr_children > 0`.
+    /// Dual of [`Self::nr_children_absent_slot_bound`]; proven from
+    /// `count_consistent`.
+    pub proof fn nr_children_present_slot_bound(self, idx: usize)
         requires
             self.inv(),
+            self.count_consistent(),
+            self.children_perm.value().len() == NR_ENTRIES,
             idx < NR_ENTRIES,
             self.children_perm.value()[idx as int].is_present(),
         ensures
             self.meta_own.nr_children.value() > 0,
-    ;
+    {
+        lemma_count_present_upto_present(self.children_perm.value(), NR_ENTRIES as int, idx as int);
+    }
 }
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {

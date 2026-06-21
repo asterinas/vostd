@@ -234,7 +234,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let nsp = PageTableOwner::<C>::not_in_scope_pred();
         assert(OwnerSubtree::implies(nsp, g)) by {
             assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.inv() && !entry.in_scope implies #[trigger] g(entry, path) by {};
+                entry.inv() && nsp(entry, path) implies #[trigger] g(entry, path) by {};
         };
         assert forall|i: int|
             #![trigger self.continuations[i]]

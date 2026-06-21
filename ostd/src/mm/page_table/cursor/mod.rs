@@ -149,8 +149,8 @@ fn path_slot_as_mut<'a, 'rcu, C: PageTableConfig>(
 ///
 /// ## Justification
 /// `Child::from_pte` (called inside `Entry::replace`) invokes `PageTableNode::from_raw`,
-/// which sets `regions.slot_owners[idx].raw_count = 0` and marks the entry owner
-/// `in_scope = true`.  Consequently `metaregion_sound` reports `raw_count == 0`, but
+/// which sets `regions.slot_owners[idx].raw_count = 0`.  Consequently `metaregion_sound`
+/// reports `raw_count == 0`, but
 /// `Frame::borrow` / `FrameRef::borrow_paddr` require `raw_count == 1`.
 ///
 /// This function bridges that gap: we have unique ownership of the live frame `pt`
@@ -1377,7 +1377,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     }
 
                     proof {
-                        let ghost child_not_in_scope = !child_owner.value.in_scope;
                         assert(cur_entry.idx == cont0.idx);
                         let ghost reconstructed_entry_own = EntryOwner {
                             kind: EntryOwnerKind::Node(continuation.entry_own.node()),
@@ -2529,7 +2528,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             0 <= i < NR_ENTRIES ==> (#[trigger] child_owner_children[i]) is Some
                                 && child_owner_children[i].unwrap().value.is_absent());
 
-                        let ghost child_not_in_scope = !child_owner.value.in_scope;
                         let ghost reconstructed_entry_own = EntryOwner {
                             kind: EntryOwnerKind::Node(parent_owner),
                             ..cont_pre_alloc.entry_own
@@ -2940,7 +2938,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont.level(),
                 prop,
                 is_tracked,
-            ).set_in_scope(false));
+            ));
             assert(new_owner.value.is_frame());
             assert(new_owner.value.frame().mapped_pa == pa);
 
@@ -3294,9 +3292,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.cur_entry_owner().path,
             owner.level,
         );
-        proof {
-            absent_entry_owner.in_scope = false;
-        }
         let tracked subtree = OwnerSubtree::new_val_tracked(
             absent_entry_owner,
             (owner.continuations[owner.level - 1].tree_level + 1) as nat,
@@ -3680,8 +3675,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost child_owner_parent_level = child_owner.value.parent_level;
 
         proof {
-            let ghost child_not_in_scope = !child_owner.value.in_scope;
-
             continuation.tracked_put_child(child_owner);
             continuation.entry_own.tracked_put_node(parent_owner);
             cont0.take_put_child();
@@ -3696,7 +3689,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
             assert(owner.continuations[owner.level - 1].inv()) by {
                 let cont_new = owner.continuations[owner.level - 1];
-                assert(child_not_in_scope);
                 cont_new.continuation_inv_holds_after_child_restore(cont0, cont0.entry_own.node());
             };
             assert(owner.continuations[owner.level - 1].entry_own.metaregion_sound(*regions));
@@ -3875,14 +3867,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         assert(owner.continuations == owner0.continuations.remove(owner.level - 1));
 
         let ghost pre_new_owner_value = new_owner.value;
-        // Capture the old child value before Entry::replace mutates it (from_pte_owner_spec
-        // only changes in_scope, so meta_slot_paddr() is unchanged, but we need the pre-replace
+        // Capture the old child value before Entry::replace mutates it (we need the pre-replace
         // value to match Entry::metaregion_sound_neq_preserved's old(owner) parameter).
         let ghost old_child_pre_replace = old_child_owner.value;
-
-        proof {
-            new_owner.value.in_scope = true;
-        }
 
         #[verus_spec(with Tracked(regions),
             Tracked(&mut old_child_owner.value),
@@ -4118,7 +4105,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     }
                     owner0.inv_continuation(i);
                     let eo = owner0.continuations[i].entry_own;
-                    assert(eo.inv() && eo.is_node() && !eo.in_scope);
+                    assert(eo.inv() && eo.is_node());
                     assert(eo.metaregion_sound(regions0));
 
                     if old_child_pre_replace.is_node() {
