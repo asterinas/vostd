@@ -273,6 +273,13 @@ impl<C: PageTableConfig> NodeOwner<C> {
         &&& self.meta_own.nr_children.id() == self.meta_perm_of(
             regions,
         ).value().metadata.nr_children.id()
+        // A page-table node's slot is tracked with `PageTable` usage (set at
+        // allocation via `get_node_from_unused_spec`). This discriminates node
+        // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a
+        // freshly-allocated node (whose slot was `UNUSED`) can't collide with an
+        // existing live node — giving `alloc_if_none`/`split` the parent≠child
+        // slot distinctness without a PointsTo-linearity axiom.
+        &&& regions.slot_owners[self.slot_index].usage == PageUsage::PageTable
         // `nr_children` counts the present PTEs in `children_perm`. A settled-node
         // invariant (it is momentarily broken mid-`replace`/`alloc_if_none`, between
         // the PTE write and the counter update, which is why it lives here rather

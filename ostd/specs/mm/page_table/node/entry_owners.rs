@@ -869,6 +869,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     == r0.slot_owners[idx].inner_perms.in_list
                 &&& r1.slot_owners[idx].self_addr == r0.slot_owners[idx].self_addr
                 &&& r1.slot_owners[idx].paths_in_pt == r0.slot_owners[idx].paths_in_pt
+                // `usage` is part of `metaregion_sound_node` (node-repark
+                // discriminator), so it must be preserved to carry soundness.
+                &&& r1.slot_owners[idx].usage == r0.slot_owners[idx].usage
             }),
             // All other slot_owners unchanged: preserves sub-page validity for huge frames.
             forall|i: usize|

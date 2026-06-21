@@ -96,6 +96,35 @@ impl MetaSlot {
         }
     }
 
+    /// Variant of [`get_from_unused_spec`] for allocating a page-table *node*
+    /// (always non-unique). Identical except the claimed slot becomes
+    /// `PageUsage::PageTable` rather than `PageUsage::Frame`: a page-table
+    /// node is tracked with `PageTable` usage, which gives a clean
+    /// usage-based discriminator between node slots and data-frame slots
+    /// (the latter are `Frame`/MMIO). Used by the node allocators
+    /// (`PageTableNode::alloc`, `PageTable::empty_with_owner`).
+    pub open spec fn get_node_from_unused_spec(
+        paddr: Paddr,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+    ) -> bool
+        recommends
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+            pre.inv(),
+    {
+        let idx = frame_to_index(paddr);
+        {
+            &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
+            &&& MetaSlot::get_from_unused_inner_perms_spec(false, post.slot_owners[idx].inner_perms)
+            &&& post.slot_owners[idx].usage == PageUsage::PageTable
+            &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
+            &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
+            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
+            &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+        }
+    }
+
     /// Permission-location clause: the slot perm was *extracted* (handed back to
     /// the caller via an out-param), so `regions.slots` loses it. Pairs with
     /// [`get_from_unused_spec`] to describe [`crate::mm::frame::MetaSlot::get_from_unused`].

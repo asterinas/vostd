@@ -372,6 +372,11 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& owner.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty())
     &&& owner.value.parent_level == (level + 1) as PagingLevel
     &&& owner.value.node().level == level
+    // The fresh subtree's ghost-tree depth. Lets `alloc_if_none` discharge
+    // `final(owner).inv()`'s `child.level == self.level + 1`: the grafted
+    // children sit at `new_node.level + 1`, which must match the cursor entry's
+    // depth + 1.
+    &&& owner.level == (INC_LEVELS - level - 1) as nat
     &&& owner.value.node().inv()
     &&& !owner.value.node().children_perm.value().all(|child: C::E| child.is_present())
     &&& forall|i: int|

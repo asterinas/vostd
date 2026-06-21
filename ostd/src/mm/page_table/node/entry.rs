@@ -684,6 +684,18 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 parent_owner.nr_children_absent_slot_bound(self.idx);
             }
 
+            // Snapshot the parent's slot perm + nr_children-id clause while
+            // `metaregion_sound_node` still fully holds (count consistent,
+            // nothing mutated). The `+ 1`'s `read` below needs the id clause,
+            // but by then `count_consistent` is momentarily broken; we frame
+            // the clause forward instead of re-deriving it from a false
+            // predicate.
+            let ghost regions_pre = *regions;
+            let ghost pre_meta_perm = parent_owner.meta_perm_of(*regions);
+            proof {
+                assert(parent_owner.metaregion_sound_node(*regions));
+            }
+
             proof_decl! {
                 let tracked mut new_node_owner: Tracked<OwnerSubtree<C>>;
             }
@@ -736,10 +748,18 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // set the parent's PTE present via `set_children_perm`) and the
                 // `+ 1` below, so the full `metaregion_sound_node` doesn't hold
                 // here. But its id clause — all `nr_children_mut`/`read` need — is
-                // frame-stable: `meta_own` is preserved by
-                // `set_children_perm`/`write_pte`, and the parent slot's perms are
-                // untouched by allocating the child slot. State it directly so the
-                // prover doesn't have to discharge the (now-false) whole predicate.
+                // frame-stable, so we transfer it from the pre-`alloc` snapshot:
+                //  - `meta_own` is preserved by `set_children_perm`/`write_pte`.
+                //  - the parent slot (`!= child slot`, since the parent is a live
+                //    node with `rc != UNUSED` while the child slot was `UNUSED`)
+                //    is preserved by `alloc` (`get_from_unused`/`reparked` only
+                //    touch the child slot) and by `write_pte` (regions immutable),
+                //    so `meta_perm_of` — a deterministic `new_spec(slots[idx],
+                //    inner_perms)` — is structurally unchanged.
+                assert(regions.slots[parent_owner.slot_index] == regions_pre.slots[parent_owner.slot_index]);
+                assert(regions.slot_owners[parent_owner.slot_index].inner_perms
+                    == regions_pre.slot_owners[parent_owner.slot_index].inner_perms);
+                assert(parent_owner.meta_perm_of(*regions) == pre_meta_perm);
                 assert(parent_owner.meta_own.nr_children.id()
                     == parent_owner.meta_perm_of(*regions).value().metadata.nr_children.id());
             }
@@ -759,6 +779,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // `owner.level` (from `allocated_empty_node_owner` + the
                 // `owner.level + parent_owner.level == INC_LEVELS` precond), so
                 // the grafted children's levels line up with `owner.level + 1`.
+                assert(level == parent_owner.level);
+                assert(owner.level + parent_owner.level == INC_LEVELS);
+                assert(new_node_owner.value.node().level == (level - 1) as PagingLevel);
+                assert(new_node_owner.level == INC_LEVELS - level);
                 assert(new_node_owner.level == owner.level);
                 owner.value = new_node_owner.value;
                 owner.value.parent_level = level as PagingLevel;
@@ -1296,7 +1320,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
 
             proof {
-                //assert(new_owner_node.metaregion_sound_node(*regions));
+                assert(new_owner.value.node().metaregion_sound_node(*regions));
             }
             #[verus_spec(with Tracked(regions),
                 Tracked(&mut new_owner_child.value),
