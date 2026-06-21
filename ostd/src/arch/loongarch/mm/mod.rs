@@ -3,12 +3,12 @@ use alloc::fmt;
 use core::{arch::asm, ops::Range};
 
 use crate::{
+    Pod,
     mm::{
+        PAGE_SIZE, Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags as PrivFlags},
         page_table::PageTableEntryTrait,
-        Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr, PAGE_SIZE,
     },
-    Pod,
 };
 
 pub(crate) const NR_ENTRIES_PER_PAGE: usize = 512;
@@ -273,11 +273,6 @@ impl PageTableEntryTrait for PageTableEntry {
         }
 
         self.0 = (self.0 & Self::PHYS_ADDR_MASK) | flags;
-    }
-
-    proof fn set_prop_properties(self, prop: PageProperty)
-    {
-        admit();
     }
 
     fn is_last(&self, level: PagingLevel) -> bool {

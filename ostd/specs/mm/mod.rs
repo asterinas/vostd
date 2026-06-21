@@ -6,12 +6,14 @@ pub mod page_table;
 pub mod tlb;
 pub mod virt_mem;
 
+use vstd::arithmetic::div_mod::group_div_basics;
+use vstd::arithmetic::div_mod::lemma_div_non_zero;
 use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
 use crate::mm::vm_space::UserPtConfig;
-use crate::mm::{Paddr, Vaddr};
+use crate::mm::{KERNEL_VADDR_RANGE, Paddr, PagingConstsTrait, Vaddr, nr_subpage_per_huge};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{Guards, INC_LEVELS, Mapping, PageTableOwner, PageTableView};
 use crate::specs::mm::tlb::TlbModel;
@@ -133,6 +135,29 @@ impl GlobalMemOwner {
 
         pt.view_rec_mapping_inv(root_path);
     }
+}
+
+pub proof fn lemma_nr_subpage_per_huge_bounded<C: PagingConstsTrait>()
+    ensures
+        0 < nr_subpage_per_huge::<C>() <= C::BASE_PAGE_SIZE(),
+{
+    C::lemma_paging_consts_requirements();
+    broadcast use group_div_basics;
+
+    assert(C::BASE_PAGE_SIZE() / C::PTE_SIZE() > 0) by {
+        lemma_div_non_zero(C::BASE_PAGE_SIZE() as int, C::PTE_SIZE() as int);
+    };
+}
+
+/// For any VA within the kernel virtual address range and any page level,
+/// va + page_size(level) does not overflow usize.
+pub proof fn lemma_va_plus_page_size_no_overflow(va: Vaddr, len: usize)
+    requires
+        va + len <= KERNEL_VADDR_RANGE.end,
+    ensures
+        va + len <= usize::MAX,
+{
+    assert(KERNEL_VADDR_RANGE.end == 0xffff_ffff_ffff_0000usize) by (compute_only);
 }
 
 } // verus!

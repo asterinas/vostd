@@ -2,6 +2,8 @@
 #![expect(dead_code)]
 
 use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS};
+use vstd::arithmetic::div_mod::group_div_basics;
+use vstd::arithmetic::div_mod::lemma_div_non_zero;
 use vstd::arithmetic::power2::*;
 use vstd::prelude::*;
 use vstd_extra::panic::may_panic;
@@ -103,9 +105,15 @@ impl PagingConstsTrait for PagingConsts {
         8
     }
 
-    proof fn lemma_paging_consts_properties()
+    proof fn lemma_paging_consts_requirements()
+        ensures
+            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
+            Self::NR_LEVELS() == NR_LEVELS,
+            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
     {
         lemma_pow2_is_pow2_to64();
+        lemma_u64_ilog2_to64();
+        assert(Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES);
     }
 }
 

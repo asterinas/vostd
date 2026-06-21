@@ -29,7 +29,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn item_into_mapping(va: Vaddr, item: C::Item) -> Mapping {
         let (paddr, level, prop) = C::item_into_raw_spec(item);
-        let size = page_size(level);
+        let size = page_size::<C>(level);
         Mapping {
             va_range: va as int..va as int + size as int,
             pa_range: paddr..(paddr + size) as Paddr,
@@ -77,7 +77,7 @@ impl<C: PageTableConfig> CursorView<C> {
             self.present(),
     {
         let (paddr, level, prop) = C::item_into_raw_spec(item);
-        let size = page_size(level);
+        let size = page_size::<C>(level);
         if self.query(paddr, size, prop) {
             let r = self.query_range();
             Some(r.start as Vaddr..r.end as Vaddr)
@@ -131,7 +131,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
     /// Post-map cursor position: always advance by `size` from the aligned base.
     /// Matches `cursor.map` exec semantics (always calls `move_forward`, advancing by
-    /// `page_size(level)` regardless of alignment).
+    /// `page_size::<C>(level)` regardless of alignment).
     ///
     /// Do NOT substitute `vstd_extra::arithmetic::nat_align_up` here — that function
     /// leaves already-aligned inputs unchanged, which would mismatch exec.

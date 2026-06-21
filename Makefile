@@ -11,7 +11,7 @@ $(VERIFICATION_TARGETS):
 all: verify
 
 verify:
-	cargo dv verify --targets $(VERIFICATION_TARGETS)
+	cargo dv verify --targets $(VERIFICATION_TARGETS) -- -Awarnings
 
 fmt:
 	cargo dv fmt

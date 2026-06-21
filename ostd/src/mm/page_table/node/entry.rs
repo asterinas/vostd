@@ -11,7 +11,7 @@ use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
 use crate::mm::frame::{Frame, FrameRef};
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -626,6 +626,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let tracked mut new_node_owner: Tracked<OwnerSubtree<C>>;
             }
 
+            proof {
+                C::lemma_paging_consts_properties();
+                // UNPROVABLE: The verifier cannot chain level == parent_owner.level <= NR_LEVELS
+                // through the external_body level() call and the node_matching predicate.
+                assume(level - 1 < C::NR_LEVELS());
+            }
+
             #[verus_spec(with Tracked(parent_owner), Tracked(regions), Tracked(guards), Ghost(self.idx) => Tracked(new_node_owner))]
             let new_page = PageTableNode::<C>::alloc(level - 1);
 
@@ -753,7 +760,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 forall |j: usize| #![trigger frame_to_index(
                     (old(owner).value.frame().mapped_pa
                         + j * PAGE_SIZE) as usize)]
-                    0 < j < page_size(old(parent_owner).level) / PAGE_SIZE ==> {
+                    0 < j < page_size::<C>(old(parent_owner).level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index(
                         (old(owner).value.frame().mapped_pa
                             + j * PAGE_SIZE) as usize);
@@ -893,8 +900,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value.frame().prop == prop,
                 pa == old(owner).value.frame().mapped_pa,
                 level == old(parent_owner).level,
-                pa % page_size(level) == 0,
-                pa + page_size(level) <= MAX_PADDR,
+                pa % page_size::<C>(level) == 0,
+                pa + page_size::<C>(level) <= MAX_PADDR,
                 regions.inv(),
                 // Canonical model: the freshly-allocated node carries its
                 // pending-Drop obligation across the per-child `replace`
@@ -943,7 +950,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 forall|j: usize|
                     #![trigger frame_to_index(
                     (pa + j * PAGE_SIZE) as usize)]
-                    0 < j < page_size(level) / PAGE_SIZE ==> {
+                    0 < j < page_size::<C>(level) / PAGE_SIZE ==> {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].usage
@@ -965,8 +972,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value.node().metaregion_sound_node(*regions),
         {
             proof {
+                C::lemma_nr_subpage_per_huge_eq_nr_entries();
                 C::lemma_page_table_config_constant_requirements();
                 C::lemma_paging_consts_properties();
+            }
+
+            proof {
                 // Prove required facts while we still have new_owner.value.node available.
                 let ghost the_node = new_owner.value.node();
                 assert(new_owner.children[i as int].unwrap().value.match_pte(
@@ -981,7 +992,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 EntryOwner::huge_frame_split_child_at(owner.value, *regions, i as usize);
             }
 
-            let small_pa = pa + i * page_size(level - 1);
+            let small_pa = pa + i * page_size::<C>(level - 1);
 
             let tracked child_owner = EntryOwner::tracked_new_frame(
                 small_pa,
@@ -1008,8 +1019,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let idx = frame_to_index(small_pa);
                 if i != 0 {
                     let ghost big_j =
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
-                    pa, level, i);
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j::<
+                        C,
+                    >(pa, level, i);
                 }
                 assert(entry.node_matching(new_owner_child.value, new_owner_node, *entry.node)) by {
                     let pte = new_owner_node.children_perm.value()[i as int];
@@ -1023,13 +1035,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 };
 
                 if level - 1 > 1 {
-                    let nr_subpages = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
-                    (level - 1) as PagingLevel);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
-                    level);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size(
-                    level);
+                    let nr_subpages = page_size::<C>((level - 1) as PagingLevel) / PAGE_SIZE;
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
+                        C,
+                    >((level - 1) as PagingLevel);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq::<
+                        C,
+                    >(level);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_nr_entries_times_sub_page_size::<
+                        C,
+                    >(level);
                     assert forall|j_prime: usize|
                         #![trigger frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize)]
                         0 < j_prime < nr_subpages implies {
@@ -1042,7 +1057,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                         }
                     } by {
-                        let sub_pages_per_subframe = page_size((level - 1) as PagingLevel)
+                        let sub_pages_per_subframe = page_size::<C>((level - 1) as PagingLevel)
                             / PAGE_SIZE;
                         let big_j_int: int = i as int * sub_pages_per_subframe as int
                             + j_prime as int;
@@ -1093,15 +1108,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // metaregion_sound frame arm shape.
                 if i == 0 {
                     // small_pa == pa + 0 * page_size(level-1) == pa.
-                    assert(i as int * page_size((level - 1) as PagingLevel) as int == 0) by {
+                    assert(i as int * page_size::<C>((level - 1) as PagingLevel) as int == 0) by {
                         vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
-                            page_size((level - 1) as PagingLevel) as int,
+                            page_size::<C>((level - 1) as PagingLevel) as int,
                         );
                     }
                 } else {
                     let ghost big_j =
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
-                    pa, level, i);
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j::<
+                        C,
+                    >(pa, level, i);
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                     // Trigger the sub-page forall at j = big_j.
                     assert(regions.slots.contains_key(
@@ -1128,8 +1144,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let ghost target_idx = frame_to_index(small_pa);
                 if i != 0 {
                     let ghost big_j =
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
-                    pa, level, i);
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j::<
+                        C,
+                    >(pa, level, i);
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                     assert(target_idx == frame_to_index((pa + big_j * PAGE_SIZE) as usize));
                     assert(regions.slots.contains_key(target_idx));

@@ -20,7 +20,9 @@ use vstd_extra::ownership::*;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_size;
 use crate::mm::page_table::*;
-use crate::specs::arch::*;
+use crate::mm::{PagingConstsTrait, nr_subpage_per_huge};
+use crate::specs::arch::PAGE_SIZE;
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::Mapping;
@@ -72,12 +74,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.map_full_tree(|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p)),
     {
+        C::lemma_paging_consts_properties();
         let combined = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p);
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(
             combined,
         ) by {
+            self.inv_continuation(i);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
@@ -118,6 +122,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.no_node_at_idx(changed_idx),
     {
+        C::lemma_paging_consts_properties();
         let msp = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let target = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
             e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
@@ -142,6 +147,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 e.meta_slot_paddr().unwrap(),
             ) != changed_idx
         } by {
+            self.inv_continuation(i);
             let entry = self.continuations[i].entry_own;
             if entry.is_node() && entry.meta_slot_paddr() is Some {
                 EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions, changed_idx);
@@ -180,6 +186,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
+        C::lemma_paging_consts_properties();
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -202,7 +209,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         // r0 facts (from frame_sub_pages_valid) carry to r1.
                         assert(entry.is_frame() && entry.parent_level > 1 ==> {
                             let pa = entry.frame().mapped_pa;
-                            let nr_pages = page_size(entry.parent_level) / PAGE_SIZE;
+                            let nr_pages = page_size::<C>(entry.parent_level) / PAGE_SIZE;
                             forall|j: usize|
                                 0 < j < nr_pages ==> {
                                     let sub_idx = #[trigger] frame_to_index(
@@ -236,12 +243,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             #![trigger self.continuations[i]]
             self.level - 1 <= i
                 < NR_LEVELS implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
+            self.inv_continuation(i);
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 // Same sub-page bridge as above (continuations branch).
                 assert(cont_entry.is_frame() && cont_entry.parent_level > 1 ==> {
                     let pa = cont_entry.frame().mapped_pa;
-                    let nr_pages = page_size(cont_entry.parent_level) / PAGE_SIZE;
+                    let nr_pages = page_size::<C>(cont_entry.parent_level) / PAGE_SIZE;
                     forall|j: usize|
                         0 < j < nr_pages ==> {
                             let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
@@ -328,6 +336,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.no_frame_with_path(removed_path),
     {
+        C::lemma_paging_consts_properties();
         broadcast use CursorContinuation::group_lemmas;
 
         let g = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -479,6 +488,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
+        C::lemma_paging_consts_properties();
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
         let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
@@ -500,7 +510,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         // r0 sub-page facts carry to r1.
                         assert(entry.is_frame() && entry.parent_level > 1 ==> {
                             let pa = entry.frame().mapped_pa;
-                            let nr_pages = page_size(entry.parent_level) / PAGE_SIZE;
+                            let nr_pages = page_size::<C>(entry.parent_level) / PAGE_SIZE;
                             forall|j: usize|
                                 0 < j < nr_pages ==> {
                                     let sub_idx = #[trigger] frame_to_index(
@@ -547,13 +557,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             #![trigger self.continuations[i]]
             self.level - 1 <= i
                 < NR_LEVELS implies self.continuations[i].entry_own.metaregion_sound(regions1) by {
+            self.inv_continuation(i);
             let cont_entry = self.continuations[i].entry_own;
             if cont_entry.meta_slot_paddr() is Some {
                 let eidx = frame_to_index(cont_entry.meta_slot_paddr().unwrap());
                 if eidx != changed_idx {
                     assert(cont_entry.is_frame() && cont_entry.parent_level > 1 ==> {
                         let pa = cont_entry.frame().mapped_pa;
-                        let nr_pages = page_size(cont_entry.parent_level) / PAGE_SIZE;
+                        let nr_pages = page_size::<C>(cont_entry.parent_level) / PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx = #[trigger] frame_to_index(

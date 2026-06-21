@@ -13,7 +13,7 @@ use vstd_extra::ownership::*;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingLevel, Vaddr, page_size};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge, page_size};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::AbstractVaddr;
@@ -85,6 +85,9 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.map_children(g),
     {
+        // TreePath<NR_ENTRIES> push_tail requires val < NR_ENTRIES;
+        // inv now provides children.len() == nr_subpage_per_huge::<C>().
+        C::lemma_paging_consts_properties();
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
@@ -132,15 +135,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             OwnerSubtree::implies(f, g),
             forall|i: int|
                 #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(f),
+                self.level - 1 <= i < C::NR_LEVELS() ==> self.continuations[i].map_children(f),
         ensures
             forall|i: int|
                 #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].map_children(g),
+                self.level - 1 <= i < C::NR_LEVELS() ==> self.continuations[i].map_children(g),
     {
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            self.level - 1 <= i < C::NR_LEVELS() implies self.continuations[i].map_children(g) by {
+            self.inv_continuation(i);
             let cont = self.continuations[i];
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
@@ -167,6 +171,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.level > 1,
     {
+        let i = self.level as int - 1;
+        self.inv_continuation(i);
+        let cont = self.continuations[i];
+        let idx = cont.idx as int;
+        cont.inv_children_rel_unroll(idx);
         self.cur_subtree_inv();
     }
 
@@ -205,11 +214,53 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // cur_va == va (precondition) and cur_va + PAGE_SIZE <= end (from alignment
         // and cur_va < end). Hence cur_entry_fits_range == true, contradicting
         // !cur_entry_fits_range.
+        C::lemma_paging_consts_properties();
         if self.level == 1 {
-            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1::<
+                C,
+            >();
             self.va.align_down_concrete(1);
             // cur_va is PAGE_SIZE-aligned and cur_va < end, so cur_va + PAGE_SIZE <= end <= usize::MAX.
-            assert(self.va.to_vaddr() + page_size(1 as PagingLevel) <= usize::MAX);
+            // page_size(1) == PAGE_SIZE (from lemma_page_size_spec_level1 above).
+            // Both cur_va and end are PAGE_SIZE-aligned, and cur_va < end,
+            // so cur_va + PAGE_SIZE <= end <= usize::MAX.
+            assert(page_size::<C>(1 as PagingLevel) == PAGE_SIZE);
+            assert(cur_va as nat % PAGE_SIZE as nat == 0);
+            assert(end as nat % PAGE_SIZE as nat == 0);
+            assert(cur_va < end);
+            assert(PAGE_SIZE > 0) by {
+                C::lemma_paging_consts_requirements();
+            };
+            assert(self.va.to_vaddr() + page_size::<C>(1 as PagingLevel) <= usize::MAX) by {
+                // cur_va == self.va.to_vaddr(), both aligned to PAGE_SIZE, cur_va < end
+                // so cur_va + PAGE_SIZE <= end (next aligned value)
+                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
+                    cur_va as int,
+                    PAGE_SIZE as int,
+                );
+                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, PAGE_SIZE as int);
+                let q_cur = cur_va as int / PAGE_SIZE as int;
+                let q_end = end as int / PAGE_SIZE as int;
+                vstd::arithmetic::div_mod::lemma_div_is_ordered(
+                    cur_va as int,
+                    end as int - 1,
+                    PAGE_SIZE as int,
+                );
+                assert(q_cur < q_end) by (nonlinear_arith)
+                    requires
+                        cur_va as int == q_cur * PAGE_SIZE as int,
+                        end as int == q_end * PAGE_SIZE as int,
+                        cur_va < end,
+                        PAGE_SIZE > 0usize,
+                ;
+                assert(cur_va as int + PAGE_SIZE as int <= end as int) by (nonlinear_arith)
+                    requires
+                        cur_va as int == q_cur * PAGE_SIZE as int,
+                        end as int == q_end * PAGE_SIZE as int,
+                        q_cur < q_end,
+                        PAGE_SIZE > 0usize,
+                ;
+            };
             self.va.aligned_align_up_advances(1);
             // align_up(1).to_vaddr() == self.va.to_vaddr() + PAGE_SIZE.
         }
@@ -230,6 +281,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.not_in_tree(owner),
     {
+        C::lemma_paging_consts_properties();
         let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(owner);
         let nsp = PageTableOwner::<C>::not_in_scope_pred();
         assert(OwnerSubtree::implies(nsp, g)) by {
@@ -239,10 +291,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
+            self.inv_continuation(i);
             let cont = self.continuations[i];
+            assert(cont.children.len() == nr_subpage_per_huge::<C>());
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
-                0 <= j < NR_ENTRIES
+                0 <= j < cont.children.len()
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
             cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);

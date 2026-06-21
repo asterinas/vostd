@@ -163,6 +163,9 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
         proof {
             C::lemma_pte_walk_fills_page();
+            C::lemma_top_level_index_range_within_nr_entries();
+            C::lemma_nr_subpage_per_huge_eq_nr_entries();
+            C::lemma_top_level_index_range_bounds();
             C::lemma_page_table_config_derived_properties();
             C::lemma_page_table_config_constant_requirements();
             vstd::arithmetic::mul::lemma_mul_inequality(
@@ -211,6 +214,9 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
         proof {
             C::lemma_pte_walk_fills_page();
+            C::lemma_top_level_index_range_within_nr_entries();
+            C::lemma_nr_subpage_per_huge_eq_nr_entries();
+            C::lemma_top_level_index_range_bounds();
             C::lemma_page_table_config_derived_properties();
             C::lemma_page_table_config_constant_requirements();
             C::lemma_paging_consts_properties();
@@ -504,7 +510,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
              Ghost(idx): Ghost<usize>,
                  -> owner: Tracked<OwnerSubtree<C>>,
         requires
-            1 <= level < NR_LEVELS,
+            1 <= level < C::NR_LEVELS(),
             idx < NR_ENTRIES,
             old(regions).inv(),
             old(parent_owner).inv(),

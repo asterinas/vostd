@@ -122,7 +122,7 @@ pub open spec fn sum_page_sizes_spec(elems: Seq<(Paddr, u8)>, from: int, to: int
     if from >= to {
         0nat
     } else {
-        page_size(elems[from].1) as nat + sum_page_sizes_spec(elems, from + 1, to)
+        page_size::<PagingConsts>(elems[from].1) as nat + sum_page_sizes_spec(elems, from + 1, to)
     }
 }
 
@@ -133,21 +133,24 @@ proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int
         to < elems.len() as int,
     ensures
         sum_page_sizes_spec(elems, from, to + 1) == sum_page_sizes_spec(elems, from, to)
-            + page_size(elems[to].1) as nat,
+            + page_size::<PagingConsts>(elems[to].1) as nat,
     decreases to - from,
 {
     if from < to {
         sum_page_sizes_extend_right(elems, from + 1, to);
         // Help Verus: unfold sum_page_sizes_spec(elems, from, to) and (from, to+1)
-        assert(sum_page_sizes_spec(elems, from, to) == page_size(elems[from].1) as nat
-            + sum_page_sizes_spec(elems, from + 1, to));
-        assert(sum_page_sizes_spec(elems, from, to + 1) == page_size(elems[from].1) as nat
-            + sum_page_sizes_spec(elems, from + 1, to + 1));
+        assert(sum_page_sizes_spec(elems, from, to) == page_size::<PagingConsts>(
+            elems[from].1,
+        ) as nat + sum_page_sizes_spec(elems, from + 1, to));
+        assert(sum_page_sizes_spec(elems, from, to + 1) == page_size::<PagingConsts>(
+            elems[from].1,
+        ) as nat + sum_page_sizes_spec(elems, from + 1, to + 1));
     } else {
         // from == to; explicitly unfold both sides
         assert(sum_page_sizes_spec(elems, from, to) == 0nat);
-        assert(sum_page_sizes_spec(elems, from, to + 1) == page_size(elems[from].1) as nat
-            + sum_page_sizes_spec(elems, from + 1, to + 1));
+        assert(sum_page_sizes_spec(elems, from, to + 1) == page_size::<PagingConsts>(
+            elems[from].1,
+        ) as nat + sum_page_sizes_spec(elems, from + 1, to + 1));
         assert(sum_page_sizes_spec(elems, from + 1, to + 1) == 0nat);
     }
 }
@@ -186,7 +189,7 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> (res: alloc::vec::
         sum_page_sizes_spec(res@, 0, res@.len() as int) == len as nat,
         forall|i: int|
             0 <= i < res@.len() ==> (va as nat + #[trigger] sum_page_sizes_spec(res@, 0, i))
-                % page_size(res@[i].1) as nat == 0,
+                % page_size::<PagingConsts>(res@[i].1) as nat == 0,
         // PA tracking: each element's physical address equals pa + sum of preceding page sizes.
         forall|i: int|
             0 <= i < res@.len() ==> (#[trigger] res@[i]).0 as nat == pa as nat
@@ -726,12 +729,20 @@ impl KVirtArea {
                     pre_cursor_regions,
                 ));
                 assert(pre_cursor_regions.slots.contains_key(idx_i));
+                assert(pre_cursor_regions.inv());
                 assert(pre_cursor_regions.slot_owners.contains_key(idx_i));
+                assert(pre_cursor_regions.slot_owners[idx_i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
+                assert(regions.slot_owners[idx_i].inner_perms.ref_count.value()
+                    == pre_cursor_regions.slot_owners[idx_i].inner_perms.ref_count.value());
+                assert(idx_i < crate::specs::mm::frame::mapping::max_meta_slots());
+                assert(regions.inv());
                 assert(regions.slot_owners.contains_key(idx_i));
                 assert(regions.slots.contains_key(idx_i));
             };
         }
 
+        let ghost mut mapped_pages: int = 0;
         for frame in it: frames.into_iter()
             invariant
                 cursor.0.invariants(cursor_owner, *regions, *guards),
@@ -747,13 +758,16 @@ impl KVirtArea {
                 // > area_size` derivation that fires `map_frames_bounds_panic_condition`'s
                 // capacity disjunct ⟹ `may_panic()` via the invariant.
                 it.seq().len() == frames.len(),
-                0 <= it.index() <= frames.len(),
+                0 <= mapped_pages <= frames.len(),
+                mapped_pages == it.index(),
                 cursor.0.barrier_va.start == range.start + map_offset,
                 cursor.0.barrier_va.end == range.end,
                 cursor.0.guard_level == NR_LEVELS as u8,
                 cursor.0.va <= cursor.0.barrier_va.end,
                 range.end - range.start == area_size,
                 cursor.0.va == range.start + map_offset + it.index() * PAGE_SIZE,
+                cursor.0.va as int == range.start as int + map_offset as int + mapped_pages
+                    * PAGE_SIZE as int,
                 // For each remaining frame, the map contains a wf owner at its paddr.
                 // Duplicates among remaining frames are fine — one key, one owner.
                 forall|i: int|
@@ -845,7 +859,7 @@ impl KVirtArea {
                 assert(orig_mapped_pa == cur_mapped_pa);
                 assert(orig_prop == prop);
                 assert(cur_parent_level == 1);
-                assert(orig_size == page_size(cur_parent_level));
+                assert(orig_size == page_size::<PagingConsts>(cur_parent_level));
                 assert(pre_remove_owners[cur_mapped_pa].inv_base());
             }
 
@@ -870,7 +884,7 @@ impl KVirtArea {
                 let (pa, level, prop_from_item) = KernelPtConfig::item_into_raw_spec(item);
                 KernelPtConfig::item_into_raw_spec_level_bounds(item);
                 KernelPtConfig::item_into_raw_spec_tracked_level(item);
-                lemma_va_align_page_size_level_1(cursor.0.va);
+                lemma_va_align_page_size_level_1::<PagingConsts>(cursor.0.va);
                 cursor_owner.locked_range_page_aligned();
                 let ghost diff: int = cursor.0.barrier_va.end as int - cursor.0.va as int;
                 vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
@@ -1018,10 +1032,15 @@ impl KVirtArea {
                 );
                 fresh.in_scope = false;
                 entry_owners.tracked_insert(cur_mapped_pa, fresh);
+                mapped_pages = mapped_pages + 1;
             }
         }
 
         proof {
+            assert(mapped_pages == frames.len());
+            assert(cursor.0.va as int == range.start as int + map_offset as int
+                + frames.len() as int * PAGE_SIZE as int);
+            assert(cursor.0.va <= cursor.0.barrier_va.end);
             assert(map_offset as int + frames.len() as int * PAGE_SIZE as int <= area_size as int)
                 by (nonlinear_arith)
                 requires
@@ -1208,7 +1227,14 @@ impl KVirtArea {
                 } by {
                     let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
                     assert(pre_cursor_regions.slots.contains_key(idx));
+                    assert(pre_cursor_regions.inv());
                     assert(pre_cursor_regions.slot_owners.contains_key(idx));
+                    assert(pre_cursor_regions.slot_owners[idx].inner_perms.ref_count.value()
+                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
+                    assert(regions.slot_owners[idx].inner_perms.ref_count.value()
+                        == pre_cursor_regions.slot_owners[idx].inner_perms.ref_count.value());
+                    assert(idx < crate::specs::mm::frame::mapping::max_meta_slots());
+                    assert(regions.inv());
                     assert(regions.slot_owners.contains_key(idx));
                     assert(regions.slots.contains_key(idx));
                 };
@@ -1229,9 +1255,9 @@ impl KVirtArea {
                             <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
                     forall|i: int|
                         0 <= i < it.seq().len() ==> (va_range.start as nat
-                            + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size(
-                            it.seq()[i].1,
-                        ) as nat == 0,
+                            + #[trigger] sum_page_sizes_spec(it.seq(), 0, i)) % page_size::<
+                            PagingConsts,
+                        >(it.seq()[i].1) as nat == 0,
                     forall|i: int|
                         #![auto]
                         0 <= i < it.seq().len() ==> it.seq()[i].0 as nat == pa_range.start as nat
@@ -1244,7 +1270,7 @@ impl KVirtArea {
                         it.index() as int,
                     ),
                     cursor.0.barrier_va.end == va_range.start + len,
-                    // `pa_range.end == pa_range.start + len` so pa + page_size(level) stays bounded.
+                    // `pa_range.end == pa_range.start + len` so pa + page_size::<PagingConsts>(level) stays bounded.
                     pa_range.end as nat == pa_range.start as nat + len as nat,
                     cursor.0.guard_level == NR_LEVELS as u8,
                     pa_range.end <= MAX_PADDR,
@@ -1270,8 +1296,9 @@ impl KVirtArea {
 
                 let item = MappedItem::Untracked(pa, level, prop);
                 proof {
-                    lemma_page_size_ge_page_size(level);
-                    assert(pa as nat + page_size(level) as nat <= pa_range.end as nat);
+                    lemma_page_size_ge_page_size::<PagingConsts>(level);
+                    assert(pa as nat + page_size::<PagingConsts>(level) as nat
+                        <= pa_range.end as nat);
                     assert(pa < MAX_PADDR);
                 }
                 proof_decl! {
@@ -1297,7 +1324,7 @@ impl KVirtArea {
                     sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
                 }
 
-                // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
+                // Pre-map: capture the overflow bound `cursor_owner.va + page_size::<PagingConsts>(level) <= usize::MAX`.
                 // Valid because the cursor is `in_locked_range` here (required by `cursor.map`).
                 proof {
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
@@ -1342,30 +1369,33 @@ impl KVirtArea {
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
                     let level_raw = KernelPtConfig::item_into_raw_spec(item).1;
 
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                    level_raw);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size::<
+                        PagingConsts,
+                    >(level_raw);
                     KernelPtConfig::item_into_raw_spec_level_bounds(item);
-                    let split_self = old_cursor_model.split_while_huge(page_size(level_raw));
+                    let split_self = old_cursor_model.split_while_huge(
+                        page_size::<PagingConsts>(level_raw),
+                    );
 
                     CursorView::<KernelPtConfig>::lemma_split_while_huge_preserves_cur_va(
                         old_cursor_model,
-                        page_size(level_raw),
+                        page_size::<PagingConsts>(level_raw),
                     );
 
-                    lemma_page_size_ge_page_size(level_raw);
+                    lemma_page_size_ge_page_size::<PagingConsts>(level_raw);
 
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va.to_vaddr() as nat,
-                        page_size(level_raw) as nat,
+                        page_size::<PagingConsts>(level_raw) as nat,
                     );
                     vstd_extra::arithmetic::lemma_nat_align_down_sound(
                         old_cursor_owner_va.to_vaddr() as nat,
-                        page_size(level_raw) as nat,
+                        page_size::<PagingConsts>(level_raw) as nat,
                     );
                     assert(vstd_extra::arithmetic::nat_align_down(
                         old_cursor_owner_va.to_vaddr() as nat,
-                        page_size(level_raw) as nat,
-                    ) + page_size(level_raw) as nat <= usize::MAX as nat);
+                        page_size::<PagingConsts>(level_raw) as nat,
+                    ) + page_size::<PagingConsts>(level_raw) as nat <= usize::MAX as nat);
                     old_cursor_owner_va.align_up_advances_general(level_raw as int);
 
                     sum_page_sizes_extend_right(it.seq(), 0, pos@);
@@ -1375,7 +1405,7 @@ impl KVirtArea {
                         0,
                         pos@ + 1,
                     );
-                    assert(pa_next_nat == pa as nat + page_size(level) as nat);
+                    assert(pa_next_nat == pa as nat + page_size::<PagingConsts>(level) as nat);
                 }
             }
         }

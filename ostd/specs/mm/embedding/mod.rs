@@ -190,7 +190,7 @@ use core::ops::Range;
 
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
-use vstd_extra::set_extra::*;
+use vstd_extra::prelude::*;
 
 use crate::mm::frame::{MetaSlot, UFrame};
 use crate::mm::page_prop::PageProperty;

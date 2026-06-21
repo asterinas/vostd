@@ -1154,8 +1154,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         assert(0x0000_8000_0000_0000usize < KERNEL_VADDR_RANGE.end as usize)
                             by (compute_only);
                         assert(va + len <= KERNEL_VADDR_RANGE.end as usize);
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_plus_page_size_no_overflow(
-                        va, len);
+                        crate::specs::mm::lemma_va_plus_page_size_no_overflow(va, len);
                     }
                     #[verus_spec(with Tracked(tlb_model))]
                     self.flusher.issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
@@ -1633,7 +1632,33 @@ unsafe impl PageTableConfig for UserPtConfig {
         lemma_usize_pow2_ilog2(12);
         lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(9, 39);
+        assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
+        assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
+        assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
+        assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
+        assert(pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) == 39);
+        assert(Self::C::ADDRESS_WIDTH() == 48usize);
+        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().start == 0_usize);
+        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().end == 256_usize);
+    }
+
+    proof fn lemma_leading_bits_only_when_high_half() {
+        use crate::mm::page_table::pte_index_bit_offset_spec;
+        use vstd::arithmetic::power2::{lemma_pow2_pos, pow2};
+
+        Self::lemma_page_table_config_constant_requirements();
+        Self::lemma_top_level_index_range_bounds();
         assert(Self::LEADING_BITS_spec() == 0usize);
+        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().start == 0_usize);
+        let numerator = (Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+        ) as int);
+        let denominator = pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int;
+        assert(numerator == 0);
+        lemma_pow2_pos((Self::C::ADDRESS_WIDTH() - 1) as nat);
+        assert(denominator > 0);
+        assert(numerator / denominator == 0);
+        assert((numerator / denominator) % 2 == 0);
     }
 
     type Item = MappedItem;
@@ -1662,11 +1687,50 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
+    proof fn lemma_nr_subpage_per_huge_eq_nr_entries() {
+        assert(Self::C::BASE_PAGE_SIZE() == 4096usize);
+        assert(Self::C::PTE_SIZE() == 8usize);
+        assert(NR_ENTRIES == 512usize);
+    }
+
+    proof fn lemma_leading_bits_bounded() {
+        assert(Self::LEADING_BITS_spec() == 0usize);
+    }
+
     axiom fn axiom_pte_size_eq_size_of();
 
     proof fn lemma_pte_walk_fills_page() {
+        Self::lemma_nr_subpage_per_huge_eq_nr_entries();
         Self::lemma_page_table_config_constant_requirements();
         Self::axiom_pte_size_eq_size_of();
+    }
+
+    proof fn lemma_top_level_index_range_within_nr_entries() {
+        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().end == 256usize);
+        assert(NR_ENTRIES == 512usize);
+    }
+
+    proof fn lemma_top_level_index_range_bounds() {
+        use crate::mm::nr_subpage_per_huge;
+        use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
+        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
+        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
+
+        lemma2_to64();
+        lemma2_to64_rest();
+        assert(usize::BITS == 64) by (compute);
+        vstd::layout::unsigned_int_max_values();
+        lemma_usize_pow2_ilog2(12);
+        lemma_usize_pow2_ilog2(9);
+        lemma_pow2_adds(9, 39);
+        assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
+        assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
+        assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
+        assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
+        assert(pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) == 39);
+        assert(Self::C::ADDRESS_WIDTH() == 48usize);
+        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().start == 0_usize);
+        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().end == 256_usize);
     }
 
     axiom fn axiom_pte_align_divides_size();
