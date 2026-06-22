@@ -1025,10 +1025,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
                 cursor_owner.view_preserves_inv();
                 // Per-config VA bound on prev_mappings — needed for
-                // preserving the `removed`-end-bound loop invariant.
-                crate::specs::mm::page_table::cursor::owners::axiom_view_in_vaddr_range::<
-                    UserPtConfig,
-                >(cursor_owner);
+                // preserving the `removed`-end-bound loop invariant. The user
+                // cursor's view lies in [0, 0x8000_0000_0000) by the PROVEN
+                // `lemma_view_in_vaddr_range_user` (no longer the generic
+                // axiom), which follows from `cursor_owner.inv()`'s isolation
+                // (borrowed-kernel-half) clause.
+                crate::specs::mm::page_table::cursor::owners::lemma_view_in_vaddr_range_user(
+                    cursor_owner,
+                );
                 crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
             }
 

@@ -2991,6 +2991,106 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
     }
 }
 
+/// KERNEL isolation theorem (proven, per-config): every mapping a
+/// `KernelPtConfig` cursor exposes lives in the kernel high half. Mirror of
+/// `lemma_view_in_vaddr_range_user` with `TOP_LEVEL_INDEX_RANGE == 256..512` and
+/// `LEADING_BITS == 0xffff` (canonical high-half base).
+pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
+    owner: &CursorOwner<'rcu, crate::mm::kspace::KernelPtConfig>,
+)
+    requires
+        owner.inv(),
+    ensures
+        forall|m: Mapping|
+            #![auto]
+            owner.view_mappings().contains(m) ==> {
+                &&& vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().0
+                    <= m.va_range.start
+                &&& m.va_range.end
+                    <= vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
+            },
+{
+    crate::mm::page_table::lemma_vaddr_range_bounds_spec_kernel();
+    let start = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start as int;
+    let end = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end as int;
+    let lb = crate::mm::kspace::KernelPtConfig::LEADING_BITS_spec() as int;
+    assert(start == 256);
+    assert(end == 512);
+    assert(lb == 0xffff);
+    // bound == (256·2^39 + 0xffff·2^48, 512·2^39 + 0xffff·2^48 - 1)
+    //       == (0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF).
+    assert(start * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int == 0xFFFF_8000_0000_0000int)
+        by (nonlinear_arith)
+        requires start == 256, lb == 0xffff;
+    assert(end * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int)
+        by (nonlinear_arith)
+        requires end == 512, lb == 0xffff;
+    assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
+        &&& vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
+    } by {
+        owner.lemma_view_mappings_contains();
+        let i = choose|i: int|
+            owner.level - 1 <= i < NR_LEVELS && (#[trigger] owner.continuations[i]).view_mappings()
+                .contains(m);
+        owner.inv_continuation(i);
+        let cont = owner.continuations[i];
+        cont.lemma_view_mappings_contains();
+        let j = choose|j: int|
+            0 <= j < cont.children.len() && cont.children[j] is Some && PageTableOwner(
+                cont.children[j].unwrap(),
+            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+        cont.pt_inv_children_unroll(j);
+        cont.inv_children_rel_unroll(j);
+        let child = PageTableOwner(cont.children[j].unwrap());
+        let p = cont.path().push_tail(j as usize);
+        cont.path().push_tail_property_index(j as usize);
+        assert(start <= (p.index(0) as int) < end) by {
+            if i == NR_LEVELS - 1 {
+                // Root: `p == [j]`. A contributing child is a frame/node (not
+                // borrowed/absent, else empty `view_rec`); the cursor-inv
+                // top-level clause then forces `j ∈ [256, 512)`.
+                assert(cont.path().len() == 0);
+                assert(p.index(0) == j);
+                assert(child.0.value.is_frame() || child.0.value.is_node());
+                assert(!child.0.value.is_borrowed());
+                assert(!child.0.value.is_absent());
+                assert(start <= j < end);
+            } else {
+                // Non-root: `p.index(0) == cont.path().index(0) == root.idx ∈
+                // [256, 512)` (path chain + cursor-inv idx clause).
+                assert(cont.path().len() > 0);
+                assert(p.index(0) == cont.path().index(0));
+                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                    owner.inv_continuation(NR_LEVELS - 1);
+                    owner.continuations[NR_LEVELS - 1].path().push_tail_property_index(
+                        owner.continuations[NR_LEVELS - 1].idx,
+                    );
+                    if i == 2 {
+                    } else if i == 1 {
+                        owner.continuations[2].path().push_tail_property_index(
+                            owner.continuations[2].idx,
+                        );
+                    } else {
+                        owner.continuations[2].path().push_tail_property_index(
+                            owner.continuations[2].idx,
+                        );
+                        owner.continuations[1].path().push_tail_property_index(
+                            owner.continuations[1].idx,
+                        );
+                    }
+                }
+                assert(start <= owner.continuations[NR_LEVELS - 1].idx < end);
+            }
+        }
+        child.view_rec_top_index_va_bound(p, m, end);
+        // m.start ≥ index(0)·2^39 + lb·2^48 ≥ start·2^39 + lb·2^48 = bound.0.
+        assert((p.index(0) as int) * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int >= start
+            * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int) by (nonlinear_arith)
+            requires start <= p.index(0) as int;
+    }
+}
+
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
         // (1) Non-overlapping: tree collapse + view_rec_disjoint_vaddrs.
