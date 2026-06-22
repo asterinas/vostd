@@ -85,13 +85,19 @@ verus! {
 
 /*
 static MAX_PADDR: AtomicUsize = AtomicUsize::new(0);
-
+*/
 /// Returns the maximum physical address that is tracked by frame metadata.
-pub(in crate::mm) fn max_paddr() -> Paddr {
-    let max_paddr = MAX_PADDR.load(Ordering::Relaxed) as Paddr;
-    debug_assert_ne!(max_paddr, 0);
-    max_paddr
-}*/
+#[verifier::external_body]
+pub(in crate::mm) fn max_paddr() -> Paddr
+    returns
+        MAX_PADDR,
+{
+    // let max_paddr = MAX_PADDR.load(Ordering::Relaxed) as Paddr;
+    // debug_assert_ne!(max_paddr, 0);
+    // max_paddr
+    unimplemented!()
+}
+
 #[verifier::external_body]
 fn acquire_fence() {
     core::sync::atomic::fence(Ordering::Acquire);

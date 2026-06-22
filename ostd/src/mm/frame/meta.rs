@@ -318,13 +318,13 @@ pub enum GetFrameError {
 #[verus_spec(res =>
     ensures
         has_safe_slot(paddr) == res is Ok,
-        res is Ok ==> res.unwrap().addr() == frame_to_meta(paddr),
+        res is Ok ==> res->Ok_0.addr() == frame_to_meta(paddr),
 )]
 pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
     if paddr % PAGE_SIZE != 0 {
         return Err(GetFrameError::NotAligned);
     }
-    if paddr >= MAX_PADDR {
+    if paddr >= super::max_paddr() {
         return Err(GetFrameError::OutOfBound);
     }
     let vaddr = mapping::frame_to_meta(paddr);
@@ -332,6 +332,7 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
 
     // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
     // mutably borrowed, so taking an immutable reference to it is safe.
+    // Ok(unsafe { &*ptr })
     Ok(ptr)
 }
 
