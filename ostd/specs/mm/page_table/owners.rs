@@ -1739,21 +1739,61 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
     }
 
-    /// A node with nr_children == 0 has no present PTEs, so all children are absent
-    /// and the subtree contributes no mappings.
+    /// A node with `nr_children == 0` has no present PTEs, so all children are
+    /// absent and the subtree contributes no mappings.
     ///
-    /// Axiom: the link between `nr_children` and the count of present PTEs is maintained
-    /// by `Entry::replace` / `Entry::new` but not yet formalised as a `NodeOwner` invariant.
-    pub axiom fn view_rec_nr_children_zero_empty(self, path: TreePath<NR_ENTRIES>)
+    /// Proven (formerly an axiom): `count_consistent` ties `nr_children` to
+    /// `count_present(children_perm)`, so `nr_children == 0` forces every PTE
+    /// absent. `pt_edge_at` (from `pt_inv`) then forces each ghost child
+    /// `is_absent` — its `view_rec` is `∅` — and `lemma_view_rec_contains`
+    /// lifts that to the whole node's `view_rec`. (At the top level the
+    /// `borrowed` edge disjunct is ruled out: `borrowed_match_pte` needs a
+    /// *present* PTE, which `count_present == 0` denies.)
+    pub proof fn view_rec_nr_children_zero_empty(self, path: TreePath<NR_ENTRIES>)
         requires
-            self.0.inv(),
+            self.pt_inv(),
             self.0.value.is_node(),
             self.0.value.node().meta_own.nr_children.value() == 0,
+            self.0.value.node().count_consistent(),
             path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level,
         ensures
             self.view_rec(path) == set![],
-    ;
+    {
+        if path.len() < INC_LEVELS - 1 {
+            let cp = self.0.value.node().children_perm.value();
+            // `count_consistent` + `nr_children == 0` ⟹ no present PTEs.
+            assert(crate::specs::mm::page_table::node::owners::count_present(cp) == 0);
+            self.lemma_view_rec_contains(path);
+            assert forall|m: Mapping| self.view_rec(path).contains(m) implies false by {
+                let i = choose|i: int|
+                    #![trigger self.0.children[i]]
+                    0 <= i < self.0.children.len() && self.0.children[i] is Some
+                        && PageTableOwner(self.0.children[i]->0).view_rec(
+                        path.push_tail(i as usize),
+                    ).contains(m);
+                self.pt_inv_unroll(i);
+                // PTE `i` is absent — else `count_present(cp) >= 1`.
+                if cp[i].is_present() {
+                    crate::specs::mm::page_table::node::owners::lemma_count_present_upto_present(
+                        cp,
+                        cp.len() as int,
+                        i,
+                    );
+                }
+                assert(!cp[i].is_present());
+                // `pt_edge_at`'s borrowed disjunct needs a present PTE, so it is
+                // false here; the `match_pte` disjunct holds, and `match_pte`
+                // with an absent PTE forces the child `is_absent`.
+                assert(self.0.children[i]->0.value.is_absent());
+                // An absent entry is neither frame nor node ⟹ empty `view_rec`.
+                assert(PageTableOwner(self.0.children[i]->0).view_rec(
+                    path.push_tail(i as usize),
+                ) =~= set![]);
+            };
+            assert(self.view_rec(path) =~= set![]);
+        }
+    }
 
     pub open spec fn metaregion_sound_pred(regions: MetaRegionOwners) -> (spec_fn(
         EntryOwner<C>,

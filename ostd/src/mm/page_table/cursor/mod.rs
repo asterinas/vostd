@@ -1102,6 +1102,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(&mut child_node_owner), Tracked(&*regions))]
                     let nr_children = pt_guard.nr_children();
 
+                    // `nr_children()` required `child_node_owner.metaregion_sound_node`,
+                    // so `count_consistent` holds for the node just read; snapshot it
+                    // (the node is about to be moved back into the cursor tree).
+                    let ghost cur_node_owner = child_node_owner;
+                    proof {
+                        assert(cur_node_owner.count_consistent());
+                    }
+
                     proof {
                         child_owner.value.tracked_put_node(child_node_owner);
                         continuation.tracked_put_child(child_owner);
@@ -1142,6 +1150,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.move_forward_increases_va();
                             owner.move_forward_not_popped_too_high();
                             let ghost subtree = owner.cur_subtree();
+                            // `pt_inv` for the current subtree, from the current
+                            // continuation's `pt_inv_children`.
+                            owner.inv_continuation((owner.level - 1) as int);
+                            owner.continuations[owner.level - 1].pt_inv_children_unroll(
+                                owner.index() as int,
+                            );
+                            // The subtree's node is the one just read by `nr_children`,
+                            // carrying `count_consistent`.
+                            assert(subtree.value.node() == cur_node_owner);
                             PageTableOwner(subtree).view_rec_nr_children_zero_empty(
                                 subtree.value.path,
                             );
