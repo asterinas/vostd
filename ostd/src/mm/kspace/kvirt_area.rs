@@ -101,7 +101,7 @@ impl RangeAllocator {
     #[verus_spec(res =>
         ensures
             res == kvirt_alloc_spec(size),
-            res is Err <==> kvirt_alloc_oom_condition(size),
+            res is Err == kvirt_alloc_oom_condition(size),
     )]
     pub fn alloc(&self, size: usize) -> Result<core::ops::Range<Vaddr>, RangeAllocError> {
         unimplemented!()
@@ -427,7 +427,7 @@ impl KVirtArea {
             self.query_panic_condition(owner, addr, *old(regions)) ==> may_panic(),
         ensures
             self.query_some_condition(owner, addr) ==> self.query_some_ensures(owner, addr, res),
-            !self.query_some_condition(owner, addr) ==> Self::query_none_ensures(r),
+            !self.query_some_condition(owner, addr) ==> Self::query_none_ensures(res),
             !self.query_panic_condition(owner, addr, *old(regions)),
             // non-panic conditions
             self.range.start <= addr < self.range.end
