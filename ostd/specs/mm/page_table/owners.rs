@@ -1175,6 +1175,46 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
+    /// Any mapping in a subtree's `view_rec` has its VA range within the
+    /// `2^39`-sized cell of the subtree's top-level index `path[0]`, shifted by
+    /// the config's `LEADING_BITS` high-half base. With `path[0] < t`, the range
+    /// end is `<= t * 2^39 + LEADING_BITS * 2^48` — the per-config VA bound that
+    /// discharges the user/kernel isolation theorems.
+    pub proof fn view_rec_top_index_va_bound(
+        self,
+        path: TreePath<NR_ENTRIES>,
+        m: Mapping,
+        t: int,
+    )
+        requires
+            self.pt_inv(),
+            path.inv(),
+            1 <= path.len() <= INC_LEVELS - 1,
+            path.len() == self.0.level,
+            self.0.value.parent_level == (INC_LEVELS - self.0.level) as PagingLevel,
+            (path.index(0) as int) < t,
+            self.view_rec(path).contains(m),
+        ensures
+            (path.index(0) as int) * 0x80_0000_0000int + (C::LEADING_BITS_spec() as int)
+                * 0x1_0000_0000_0000int <= m.va_range.start,
+            m.va_range.start < m.va_range.end,
+            m.va_range.end <= t * 0x80_0000_0000int + (C::LEADING_BITS_spec() as int)
+                * 0x1_0000_0000_0000int,
+    {
+        self.view_rec_vaddr_range(path, m);
+        lemma_vaddr_of_eq_int::<C>(path);
+        lemma_vaddr_top_index_cell(path);
+        // `vaddr_of(path) == vaddr(path) + LEADING_BITS*2^48` (lemma_vaddr_of_eq_int);
+        // the positional `vaddr(path)` lies in the top-index cell
+        // `[index(0)*2^39, (index(0)+1)*2^39)` (lemma_vaddr_top_index_cell), and
+        // `(index(0)+1) <= t`. Adding the `LEADING_BITS*2^48` base shifts both
+        // ends — giving the user (LB=0) low half and the kernel (LB=0xffff)
+        // high half.
+        assert((path.index(0) as int + 1) * 0x80_0000_0000int <= t * 0x80_0000_0000int)
+            by (nonlinear_arith)
+            requires (path.index(0) as int) < t;
+    }
+
     /// `pt_inv` (plus the root's recorded path) lifts to a full
     /// `path_correct_pred` tree predicate: every entry's `.path` field
     /// equals its structural position.  `PageTableOwner::inv()` already
