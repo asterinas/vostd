@@ -385,21 +385,19 @@ impl MetaSlot {
             // (caller is responsible for re-parking it via `sync_slot_perm`
             // to restore `regions.inv()`). On Err, regions is left intact
             // and the inv is preserved.
-            res is Err ==> final(regions).inv(),
-            // On failure the slot perm/owner are re-parked unchanged: nothing
-            // was claimed, so the whole region state is intact.
             res is Err ==> *final(regions) == *old(regions),
-            res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
-            res matches Ok((res, perm)) ==> perm@.value().wf(
-                final(regions).slot_owners[frame_to_index(paddr)]),
-            // The returned perm is exactly the slot perm that was extracted
-            // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
-            // and recover `final.slots == old.slots`.
-            res matches Ok((_, perm)) ==> perm@ == old(regions).slots[frame_to_index(paddr)],
-            res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
-            // The extracted slot perm is handed back via the out-param, so it
-            // leaves `regions.slots` (caller re-parks it via `sync_slot_perm`).
-            res is Ok ==> Self::slot_perm_extracted_spec(paddr, *old(regions), *final(regions)),
+            res matches Ok((res, perm)) ==> {
+                &&& Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@)
+                &&& perm@.value().wf(final(regions).slot_owners[frame_to_index(paddr)])
+                // The returned perm is exactly the slot perm that was extracted
+                // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
+                // and recover `final.slots == old.slots`.
+                &&& perm@ == old(regions).slots[frame_to_index(paddr)]
+                &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
+                // The extracted slot perm is handed back via the out-param, so it
+                // leaves `regions.slots` (caller re-parks it via `sync_slot_perm`).
+                &&& Self::slot_perm_extracted_spec(paddr, *old(regions), *final(regions))
+            },
             !has_safe_slot(paddr) ==> res is Err,
             // Linear-drop pilot: claiming an unused slot doesn't mint or
             // redeem segment or frame obligations on any path.
