@@ -2835,8 +2835,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             old(self).map_item_ensures(
                 item,
-                old(self).0.model(*old(owner)),
-                final(self).0.model(*final(owner)),
+                old(owner)@,
+                final(owner)@,
             ),
             (C::item_into_raw(item).1 <= old(self).0.level
                 && old(owner).cur_entry_owner().is_absent()) ==> res.is_ok(),

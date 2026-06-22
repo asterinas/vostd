@@ -128,10 +128,6 @@ impl OwnerOf for MetaRegion {
     }
 }
 
-impl ModelOf for MetaRegion {
-
-}
-
 impl MetaRegionOwners {
     pub open spec fn ref_count(self, i: usize) -> (res: u64)
         recommends

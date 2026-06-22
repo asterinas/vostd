@@ -40,7 +40,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     }
 
     pub open spec fn query_some_condition(self, owner: CursorOwner<'rcu, C>) -> bool {
-        self.model(owner).present()
+        owner@.present()
     }
 
     /// Panic condition for [`Self::query`]. `query` diverges *only* via the

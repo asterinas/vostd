@@ -359,10 +359,6 @@ impl OwnerOf for MetaSlot {
     }
 }
 
-impl ModelOf for MetaSlot {
-
-}
-
 impl MetaSlotOwner {
     pub axiom fn take_inner_perms(tracked &mut self) -> (tracked res: MetadataInnerPerms)
         ensures
