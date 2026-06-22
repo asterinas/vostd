@@ -234,7 +234,10 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
     open spec fn inv(self) -> bool {
-        &&& self.list_id != 0
+        // Weakened (our change): an EMPTY list may carry `list_id == 0` (the
+        // lazily-minted-id convention used by the list-store embedding); the
+        // id is only constrained non-zero once the list is non-empty.
+        &&& self.list.len() > 0 ==> self.list_id != 0
         &&& forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
     }
 }
@@ -284,6 +287,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& perm.addr() == self.list[i].paddr
         &&& perm.points_to.addr() == self.list[i].paddr
         &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        &&& regions.slot_owners[idx].usage == PageUsage::Frame
         &&& perm.wf(&perm.inner_perms)
         &&& perm.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start + MAX_NR_PAGES
@@ -398,6 +402,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& perm.addr() == self.list[i].paddr
                 &&& perm.points_to.addr() == self.list[i].paddr
                 &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& regions.slot_owners[idx].usage == PageUsage::Frame
                 &&& perm.wf(&perm.inner_perms)
                 &&& perm.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
@@ -449,6 +454,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& perm.addr() == self.list[i].paddr
                 &&& perm.points_to.addr() == self.list[i].paddr
                 &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& regions.slot_owners[idx].usage == PageUsage::Frame
                 &&& perm.wf(&perm.inner_perms)
                 &&& perm.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
@@ -567,6 +573,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fp.points_to.addr() == old.list[p].paddr
                     &&& fp.points_to.pptr() == r0.slots[i].pptr()
                     &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                    &&& fr.slot_owners[i].usage == PageUsage::Frame
                     &&& fp.wf(&fp.inner_perms)
                     &&& fp.addr() % META_SLOT_SIZE == 0
                     &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
@@ -724,6 +731,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& fpn.addr() == link.paddr
                 &&& fpn.points_to.addr() == link.paddr
                 &&& fpn.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& fr.slot_owners[ins].usage == PageUsage::Frame
                 &&& fpn.wf(&fpn.inner_perms)
                 &&& fpn.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= fpn.addr() < FRAME_METADATA_RANGE.start
@@ -759,6 +767,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fp.points_to.addr() == old.list[p].paddr
                     &&& fp.points_to.pptr() == r0.slots[i].pptr()
                     &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                    &&& fr.slot_owners[i].usage == PageUsage::Frame
                     &&& fp.wf(&fp.inner_perms)
                     &&& fp.addr() % META_SLOT_SIZE == 0
                     &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start

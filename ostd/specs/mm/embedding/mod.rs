@@ -186,7 +186,7 @@ pub mod kvirt_store;
 // list_store deferred: depends on a 118-line-diverged linked_list_owners layer
 // (its `LinkedListOwner::inv` differs between main and upstream) — needs that
 // linked-list embedding reconciliation before it verifies.
-// pub mod list_store;
+pub mod list_store;
 pub mod segment;
 pub mod trace;
 pub mod unique;

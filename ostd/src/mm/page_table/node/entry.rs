@@ -13,7 +13,7 @@ use crate::mm::frame::{Frame, FrameRef};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
 use crate::specs::task::InAtomicMode;
@@ -1200,6 +1200,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                <= REF_COUNT_MAX
                         }
                     },
                 // j = 0: the huge frame's own slot.
@@ -1211,6 +1213,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                         != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0
+                    &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                        <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
                 },
                 new_page.ptr.addr() == new_owner_meta_addr,
                 new_owner.value.node().metaregion_sound_node(*regions),
@@ -1302,6 +1306,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                <= REF_COUNT_MAX
                         }
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel)
@@ -1344,6 +1350,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         );
                         assert((small_pa + j_prime * PAGE_SIZE) as usize == (pa + big_j
                             * PAGE_SIZE) as usize);
+                        // Fire the established big-frame sub-page forall
+                        // (entry.rs:1100) at `j = big_j` by mentioning its trigger
+                        // term, so its `usage != MMIO ==> rc <= REF_COUNT_MAX`
+                        // carries onto this child sub-page (`sub_idx` equals the
+                        // big-frame sub-page index via the correspondence above).
+                        assert(0 < big_j_int);
+                        assert(regions.slots.contains_key(
+                            frame_to_index((pa + big_j * PAGE_SIZE) as usize),
+                        ));
                     }
                     assert(child_owner.frame_sub_pages_valid(*regions));
                 }

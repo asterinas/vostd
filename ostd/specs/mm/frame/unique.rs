@@ -102,6 +102,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& perm.value().metadata.wf(self.meta_own)
         &&& regions.slot_owners[self.slot_index].self_addr == meta_addr(self.slot_index)
         &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        // Data-frame node-repark discriminator (our change): a unique frame's
+        // slot is tracked with `Frame` usage, distinguishing it from page-table
+        // node slots (`PageTable`) and letting linked-list/list-store consumers
+        // derive `usage == Frame` (e.g. for the empty-`paths_in_pt` argument).
+        &&& regions.slot_owners[self.slot_index].usage == PageUsage::Frame
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
 

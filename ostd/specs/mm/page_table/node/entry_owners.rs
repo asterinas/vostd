@@ -523,6 +523,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
                     &&& r1.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                     &&& r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                    &&& r1.slot_owners[sub_idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
                 }
             } by {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
@@ -593,6 +594,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                         &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                             != REF_COUNT_UNUSED
                         &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
                     }
                 }
         }
@@ -623,6 +625,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
+                // A mapped (tracked) frame is SHARED, never the UNIQUE sentinel
+                // (`rc <= MAX < REF_COUNT_UNIQUE`). Lets the UNIQUE-branch
+                // `paths_in_pt`-empty inv clause hold vacuously for mapped
+                // frames whose `paths_in_pt` is non-empty.
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
             }
             &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
             &&& self.frame_sub_pages_valid(regions)
@@ -720,7 +727,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                         r1.slots.contains_key(sub_idx)
                             && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
                             != REF_COUNT_UNUSED
-                            && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0)
+                            && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0 && r1.slot_owners[sub_idx].inner_perms.ref_count.value() <= REF_COUNT_MAX)
                     }
             },
         ensures
@@ -808,6 +815,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                             &&& r1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
                             &&& r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                            &&& r1.slot_owners[sub_idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
                         }
                     } by {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);

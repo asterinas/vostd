@@ -1503,7 +1503,9 @@ impl PageTable<KernelPtConfig> {
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    > 0)
+                                    > 0
+                                    && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
                             }
                     },
             );

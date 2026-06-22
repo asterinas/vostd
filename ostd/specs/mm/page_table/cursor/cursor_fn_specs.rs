@@ -164,6 +164,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         // Tracked items hold a refcount; untracked (MMIO) don't.
         &&& C::tracked(item) ==> regions.slot_owners[idx].inner_perms.ref_count.value()
             > 0
+        // A tracked (mapped) item is a SHARED frame, never the UNIQUE sentinel:
+        // `rc <= MAX < REF_COUNT_UNIQUE`. Carries the bound into the mapped
+        // slot's `metaregion_sound`, keeping the UNIQUE-branch `paths_in_pt`
+        // inv clause vacuous.
+        &&& C::tracked(item) ==> regions.slot_owners[idx].inner_perms.ref_count.value()
+            <= REF_COUNT_MAX
         // Sub-page slot existence for huge frames (unconditional). Rc parts gated on tracked.
         &&& level > 1 ==> {
             forall|j: usize|
@@ -176,6 +182,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         != REF_COUNT_UNUSED
                     &&& C::tracked(item)
                         ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                    // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
+                    // into the mapped huge frame's `frame_sub_pages_valid`.
+                    &&& C::tracked(item)
+                        ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                        <= REF_COUNT_MAX
                 }
         }
     }

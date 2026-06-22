@@ -958,6 +958,11 @@ impl KVirtArea {
                     if idx_i != cur_pa_idx {
                         assert(regions.slot_owners[idx_i].inner_perms.ref_count.value()
                             == regions_before_map.slot_owners[idx_i].inner_perms.ref_count.value());
+                        // `rc <= MAX` transfers from `regions_before_map` (where
+                        // `item_slot_in_regions` carries the SHARED bound) via the
+                        // ref_count equality at this non-mapped index.
+                        assert(regions.slot_owners[idx_i].inner_perms.ref_count.value()
+                            <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX);
                     }
                 };
             }
@@ -1320,6 +1325,35 @@ impl KVirtArea {
                     assert(regions.slots.contains_key(idx));
                     assert(regions.slot_owners[idx].inner_perms.ref_count.value()
                         != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
+                    // Sub-pages of a huge untracked frame: each `pa + j*PAGE_SIZE`
+                    // lies in `[pa, pa + page_size(level)) ⊆ pa_range`, so the
+                    // per-PA loop invariant supplies their slot existence. (Rc /
+                    // usage clauses are tracked-gated, hence vacuous for untracked.)
+                    assert(pa as nat + page_size(level) as nat <= pa_range.end as nat);
+                    assert forall|j: usize|
+                        #![trigger crate::mm::frame::meta::mapping::frame_to_index((pa + j * PAGE_SIZE) as usize)]
+                        0 < j < page_size(level) / PAGE_SIZE implies {
+                        let sub_idx = crate::mm::frame::meta::mapping::frame_to_index(
+                            (pa + j * PAGE_SIZE) as usize,
+                        );
+                        regions.slots.contains_key(sub_idx)
+                    } by {
+                        let sub_pa = (pa + j * PAGE_SIZE) as usize;
+                        assert(j * PAGE_SIZE < page_size(level)) by (nonlinear_arith)
+                            requires
+                                0 < j < page_size(level) / PAGE_SIZE,
+                                PAGE_SIZE > 0,
+                        ;
+                        assert(pa_range.start <= sub_pa < pa_range.end);
+                        // (PAGE_SIZE*j + pa) % PAGE_SIZE == pa % PAGE_SIZE == 0.
+                        vstd::arithmetic::mul::lemma_mul_is_commutative(j as int, PAGE_SIZE as int);
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
+                            j as int,
+                            pa as int,
+                            PAGE_SIZE as int,
+                        );
+                        assert(sub_pa % PAGE_SIZE == 0);
+                    };
                     assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
                         item,
                         *regions,

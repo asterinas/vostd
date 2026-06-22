@@ -2868,6 +2868,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 ==>
                 final(regions).slot_owners[
                     frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value() > 0,
+            // At the mapped index, the SHARED upper bound is preserved: on the
+            // non-panic path the clone's saturation guard keeps `rc <= MAX`.
+            // Lets callers re-derive `item_slot_in_regions`'s `rc <= MAX` for the
+            // mapped frame (covers duplicate frames in a map sequence).
+            (C::tracked(item)
+                && old(regions).slot_owners[
+                    frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value()
+                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                ==>
+                final(regions).slot_owners[
+                    frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value()
+                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
             // `regions.slots` is monotonic — slot existence is preserved through map.
             forall|idx: usize| #![trigger final(regions).slots.contains_key(idx)]
                 old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
