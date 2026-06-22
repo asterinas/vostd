@@ -62,6 +62,38 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> ModelOf for UniqueFrame<
 
 }
 
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+    /// Cross-object validity of a live UNIQUE handle against the region map —
+    /// the [`UniqueFrame`] analog of [`Frame::inv_with_regions`] (which covers
+    /// the SHARED state). Bundles the structural `wf` / `owner.inv` /
+    /// `regions.inv` facts with the UNIQUE-state slot facts so a consumer (e.g.
+    /// [`UniqueFrame::drop`]) can state a single invariant instead of re-listing
+    /// each conjunct.
+    ///
+    /// The slot's `slot_owners.contains_key(idx)`, `self_addr == meta_addr(idx)`,
+    /// `storage.is_init()`, and `vtable_ptr.is_init()` are **derived**, not
+    /// required: `regions.inv()` (with `owner.inv()`'s `idx < max_meta_slots`)
+    /// delivers the first two and `slot_owners[idx].inv()`; the latter's UNIQUE
+    /// branch (under `rc == REF_COUNT_UNIQUE`) gives the storage/vtable init.
+    /// The genuinely-extra conjuncts are the UNIQUE state itself plus
+    /// `in_list == 0` and `paths_in_pt.is_empty()` (a sole owner is neither on
+    /// the free list nor mapped into any page table).
+    pub open spec fn inv_with_regions(
+        self,
+        owner: UniqueFrameOwner<M>,
+        s: MetaRegionOwners,
+    ) -> bool {
+        let idx = owner.slot_index;
+        let so = s.slot_owners[idx];
+        &&& self.wf(owner)
+        &&& owner.inv()
+        &&& s.inv()
+        &&& so.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        &&& so.inner_perms.in_list.value() == 0
+        &&& so.paths_in_pt.is_empty()
+    }
+}
+
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     /// The typed permission for this frame, reconstructed from the region: the
     /// outer pointer-perm `regions.slots[slot_index]` paired with the inner

@@ -388,12 +388,16 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     ///
     /// Currently, the level is always 1, which means the frame is a regular
     /// page frame.
-    pub const fn map_level(&self) -> PagingLevel {
+    pub const fn map_level(&self) -> PagingLevel
+        returns 1u8
+    {
         1
     }
 
     /// Gets the size of this page in bytes.
-    pub const fn size(&self) -> usize {
+    pub const fn size(&self) -> usize
+        returns 4096usize
+    {
         PAGE_SIZE
     }
 }

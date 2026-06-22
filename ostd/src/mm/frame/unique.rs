@@ -280,7 +280,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
     /// Gets the size of this page in bytes.
-    pub const fn size(&self) -> usize {
+    pub const fn size(&self) -> usize
+        returns 4096usize
+    {
         PAGE_SIZE
     }
 
@@ -291,7 +293,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     ///
     /// Currently, the level is always 1, which means the frame is a regular
     /// page frame.
-    pub const fn level(&self) -> PagingLevel {
+    pub const fn level(&self) -> PagingLevel
+        returns 1u8
+    {
         1
     }
 }
@@ -383,21 +387,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
-            self.wf(owner),
-            owner.inv(),
-            old(regions).inv(),
-            old(regions).slot_owners.contains_key(owner.slot_index),
-            old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
-            old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
-            old(regions).slot_owners[owner.slot_index].inner_perms.in_list.value() == 0,
-            old(regions).slot_owners[owner.slot_index].inner_perms.storage.is_init(),
-            old(regions).slot_owners[owner.slot_index].inner_perms.vtable_ptr.is_init(),
-            old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
+            self.inv_with_regions(owner, *old(regions)),
         ensures
             final(regions).inv(),
     )]
     pub fn reset_as_unused(self) {
         let ghost idx = owner.slot_index;
+
+        proof {
+            assert(regions.slot_owners.contains_key(idx));
+            assert(regions.slot_owners[idx].self_addr == meta_addr(idx));
+            assert(regions.slot_owners[idx].inner_perms.storage.is_init());
+            assert(regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
+        }
+
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked perm_ref = regions.slots.tracked_borrow(idx);
 
@@ -487,7 +490,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         (Self { ptr, _marker: PhantomData }, Tracked(owner))
     }
 
-    #[verifier::external_body]
     #[verus_spec(
         with
             Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
@@ -498,11 +500,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             slot_perm.value(),
     )]
     pub fn slot<'a>(&self) -> &'a MetaSlot {
-        unimplemented!()
         // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
         // mutably borrowed, so taking an immutable reference to it is safe.
-        //        unsafe { &*self.ptr }
-
+        self.ptr.borrow(Tracked(slot_perm))
     }
 }
 
@@ -524,16 +524,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
-            old(self).wf(owner),
-            owner.inv(),
-            old(regions).slot_owners.contains_key(owner.slot_index),
-            old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
-            old(regions).slot_owners[owner.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
-            old(regions).slot_owners[owner.slot_index].inner_perms.in_list.value() == 0,
-            old(regions).slot_owners[owner.slot_index].inner_perms.storage.is_init(),
-            old(regions).slot_owners[owner.slot_index].inner_perms.vtable_ptr.is_init(),
-            old(regions).inv(),
-            old(regions).slot_owners[owner.slot_index].paths_in_pt.is_empty(),
+            old(self).inv_with_regions(owner, *old(regions)),
             old(regions).frame_obligations.count(owner.slot_index) > 0,
         ensures
             final(regions).inv(),
@@ -549,6 +540,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         let ghost idx = owner.slot_index;
 
         proof {
+            // Unfold `inv_with_regions`: re-derive the slot facts that used to be
+            // explicit preconditions. `owner.inv()` gives `idx < max_meta_slots`,
+            // so `regions.inv()` delivers `contains_key(idx)`, the `self_addr`
+            // shape, and `slot_owners[idx].inv()`; the latter's UNIQUE branch
+            // (under `rc == REF_COUNT_UNIQUE`) gives the storage/vtable init.
+            assert(regions.slot_owners.contains_key(idx));
+            assert(regions.slot_owners[idx].self_addr == meta_addr(idx));
+            assert(regions.slot_owners[idx].inner_perms.storage.is_init());
+            assert(regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
+
             // Running `Drop` discharges the value's pending-Drop obligation.
             let tracked redeem_tok = vstd_extra::drop_tracking::DropObligation::tracked_mint(idx);
             regions.tracked_redeem_frame_obligation(redeem_tok);
