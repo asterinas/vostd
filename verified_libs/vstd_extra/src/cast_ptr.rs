@@ -8,6 +8,7 @@ use core::marker::PhantomData;
 
 verus! {
 
+/// A trait for types that have a concrete representation type `R`.
 pub trait Repr<R: Sized>: Sized {
     /// If the underlying representation contains cells, the translation may require permission objects that access them.
     type Perm;
@@ -131,9 +132,9 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
     }
 
     #[verifier::when_used_as_spec(addr_spec)]
-    pub fn addr(self) -> (u: usize)
+    pub fn addr(self) -> usize
         returns
-            self.addr_spec(),
+            self.addr(),
     {
         self.ptr.addr()
     }
@@ -192,6 +193,8 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
     /// at the return point, the permission's value matches `*v`. Callers must
     /// preserve any invariants beyond the final initialised/well-formed state
     /// themselves.
+    ///
+    /// FIXME[SOUNDNESS]: This method is unsound because the caller must ensure the final value of `v` is consistent with the inner permissions.
     #[verifier::external_body]
     pub fn borrow_mut<'a>(self, Tracked(perm): Tracked<&'a mut PointsTo<R, T>>) -> (v: &'a mut T)
         requires
@@ -227,8 +230,8 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
         tracked points_to: simple_pptr::PointsTo<R>,
         tracked inner_perms: T::Perm,
     ) -> (tracked res: Self)
-        ensures
-            res == Self::new_spec(points_to, inner_perms),
+        returns
+            Self::new_spec(points_to, inner_perms),
     {
         Self { points_to: points_to, inner_perms, _T: PhantomData }
     }
@@ -267,19 +270,6 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
 
     pub open spec fn pptr(self) -> ReprPtr<R, T> {
         ReprPtr { ptr: self.points_to.pptr(), _T: PhantomData }
-    }
-
-    pub broadcast proof fn pptr_implies_addr(&self)
-        ensures
-            self.addr() == #[trigger] self.pptr().addr(),
-    {
-    }
-}
-
-impl<R, T: Repr<R>> From<PointsTo<R, T>> for vstd::simple_pptr::PointsTo<R> {
-    #[verifier::external_body]
-    fn from(ptr: PointsTo<R, T>) -> Self {
-        ptr.points_to
     }
 }
 
