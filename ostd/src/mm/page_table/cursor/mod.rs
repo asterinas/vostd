@@ -42,7 +42,7 @@ use vstd_extra::{assert, assert_eq};
 
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
-use crate::mm::{MAX_NR_LEVELS, MAX_PADDR, Paddr, Vaddr, page_size};
+use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
 use crate::specs::mm::frame::mapping::{
     META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
 };
@@ -85,7 +85,7 @@ pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
     ///
     /// The level 1 page table lock guard is at index 0, and the level N page
     /// table lock guard is at index N - 1.
-    pub path: [Option<PageTableGuard<'rcu, C>>; NR_LEVELS],
+    pub path: [Option<PageTableGuard<'rcu, C>>; MAX_NR_LEVELS],
     /// The cursor should be used in a RCU read side critical section.
     pub rcu_guard: &'rcu A,
     /// The level of the page table that the cursor currently points to.
@@ -100,6 +100,9 @@ pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
     pub barrier_va: Range<Vaddr>,
     pub _phantom: PhantomData<&'rcu PageTable<C>>,
 }
+
+/// The maximum value of `PagingConstsTrait::NR_LEVELS`.
+const MAX_NR_LEVELS: usize = 4;
 
 /// The cursor of a page table that is capable of map, unmap or protect pages.
 ///

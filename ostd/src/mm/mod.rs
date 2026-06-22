@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Virtual memory (VM).
-use crate::specs::arch::PAGE_SIZE;
-use core::fmt::Debug;
-use vstd::arithmetic::div_mod::group_div_basics;
-use vstd::arithmetic::div_mod::lemma_div_non_zero;
-use vstd::arithmetic::power2::*;
+use crate::specs::arch::*;
+use vstd::arithmetic::{
+    div_mod::{group_div_basics, lemma_div_non_zero},
+    power2::*,
+};
 use vstd::prelude::*;
 
 /// Virtual addresses.
@@ -12,9 +12,6 @@ pub type Vaddr = usize;
 
 /// Physical addresses.
 pub type Paddr = usize;
-
-/// The maximum value of `PagingConstsTrait::NR_LEVELS`.
-pub const MAX_NR_LEVELS: usize = 4;
 
 pub(crate) mod dma;
 pub mod frame;
@@ -33,7 +30,7 @@ pub mod vm_space;
 #[cfg(ktest)]
 mod test;
 
-use core::ops::Range;
+use core::{fmt::Debug, ops::Range};
 
 // Import types and constants from arch
 pub use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS};
