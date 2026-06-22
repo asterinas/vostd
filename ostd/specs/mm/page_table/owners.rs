@@ -206,6 +206,117 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     }
 }
 
+/// The VA of any path is within the `2^39`-sized cell of its top-level index:
+/// `path[0] * 2^39 <= vaddr(path)` and `vaddr(path) + page_size <= (path[0]+1) * 2^39`.
+/// Pure VA arithmetic (x86 4-level paging). Used by `view_rec_top_index_va_bound`.
+pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
+    requires
+        path.inv(),
+        1 <= path.len() <= INC_LEVELS - 1,
+    ensures
+        (path.index(0) as int) * 0x80_0000_0000int <= vaddr(path) as int,
+        (vaddr(path) as int) + page_size((INC_LEVELS - path.len()) as PagingLevel) as int <= (
+        path.index(0) as int + 1) * 0x80_0000_0000int,
+{
+    broadcast use TreePath::index_satisfies_elem_inv;
+
+    lemma_page_size_spec_values();
+    vstd::arithmetic::power2::lemma2_to64();
+    vstd::arithmetic::power2::lemma2_to64_rest();
+    let i0 = path.index(0);
+    assert(0 <= i0 < NR_ENTRIES);
+    if path.len() == 1 {
+        assert(rec_vaddr(path, 1) == 0);
+        assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(page_size(4) == 0x80_0000_0000usize);
+        assert((0x80_0000_0000int * i0) + 0x80_0000_0000int == (i0 + 1) * 0x80_0000_0000int)
+            by (nonlinear_arith);
+    } else if path.len() == 2 {
+        let i1 = path.index(1);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(rec_vaddr(path, 2) == 0);
+        assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
+            1,
+            i1,
+        )) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(page_size(3) == 0x4000_0000usize);
+        assert(0x80_0000_0000int * i0 <= 0x80_0000_0000int * i0 + 0x4000_0000int * i1)
+            by (nonlinear_arith);
+        assert(0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x4000_0000int <= (i0 + 1)
+            * 0x80_0000_0000int) by (nonlinear_arith)
+            requires
+                i1 < 512,
+        ;
+    } else if path.len() == 3 {
+        let i1 = path.index(1);
+        let i2 = path.index(2);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(0 <= i2 < NR_ENTRIES);
+        assert(rec_vaddr(path, 3) == 0);
+        assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
+        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(
+            2,
+            i2,
+        )) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
+            1,
+            i1,
+        ) + vaddr_make::<NR_LEVELS>(2, i2)) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
+        assert(page_size(2) == 0x20_0000usize);
+        assert(0x80_0000_0000int * i0 <= 0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int
+            * i2) by (nonlinear_arith);
+        assert(0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int * i2 + 0x20_0000int <= (
+        i0 + 1) * 0x80_0000_0000int) by (nonlinear_arith)
+            requires
+                i1 < 512,
+                i2 < 512,
+        ;
+    } else {
+        assert(path.len() == 4);
+        let i1 = path.index(1);
+        let i2 = path.index(2);
+        let i3 = path.index(3);
+        assert(0 <= i1 < NR_ENTRIES);
+        assert(0 <= i2 < NR_ENTRIES);
+        assert(0 <= i3 < NR_ENTRIES);
+        assert(rec_vaddr(path, 4) == 0);
+        assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3) as usize);
+        assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(
+            3,
+            i3,
+        )) as usize);
+        assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(
+            2,
+            i2,
+        ) + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
+        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
+            1,
+            i1,
+        ) + vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
+        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
+        assert(vaddr_make::<NR_LEVELS>(3, i3) == 0x1000usize * i3) by (compute);
+        assert(page_size(1) == 0x1000usize);
+        assert(0x80_0000_0000int * i0 <= 0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int
+            * i2 + 0x1000int * i3) by (nonlinear_arith);
+        assert(0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int * i2 + 0x1000int * i3
+            + 0x1000int <= (i0 + 1) * 0x80_0000_0000int) by (nonlinear_arith)
+            requires
+                i1 < 512,
+                i2 < 512,
+                i3 < 512,
+        ;
+    }
+}
+
 /// `vaddr_of::<C>(path)` in `int` equals the unconditional sum — no usize
 /// wrap. Holds because `vaddr(path) < 2^48` (any valid path) and
 /// `LEADING_BITS < 2^16`, so the sum is `< 2^64 = usize::MAX + 1`.
