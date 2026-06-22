@@ -818,10 +818,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 *regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     == old_regions.slot_owners[frame_to_index(
                     (self.range.start + j * PAGE_SIZE) as usize,
-                )] by {
-                    let _ = frame_to_index((self.range.start + perm_idx * PAGE_SIZE) as usize);
-                    let _ = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
-                };
+                )] by {};
             }
         }
 

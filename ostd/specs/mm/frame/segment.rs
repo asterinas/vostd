@@ -434,7 +434,6 @@ pub proof fn tracked_mint_seg_obligations(
             // i < n-1: recursion gives `gmid.count(idx_i) >= g0.count(idx_i)+1`;
             // the mint only grows counts. i == n-1: `gmid.count(idx) >= g0.count(idx)`
             // (monotone), and the mint adds exactly one at `idx`.
-            let _ = frame_to_index((range_start + i * PAGE_SIZE) as usize);
         };
     }
 }

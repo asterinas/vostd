@@ -237,7 +237,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         proof {
             if owner.list.len() > 0 {
-                let _ = owner.list[0];
                 owner.relate_region_at_facts(*regions, 0);
             }
         }
@@ -332,7 +331,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         proof {
             if owner.list.len() > 0 {
-                let _ = owner.list[owner.list.len() - 1];
                 owner.relate_region_at_facts(*regions, owner.list.len() - 1);
             }
         }
@@ -624,11 +622,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             if self.current is Some {
-                let _ = owner.list_own.list[owner.index];
                 owner.list_own.relate_region_at_facts(*regions, owner.index);
             }
             if owner.index < owner.length() - 1 {
-                let _ = owner.list_own.list[owner.index + 1];
                 owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
             }
         }
@@ -688,11 +684,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             if self.current is Some {
-                let _ = owner.list_own.list[owner.index];
                 owner.list_own.relate_region_at_facts(*regions, owner.index);
             }
             if 0 < owner.index {
-                let _ = owner.list_own.list[owner.index - 1];
                 owner.list_own.relate_region_at_facts(*regions, owner.index - 1);
             }
         }
@@ -728,11 +722,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         owner,
                     ).move_prev_spec().rear);
                     if owner@.rear.len() > 0 {
-                        let _ = owner.list_own.list[owner.index];
                         owner.list_own.relate_region_at_facts(*regions, owner.index);
                     }
                 } else {
-                    let _ = owner.list_own.list[owner.index];
                     owner.list_own.relate_region_at_facts(*regions, owner.index);
                     assert(self.model(owner.move_prev_owner_spec()).rear == old_self.model(
                         owner,
@@ -790,7 +782,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         assert(self.current.is_none());
                         assert(false);
                     }
-                    let _ = owner.list_own.list[owner.index];
                     owner.list_own.relate_region_at_facts(*regions, owner.index);
                     assert(current == self.current.unwrap());
                 }
@@ -916,14 +907,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             assert(0 <= owner.index < owner.list_own.list.len());
-            let _ = owner.list_own.list[owner.index];
             owner.list_own.relate_region_at_facts(*regions, owner.index);
             if owner.index > 0 {
-                let _ = owner.list_own.list[owner.index - 1];
                 owner.list_own.relate_region_at_facts(*regions, owner.index - 1);
             }
             if owner.index < owner.list_own.list.len() - 1 {
-                let _ = owner.list_own.list[owner.index + 1];
                 owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
             }
         }
@@ -1120,13 +1108,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 ).value().metadata.prev)
             }) by {
                 let i = oldl.slot_index_at(p);
-                let _ = oldl.list[p];
                 oldl.relate_region_at_facts(regions0, p);
-                let _ = oldl.list[nn];
                 oldl.relate_region_at_facts(regions0, nn);
-                let _ = oldl.slot_index_at(nn - 1);
-                let _ = oldl.slot_index_at(nn + 1);
-                let _ = oldl.slot_index_at(nn);
             }
             LinkedListOwner::pop_preserves_relate_region(
                 oldl,
@@ -1199,11 +1182,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof {
             owner0.list_own.length_lt_usize_max(regions0);
             if nn > 0 {
-                let _ = owner.list_own.list[nn - 1];
                 owner.list_own.relate_region_at_facts(*regions, nn - 1);
             }
             if nn < owner.list_own.list.len() {
-                let _ = owner.list_own.list[nn];
                 owner.list_own.relate_region_at_facts(*regions, nn);
             }
         }
@@ -1423,19 +1404,13 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 ).value().metadata.prev)
             }) by {
                 let i = oldl.slot_index_at(p);
-                let _ = oldl.list[p];
                 oldl.relate_region_at_facts(regions0, p);
                 if nn - 1 >= 0 && nn - 1 < oldl.list.len() {
-                    let _ = oldl.list[nn - 1];
                     oldl.relate_region_at_facts(regions0, nn - 1);
                 }
                 if nn >= 0 && nn < oldl.list.len() {
-                    let _ = oldl.list[nn];
                     oldl.relate_region_at_facts(regions0, nn);
                 }
-                let _ = oldl.slot_index_at(nn - 1);
-                let _ = oldl.slot_index_at(nn);
-                let _ = oldl.slot_index_at(nn + 1);
             }
 
             let fpn = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(
@@ -1645,9 +1620,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 &&& original_regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& original_regions.slot_owners[idx].inner_perms.ref_count.value()
                     == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
-            }) by {
-                let _ = s.0.list[j];
-            };
+            }) by {};
             list_own = LinkedListOwner::<M>::tracked_take(&mut s.0);
         }
         let tracked regions: &mut MetaRegionOwners = &mut s.1;
@@ -1659,9 +1632,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
 
         proof {
             if n > 0 {
-                let _ = cursor_own.list_own.list[0];
                 cursor_own.list_own.relate_region_at_facts(*regions, 0);
-                let _ = cursor_own.list_own.list[n as int - 1];
                 cursor_own.list_own.relate_region_at_facts(*regions, n as int - 1);
             }
         }
@@ -1747,7 +1718,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
             proof {
                 if cursor.current.is_some() {
                     assert(cursor_own.length() > 0);
-                    let _ = cursor_own.list_own.list[0];
                     cursor_own.list_own.relate_region_at_facts(*regions, 0);
                     let ghost _trigger = original_list[k as int];
                     assert(cursor.current.unwrap().addr() == original_list[k].paddr);
@@ -1794,7 +1764,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                             == regions_pre_drop.frame_obligations.count(idx)
                     }) by {
                         let idx = cursor_own.list_own.slot_index_at(i);
-                        let _ = cursor_own.list_own.list[i];
                         let ghost _trig_k = original_list[k as int];
                         let ghost _trig_ik = original_list[i + k + 1];
                         assert(cursor_own.list_own.list[i] == original_list[i + k + 1]);

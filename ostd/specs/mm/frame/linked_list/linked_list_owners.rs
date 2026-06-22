@@ -358,7 +358,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 #![trigger idxs.to_set().contains(x)]
                 idxs.to_set().contains(x) implies bound.contains(x) by {
                 let i = choose|i: int| 0 <= i < idxs.len() && idxs[i] == x;
-                let _ = self.list[i];
                 self.relate_region_at_facts(regions, i);
                 // `regions.inv()`: `contains_key(slot_index_at(i)) ⟹ < max_meta_slots()`.
             }
@@ -517,14 +516,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         assert forall|k: int|
             #![trigger self.relate_region_at(regions2, k)]
             0 <= k < llen implies self.relate_region_at(regions2, k) by {
-            let _ = self.list[k];
             self.relate_region_at_facts(regions1, k);
-            if k > 0 {
-                let _ = self.list[k - 1];
-            }
-            if k < llen - 1 {
-                let _ = self.list[k + 1];
-            }
             self.relate_region_at_from_clauses(regions2, k);
         }
     }
@@ -643,7 +635,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             } else {
                 m + 1
             };
-            let _ = old.list[pm];
             old.relate_region_at_facts(r0, pm);
         }
 
@@ -655,24 +646,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             } else {
                 k + 1
             };
-            let _ = old.list[p];
             old.relate_region_at_facts(r0, p);
-            let _ = old.list[n];
             old.relate_region_at_facts(r0, n);
             if p - 1 >= 0 {
-                let _ = old.list[p - 1];
                 old.relate_region_at_facts(r0, p - 1);
             }
             if p + 1 < old.list.len() {
-                let _ = old.list[p + 1];
                 old.relate_region_at_facts(r0, p + 1);
             }
             if n - 1 >= 0 {
-                let _ = old.list[n - 1];
                 old.relate_region_at_facts(r0, n - 1);
             }
             if n + 1 < old.list.len() {
-                let _ = old.list[n + 1];
                 old.relate_region_at_facts(r0, n + 1);
             }
             new.relate_region_at_from_clauses(fr, k);
@@ -804,26 +789,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         assert forall|a: int, b: int|
             #![trigger new.slot_index_at(a), new.slot_index_at(b)]
             0 <= a < nlen && 0 <= b < nlen && a != b implies new.slot_index_at(a)
-            != new.slot_index_at(b) by {
-            let _ = new.slot_index_at(a);
-            let _ = new.slot_index_at(b);
-            if a != n {
-                let pa = if a < n {
-                    a
-                } else {
-                    a - 1
-                };
-                let _ = old.slot_index_at(pa);
-            }
-            if b != n {
-                let pb = if b < n {
-                    b
-                } else {
-                    b - 1
-                };
-                let _ = old.slot_index_at(pb);
-            }
-        }
+            != new.slot_index_at(b) by {}
 
         assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies ({
             &&& (m < n ==> new.meta_perm_of(fr, m).addr() == old.meta_perm_of(r0, m).addr()
@@ -838,11 +804,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             ).points_to.pptr())
         }) by {
             if m < n {
-                let _ = old.list[m];
                 old.relate_region_at_facts(r0, m);
             }
             if m > n {
-                let _ = old.list[m - 1];
                 old.relate_region_at_facts(r0, m - 1);
             }
         }
@@ -851,23 +815,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             #![trigger new.relate_region_at(fr, k)]
             0 <= k < nlen implies new.relate_region_at(fr, k) by {
             if k < n {
-                let _ = old.list[k];
                 old.relate_region_at_facts(r0, k);
             }
             if k > n {
-                let _ = old.list[k - 1];
                 old.relate_region_at_facts(r0, k - 1);
             }
             if n - 1 >= 0 && n - 1 < old.list.len() {
-                let _ = old.list[n - 1];
                 old.relate_region_at_facts(r0, n - 1);
             }
             if n >= 0 && n < old.list.len() {
-                let _ = old.list[n];
                 old.relate_region_at_facts(r0, n);
             }
-            let _ = old.slot_index_at(n - 1);
-            let _ = old.slot_index_at(n);
             new.relate_region_at_from_clauses(fr, k);
         }
 
