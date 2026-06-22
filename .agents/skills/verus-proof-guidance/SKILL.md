@@ -15,5 +15,7 @@ Use this skill only when a task requires nontrivial Verus reasoning, introduces 
 Use these references on demand, not as unconditional reading:
 
 - Verus Guide: https://verus-lang.github.io/verus/guide/
-- Verus standard library: https://github.com/verus-lang/verus/tree/main/source/vstd
+- Verus standard library:
+    - Remote URL: https://github.com/verus-lang/verus/tree/main/source/vstd
+    - Local path: `tools/verus/source/vstd`
 - Verus examples: https://github.com/verus-lang/verus/tree/main/examples

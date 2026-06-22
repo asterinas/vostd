@@ -188,11 +188,10 @@ impl<'a> VmSpace<'a> {
         proof_decl! {
             let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;
         }
-        let kpt = crate::mm::kspace::kvirt_area::get_kernel_page_table(
-            Tracked(&mut kernel_owner_opt),
-            Tracked(regions),
-            Tracked(guards),
-        );
+        let kpt = {
+            #[verus_spec(with Tracked(&mut kernel_owner_opt), Tracked(regions), Tracked(guards))]
+            crate::mm::kspace::kvirt_area::get_kernel_page_table()
+        };
         proof_decl! {
             let tracked kernel_owner = kernel_owner_opt.tracked_take();
         }
@@ -1636,6 +1635,22 @@ unsafe impl PageTableConfig for UserPtConfig {
         assert(Self::LEADING_BITS_spec() == 0usize);
     }
 
+    // proof fn lemma_leading_bits_only_when_high_half() {
+    //     use crate::mm::page_table::pte_index_bit_offset_spec;
+    //     use vstd::arithmetic::power2::{lemma_pow2_pos, pow2};
+    //     Self::lemma_top_level_index_range_bounds();
+    //     assert(Self::LEADING_BITS_spec() == 0usize);
+    //     assert(Self::TOP_LEVEL_INDEX_RANGE_spec().start == 0_usize);
+    //     let numerator = (Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
+    //         pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+    //     ) as int);
+    //     let denominator = pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int;
+    //     assert(numerator == 0);
+    //     lemma_pow2_pos((Self::C::ADDRESS_WIDTH() - 1) as nat);
+    //     assert(denominator > 0);
+    //     assert(numerator / denominator == 0);
+    //     assert((numerator / denominator) % 2 == 0);
+    // }
     type Item = MappedItem;
 
     open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
