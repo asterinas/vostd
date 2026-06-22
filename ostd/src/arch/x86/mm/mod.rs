@@ -205,7 +205,6 @@ pub(crate) fn tlb_flush_all_including_global() {
     }*/
 }
 
-#[verifier::ext_equal]
 #[derive(Clone, Copy/*, Pod, Default*/)]
 #[derive(Debug)]
 #[repr(C)]
