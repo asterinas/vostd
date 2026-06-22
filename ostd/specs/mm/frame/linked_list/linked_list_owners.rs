@@ -516,6 +516,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         assert forall|k: int|
             #![trigger self.relate_region_at(regions2, k)]
             0 <= k < llen implies self.relate_region_at(regions2, k) by {
+            let _ = self.list[k];
             self.relate_region_at_facts(regions1, k);
             self.relate_region_at_from_clauses(regions2, k);
         }
@@ -646,15 +647,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             } else {
                 k + 1
             };
+            let _ = old.list[p];
             old.relate_region_at_facts(r0, p);
+            let _ = old.list[n];
             old.relate_region_at_facts(r0, n);
             if p - 1 >= 0 {
+                let _ = old.list[p - 1];
                 old.relate_region_at_facts(r0, p - 1);
             }
             if p + 1 < old.list.len() {
+                let _ = old.list[p + 1];
                 old.relate_region_at_facts(r0, p + 1);
             }
             if n - 1 >= 0 {
+                let _ = old.list[n - 1];
                 old.relate_region_at_facts(r0, n - 1);
             }
             if n + 1 < old.list.len() {
@@ -815,15 +821,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             #![trigger new.relate_region_at(fr, k)]
             0 <= k < nlen implies new.relate_region_at(fr, k) by {
             if k < n {
+                let _ = old.list[k];
                 old.relate_region_at_facts(r0, k);
             }
             if k > n {
+                let _ = old.list[k - 1];
                 old.relate_region_at_facts(r0, k - 1);
             }
             if n - 1 >= 0 && n - 1 < old.list.len() {
+                let _ = old.list[n - 1];
                 old.relate_region_at_facts(r0, n - 1);
             }
             if n >= 0 && n < old.list.len() {
+                let _ = old.list[n];
                 old.relate_region_at_facts(r0, n);
             }
             new.relate_region_at_from_clauses(fr, k);
