@@ -1102,9 +1102,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(&mut child_node_owner), Tracked(&*regions))]
                     let nr_children = pt_guard.nr_children();
 
-                    // `nr_children()` required `child_node_owner.metaregion_sound_node`,
-                    // so `count_consistent` holds for the node just read; snapshot it
-                    // (the node is about to be moved back into the cursor tree).
+                    // `nr_children()` requires `child_node_owner.metaregion_sound_node`,
+                    // so `count_consistent` holds for this node. Capture it as a ghost
+                    // before the node is moved back into the cursor tree.
                     let ghost cur_node_owner = child_node_owner;
                     proof {
                         assert(cur_node_owner.count_consistent());

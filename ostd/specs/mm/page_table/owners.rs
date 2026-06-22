@@ -1742,13 +1742,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// A node with `nr_children == 0` has no present PTEs, so all children are
     /// absent and the subtree contributes no mappings.
     ///
-    /// Proven (formerly an axiom): `count_consistent` ties `nr_children` to
-    /// `count_present(children_perm)`, so `nr_children == 0` forces every PTE
-    /// absent. `pt_edge_at` (from `pt_inv`) then forces each ghost child
-    /// `is_absent` — its `view_rec` is `∅` — and `lemma_view_rec_contains`
-    /// lifts that to the whole node's `view_rec`. (At the top level the
-    /// `borrowed` edge disjunct is ruled out: `borrowed_match_pte` needs a
-    /// *present* PTE, which `count_present == 0` denies.)
+    /// `count_consistent` ties `nr_children` to `count_present(children_perm)`,
+    /// so `nr_children == 0` forces every PTE absent. `pt_edge_at` (from
+    /// `pt_inv`) then forces each ghost child `is_absent` — its `view_rec` is
+    /// `∅` — and `lemma_view_rec_contains` lifts that to the whole node's
+    /// `view_rec`. (At the top level the `borrowed` edge disjunct is ruled out:
+    /// `borrowed_match_pte` needs a *present* PTE, which `count_present == 0`
+    /// denies.)
     pub proof fn view_rec_nr_children_zero_empty(self, path: TreePath<NR_ENTRIES>)
         requires
             self.pt_inv(),

@@ -131,17 +131,9 @@
 //!      `cover_count` is invariant under the partition.
 //!      [`lemma_segment_cover_split`] proves the per-paddr
 //!      invariance.
-//!    - **`clone`** — NOT modeled, pending exec fix. Today exec
-//!      `Segment::clone` bumps `rc` but not `raw_count` and doesn't
-//!      produce a new `SegmentOwner`, so the clone is un-droppable
-//!      from verified code. Planned fix (separate session):
-//!      generalise `Frame::from_raw` to `raw_count >= 1` + decrement;
-//!      weaken `SegmentOwner::relate_regions` to `raw_count >= 1`;
-//!      replace `RCClone for Segment` with an inherent `clone` that
-//!      returns `(Self, Tracked<SegmentOwner<M>>)` and per-frame
-//!      `from_in_use + ManuallyDrop::new`. Once it ships, the
-//!      embedding adds `Op::SegmentClone { sid }` that inserts a
-//!      fresh `SegmentEntry` mirroring `sid`'s range.
+//!    - **`clone`** — DONE. Produce a second handle covering the same
+//!      range as `sid`; per covered paddr `cover_count += 1` and
+//!      `rc += 1` (`H` unchanged), so the accounting equation chains.
 //!    - **`next`** — DONE. The conversion bridge between
 //!      segment-held forgotten references and user-held `Frame<M>`
 //!      handles. Per-paddr at the popped slot: `raw_count -= 1`,
@@ -150,42 +142,16 @@
 //!      lockstep because H and cover decrement/increment together;
 //!      structural `raw_count == cover_count` chains via
 //!      [`lemma_segment_cover_shrink_front`].
-//!    - **`slice`** — NOT modeled, deferred for the same reason as
-//!      `clone` (and probably HARDER, despite initial appearances).
-//!      Both APIs produce an un-droppable handle (no `SegmentOwner`
-//!      returned) and don't bump `raw_count`. A faithful fix
-//!      requires generalising `Frame::from_raw`'s precondition from
-//!      `raw_count <= 1` to `raw_count >= 1` (with decrement-not-
-//!      zero body) so that sliced/cloned segments — which produce
-//!      multiple forgotten refs at the same slot — can each be
-//!      drop-reclaimed. **An attempted exec fix in this session
-//!      revealed unanticipated cascade**: `borrow` / `borrow_paddr`
-//!      bridge through `lemma_from_raw_manuallydrop_general` which
-//!      assumes the single-forgotten-ref case, and the PT-node
-//!      `child_perms_embedding` invariant carries `raw_count <= 1`
-//!      without supplying a `>= 1` companion. Tightening one half
-//!      breaks the other. Properly resolving this requires either:
-//!      (a) per-handle ghost certificates (the `FrameCert` route
-//!          documented in the Item 2 future-work note above), or
-//!      (b) splitting `from_raw` into two variants — one for the
-//!          single-forgotten case (existing) and one for
-//!          multi-forgotten (new) — and threading the
-//!          discriminator through `SegmentOwner` so `drop` can pick
-//!          the right one.
-//!      Either path is half-day to multi-day work. `slice` and
-//!      `clone` should be tackled together when that engineering
-//!      effort is funded; the embedding side is ready to receive
-//!      a `cover_count + 1` / `raw_count + 1` Op as soon as the
-//!      exec ships the API.
+//!    - **`slice`** — DONE. Like `clone` but over a sub-range: insert a
+//!      fresh `SegmentEntry` covering `sub_range` and bump `cover_count`
+//!      / `rc` for each frame inside it. `clone` is the special case
+//!      `sub_range == sid`'s range.
 //!    - **`into_raw` / `from_raw`** — `pub(crate)` only in exec, so
 //!      the embedding can ignore them.
 pub mod cursor;
 pub mod frame;
 pub mod io;
 pub mod kvirt_store;
-// list_store deferred: depends on a 118-line-diverged linked_list_owners layer
-// (its `LinkedListOwner::inv` differs between main and upstream) — needs that
-// linked-list embedding reconciliation before it verifies.
 pub mod list_store;
 pub mod segment;
 pub mod trace;
@@ -992,16 +958,6 @@ pub enum Op {
     /// exactly one half). Removes `sid` from `s.segments`, inserts
     /// two fresh `SegmentEntry`s.
     SegmentSplit { sid: SegmentId, offset: usize },
-    // **Op::SegmentNext is NOT modeled.** It would be the
-    // conversion bridge between segment-held forgotten references
-    // and user-held Frame handles — at the popped paddr:
-    // `raw_count -= 1`, `cover_count -= 1`, `H += 1`, `rc` unchanged.
-    // The model is laid out in [`segment::segment_next_embedded`]
-    // (axiom present, proof-discharge scaffolded but ends in
-    // `assume(false)`); reaching a real `s.inv()` discharge needs
-    // SMT-chaining cleanup at the per-paddr assert-forall sites
-    // that this pass didn't finish. Tracked as future work alongside
-    // `SegmentSlice`.
     /// `Segment::next`: pop the front frame off `sid`'s range,
     /// producing a fresh `Frame<M>` handle (a new `FrameEntry`
     /// registered in `s.frames`). The segment's range shrinks by one
@@ -1026,56 +982,6 @@ pub enum Op {
     /// `sub_range` by 1. Clone is the special case `sub_range == sid`'s
     /// range.
     SegmentSlice { sid: SegmentId, sub_range: Range<Paddr> },
-    // **Op::SegmentSlice is NOT modeled — same exec gap as
-    // `SegmentClone`, plus weaker ensures.**
-    //
-    // Exec [`crate::mm::frame::Segment::slice`] does
-    // `inc_frame_ref_count` per frame in the sub-range (bumps `rc`
-    // only, not `raw_count`) and returns just `Self` — no
-    // `SegmentOwner`, so the sliced segment is un-droppable from
-    // verified code. Compounding this, its `ensures` only commits to
-    // `slots`/`slot_owners.dom()` preservation; the per-frame `rc`
-    // bumps aren't surfaced. A faithful embedding axiom would need
-    // both:
-    //   1. The same exec fix as `SegmentClone`
-    //      (`Frame::from_raw` precondition relaxation, weakened
-    //      `relate_regions`, owner-producing API).
-    //   2. Stronger exec ensures pinning the per-frame `rc`/
-    //      `raw_count` deltas at sliced paddrs.
-    //
-    // Once both ship, the embedding can add `Op::SegmentSlice {
-    // sid, sub_range }` that inserts a fresh `SegmentEntry` with the
-    // sub-range (per-paddr `cover_count += 1` inside sub-range,
-    // unchanged outside) and discharges accounting via the same
-    // shrink-from-front machinery used by `next`.
-    // **Op::SegmentClone is NOT modeled — pending exec fix.**
-    //
-    // Exec [`crate::mm::frame::Segment::clone`] today bumps `rc` per
-    // frame (via `inc_frame_ref_count`) but doesn't bump `raw_count`
-    // and doesn't produce a new `SegmentOwner`. The cloned `Segment`
-    // is therefore un-droppable from verified code: `Segment::drop`
-    // requires a `SegmentOwner` with `relate_regions` (currently
-    // pinning `raw_count == 1` per covered slot), and the clone path
-    // produces neither the owner nor the matching `raw_count` bump.
-    //
-    // The planned exec fix (own branch / session):
-    //   1. `Frame::from_raw`: generalise `raw_count <= 1` precondition
-    //      to `raw_count >= 1` and decrement (not zero) on call.
-    //   2. `SegmentOwner::relate_regions`: weaken `raw_count == 1`
-    //      to `raw_count >= 1`.
-    //   3. Remove `RCClone for Segment`; add inherent
-    //      `Segment::clone(&self, …) -> (Self, Tracked<SegmentOwner<M>>)`
-    //      whose body per-frame is `from_in_use + ManuallyDrop::new`
-    //      (bumping both `rc` and `raw_count`).
-    //   4. Rework `Segment::drop` / `Segment::next` loop invariants
-    //      for the `raw_count >= 1` form.
-    //
-    // Once the exec ships those, the embedding can add an `Op` variant
-    // that inserts a fresh `SegmentEntry` with the same range as `sid`
-    // and bumps the per-paddr `rc`/`raw_count` to match — the
-    // `accounting_inv` equation `rc == H + P + cover_count` chains
-    // naturally because both `rc` and `cover_count` increment together
-    // at each covered paddr.
     /// `UniqueFrame::from_unused`: allocate a fresh *exclusive* handle on
     /// a previously-unused slot. The slot transitions
     /// `usage == Unused, rc == UNUSED` → `usage == Frame, rc == UNIQUE`.

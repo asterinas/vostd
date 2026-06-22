@@ -614,9 +614,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
                     (#[trigger] final(owner).children[i])->0.value.path
                         == final(owner).value.path.push_tail(i as usize)
-                // Grandchildren are all None (carried through from
-                // `PageTableNode::alloc`'s `allocated_empty_node_grandchildren_none`
-                // ensures; the rebase only touches paths).
+                // Grandchildren are all None (from `PageTableNode::alloc`'s
+                // `allocated_empty_node_grandchildren_none` ensures; the path
+                // rebasing leaves grandchildren untouched).
                 &&& crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*final(owner))
                 // Other child fields preserved from `allocated_empty_node_owner`.
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
@@ -1422,11 +1422,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             proof {
                 assert(new_owner.value.node().metaregion_sound_node(*regions));
             }
-            // Take the node OUT (vs borrowing in place) — mirrors main's
-            // take/put pattern, which keeps Verus's loop-invariant maintenance
-            // tracking intact across the per-child `replace` (the in-place
-            // `tracked_borrow_mut_node` form loses the new node's own-slot
-            // facts at the loop back-edge).
+            // Take the node OUT (vs borrowing in place) to keep Verus's
+            // loop-invariant maintenance tracking intact across the per-child
+            // `replace`; the in-place `tracked_borrow_mut_node` form loses the
+            // new node's own-slot facts at the loop back-edge.
             let tracked mut new_owner_node = new_owner.value.tracked_take_node();
             proof {
                 assert(new_owner_node.metaregion_sound_node(*regions));

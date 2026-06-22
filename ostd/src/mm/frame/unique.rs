@@ -540,11 +540,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         let ghost idx = owner.slot_index;
 
         proof {
-            // Unfold `inv_with_regions`: re-derive the slot facts that used to be
-            // explicit preconditions. `owner.inv()` gives `idx < max_meta_slots`,
-            // so `regions.inv()` delivers `contains_key(idx)`, the `self_addr`
-            // shape, and `slot_owners[idx].inv()`; the latter's UNIQUE branch
-            // (under `rc == REF_COUNT_UNIQUE`) gives the storage/vtable init.
+            // Unfold `inv_with_regions` to recover the per-slot facts.
+            // `owner.inv()` gives `idx < max_meta_slots`, so `regions.inv()`
+            // delivers `contains_key(idx)`, the `self_addr` shape, and
+            // `slot_owners[idx].inv()`; the latter's UNIQUE branch (under
+            // `rc == REF_COUNT_UNIQUE`) gives the storage/vtable init.
             assert(regions.slot_owners.contains_key(idx));
             assert(regions.slot_owners[idx].self_addr == meta_addr(idx));
             assert(regions.slot_owners[idx].inner_perms.storage.is_init());

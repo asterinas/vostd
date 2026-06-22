@@ -278,10 +278,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// gives back the original `item`. So `C::tracked` of the reconstructed item
     /// equals the recorded `is_tracked`.
     ///
-    /// Encoded as an axiom (rather than an `EntryOwner::inv_base` clause) because
-    /// adding it to `inv_base` would require discharging this connection at every
-    /// `new_frame` call site — a wide cascading refactor (attempted, abandoned in
-    /// the FrameEntryOwner is_tracked refactor session).
+    /// Currently an axiom. The proper encoding discharges this connection
+    /// through the `PageTableConfig` trait impls — establishing
+    /// `is_tracked == C::tracked(item)` at each `new_frame` construction site
+    /// (e.g. as an `EntryOwner::inv_base` clause) — rather than axiomatizing it.
     pub axiom fn axiom_frame_is_tracked_matches_item(entry: Self)
         requires
             entry.is_frame(),
