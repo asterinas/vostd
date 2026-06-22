@@ -1,10 +1,10 @@
+use crate::specs::arch::*;
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::PagingLevel;
-use crate::mm::{KERNEL_VADDR_RANGE, MAX_PADDR, Paddr, Vaddr, nr_subpage_per_huge, page_size};
-use crate::specs::arch::{NR_LEVELS, PAGE_SIZE};
+use crate::mm::{KERNEL_VADDR_RANGE, Paddr, Vaddr, nr_subpage_per_huge, page_size};
 
 verus! {
 
