@@ -2902,6 +2902,95 @@ pub axiom fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
             },
 ;
 
+/// USER isolation theorem (proven, per-config): every mapping a `UserPtConfig`
+/// cursor exposes lives strictly in the user low half `[0, 2^47)`. Discharges
+/// the generic `axiom_view_in_vaddr_range` obligation for `UserPtConfig` without
+/// the axiom. The nested `view_mappings → continuations → view_rec` decomposition
+/// is exposed via `lemma_view_mappings_contains` (cursor + continuation forms)
+/// before each `choose`; a contributing (frame/node) root child is neither
+/// borrowed nor absent, so the cursor-inv top-level clause forces it in-range,
+/// and `view_rec_top_index_va_bound` gives the per-mapping VA bound.
+pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
+    owner: &CursorOwner<'rcu, crate::mm::vm_space::UserPtConfig>,
+)
+    requires
+        owner.inv(),
+    ensures
+        forall|m: Mapping|
+            #![auto]
+            owner.view_mappings().contains(m) ==> {
+                &&& 0 <= m.va_range.start
+                &&& m.va_range.end <= 0x8000_0000_0000int
+            },
+{
+    let end = crate::mm::vm_space::UserPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end as int;
+    assert(end == 256);
+    assert(end * 0x80_0000_0000int == 0x8000_0000_0000int) by (nonlinear_arith)
+        requires end == 256;
+    assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
+        &&& 0 <= m.va_range.start
+        &&& m.va_range.end <= 0x8000_0000_0000int
+    } by {
+        owner.lemma_view_mappings_contains();
+        let i = choose|i: int|
+            owner.level - 1 <= i < NR_LEVELS && (#[trigger] owner.continuations[i]).view_mappings()
+                .contains(m);
+        owner.inv_continuation(i);
+        let cont = owner.continuations[i];
+        cont.lemma_view_mappings_contains();
+        let j = choose|j: int|
+            0 <= j < cont.children.len() && cont.children[j] is Some && PageTableOwner(
+                cont.children[j].unwrap(),
+            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+        cont.pt_inv_children_unroll(j);
+        cont.inv_children_rel_unroll(j);
+        let child = PageTableOwner(cont.children[j].unwrap());
+        let p = cont.path().push_tail(j as usize);
+        cont.path().push_tail_property_index(j as usize);
+        assert(0 <= (p.index(0) as int) < end) by {
+            if i == NR_LEVELS - 1 {
+                // Root continuation: `p == [j]`. A contributing child is a
+                // frame/node (borrowed/absent give an empty `view_rec`), hence
+                // neither borrowed nor absent; the cursor-inv top-level clause
+                // then forces `j ∈ [0, 256)`.
+                assert(cont.path().len() == 0);
+                assert(p.index(0) == j);
+                assert(child.0.value.is_frame() || child.0.value.is_node());
+                assert(!child.0.value.is_borrowed());
+                assert(!child.0.value.is_absent());
+                assert(0 <= j < end);
+            } else {
+                // Non-root continuation: `p.index(0) == cont.path().index(0)`,
+                // which (via the inv path chain) equals the root continuation's
+                // descended index, in `[0, 256)` by the cursor-inv idx clause.
+                assert(cont.path().len() > 0);
+                assert(p.index(0) == cont.path().index(0));
+                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                    owner.inv_continuation(NR_LEVELS - 1);
+                    owner.continuations[NR_LEVELS - 1].path().push_tail_property_index(
+                        owner.continuations[NR_LEVELS - 1].idx,
+                    );
+                    if i == 2 {
+                    } else if i == 1 {
+                        owner.continuations[2].path().push_tail_property_index(
+                            owner.continuations[2].idx,
+                        );
+                    } else {
+                        owner.continuations[2].path().push_tail_property_index(
+                            owner.continuations[2].idx,
+                        );
+                        owner.continuations[1].path().push_tail_property_index(
+                            owner.continuations[1].idx,
+                        );
+                    }
+                }
+                assert(0 <= owner.continuations[NR_LEVELS - 1].idx < end);
+            }
+        }
+        child.view_rec_top_index_va_bound(p, m, end);
+    }
+}
+
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
         // (1) Non-overlapping: tree collapse + view_rec_disjoint_vaddrs.
