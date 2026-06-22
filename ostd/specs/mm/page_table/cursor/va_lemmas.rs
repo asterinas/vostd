@@ -376,20 +376,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     // ─── Axioms: VA mutation ─────────────────────────────────────────────
-    pub axiom fn tracked_set_va(tracked &mut self, new_va: AbstractVaddr)
-        requires
-            forall|i: int|
-                #![auto]
-                old(self).level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).va.index[i],
-            forall|i: int|
-                #![auto]
-                old(self).guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(
-                    self,
-                ).prefix.index[i],
-        ensures
-            *final(self) == old(self).set_va(new_va),
-    ;
-
     /// When jumping within the same page-table node, only indices at levels
     /// >= level are guaranteed to match. The entry-within-node index (level - 1)
     /// may change, so we update continuations[level-1].idx along with va.

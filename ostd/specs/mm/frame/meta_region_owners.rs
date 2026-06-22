@@ -259,19 +259,6 @@ impl MetaRegionOwners {
         assert((frame_to_index(paddr)) < max_meta_slots() as usize);
     }
 
-    pub axiom fn copy_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        tracked &mut self,
-        index: usize,
-    ) -> (tracked perm: MetaPerm<M>)
-        requires
-            old(self).slots.contains_key(index),
-        ensures
-            perm.points_to == old(self).slots[index],
-            final(self).slots == old(self).slots.remove(index),
-            final(self).slot_owners == old(self).slot_owners,
-            final(self).frame_obligations == old(self).frame_obligations,
-    ;
-
     /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
     /// Used by `Frame::from_raw` after the migration to typed slot perms — the perm being
     /// returned to `regions.slots` has no `inner_perms` baggage; the inner-perms live in
