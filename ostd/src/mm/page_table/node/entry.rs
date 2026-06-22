@@ -1062,6 +1062,70 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let ghost new_owner_path = new_owner.value.path;
         let ghost new_owner_meta_addr = new_owner.value.node().meta_addr_self();
 
+        proof {
+            // Carry the huge frame's slot facts (the precondition's
+            // `metaregion_sound`/`frame_sub_pages_valid`, stated about
+            // `old(regions)`) across `alloc` to post-alloc `regions`,
+            // establishing the split loop's j=0 and sub-page invariants.
+            //
+            // `alloc` (get_node_from_unused_spec + slot_perm_reparked_spec) only
+            // mutates the freshly-allocated node's slot `new_idx`; the huge
+            // frame's own slot and every sub-page slot is distinct from
+            // `new_idx`: non-MMIO slots have `rc != UNUSED` while `new_idx` was
+            // UNUSED pre-alloc; MMIO slots are `is_mmio` while the new node is
+            // `!is_mmio`.
+            broadcast use crate::specs::mm::frame::mapping::lemma_frame_to_index_injective;
+            broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
+            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
+            let new_idx = frame_to_index(meta_to_frame(new_owner_meta_addr));
+            let new_paddr = meta_to_frame(new_owner_meta_addr);
+            let nr_pages = page_size(level) / PAGE_SIZE;
+
+            // The huge frame's own slot (j = 0): `usage != PageTable` from the
+            // precondition's `metaregion_sound` (frame arm), preserved across
+            // `alloc` because `frame_to_index(pa) != new_idx`.
+            let pa_idx = frame_to_index(pa);
+            assert(old(regions).slots.contains_key(pa_idx));
+            assert(pa_idx != new_idx) by {
+                if old(regions).slot_owners[pa_idx].usage
+                    == crate::specs::mm::frame::meta_owners::PageUsage::MMIO {
+                    old(regions).inv_implies_correct_addr(pa);
+                } else {
+                    // metaregion_sound frame arm: non-MMIO ⟹ rc != UNUSED.
+                }
+            };
+
+            // Sub-pages (j > 0): `frame_sub_pages_valid` facts, preserved.
+            assert forall|j: usize|
+                #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
+                0 < j < nr_pages implies {
+                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                &&& regions.slots.contains_key(sub_idx)
+                &&& regions.slot_owners[sub_idx].usage
+                    != crate::specs::mm::frame::meta_owners::PageUsage::PageTable
+                &&& regions.slot_owners[sub_idx].usage
+                    != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                        <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                }
+            } by {
+                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                assert(old(regions).slots.contains_key(sub_idx));
+                assert(sub_idx != new_idx) by {
+                    if old(regions).slot_owners[sub_idx].usage
+                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO {
+                        old(regions).inv_implies_correct_addr((pa + j * PAGE_SIZE) as usize);
+                    } else {
+                        // non-MMIO sub-page ⟹ rc != UNUSED ⟹ != new_idx.
+                    }
+                };
+            };
+        }
+
         for i in 0..nr_subpage_per_huge::<C>()
             invariant
                 1 < level < NR_LEVELS,
@@ -1124,6 +1188,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     0 < j < page_size(level) / PAGE_SIZE ==> {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
+                        // Sub-frames are data frames, never page-table nodes —
+                        // discriminates them from the new node's slot
+                        // (`usage == PageTable`) so the per-child path install
+                        // (`tracked_remove/insert` at `sub_idx`) can't touch the
+                        // node's own slot.
+                        &&& regions.slot_owners[sub_idx].usage
+                            != crate::specs::mm::frame::meta_owners::PageUsage::PageTable
                         &&& regions.slot_owners[sub_idx].usage
                             != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -1134,6 +1205,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // j = 0: the huge frame's own slot.
                 regions.slots.contains_key(frame_to_index(pa)),
                 regions.slot_owners[frame_to_index(pa)].usage
+                    != crate::specs::mm::frame::meta_owners::PageUsage::PageTable,
+                regions.slot_owners[frame_to_index(pa)].usage
                     != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                         != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
@@ -1141,6 +1214,18 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 },
                 new_page.ptr.addr() == new_owner_meta_addr,
                 new_owner.value.node().metaregion_sound_node(*regions),
+                // The new node's own-slot rc + paths_in_pt — the only
+                // `metaregion_sound` conjuncts not derivable from
+                // `metaregion_sound_node` (self_addr/wf derive). Carried so
+                // `into_pte`'s `Child::invariants` holds after the loop.
+                regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))]
+                    .inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+                0 < regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))]
+                    .inner_perms.ref_count.value()
+                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
+                regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))]
+                    .paths_in_pt == set![new_owner_path],
         {
             proof {
                 C::lemma_page_table_config_constant_requirements();
@@ -1331,6 +1416,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             proof {
                 assert(new_owner_node.metaregion_sound_node(*regions));
             }
+            // Snapshot the node's own-slot facts while the loop invariant still
+            // holds (regions unchanged since loop entry), so we can frame them
+            // across the `replace` below.
+            let ghost nidx = frame_to_index(meta_to_frame(new_owner_meta_addr));
+            proof {
+                // The loop invariant still holds for the current `regions`
+                // (unchanged since entry), so pin the node-slot paths_in_pt fact
+                // here for the post-`replace` preservation step to carry forward.
+                assert(regions.slot_owners[nidx].paths_in_pt == set![new_owner_path]);
+            }
+            let ghost regions_pre_replace = *regions;
             #[verus_spec(with Tracked(regions),
                 Tracked(&mut new_owner_child.value),
                 Tracked(&mut child_owner),
@@ -1345,6 +1441,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
                 TreePath::push_tail_property_len(new_owner_path, i as usize);
                 OwnerSubtree::insert_preserves_inv(new_owner, i as usize, new_owner_child);
+
+                // `replace` of a frame child preserves every slot's `inner_perms`
+                // (unconditional) and `paths_in_pt` (non-node child), so the new
+                // node's own-slot rc + paths_in_pt are unchanged — re-establish
+                // the loop invariant's node-slot clauses for the next iteration.
+                assert(regions.slot_owners[nidx].inner_perms
+                    == regions_pre_replace.slot_owners[nidx].inner_perms);
+                assert(regions.slot_owners[nidx].paths_in_pt
+                    == regions_pre_replace.slot_owners[nidx].paths_in_pt);
+                assert(regions_pre_replace.slot_owners[nidx].paths_in_pt == set![new_owner_path]);
+                assert(regions.slot_owners[nidx].paths_in_pt == set![new_owner_path]);
             }
         }
 
