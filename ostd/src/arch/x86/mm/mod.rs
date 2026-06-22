@@ -103,7 +103,7 @@ impl PagingConstsTrait for PagingConsts {
         8
     }
 
-    proof fn lemma_paging_consts_properties()
+    proof fn lemma_paging_consts_requirements()
     {
         lemma_pow2_is_pow2_to64();
     }

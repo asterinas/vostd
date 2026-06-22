@@ -19,7 +19,7 @@ use crate::mm::frame::meta::MetaSlot;
 use super::{
     Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
     kspace::KernelPtConfig,
-    lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge,
+    nr_subpage_per_huge,
     page_prop::{CachePolicy, PageProperty},
     page_size,
     vm_space::UserPtConfig,
@@ -502,8 +502,8 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::VA_SIGN_EXT()
     }
 
-    proof fn lemma_paging_consts_properties() {
-        C::C::lemma_paging_consts_properties();
+    proof fn lemma_paging_consts_requirements() {
+        C::C::lemma_paging_consts_requirements();
     }
 }
 
@@ -721,7 +721,7 @@ pub fn nr_pte_index_bits<C: PagingConstsTrait>() -> (res: usize)
         res == nr_pte_index_bits_spec::<C>(),
 {
     proof {
-        lemma_nr_subpage_per_huge_bounded::<C>();
+        C::lemma_paging_consts_derived_properties();
     }
     nr_subpage_per_huge::<C>().ilog2() as usize
 }
@@ -730,7 +730,7 @@ pub proof fn lemma_nr_pte_index_bits_bounded<C: PagingConstsTrait>()
     ensures
         0 <= nr_pte_index_bits::<C>() <= C::BASE_PAGE_SIZE().ilog2(),
 {
-    lemma_nr_subpage_per_huge_bounded::<C>();
+    C::lemma_paging_consts_derived_properties();
     let nr = nr_subpage_per_huge::<C>();
     assert(1 <= nr <= C::BASE_PAGE_SIZE());
     let bits = nr.ilog2();
@@ -805,7 +805,7 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
         ret == C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
     proof {
-        C::lemma_paging_consts_properties();
+        C::lemma_paging_consts_requirements();
         C::lemma_page_table_config_constant_requirements();
     }
 
@@ -821,7 +821,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
 {
     let idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
     proof {
-        C::lemma_paging_consts_properties();
+        C::lemma_paging_consts_requirements();
         assert(1 <= C::NR_LEVELS() <= NR_LEVELS);
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
@@ -852,7 +852,7 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
 {
     let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
     proof {
-        C::lemma_paging_consts_properties();
+        C::lemma_paging_consts_requirements();
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
 
@@ -1218,7 +1218,7 @@ proof fn lemma_pte_index_consts<C: PagingConstsTrait>()
         nr_pte_index_bits::<C>() == 9usize,
         pow2(9) as usize == NR_ENTRIES,
 {
-    C::lemma_paging_consts_properties();
+    C::lemma_paging_consts_requirements();
     lemma2_to64();
     lemma_usize_pow2_ilog2(12);
     lemma_usize_pow2_ilog2(9);

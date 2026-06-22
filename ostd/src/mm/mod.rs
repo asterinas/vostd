@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Virtual memory (VM).
 use crate::specs::arch::*;
-use vstd::arithmetic::{
-    div_mod::{group_div_basics, lemma_div_non_zero},
-    power2::*,
-};
+use vstd::arithmetic::div_mod::{group_div_basics, lemma_div_non_zero};
+use vstd::arithmetic::power2::*;
 use vstd::prelude::*;
 
 /// Virtual addresses.
@@ -17,10 +15,6 @@ pub(crate) mod dma;
 pub mod frame;
 //pub mod heap;
 pub mod io;
-pub use io::{
-    Fallible, FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoOnce, VmReader,
-    VmWriter,
-};
 pub mod kspace;
 pub(crate) mod page_prop;
 pub mod page_table;
@@ -32,12 +26,16 @@ mod test;
 
 use core::{fmt::Debug, ops::Range};
 
+pub use self::io::{
+    Fallible, FallibleVmRead, FallibleVmWrite, Infallible, PodOnce, VmIo, VmIoOnce, VmReader,
+    VmWriter,
+};
 #[doc(hidden)]
 pub use crate::arch::mm::PagingConsts;
 
 // Re-export paddr_to_vaddr from kspace
 #[doc(hidden)]
-pub use kspace::paddr_to_vaddr;
+pub use self::kspace::paddr_to_vaddr;
 
 // Re-export largest_pages from page_table
 #[doc(hidden)]
@@ -132,7 +130,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// can chain `level != C::NR_LEVELS_spec()` to `level < NR_LEVELS`
     /// (e.g. `Cursor::find_next_impl`'s PageTable-branch gate ⟹
     /// `CursorMut::take_next`'s `replace_cur_entry` discharge).
-    proof fn lemma_paging_consts_properties()
+    proof fn lemma_paging_consts_requirements()
         ensures
             0 < Self::BASE_PAGE_SIZE(),
             is_pow2(Self::BASE_PAGE_SIZE() as int),
@@ -144,6 +142,18 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::NR_LEVELS() == NR_LEVELS,
             Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
     ;
+
+    proof fn lemma_paging_consts_derived_properties()
+        ensures
+            0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+    {
+        Self::lemma_paging_consts_requirements();
+        broadcast use group_div_basics;
+
+        assert(Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() > 0) by {
+            lemma_div_non_zero(Self::BASE_PAGE_SIZE() as int, Self::PTE_SIZE() as int);
+        };
+    }
 }
 
 pub open spec fn page_size_spec(level: PagingLevel) -> usize {
@@ -152,6 +162,8 @@ pub open spec fn page_size_spec(level: PagingLevel) -> usize {
     )) as usize
 }
 
+// /// The page size
+// pub const PAGE_SIZE: usize = page_size::<PagingConsts>(1);
 /// The page size at a given level.
 #[verifier::when_used_as_spec(page_size_spec)]
 #[verifier::external_body]
@@ -178,21 +190,9 @@ pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
         res == nr_subpage_per_huge_spec::<C>(),
 {
     proof {
-        C::lemma_paging_consts_properties();
+        C::lemma_paging_consts_requirements();
     }
     C::BASE_PAGE_SIZE() / C::PTE_SIZE()
-}
-
-pub proof fn lemma_nr_subpage_per_huge_bounded<C: PagingConstsTrait>()
-    ensures
-        0 < nr_subpage_per_huge::<C>() <= C::BASE_PAGE_SIZE(),
-{
-    C::lemma_paging_consts_properties();
-    broadcast use group_div_basics;
-
-    assert(C::BASE_PAGE_SIZE() / C::PTE_SIZE() > 0) by {
-        lemma_div_non_zero(C::BASE_PAGE_SIZE() as int, C::PTE_SIZE() as int);
-    };
 }
 
 /// The maximum virtual address of user space (non inclusive).
