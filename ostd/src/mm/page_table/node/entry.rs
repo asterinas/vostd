@@ -1322,13 +1322,23 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             proof {
                 assert(new_owner.value.node().metaregion_sound_node(*regions));
             }
+            // Take the node OUT (vs borrowing in place) — mirrors main's
+            // take/put pattern, which keeps Verus's loop-invariant maintenance
+            // tracking intact across the per-child `replace` (the in-place
+            // `tracked_borrow_mut_node` form loses the new node's own-slot
+            // facts at the loop back-edge).
+            let tracked mut new_owner_node = new_owner.value.tracked_take_node();
+            proof {
+                assert(new_owner_node.metaregion_sound_node(*regions));
+            }
             #[verus_spec(with Tracked(regions),
                 Tracked(&mut new_owner_child.value),
                 Tracked(&mut child_owner),
-                Tracked(new_owner.value.tracked_borrow_mut_node()))]
+                Tracked(&mut new_owner_node))]
             let old = entry.replace(Child::Frame(small_pa, level - 1, prop));
 
             proof {
+                new_owner.value.tracked_put_node(new_owner_node);
                 OwnerSubtree::set_value_property(new_owner_child, child_owner);
                 new_owner_child.value = child_owner;
                 new_owner.children.tracked_insert(i as int, Some(new_owner_child));
