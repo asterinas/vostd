@@ -43,6 +43,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.in_locked_range(),
+            !self.popped_too_high,
             self.metaregion_sound(regions),
             self.cur_entry_owner().is_frame(),
             other.cur_entry_owner().is_frame(),
@@ -135,6 +136,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn map_branch_none_inv_holds(self, owner0: Self)
         requires
             owner0.inv(),
+            // The map happens in the locked range and changes only the current
+            // continuation's slot at `idx` (a real, in-range slot). With this +
+            // "higher continuations unchanged", the root continuation's
+            // isolation clauses are preserved.
+            self.in_locked_range(),
+            !self.popped_too_high,
+            forall|j: int|
+                0 <= j < NR_ENTRIES && j != owner0.continuations[owner0.level - 1].idx as int
+                    ==> (#[trigger] self.continuations[self.level - 1].children[j])
+                    == owner0.continuations[owner0.level - 1].children[j],
             self.level == owner0.level,
             self.va == owner0.va,
             self.guard_level == owner0.guard_level,
@@ -164,6 +175,31 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let L = self.level as int;
         assert(self.continuations[L - 1].level() == self.level);
         assert(self.continuations.contains_key(L - 1));
+        // Isolation clauses for the root continuation (NR_LEVELS-1).
+        if self.level < NR_LEVELS {
+            // Root is above the current level ⟹ unchanged (higher-unchanged), so
+            // both clauses carry verbatim from `owner0.inv()`.
+            assert(self.continuations[NR_LEVELS - 1] == owner0.continuations[NR_LEVELS - 1]);
+        } else {
+            // Root IS the current continuation. The idx clause is vacuous
+            // (level == NR_LEVELS). For the outside-(borrowed||absent) clause:
+            // the map changed only the in-range slot `idx`, so every outside
+            // child keeps `owner0`'s value; `idx` is in-range (top index in
+            // [start, end), and `in_locked_range` rules out the sentinel).
+            owner0.in_locked_range_top_index_lt_top_end();
+            assert(self.continuations[NR_LEVELS - 1].idx == self.va.index[NR_LEVELS - 1]);
+            assert(self.continuations[NR_LEVELS - 1].idx
+                == owner0.continuations[owner0.level - 1].idx);
+            assert(C::TOP_LEVEL_INDEX_RANGE_spec().start
+                <= owner0.continuations[owner0.level - 1].idx
+                < C::TOP_LEVEL_INDEX_RANGE_spec().end);
+            assert(forall|j: int|
+                0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE_spec().start <= j
+                    < C::TOP_LEVEL_INDEX_RANGE_spec().end)
+                    ==> (#[trigger] self.continuations[NR_LEVELS - 1].children[j]) is Some
+                    ==> (self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_borrowed()
+                    || self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_absent()));
+        }
     }
 
     /// After alloc_if_none (absent->node), `view_mappings` is unchanged (both contribute zero mappings).

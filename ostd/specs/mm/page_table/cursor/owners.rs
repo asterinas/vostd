@@ -680,6 +680,25 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             self.level <= i < NR_LEVELS ==> {
                 (#[trigger] self.continuations[i]).all_but_index_some()
             }
+        // Root-continuation top-level index stays within the config range, and
+        //  (b) its top-level children OUTSIDE the config range are `borrowed`
+        //      OR `absent` — they share another config's sub-tree (user PT's
+        //      kernel half = borrowed) or are unmapped (kernel PT's user half =
+        //      absent), and either way contribute NOTHING to `view_rec`.
+        //      Preserved across cursor ops; makes both the user
+        //      (`lemma_view_in_vaddr_range_user`) and kernel
+        //      (`lemma_view_in_vaddr_range_kernel`) view bounds provable.
+        &&& self.level <= NR_LEVELS - 1 ==> {
+            &&& C::TOP_LEVEL_INDEX_RANGE_spec().start <= self.continuations[NR_LEVELS - 1].idx
+            &&& self.continuations[NR_LEVELS - 1].idx < C::TOP_LEVEL_INDEX_RANGE_spec().end
+        }
+        &&& forall|j: int|
+            #![trigger self.continuations[NR_LEVELS - 1].children[j]]
+            0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE_spec().start <= j
+                < C::TOP_LEVEL_INDEX_RANGE_spec().end)
+                ==> self.continuations[NR_LEVELS - 1].children[j] is Some
+                ==> (self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_borrowed()
+                || self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_absent())
         &&& self.prefix.inv()
         &&& self.prefix.offset == 0
         &&& forall|i: int|

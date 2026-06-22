@@ -662,10 +662,21 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
         &&& parent.children[i] is Some
         &&& parent.children[i]->0.value.path.len() == parent.value.node().tree_level + 1
-        &&& parent.children[i]->0.value.match_pte(
+        // The child either matches its PTE as an owned node/frame/absent
+        // entry, OR — only at the top level (`level == NR_LEVELS`, e.g. a user
+        // PT's shared kernel-half slots) — is a `borrowed` (translation-only)
+        // entry whose PTE is a present non-leaf node-PTE pointing at a sub-tree
+        // owned by another config. Borrowed children contribute nothing to
+        // `view_rec`. The top-level guard keeps deeper consumers on pure
+        // `match_pte`, so borrowing never appears below the root.
+        &&& (parent.children[i]->0.value.match_pte(
             parent.value.node().children_perm.value()[i],
             parent.value.node().level,
-        )
+        ) || (parent.value.node().level == NR_LEVELS && C::LEADING_BITS_spec() == 0
+            && parent.children[i]->0.value.borrowed_match_pte(
+            parent.value.node().children_perm.value()[i],
+            parent.value.node().level,
+        )))
         &&& parent.children[i]->0.value.path == parent.value.path.push_tail(i as usize)
         &&& parent.children[i]->0.value.parent_level == parent.value.node().level
     }
