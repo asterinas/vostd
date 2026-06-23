@@ -25,10 +25,6 @@ use crate::specs::mm::frame::meta_owners::Metadata;
 
 verus! {
 
-/// Represents the meta-frame memory region. Can be viewed as a collection of
-/// Cell<MetaSlot> at a fixed address range.
-pub struct MetaRegion;
-
 /// Represents the ownership of the meta-frame memory region.
 /// # Verification Design
 /// ## Slot owners
@@ -117,14 +113,6 @@ impl View for MetaRegionOwners {
 
 impl InvView for MetaRegionOwners {
     proof fn view_preserves_inv(self) {
-    }
-}
-
-impl OwnerOf for MetaRegion {
-    type Owner = MetaRegionOwners;
-
-    open spec fn wf(self, owner: Self::Owner) -> bool {
-        true
     }
 }
 
