@@ -130,15 +130,16 @@ impl<C: PageTableConfig, A: InAtomicMode> Iterator for Cursor<'_, C, A> {
 /// the original inner guard at `path[idx]`, and (ii) the array's structure is
 /// unchanged. Both follow from `Option::as_mut`'s vstd spec composed with
 /// array indexing — Verus just won't compose them automatically.
-#[verifier::external_body]
 #[verus_spec(res =>
     requires
         idx < NR_LEVELS,
         old(path)[idx as int] is Some,
     ensures
         *res == old(path)[idx as int]->0,
-        *final(res) == old(path)[idx as int]->0,
-        *final(path) == *old(path),
+        final(path)[idx as int] is Some,
+        final(path)[idx as int]->0 == *final(res),
+        forall |i: int| 0 <= i < NR_LEVELS && i != idx ==>
+            #[trigger] final(path)[i] == old(path)[i],
 )]
 fn path_slot_as_mut<'a, 'rcu, C: PageTableConfig>(
     path: &'a mut [Option<PageTableGuard<'rcu, C>>; NR_LEVELS],
@@ -1932,7 +1933,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).inv(),
             final(self).wf(*final(owner)),
             res.wf(final(owner).cur_entry_owner()),
-            *final(self) == *old(self),
+            final(self).level == old(self).level,
+            final(self).guard_level == old(self).guard_level,
+            final(self).va == old(self).va,
+            final(self).barrier_va == old(self).barrier_va,
             *final(owner) == *old(owner),
             final(owner).metaregion_sound(*regions),
             res.idx == final(owner).continuations[final(owner).level - 1].idx,
