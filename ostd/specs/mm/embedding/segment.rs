@@ -384,7 +384,7 @@ pub axiom fn segment_clone_embedded(
                     let so = old(regions).slot_owners[frame_to_index(paddr)];
                     &&& so.usage == PageUsage::Frame
                     &&& so.inner_perms.ref_count.value() >= 1
-                    &&& so.inner_perms.ref_count.value() + 1 < REF_COUNT_MAX
+                    &&& so.inner_perms.ref_count.value() + 1 <= REF_COUNT_MAX
                 },
     ensures
         final(regions).inv(),
