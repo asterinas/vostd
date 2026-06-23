@@ -23,7 +23,7 @@ use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, meta_addr, meta_to_frame}
 verus! {
 
 #[allow(non_camel_case_types)]
-pub enum MetaSlotStatus {
+pub ghost enum MetaSlotStatus {
     UNUSED,
     UNIQUE,
     SHARED,
@@ -31,21 +31,17 @@ pub enum MetaSlotStatus {
     UNDER_CONSTRUCTION,
 }
 
-pub enum PageState {
+pub ghost enum PageState {
     Unused,
     Typed,
     Untyped,
 }
 
-#[repr(u8)]
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum PageUsage {
+pub ghost enum PageUsage {
     // The zero variant is reserved for the unused type. Only an unused page
     // can be designated for one of the other purposes.
-    #[allow(dead_code)]
     Unused,
     /// The page is reserved or unusable. The kernel should not touch it.
-    #[allow(dead_code)]
     Reserved,
     /// The page is used as a frame, i.e., a page of untyped memory.
     Frame,
@@ -58,40 +54,7 @@ pub enum PageUsage {
     /// The page maps memory-mapped I/O (MMIO). Untracked: no refcount, slot
     /// stays in the free pool, but distinguishable from `Unused` so the
     /// kernel allocator never collides with an MMIO mapping.
-    #[allow(dead_code)]
     MMIO,
-}
-
-impl PageUsage {
-    pub open spec fn as_u8_spec(&self) -> u8 {
-        match self {
-            PageUsage::Unused => 0,
-            PageUsage::Reserved => 1,
-            PageUsage::Frame => 32,
-            PageUsage::PageTable => 64,
-            PageUsage::Meta => 65,
-            PageUsage::Kernel => 66,
-            PageUsage::MMIO => 67,
-        }
-    }
-
-    #[verifier::external_body]
-    #[verifier::when_used_as_spec(as_u8_spec)]
-    pub fn as_u8(&self) -> (res: u8)
-        ensures
-            res == self.as_u8_spec(),
-    {
-        *self as u8
-    }
-
-    #[vstd::contrib::auto_spec]
-    pub fn as_state(&self) -> (res: PageState) {
-        match &self {
-            PageUsage::Unused => PageState::Unused,
-            PageUsage::Frame => PageState::Untyped,
-            _ => PageState::Typed,
-        }
-    }
 }
 
 /// Whether `pa` falls in an MMIO physical-address range. Uninterpreted at the
@@ -242,7 +205,7 @@ pub tracked struct MetadataInnerPerms {
 pub tracked struct MetaSlotOwner {
     pub inner_perms: MetadataInnerPerms,
     pub self_addr: usize,
-    pub usage: PageUsage,
+    pub ghost usage: PageUsage,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
     /// location the frame is currently mapped — allowing a single frame to be
