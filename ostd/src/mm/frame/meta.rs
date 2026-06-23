@@ -41,6 +41,7 @@ pub(crate) mod mapping {
             res % META_SLOT_SIZE == 0,
         returns
             frame_to_meta(paddr),
+        no_unwind
     {
         broadcast use super::axiom_size_of_meta_slot;
 
