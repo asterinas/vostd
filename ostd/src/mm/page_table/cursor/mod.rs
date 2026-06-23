@@ -2108,22 +2108,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked mut child_owner = continuation.tracked_take_child();
         let tracked mut parent_owner = continuation.entry_own.tracked_take_node();
 
-        proof {
-            assert(cont0 == owner0.continuations[(owner0.level - 1) as int]);
-            assert(entry_idx == AbstractVaddr::from_vaddr(self.0.va).index[
-                self.0.level as int - 1
-            ]);
-            assert(entry_idx == cont0.idx);
-            assert(cur_path_guard == cont0.guard);
-            cont0.inv_children_rel_unroll(cont0.idx as int);
-            assert(child_owner.value.match_pte(
-                parent_owner.children_perm.value()[cont0.idx as int],
-                parent_owner.level,
-            ));
-            assert(parent_owner.relate_guard(cur_path_guard));
-            assert(parent_owner.metaregion_sound_node(*regions));
-        }
-
         {
             let node = path_slot_as_mut(&mut self.0.path, self.0.level as usize - 1);
             proof {
@@ -2133,7 +2117,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             let _pte =
                 #[verus_spec(with Tracked(&mut child_owner.value), Tracked(&mut parent_owner), Tracked(&*regions))]
-                node.protect_child(entry_idx, op);
+            node.protect_child(entry_idx, op);
         }
 
         let ghost new_prop = child_owner.value.frame().prop;
@@ -2160,10 +2144,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(owner.continuations[owner.level - 1].inv()) by {
                 let cont_new = owner.continuations[owner.level - 1];
                 assert(child_not_in_scope);
-                cont_new.continuation_inv_holds_after_child_restore(
-                    cont0,
-                    cont0.entry_own.node(),
-                );
+                cont_new.continuation_inv_holds_after_child_restore(cont0, cont0.entry_own.node());
             };
             assert(owner.continuations[owner.level - 1].entry_own.metaregion_sound(*regions));
             owner0.protect_preserves_cursor_inv_metaregion(*owner, *regions);
@@ -2640,21 +2621,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     proof {
                         assert(owner_pre_none == owner1);
-                        assert(cont_pre_alloc
-                            == owner1.continuations[cur_level as int - 1]);
-                        assert(entry_idx == AbstractVaddr::from_vaddr(self.0.va).index[
-                            cur_level as int - 1
-                        ]);
+                        assert(cont_pre_alloc == owner1.continuations[cur_level as int - 1]);
+                        assert(entry_idx == AbstractVaddr::from_vaddr(
+                            self.0.va,
+                        ).index[cur_level as int - 1]);
                         assert(entry_idx == cont_pre_alloc.idx);
                         assert(cur_path_guard == cont_pre_alloc.guard);
                         assert(parent_owner.relate_guard(cur_path_guard));
                     }
 
                     let child_guard = {
-                        let node = path_slot_as_mut(
-                            &mut self.0.path,
-                            self.0.level as usize - 1,
-                        );
+                        let node = path_slot_as_mut(&mut self.0.path, self.0.level as usize - 1);
                         proof {
                             assert(*node == cur_path_guard);
                             assert(parent_owner.relate_guard(*node));
@@ -2688,8 +2665,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         ));
                         assert(child_owner.value.parent_level == parent_owner.level);
                         assert(reconstructed_entry_own.path == cont_pre_alloc.entry_own.path);
-                        assert(child_owner.value.path
-                            == reconstructed_entry_own.path.push_tail(cont_pre_alloc.idx));
+                        assert(child_owner.value.path == reconstructed_entry_own.path.push_tail(
+                            cont_pre_alloc.idx,
+                        ));
                         assert(child_owner.value.path.len() == parent_owner.tree_level + 1);
 
                         cont_pre_alloc.take_put_child();
@@ -2811,7 +2789,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     proof {
                         assert forall|i: int|
                             0 <= i < NR_LEVELS implies #[trigger] owner.continuations[i].guard
-                                == owner1.continuations[i].guard by {
+                            == owner1.continuations[i].guard by {
                             if i == owner.level - 1 {
                                 assert(continuation.guard == cont_pre_alloc.guard);
                                 assert(cont_pre_alloc == owner_pre_none.continuations[i]);
