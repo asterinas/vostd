@@ -311,10 +311,7 @@ impl MetaSlotOwner {
         &mut MetadataInnerPerms)
         ensures
             *res == old(self).inner_perms,
-            final(self).inner_perms == *final(res),
-            final(self).usage == old(self).usage,
-            final(self).paths_in_pt == old(self).paths_in_pt,
-            final(self).self_addr == old(self).self_addr,
+            *final(self) == (Self { inner_perms: *final(res), ..*old(self) }),
     {
         &mut self.inner_perms
     }
