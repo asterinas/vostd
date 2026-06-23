@@ -809,51 +809,62 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     }
 
     /// `LinkedList::contains`: whether `frame` is a link of list `id`. A
-    /// read-only query. The exec computes `in_list[frame] == list_id`;
-    /// the membership registry ([`list_registry_ok`], an `inv` clause)
-    /// turns that comparison into an *exact* membership test — `res`
-    /// holds iff `frame`'s slot is one of the list's links. The list must
-    /// have a real (non-zero) id, i.e. it has been pushed to at least
-    /// once (an empty/never-pushed list trivially contains nothing).
+    /// read-only query mirroring exec `contains(frame) -> bool`. `res`
+    /// holds iff `frame` is a safe managed slot AND one of the list's
+    /// links: for a real (non-zero) id the membership registry
+    /// ([`list_registry_ok`], an `inv` clause) makes the
+    /// `in_list[frame] == list_id` comparison an exact membership test;
+    /// an empty/never-pushed list (`list_id == 0`, hence empty) or a
+    /// `frame` that is not a safe slot (which exec's `get_slot` rejects)
+    /// contains nothing.
     pub proof fn step_contains(tracked &self, id: ListId, frame: Paddr) -> (res: bool)
         requires
             self.inv(),
             self.lists.dom().contains(id),
-            self.lists[id].list_id != 0,
-            has_safe_slot(frame),
-            self.regions.slot_owners.contains_key(frame_to_index(frame)),
         ensures
-    // What the exec computes — the frame's slot is tagged with
-    // this list's id.
-
-            res == (self.regions.slot_owners[frame_to_index(frame)].inner_perms.in_list.value()
-                == self.lists[id].list_id),
-            // ... which, by the registry, is exactly list membership.
-            res <==> exists|i: int|
+            res <==> (has_safe_slot(frame) && exists|i: int|
                 0 <= i < self.lists[id].list.len() && self.lists[id].slot_index_at(i)
-                    == frame_to_index(frame),
+                    == frame_to_index(frame)),
     {
         let idx = frame_to_index(frame);
-        // The registry for list `id` (forward + reverse) from `inv`.
-        assert(list_registry_ok(self.regions, self.lists[id]));
-        let res = self.regions.slot_owners[idx].inner_perms.in_list.value()
-            == self.lists[id].list_id;
-        if res {
-            // reverse: a slot tagged with the id is one of the links.
-            assert(exists|i: int|
-                0 <= i < self.lists[id].list.len() && self.lists[id].slot_index_at(i) == idx);
+        if has_safe_slot(frame) {
+            // A safe slot is a managed region key.
+            self.regions.inv_implies_correct_addr(frame);
+            assert(self.regions.slot_owners.contains_key(idx));
+            if self.lists[id].list_id != 0 {
+                // The registry for list `id` (forward + reverse) from `inv`.
+                assert(list_registry_ok(self.regions, self.lists[id]));
+                let res = self.regions.slot_owners[idx].inner_perms.in_list.value()
+                    == self.lists[id].list_id;
+                if res {
+                    // reverse: a slot tagged with the id is one of the links.
+                    assert(exists|i: int|
+                        0 <= i < self.lists[id].list.len() && self.lists[id].slot_index_at(i)
+                            == idx);
+                } else {
+                    // forward: every link's slot is tagged, so an untagged
+                    // slot is no link.
+                    assert forall|i: int|
+                        0 <= i < self.lists[id].list.len() implies self.lists[id].slot_index_at(i)
+                        != idx by {
+                        assert(self.regions.slot_owners[self.lists[id].slot_index_at(
+                            i,
+                        )].inner_perms.in_list.value() == self.lists[id].list_id);
+                    };
+                }
+                res
+            } else {
+                // `list_id == 0` ⟹ the list is empty (`LinkedListOwner::inv`:
+                // `len > 0 ==> list_id != 0`), so it has no links.
+                assert(self.lists[id].inv());
+                assert(self.lists[id].list.len() == 0);
+                false
+            }
         } else {
-            // forward: every link's slot is tagged, so an untagged slot
-            // is no link.
-            assert forall|i: int|
-                0 <= i < self.lists[id].list.len() implies self.lists[id].slot_index_at(i)
-                != idx by {
-                assert(self.regions.slot_owners[self.lists[id].slot_index_at(
-                    i,
-                )].inner_perms.in_list.value() == self.lists[id].list_id);
-            };
+            // `!has_safe_slot(frame)`: exec `get_slot` rejects it, so the
+            // guarded membership is vacuously false.
+            false
         }
-        res
     }
 
     /// `LinkedList::new`: register a fresh *empty* list. No region
@@ -1225,131 +1236,139 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// `LinkedList::pop_front`: pop the front link of list `id` back into
     /// the loose pool as a fresh `UniqueFrame<Link<M>>`. Requires the
     /// list be non-empty. Returns the fresh loose id.
-    pub proof fn step_pop_front(tracked &mut self, id: ListId) -> (res: LooseId)
+    pub proof fn step_pop_front(tracked &mut self, id: ListId) -> (res: Option<LooseId>)
         requires
             old(self).inv(),
             old(self).lists.dom().contains(id),
-            old(self).lists[id].list.len() > 0,
         ensures
             final(self).inv(),
+            old(self).lists[id].list.len() == 0 ==> res is None && *final(self) == *old(self),
+            old(self).lists[id].list.len() > 0 ==> res is Some,
     {
-        let ghost old_self = *self;
-        let ghost old_regions = self.regions;
-        let ghost popped_idx = self.lists[id].slot_index_at(0);
-        let ghost old_list_id = self.lists[id].list_id;
-        // Pop preconditions from `inv`.
-        assert(self.lists[id].inv());
-        assert(self.lists[id].relate_region(self.regions));
+        if self.lists[id].list.len() == 0 {
+            // Exec `LinkedList::pop_front` returns `None` on an empty
+            // list; the store is unchanged.
+            Option::None
+        } else {
+            let ghost old_self = *self;
+            let ghost old_regions = self.regions;
+            let ghost popped_idx = self.lists[id].slot_index_at(0);
+            let ghost old_list_id = self.lists[id].list_id;
+            // Pop preconditions from `inv`.
+            assert(self.lists[id].inv());
+            assert(self.lists[id].relate_region(self.regions));
 
-        let tracked mut owner = self.lists.tracked_remove(id);
-        let tracked frame_own = pop_front_embedded(&mut self.regions, &mut owner);
-        self.lists.tracked_insert(id, owner);
-        let ghost new_loose = fresh_loose_id(self.loose);
-        axiom_fresh_loose_id_not_in_dom(self.loose);
-        self.loose.tracked_insert(new_loose, frame_own);
+            let tracked mut owner = self.lists.tracked_remove(id);
+            let tracked frame_own = pop_front_embedded(&mut self.regions, &mut owner);
+            self.lists.tracked_insert(id, owner);
+            let ghost new_loose = fresh_loose_id(self.loose);
+            axiom_fresh_loose_id_not_in_dom(self.loose);
+            self.loose.tracked_insert(new_loose, frame_own);
 
-        assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
-        assert(self.loose =~= old_self.loose.insert(new_loose, frame_own));
-        assert(self.lists[id].list_id == old_list_id);
-        assert(frame_own.slot_index == popped_idx);
+            assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
+            assert(self.loose =~= old_self.loose.insert(new_loose, frame_own));
+            assert(self.lists[id].list_id == old_list_id);
+            assert(frame_own.slot_index == popped_idx);
 
-        // --- per-list: inv + relate_region ---
-        assert forall|i: ListId| #[trigger] self.lists.dom().contains(i) implies {
-            &&& self.lists[i].inv()
-            &&& self.lists[i].relate_region(self.regions)
-        } by {
-            if i != id {
-                assert(old_self.lists.dom().contains(i));
-                assert(old_self.lists[i] == self.lists[i]);
-                assert(old_self.lists[i].inv());
-                assert(old_self.lists[i].relate_region(old_regions));
-                if self.lists[i].list.len() > 0 {
-                    // non-empty ⟹ nonzero id, distinct from `id`'s
-                    // (preserved) id by old uniqueness.
-                    assert(self.lists[i].list_id != old_list_id);
+            // --- per-list: inv + relate_region ---
+            assert forall|i: ListId| #[trigger] self.lists.dom().contains(i) implies {
+                &&& self.lists[i].inv()
+                &&& self.lists[i].relate_region(self.regions)
+            } by {
+                if i != id {
+                    assert(old_self.lists.dom().contains(i));
+                    assert(old_self.lists[i] == self.lists[i]);
+                    assert(old_self.lists[i].inv());
+                    assert(old_self.lists[i].relate_region(old_regions));
+                    if self.lists[i].list.len() > 0 {
+                        // non-empty ⟹ nonzero id, distinct from `id`'s
+                        // (preserved) id by old uniqueness.
+                        assert(self.lists[i].list_id != old_list_id);
+                    }
                 }
-            }
-        };
+            };
 
-        // --- per-loose: new entry from the axiom; others preserved ---
-        assert forall|lid2: LooseId| #[trigger] self.loose.dom().contains(lid2) implies {
-            &&& self.loose[lid2].inv()
-            &&& self.loose[lid2].global_inv(self.regions)
-            &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
-                == 0
-        } by {
-            if lid2 != new_loose {
-                assert(old_self.loose.dom().contains(lid2));
-                assert(old_self.loose[lid2] == self.loose[lid2]);
-                assert(old_self.loose[lid2].global_inv(old_regions));
-                assert(old_self.loose[lid2].frame_link_inv(old_regions));
-                assert(old_regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
-                    == 0);
-            }
-        };
+            // --- per-loose: new entry from the axiom; others preserved ---
+            assert forall|lid2: LooseId| #[trigger] self.loose.dom().contains(lid2) implies {
+                &&& self.loose[lid2].inv()
+                &&& self.loose[lid2].global_inv(self.regions)
+                &&& self.loose[lid2].frame_link_inv(self.regions)
+                &&& self.regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
+                    == 0
+            } by {
+                if lid2 != new_loose {
+                    assert(old_self.loose.dom().contains(lid2));
+                    assert(old_self.loose[lid2] == self.loose[lid2]);
+                    assert(old_self.loose[lid2].global_inv(old_regions));
+                    assert(old_self.loose[lid2].frame_link_inv(old_regions));
+                    assert(old_regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
+                        == 0);
+                }
+            };
 
-        // --- list_id uniqueness (all ids unchanged) ---
-        assert forall|i1: ListId, i2: ListId|
-            self.lists.dom().contains(i1) && self.lists.dom().contains(i2) && self.lists[i1].list_id
-                == self.lists[i2].list_id && self.lists[i1].list_id != 0 implies i1 == i2 by {
-            assert(old_self.lists.dom().contains(i1));
-            assert(old_self.lists.dom().contains(i2));
-            assert(self.lists[i1].list_id == old_self.lists[i1].list_id);
-            assert(self.lists[i2].list_id == old_self.lists[i2].list_id);
-        };
+            // --- list_id uniqueness (all ids unchanged) ---
+            assert forall|i1: ListId, i2: ListId|
+                self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+                    && self.lists[i1].list_id == self.lists[i2].list_id && self.lists[i1].list_id
+                    != 0 implies i1 == i2 by {
+                assert(old_self.lists.dom().contains(i1));
+                assert(old_self.lists.dom().contains(i2));
+                assert(self.lists[i1].list_id == old_self.lists[i1].list_id);
+                assert(self.lists[i2].list_id == old_self.lists[i2].list_id);
+            };
 
-        // --- loose-internal disjointness ---
-        assert forall|l1: LooseId, l2: LooseId|
-            self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
-                && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
-            if l1 == new_loose && l2 != new_loose {
-                assert(old_self.loose.dom().contains(l2));
-                assert(self.loose[l2].slot_index != popped_idx);
-            } else if l2 == new_loose && l1 != new_loose {
-                assert(old_self.loose.dom().contains(l1));
-                assert(self.loose[l1].slot_index != popped_idx);
-            } else if l1 != new_loose && l2 != new_loose {
-                assert(old_self.loose.dom().contains(l1));
-                assert(old_self.loose.dom().contains(l2));
-            }
-        };
+            // --- loose-internal disjointness ---
+            assert forall|l1: LooseId, l2: LooseId|
+                self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+                    && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
+                if l1 == new_loose && l2 != new_loose {
+                    assert(old_self.loose.dom().contains(l2));
+                    assert(self.loose[l2].slot_index != popped_idx);
+                } else if l2 == new_loose && l1 != new_loose {
+                    assert(old_self.loose.dom().contains(l1));
+                    assert(self.loose[l1].slot_index != popped_idx);
+                } else if l1 != new_loose && l2 != new_loose {
+                    assert(old_self.loose.dom().contains(l1));
+                    assert(old_self.loose.dom().contains(l2));
+                }
+            };
 
-        // --- cursors: checked-out lists are untouched ---
-        // `id`'s (preserved, nonzero) `old_list_id` is separated from
-        // every cursor's list id by the old list/cursor uniqueness, so
-        // the axiom's other-lists frame preserves each cursor.
-        assert(self.cursors == old_self.cursors);
-        assert(self.lists.dom() =~= old_self.lists.dom());
-        assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
-            &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
-        } by {
-            assert(old_self.cursors.dom().contains(cid));
-            assert(old_self.cursors[cid].list_own.inv());
-            assert(old_self.cursors[cid].inv_region(old_regions));
-            assert(self.cursors[cid].list_own.relate_region(old_regions));
-            assert(old_self.lists.dom().contains(id));
-            assert(old_self.lists[id].list_id == old_list_id);
-            assert(self.cursors[cid].list_own.list_id != old_list_id);
-            assert(self.cursors[cid].list_own.relate_region(self.regions));
-        };
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
-                && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
-                && self.lists[id2].list_id != 0 implies false by {
-            assert(old_self.cursors.dom().contains(cid));
-            assert(old_self.lists.dom().contains(id2));
-            assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
-        };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
-                && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
-                && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
-            assert(old_self.cursors.dom().contains(cid1));
-            assert(old_self.cursors.dom().contains(cid2));
-        };
-        new_loose
+            // --- cursors: checked-out lists are untouched ---
+            // `id`'s (preserved, nonzero) `old_list_id` is separated from
+            // every cursor's list id by the old list/cursor uniqueness, so
+            // the axiom's other-lists frame preserves each cursor.
+            assert(self.cursors == old_self.cursors);
+            assert(self.lists.dom() =~= old_self.lists.dom());
+            assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
+                &&& self.cursors[cid].list_own.inv()
+                &&& self.cursors[cid].inv_region(self.regions)
+            } by {
+                assert(old_self.cursors.dom().contains(cid));
+                assert(old_self.cursors[cid].list_own.inv());
+                assert(old_self.cursors[cid].inv_region(old_regions));
+                assert(self.cursors[cid].list_own.relate_region(old_regions));
+                assert(old_self.lists.dom().contains(id));
+                assert(old_self.lists[id].list_id == old_list_id);
+                assert(self.cursors[cid].list_own.list_id != old_list_id);
+                assert(self.cursors[cid].list_own.relate_region(self.regions));
+            };
+            assert forall|id2: ListId, cid: CursorId|
+                self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+                    && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
+                    && self.lists[id2].list_id != 0 implies false by {
+                assert(old_self.cursors.dom().contains(cid));
+                assert(old_self.lists.dom().contains(id2));
+                assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
+            };
+            assert forall|cid1: CursorId, cid2: CursorId|
+                self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+                    && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
+                    && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
+                assert(old_self.cursors.dom().contains(cid1));
+                assert(old_self.cursors.dom().contains(cid2));
+            };
+            Option::Some(new_loose)
+        }
     }
 
     /// `LinkedList::push_back`: move the loose handle `lid` to the back
@@ -1508,124 +1527,132 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// `LinkedList::pop_back`: pop the back link of list `id` back into
     /// the loose pool. Same global effect as [`Self::step_pop_front`] —
     /// only which link is removed differs.
-    pub proof fn step_pop_back(tracked &mut self, id: ListId) -> (res: LooseId)
+    pub proof fn step_pop_back(tracked &mut self, id: ListId) -> (res: Option<LooseId>)
         requires
             old(self).inv(),
             old(self).lists.dom().contains(id),
-            old(self).lists[id].list.len() > 0,
         ensures
             final(self).inv(),
+            old(self).lists[id].list.len() == 0 ==> res is None && *final(self) == *old(self),
+            old(self).lists[id].list.len() > 0 ==> res is Some,
     {
-        let ghost old_self = *self;
-        let ghost old_regions = self.regions;
-        let ghost popped_idx = self.lists[id].slot_index_at(self.lists[id].list.len() - 1);
-        let ghost old_list_id = self.lists[id].list_id;
-        assert(self.lists[id].inv());
-        assert(self.lists[id].relate_region(self.regions));
+        if self.lists[id].list.len() == 0 {
+            // Exec `LinkedList::pop_back` returns `None` on an empty list;
+            // the store is unchanged.
+            Option::None
+        } else {
+            let ghost old_self = *self;
+            let ghost old_regions = self.regions;
+            let ghost popped_idx = self.lists[id].slot_index_at(self.lists[id].list.len() - 1);
+            let ghost old_list_id = self.lists[id].list_id;
+            assert(self.lists[id].inv());
+            assert(self.lists[id].relate_region(self.regions));
 
-        let tracked mut owner = self.lists.tracked_remove(id);
-        let tracked frame_own = pop_back_embedded(&mut self.regions, &mut owner);
-        self.lists.tracked_insert(id, owner);
-        let ghost new_loose = fresh_loose_id(self.loose);
-        axiom_fresh_loose_id_not_in_dom(self.loose);
-        self.loose.tracked_insert(new_loose, frame_own);
+            let tracked mut owner = self.lists.tracked_remove(id);
+            let tracked frame_own = pop_back_embedded(&mut self.regions, &mut owner);
+            self.lists.tracked_insert(id, owner);
+            let ghost new_loose = fresh_loose_id(self.loose);
+            axiom_fresh_loose_id_not_in_dom(self.loose);
+            self.loose.tracked_insert(new_loose, frame_own);
 
-        assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
-        assert(self.loose =~= old_self.loose.insert(new_loose, frame_own));
-        assert(self.lists[id].list_id == old_list_id);
-        assert(frame_own.slot_index == popped_idx);
+            assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
+            assert(self.loose =~= old_self.loose.insert(new_loose, frame_own));
+            assert(self.lists[id].list_id == old_list_id);
+            assert(frame_own.slot_index == popped_idx);
 
-        assert forall|i: ListId| #[trigger] self.lists.dom().contains(i) implies {
-            &&& self.lists[i].inv()
-            &&& self.lists[i].relate_region(self.regions)
-        } by {
-            if i != id {
-                assert(old_self.lists.dom().contains(i));
-                assert(old_self.lists[i] == self.lists[i]);
-                assert(old_self.lists[i].inv());
-                assert(old_self.lists[i].relate_region(old_regions));
-                if self.lists[i].list.len() > 0 {
-                    assert(self.lists[i].list_id != old_list_id);
+            assert forall|i: ListId| #[trigger] self.lists.dom().contains(i) implies {
+                &&& self.lists[i].inv()
+                &&& self.lists[i].relate_region(self.regions)
+            } by {
+                if i != id {
+                    assert(old_self.lists.dom().contains(i));
+                    assert(old_self.lists[i] == self.lists[i]);
+                    assert(old_self.lists[i].inv());
+                    assert(old_self.lists[i].relate_region(old_regions));
+                    if self.lists[i].list.len() > 0 {
+                        assert(self.lists[i].list_id != old_list_id);
+                    }
                 }
-            }
-        };
+            };
 
-        assert forall|lid2: LooseId| #[trigger] self.loose.dom().contains(lid2) implies {
-            &&& self.loose[lid2].inv()
-            &&& self.loose[lid2].global_inv(self.regions)
-            &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
-                == 0
-        } by {
-            if lid2 != new_loose {
-                assert(old_self.loose.dom().contains(lid2));
-                assert(old_self.loose[lid2] == self.loose[lid2]);
-                assert(old_self.loose[lid2].global_inv(old_regions));
-                assert(old_self.loose[lid2].frame_link_inv(old_regions));
-                assert(old_regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
-                    == 0);
-            }
-        };
+            assert forall|lid2: LooseId| #[trigger] self.loose.dom().contains(lid2) implies {
+                &&& self.loose[lid2].inv()
+                &&& self.loose[lid2].global_inv(self.regions)
+                &&& self.loose[lid2].frame_link_inv(self.regions)
+                &&& self.regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
+                    == 0
+            } by {
+                if lid2 != new_loose {
+                    assert(old_self.loose.dom().contains(lid2));
+                    assert(old_self.loose[lid2] == self.loose[lid2]);
+                    assert(old_self.loose[lid2].global_inv(old_regions));
+                    assert(old_self.loose[lid2].frame_link_inv(old_regions));
+                    assert(old_regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
+                        == 0);
+                }
+            };
 
-        assert forall|i1: ListId, i2: ListId|
-            self.lists.dom().contains(i1) && self.lists.dom().contains(i2) && self.lists[i1].list_id
-                == self.lists[i2].list_id && self.lists[i1].list_id != 0 implies i1 == i2 by {
-            assert(old_self.lists.dom().contains(i1));
-            assert(old_self.lists.dom().contains(i2));
-            assert(self.lists[i1].list_id == old_self.lists[i1].list_id);
-            assert(self.lists[i2].list_id == old_self.lists[i2].list_id);
-        };
+            assert forall|i1: ListId, i2: ListId|
+                self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+                    && self.lists[i1].list_id == self.lists[i2].list_id && self.lists[i1].list_id
+                    != 0 implies i1 == i2 by {
+                assert(old_self.lists.dom().contains(i1));
+                assert(old_self.lists.dom().contains(i2));
+                assert(self.lists[i1].list_id == old_self.lists[i1].list_id);
+                assert(self.lists[i2].list_id == old_self.lists[i2].list_id);
+            };
 
-        assert forall|l1: LooseId, l2: LooseId|
-            self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
-                && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
-            if l1 == new_loose && l2 != new_loose {
-                assert(old_self.loose.dom().contains(l2));
-                assert(self.loose[l2].slot_index != popped_idx);
-            } else if l2 == new_loose && l1 != new_loose {
-                assert(old_self.loose.dom().contains(l1));
-                assert(self.loose[l1].slot_index != popped_idx);
-            } else if l1 != new_loose && l2 != new_loose {
-                assert(old_self.loose.dom().contains(l1));
-                assert(old_self.loose.dom().contains(l2));
-            }
-        };
+            assert forall|l1: LooseId, l2: LooseId|
+                self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+                    && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
+                if l1 == new_loose && l2 != new_loose {
+                    assert(old_self.loose.dom().contains(l2));
+                    assert(self.loose[l2].slot_index != popped_idx);
+                } else if l2 == new_loose && l1 != new_loose {
+                    assert(old_self.loose.dom().contains(l1));
+                    assert(self.loose[l1].slot_index != popped_idx);
+                } else if l1 != new_loose && l2 != new_loose {
+                    assert(old_self.loose.dom().contains(l1));
+                    assert(old_self.loose.dom().contains(l2));
+                }
+            };
 
-        // --- cursors: checked-out lists are untouched ---
-        // `id`'s (preserved, nonzero) `old_list_id` is separated from
-        // every cursor's list id by the old list/cursor uniqueness, so
-        // the axiom's other-lists frame preserves each cursor.
-        assert(self.cursors == old_self.cursors);
-        assert(self.lists.dom() =~= old_self.lists.dom());
-        assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
-            &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
-        } by {
-            assert(old_self.cursors.dom().contains(cid));
-            assert(old_self.cursors[cid].list_own.inv());
-            assert(old_self.cursors[cid].inv_region(old_regions));
-            assert(self.cursors[cid].list_own.relate_region(old_regions));
-            assert(old_self.lists.dom().contains(id));
-            assert(old_self.lists[id].list_id == old_list_id);
-            assert(self.cursors[cid].list_own.list_id != old_list_id);
-            assert(self.cursors[cid].list_own.relate_region(self.regions));
-        };
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
-                && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
-                && self.lists[id2].list_id != 0 implies false by {
-            assert(old_self.cursors.dom().contains(cid));
-            assert(old_self.lists.dom().contains(id2));
-            assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
-        };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
-                && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
-                && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
-            assert(old_self.cursors.dom().contains(cid1));
-            assert(old_self.cursors.dom().contains(cid2));
-        };
-        new_loose
+            // --- cursors: checked-out lists are untouched ---
+            // `id`'s (preserved, nonzero) `old_list_id` is separated from
+            // every cursor's list id by the old list/cursor uniqueness, so
+            // the axiom's other-lists frame preserves each cursor.
+            assert(self.cursors == old_self.cursors);
+            assert(self.lists.dom() =~= old_self.lists.dom());
+            assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
+                &&& self.cursors[cid].list_own.inv()
+                &&& self.cursors[cid].inv_region(self.regions)
+            } by {
+                assert(old_self.cursors.dom().contains(cid));
+                assert(old_self.cursors[cid].list_own.inv());
+                assert(old_self.cursors[cid].inv_region(old_regions));
+                assert(self.cursors[cid].list_own.relate_region(old_regions));
+                assert(old_self.lists.dom().contains(id));
+                assert(old_self.lists[id].list_id == old_list_id);
+                assert(self.cursors[cid].list_own.list_id != old_list_id);
+                assert(self.cursors[cid].list_own.relate_region(self.regions));
+            };
+            assert forall|id2: ListId, cid: CursorId|
+                self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+                    && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
+                    && self.lists[id2].list_id != 0 implies false by {
+                assert(old_self.cursors.dom().contains(cid));
+                assert(old_self.lists.dom().contains(id2));
+                assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
+            };
+            assert forall|cid1: CursorId, cid2: CursorId|
+                self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+                    && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
+                    && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
+                assert(old_self.cursors.dom().contains(cid1));
+                assert(old_self.cursors.dom().contains(cid2));
+            };
+            Option::Some(new_loose)
+        }
     }
 
     /// Cursor `insert_before` at an arbitrary position `n`: move the
@@ -1787,124 +1814,134 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// at index `n` (`0 <= n < len`) of list `id` back into the loose
     /// pool. The general form of [`Self::step_pop_front`] /
     /// [`Self::step_pop_back`]; same global effect.
-    pub proof fn step_take_at(tracked &mut self, id: ListId, n: int) -> (res: LooseId)
+    pub proof fn step_take_at(tracked &mut self, id: ListId, n: int) -> (res: Option<LooseId>)
         requires
             old(self).inv(),
             old(self).lists.dom().contains(id),
-            0 <= n < old(self).lists[id].list.len(),
         ensures
             final(self).inv(),
+            !(0 <= n < old(self).lists[id].list.len()) ==> res is None && *final(self) == *old(
+                self,
+            ),
+            0 <= n < old(self).lists[id].list.len() ==> res is Some,
     {
-        let ghost old_self = *self;
-        let ghost old_regions = self.regions;
-        let ghost popped_idx = self.lists[id].slot_index_at(n);
-        let ghost old_list_id = self.lists[id].list_id;
-        assert(self.lists[id].inv());
-        assert(self.lists[id].relate_region(self.regions));
+        if !(0 <= n < self.lists[id].list.len()) {
+            // Exec take-at-position returns `None` when `n` is out of
+            // range; the store is unchanged.
+            Option::None
+        } else {
+            let ghost old_self = *self;
+            let ghost old_regions = self.regions;
+            let ghost popped_idx = self.lists[id].slot_index_at(n);
+            let ghost old_list_id = self.lists[id].list_id;
+            assert(self.lists[id].inv());
+            assert(self.lists[id].relate_region(self.regions));
 
-        let tracked mut owner = self.lists.tracked_remove(id);
-        let tracked frame_own = take_at_embedded(&mut self.regions, &mut owner, n);
-        self.lists.tracked_insert(id, owner);
-        let ghost new_loose = fresh_loose_id(self.loose);
-        axiom_fresh_loose_id_not_in_dom(self.loose);
-        self.loose.tracked_insert(new_loose, frame_own);
+            let tracked mut owner = self.lists.tracked_remove(id);
+            let tracked frame_own = take_at_embedded(&mut self.regions, &mut owner, n);
+            self.lists.tracked_insert(id, owner);
+            let ghost new_loose = fresh_loose_id(self.loose);
+            axiom_fresh_loose_id_not_in_dom(self.loose);
+            self.loose.tracked_insert(new_loose, frame_own);
 
-        assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
-        assert(self.loose =~= old_self.loose.insert(new_loose, frame_own));
-        assert(self.lists[id].list_id == old_list_id);
-        assert(frame_own.slot_index == popped_idx);
+            assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
+            assert(self.loose =~= old_self.loose.insert(new_loose, frame_own));
+            assert(self.lists[id].list_id == old_list_id);
+            assert(frame_own.slot_index == popped_idx);
 
-        assert forall|i: ListId| #[trigger] self.lists.dom().contains(i) implies {
-            &&& self.lists[i].inv()
-            &&& self.lists[i].relate_region(self.regions)
-        } by {
-            if i != id {
-                assert(old_self.lists.dom().contains(i));
-                assert(old_self.lists[i] == self.lists[i]);
-                assert(old_self.lists[i].inv());
-                assert(old_self.lists[i].relate_region(old_regions));
-                if self.lists[i].list.len() > 0 {
-                    assert(self.lists[i].list_id != old_list_id);
+            assert forall|i: ListId| #[trigger] self.lists.dom().contains(i) implies {
+                &&& self.lists[i].inv()
+                &&& self.lists[i].relate_region(self.regions)
+            } by {
+                if i != id {
+                    assert(old_self.lists.dom().contains(i));
+                    assert(old_self.lists[i] == self.lists[i]);
+                    assert(old_self.lists[i].inv());
+                    assert(old_self.lists[i].relate_region(old_regions));
+                    if self.lists[i].list.len() > 0 {
+                        assert(self.lists[i].list_id != old_list_id);
+                    }
                 }
-            }
-        };
+            };
 
-        assert forall|lid2: LooseId| #[trigger] self.loose.dom().contains(lid2) implies {
-            &&& self.loose[lid2].inv()
-            &&& self.loose[lid2].global_inv(self.regions)
-            &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
-                == 0
-        } by {
-            if lid2 != new_loose {
-                assert(old_self.loose.dom().contains(lid2));
-                assert(old_self.loose[lid2] == self.loose[lid2]);
-                assert(old_self.loose[lid2].global_inv(old_regions));
-                assert(old_self.loose[lid2].frame_link_inv(old_regions));
-                assert(old_regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
-                    == 0);
-            }
-        };
+            assert forall|lid2: LooseId| #[trigger] self.loose.dom().contains(lid2) implies {
+                &&& self.loose[lid2].inv()
+                &&& self.loose[lid2].global_inv(self.regions)
+                &&& self.loose[lid2].frame_link_inv(self.regions)
+                &&& self.regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
+                    == 0
+            } by {
+                if lid2 != new_loose {
+                    assert(old_self.loose.dom().contains(lid2));
+                    assert(old_self.loose[lid2] == self.loose[lid2]);
+                    assert(old_self.loose[lid2].global_inv(old_regions));
+                    assert(old_self.loose[lid2].frame_link_inv(old_regions));
+                    assert(old_regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
+                        == 0);
+                }
+            };
 
-        assert forall|i1: ListId, i2: ListId|
-            self.lists.dom().contains(i1) && self.lists.dom().contains(i2) && self.lists[i1].list_id
-                == self.lists[i2].list_id && self.lists[i1].list_id != 0 implies i1 == i2 by {
-            assert(old_self.lists.dom().contains(i1));
-            assert(old_self.lists.dom().contains(i2));
-            assert(self.lists[i1].list_id == old_self.lists[i1].list_id);
-            assert(self.lists[i2].list_id == old_self.lists[i2].list_id);
-        };
+            assert forall|i1: ListId, i2: ListId|
+                self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+                    && self.lists[i1].list_id == self.lists[i2].list_id && self.lists[i1].list_id
+                    != 0 implies i1 == i2 by {
+                assert(old_self.lists.dom().contains(i1));
+                assert(old_self.lists.dom().contains(i2));
+                assert(self.lists[i1].list_id == old_self.lists[i1].list_id);
+                assert(self.lists[i2].list_id == old_self.lists[i2].list_id);
+            };
 
-        assert forall|l1: LooseId, l2: LooseId|
-            self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
-                && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
-            if l1 == new_loose && l2 != new_loose {
-                assert(old_self.loose.dom().contains(l2));
-                assert(self.loose[l2].slot_index != popped_idx);
-            } else if l2 == new_loose && l1 != new_loose {
-                assert(old_self.loose.dom().contains(l1));
-                assert(self.loose[l1].slot_index != popped_idx);
-            } else if l1 != new_loose && l2 != new_loose {
-                assert(old_self.loose.dom().contains(l1));
-                assert(old_self.loose.dom().contains(l2));
-            }
-        };
+            assert forall|l1: LooseId, l2: LooseId|
+                self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+                    && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
+                if l1 == new_loose && l2 != new_loose {
+                    assert(old_self.loose.dom().contains(l2));
+                    assert(self.loose[l2].slot_index != popped_idx);
+                } else if l2 == new_loose && l1 != new_loose {
+                    assert(old_self.loose.dom().contains(l1));
+                    assert(self.loose[l1].slot_index != popped_idx);
+                } else if l1 != new_loose && l2 != new_loose {
+                    assert(old_self.loose.dom().contains(l1));
+                    assert(old_self.loose.dom().contains(l2));
+                }
+            };
 
-        // --- cursors: checked-out lists are untouched ---
-        // `id`'s (preserved, nonzero) `old_list_id` is separated from
-        // every cursor's list id by the old list/cursor uniqueness, so
-        // the axiom's other-lists frame preserves each cursor.
-        assert(self.cursors == old_self.cursors);
-        assert(self.lists.dom() =~= old_self.lists.dom());
-        assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
-            &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
-        } by {
-            assert(old_self.cursors.dom().contains(cid));
-            assert(old_self.cursors[cid].list_own.inv());
-            assert(old_self.cursors[cid].inv_region(old_regions));
-            assert(self.cursors[cid].list_own.relate_region(old_regions));
-            assert(old_self.lists.dom().contains(id));
-            assert(old_self.lists[id].list_id == old_list_id);
-            assert(self.cursors[cid].list_own.list_id != old_list_id);
-            assert(self.cursors[cid].list_own.relate_region(self.regions));
-        };
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
-                && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
-                && self.lists[id2].list_id != 0 implies false by {
-            assert(old_self.cursors.dom().contains(cid));
-            assert(old_self.lists.dom().contains(id2));
-            assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
-        };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
-                && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
-                && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
-            assert(old_self.cursors.dom().contains(cid1));
-            assert(old_self.cursors.dom().contains(cid2));
-        };
-        new_loose
+            // --- cursors: checked-out lists are untouched ---
+            // `id`'s (preserved, nonzero) `old_list_id` is separated from
+            // every cursor's list id by the old list/cursor uniqueness, so
+            // the axiom's other-lists frame preserves each cursor.
+            assert(self.cursors == old_self.cursors);
+            assert(self.lists.dom() =~= old_self.lists.dom());
+            assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
+                &&& self.cursors[cid].list_own.inv()
+                &&& self.cursors[cid].inv_region(self.regions)
+            } by {
+                assert(old_self.cursors.dom().contains(cid));
+                assert(old_self.cursors[cid].list_own.inv());
+                assert(old_self.cursors[cid].inv_region(old_regions));
+                assert(self.cursors[cid].list_own.relate_region(old_regions));
+                assert(old_self.lists.dom().contains(id));
+                assert(old_self.lists[id].list_id == old_list_id);
+                assert(self.cursors[cid].list_own.list_id != old_list_id);
+                assert(self.cursors[cid].list_own.relate_region(self.regions));
+            };
+            assert forall|id2: ListId, cid: CursorId|
+                self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+                    && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
+                    && self.lists[id2].list_id != 0 implies false by {
+                assert(old_self.cursors.dom().contains(cid));
+                assert(old_self.lists.dom().contains(id2));
+                assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
+            };
+            assert forall|cid1: CursorId, cid2: CursorId|
+                self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+                    && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
+                    && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
+                assert(old_self.cursors.dom().contains(cid1));
+                assert(old_self.cursors.dom().contains(cid2));
+            };
+            Option::Some(new_loose)
+        }
     }
 
     // -------------------------------------------------------------------
@@ -2244,29 +2281,53 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         Self::lemma_checkout_inv(old_self, *self, id, bidx);
     }
 
-    /// `LinkedList::cursor_mut_at`: check list `id` out into a cursor at
-    /// an explicit in-range `index` (`0 <= index <= len`).
-    pub proof fn step_cursor_mut_at(tracked &mut self, id: ListId, index: int)
+    /// `LinkedList::cursor_mut_at`: search list `id` for `frame` and, if
+    /// it is one of the list's links, check the list out into a cursor
+    /// positioned at that link; otherwise (the frame is absent — or not a
+    /// safe managed slot, which can never be a link) leave the store
+    /// unchanged. Mirrors exec `cursor_mut_at(frame) -> Option<CursorMut>`
+    /// (the `Some`/`None` outcome is returned as `res`).
+    pub proof fn step_cursor_mut_at(tracked &mut self, id: ListId, frame: Paddr) -> (res: bool)
         requires
             old(self).inv(),
             old(self).lists.dom().contains(id),
-            0 <= index <= old(self).lists[id].list.len(),
         ensures
             final(self).inv(),
-            !final(self).lists.dom().contains(id),
-            final(self).cursors.dom().contains(id),
-            final(self).cursors[id] == CursorOwner::cursor_mut_at_owner(old(self).lists[id], index),
+            // `res` is exactly list membership of `frame`.
+            res == (exists|i: int|
+                0 <= i < old(self).lists[id].list.len() && old(self).lists[id].slot_index_at(i)
+                    == frame_to_index(frame)),
+            // On a hit: the list is checked out into a cursor positioned
+            // at the matching link.
+            res ==> !final(self).lists.dom().contains(id) && final(self).cursors.dom().contains(id)
+                && exists|i: int|
+                0 <= i < old(self).lists[id].list.len() && old(self).lists[id].slot_index_at(i)
+                    == frame_to_index(frame) && final(self).cursors[id]
+                    == CursorOwner::cursor_mut_at_owner(old(self).lists[id], i),
+            // On a miss: no checkout, the store is unchanged.
+            !res ==> *final(self) == *old(self),
     {
-        let ghost old_self = *self;
-        let tracked owner = self.lists.tracked_remove(id);
-        let tracked cur = CursorOwner::tracked_cursor_mut_at_owner(owner, index);
-        self.cursors.tracked_insert(id, cur);
-        assert(self.lists =~= old_self.lists.remove(id));
-        assert(self.cursors =~= old_self.cursors.insert(
-            id,
-            CursorOwner::cursor_mut_at_owner(old_self.lists[id], index),
-        ));
-        Self::lemma_checkout_inv(old_self, *self, id, index);
+        if exists|i: int|
+            0 <= i < self.lists[id].list.len() && self.lists[id].slot_index_at(i) == frame_to_index(
+                frame,
+            ) {
+            let ghost index = choose|i: int|
+                0 <= i < self.lists[id].list.len() && self.lists[id].slot_index_at(i)
+                    == frame_to_index(frame);
+            let ghost old_self = *self;
+            let tracked owner = self.lists.tracked_remove(id);
+            let tracked cur = CursorOwner::tracked_cursor_mut_at_owner(owner, index);
+            self.cursors.tracked_insert(id, cur);
+            assert(self.lists =~= old_self.lists.remove(id));
+            assert(self.cursors =~= old_self.cursors.insert(
+                id,
+                CursorOwner::cursor_mut_at_owner(old_self.lists[id], index),
+            ));
+            Self::lemma_checkout_inv(old_self, *self, id, index);
+            true
+        } else {
+            false
+        }
     }
 
     /// `CursorMut::move_next`: advance cursor `id` one step toward the
@@ -2536,140 +2597,150 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// same index (now on the following link). The general
     /// [`Self::step_take_at`] on a cursored list. Returns the fresh loose
     /// id.
-    pub proof fn step_cursor_take_current(tracked &mut self, id: CursorId) -> (res: LooseId)
+    pub proof fn step_cursor_take_current(tracked &mut self, id: CursorId) -> (res: Option<LooseId>)
         requires
             old(self).inv(),
             old(self).cursors.dom().contains(id),
-            0 <= old(self).cursors[id].index < old(self).cursors[id].length(),
         ensures
             final(self).inv(),
+            !(0 <= old(self).cursors[id].index < old(self).cursors[id].length()) ==> res is None
+                && *final(self) == *old(self),
+            0 <= old(self).cursors[id].index < old(self).cursors[id].length() ==> res is Some,
     {
-        let ghost old_self = *self;
-        let ghost old_regions = self.regions;
-        let ghost n = self.cursors[id].index;
-        let ghost old_list_id = self.cursors[id].list_own.list_id;
-        let ghost popped_idx = self.cursors[id].list_own.slot_index_at(n);
-        assert(self.cursors[id].list_own.inv());
-        assert(self.cursors[id].list_own.relate_region(self.regions));
-        assert(0 <= n < self.cursors[id].list_own.list.len());
-        // A non-empty list carries a nonzero id (`LinkedListOwner::inv`).
-        assert(old_list_id != 0);
+        if !(0 <= self.cursors[id].index < self.cursors[id].length()) {
+            // Exec `CursorMut::take_current` returns `None` when the
+            // cursor is not on an element; the store is unchanged.
+            Option::None
+        } else {
+            let ghost old_self = *self;
+            let ghost old_regions = self.regions;
+            let ghost n = self.cursors[id].index;
+            let ghost old_list_id = self.cursors[id].list_own.list_id;
+            let ghost popped_idx = self.cursors[id].list_own.slot_index_at(n);
+            assert(self.cursors[id].list_own.inv());
+            assert(self.cursors[id].list_own.relate_region(self.regions));
+            assert(0 <= n < self.cursors[id].list_own.list.len());
+            // A non-empty list carries a nonzero id (`LinkedListOwner::inv`).
+            assert(old_list_id != 0);
 
-        let tracked cur = self.cursors.tracked_remove(id);
-        let tracked CursorOwner { list_own: mut owner, index: _ } = cur;
-        let tracked frame_own = take_at_embedded(&mut self.regions, &mut owner, n);
-        let tracked cur2 = CursorOwner::tracked_cursor_mut_at_owner(owner, n);
-        self.cursors.tracked_insert(id, cur2);
-        let ghost new_loose = fresh_loose_id(self.loose);
-        axiom_fresh_loose_id_not_in_dom(self.loose);
-        self.loose.tracked_insert(new_loose, frame_own);
+            let tracked cur = self.cursors.tracked_remove(id);
+            let tracked CursorOwner { list_own: mut owner, index: _ } = cur;
+            let tracked frame_own = take_at_embedded(&mut self.regions, &mut owner, n);
+            let tracked cur2 = CursorOwner::tracked_cursor_mut_at_owner(owner, n);
+            self.cursors.tracked_insert(id, cur2);
+            let ghost new_loose = fresh_loose_id(self.loose);
+            axiom_fresh_loose_id_not_in_dom(self.loose);
+            self.loose.tracked_insert(new_loose, frame_own);
 
-        assert(self.cursors =~= old_self.cursors.remove(id).insert(id, cur2));
-        assert(self.loose =~= old_self.loose.insert(new_loose, frame_own));
-        assert(self.cursors[id].list_own.list_id == old_list_id);
-        assert(self.cursors[id].list_own == owner);
-        assert(frame_own.slot_index == popped_idx);
+            assert(self.cursors =~= old_self.cursors.remove(id).insert(id, cur2));
+            assert(self.loose =~= old_self.loose.insert(new_loose, frame_own));
+            assert(self.cursors[id].list_own.list_id == old_list_id);
+            assert(self.cursors[id].list_own == owner);
+            assert(frame_own.slot_index == popped_idx);
 
-        // --- per-list: every list preserved (operating is a cursor) ---
-        assert forall|i: ListId| #[trigger] self.lists.dom().contains(i) implies {
-            &&& self.lists[i].inv()
-            &&& self.lists[i].relate_region(self.regions)
-        } by {
-            assert(old_self.lists.dom().contains(i));
-            assert(old_self.lists[i] == self.lists[i]);
-            assert(old_self.lists[i].relate_region(old_regions));
-            assert(old_self.cursors.dom().contains(id));
-            assert(self.lists[i].list_id != old_list_id);
-            assert(self.lists[i].relate_region(self.regions));
-        };
+            // --- per-list: every list preserved (operating is a cursor) ---
+            assert forall|i: ListId| #[trigger] self.lists.dom().contains(i) implies {
+                &&& self.lists[i].inv()
+                &&& self.lists[i].relate_region(self.regions)
+            } by {
+                assert(old_self.lists.dom().contains(i));
+                assert(old_self.lists[i] == self.lists[i]);
+                assert(old_self.lists[i].relate_region(old_regions));
+                assert(old_self.cursors.dom().contains(id));
+                assert(self.lists[i].list_id != old_list_id);
+                assert(self.lists[i].relate_region(self.regions));
+            };
 
-        // --- per-loose: new entry from the axiom; others preserved;
-        // the popped slot is disjoint from every loose slot ---
-        assert forall|lid2: LooseId| #[trigger] self.loose.dom().contains(lid2) implies {
-            &&& self.loose[lid2].inv()
-            &&& self.loose[lid2].global_inv(self.regions)
-            &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
-                == 0
-        } by {
-            if lid2 != new_loose {
-                assert(old_self.loose.dom().contains(lid2));
-                assert(old_self.loose[lid2] == self.loose[lid2]);
-                assert(old_self.loose[lid2].global_inv(old_regions));
-                assert(old_self.loose[lid2].frame_link_inv(old_regions));
-                assert(old_regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
-                    == 0);
-            }
-        };
+            // --- per-loose: new entry from the axiom; others preserved;
+            // the popped slot is disjoint from every loose slot ---
+            assert forall|lid2: LooseId| #[trigger] self.loose.dom().contains(lid2) implies {
+                &&& self.loose[lid2].inv()
+                &&& self.loose[lid2].global_inv(self.regions)
+                &&& self.loose[lid2].frame_link_inv(self.regions)
+                &&& self.regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
+                    == 0
+            } by {
+                if lid2 != new_loose {
+                    assert(old_self.loose.dom().contains(lid2));
+                    assert(old_self.loose[lid2] == self.loose[lid2]);
+                    assert(old_self.loose[lid2].global_inv(old_regions));
+                    assert(old_self.loose[lid2].frame_link_inv(old_regions));
+                    assert(old_regions.slot_owners[self.loose[lid2].slot_index].inner_perms.in_list.value()
+                        == 0);
+                }
+            };
 
-        // --- disjointness ---
-        assert(self.lists.dom() =~= old_self.lists.dom());
-        assert(self.cursors.dom() =~= old_self.cursors.dom());
-        assert(self.lists.dom().disjoint(self.cursors.dom()));
+            // --- disjointness ---
+            assert(self.lists.dom() =~= old_self.lists.dom());
+            assert(self.cursors.dom() =~= old_self.cursors.dom());
+            assert(self.lists.dom().disjoint(self.cursors.dom()));
 
-        // --- per-cursor: operating cursor rebuilt; others preserved ---
-        assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
-            &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
-        } by {
-            if cid == id {
-                assert(self.cursors[id].list_own == owner);
-                assert(self.cursors[id].index == n);
-                assert(owner.list.len() == old_self.cursors[id].list_own.list.len() - 1);
-            } else {
-                assert(old_self.cursors.dom().contains(cid));
-                assert(old_self.cursors[cid] == self.cursors[cid]);
-                assert(old_self.cursors[cid].list_own.inv());
-                assert(old_self.cursors[cid].inv_region(old_regions));
-                assert(self.cursors[cid].list_own.relate_region(old_regions));
-                assert(self.cursors[cid].list_own.list_id != old_list_id);
-                assert(self.cursors[cid].list_own.relate_region(self.regions));
-            }
-        };
+            // --- per-cursor: operating cursor rebuilt; others preserved ---
+            assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
+                &&& self.cursors[cid].list_own.inv()
+                &&& self.cursors[cid].inv_region(self.regions)
+            } by {
+                if cid == id {
+                    assert(self.cursors[id].list_own == owner);
+                    assert(self.cursors[id].index == n);
+                    assert(owner.list.len() == old_self.cursors[id].list_own.list.len() - 1);
+                } else {
+                    assert(old_self.cursors.dom().contains(cid));
+                    assert(old_self.cursors[cid] == self.cursors[cid]);
+                    assert(old_self.cursors[cid].list_own.inv());
+                    assert(old_self.cursors[cid].inv_region(old_regions));
+                    assert(self.cursors[cid].list_own.relate_region(old_regions));
+                    assert(self.cursors[cid].list_own.list_id != old_list_id);
+                    assert(self.cursors[cid].list_own.relate_region(self.regions));
+                }
+            };
 
-        // --- cross list/cursor uniqueness ---
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
-                && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
-                && self.lists[id2].list_id != 0 implies false by {
-            assert(old_self.lists.dom().contains(id2));
-            assert(old_self.lists[id2] == self.lists[id2]);
-            if cid == id {
-                assert(self.cursors[id].list_own.list_id == old_list_id);
-                assert(self.lists[id2].list_id != old_list_id);
-            } else {
-                assert(old_self.cursors.dom().contains(cid));
-                assert(old_self.cursors[cid] == self.cursors[cid]);
-            }
-        };
+            // --- cross list/cursor uniqueness ---
+            assert forall|id2: ListId, cid: CursorId|
+                self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+                    && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
+                    && self.lists[id2].list_id != 0 implies false by {
+                assert(old_self.lists.dom().contains(id2));
+                assert(old_self.lists[id2] == self.lists[id2]);
+                if cid == id {
+                    assert(self.cursors[id].list_own.list_id == old_list_id);
+                    assert(self.lists[id2].list_id != old_list_id);
+                } else {
+                    assert(old_self.cursors.dom().contains(cid));
+                    assert(old_self.cursors[cid] == self.cursors[cid]);
+                }
+            };
 
-        // --- cursor×cursor uniqueness ---
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
-                && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
-                && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
-            assert(old_self.cursors.dom().contains(cid1));
-            assert(old_self.cursors.dom().contains(cid2));
-            assert(self.cursors[cid1].list_own.list_id == old_self.cursors[cid1].list_own.list_id);
-            assert(self.cursors[cid2].list_own.list_id == old_self.cursors[cid2].list_own.list_id);
-        };
+            // --- cursor×cursor uniqueness ---
+            assert forall|cid1: CursorId, cid2: CursorId|
+                self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+                    && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
+                    && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
+                assert(old_self.cursors.dom().contains(cid1));
+                assert(old_self.cursors.dom().contains(cid2));
+                assert(self.cursors[cid1].list_own.list_id
+                    == old_self.cursors[cid1].list_own.list_id);
+                assert(self.cursors[cid2].list_own.list_id
+                    == old_self.cursors[cid2].list_own.list_id);
+            };
 
-        // --- loose-internal slot disjointness ---
-        assert forall|l1: LooseId, l2: LooseId|
-            self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
-                && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
-            if l1 == new_loose && l2 != new_loose {
-                assert(old_self.loose.dom().contains(l2));
-                assert(self.loose[l2].slot_index != popped_idx);
-            } else if l2 == new_loose && l1 != new_loose {
-                assert(old_self.loose.dom().contains(l1));
-                assert(self.loose[l1].slot_index != popped_idx);
-            } else if l1 != new_loose && l2 != new_loose {
-                assert(old_self.loose.dom().contains(l1));
-                assert(old_self.loose.dom().contains(l2));
-            }
-        };
-        new_loose
+            // --- loose-internal slot disjointness ---
+            assert forall|l1: LooseId, l2: LooseId|
+                self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+                    && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
+                if l1 == new_loose && l2 != new_loose {
+                    assert(old_self.loose.dom().contains(l2));
+                    assert(self.loose[l2].slot_index != popped_idx);
+                } else if l2 == new_loose && l1 != new_loose {
+                    assert(old_self.loose.dom().contains(l1));
+                    assert(self.loose[l1].slot_index != popped_idx);
+                } else if l1 != new_loose && l2 != new_loose {
+                    assert(old_self.loose.dom().contains(l1));
+                    assert(old_self.loose.dom().contains(l2));
+                }
+            };
+            Option::Some(new_loose)
+        }
     }
 }
 
