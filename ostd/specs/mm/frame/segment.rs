@@ -187,8 +187,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 // precondition (`ref_count == 1 ==> paths_in_pt empty`)
                 // in the per-frame teardown loop.
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                &&& regions.slot_owners[idx].usage
-                    == crate::specs::mm::frame::meta_owners::PageUsage::Frame
+                &&& regions.slot_owners[idx].usage is Frame
             }
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
@@ -220,8 +219,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                &&& regions.slot_owners[idx].usage
-                    == crate::specs::mm::frame::meta_owners::PageUsage::Frame
+                &&& regions.slot_owners[idx].usage is Frame
             }),
     {
         // Trigger the forall at index `i`.

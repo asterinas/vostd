@@ -749,8 +749,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             0 < j < nr_pages implies {
                             let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                             &&& regions.slots.contains_key(sub_idx)
-                            &&& regions.slot_owners[sub_idx].usage
-                                != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                            &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
                                 &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     != REF_COUNT_UNUSED
                                 &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
@@ -2998,10 +2997,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
                         0 < j < page_size(level) / PAGE_SIZE implies {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                        regions.slot_owners[sub_idx].usage
-                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> C::tracked(
-                            item,
-                        )
+                        regions.slot_owners[sub_idx].usage !is MMIO ==> C::tracked(item)
                     } by {
                         let sub_pa = (pa + j * PAGE_SIZE) as usize;
                         crate::specs::mm::frame::meta_owners::axiom_mmio_paddr_huge_page_closed(

@@ -1195,8 +1195,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ));
         if C::tracked(item) {
             assert(!crate::specs::mm::frame::meta_owners::is_mmio_paddr(pa));
-            assert(regions.slot_owners[idx].usage
-                != crate::specs::mm::frame::meta_owners::PageUsage::MMIO);
+            assert(regions.slot_owners[idx].usage !is MMIO);
             assert(regions.slot_owners[idx].inner_perms.ref_count.value() > 0);
             assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
         }

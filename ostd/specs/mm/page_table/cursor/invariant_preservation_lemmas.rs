@@ -208,9 +208,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                     let sub_idx = #[trigger] frame_to_index(
                                         (pa + j * PAGE_SIZE) as usize,
                                     );
-                                    sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                                        || (regions1.slots.contains_key(sub_idx)
+                                    sub_idx != changed_idx
+                                        || regions1.slot_owners[sub_idx].usage is MMIO || (
+                                    regions1.slots.contains_key(sub_idx)
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                         != REF_COUNT_UNUSED
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -245,9 +245,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     forall|j: usize|
                         0 < j < nr_pages ==> {
                             let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
-                            sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                == crate::specs::mm::frame::meta_owners::PageUsage::MMIO || (
-                            regions1.slots.contains_key(sub_idx)
+                            sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage is MMIO
+                                || (regions1.slots.contains_key(sub_idx)
                                 && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
                                 && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0)
@@ -506,9 +505,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                     let sub_idx = #[trigger] frame_to_index(
                                         (pa + j * PAGE_SIZE) as usize,
                                     );
-                                    sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                                        || (regions1.slots.contains_key(sub_idx)
+                                    sub_idx != changed_idx
+                                        || regions1.slot_owners[sub_idx].usage is MMIO || (
+                                    regions1.slots.contains_key(sub_idx)
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                         != REF_COUNT_UNUSED
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -559,8 +558,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                 let sub_idx = #[trigger] frame_to_index(
                                     (pa + j * PAGE_SIZE) as usize,
                                 );
-                                sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                    == crate::specs::mm::frame::meta_owners::PageUsage::MMIO || (
+                                sub_idx != changed_idx
+                                    || regions1.slot_owners[sub_idx].usage is MMIO || (
                                 regions1.slots.contains_key(sub_idx)
                                     && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     != REF_COUNT_UNUSED

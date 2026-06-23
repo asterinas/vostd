@@ -590,8 +590,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             old(regions).slots.contains_key(self.index()),
             self.inv(),
             old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-            old(regions).slot_owners[self.index()].usage
-                != crate::specs::mm::frame::meta_owners::PageUsage::PageTable,
+            old(regions).slot_owners[self.index()].usage !is PageTable,
             old(regions).frame_obligations.count(self.index()) > 0,
         ensures
             final(regions).inv(),

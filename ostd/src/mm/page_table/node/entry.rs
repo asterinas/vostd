@@ -758,8 +758,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         (old(owner).value.frame().mapped_pa
                             + j * PAGE_SIZE) as usize);
                     &&& old(regions).slots.contains_key(sub_idx)
-                    &&& old(regions).slot_owners[sub_idx].usage
-                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==>
+                    &&& old(regions).slot_owners[sub_idx].usage !is MMIO ==>
                         old(regions).slot_owners[sub_idx].inner_perms.ref_count.value()
                             != REF_COUNT_UNUSED
                 },
@@ -946,8 +945,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     0 < j < page_size(level) / PAGE_SIZE ==> {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
-                        &&& regions.slot_owners[sub_idx].usage
-                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                        &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
@@ -955,8 +953,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     },
                 // j = 0: the huge frame's own slot.
                 regions.slots.contains_key(frame_to_index(pa)),
-                regions.slot_owners[frame_to_index(pa)].usage
-                    != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                regions.slot_owners[frame_to_index(pa)].usage !is MMIO ==> {
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0
@@ -1035,8 +1032,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         0 < j_prime < nr_subpages implies {
                         let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
-                        &&& regions.slot_owners[sub_idx].usage
-                            != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                        &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
                             &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
@@ -1133,8 +1129,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                     assert(target_idx == frame_to_index((pa + big_j * PAGE_SIZE) as usize));
                     assert(regions.slots.contains_key(target_idx));
-                    assert(regions.slot_owners[target_idx].usage
-                        != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
+                    assert(regions.slot_owners[target_idx].usage !is MMIO ==> {
                         &&& regions.slot_owners[target_idx].inner_perms.ref_count.value()
                             != REF_COUNT_UNUSED
                         &&& regions.slot_owners[target_idx].inner_perms.ref_count.value() > 0
