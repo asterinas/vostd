@@ -756,12 +756,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 //    touch the child slot) and by `write_pte` (regions immutable),
                 //    so `meta_perm_of` — a deterministic `new_spec(slots[idx],
                 //    inner_perms)` — is structurally unchanged.
-                assert(regions.slots[parent_owner.slot_index] == regions_pre.slots[parent_owner.slot_index]);
+                assert(regions.slots[parent_owner.slot_index]
+                    == regions_pre.slots[parent_owner.slot_index]);
                 assert(regions.slot_owners[parent_owner.slot_index].inner_perms
                     == regions_pre.slot_owners[parent_owner.slot_index].inner_perms);
                 assert(parent_owner.meta_perm_of(*regions) == pre_meta_perm);
-                assert(parent_owner.meta_own.nr_children.id()
-                    == parent_owner.meta_perm_of(*regions).value().metadata.nr_children.id());
+                assert(parent_owner.meta_own.nr_children.id() == parent_owner.meta_perm_of(
+                    *regions,
+                ).value().metadata.nr_children.id());
             }
 
             let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
@@ -827,9 +829,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // `tree_predicate_map` conjuncts of the big `is_absent` ensures
                 // block.
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-
                 // (a) Region predicates preserved off the new node's slot: the
                 // install only touches `new_idx`. (Mirrors `replace`.)
+
                 assert(Self::metaregion_sound_neq_preserved(
                     old_owner_val,
                     owner.value,
@@ -861,8 +863,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         owner.children[i].unwrap().value,
                         owner.value.path.push_tail(i as usize),
                     )
-                    &&& f_ms(owner.children[i].unwrap().value, owner.value.path.push_tail(i as usize))
-                    &&& f_pt(owner.children[i].unwrap().value, owner.value.path.push_tail(i as usize))
+                    &&& f_ms(
+                        owner.children[i].unwrap().value,
+                        owner.value.path.push_tail(i as usize),
+                    )
+                    &&& f_pt(
+                        owner.children[i].unwrap().value,
+                        owner.value.path.push_tail(i as usize),
+                    )
                 } by {
                     assert(owner.children[i].unwrap().value.is_absent());
                 };
@@ -1187,7 +1195,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     (pa + j * PAGE_SIZE) as usize)]
                     0 < j < page_size(level) / PAGE_SIZE ==> {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                        &&& regions.slots.contains_key(sub_idx)
+                        &&& regions.slots.contains_key(
+                            sub_idx,
+                        )
                         // Sub-frames are data frames, never page-table nodes —
                         // discriminates them from the new node's slot
                         // (`usage == PageTable`) so the per-child path install
@@ -1222,14 +1232,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // `metaregion_sound` conjuncts not derivable from
                 // `metaregion_sound_node` (self_addr/wf derive). Carried so
                 // `into_pte`'s `Child::invariants` holds after the loop.
-                regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))]
-                    .inner_perms.ref_count.value()
+                regions.slot_owners[frame_to_index(
+                    meta_to_frame(new_owner_meta_addr),
+                )].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
-                0 < regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))]
-                    .inner_perms.ref_count.value()
+                0 < regions.slot_owners[frame_to_index(
+                    meta_to_frame(new_owner_meta_addr),
+                )].inner_perms.ref_count.value()
                     <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
-                regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))]
-                    .paths_in_pt == set![new_owner_path],
+                regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))].paths_in_pt
+                    == set![new_owner_path],
         {
             proof {
                 C::lemma_page_table_config_constant_requirements();

@@ -181,7 +181,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED
                     &&& C::tracked(item)
-                        ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
+                        ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                        > 0
                     // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
                     // into the mapped huge frame's `frame_sub_pages_valid`.
                     &&& C::tracked(item)

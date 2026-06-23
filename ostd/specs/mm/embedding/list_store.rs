@@ -59,9 +59,9 @@ use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
 
 use crate::mm::Paddr;
-use crate::specs::arch::has_safe_slot;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::frame::{AnyFrameMeta, Link};
+use crate::specs::arch::has_safe_slot;
 use crate::specs::mm::frame::linked_list::linked_list_owners::{
     CursorOwner, LinkOwner, LinkedListOwner, MetaSlotSmall,
 };

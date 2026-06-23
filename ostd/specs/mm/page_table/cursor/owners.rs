@@ -680,14 +680,14 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             self.level <= i < NR_LEVELS ==> {
                 (#[trigger] self.continuations[i]).all_but_index_some()
             }
-        // Root-continuation top-level index stays within the config range, and
-        //  (b) its top-level children OUTSIDE the config range are `borrowed`
-        //      OR `absent` — they share another config's sub-tree (user PT's
-        //      kernel half = borrowed) or are unmapped (kernel PT's user half =
-        //      absent), and either way contribute NOTHING to `view_rec`.
-        //      Preserved across cursor ops; makes both the user
-        //      (`lemma_view_in_vaddr_range_user`) and kernel
-        //      (`lemma_view_in_vaddr_range_kernel`) view bounds provable.
+            // Root-continuation top-level index stays within the config range, and
+            //  (b) its top-level children OUTSIDE the config range are `borrowed`
+            //      OR `absent` — they share another config's sub-tree (user PT's
+            //      kernel half = borrowed) or are unmapped (kernel PT's user half =
+            //      absent), and either way contribute NOTHING to `view_rec`.
+            //      Preserved across cursor ops; makes both the user
+            //      (`lemma_view_in_vaddr_range_user`) and kernel
+            //      (`lemma_view_in_vaddr_range_kernel`) view bounds provable.
         &&& self.level <= NR_LEVELS - 1 ==> {
             &&& C::TOP_LEVEL_INDEX_RANGE_spec().start <= self.continuations[NR_LEVELS - 1].idx
             &&& self.continuations[NR_LEVELS - 1].idx < C::TOP_LEVEL_INDEX_RANGE_spec().end
@@ -695,10 +695,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& forall|j: int|
             #![trigger self.continuations[NR_LEVELS - 1].children[j]]
             0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                < C::TOP_LEVEL_INDEX_RANGE_spec().end)
-                ==> self.continuations[NR_LEVELS - 1].children[j] is Some
-                ==> (self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_borrowed()
-                || self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_absent())
+                < C::TOP_LEVEL_INDEX_RANGE_spec().end) ==> self.continuations[NR_LEVELS
+                - 1].children[j] is Some ==> (self.continuations[NR_LEVELS
+                - 1].children[j].unwrap().value.is_borrowed() || self.continuations[NR_LEVELS
+                - 1].children[j].unwrap().value.is_absent())
         &&& self.prefix.inv()
         &&& self.prefix.offset == 0
         &&& forall|i: int|
@@ -2926,15 +2926,17 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
     let end = crate::mm::vm_space::UserPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end as int;
     assert(end == 256);
     assert(end * 0x80_0000_0000int == 0x8000_0000_0000int) by (nonlinear_arith)
-        requires end == 256;
+        requires
+            end == 256,
+    ;
     assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
         &&& 0 <= m.va_range.start
         &&& m.va_range.end <= 0x8000_0000_0000int
     } by {
         owner.lemma_view_mappings_contains();
         let i = choose|i: int|
-            owner.level - 1 <= i < NR_LEVELS && (#[trigger] owner.continuations[i]).view_mappings()
-                .contains(m);
+            owner.level - 1 <= i < NR_LEVELS && (
+            #[trigger] owner.continuations[i]).view_mappings().contains(m);
         owner.inv_continuation(i);
         let cont = owner.continuations[i];
         cont.lemma_view_mappings_contains();
@@ -3006,8 +3008,9 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
             owner.view_mappings().contains(m) ==> {
                 &&& vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().0
                     <= m.va_range.start
-                &&& m.va_range.end
-                    <= vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
+                &&& m.va_range.end <= vaddr_range_bounds_spec::<
+                    crate::mm::kspace::KernelPtConfig,
+                >().1 + 1
             },
 {
     crate::mm::page_table::lemma_vaddr_range_bounds_spec_kernel();
@@ -3021,18 +3024,24 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
     //       == (0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF).
     assert(start * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int == 0xFFFF_8000_0000_0000int)
         by (nonlinear_arith)
-        requires start == 256, lb == 0xffff;
+        requires
+            start == 256,
+            lb == 0xffff,
+    ;
     assert(end * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int)
         by (nonlinear_arith)
-        requires end == 512, lb == 0xffff;
+        requires
+            end == 512,
+            lb == 0xffff,
+    ;
     assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
         &&& vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
         &&& m.va_range.end <= vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
     } by {
         owner.lemma_view_mappings_contains();
         let i = choose|i: int|
-            owner.level - 1 <= i < NR_LEVELS && (#[trigger] owner.continuations[i]).view_mappings()
-                .contains(m);
+            owner.level - 1 <= i < NR_LEVELS && (
+            #[trigger] owner.continuations[i]).view_mappings().contains(m);
         owner.inv_continuation(i);
         let cont = owner.continuations[i];
         cont.lemma_view_mappings_contains();
@@ -3087,7 +3096,9 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         // m.start ≥ index(0)·2^39 + lb·2^48 ≥ start·2^39 + lb·2^48 = bound.0.
         assert((p.index(0) as int) * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int >= start
             * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int) by (nonlinear_arith)
-            requires start <= p.index(0) as int;
+            requires
+                start <= p.index(0) as int,
+        ;
     }
 }
 

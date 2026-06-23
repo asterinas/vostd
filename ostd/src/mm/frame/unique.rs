@@ -281,7 +281,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
     /// Gets the size of this page in bytes.
     pub const fn size(&self) -> usize
-        returns 4096usize
+        returns
+            4096usize,
     {
         PAGE_SIZE
     }
@@ -294,7 +295,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     /// Currently, the level is always 1, which means the frame is a regular
     /// page frame.
     pub const fn level(&self) -> PagingLevel
-        returns 1u8
+        returns
+            1u8,
     {
         1
     }

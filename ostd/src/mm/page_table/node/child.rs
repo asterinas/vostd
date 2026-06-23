@@ -106,9 +106,7 @@ impl<C: PageTableConfig> Child<C> {
                 assume(C::E::new_page_req(paddr, level, prop));
                 C::E::new_page(paddr, level, prop)
             },
-            Child::None => {
-                C::E::new_absent()
-            },
+            Child::None => { C::E::new_absent() },
         }
     }
 

@@ -482,7 +482,8 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& owner.value.is_node()
     &&& owner.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty())
     &&& owner.value.parent_level == (level + 1) as PagingLevel
-    &&& owner.value.node().level == level
+    &&& owner.value.node().level
+        == level
     // The fresh subtree's ghost-tree depth. Lets `alloc_if_none` discharge
     // `final(owner).inv()`'s `child.level == self.level + 1`: the grafted
     // children sit at `new_node.level + 1`, which must match the cursor entry's
@@ -642,7 +643,8 @@ pub proof fn fresh_node_tree_predicate_map<C: PageTableConfig>(
         node.tree_predicate_map(path, f),
 {
     assert forall|i: int|
-        0 <= i < node.children.len() && #[trigger] node.children[i] is Some implies node.children[i]->0.tree_predicate_map(
+        0 <= i < node.children.len()
+            && #[trigger] node.children[i] is Some implies node.children[i]->0.tree_predicate_map(
         path.push_tail(i as usize),
         f,
     ) by {
@@ -651,7 +653,8 @@ pub proof fn fresh_node_tree_predicate_map<C: PageTableConfig>(
         node.child_some_properties(i as usize);
         let child = node.children[i]->0;
         assert(child.children.len() == NR_ENTRIES);
-        assert(forall|j: int| 0 <= j < child.children.len() ==> #[trigger] child.children[j] is None);
+        assert(forall|j: int|
+            0 <= j < child.children.len() ==> #[trigger] child.children[j] is None);
     };
 }
 
@@ -661,7 +664,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Per-edge constraint between a node-parent and its child at index `i`.
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
         &&& parent.children[i] is Some
-        &&& parent.children[i]->0.value.path.len() == parent.value.node().tree_level + 1
+        &&& parent.children[i]->0.value.path.len() == parent.value.node().tree_level
+            + 1
         // The child either matches its PTE as an owned node/frame/absent
         // entry, OR — only at the top level (`level == NR_LEVELS`, e.g. a user
         // PT's shared kernel-half slots) — is a `borrowed` (translation-only)
@@ -1191,12 +1195,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// the config's `LEADING_BITS` high-half base. With `path[0] < t`, the range
     /// end is `<= t * 2^39 + LEADING_BITS * 2^48` — the per-config VA bound that
     /// discharges the user/kernel isolation theorems.
-    pub proof fn view_rec_top_index_va_bound(
-        self,
-        path: TreePath<NR_ENTRIES>,
-        m: Mapping,
-        t: int,
-    )
+    pub proof fn view_rec_top_index_va_bound(self, path: TreePath<NR_ENTRIES>, m: Mapping, t: int)
         requires
             self.pt_inv(),
             path.inv(),
@@ -1223,7 +1222,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         // high half.
         assert((path.index(0) as int + 1) * 0x80_0000_0000int <= t * 0x80_0000_0000int)
             by (nonlinear_arith)
-            requires (path.index(0) as int) < t;
+            requires
+                (path.index(0) as int) < t,
+        ;
     }
 
     /// `pt_inv` (plus the root's recorded path) lifts to a full
@@ -1768,10 +1769,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert forall|m: Mapping| self.view_rec(path).contains(m) implies false by {
                 let i = choose|i: int|
                     #![trigger self.0.children[i]]
-                    0 <= i < self.0.children.len() && self.0.children[i] is Some
-                        && PageTableOwner(self.0.children[i]->0).view_rec(
-                        path.push_tail(i as usize),
-                    ).contains(m);
+                    0 <= i < self.0.children.len() && self.0.children[i] is Some && PageTableOwner(
+                        self.0.children[i]->0,
+                    ).view_rec(path.push_tail(i as usize)).contains(m);
                 self.pt_inv_unroll(i);
                 // PTE `i` is absent — else `count_present(cp) >= 1`.
                 if cp[i].is_present() {
@@ -1787,9 +1787,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 // with an absent PTE forces the child `is_absent`.
                 assert(self.0.children[i]->0.value.is_absent());
                 // An absent entry is neither frame nor node ⟹ empty `view_rec`.
-                assert(PageTableOwner(self.0.children[i]->0).view_rec(
-                    path.push_tail(i as usize),
-                ) =~= set![]);
+                assert(PageTableOwner(self.0.children[i]->0).view_rec(path.push_tail(i as usize))
+                    =~= set![]);
             };
             assert(self.view_rec(path) =~= set![]);
         }

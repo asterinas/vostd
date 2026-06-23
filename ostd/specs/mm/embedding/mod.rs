@@ -736,10 +736,11 @@ impl<'a, 'rcu> VmStore<'rcu> {
                     frame_to_index(paddr)]
             self.segments.dom().contains(sid) && self.segments[sid].range.start <= paddr
                 < self.segments[sid].range.end && paddr % PAGE_SIZE == 0
-                ==> self.regions.slot_owners[frame_to_index(paddr)].usage == PageUsage::Frame
-        // `unique_frames.dom()` is finite (built by finitely many
-        // `insert_unique`), needed wherever the embedding reasons
-        // about the unique-handle set as a whole.
+                ==> self.regions.slot_owners[frame_to_index(paddr)].usage
+                == PageUsage::Frame
+            // `unique_frames.dom()` is finite (built by finitely many
+            // `insert_unique`), needed wherever the embedding reasons
+            // about the unique-handle set as a whole.
         &&& self.unique_frames.dom().finite()
         // Every registered `UniqueEntry`'s paddr is in-bound.
         &&& forall|uid: UniqueId| #[trigger]
@@ -966,9 +967,7 @@ pub enum Op {
     /// forgotten references and user-held Frame handles: at the
     /// popped paddr `raw_count -= 1`, `cover_count -= 1`, `H += 1`,
     /// `rc` unchanged.
-    SegmentNext {
-        sid: SegmentId,
-    },
+    SegmentNext { sid: SegmentId },
     /// `Segment::clone`: produce a second handle covering the *same*
     /// range as `sid`. Inserts a fresh `SegmentEntry` mirroring `sid`'s
     /// range and bumps every covered frame's `rc` by 1 (Arc-style, via

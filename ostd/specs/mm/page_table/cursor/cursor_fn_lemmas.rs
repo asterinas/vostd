@@ -143,8 +143,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             !self.popped_too_high,
             forall|j: int|
-                0 <= j < NR_ENTRIES && j != owner0.continuations[owner0.level - 1].idx as int
-                    ==> (#[trigger] self.continuations[self.level - 1].children[j])
+                0 <= j < NR_ENTRIES && j != owner0.continuations[owner0.level - 1].idx as int ==> (
+                #[trigger] self.continuations[self.level - 1].children[j])
                     == owner0.continuations[owner0.level - 1].children[j],
             self.level == owner0.level,
             self.va == owner0.va,
@@ -188,16 +188,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // [start, end), and `in_locked_range` rules out the sentinel).
             owner0.in_locked_range_top_index_lt_top_end();
             assert(self.continuations[NR_LEVELS - 1].idx == self.va.index[NR_LEVELS - 1]);
-            assert(self.continuations[NR_LEVELS - 1].idx
-                == owner0.continuations[owner0.level - 1].idx);
-            assert(C::TOP_LEVEL_INDEX_RANGE_spec().start
-                <= owner0.continuations[owner0.level - 1].idx
-                < C::TOP_LEVEL_INDEX_RANGE_spec().end);
+            assert(self.continuations[NR_LEVELS - 1].idx == owner0.continuations[owner0.level
+                - 1].idx);
+            assert(C::TOP_LEVEL_INDEX_RANGE_spec().start <= owner0.continuations[owner0.level
+                - 1].idx < C::TOP_LEVEL_INDEX_RANGE_spec().end);
             assert(forall|j: int|
                 0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                    < C::TOP_LEVEL_INDEX_RANGE_spec().end)
-                    ==> (#[trigger] self.continuations[NR_LEVELS - 1].children[j]) is Some
-                    ==> (self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_borrowed()
+                    < C::TOP_LEVEL_INDEX_RANGE_spec().end) ==> (
+                #[trigger] self.continuations[NR_LEVELS - 1].children[j]) is Some ==> (
+                self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_borrowed()
                     || self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_absent()));
         }
     }
