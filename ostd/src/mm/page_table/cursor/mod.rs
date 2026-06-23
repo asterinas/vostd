@@ -2981,6 +2981,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             res is Err && res.unwrap_err() is StrayPageTable ==> C::item_into_raw(item).1 > 1,
             // For non-UNUSED indices other than the mapped frame, paths_in_pt is preserved.
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+                old(regions).slot_owners.contains_key(idx) &&
                 idx != frame_to_index(C::item_into_raw(item).0) &&
                 old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
@@ -2989,6 +2990,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // any slot already in use stays in use; replace_cur_entry replaces the
             // current entry without dropping refcounts of unrelated slots.)
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+                old(regions).slot_owners.contains_key(idx) &&
                 old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             // ref_count is preserved exactly at non-mapped, non-UNUSED indices.
@@ -2998,6 +3000,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // [mod.rs:3380]). Lets callers re-derive `item_slot_in_regions`
             // for unrelated paddrs.
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+                old(regions).slot_owners.contains_key(idx) &&
                 idx != frame_to_index(C::item_into_raw(item).0) &&
                 old(regions).slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==>
                 final(regions).slot_owners[idx].inner_perms.ref_count.value()
@@ -3006,6 +3009,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // already > 0). Together with `slots.contains_key` monotonicity,
             // gives `item_slot_in_regions(item, *final(regions))` post-map.
             (C::tracked(item)
+                && old(regions).slot_owners.contains_key(frame_to_index(C::item_into_raw(item).0))
                 && old(regions).slot_owners[
                     frame_to_index(C::item_into_raw(item).0)].inner_perms.ref_count.value() > 0)
                 ==>
@@ -3234,10 +3238,28 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
             let ghost pa_idx2 = frame_to_index(C::item_into_raw(item).0);
             assert forall|idx: usize|
-                idx != pa_idx2 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                old(regions).slot_owners.contains_key(idx) && idx != pa_idx2 && old(
+                    regions,
+                ).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED implies #[trigger] regions.slot_owners[idx].paths_in_pt
                 == old(regions).slot_owners[idx].paths_in_pt by {
                 assert(regions_after_new_child.slot_owners == regions_before_new_child.slot_owners);
+            };
+            assert(C::tracked(item) && old(regions).slot_owners.contains_key(pa_idx2) && old(
+                regions,
+            ).slot_owners[pa_idx2].inner_perms.ref_count.value() > 0 ==> {
+                &&& regions.slot_owners[pa_idx2].inner_perms.ref_count.value() > 0
+            }) by {
+                if C::tracked(item) && old(regions).slot_owners.contains_key(pa_idx2) && old(
+                    regions,
+                ).slot_owners[pa_idx2].inner_perms.ref_count.value() > 0 {
+                    assert(regions_before_new_child.slot_owners[pa_idx2].inner_perms.ref_count.value()
+                        > 0);
+                    assert(regions_after_new_child.slot_owners[pa_idx2].inner_perms.ref_count.value()
+                        > 0);
+                    assert(regions_after_replace.slot_owners[pa_idx2].inner_perms.ref_count.value()
+                        > 0);
+                }
             };
 
             assert(regions_before_new_child.slots == regions_after_new_child.slots);
@@ -3565,57 +3587,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(owner_final.metaregion_sound(regions_pre_remove));
                 assert(regions_pre_remove.inv());
                 assert(regions_pre_remove.slot_owners.contains_key(removed_idx));
-                // (a) no-node-at-`removed_idx`: discharged — a
-                // data-frame slot in the free pool can't host an active
-                // page-table node.
                 assert(regions_pre_remove.slots.contains_key(removed_idx));
-                owner_final.no_node_at_idx_from_slot_key(regions_pre_remove, removed_idx);
-                // (b) No frame entry in the post-replace cursor tree
-                // carries `removed_path`. `replace_cur_entry(Child::None)`
-                // deleted the slot's only mapping (`target`) and inserted
-                // an empty absent subtree; `move_forward` preserves the
-                // mapping set. So no live view mapping starts at
-                // `vaddr_of(removed_path)`, and by tree-path correctness +
-                // structural uniqueness (lifted over the cursor tree by
-                // `no_frame_with_path_from_no_view_mapping`) no frame entry
-                // can carry that path.
-                owner_before_replace.cur_subtree_eq_filtered_mappings_path();
                 let ghost obr_subtree = PageTableOwner(
                     owner_before_replace.cur_subtree(),
                 )@.mappings;
                 assert(owner_final@.mappings == owner_before_replace@.mappings - obr_subtree);
-                assert(obr_subtree == set![target]);
-                let ghost sv = crate::specs::mm::page_table::vaddr_of::<C>(removed_path) as int;
-                let ghost sz = page_size(owner_before_replace.level) as int;
-                assert(obr_subtree == owner_before_replace@.mappings.filter(
-                    |mm: Mapping| sv <= mm.va_range.start < sv + sz,
-                ));
-                assert(sz > 0) by {
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                    owner_before_replace.level);
-                };
-                assert forall|mm: Mapping| #[trigger]
-                    owner_final@.mappings.contains(mm) implies mm.va_range.start != sv by {
-                    if mm.va_range.start == sv {
-                        assert(owner_before_replace@.mappings.contains(mm));
-                        assert(owner_before_replace@.mappings.filter(
-                            |m2: Mapping| sv <= m2.va_range.start < sv + sz,
-                        ).contains(mm));
-                        assert(obr_subtree.contains(mm));
-                        assert(mm == target);
-                        assert(!owner_final@.mappings.contains(target));
-                    }
-                };
-                owner_final.no_frame_with_path_from_no_view_mapping(removed_path);
-                owner_final.path_removable_from_no_node_and_no_frame_path(
-                    removed_idx,
-                    removed_path,
-                );
-                owner_final.metaregion_preserved_under_path_remove(
+                owner_final.take_next_remove_path_preserves_metaregion(
+                    owner_before_replace,
                     regions_pre_remove,
                     *regions,
                     removed_idx,
                     removed_path,
+                    target,
                 );
                 // `regions.inv()` after the paths_in_pt edit:
                 // MetaSlotOwner::inv does not constrain paths_in_pt and

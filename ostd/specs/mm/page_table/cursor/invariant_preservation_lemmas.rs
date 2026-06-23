@@ -585,6 +585,79 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
         };
     }
+
+    /// Packages the `take_next` frame-unmap preservation proof after
+    /// `paths_in_pt` removes the unmapped frame path from one metadata slot.
+    pub proof fn take_next_remove_path_preserves_metaregion(
+        self,
+        owner_before_replace: Self,
+        regions0: MetaRegionOwners,
+        regions1: MetaRegionOwners,
+        removed_idx: usize,
+        removed_path: TreePath<NR_ENTRIES>,
+        target: Mapping,
+    )
+        requires
+            self.inv(),
+            owner_before_replace.inv(),
+            owner_before_replace.in_locked_range(),
+            self.metaregion_sound(regions0),
+            regions0.inv(),
+            regions0.slot_owners.contains_key(removed_idx),
+            regions0.slots.contains_key(removed_idx),
+            self@.mappings == owner_before_replace@.mappings - PageTableOwner(
+                owner_before_replace.cur_subtree(),
+            )@.mappings,
+            PageTableOwner(owner_before_replace.cur_subtree())@.mappings == set![target],
+            owner_before_replace.cur_subtree().value.path == removed_path,
+            regions1.slots == regions0.slots,
+            regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
+            forall|i: usize|
+                #![trigger regions1.slot_owners[i]]
+                i != removed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
+            regions1.slot_owners[removed_idx].inner_perms
+                == regions0.slot_owners[removed_idx].inner_perms,
+            regions1.slot_owners[removed_idx].self_addr
+                == regions0.slot_owners[removed_idx].self_addr,
+            regions1.slot_owners[removed_idx].usage == regions0.slot_owners[removed_idx].usage,
+            regions1.slot_owners[removed_idx].paths_in_pt
+                == regions0.slot_owners[removed_idx].paths_in_pt.remove(removed_path),
+        ensures
+            self.metaregion_sound(regions1),
+    {
+        self.no_node_at_idx_from_slot_key(regions0, removed_idx);
+
+        owner_before_replace.cur_subtree_eq_filtered_mappings_path();
+        let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
+        assert(obr_subtree == set![target]);
+
+        let ghost sv = vaddr_of::<C>(removed_path) as int;
+        let ghost sz = page_size(owner_before_replace.level) as int;
+        assert(obr_subtree == owner_before_replace@.mappings.filter(
+            |mm: Mapping| sv <= mm.va_range.start < sv + sz,
+        ));
+        assert(sz > 0) by {
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
+                owner_before_replace.level,
+            );
+        };
+        assert forall|mm: Mapping| #[trigger] self@.mappings.contains(mm) implies mm.va_range.start
+            != sv by {
+            if mm.va_range.start == sv {
+                assert(owner_before_replace@.mappings.contains(mm));
+                assert(owner_before_replace@.mappings.filter(
+                    |m2: Mapping| sv <= m2.va_range.start < sv + sz,
+                ).contains(mm));
+                assert(obr_subtree.contains(mm));
+                assert(mm == target);
+                assert(!self@.mappings.contains(target));
+            }
+        };
+
+        self.no_frame_with_path_from_no_view_mapping(removed_path);
+        self.path_removable_from_no_node_and_no_frame_path(removed_idx, removed_path);
+        self.metaregion_preserved_under_path_remove(regions0, regions1, removed_idx, removed_path);
+    }
 }
 
 } // verus!
