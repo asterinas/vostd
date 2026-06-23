@@ -14,8 +14,8 @@ use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
 use vstd_extra::ownership::*;
 use vstd_extra::trans_macros::*;
 
+use crate::mm::frame::REF_COUNT_UNIQUE;
 use crate::mm::frame::UniqueFrame;
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
@@ -849,7 +849,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let idx = frame_to_index(meta_to_frame(paddr));
                 &&& final(regions).slots.dom() == old(regions).slots.dom()
                 &&& final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                    == REF_COUNT_UNIQUE
                 &&& final(regions).slot_owners[idx].inner_perms.in_list.value() == 0
                 &&& final(regions).slot_owners[idx].inner_perms.storage.is_init()
                 &&& final(regions).slot_owners[idx].inner_perms.vtable_ptr.is_init()
@@ -1065,8 +1065,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& fp.addr() == oldl.list[p].paddr
                 &&& fp.points_to.addr() == oldl.list[p].paddr
                 &&& fp.points_to.pptr() == regions0.slots[i].pptr()
-                &&& fp.inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& fp.wf(&fp.inner_perms)
                 &&& fp.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
@@ -1223,8 +1222,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         == owner0.list_own.list[nn].paddr);
                     assert(fpn_local.value().metadata.next.unwrap().ptr
                         == regions0.slots[owner0.list_own.slot_index_at(nn)].pptr());
-                    assert(fpn_local.inner_perms.ref_count.value()
-                        == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
+                    assert(fpn_local.inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
                 }
             } else {
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
@@ -1250,8 +1248,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         == owner0.list_own.list[nn].paddr);
                     assert(fpn_local.value().metadata.next.unwrap().ptr
                         == regions0.slots[owner0.list_own.slot_index_at(nn)].pptr());
-                    assert(fpn_local.inner_perms.ref_count.value()
-                        == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
+                    assert(fpn_local.inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
                 }
             }
         } else {
@@ -1281,8 +1278,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     assert(fpn_local.value().metadata.prev.unwrap().ptr
                         == regions0.slots[owner0.list_own.slot_index_at(nn - 1)].pptr());
                     assert(fpn_local.value().metadata.next is None);
-                    assert(fpn_local.inner_perms.ref_count.value()
-                        == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
+                    assert(fpn_local.inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
                 }
             } else {
                 // EMPTY list: just point both ends at the inserted frame.
@@ -1298,8 +1294,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     );
                     assert(fpn_local.value().metadata.prev is None);
                     assert(fpn_local.value().metadata.next is None);
-                    assert(fpn_local.inner_perms.ref_count.value()
-                        == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
+                    assert(fpn_local.inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
                 }
             }
         }
@@ -1357,8 +1352,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& fp.addr() == oldl.list[p].paddr
                 &&& fp.points_to.addr() == oldl.list[p].paddr
                 &&& fp.points_to.pptr() == regions0.slots[i].pptr()
-                &&& fp.inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& fp.wf(&fp.inner_perms)
                 &&& fp.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
@@ -1401,8 +1395,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(regions.slot_owners.contains_key(ins));
             assert(fpn.addr() == flink.paddr);
             assert(fpn.points_to.addr() == flink.paddr);
-            assert(fpn.inner_perms.ref_count.value()
-                == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
+            assert(fpn.inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
             assert(fpn.wf(&fpn.inner_perms));
             assert(fpn.addr() % META_SLOT_SIZE == 0);
             assert(FRAME_METADATA_RANGE.start <= fpn.addr() < FRAME_METADATA_RANGE.start
@@ -1499,8 +1492,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
             #![trigger s.0.list[i]]
             0 <= i < s.0.list.len() ==> {
                 let idx = frame_to_index(meta_to_frame(s.0.list[i].paddr));
-                s.1.slot_owners[idx].inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                s.1.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
             }
         &&& forall|i: int|
             #![trigger s.0.list[i]]
@@ -1599,7 +1591,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 &&& original_regions.frame_obligations.count(idx) == 0
                 &&& original_regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& original_regions.slot_owners[idx].inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                    == REF_COUNT_UNIQUE
             }) by {};
             list_own = LinkedListOwner::<M>::tracked_take(&mut s.0);
         }
@@ -1688,7 +1680,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         &&& original_regions.frame_obligations.count(idx) == 0
                         &&& original_regions.slot_owners[idx].paths_in_pt.is_empty()
                         &&& original_regions.slot_owners[idx].inner_perms.ref_count.value()
-                            == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                            == REF_COUNT_UNIQUE
                     },
             ensures
                 k == n,

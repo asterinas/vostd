@@ -17,11 +17,11 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_size;
 use crate::mm::page_table::*;
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};

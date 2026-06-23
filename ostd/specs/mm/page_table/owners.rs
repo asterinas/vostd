@@ -19,6 +19,7 @@ use crate::mm::{
 };
 
 use crate::mm::frame::frame_to_index;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard};
 
 use crate::specs::arch::*;
@@ -1666,7 +1667,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                                 );
                                 sub_idx != changed_idx || (r1.slots.contains_key(sub_idx)
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                    != REF_COUNT_UNUSED
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0)
                             }
                     },
@@ -1718,7 +1719,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                                 );
                                 sub_idx != changed_idx || (r1.slots.contains_key(sub_idx)
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                    != REF_COUNT_UNUSED
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0)
                             }
                     },

@@ -13,7 +13,7 @@ use vstd_extra::ownership::*;
 
 use super::*;
 use crate::mm::frame::AnyFrameMeta;
-use crate::mm::frame::meta::MetaSlot;
+use crate::mm::frame::meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel};
 use crate::specs::arch::NR_ENTRIES;
@@ -92,12 +92,6 @@ pub axiom fn axiom_mmio_paddr_huge_page_closed(
     ensures
         is_mmio_paddr((pa + offset) as crate::mm::Paddr) == is_mmio_paddr(pa),
 ;
-
-pub const REF_COUNT_UNUSED: u64 = u64::MAX;
-
-pub const REF_COUNT_UNIQUE: u64 = u64::MAX - 1;
-
-pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 
 pub struct StoredPageTablePageMeta {
     pub nr_children: pcell_maybe_uninit::PCell<u16>,

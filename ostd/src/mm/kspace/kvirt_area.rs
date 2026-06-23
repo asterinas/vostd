@@ -28,14 +28,13 @@ use crate::mm::{
 use crate::arch::mm::PagingConsts;
 use crate::mm::PagingConstsTrait;
 use crate::mm::frame::DynFrame;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::kspace::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::PageTableGuard;
-use crate::specs::arch::{MAX_PADDR, NR_LEVELS, PAGE_SIZE as SPEC_PAGE_SIZE};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{
-    MetaSlotStorage, PageUsage, REF_COUNT_MAX, is_mmio_paddr,
-};
+use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, PageUsage, is_mmio_paddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};
 use crate::specs::mm::page_table::*;
@@ -296,7 +295,7 @@ impl KVirtAreaOwner {
     #[allow(private_interfaces)]
     pub closed spec fn cursor_view_at(self, addr: Vaddr) -> CursorView<KernelPtConfig> {
         CursorView {
-            cur_va: nat_align_down(addr as nat, SPEC_PAGE_SIZE as nat) as Vaddr,
+            cur_va: nat_align_down(addr as nat, PAGE_SIZE as nat) as Vaddr,
             mappings: self.pt_owner.view_rec(self.pt_owner.0.value.path),
             phantom: PhantomData,
         }
@@ -1088,8 +1087,7 @@ impl KVirtArea {
             pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
                 let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
                 &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             }
     }
 
@@ -1211,8 +1209,7 @@ impl KVirtArea {
                     pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 implies {
                     let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
                     &&& regions.slots.contains_key(idx)
-                    &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 } by {
                     let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
                     assert(pre_cursor_regions.slots.contains_key(idx));
@@ -1266,7 +1263,7 @@ impl KVirtArea {
                             let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
                             &&& regions.slots.contains_key(idx)
                             &&& regions.slot_owners[idx].inner_perms.ref_count.value()
-                                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                != REF_COUNT_UNUSED
                         },
             {
                 let pos: Ghost<int> = Ghost(it.index() as int);
@@ -1329,7 +1326,7 @@ impl KVirtArea {
                     assert(pa_range.start <= pa < pa_range.end);
                     assert(regions.slots.contains_key(idx));
                     assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
+                        != REF_COUNT_UNUSED);
                     assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
                         item,
                         *regions,

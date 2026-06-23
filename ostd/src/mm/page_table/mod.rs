@@ -33,7 +33,9 @@ use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
 use crate::arch::mm::{PageTableEntry, PagingConsts};
-use crate::mm::frame::meta::mapping::frame_to_index;
+use crate::mm::frame::meta::{
+    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_index,
+};
 use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -439,13 +441,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             // `rc != UNUSED` is needed only for tracked frames (untracked clone is a no-op).
             Self::tracked(item) ==> regions.slot_owners[frame_to_index(
                 pa,
-            )].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+            )].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
             Self::tracked(item) ==> (regions.slot_owners[frame_to_index(
                 pa,
-            )].inner_perms.ref_count.value() < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
-                || may_panic()),
+            )].inner_perms.ref_count.value() < REF_COUNT_MAX || may_panic()),
         ensures
             item.clone_requires(regions),
     ;
@@ -1501,7 +1501,7 @@ impl PageTable<KernelPtConfig> {
                                 );
                                 sub_idx != new_idx || (regions.slots.contains_key(sub_idx)
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                    != REF_COUNT_UNUSED
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     > 0)
                             }
@@ -1838,13 +1838,13 @@ impl<C: PageTableConfig> PageTable<C> {
             // was already in use keeps its paths_in_pt.
             forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
                 old(regions).slot_owners.contains_key(idx)
                 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     && final(regions).slot_owners[idx].usage
@@ -1888,35 +1888,35 @@ impl<C: PageTableConfig> PageTable<C> {
             !Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Err,
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             // Non-saturation preservation.
             (forall |i: usize| #![trigger old(regions).slot_owners[i]]
                 old(regions).slot_owners.contains_key(i)
                 && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                    < REF_COUNT_MAX)
             ==>
             (forall |i: usize| #![trigger final(regions).slot_owners[i]]
                 final(regions).slot_owners.contains_key(i)
                 && final(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
+                    < REF_COUNT_MAX),
             // Saturated-slot bridge (relayed from `Cursor::new`):
             // a slot at `>= REF_COUNT_MAX` before iff after, with the same
             // value. Used by `KVirtArea::query` to bridge inner-cursor
             // saturation back to the caller's snapshot.
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                    >= REF_COUNT_MAX
                 ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
             forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                    >= REF_COUNT_MAX
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
     )]

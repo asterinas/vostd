@@ -13,6 +13,7 @@ use core::marker::PhantomData;
 
 use super::*;
 use crate::mm::Paddr;
+use crate::mm::frame::meta::REF_COUNT_UNIQUE;
 use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::MAX_NR_PAGES;

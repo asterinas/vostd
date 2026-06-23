@@ -21,7 +21,7 @@ use core::{fmt::Debug, /*mem::ManuallyDrop,*/ ops::Range};
 
 use super::meta::mapping::{frame_to_index, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaSlot};
-use crate::mm::frame::{Frame, untyped::AnyUFrameMeta};
+use crate::mm::frame::{Frame, meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
 
 verus! {
 

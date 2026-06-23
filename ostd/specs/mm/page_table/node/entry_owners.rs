@@ -9,7 +9,7 @@ use vstd_extra::ownership::*;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
@@ -860,8 +860,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 let idx = frame_to_index(self.meta_slot_paddr()->0);
                 &&& r1.slot_owners[idx].inner_perms.ref_count.id()
                     == r0.slot_owners[idx].inner_perms.ref_count.id()
-                &&& r1.slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                &&& r1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
                 // Needed to re-establish the node branch's SHARED range (`<= MAX`).

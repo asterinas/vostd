@@ -4,10 +4,10 @@ use vstd::prelude::*;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::Frame;
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::page_table::*;
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;

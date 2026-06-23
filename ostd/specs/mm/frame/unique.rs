@@ -4,7 +4,10 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use super::meta_owners::*;
-use crate::mm::frame::*;
+use crate::mm::frame::{
+    meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    *,
+};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::Paddr;

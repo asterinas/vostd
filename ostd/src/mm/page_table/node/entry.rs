@@ -9,11 +9,11 @@ use vstd_extra::ownership::*;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
-use crate::mm::frame::{Frame, FrameRef};
+use crate::mm::frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
 use crate::specs::task::InAtomicMode;
@@ -958,7 +958,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 regions.slot_owners[frame_to_index(pa)].usage
                     != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
-                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                        != REF_COUNT_UNUSED
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0
                 },
                 new_page.ptr.addr() == new_owner_meta_addr,
@@ -1136,7 +1136,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     assert(regions.slot_owners[target_idx].usage
                         != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
                         &&& regions.slot_owners[target_idx].inner_perms.ref_count.value()
-                            != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                            != REF_COUNT_UNUSED
                         &&& regions.slot_owners[target_idx].inner_perms.ref_count.value() > 0
                     });
                 }

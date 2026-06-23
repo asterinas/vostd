@@ -40,15 +40,14 @@ use vstd_extra::ownership::*;
 use vstd_extra::panic::*;
 use vstd_extra::{assert, assert_eq};
 
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
 use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
 use crate::specs::mm::frame::mapping::{
     META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
 };
-use crate::specs::mm::frame::meta_owners::{
-    MetaSlotOwner, REF_COUNT_MAX, REF_COUNT_UNUSED, is_mmio_paddr,
-};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, is_mmio_paddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
 
@@ -299,7 +298,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // paths_in_pt (new PT allocations come from UNUSED slots).
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             // For *in-use* slots, refcount value and usage are exactly
@@ -307,7 +306,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
                 old(regions).slot_owners.contains_key(idx)
                 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     && final(regions).slot_owners[idx].usage
@@ -320,12 +319,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // direction) and the `ensures !P` discharge (backward).
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                    >= REF_COUNT_MAX
                 ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
             forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                    >= REF_COUNT_MAX
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
             forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
@@ -335,16 +334,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             (forall |i: usize| #![trigger old(regions).slot_owners[i]]
                 old(regions).slot_owners.contains_key(i)
                 && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                    < REF_COUNT_MAX)
             ==>
             (forall |i: usize| #![trigger final(regions).slot_owners[i]]
                 final(regions).slot_owners.contains_key(i)
                 && final(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
+                    < REF_COUNT_MAX),
     )]
     pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> Result<
         (Self, Tracked<CursorOwner<'rcu, C>>),
@@ -2091,13 +2090,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // was already in use keeps its paths_in_pt.
             forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
                 old(regions).slot_owners.contains_key(idx)
                 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     && final(regions).slot_owners[idx].usage

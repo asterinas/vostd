@@ -47,15 +47,13 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::allocator::FrameAllocOptions;
-use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::meta::mapping::{META_SLOT_SIZE, frame_to_meta, meta_to_frame};
+use crate::mm::frame::meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::frame::{AnyFrameMeta, Frame, frame_to_index};
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr};
-use crate::specs::mm::frame::meta_owners::{
-    MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED,
-};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
 
@@ -1040,10 +1038,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
                 &&& so.inner_perms.ref_count.value() > 0
-                &&& so.inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                &&& so.inner_perms.ref_count.value()
-                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
                 &&& so.inner_perms.ref_count.value() == 1 ==> {
                     &&& so.inner_perms.storage.is_init()
                     &&& so.inner_perms.in_list.value() == 0

@@ -49,15 +49,14 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::UFrame;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{
-    PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-};
+use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::node::Guards;
