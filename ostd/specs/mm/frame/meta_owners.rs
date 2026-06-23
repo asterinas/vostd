@@ -31,12 +31,6 @@ pub ghost enum MetaSlotStatus {
     UNDER_CONSTRUCTION,
 }
 
-pub ghost enum PageState {
-    Unused,
-    Typed,
-    Untyped,
-}
-
 pub ghost enum PageUsage {
     // The zero variant is reserved for the unused type. Only an unused page
     // can be designated for one of the other purposes.
