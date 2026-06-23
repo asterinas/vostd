@@ -77,19 +77,11 @@ impl Inv for MetaRegionOwners {
         &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
-                    &&& self.slot_owners.contains_key(i)
                     &&& self.slot_owners[i].inv()
                     &&& self.slots[i].is_init()
                     &&& self.slots[i].addr() == meta_addr(i)
                     &&& self.slots[i].value().wf(self.slot_owners[i])
-                    &&& self.slot_owners.contains_key(i)
                     &&& self.slot_owners[i].self_addr == self.slots[i].addr()
-                }
-        }
-        &&& {
-            forall|i: usize| #[trigger]
-                self.slot_owners.contains_key(i) ==> {
-                    &&& self.slot_owners[i].inv()
                 }
         }
     }
