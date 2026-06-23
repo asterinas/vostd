@@ -1931,12 +1931,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ensures
             final(owner).inv(),
             final(self).inv(),
-            final(self).wf(*final(owner)),
             res.wf(final(owner).cur_entry_owner()),
             final(self).level == old(self).level,
             final(self).guard_level == old(self).guard_level,
             final(self).va == old(self).va,
             final(self).barrier_va == old(self).barrier_va,
+            *res.node == old(self).path[old(self).level as int - 1]->0,
+            final(self).path[old(self).level as int - 1] is Some,
+            final(self).path[old(self).level as int - 1]->0 == *final(res.node),
+            *final(res.node) == old(self).path[old(self).level as int - 1]->0
+                ==> final(self).wf(*final(owner)),
+            *final(res.node) == *res.node ==> final(self).wf(*final(owner)),
+            forall|i: int|
+                0 <= i < NR_LEVELS && i != old(self).level as int - 1 ==> #[trigger] final(self).path[i]
+                    == old(self).path[i],
             *final(owner) == *old(owner),
             final(owner).metaregion_sound(*regions),
             res.idx == final(owner).continuations[final(owner).level - 1].idx,

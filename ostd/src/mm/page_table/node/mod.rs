@@ -715,16 +715,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         ensures
             res.wf(*child_owner),
             res.idx == idx,
+            *res.node == *old(self),
+            *final(self) == *final(res.node),
             owner.relate_guard(*res.node),
-            *final(self) == *old(self),
     )]
     pub fn entry<'a>(&'a mut self, idx: usize) -> Entry<'a, 'rcu, C> {
         #[cfg(feature = "allow_panic")]
         assert!(idx < nr_subpage_per_huge::<C>());
-        // SAFETY: The index is within the bound. `*self` is unchanged because
-        // Entry::new_at's `*res.node == *old(guard)` ensures says the wrapped
-        // node equals the input guard's value, and the reborrow makes
-        // `*final(self) == *res.node`.
+        // SAFETY: The index is within the bound. `Entry::new_at` returns an
+        // entry whose node is the guard value we were handed.
         unsafe {
             #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(regions))]
             Entry::new_at(self, idx)
