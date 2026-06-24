@@ -1046,26 +1046,6 @@ impl<C: PageTableConfig> CursorView<C> {
     {
     }
 
-    // To speed up `take_next` verification.
-    pub proof fn difference_of_slot_has_empty_prefix(
-        before_mappings: Set<Mapping>,
-        after_mappings: Set<Mapping>,
-        start: Vaddr,
-        size: usize,
-        end: Vaddr,
-    )
-        requires
-            after_mappings == before_mappings - before_mappings.filter(
-                |m: Mapping| start <= m.va_range.start < (start + size) as Vaddr,
-            ),
-            end <= (start + size) as Vaddr,
-        ensures
-            after_mappings.filter(|m: Mapping| start <= m.va_range.start < end) == Set::<
-                Mapping,
-            >::empty(),
-    {
-    }
-
     /// `split_while_huge` produces a set disjoint from any set that is
     /// pairwise VA-disjoint from `self.mappings`.
     ///

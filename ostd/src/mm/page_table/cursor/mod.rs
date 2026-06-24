@@ -3684,14 +3684,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(obr_subtree == owner_before_replace@.mappings.filter(
                 |m: Mapping| frag_va <= m.va_range.start < (frag_va + ps) as Vaddr,
             ));
-            assert(self.0.va <= (frag_va + ps) as Vaddr);
-            CursorView::<C>::difference_of_slot_has_empty_prefix(
-                owner_before_replace@.mappings,
-                owner@.mappings,
-                frag_va,
-                ps,
-                self.0.va,
-            );
             assert(owner@.mappings.filter(|m: Mapping| frag_va <= m.va_range.start < self.0.va)
                 == Set::<Mapping>::empty());
         }
