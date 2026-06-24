@@ -1166,21 +1166,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for SegmentIterator<'_, M> {
     type Item = SegmentIteratorItem<M>;
 
+    /// Gets the next frame in the segment.
     fn next(&mut self) -> Option<Self::Item> {
         proof {
             use_type_invariant(&*self);
         }
-        let res = SegmentIterator::next_inner(
+        SegmentIterator::next_inner(
             self.segment,
             &mut self.range,
             Tracked(self.tracked_regions.borrow_mut()),
             Tracked(self.tracked_owner.borrow_mut()),
             Tracked(self.tracked_remaining.borrow_mut()),
-        );
-        proof {
-            assert(self.type_inv());
-        }
-        res
+        )
     }
 }
 
