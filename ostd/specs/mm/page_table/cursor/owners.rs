@@ -2927,7 +2927,7 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         requires
             end == 256,
     ;
-    assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
+    assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
         &&& 0 <= m.va_range.start
         &&& m.va_range.end <= 0x8000_0000_0000int
     } by {
@@ -2939,7 +2939,7 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         let cont = owner.continuations[i];
         cont.lemma_view_mappings_contains();
         let j = choose|j: int|
-            0 <= j < cont.children.len() && cont.children[j] is Some && PageTableOwner(
+            0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
             ).view_rec(cont.path().push_tail(j as usize)).contains(m);
         cont.pt_inv_children_unroll(j);
@@ -3032,7 +3032,7 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
             end == 512,
             lb == 0xffff,
     ;
-    assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
+    assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
         &&& vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
         &&& m.va_range.end <= vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
     } by {
@@ -3044,7 +3044,7 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         let cont = owner.continuations[i];
         cont.lemma_view_mappings_contains();
         let j = choose|j: int|
-            0 <= j < cont.children.len() && cont.children[j] is Some && PageTableOwner(
+            0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
             ).view_rec(cont.path().push_tail(j as usize)).contains(m);
         cont.pt_inv_children_unroll(j);

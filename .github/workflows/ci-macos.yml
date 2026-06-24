@@ -1,0 +1,113 @@
+name: Verify VOSTD (macOS)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  verify-macos:
+    runs-on: macos-14
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Get Rust toolchain version
+        id: rust-toolchain
+        shell: bash
+        run: |
+          RUST_VERSION=$(grep 'channel' rust-toolchain.toml | sed -E 's/.*= *"(.*)"/\1/')
+          if [ -z "$RUST_VERSION" ]; then
+            echo "Failed to extract Rust version from rust-toolchain.toml"
+            exit 1
+          fi
+          echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
+          echo "Rust version: $RUST_VERSION"
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+            ~/.rustup/tmp
+          key: ${{ runner.os }}-rust-toolchain-${{ env.RUST_VERSION }}
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Get Verus commit
+        id: verus
+        shell: bash
+        run: |
+          VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
+          echo "VERUS_COMMIT=$VERUS_COMMIT" >> "$GITHUB_ENV"
+          echo "Using Verus commit: $VERUS_COMMIT"
+          DV_COMMIT=$(git rev-parse HEAD:dv)
+          echo "DV_COMMIT=$DV_COMMIT" >> "$GITHUB_ENV"
+          echo "Using dv commit: $DV_COMMIT"
+
+      - name: Cache dv build artifacts
+        uses: actions/cache@v5
+        with:
+          path: dv/target
+          key: ${{ runner.os }}-dv-${{ env.DV_COMMIT }}
+
+      - name: Cache Verus
+        id: cache-verus
+        uses: actions/cache@v5
+        with:
+          path: tools/verus
+          key: ${{ runner.os }}-verus-${{ env.VERUS_COMMIT }}
+
+      - name: Bootstrap Verus (if needed)
+        shell: bash
+        run: |
+          if [ "${{ steps.cache-verus.outputs.cache-hit }}" = "true" ]; then
+            echo "Using cached Verus"
+          else
+            echo "Cache miss, bootstrapping Verus..."
+            rm -rf tools/verus
+            cargo dv bootstrap
+          fi
+
+      - name: Run verification
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! make 2>&1; then
+            echo "Verification failed"
+            echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          else
+            echo "Verification passed"
+          fi
+
+      - name: Publish summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "# macOS CI Summary"
+            if [[ "${VERIFY_FAILED:-0}" == "1" ]]; then
+              echo "- Verification: ❌ failed"
+            else
+              echo "- Verification: ✅ passed"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

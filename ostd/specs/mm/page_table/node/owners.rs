@@ -136,7 +136,7 @@ pub proof fn lemma_count_present_upto_zero_all_absent<E: PageTableEntryTrait>(s:
         count_present_upto(s, n) == 0,
         0 <= n,
     ensures
-        forall|k: int| 0 <= k < n ==> !s[k].is_present(),
+        forall|k: int| 0 <= k < n ==> !#[trigger] s[k].is_present(),
     decreases n,
 {
     if n > 0 {
