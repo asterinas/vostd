@@ -1122,6 +1122,26 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
+    pub open spec fn list_insert(cursor: Self, link: LinkOwner, list_id: u64) -> (Self, LinkOwner)
+        recommends
+            list_id != 0,
+            0 <= cursor.index <= cursor.list_own.list.len(),
+            cursor.list_own.list.len() > 0 ==> list_id == cursor.list_own.list_id,
+    {
+        let link = LinkOwner { paddr: link.paddr, in_list: list_id };
+        (
+            Self {
+                list_own: LinkedListOwner::<M> {
+                    list: cursor.list_own.list.insert(cursor.index, link),
+                    list_id,
+                    _marker: PhantomData,
+                },
+                index: cursor.index + 1,
+            },
+            link,
+        )
+    }
+
     /// Tracked update to the cursor's owner state when a new link is inserted
     /// before the current position. The inserted `link`'s `paddr` is unchanged
     /// and its `in_list` is stamped with `list_id` — the (non-zero) id the
@@ -1130,19 +1150,22 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     /// already non-zero), and `index` advances by one. In the borrow model, the
     /// link's tracked permission remains parked in `MetaRegionOwners.slots`;
     /// this axiom doesn't need to take or carry a perm.
-    pub axiom fn list_insert(tracked cursor: &mut Self, tracked link: &mut LinkOwner, list_id: u64)
+    pub axiom fn tracked_list_insert(
+        tracked cursor: &mut Self,
+        tracked link: &mut LinkOwner,
+        list_id: u64,
+    )
         requires
             list_id != 0,
+            0 <= old(cursor).index <= old(cursor).list_own.list.len(),
+            old(cursor).list_own.list.len() > 0 ==> list_id == old(cursor).list_own.list_id,
             old(cursor).list_own.list_id != 0 ==> list_id == old(cursor).list_own.list_id,
         ensures
-            final(link).paddr == old(link).paddr,
-            final(link).in_list == list_id,
-            final(cursor).list_own.list == old(cursor).list_own.list.insert(
-                old(cursor).index,
-                *final(link),
-            ),
-            final(cursor).list_own.list_id == list_id,
-            final(cursor).index == old(cursor).index + 1,
+            ({
+                let res = Self::list_insert(*old(cursor), *old(link), list_id);
+
+                res.0 == *final(cursor) && res.1 == *final(link)
+            }),
     ;
 
     pub open spec fn front_owner(list_own: LinkedListOwner<M>) -> Self {

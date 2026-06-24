@@ -1328,7 +1328,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         self.list.size = self.list.size + 1;
 
         proof {
-            CursorOwner::<M>::list_insert(owner, &mut frame_own.meta_own, list_id);
+            CursorOwner::<M>::tracked_list_insert(owner, &mut frame_own.meta_own, list_id);
 
             let oldl = owner0.list_own;
             let nn = owner0.index as int;

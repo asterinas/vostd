@@ -1209,11 +1209,12 @@ pub(crate) proof fn lemma_vaddr_range_bounds_spec_kernel()
 }
 
 // Here are some const values that are determined by the paging constants.
-proof fn lemma_pte_index_consts<C: PagingConstsTrait>()
+pub(crate) proof fn lemma_pte_index_consts<C: PagingConstsTrait>()
     ensures
         usize::BITS == 64,
         0 < C::BASE_PAGE_SIZE(),
         C::BASE_PAGE_SIZE().ilog2() == 12u32,
+        C::NR_LEVELS() == NR_LEVELS,
         nr_subpage_per_huge::<C>() == NR_ENTRIES,
         nr_pte_index_bits::<C>() == 9usize,
         pow2(9) as usize == NR_ENTRIES,

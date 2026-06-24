@@ -15,12 +15,66 @@
 //! comes with no costs since the translation is a simple arithmetic operation.
 verus! {
 
+#[repr(C)]
+pub struct MetaSlot {
+    /// The metadata of a frame.
+    ///
+    /// It is placed at the beginning of a slot because:
+    ///  - the implementation can simply cast a `*const MetaSlot`
+    ///    to a `*const AnyFrameMeta` for manipulation;
+    ///  - if the metadata need special alignment, we can provide
+    ///    at most `PAGE_METADATA_ALIGN` bytes of alignment;
+    ///  - the subsequent fields can utilize the padding of the
+    ///    reference count to save space.
+    ///
+    /// Don't interpret this field as an array of bytes. It is a
+    /// placeholder for the metadata of a frame.
+    // storage: UnsafeCell<[u8; FRAME_METADATA_MAX_SIZE]>
+    /// # Verification Design
+    /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
+    /// types of metadata defined in the development.
+    pub storage: pcell_maybe_uninit::PCell<MetaSlotStorage>,
+    /// The reference count of the page.
+    ///
+    /// Specifically, the reference count has the following meaning:
+    ///  - `REF_COUNT_UNUSED`: The page is not in use.
+    ///  - `REF_COUNT_UNIQUE`: The page is owned by a [`UniqueFrame`].
+    ///  - `0`: The page is being constructed ([`Frame::from_unused`])
+    ///    or destructured ([`drop_last_in_place`]).
+    ///  - `1..REF_COUNT_MAX`: The page is in use.
+    ///  - `REF_COUNT_MAX..REF_COUNT_UNIQUE`: Illegal values to
+    ///    prevent the reference count from overflowing. Otherwise,
+    ///    overflowing the reference count will cause soundness issue.
+    ///
+    /// [`Frame::from_unused`]: super::Frame::from_unused
+    /// [`UniqueFrame`]: super::unique::UniqueFrame
+    /// [`drop_last_in_place`]: Self::drop_last_in_place
+    //
+    // Other than this field the fields should be `MaybeUninit`.
+    // See initialization in `alloc_meta_frames`.
+    pub ref_count: PAtomicU64,
+    /// The virtual table that indicates the type of the metadata.
+    /// VERUS LIMITATION: Currently we do not verify this because
+    /// of the dependency on the `dyn Trait` pattern. But we can revisit it now that `dyn Trait` is supported by Verus.
+    // pub vtable_ptr: UnsafeCell<MaybeUninit<FrameMetaVtablePtr>>,
+    pub vtable_ptr: PPtr<usize>,
+    /// This is only accessed by [`crate::mm::frame::linked_list`].
+    /// It stores 0 if the frame is not in any list, otherwise it stores the
+    /// ID of the list.
+    ///
+    /// It is ugly but allows us to tell if a frame is in a specific list by
+    /// one relaxed read. Otherwise, if we store it conditionally in `storage`
+    /// we would have to ensure that the type is correct before the read, which
+    /// costs a synchronization.
+    pub in_list: PAtomicU64,
+}
+
+global layout MetaSlot is size == 64, align == 8;
+
 pub(crate) mod mapping {
     use crate::specs::arch::*;
     pub use crate::specs::mm::frame::mapping::*;
     use vstd::prelude::*;
-    use core::mem::size_of;
-    use super::MetaSlot;
     use crate::mm::{kspace::FRAME_METADATA_RANGE, Paddr, PagingConstsTrait, Vaddr};
 
     pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
@@ -43,14 +97,12 @@ pub(crate) mod mapping {
             frame_to_meta(paddr),
         no_unwind
     {
-        broadcast use super::axiom_size_of_meta_slot;
-
         let base = FRAME_METADATA_RANGE.start;
         let offset = paddr / PAGE_SIZE;
         proof {
-            assert(base + offset * size_of::<MetaSlot>() < usize::MAX);
+            assert(base + offset * META_SLOT_SIZE < usize::MAX);
         }
-        base + offset * size_of::<MetaSlot>()
+        base + offset * META_SLOT_SIZE
     }
 
     /// Converts a virtual address of the metadata slot to the physical address of the frame.
@@ -64,12 +116,11 @@ pub(crate) mod mapping {
         returns
             meta_to_frame(vaddr),
     {
-        broadcast use super::axiom_size_of_meta_slot;
-
-        assert(size_of::<MetaSlot>() == META_SLOT_SIZE);
-
         let base = FRAME_METADATA_RANGE.start;
-        let offset = (vaddr - base) / size_of::<MetaSlot>();
+        proof {
+            assert(META_SLOT_SIZE > 0) by (compute);
+        }
+        let offset = (vaddr - base) / META_SLOT_SIZE;
         offset * PAGE_SIZE
     }
 
@@ -133,60 +184,6 @@ pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE
 /// The maximum alignment in bytes of the metadata of a frame.
 pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE;
 
-#[repr(C)]
-pub struct MetaSlot {
-    /// The metadata of a frame.
-    ///
-    /// It is placed at the beginning of a slot because:
-    ///  - the implementation can simply cast a `*const MetaSlot`
-    ///    to a `*const AnyFrameMeta` for manipulation;
-    ///  - if the metadata need special alignment, we can provide
-    ///    at most `PAGE_METADATA_ALIGN` bytes of alignment;
-    ///  - the subsequent fields can utilize the padding of the
-    ///    reference count to save space.
-    ///
-    /// Don't interpret this field as an array of bytes. It is a
-    /// placeholder for the metadata of a frame.
-    // storage: UnsafeCell<[u8; FRAME_METADATA_MAX_SIZE]>
-    /// # Verification Design
-    /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
-    /// types of metadata defined in the development.
-    pub storage: pcell_maybe_uninit::PCell<MetaSlotStorage>,
-    /// The reference count of the page.
-    ///
-    /// Specifically, the reference count has the following meaning:
-    ///  - `REF_COUNT_UNUSED`: The page is not in use.
-    ///  - `REF_COUNT_UNIQUE`: The page is owned by a [`UniqueFrame`].
-    ///  - `0`: The page is being constructed ([`Frame::from_unused`])
-    ///    or destructured ([`drop_last_in_place`]).
-    ///  - `1..REF_COUNT_MAX`: The page is in use.
-    ///  - `REF_COUNT_MAX..REF_COUNT_UNIQUE`: Illegal values to
-    ///    prevent the reference count from overflowing. Otherwise,
-    ///    overflowing the reference count will cause soundness issue.
-    ///
-    /// [`Frame::from_unused`]: super::Frame::from_unused
-    /// [`UniqueFrame`]: super::unique::UniqueFrame
-    /// [`drop_last_in_place`]: Self::drop_last_in_place
-    //
-    // Other than this field the fields should be `MaybeUninit`.
-    // See initialization in `alloc_meta_frames`.
-    pub ref_count: PAtomicU64,
-    /// The virtual table that indicates the type of the metadata.
-    /// VERUS LIMITATION: Currently we do not verify this because
-    /// of the dependency on the `dyn Trait` pattern. But we can revisit it now that `dyn Trait` is supported by Verus.
-    // pub vtable_ptr: UnsafeCell<MaybeUninit<FrameMetaVtablePtr>>,
-    pub vtable_ptr: PPtr<usize>,
-    /// This is only accessed by [`crate::mm::frame::linked_list`].
-    /// It stores 0 if the frame is not in any list, otherwise it stores the
-    /// ID of the list.
-    ///
-    /// It is ugly but allows us to tell if a frame is in a specific list by
-    /// one relaxed read. Otherwise, if we store it conditionally in `storage`
-    /// we would have to ensure that the type is correct before the read, which
-    /// costs a synchronization.
-    pub in_list: PAtomicU64,
-}
-
 pub const REF_COUNT_UNUSED: u64 = u64::MAX;
 
 pub const REF_COUNT_UNIQUE: u64 = u64::MAX - 1;
@@ -194,14 +191,6 @@ pub const REF_COUNT_UNIQUE: u64 = u64::MAX - 1;
 pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 
 type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
-
-pub broadcast axiom fn axiom_size_of_meta_slot()
-    ensures
-        #![trigger core::mem::size_of::<MetaSlot>()]
-        #![trigger core::mem::align_of::<MetaSlot>()]
-        core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
-        core::mem::align_of::<MetaSlot>() == 8,
-;
 
 /// All frame metadata types must implement this trait.
 ///
