@@ -112,6 +112,15 @@ pub axiom fn segment_from_unused_embedded(
             && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        // Unparked (page-table-node) slots are untouched: allocation only
+        // transitions the (previously UNUSED, parked) covered slots, never
+        // a PT root whose perm is not parked in `regions.slots`. Preserves
+        // the embedding's slot-perm coverage exception.
+        res is Some ==> forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         // On failure: regions unchanged.
         res is None ==> *final(regions) == *old(regions),
         // metaregion_sound preservation (no PT-node-mutation, so any
@@ -192,6 +201,15 @@ pub axiom fn segment_drop_embedded(
             && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        // Unparked (page-table-node) slots are untouched: drop only frees
+        // the segment's covered (Frame) slots, never a PT root whose perm
+        // is not parked in `regions.slots`. Preserves the embedding's
+        // slot-perm coverage exception.
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
@@ -297,6 +315,12 @@ pub(super) proof fn from_unused_step(
             && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        // Unparked (page-table-node) slots untouched (see axiom).
+        res is Some ==> forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         res is None ==> *final(regions) == *old(regions),
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -359,6 +383,12 @@ pub(super) proof fn drop_step(
             && !(entry.range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
                     < entry.range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        // Unparked (page-table-node) slots untouched (see axiom).
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
