@@ -85,13 +85,19 @@ verus! {
 
 /*
 static MAX_PADDR: AtomicUsize = AtomicUsize::new(0);
-
+*/
 /// Returns the maximum physical address that is tracked by frame metadata.
-pub(in crate::mm) fn max_paddr() -> Paddr {
-    let max_paddr = MAX_PADDR.load(Ordering::Relaxed) as Paddr;
-    debug_assert_ne!(max_paddr, 0);
-    max_paddr
-}*/
+#[verifier::external_body]
+pub(in crate::mm) fn max_paddr() -> Paddr
+    returns
+        MAX_PADDR,
+{
+    // let max_paddr = MAX_PADDR.load(Ordering::Relaxed) as Paddr;
+    // debug_assert_ne!(max_paddr, 0);
+    // max_paddr
+    unimplemented!()
+}
+
 #[verifier::external_body]
 fn acquire_fence() {
     core::sync::atomic::fence(Ordering::Acquire);
@@ -590,8 +596,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             old(regions).slots.contains_key(self.index()),
             self.inv(),
             old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-            old(regions).slot_owners[self.index()].usage
-                != crate::specs::mm::frame::meta_owners::PageUsage::PageTable,
+            old(regions).slot_owners[self.index()].usage !is PageTable,
             old(regions).frame_obligations.count(self.index()) > 0,
         ensures
             final(regions).inv(),
@@ -1002,7 +1007,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
 pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
     let tracked perm = regions.slots.tracked_borrow(frame_to_index(paddr));
-    let tracked mut inner_perms = slot_own.take_inner_perms();
+    let tracked inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
     let vaddr: Vaddr = frame_to_meta(paddr);
     // SAFETY: `vaddr` points to a valid `MetaSlot` that will never be mutably borrowed, so taking
@@ -1021,9 +1026,6 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
         assert(inner_perms.ref_count.id() == old(
             regions,
         ).slot_owners[idx].inner_perms.ref_count.id());
-
-        // sync_inner: slot_own.inner_perms = inner_perms, other fields unchanged
-        slot_own.sync_inner(&inner_perms);
 
         // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, self_addr ok
         assert(slot_own.inv());

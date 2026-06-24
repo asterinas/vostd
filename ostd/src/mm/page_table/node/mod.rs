@@ -47,15 +47,13 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::allocator::FrameAllocOptions;
-use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::meta::mapping::{META_SLOT_SIZE, frame_to_meta, meta_to_frame};
+use crate::mm::frame::meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::frame::{AnyFrameMeta, Frame, frame_to_index};
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr};
-use crate::specs::mm::frame::meta_owners::{
-    MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED,
-};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
 
@@ -213,7 +211,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             C::lemma_pte_walk_fills_page();
             C::lemma_page_table_config_derived_properties();
             C::lemma_page_table_config_constant_requirements();
-            C::lemma_paging_consts_properties();
+            C::lemma_paging_consts_requirements();
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
                 size_of_e,
                 NR_ENTRIES as int,
@@ -714,16 +712,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         ensures
             res.wf(*child_owner),
             res.idx == idx,
+            *res.node == *old(self),
+            *final(self) == *final(res.node),
             owner.relate_guard(*res.node),
-            *final(self) == *old(self),
     )]
     pub fn entry<'a>(&'a mut self, idx: usize) -> Entry<'a, 'rcu, C> {
         #[cfg(feature = "allow_panic")]
         assert!(idx < nr_subpage_per_huge::<C>());
-        // SAFETY: The index is within the bound. `*self` is unchanged because
-        // Entry::new_at's `*res.node == *old(guard)` ensures says the wrapped
-        // node equals the input guard's value, and the reborrow makes
-        // `*final(self) == *res.node`.
+        // SAFETY: The index is within the bound. `Entry::new_at` returns an
+        // entry whose node is the guard value we were handed.
         unsafe {
             #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(regions))]
             Entry::new_at(self, idx)
@@ -1039,10 +1036,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
                 &&& so.inner_perms.ref_count.value() > 0
-                &&& so.inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                &&& so.inner_perms.ref_count.value()
-                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
                 &&& so.inner_perms.ref_count.value() == 1 ==> {
                     &&& so.inner_perms.storage.is_init()
                     &&& so.inner_perms.in_list.value() == 0

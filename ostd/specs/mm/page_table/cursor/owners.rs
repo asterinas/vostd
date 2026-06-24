@@ -18,6 +18,7 @@ use core::ops::Range;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::frame_to_index;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{
@@ -25,7 +26,6 @@ use crate::mm::{
     page_size,
 };
 use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE, has_safe_slot};
-use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Guards;
@@ -1206,11 +1206,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ));
         if C::tracked(item) {
             assert(!crate::specs::mm::frame::meta_owners::is_mmio_paddr(pa));
-            assert(regions.slot_owners[idx].usage
-                != crate::specs::mm::frame::meta_owners::PageUsage::MMIO);
+            assert(regions.slot_owners[idx].usage !is MMIO);
             assert(regions.slot_owners[idx].inner_perms.ref_count.value() > 0);
-            assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
+            assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
         }
         // Now all preconditions of `C::clone_requires_concrete` are in scope.
 
@@ -3218,10 +3216,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
         &&& self.barrier_va.start == owner.locked_range().start
         &&& self.barrier_va.end == owner.locked_range().end
     }
-}
-
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> ModelOf for Cursor<'rcu, C, A> {
-
 }
 
 } // verus!

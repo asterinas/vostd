@@ -36,13 +36,4 @@ pub trait OwnerOf where <<Self as OwnerOf>::Owner as View>::V: Inv {
     ;
 }
 
-pub trait ModelOf: OwnerOf + Sized {
-    open spec fn model(self, owner: Self::Owner) -> <Self::Owner as View>::V
-        recommends
-            self.wf(owner),
-    {
-        owner.view()
-    }
-}
-
 } // verus!

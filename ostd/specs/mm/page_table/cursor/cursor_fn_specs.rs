@@ -1,10 +1,11 @@
 use vstd::prelude::*;
 
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::page_table::*;
 use crate::mm::{PagingConstsTrait, Vaddr};
 use crate::specs::arch::{NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED, is_mmio_paddr};
+use crate::specs::mm::frame::meta_owners::is_mmio_paddr;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
@@ -40,7 +41,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     }
 
     pub open spec fn query_some_condition(self, owner: CursorOwner<'rcu, C>) -> bool {
-        self.model(owner).present()
+        owner@.present()
     }
 
     /// Panic condition for [`Self::query`]. `query` diverges *only* via the

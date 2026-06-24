@@ -8,6 +8,7 @@ use core::marker::PhantomData;
 
 verus! {
 
+/// A trait for types that have a concrete representation type `R`.
 pub trait Repr<R: Sized>: Sized {
     /// If the underlying representation contains cells, the translation may require permission objects that access them.
     type Perm;
@@ -27,8 +28,8 @@ pub trait Repr<R: Sized>: Sized {
     fn from_repr(r: R, Tracked(perm): Tracked<&Self::Perm>) -> (res: Self)
         requires
             Self::wf(r, *perm),
-        ensures
-            res == Self::from_repr_spec(r, *perm),
+        returns
+            Self::from_repr_spec(r, *perm),
     ;
 
     fn from_borrowed<'a>(r: &'a R, Tracked(perm): Tracked<&'a Self::Perm>) -> (res: &'a Self)
@@ -64,7 +65,10 @@ pub struct ReprPtr<R, T: Repr<R>> {
 }
 
 impl<R, T: Repr<R>> Clone for ReprPtr<R, T> {
-    fn clone(&self) -> Self {
+    fn clone(&self) -> Self
+        returns
+            self,
+    {
         Self { ptr: self.ptr, _T: PhantomData }
     }
 }
@@ -110,14 +114,6 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
         Self { ptr: ptr, _T: PhantomData }
     }
 
-    #[verifier::external_body]
-    pub fn new_borrowed<'a>(ptr: &'a PPtr<R>) -> (res: &'a Self)
-        ensures
-            *res == Self::new_spec(*ptr),
-    {
-        unimplemented!()
-    }
-
     pub fn from_pptr(ptr: PPtr<R>) -> (res: Self)
         ensures
             res == Self::new_spec(ptr),
@@ -136,14 +132,14 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
     }
 
     #[verifier::when_used_as_spec(addr_spec)]
-    pub fn addr(self) -> (u: usize)
+    pub fn addr(self) -> usize
         returns
-            self.addr_spec(),
+            self.addr(),
     {
         self.ptr.addr()
     }
 
-    pub exec fn take(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>) -> (v: T)
+    pub fn take(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>) -> (v: T)
         requires
             old(perm).pptr() == self,
             old(perm).is_init(),
@@ -160,7 +156,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
         T::from_repr(self.ptr.take(Tracked(&mut perm.points_to)), Tracked(&perm.inner_perms))
     }
 
-    pub exec fn put(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>, v: T)
+    pub fn put(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>, v: T)
         requires
             old(perm).pptr() == self,
             old(perm).mem_contents() == MemContents::Uninit::<T>,
@@ -179,7 +175,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
         self.ptr.put(Tracked(&mut perm.points_to), v.to_repr(Tracked(&mut perm.inner_perms)))
     }
 
-    pub exec fn borrow<'a>(self, Tracked(perm): Tracked<&'a PointsTo<R, T>>) -> (v: &'a T)
+    pub fn borrow<'a>(self, Tracked(perm): Tracked<&'a PointsTo<R, T>>) -> (v: &'a T)
         requires
             perm.pptr() == self,
             perm.is_init(),
@@ -197,9 +193,10 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
     /// at the return point, the permission's value matches `*v`. Callers must
     /// preserve any invariants beyond the final initialised/well-formed state
     /// themselves.
+    ///
+    /// FIXME[SOUNDNESS]: This method is unsound because the caller must ensure the final value of `v` is consistent with the inner permissions.
     #[verifier::external_body]
-    pub exec fn borrow_mut<'a>(self, Tracked(perm): Tracked<&'a mut PointsTo<R, T>>) -> (v:
-        &'a mut T)
+    pub fn borrow_mut<'a>(self, Tracked(perm): Tracked<&'a mut PointsTo<R, T>>) -> (v: &'a mut T)
         requires
             old(perm).pptr() == self,
             old(perm).is_init(),
@@ -219,8 +216,8 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
 
 #[verifier::accept_recursive_types(T)]
 pub tracked struct PointsTo<R, T: Repr<R>> {
-    pub tracked points_to: simple_pptr::PointsTo<R>,
-    pub tracked inner_perms: T::Perm,
+    pub points_to: simple_pptr::PointsTo<R>,
+    pub inner_perms: T::Perm,
     pub _T: PhantomData<T>,
 }
 
@@ -233,8 +230,8 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
         tracked points_to: simple_pptr::PointsTo<R>,
         tracked inner_perms: T::Perm,
     ) -> (tracked res: Self)
-        ensures
-            res == Self::new_spec(points_to, inner_perms),
+        returns
+            Self::new_spec(points_to, inner_perms),
     {
         Self { points_to: points_to, inner_perms, _T: PhantomData }
     }
@@ -273,19 +270,6 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
 
     pub open spec fn pptr(self) -> ReprPtr<R, T> {
         ReprPtr { ptr: self.points_to.pptr(), _T: PhantomData }
-    }
-
-    pub broadcast proof fn pptr_implies_addr(&self)
-        ensures
-            self.addr() == #[trigger] self.pptr().addr(),
-    {
-    }
-}
-
-impl<R, T: Repr<R>> From<PointsTo<R, T>> for vstd::simple_pptr::PointsTo<R> {
-    #[verifier::external_body]
-    fn from(ptr: PointsTo<R, T>) -> Self {
-        ptr.points_to
     }
 }
 

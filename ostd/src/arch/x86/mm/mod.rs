@@ -103,7 +103,7 @@ impl PagingConstsTrait for PagingConsts {
         8
     }
 
-    proof fn lemma_paging_consts_properties()
+    proof fn lemma_paging_consts_requirements()
     {
         lemma_pow2_is_pow2_to64();
     }
@@ -205,7 +205,6 @@ pub(crate) fn tlb_flush_all_including_global() {
     }*/
 }
 
-#[verifier::ext_equal]
 #[derive(Clone, Copy/*, Pod, Default*/)]
 #[derive(Debug)]
 #[repr(C)]

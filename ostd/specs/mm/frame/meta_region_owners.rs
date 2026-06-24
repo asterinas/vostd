@@ -25,10 +25,6 @@ use crate::specs::mm::frame::meta_owners::Metadata;
 
 verus! {
 
-/// Represents the meta-frame memory region. Can be viewed as a collection of
-/// Cell<MetaSlot> at a fixed address range.
-pub struct MetaRegion;
-
 /// Represents the ownership of the meta-frame memory region.
 /// # Verification Design
 /// ## Slot owners
@@ -81,19 +77,11 @@ impl Inv for MetaRegionOwners {
         &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
-                    &&& self.slot_owners.contains_key(i)
                     &&& self.slot_owners[i].inv()
                     &&& self.slots[i].is_init()
                     &&& self.slots[i].addr() == meta_addr(i)
                     &&& self.slots[i].value().wf(self.slot_owners[i])
-                    &&& self.slot_owners.contains_key(i)
                     &&& self.slot_owners[i].self_addr == self.slots[i].addr()
-                }
-        }
-        &&& {
-            forall|i: usize| #[trigger]
-                self.slot_owners.contains_key(i) ==> {
-                    &&& self.slot_owners[i].inv()
                 }
         }
     }
@@ -118,18 +106,6 @@ impl View for MetaRegionOwners {
 impl InvView for MetaRegionOwners {
     proof fn view_preserves_inv(self) {
     }
-}
-
-impl OwnerOf for MetaRegion {
-    type Owner = MetaRegionOwners;
-
-    open spec fn wf(self, owner: Self::Owner) -> bool {
-        true
-    }
-}
-
-impl ModelOf for MetaRegion {
-
 }
 
 impl MetaRegionOwners {

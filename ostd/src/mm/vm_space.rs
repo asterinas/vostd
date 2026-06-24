@@ -188,11 +188,10 @@ impl<'a> VmSpace<'a> {
         proof_decl! {
             let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;
         }
-        let kpt = crate::mm::kspace::kvirt_area::get_kernel_page_table(
-            Tracked(&mut kernel_owner_opt),
-            Tracked(regions),
-            Tracked(guards),
-        );
+        let kpt = {
+            #[verus_spec(with Tracked(&mut kernel_owner_opt), Tracked(regions), Tracked(guards))]
+            crate::mm::kspace::kvirt_area::get_kernel_page_table()
+        };
         proof_decl! {
             let tracked kernel_owner = kernel_owner_opt.tracked_take();
         }
@@ -833,8 +832,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).map_item_ensures(
                 frame,
                 prop,
-                old(self).pt_cursor.0.model(*old(cursor_owner)),
-                final(self).pt_cursor.0.model(*final(cursor_owner)),
+                old(cursor_owner)@,
+                final(cursor_owner)@,
             ),
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
@@ -921,7 +920,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
-            old(self).pt_cursor.0.model(*old(cursor_owner)).unmap_spec(len, final(self).pt_cursor.0.model(*final(cursor_owner)), r),
+            old(cursor_owner)@.unmap_spec(len, final(cursor_owner)@, r),
             final(tlb_model).inv(),
     )]
     pub fn unmap(&mut self, len: usize) -> usize {
@@ -1444,8 +1443,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         proof {
             cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
 
-            let old_view = old(self).pt_cursor.0.model(*old(cursor_owner));
-            let new_view = self.pt_cursor.0.model(*cursor_owner);
+            let old_view = old(cursor_owner)@;
+            let new_view = cursor_owner@;
 
             // Bridge from loop invariant to unmap_spec.
             let start = old_view.cur_va;

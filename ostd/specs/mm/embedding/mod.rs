@@ -164,16 +164,17 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 use vstd_extra::set_extra::*;
 
-use crate::mm::frame::{MetaSlot, UFrame};
+use crate::mm::frame::{
+    MetaSlot, UFrame,
+    meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::{MAX_USERSPACE_VADDR, Paddr, Vaddr};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::{frame_to_index, index_to_frame, max_meta_slots};
-use crate::specs::mm::frame::meta_owners::{
-    PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-};
+use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::io::VmIoOwner;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
@@ -3062,7 +3063,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0) implies {
         let so = old_regions.slot_owners[frame_to_index(paddr)];
         &&& so.inner_perms.ref_count.value() >= 1
-        &&& so.inner_perms.ref_count.value() <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+        &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
         &&& so.usage == PageUsage::Frame
         &&& so.inner_perms.ref_count.value() == 1 ==> so.paths_in_pt.is_empty()
     } by {
@@ -3087,7 +3088,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         // [1, MAX] ⟹ storage init, in_list == 0.
         assert(old_regions.slot_owners.contains_key(idx));
         assert(old_regions.slot_owners[idx].inv());
-        assert(rc <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX);
+        assert(rc <= REF_COUNT_MAX);
         // rc == 1 case: rc = H + P + cover = 1, cover >= 1 ⟹ cover == 1
         // and H == 0 and P == 0 ⟹ paths empty.
         if rc == 1 {
@@ -3233,7 +3234,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             assert(handle_count(s.frames, idx) == pre_H);
             assert(segment_cover_count(s.segments, paddr) == (pre_cover - 1) as nat);
             // post rc <= MAX (pre rc was, post = pre - 1, still in range).
-            assert(post_rc <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX);
+            assert(post_rc <= REF_COUNT_MAX);
             // storage.is_init at post: post rc ∈ SHARED (1 <= post rc <= MAX)
             // ⟹ MetaSlotOwner::inv SHARED branch ⟹ storage.is_init.
             assert(s.regions.slot_owners.contains_key(idx));
@@ -3557,7 +3558,7 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     assert(pre_rc >= 1);
     assert(old_regions.slot_owners.contains_key(target_idx));
     assert(old_regions.slot_owners[target_idx].inv());
-    assert(pre_rc <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX);
+    assert(pre_rc <= REF_COUNT_MAX);
     assert(has_safe_slot(paddr));
     s.regions.inv_implies_correct_addr(paddr);
     assert(s.regions.slots.contains_key(target_idx));

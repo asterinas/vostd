@@ -6,6 +6,7 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::{
     NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
     nr_subpage_per_huge, paddr_to_vaddr, page_table::*,
@@ -62,21 +63,21 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         (forall |i: usize| #![trigger old(regions).slot_owners[i]]
             old(regions).slot_owners.contains_key(i)
             && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                < REF_COUNT_MAX)
         ==>
         (forall |i: usize| #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners.contains_key(i)
             && final(regions).slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
+                < REF_COUNT_MAX),
         // Locking only allocates page-table nodes from UNUSED slots, so any
         // slot that was already in use keeps its paths_in_pt intact.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
         // For *in-use* slots, refcount value and usage are exactly
@@ -86,7 +87,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
             old(regions).slot_owners.contains_key(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 && final(regions).slot_owners[idx].usage
@@ -96,12 +97,12 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // Composes helpers' clauses (see their ensures).
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
             final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                >= REF_COUNT_MAX
             ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
         forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                >= REF_COUNT_MAX
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
         // Frames that were item_not_mapped before remain so after locking.
@@ -186,17 +187,15 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             #![trigger old(regions).slot_owners[i]]
             old(regions).slot_owners.contains_key(i) && old(
                 regions,
-            ).slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED ==> old(
+            ).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==> old(
                 regions,
-            ).slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX) ==> (forall|i: usize|
+            ).slot_owners[i].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX) ==> (forall|
+            i: usize,
+        |
             #![trigger regions.slot_owners[i]]
             regions.slot_owners.contains_key(i)
-                && regions.slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX));
+                && regions.slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX));
     }
     res
 }
@@ -272,7 +271,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // it does not mutate any slot that was already in use.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
         // For *in-use* slots (non-UNUSED refcount), the refcount value and
@@ -281,7 +280,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
             old(regions).slot_owners.contains_key(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 && final(regions).slot_owners[idx].usage
@@ -295,12 +294,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // condition back to the caller's `*old(regions)` snapshot.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
             final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                >= REF_COUNT_MAX
             ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
         forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                >= REF_COUNT_MAX
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
         // Therefore any frame that was `item_not_mapped` (its paths_in_pt was

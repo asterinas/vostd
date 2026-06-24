@@ -21,7 +21,7 @@ use core::{fmt::Debug, /*mem::ManuallyDrop,*/ ops::Range};
 
 use super::meta::mapping::{frame_to_index, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaSlot};
-use crate::mm::frame::{Frame, untyped::AnyUFrameMeta};
+use crate::mm::frame::{Frame, meta::REF_COUNT_MAX, untyped::AnyUFrameMeta};
 
 verus! {
 
@@ -615,8 +615,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                &&& regions.slot_owners[idx].usage
-                    == crate::specs::mm::frame::meta_owners::PageUsage::Frame
+                &&& regions.slot_owners[idx].usage is Frame
             } by {
                 owner.relate_regions_at(old_regions, i);
             }
@@ -632,8 +631,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                &&& regions.slot_owners[idx].usage
-                    == crate::specs::mm::frame::meta_owners::PageUsage::Frame
+                &&& regions.slot_owners[idx].usage is Frame
             } by {
                 owner.relate_regions_at(old_regions, i + (offset / PAGE_SIZE) as int);
             }
@@ -818,10 +816,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 *regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     == old_regions.slot_owners[frame_to_index(
                     (self.range.start + j * PAGE_SIZE) as usize,
-                )] by {
-                    let _ = frame_to_index((self.range.start + perm_idx * PAGE_SIZE) as usize);
-                    let _ = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
-                };
+                )] by {};
             }
         }
 
@@ -945,8 +940,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                         <= crate::mm::frame::meta::REF_COUNT_MAX
                     &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                    &&& regions.slot_owners[idx].usage
-                        == crate::specs::mm::frame::meta_owners::PageUsage::Frame
+                    &&& regions.slot_owners[idx].usage is Frame
                 } by {
                     old(owner).relate_regions_at(*old(regions), i + 1);
                     old(owner).relate_regions_distinct(*old(regions), 0, i + 1);

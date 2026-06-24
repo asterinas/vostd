@@ -13,25 +13,10 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
-use vstd::atomic::{PAtomicU64, PermissionU64};
-use vstd::cell::pcell_maybe_uninit;
-use vstd::prelude::*;
-use vstd::simple_pptr::{PPtr, PointsTo};
-use vstd_extra::cast_ptr::{Repr, ReprPtr};
-use vstd_extra::ownership::*;
-use vstd_extra::panic::{may_panic, panic_diverge};
-use vstd_extra::prelude::*;
-
-use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
-use crate::mm::io::{Infallible, VmReader};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-
 verus! {
 
 pub(crate) mod mapping {
-    use crate::specs::arch::{PAGE_SIZE, MAX_PADDR};
+    use crate::specs::arch::*;
     pub use crate::specs::mm::frame::mapping::*;
     use vstd::prelude::*;
     use core::mem::size_of;
@@ -90,27 +75,39 @@ pub(crate) mod mapping {
 }
 
 } // verus!
+use vstd::atomic::{PAtomicU64, PermissionU64};
+use vstd::cell::pcell_maybe_uninit;
+use vstd::prelude::*;
+use vstd::simple_pptr::{PPtr, PointsTo};
+use vstd_extra::cast_ptr::{Repr, ReprPtr};
+use vstd_extra::ownership::*;
+use vstd_extra::panic::{may_panic, panic_diverge};
+use vstd_extra::prelude::*;
+
 use core::{
     alloc::Layout,
     any::Any,
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
-    mem::{ManuallyDrop, MaybeUninit, align_of, size_of},
+    mem::{ManuallyDrop, MaybeUninit},
     result::Result,
-    sync::atomic::{AtomicU8, AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use align_ext::AlignExt;
 //use log::info;
 
+use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
+use crate::mm::io::{Infallible, VmReader};
+use crate::specs::arch::*;
+use crate::specs::mm::frame::{meta_owners::*, meta_region_owners::MetaRegionOwners};
+
 use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        MAX_NR_PAGES,
-        MAX_PADDR,
-        /*VmReader,*/ PAGE_SIZE,
+        /*VmReader,*/
         /*Infallible,*/ Paddr,
         PagingLevel,
         //Segment,
@@ -221,7 +218,8 @@ pub broadcast axiom fn axiom_size_of_meta_slot()
 ///
 /// If `on_drop` reads the page using the provided `VmReader`, the
 /// implementer must ensure that the frame is safe to read.
-pub unsafe trait AnyFrameMeta {
+pub unsafe trait AnyFrameMeta:   /*Any +*/
+Send + Sync {
     /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
     /// Impls that need richer caller-side invariants (e.g. the PT-node's
     /// reader/region invariants) override this; the trait method's
@@ -252,10 +250,17 @@ pub unsafe trait AnyFrameMeta {
             final(_reader).inv(),
             final(_vm_io_owner).inv(),
             final(_reader).wf(*final(_vm_io_owner)),
+        default_ensures
+            *final(_reader) == *old(_reader),
+            *final(_regions) == *old(_regions),
+            *final(_vm_io_owner) == *old(_vm_io_owner),
     {
     }
 
-    fn is_untyped(&self) -> bool {
+    fn is_untyped(&self) -> (res: bool)
+        default_ensures
+            res == false,
+    {
         false
     }
 
@@ -313,13 +318,13 @@ pub enum GetFrameError {
 #[verus_spec(res =>
     ensures
         has_safe_slot(paddr) == res is Ok,
-        res is Ok ==> res.unwrap().addr() == frame_to_meta(paddr),
+        res is Ok ==> res->Ok_0.addr() == frame_to_meta(paddr),
 )]
 pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
     if paddr % PAGE_SIZE != 0 {
         return Err(GetFrameError::NotAligned);
     }
-    if paddr >= MAX_PADDR {
+    if paddr >= super::max_paddr() {
         return Err(GetFrameError::OutOfBound);
     }
     let vaddr = mapping::frame_to_meta(paddr);
@@ -327,6 +332,7 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
 
     // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
     // mutably borrowed, so taking an immutable reference to it is safe.
+    // Ok(unsafe { &*ptr })
     Ok(ptr)
 }
 
@@ -379,21 +385,19 @@ impl MetaSlot {
             // (caller is responsible for re-parking it via `sync_slot_perm`
             // to restore `regions.inv()`). On Err, regions is left intact
             // and the inv is preserved.
-            res is Err ==> final(regions).inv(),
-            // On failure the slot perm/owner are re-parked unchanged: nothing
-            // was claimed, so the whole region state is intact.
             res is Err ==> *final(regions) == *old(regions),
-            res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
-            res matches Ok((res, perm)) ==> perm@.value().wf(
-                final(regions).slot_owners[frame_to_index(paddr)]),
-            // The returned perm is exactly the slot perm that was extracted
-            // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
-            // and recover `final.slots == old.slots`.
-            res matches Ok((_, perm)) ==> perm@ == old(regions).slots[frame_to_index(paddr)],
-            res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
-            // The extracted slot perm is handed back via the out-param, so it
-            // leaves `regions.slots` (caller re-parks it via `sync_slot_perm`).
-            res is Ok ==> Self::slot_perm_extracted_spec(paddr, *old(regions), *final(regions)),
+            res matches Ok((res, perm)) ==> {
+                &&& Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@)
+                &&& perm@.value().wf(final(regions).slot_owners[frame_to_index(paddr)])
+                // The returned perm is exactly the slot perm that was extracted
+                // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
+                // and recover `final.slots == old.slots`.
+                &&& perm@ == old(regions).slots[frame_to_index(paddr)]
+                &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
+                // The extracted slot perm is handed back via the out-param, so it
+                // leaves `regions.slots` (caller re-parks it via `sync_slot_perm`).
+                &&& Self::slot_perm_extracted_spec(paddr, *old(regions), *final(regions))
+            },
             !has_safe_slot(paddr) ==> res is Err,
             // Linear-drop pilot: claiming an unused slot doesn't mint or
             // redeem segment or frame obligations on any path.

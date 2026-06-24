@@ -19,7 +19,7 @@ use crate::mm::frame::meta::MetaSlot;
 use super::{
     Paddr, PagingConstsTrait, PagingLevel, PodOnce, Vaddr,
     kspace::KernelPtConfig,
-    lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge,
+    nr_subpage_per_huge,
     page_prop::{CachePolicy, PageProperty},
     page_size,
     vm_space::UserPtConfig,
@@ -33,7 +33,9 @@ use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
 use crate::arch::mm::{PageTableEntry, PagingConsts};
-use crate::mm::frame::meta::mapping::frame_to_index;
+use crate::mm::frame::meta::{
+    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_index,
+};
 use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -439,13 +441,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             // `rc != UNUSED` is needed only for tracked frames (untracked clone is a no-op).
             Self::tracked(item) ==> regions.slot_owners[frame_to_index(
                 pa,
-            )].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+            )].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
             Self::tracked(item) ==> (regions.slot_owners[frame_to_index(
                 pa,
-            )].inner_perms.ref_count.value() < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
-                || may_panic()),
+            )].inner_perms.ref_count.value() < REF_COUNT_MAX || may_panic()),
         ensures
             item.clone_requires(regions),
     ;
@@ -502,8 +502,8 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::VA_SIGN_EXT()
     }
 
-    proof fn lemma_paging_consts_properties() {
-        C::C::lemma_paging_consts_properties();
+    proof fn lemma_paging_consts_requirements() {
+        C::C::lemma_paging_consts_requirements();
     }
 }
 
@@ -721,7 +721,7 @@ pub fn nr_pte_index_bits<C: PagingConstsTrait>() -> (res: usize)
         res == nr_pte_index_bits_spec::<C>(),
 {
     proof {
-        lemma_nr_subpage_per_huge_bounded::<C>();
+        C::lemma_paging_consts_derived_properties();
     }
     nr_subpage_per_huge::<C>().ilog2() as usize
 }
@@ -730,7 +730,7 @@ pub proof fn lemma_nr_pte_index_bits_bounded<C: PagingConstsTrait>()
     ensures
         0 <= nr_pte_index_bits::<C>() <= C::BASE_PAGE_SIZE().ilog2(),
 {
-    lemma_nr_subpage_per_huge_bounded::<C>();
+    C::lemma_paging_consts_derived_properties();
     let nr = nr_subpage_per_huge::<C>();
     assert(1 <= nr <= C::BASE_PAGE_SIZE());
     let bits = nr.ilog2();
@@ -805,7 +805,7 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
         ret == C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
     proof {
-        C::lemma_paging_consts_properties();
+        C::lemma_paging_consts_requirements();
         C::lemma_page_table_config_constant_requirements();
     }
 
@@ -821,7 +821,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
 {
     let idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
     proof {
-        C::lemma_paging_consts_properties();
+        C::lemma_paging_consts_requirements();
         assert(1 <= C::NR_LEVELS() <= NR_LEVELS);
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
@@ -852,7 +852,7 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
 {
     let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
     proof {
-        C::lemma_paging_consts_properties();
+        C::lemma_paging_consts_requirements();
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
 
@@ -1218,7 +1218,7 @@ proof fn lemma_pte_index_consts<C: PagingConstsTrait>()
         nr_pte_index_bits::<C>() == 9usize,
         pow2(9) as usize == NR_ENTRIES,
 {
-    C::lemma_paging_consts_properties();
+    C::lemma_paging_consts_requirements();
     lemma2_to64();
     lemma_usize_pow2_ilog2(12);
     lemma_usize_pow2_ilog2(9);
@@ -1501,7 +1501,7 @@ impl PageTable<KernelPtConfig> {
                                 );
                                 sub_idx != new_idx || (regions.slots.contains_key(sub_idx)
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                    != REF_COUNT_UNUSED
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     > 0
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -1839,13 +1839,13 @@ impl<C: PageTableConfig> PageTable<C> {
             // was already in use keeps its paths_in_pt.
             forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
                 old(regions).slot_owners.contains_key(idx)
                 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     && final(regions).slot_owners[idx].usage
@@ -1889,35 +1889,35 @@ impl<C: PageTableConfig> PageTable<C> {
             !Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Err,
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             // Non-saturation preservation.
             (forall |i: usize| #![trigger old(regions).slot_owners[i]]
                 old(regions).slot_owners.contains_key(i)
                 && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                    < REF_COUNT_MAX)
             ==>
             (forall |i: usize| #![trigger final(regions).slot_owners[i]]
                 final(regions).slot_owners.contains_key(i)
                 && final(regions).slot_owners[i].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                    != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
+                    < REF_COUNT_MAX),
             // Saturated-slot bridge (relayed from `Cursor::new`):
             // a slot at `>= REF_COUNT_MAX` before iff after, with the same
             // value. Used by `KVirtArea::query` to bridge inner-cursor
             // saturation back to the caller's snapshot.
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                    >= REF_COUNT_MAX
                 ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
             forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                    >= REF_COUNT_MAX
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
     )]

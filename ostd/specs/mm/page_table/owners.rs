@@ -14,11 +14,12 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
 use crate::mm::{
-    MAX_NR_LEVELS, Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size,
     page_table::{EntryOwner, EntryOwnerKind},
 };
 
 use crate::mm::frame::frame_to_index;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard};
 
 use crate::specs::arch::*;
@@ -1908,10 +1909,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                                 );
                                 sub_idx != changed_idx || (r1.slots.contains_key(sub_idx)
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                    != REF_COUNT_UNUSED
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                                    <= REF_COUNT_MAX)
                             }
                     },
             ),
@@ -1962,10 +1963,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                                 );
                                 sub_idx != changed_idx || (r1.slots.contains_key(sub_idx)
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                    != REF_COUNT_UNUSED
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                                     && r1.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                                    <= REF_COUNT_MAX)
                             }
                     },
             ),

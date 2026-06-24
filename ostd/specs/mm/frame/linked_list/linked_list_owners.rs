@@ -13,6 +13,7 @@ use core::marker::PhantomData;
 
 use super::*;
 use crate::mm::Paddr;
+use crate::mm::frame::meta::REF_COUNT_UNIQUE;
 use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::MAX_NR_PAGES;
@@ -194,10 +195,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for Link<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ModelOf for Link<M> {
-
-}
-
 pub ghost struct LinkedListModel {
     pub list: Seq<LinkModel>,
 }
@@ -362,7 +359,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 #![trigger idxs.to_set().contains(x)]
                 idxs.to_set().contains(x) implies bound.contains(x) by {
                 let i = choose|i: int| 0 <= i < idxs.len() && idxs[i] == x;
-                let _ = self.list[i];
                 self.relate_region_at_facts(regions, i);
                 // `regions.inv()`: `contains_key(slot_index_at(i)) ⟹ < max_meta_slots()`.
             }
@@ -525,12 +521,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             0 <= k < llen implies self.relate_region_at(regions2, k) by {
             let _ = self.list[k];
             self.relate_region_at_facts(regions1, k);
-            if k > 0 {
-                let _ = self.list[k - 1];
-            }
-            if k < llen - 1 {
-                let _ = self.list[k + 1];
-            }
             self.relate_region_at_from_clauses(regions2, k);
         }
     }
@@ -650,7 +640,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             } else {
                 m + 1
             };
-            let _ = old.list[pm];
             old.relate_region_at_facts(r0, pm);
         }
 
@@ -679,7 +668,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 old.relate_region_at_facts(r0, n - 1);
             }
             if n + 1 < old.list.len() {
-                let _ = old.list[n + 1];
                 old.relate_region_at_facts(r0, n + 1);
             }
             new.relate_region_at_from_clauses(fr, k);
@@ -813,26 +801,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         assert forall|a: int, b: int|
             #![trigger new.slot_index_at(a), new.slot_index_at(b)]
             0 <= a < nlen && 0 <= b < nlen && a != b implies new.slot_index_at(a)
-            != new.slot_index_at(b) by {
-            let _ = new.slot_index_at(a);
-            let _ = new.slot_index_at(b);
-            if a != n {
-                let pa = if a < n {
-                    a
-                } else {
-                    a - 1
-                };
-                let _ = old.slot_index_at(pa);
-            }
-            if b != n {
-                let pb = if b < n {
-                    b
-                } else {
-                    b - 1
-                };
-                let _ = old.slot_index_at(pb);
-            }
-        }
+            != new.slot_index_at(b) by {}
 
         assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies ({
             &&& (m < n ==> new.meta_perm_of(fr, m).addr() == old.meta_perm_of(r0, m).addr()
@@ -847,11 +816,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             ).points_to.pptr())
         }) by {
             if m < n {
-                let _ = old.list[m];
                 old.relate_region_at_facts(r0, m);
             }
             if m > n {
-                let _ = old.list[m - 1];
                 old.relate_region_at_facts(r0, m - 1);
             }
         }
@@ -875,8 +842,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 let _ = old.list[n];
                 old.relate_region_at_facts(r0, n);
             }
-            let _ = old.slot_index_at(n - 1);
-            let _ = old.slot_index_at(n);
             new.relate_region_at_from_clauses(fr, k);
         }
 
@@ -1029,10 +994,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for LinkedList<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ModelOf for LinkedList<M> {
-
-}
-
 pub ghost struct CursorModel {
     pub ghost fore: Seq<LinkModel>,
     pub ghost rear: Seq<LinkModel>,
@@ -1128,10 +1089,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         &&& owner.index == owner.list_own.list.len() ==> self.current.is_none()
         &&& (*self.list).wf_region(owner.list_own, regions)
     }
-}
-
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> ModelOf for CursorMut<'a, M> {
-
 }
 
 impl CursorModel {

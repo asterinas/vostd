@@ -34,11 +34,12 @@ use vstd_extra::ownership::*;
 
 use core::ops::Range;
 
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{PageUsage, REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
@@ -154,7 +155,7 @@ pub axiom fn segment_drop_embedded(
                     let so = old(regions).slot_owners[frame_to_index(paddr)];
                     &&& so.inner_perms.ref_count.value() >= 1
                     &&& so.inner_perms.ref_count.value()
-                            <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                            <= REF_COUNT_MAX
                     &&& so.usage == PageUsage::Frame
                     // At rc==1 (sole reference being dropped), no PTE
                     // points to this frame — required for the
@@ -223,7 +224,7 @@ pub axiom fn segment_next_embedded(
                 .inner_perms.ref_count.value() >= 1,
         old(regions).slot_owners[frame_to_index(paddr)]
                 .inner_perms.ref_count.value()
-            <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
+            <= REF_COUNT_MAX,
         old(regions).slot_owners[frame_to_index(paddr)].usage
             == PageUsage::Frame,
     ensures
@@ -327,7 +328,7 @@ pub(super) proof fn drop_step(
                 let so = old(regions).slot_owners[frame_to_index(paddr)];
                 &&& so.inner_perms.ref_count.value() >= 1
                 &&& so.inner_perms.ref_count.value()
-                        <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                        <= REF_COUNT_MAX
                 &&& so.usage == PageUsage::Frame
                 &&& so.inner_perms.ref_count.value() == 1
                     ==> so.paths_in_pt.is_empty()

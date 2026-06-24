@@ -17,11 +17,11 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_size;
 use crate::mm::page_table::*;
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
@@ -208,9 +208,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                     let sub_idx = #[trigger] frame_to_index(
                                         (pa + j * PAGE_SIZE) as usize,
                                     );
-                                    sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                                        || (regions1.slots.contains_key(sub_idx)
+                                    sub_idx != changed_idx
+                                        || regions1.slot_owners[sub_idx].usage is MMIO || (
+                                    regions1.slots.contains_key(sub_idx)
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                         != REF_COUNT_UNUSED
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -245,9 +245,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     forall|j: usize|
                         0 < j < nr_pages ==> {
                             let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
-                            sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                == crate::specs::mm::frame::meta_owners::PageUsage::MMIO || (
-                            regions1.slots.contains_key(sub_idx)
+                            sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage is MMIO
+                                || (regions1.slots.contains_key(sub_idx)
                                 && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
                                 && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0)
@@ -506,9 +505,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                     let sub_idx = #[trigger] frame_to_index(
                                         (pa + j * PAGE_SIZE) as usize,
                                     );
-                                    sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                                        || (regions1.slots.contains_key(sub_idx)
+                                    sub_idx != changed_idx
+                                        || regions1.slot_owners[sub_idx].usage is MMIO || (
+                                    regions1.slots.contains_key(sub_idx)
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                         != REF_COUNT_UNUSED
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -559,8 +558,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                 let sub_idx = #[trigger] frame_to_index(
                                     (pa + j * PAGE_SIZE) as usize,
                                 );
-                                sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                    == crate::specs::mm::frame::meta_owners::PageUsage::MMIO || (
+                                sub_idx != changed_idx
+                                    || regions1.slot_owners[sub_idx].usage is MMIO || (
                                 regions1.slots.contains_key(sub_idx)
                                     && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     != REF_COUNT_UNUSED

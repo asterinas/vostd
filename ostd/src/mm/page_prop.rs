@@ -8,10 +8,8 @@ use core::fmt::Debug;
 use verified_bitflags::bitflags;
 //use bitflags::bitflags;
 
-use core::ops::{Add, BitAnd, BitOr, BitXor, Sub};
-
+/// The property of a mapped virtual memory page.
 #[verus_verify]
-#[verifier::ext_equal]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageProperty {
     /// The flags associated with the page,
