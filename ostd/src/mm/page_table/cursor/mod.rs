@@ -3662,34 +3662,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 old(owner).view_preserves_inv();
                 owner_before_replace.view_preserves_inv();
                 if !old(owner)@.mappings.contains(m) {
-                    assert(view.inv());
                     assert(ps >= PAGE_SIZE) by {
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                         level_after_find);
                     };
                     assert(view.split_while_huge(ps).mappings.contains(m));
-                    view.split_while_huge_refinement(ps, m);
-                    let p = choose|p: Mapping| #[trigger]
-                        old(owner)@.mappings.contains(p) && p.va_range.start <= m.va_range.start
-                            && m.va_range.end <= p.va_range.end;
-                    if p.va_range.start >= old_va && p.va_range.start < frag_va {
-                        assert(old(owner)@.mappings.filter(
-                            |m2: Mapping| old_va <= m2.va_range.start < frag_va,
-                        ).contains(p));
-                    } else if p.va_range.start < old_va {
-                        assert(frag_va > old_va);
-                        assert(!old(owner)@.present());
-                        let ghost cover_filter = old(owner)@.mappings.filter(
-                            |m2: Mapping|
-                                m2.va_range.start <= old(owner)@.cur_va && old(owner)@.cur_va
-                                    < m2.va_range.end,
-                        );
-                        assert(cover_filter.contains(p));
-                        vstd::set::lemma_set_choose_len(cover_filter);
-                        assert(old(owner)@.present());
-                    } else {
-                        assert(m.va_range.start >= frag_va);
-                    }
+                    old(owner)@.split_while_huge_preserves_empty_prefix(view, ps, m);
                 }
             };
 

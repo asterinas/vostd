@@ -1003,6 +1003,48 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
+    pub proof fn split_while_huge_preserves_empty_prefix(
+        self,
+        split_view: CursorView<C>,
+        size: usize,
+        m: Mapping,
+    )
+        requires
+            self.inv(),
+            split_view.inv(),
+            size >= PAGE_SIZE,
+            self.cur_va <= split_view.cur_va,
+            self.cur_va < split_view.cur_va ==> !self.present(),
+            self.mappings.filter(|m2: Mapping| self.cur_va <= m2.va_range.start < split_view.cur_va)
+                == Set::<Mapping>::empty(),
+            self.split_while_huge(size).mappings == split_view.split_while_huge(size).mappings,
+            split_view.split_while_huge(size).mappings.contains(m),
+            self.cur_va <= m.va_range.start < split_view.cur_va,
+        ensures
+            self.mappings.contains(m),
+    {
+        if !self.mappings.contains(m) {
+            assert(self.split_while_huge(size).mappings.contains(m));
+            self.split_while_huge_refinement(size, m);
+            let p = choose|p: Mapping| #[trigger]
+                self.mappings.contains(p) && p.va_range.start <= m.va_range.start && m.va_range.end
+                    <= p.va_range.end;
+
+            if p.va_range.start >= self.cur_va && p.va_range.start < split_view.cur_va {
+                assert(self.mappings.filter(
+                    |m2: Mapping| self.cur_va <= m2.va_range.start < split_view.cur_va,
+                ).contains(p));
+            } else if p.va_range.start < self.cur_va {
+                let ghost cover_filter = self.mappings.filter(
+                    |m2: Mapping| m2.va_range.start <= self.cur_va && self.cur_va < m2.va_range.end,
+                );
+                assert(cover_filter.contains(p));
+                lemma_set_choose_len(cover_filter);
+            } else {
+            }
+        }
+    }
+
     /// `split_while_huge` produces a set disjoint from any set that is
     /// pairwise VA-disjoint from `self.mappings`.
     ///
