@@ -3549,7 +3549,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 owner_before_replace.va.reflect_prop(va_after_find);
 
                 let view = CursorView::<C> {
-                    cur_va: va as Vaddr,
+                    cur_va: va,
                     mappings: old(owner)@.mappings,
                     phantom: PhantomData,
                 };
@@ -3605,7 +3605,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // (replace_cur_entry ensures `invariants`, move_forward
                 // preserves it): gives metaregion_sound + regions.inv().
                 assert(owner_final.metaregion_sound(regions_pre_remove));
-                assert(regions_pre_remove.inv());
                 assert(regions_pre_remove.slot_owners.contains_key(removed_idx));
                 assert(regions_pre_remove.slots.contains_key(removed_idx));
                 let ghost obr_subtree = PageTableOwner(
@@ -3637,19 +3636,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 assert(old_cur_subtree_mappings == subtree_mappings);
             }
-            let ghost frag_va: Vaddr = va_after_find;
             if frag.unwrap() is Mapped {
-                assert(frag.unwrap()->Mapped_va == frag_va);
+                assert(frag.unwrap()->Mapped_va == va_after_find);
             }
             if frag.unwrap() is StrayPageTable {
-                assert(frag.unwrap()->StrayPageTable_va == frag_va);
+                assert(frag.unwrap()->StrayPageTable_va == va_after_find);
             }
-            assert(old(owner)@.mappings.filter(|m: Mapping| old_va <= m.va_range.start < frag_va)
-                == Set::<Mapping>::empty());
-
             let ghost ps = page_size(level_after_find);
             let view = CursorView::<C> {
-                cur_va: frag_va as Vaddr,
+                cur_va: va_after_find,
                 mappings: old(owner)@.mappings,
                 phantom: PhantomData,
             };
@@ -3661,31 +3656,41 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(owner@.mappings == owner_before_replace@.mappings - old_cur_subtree_mappings);
             assert(owner@.mappings == old(owner)@.split_while_huge(ps).mappings
                 - old_cur_subtree_mappings);
-            old(owner)@.split_while_huge_difference_preserves_empty_prefix(
-                view,
-                ps,
-                owner@.mappings,
-                old_cur_subtree_mappings,
-            );
+            assert(owner@.mappings.filter(|m: Mapping| old_va <= m.va_range.start < va_after_find)
+                == Set::<Mapping>::empty()) by {};
             assert forall|m: Mapping|
                 #![auto]
                 owner@.mappings.contains(m) && old_va <= m.va_range.start && m.va_range.start
-                    < frag_va implies old(owner)@.mappings.contains(m) by {
+                    < va_after_find implies old(owner)@.mappings.contains(m) by {
                 assert(owner@.mappings.filter(
-                    |m2: Mapping| old_va <= m2.va_range.start < frag_va,
+                    |m2: Mapping| old_va <= m2.va_range.start < va_after_find,
                 ).contains(m));
             };
 
             owner_before_replace.va.reflect_prop(va_after_find);
             owner_before_replace.cur_subtree_eq_filtered_mappings();
-            let ghost ps = page_size(level_after_find);
             let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
             assert(owner@.mappings == owner_before_replace@.mappings - obr_subtree);
             assert(obr_subtree == owner_before_replace@.mappings.filter(
-                |m: Mapping| frag_va <= m.va_range.start < (frag_va + ps) as Vaddr,
+                |m: Mapping| va_after_find <= m.va_range.start < (va_after_find + ps) as Vaddr,
             ));
-            assert(owner@.mappings.filter(|m: Mapping| frag_va <= m.va_range.start < self.0.va)
-                == Set::<Mapping>::empty());
+            assert(owner@.mappings.filter(
+                |m: Mapping| va_after_find <= m.va_range.start < self.0.va,
+            ) == Set::<Mapping>::empty()) by {
+                assert forall|m: Mapping| #[trigger]
+                    owner@.mappings.contains(m) && va_after_find <= m.va_range.start
+                        && m.va_range.start < self.0.va implies false by {
+                    assert(owner_before_replace@.mappings.contains(m));
+                    assert(owner_before_replace@.mappings.filter(
+                        |m2: Mapping|
+                            va_after_find <= m2.va_range.start < (va_after_find + ps) as Vaddr,
+                    ).contains(m));
+                    assert(!(owner_before_replace@.mappings - owner_before_replace@.mappings.filter(
+                        |m2: Mapping|
+                            va_after_find <= m2.va_range.start < (va_after_find + ps) as Vaddr,
+                    )).contains(m));
+                };
+            };
         }
 
         frag

@@ -1024,28 +1024,6 @@ impl<C: PageTableConfig> CursorView<C> {
     {
     }
 
-    // To speed up `take_next` verification.
-    pub proof fn split_while_huge_difference_preserves_empty_prefix(
-        self,
-        split_view: CursorView<C>,
-        size: usize,
-        after_mappings: Set<Mapping>,
-        removed_mappings: Set<Mapping>,
-    )
-        requires
-            self.inv(),
-            size >= PAGE_SIZE,
-            self.cur_va <= split_view.cur_va,
-            self.cur_va < split_view.cur_va ==> !self.present(),
-            self.mappings.filter(|m2: Mapping| self.cur_va <= m2.va_range.start < split_view.cur_va)
-                == Set::<Mapping>::empty(),
-            after_mappings == self.split_while_huge(size).mappings - removed_mappings,
-        ensures
-            after_mappings.filter(|m: Mapping| self.cur_va <= m.va_range.start < split_view.cur_va)
-                == Set::<Mapping>::empty(),
-    {
-    }
-
     /// `split_while_huge` produces a set disjoint from any set that is
     /// pairwise VA-disjoint from `self.mappings`.
     ///
