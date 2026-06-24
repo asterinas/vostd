@@ -15,6 +15,67 @@
 //! comes with no costs since the translation is a simple arithmetic operation.
 verus! {
 
+use vstd::prelude::*;
+
+pub(crate) mod mapping {
+    use super::MetaSlot;
+    use core::mem::size_of;
+    use crate::specs::arch::*;
+    pub use crate::specs::mm::frame::mapping::*;
+    use vstd::prelude::*;
+    use crate::mm::{kspace::FRAME_METADATA_RANGE, Paddr, PagingConstsTrait, Vaddr};
+
+    pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
+        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE as int) as usize
+    }
+
+    pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr {
+        ((vaddr - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int * PAGE_SIZE) as usize
+    }
+
+    /// Converts a physical address of a base frame to the virtual address of the metadata slot.
+    #[verifier::when_used_as_spec(frame_to_meta_spec)]
+    pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
+        requires
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+        ensures
+            res % META_SLOT_SIZE == 0,
+        returns
+            frame_to_meta(paddr),
+        no_unwind
+    {
+        let base = FRAME_METADATA_RANGE.start;
+        let offset = paddr / PAGE_SIZE;
+        proof {
+            super::lemma_meta_slot_size();
+            assert(size_of::<MetaSlot>() == META_SLOT_SIZE);
+            assert(base + offset * size_of::<MetaSlot>() < usize::MAX);
+        }
+        base + offset * size_of::<MetaSlot>()
+    }
+
+    /// Converts a virtual address of the metadata slot to the physical address of the frame.
+    #[verifier::when_used_as_spec(meta_to_frame_spec)]
+    pub const fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
+        requires
+            FRAME_METADATA_RANGE.start <= vaddr < FRAME_METADATA_RANGE.end,
+            vaddr % META_SLOT_SIZE == 0,
+        ensures
+            res % PAGE_SIZE == 0,
+        returns
+            meta_to_frame(vaddr),
+    {
+        let base = FRAME_METADATA_RANGE.start;
+        proof {
+            assert(META_SLOT_SIZE > 0) by (compute);
+        }
+        let offset = (vaddr - base) / META_SLOT_SIZE;
+        offset * PAGE_SIZE
+    }
+
+}
+
 #[repr(C)]
 pub struct MetaSlot {
     /// The metadata of a frame.
@@ -71,59 +132,17 @@ pub struct MetaSlot {
 
 global layout MetaSlot is size == 64, align == 8;
 
-pub(crate) mod mapping {
-    use crate::specs::arch::*;
-    pub use crate::specs::mm::frame::mapping::*;
-    use vstd::prelude::*;
-    use crate::mm::{kspace::FRAME_METADATA_RANGE, Paddr, PagingConstsTrait, Vaddr};
-
-    pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
-        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE as int) as usize
-    }
-
-    pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr {
-        ((vaddr - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int * PAGE_SIZE) as usize
-    }
-
-    /// Converts a physical address of a base frame to the virtual address of the metadata slot.
-    #[verifier::when_used_as_spec(frame_to_meta_spec)]
-    pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
-        requires
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
-        ensures
-            res % META_SLOT_SIZE == 0,
-        returns
-            frame_to_meta(paddr),
-        no_unwind
-    {
-        let base = FRAME_METADATA_RANGE.start;
-        let offset = paddr / PAGE_SIZE;
-        proof {
-            assert(base + offset * META_SLOT_SIZE < usize::MAX);
-        }
-        base + offset * META_SLOT_SIZE
-    }
-
-    /// Converts a virtual address of the metadata slot to the physical address of the frame.
-    #[verifier::when_used_as_spec(meta_to_frame_spec)]
-    pub const fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
-        requires
-            FRAME_METADATA_RANGE.start <= vaddr < FRAME_METADATA_RANGE.end,
-            vaddr % META_SLOT_SIZE == 0,
-        ensures
-            res % PAGE_SIZE == 0,
-        returns
-            meta_to_frame(vaddr),
-    {
-        let base = FRAME_METADATA_RANGE.start;
-        proof {
-            assert(META_SLOT_SIZE > 0) by (compute);
-        }
-        let offset = (vaddr - base) / META_SLOT_SIZE;
-        offset * PAGE_SIZE
-    }
-
+proof fn lemma_meta_slot_size()
+    ensures
+        vstd::layout::size_of::<MetaSlot>() == META_SLOT_SIZE as nat,
+        core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
+{
+    broadcast use self::VERUS_layout_of_MetaSlot;
+    assert(vstd::layout::size_of::<MetaSlot>() == 64);
+    assert(META_SLOT_SIZE == 64) by (compute);
+    assert(vstd::layout::size_of::<MetaSlot>() as usize as int
+        == vstd::layout::size_of::<MetaSlot>());
+    assert(core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE);
 }
 
 } // verus!

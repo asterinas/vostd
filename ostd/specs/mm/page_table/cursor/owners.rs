@@ -2870,7 +2870,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
 /// Every mapping in a cursor's view has its VA range within the page
 /// table's managed range.
-pub proof fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorOwner<'rcu, C>)
+pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorOwner<'rcu, C>)
     requires
         owner.inv(),
     ensures
@@ -2920,15 +2920,15 @@ pub proof fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
                 start >= 0,
                 start < end,
                 cell > 0,
-                end * cell <= (usize::MAX as int),
+                end * cell <= usize::MAX as int,
                 (usize::MAX as int) < 0x1_0000_0000_0000_0000int,
         ;
-        assert(0 <= end_pre <= (usize::MAX as int)) by (nonlinear_arith)
+        assert(0 <= end_pre <= usize::MAX) by (nonlinear_arith)
             requires
                 end_pre == end * cell - 1,
                 end > 0,
                 cell > 0,
-                end * cell <= (usize::MAX as int),
+                end * cell <= usize::MAX as int,
         ;
     } else {
         assert(base == 0x1_0000_0000_0000_0000int - p_aw);
@@ -2942,7 +2942,7 @@ pub proof fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
                 cell > 0,
                 end * cell <= p_aw,
         ;
-        assert(0 <= end_pre <= (usize::MAX as int)) by (nonlinear_arith)
+        assert(0 <= end_pre <= usize::MAX as int) by (nonlinear_arith)
             requires
                 end_pre == 0x1_0000_0000_0000_0000int - p_aw + end * cell - 1,
                 base == 0x1_0000_0000_0000_0000int - p_aw,
@@ -2950,7 +2950,7 @@ pub proof fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
                 cell > 0,
                 end * cell <= p_aw,
                 p_aw <= 0x1_0000_0000_0000_0000int,
-                (usize::MAX as int) == 0x1_0000_0000_0000_0000int - 1,
+                usize::MAX == 0x1_0000_0000_0000_0000int - 1,
         ;
     }
     assert(bounds.0 as int == base + start * cell);
@@ -3214,7 +3214,7 @@ impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
         self.view_mapping_inv();
         // (4) Config-aware VA bound: every mapping's VA range is contained
         //     in `vaddr_range_bounds_spec::<C>()`.
-        axiom_view_in_vaddr_range::<C>(&self);
+        lemma_view_in_vaddr_range::<C>(&self);
     }
 }
 
