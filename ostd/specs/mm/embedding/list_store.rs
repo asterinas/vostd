@@ -248,7 +248,6 @@ pub axiom fn axiom_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall
     lists: Map<ListId, LinkedListOwner<M>>,
     cursors: Map<CursorId, CursorOwner<M>>,
 )
-    requires
     ensures
         !lists.dom().contains(fresh_list_id(lists, cursors)) && !cursors.dom().contains(
             fresh_list_id(lists, cursors),
