@@ -390,13 +390,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         let slot = slot_ptr.take(Tracked(&mut slot_perm));
 
-        let tracked mut inner_perms = slot_own.take_inner_perms();
+        let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         let in_list = slot.in_list.load(Tracked(&mut inner_perms.in_list));
         slot_ptr.put(Tracked(&mut slot_perm), slot);
 
         proof {
-            slot_own.sync_inner(&inner_perms);
             regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
             regions.slots.tracked_insert(frame_to_index(frame), slot_perm);
         }
@@ -447,7 +446,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             }
             let tracked slot_perm = regions.slots.tracked_borrow(idx);
             let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
-            let tracked mut inner_perms = slot_own.take_inner_perms();
+            let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
             let slot = slot_ptr.borrow(Tracked(slot_perm));
 
@@ -460,7 +459,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             let meta_ptr = slot.as_meta_ptr::<Link<M>>();
 
             proof {
-                slot_own.sync_inner(&inner_perms);
                 regions.slot_owners.tracked_insert(idx, slot_own);
             }
 
@@ -1028,12 +1026,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         let tracked frame_outer = regions.slots.tracked_remove(idx);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
-        let tracked mut fip = frame_so.take_inner_perms();
+        let tracked mut fip = frame_so.tracked_borrow_mut_inner_perms();
         #[verus_spec(with Tracked(&frame_outer))]
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list), 0);
         proof {
-            frame_so.sync_inner(&fip);
             regions.slots.tracked_insert(idx, frame_outer);
             regions.slot_owners.tracked_insert(idx, frame_so);
             assert(regions.inv());
@@ -1310,12 +1307,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         }
         let tracked frame_outer = regions.slots.tracked_remove(frame_idx_g);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(frame_idx_g);
-        let tracked mut fip = frame_so.take_inner_perms();
+        let tracked mut fip = frame_so.tracked_borrow_mut_inner_perms();
         #[verus_spec(with Tracked(&frame_outer))]
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list), list_id);
         proof {
-            frame_so.sync_inner(&fip);
             regions.slots.tracked_insert(frame_idx_g, frame_outer);
             regions.slot_owners.tracked_insert(frame_idx_g, frame_so);
             assert(regions.inv());  // slot's UNIQUE branch: vtable+storage init preserved; in_list value change OK under UNIQUE.

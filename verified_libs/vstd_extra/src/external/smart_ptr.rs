@@ -159,6 +159,7 @@ impl<T> Inv for ArcPointsTo<T> {
     }
 }
 
+} // verus!
 /// A wrapper around `Box::into_raw` that also returns the permission to access the memory.
 ///
 /// Soundness: it is unsound to create a `ptr` method for `Box<T>` that returns the raw pointer without the permission.
@@ -268,6 +269,8 @@ pub fn arc_into_raw<T>(p: Arc<T>) -> *const T {
 pub unsafe fn arc_from_raw<T>(ptr: *const T) -> Arc<T> {
     unsafe { Arc::from_raw(ptr) }
 }
+
+verus! {
 
 /// A permission that is equivalent to `&BoxPointsTo<T>`.
 pub tracked struct BoxPointsToRef<'a, T>(pub &'a BoxPointsTo<T>);

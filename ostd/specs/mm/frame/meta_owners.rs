@@ -15,7 +15,7 @@ use super::*;
 use crate::mm::frame::AnyFrameMeta;
 use crate::mm::frame::meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::mm::{Paddr, PagingLevel};
+use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
 use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, meta_addr, meta_to_frame};
@@ -29,12 +29,6 @@ pub ghost enum MetaSlotStatus {
     SHARED,
     OVERFLOW,
     UNDER_CONSTRUCTION,
-}
-
-pub ghost enum PageState {
-    Unused,
-    Typed,
-    Untyped,
 }
 
 pub ghost enum PageUsage {
@@ -81,16 +75,12 @@ pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
 /// boundaries, and the verified `split_if_mapped_huge` relies on it to
 /// transfer MMIO-ness from a huge frame to its 4KB sub-pages. Non-broadcast:
 /// callers invoke this explicitly with the relevant `page_size`.
-pub axiom fn axiom_mmio_paddr_huge_page_closed(
-    pa: crate::mm::Paddr,
-    page_size: usize,
-    offset: usize,
-)
+pub axiom fn axiom_mmio_paddr_huge_page_closed(pa: Paddr, page_size: usize, offset: usize)
     requires
         pa % page_size == 0,
         offset < page_size,
     ensures
-        is_mmio_paddr((pa + offset) as crate::mm::Paddr) == is_mmio_paddr(pa),
+        is_mmio_paddr((pa + offset) as Paddr) == is_mmio_paddr(pa),
 ;
 
 pub struct StoredPageTablePageMeta {
@@ -198,7 +188,7 @@ pub tracked struct MetadataInnerPerms {
 
 pub tracked struct MetaSlotOwner {
     pub inner_perms: MetadataInnerPerms,
-    pub self_addr: usize,
+    pub ghost self_addr: Vaddr,
     pub ghost usage: PageUsage,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
@@ -260,7 +250,7 @@ pub ghost struct MetaSlotModel {
     pub ref_count: u64,
     pub vtable_ptr: MemContents<usize>,
     pub in_list: u64,
-    pub self_addr: usize,
+    pub self_addr: Vaddr,
     pub usage: PageUsage,
 }
 
@@ -317,18 +307,14 @@ impl OwnerOf for MetaSlot {
 }
 
 impl MetaSlotOwner {
-    pub axiom fn take_inner_perms(tracked &mut self) -> (tracked res: MetadataInnerPerms)
+    pub proof fn tracked_borrow_mut_inner_perms(tracked &mut self) -> (tracked res:
+        &mut MetadataInnerPerms)
         ensures
-            res == old(self).inner_perms,
-            final(self).self_addr == old(self).self_addr,
-            final(self).usage == old(self).usage,
-            final(self).paths_in_pt == old(self).paths_in_pt,
-    ;
-
-    pub axiom fn sync_inner(tracked &mut self, inner_perms: &MetadataInnerPerms)
-        ensures
-            *final(self) == (Self { inner_perms: *inner_perms, ..*old(self) }),
-    ;
+            *res == old(self).inner_perms,
+            *final(self) == (Self { inner_perms: *final(res), ..*old(self) }),
+    {
+        &mut self.inner_perms
+    }
 }
 
 pub struct Metadata<M: AnyFrameMeta + Repr<MetaSlotStorage>> {

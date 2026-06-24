@@ -177,7 +177,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             slot.drop_meta_in_place()
         };
 
-        let tracked mut inner_perms = slot_own.take_inner_perms();
+        let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         proof {
             assert(inner_perms.storage.id() == perm_ref.value().storage.id());
@@ -194,7 +194,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         };
 
         proof {
-            slot_own.sync_inner(&inner_perms);
             regions.slot_owners.tracked_insert(idx, slot_own);
         }
 
@@ -606,14 +605,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         }
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);
-        let tracked mut inner_perms = slot_own.take_inner_perms();
+        let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         #[verus_spec(with Tracked(&slot_perm))]
         let slot = unique.slot();
         slot.ref_count.store(Tracked(&mut inner_perms.ref_count), 1);
 
         proof {
-            slot_own.sync_inner(&inner_perms);
             regions.slot_owners.tracked_insert(idx, slot_own);
         }
 
@@ -649,7 +647,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);
-        let tracked mut inner_perms = slot_own.take_inner_perms();
+        let tracked inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         #[verus_spec(with Tracked(&slot_perm))]
         let slot = frame.slot();
@@ -660,7 +658,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         );
 
         proof {
-            slot_own.sync_inner(&inner_perms);
             regions.slot_owners.tracked_insert(idx, slot_own);
         }
 

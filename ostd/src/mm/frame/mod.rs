@@ -1003,7 +1003,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
 pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
     let tracked perm = regions.slots.tracked_borrow(frame_to_index(paddr));
-    let tracked mut inner_perms = slot_own.take_inner_perms();
+    let tracked inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
     let vaddr: Vaddr = frame_to_meta(paddr);
     // SAFETY: `vaddr` points to a valid `MetaSlot` that will never be mutably borrowed, so taking
@@ -1022,9 +1022,6 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
         assert(inner_perms.ref_count.id() == old(
             regions,
         ).slot_owners[idx].inner_perms.ref_count.id());
-
-        // sync_inner: slot_own.inner_perms = inner_perms, other fields unchanged
-        slot_own.sync_inner(&inner_perms);
 
         // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, self_addr ok
         assert(slot_own.inv());
