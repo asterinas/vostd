@@ -1004,13 +1004,39 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
         }
     }
 
-    fn next_inner(
-        segment: &'a Segment<M>,
-        range: &mut Range<Paddr>,
-        Tracked(regions_ref): Tracked<&mut &'a mut MetaRegionOwners>,
-        Tracked(owner_ref): Tracked<&mut &'a mut SegmentOwner<M>>,
-        Tracked(remaining): Tracked<&mut SegmentIteratorProphecySeq<SegmentIteratorItem<M>>>,
-    ) -> (res: Option<SegmentIteratorItem<M>>)
+    /// Advances the verified segment iterator by one frame.
+    ///
+    /// This helper is the proof-carrying body behind [`Iterator::next`]. The
+    /// tracked metadata region, segment owner, and prophecy state are supplied
+    /// through `#[verus_spec]`, keeping the executable signature free of tracked
+    /// arguments.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - the segment must satisfy its invariant;
+    /// - `range` must be a suffix of `segment.range`;
+    /// - the segment represented by `range` must satisfy its invariant with the
+    ///   tracked owner and meta regions, which includes the owner/region relation;
+    /// - if `range` is non-empty, the remaining prophecy sequence must not have
+    ///   been resolved to `done`.
+    ///
+    /// ## Postconditions
+    /// - the segment must satisfy its invariant;
+    /// - `range` remains a suffix of `segment.range`;
+    /// - the segment represented by the final `range` satisfies its invariant
+    ///   with the final tracked owner and meta regions;
+    /// - if the result is `None`, `range` is unchanged and both the old and final
+    ///   remaining prophecy sequences are empty;
+    /// - if the result is `Some(item)`, `range.start` advances by one page, the
+    ///   yielded frame starts at the old `range.start`, and the old remaining
+    ///   prophecy sequence is exactly `item` followed by the final one;
+    /// - if the final `range` is still non-empty, the remaining prophecy sequence
+    ///   is still unresolved.
+    #[verus_spec(res =>
+        with
+            Tracked(regions_ref): Tracked<&mut &'a mut MetaRegionOwners>,
+            Tracked(owner_ref): Tracked<&mut &'a mut SegmentOwner<M>>,
+            Tracked(remaining): Tracked<&mut SegmentIteratorProphecySeq<SegmentIteratorItem<M>>>,
         requires
             segment.inv(),
             segment.range.start <= old(range).start,
@@ -1044,7 +1070,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
                 },
             },
         no_unwind
-    {
+    )]
+    fn next_inner(segment: &'a Segment<M>, range: &mut Range<Paddr>) -> (res: Option<
+        SegmentIteratorItem<M>,
+    >) {
         if range.start < range.end {
             let ghost old_remaining = remaining.seq();
             let ghost old_range = range.start..range.end;
@@ -1171,13 +1200,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Iterator for SegmentIter
         proof {
             use_type_invariant(&*self);
         }
-        SegmentIterator::next_inner(
-            self.segment,
-            &mut self.range,
+
+        #[verus_spec(with
             Tracked(self.tracked_regions.borrow_mut()),
             Tracked(self.tracked_owner.borrow_mut()),
             Tracked(self.tracked_remaining.borrow_mut()),
-        )
+        )]
+        SegmentIterator::next_inner(self.segment, &mut self.range)
     }
 }
 
