@@ -169,11 +169,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         &&& forall|lid1: LooseId, lid2: LooseId|
             #![trigger self.loose.dom().contains(lid1), self.loose.dom().contains(lid2)]
             self.loose.dom().contains(lid1) && self.loose.dom().contains(lid2)
-                && self.loose[lid1].slot_index == self.loose[lid2].slot_index ==> lid1 == lid2
-        &&& self.cursors.dom().finite()
-        // A cursored list is *checked out*: it lives in `cursors`
-        // (keyed by its home id), never simultaneously in `lists`. This
-        // is the borrow — a live `CursorMut` holds the list exclusively.
+                && self.loose[lid1].slot_index == self.loose[lid2].slot_index ==> lid1
+                == lid2
+            // A cursored list is *checked out*: it lives in `cursors`
+            // (keyed by its home id), never simultaneously in `lists`. This
+            // is the borrow — a live `CursorMut` holds the list exclusively.
         &&& self.lists.dom().disjoint(
             self.cursors.dom(),
         )
