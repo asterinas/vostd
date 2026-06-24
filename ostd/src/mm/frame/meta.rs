@@ -304,8 +304,6 @@ pub enum GetFrameError {
     OutOfBound,
     /// The provided physical address is not aligned.
     NotAligned,
-    /// Verification only: `compare_exchange` returned `Err`, retry
-    Retry,
 }
 
 /// Gets the reference to a metadata slot.
@@ -479,74 +477,9 @@ impl MetaSlot {
         Ok((slot, Tracked(slot_perm)))
     }
 
-    /// The inner loop of `Self::get_from_in_use`.
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - The permission must point to the slot.
-    /// - The permission must be initialized.
-    /// - **Liveness**: The reference count of the inner permissions must not be at the maximum.
-    /// ## Postconditions
-    /// - The reference count of the inner permissions is increased by one.
-    #[verus_spec(res =>
-        with Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
-            Tracked(inner_perms): Tracked<&mut MetadataInnerPerms>,
-        requires
-            perm.pptr() == slot,
-            perm.is_init(),
-            perm.value().ref_count.id() == old(inner_perms).ref_count.id(),
-            old(inner_perms).ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
-        ensures
-            res matches Ok(ptr) ==> {
-                &&& final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value() + 1
-                &&& final(inner_perms).ref_count.value() <= REF_COUNT_MAX
-                &&& old(inner_perms).ref_count.value() > 0
-                &&& ptr == slot
-            },
-            res is Err ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value(),
-            final(inner_perms).ref_count.id() == old(inner_perms).ref_count.id(),
-            final(inner_perms).storage == old(inner_perms).storage,
-            final(inner_perms).vtable_ptr == old(inner_perms).vtable_ptr,
-            final(inner_perms).in_list == old(inner_perms).in_list,
-    )]
-    fn get_from_in_use_loop(slot: PPtr<MetaSlot>) -> Result<PPtr<Self>, GetFrameError> {
-        match slot.borrow(Tracked(perm)).ref_count.load(Tracked(&mut inner_perms.ref_count)) {
-            REF_COUNT_UNUSED => {
-                return Err(GetFrameError::Unused);
-            },
-            REF_COUNT_UNIQUE => {
-                return Err(GetFrameError::Unique);
-            },
-            0 => {
-                return Err(GetFrameError::Busy);
-            },
-            last_ref_cnt => {
-                if last_ref_cnt >= REF_COUNT_MAX {
-                    // See `Self::inc_ref_count` for the explanation.
-                    vstd_extra::panic::panic_diverge();
-                }
-                // Using `Acquire` here to pair with `get_from_unused` or
-                // `<Frame<M> as From<UniqueFrame<M>>>::from` (who must be
-                // performed after writing the metadata).
-                //
-                // It ensures that the written metadata will be visible to us.
-
-                if slot.borrow(Tracked(perm)).ref_count.compare_exchange_weak(
-                    Tracked(&mut inner_perms.ref_count),
-                    last_ref_cnt,
-                    last_ref_cnt + 1,
-                ).is_ok() {
-                    return Ok(slot);
-                } else {
-                    return Err(GetFrameError::Retry);
-                }
-            },
-        }
-    }
-
     /// Gets another owning pointer to the metadata slot from the given page.
     /// # Verified Properties
-    /// ## Verification Design
-    /// To simplify the verification, we verify the loop body separately from the outer loop. We do not prove termination.
+    /// We do not prove termination.
     /// ## Preconditions
     /// - **Safety Invariant**: Metaslot region invariants must hold.
     /// - **Bookkeeping**: The slot permissions must be available in order to check the reference count.
@@ -572,108 +505,80 @@ impl MetaSlot {
             final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     #[verifier::exec_allows_no_decreases_clause]
+    #[verifier::loop_isolation(false)]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
-        let ghost regions0 = *regions;
-
         let slot = get_slot(paddr)?;
 
         proof {
-            assert(regions0 == *old(regions));
-            // `get_slot` succeeded ⟹ `has_safe_slot(paddr)`; with `regions.inv()`
-            // that recovers the slot facts the caller used to supply: the slot is
-            // present, its address is `frame_to_meta(paddr)`, and its inner-perm
-            // ref-count cell matches the slot's (via the per-slot `wf`).
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
             regions.inv_implies_correct_addr(paddr);
         }
 
-        let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-        let tracked slot_perm = regions.slots.tracked_borrow(frame_to_index(paddr));
-
-        let ghost pre = slot_own.inner_perms.ref_count.value();
+        let ghost idx = frame_to_index(paddr);
+        let tracked slot_perm = regions.slots.tracked_borrow(idx);
 
         loop
             invariant
-                has_safe_slot(paddr),
-                slot_perm.addr() == slot.addr(),
-                slot_perm.is_init(),
-                slot_perm.value().ref_count.id() == slot_own.inner_perms.ref_count.id(),
-                slot_own.inner_perms.ref_count.value() == pre,
-                slot_own.inner_perms.ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
-                regions0.slots.contains_key(frame_to_index(paddr)),
-                regions0.slot_owners.contains_key(frame_to_index(paddr)),
-                regions0.inv(),
-                regions0.slots[frame_to_index(paddr)] == *slot_perm,
-                slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
-                slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
-                slot_own.paths_in_pt == regions0.slot_owners[frame_to_index(paddr)].paths_in_pt,
-                FRAME_METADATA_RANGE.start <= slot_own.self_addr < FRAME_METADATA_RANGE.end,
-                slot_own.self_addr % META_SLOT_SIZE == 0,
-                slot_own.self_addr == slot_perm.addr(),
-                slot_perm.value().storage.id() == slot_own.inner_perms.storage.id(),
-                slot_perm.value().vtable_ptr == slot_own.inner_perms.vtable_ptr.pptr(),
-                slot_perm.value().in_list.id() == slot_own.inner_perms.in_list.id(),
-                slot_own.inner_perms.ref_count.id() == regions0.slot_owners[frame_to_index(
-                    paddr,
-                )].inner_perms.ref_count.id(),
-                slot_own.inner_perms.storage == regions0.slot_owners[frame_to_index(
-                    paddr,
-                )].inner_perms.storage,
-                slot_own.inner_perms.vtable_ptr == regions0.slot_owners[frame_to_index(
-                    paddr,
-                )].inner_perms.vtable_ptr,
-                slot_own.inner_perms.in_list == regions0.slot_owners[frame_to_index(
-                    paddr,
-                )].inner_perms.in_list,
-                // pre equals the original ref_count value
-                pre == regions0.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value(),
-                // regions0 equals old(regions)
-                regions0 == *old(regions),
-                // slot pptr matches what postcondition expects
-                slot == regions0.slots[frame_to_index(paddr)].pptr(),
-                // regions state: slot_owners has idx removed; slots borrowed (unchanged)
-                regions.slot_owners == regions0.slot_owners.remove(frame_to_index(paddr)),
-                regions.slots == regions0.slots,
-                // Linear-drop pilot: this path doesn't mint/redeem segment
-                // obligations, so the ledger is invariant.
-                regions.frame_obligations == regions0.frame_obligations,
+                regions.slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX
+                    ==> may_panic(),
+                regions.slot_owners[idx].self_addr == old(regions).slot_owners[idx].self_addr,
+                regions.slot_owners[idx].usage == old(regions).slot_owners[idx].usage,
+                regions.slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
+                FRAME_METADATA_RANGE.start <= regions.slot_owners[idx].self_addr
+                    < FRAME_METADATA_RANGE.end,
+                regions.slot_owners[idx].self_addr % META_SLOT_SIZE == 0,
+                regions.slot_owners[idx].self_addr == slot_perm.addr(),
+                *regions == *old(regions),
         {
-            match #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms))]
-            Self::get_from_in_use_loop(slot) {
-                Err(GetFrameError::Retry) => {
-                    core::hint::spin_loop();
+            proof {
+                vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
+                    regions.slot_owners[idx].inner_perms.ref_count,
+                    old(regions).slot_owners[idx].inner_perms.ref_count,
+                );
+            }
+
+            let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
+
+            match slot.borrow(Tracked(&slot_perm)).ref_count.load(
+                Tracked(&mut slot_own.inner_perms.ref_count),
+            ) {
+                REF_COUNT_UNUSED => {
+                    return Err(GetFrameError::Unused);
                 },
-                res => {
+                REF_COUNT_UNIQUE => {
+                    return Err(GetFrameError::Unique);
+                },
+                0 => {
+                    return Err(GetFrameError::Busy);
+                },
+                last_ref_cnt => {
+                    if last_ref_cnt >= REF_COUNT_MAX {
+                        // See `Self::inc_ref_count` for the explanation.
+                        vstd_extra::panic::panic_diverge();
+                    }
+                    // Using `Acquire` here to pair with `get_from_unused` or
+                    // `<Frame<M> as From<UniqueFrame<M>>>::from` (who must be
+                    // performed after writing the metadata).
+                    //
+                    // It ensures that the written metadata will be visible to us.
+
+                    if slot.borrow(Tracked(&slot_perm)).ref_count.compare_exchange_weak(
+                        Tracked(&mut slot_own.inner_perms.ref_count),
+                        last_ref_cnt,
+                        last_ref_cnt + 1,
+                    ).is_ok() {
+                        return Ok(slot);
+                    }
                     proof {
-                        let idx = frame_to_index(paddr);
-
-                        assert(slot_own.inner_perms.ref_count.id()
-                            == regions0.slot_owners[idx].inner_perms.ref_count.id());
-
-                        assert(slot_own.inv());
-                        regions.slot_owners.tracked_insert(idx, slot_own);
-
-                        assert(regions.slot_owners.dom() == regions0.slot_owners.dom());
-                        assert(regions.slots == regions0.slots);
-
-                        // For Err ==> *regions == *old(regions)
-                        if res is Err {
-                            // On Err, ref_count unchanged so slot_own == orig.
-                            // Use extensional equality axiom for PermissionU64.
-                            vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
-                                regions.slot_owners[idx].inner_perms.ref_count,
-                                regions0.slot_owners[idx].inner_perms.ref_count,
-                            );
-                            assert(regions.slot_owners[idx] == regions0.slot_owners[idx]);
-                            assert(regions.slot_owners == regions0.slot_owners);
-                            assert(*regions == *old(regions));
-                        }
+                        vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
+                            slot_own.inner_perms.ref_count,
+                            old(regions).slot_owners[idx].inner_perms.ref_count,
+                        );
+                        assert(*regions == *old(regions));
                     }
 
-                    return res;
                 },
             }
+            core::hint::spin_loop();
         }
     }
 
