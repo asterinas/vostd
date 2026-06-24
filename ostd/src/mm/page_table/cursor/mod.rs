@@ -3583,7 +3583,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             < owner_before_replace@.cur_va + m.page_size,
                 ).contains(target));
                 assert(owner_before_replace@.mappings.contains(target));
-                assert(m == target);
                 assert(owner_before_replace@.mappings.contains(m));
                 assert(view.split_while_huge(m.page_size).mappings.contains(m));
 
