@@ -915,7 +915,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             forall|i: int|
                 0 <= i < old(self).lists[id].list.len() ==> old(
                     self,
-                ).regions.frame_obligations.count(old(self).lists[id].slot_index_at(i)) == 0,
                 ).regions.frame_obligations.count(#[trigger] old(self).lists[id].slot_index_at(i))
                     == 0,
         ensures
