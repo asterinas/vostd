@@ -10,11 +10,20 @@ use vstd_extra::ownership::*;
 use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
+use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
 verus! {
+
+/// The metadata-slot index of a `VmSpace`'s page-table *root* node. This
+/// is the slot whose perm `VmSpace::new` (`empty_with_owner`) permanently
+/// extracts from `regions.slots` (the root is owned by the page table,
+/// not parked in the free pool).
+pub open spec fn vm_space_root_idx(owner: VmSpaceOwner) -> usize {
+    frame_to_index(owner.page_table_owner.value.meta_slot_paddr()->0)
+}
 
 // =============================================================================
 // _embedded axiom
@@ -31,12 +40,20 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
     ensures
         final(regions).inv(),
         res.inv(),
-        // `VmSpace::new` (`create_user_page_table`) allocates a fresh
-        // page table; it never touches the boot-fixed metadata slot-perm
-        // map nor the `raw_count` / `in_list` fields. Preserving the
-        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
-        // partial) keeps `VmStore::inv`'s coverage clauses chainable.
-        final(regions).slots == old(regions).slots,
+        // `VmSpace::new` (`create_user_page_table` → `empty_with_owner`)
+        // allocates a fresh PT root and PERMANENTLY extracts its slot
+        // perm from `regions.slots` (the root is owned by the page table,
+        // not parked in the free pool). Every OTHER slot perm is
+        // preserved. The extracted root slot is an active page-table node
+        // (`usage == PageTable`, `rc != UNUSED`) — exactly the
+        // `structural_inv` slot-perm coverage exception, so coverage
+        // stays chainable. (Mirrors `empty_with_owner`'s ensures, which
+        // removes `frame_to_index(root_paddr)` from `regions.slots`.)
+        old(regions).slots.contains_key(vm_space_root_idx(res)),
+        final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
+        final(regions).slot_owners[vm_space_root_idx(res)].usage == PageUsage::PageTable,
+        final(regions).slot_owners[vm_space_root_idx(res)].inner_perms.ref_count.value()
+            != REF_COUNT_UNUSED,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -44,14 +61,15 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
             ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
         // nodes — every *changed* slot was UNUSED before and becomes a
-        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
-        // from this single clause.
+        // non-UNUSED PT node (`usage == PageTable`). `accounting_inv`
+        // chains from this; the `usage == PageTable` strengthening also
+        // feeds `structural_inv`'s slot-perm coverage exception.
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+                &&& final(regions).slot_owners[i].usage == PageUsage::PageTable
             },
         forall|c: CursorOwner<'a, UserPtConfig>|
             #![auto]
@@ -72,12 +90,20 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
     ensures
         final(regions).inv(),
         res.inv(),
-        // `VmSpace::new` (`create_user_page_table`) allocates a fresh
-        // page table; it never touches the boot-fixed metadata slot-perm
-        // map nor the `raw_count` / `in_list` fields. Preserving the
-        // `slots` domain (#2 / #3b) and `raw_count` / `in_list` (#4
-        // partial) keeps `VmStore::inv`'s coverage clauses chainable.
-        final(regions).slots == old(regions).slots,
+        // `VmSpace::new` (`create_user_page_table` → `empty_with_owner`)
+        // allocates a fresh PT root and PERMANENTLY extracts its slot
+        // perm from `regions.slots` (the root is owned by the page table,
+        // not parked in the free pool). Every OTHER slot perm is
+        // preserved. The extracted root slot is an active page-table node
+        // (`usage == PageTable`, `rc != UNUSED`) — exactly the
+        // `structural_inv` slot-perm coverage exception, so coverage
+        // stays chainable. (Mirrors `empty_with_owner`'s ensures, which
+        // removes `frame_to_index(root_paddr)` from `regions.slots`.)
+        old(regions).slots.contains_key(vm_space_root_idx(res)),
+        final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
+        final(regions).slot_owners[vm_space_root_idx(res)].usage == PageUsage::PageTable,
+        final(regions).slot_owners[vm_space_root_idx(res)].inner_perms.ref_count.value()
+            != REF_COUNT_UNUSED,
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
@@ -85,14 +111,15 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
             ).slot_owners[i].inner_perms.in_list,
         // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
         // nodes — every *changed* slot was UNUSED before and becomes a
-        // non-UNUSED PT node (usage != Frame). `accounting_inv` chains
-        // from this single clause.
+        // non-UNUSED PT node (`usage == PageTable`). `accounting_inv`
+        // chains from this; the `usage == PageTable` strengthening also
+        // feeds `structural_inv`'s slot-perm coverage exception.
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+                &&& final(regions).slot_owners[i].usage == PageUsage::PageTable
             },
         forall|c: CursorOwner<'a, UserPtConfig>|
             #![auto]

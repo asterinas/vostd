@@ -536,6 +536,16 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
                     regions,
                 ).slot_owners[i].inner_perms.storage
             },
+        // Unparked (page-table-node) slots are untouched: a slot whose
+        // perm is not parked in `regions.slots` is a PT root, an ancestor
+        // of (hence outside) the unmapped range, so unmap leaves its
+        // `slot_owner` (rc/usage/…) intact. Preserves the embedding's
+        // slot-perm coverage exception.
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         // **Frame-slot per-PTE accounting.** For each Frame-usage slot
         // affected by unmap, removing `k` PTEs decreases both `rc` and
         // `paths_in_pt.len()` by `k`, preserving the difference
@@ -956,6 +966,13 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
                     regions,
                 ).slot_owners[i].inner_perms.storage
             },
+        // Unparked (page-table-node) slots untouched (see
+        // `cursor_mut_unmap_embedded`); preserves the coverage exception.
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             old(regions).slot_owners[i].usage == PageUsage::Frame ==> {
