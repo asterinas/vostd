@@ -219,9 +219,11 @@ impl<M> Frame<M> {
             final(regions).slots == old(regions).slots,
             obl@.value() == frame_to_index(paddr),
     )]
-    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self {
+    pub(in crate::mm) unsafe fn from_raw(paddr: Paddr) -> Self
+        no_unwind
+    {
         let vaddr = frame_to_meta(paddr);
-        let ptr = PPtr::from_addr(vaddr);
+        let ptr = PPtr(vaddr, PhantomData);
 
         let ghost idx = frame_to_index(paddr);
 
