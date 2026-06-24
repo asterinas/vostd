@@ -351,7 +351,7 @@ impl MetaSlot {
         returns
             perm.addr(),
     )]
-    fn addr_of(&self) -> Paddr {
+    fn addr_of(&self) -> Vaddr {
         unimplemented!()
     }
 
@@ -376,6 +376,7 @@ impl MetaSlot {
     /// ## Safety
     /// - This function returns an error if `paddr` does not correspond to a valid slot or the slot is in use.
     /// - Accesses to the slot itself are gated by atomic checks, avoiding data races.
+    // FIXME: No need to give out the slot permission under the current `&mut MetaRegionOwners` design.
     #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
@@ -411,7 +412,6 @@ impl MetaSlot {
         let slot = get_slot(paddr)?;
 
         proof {
-            assert(has_safe_slot(paddr));
             regions.inv_implies_correct_addr(paddr);
         }
 
@@ -444,9 +444,6 @@ impl MetaSlot {
                     regions.slot_owners[idx].inner_perms.ref_count,
                     old(regions).slot_owners[idx].inner_perms.ref_count,
                 );
-                assert(regions.slot_owners[idx] == old(regions).slot_owners[idx]);
-                assert(regions.slot_owners == old(regions).slot_owners);
-                assert(regions.slots == old(regions).slots);
                 assert(*regions == *old(regions));
             }
 
@@ -498,10 +495,12 @@ impl MetaSlot {
             perm.value().ref_count.id() == old(inner_perms).ref_count.id(),
             old(inner_perms).ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
         ensures
-            res is Ok ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value() + 1,
-            res is Ok ==> final(inner_perms).ref_count.value() <= REF_COUNT_MAX,
-            res is Ok ==> old(inner_perms).ref_count.value() > 0,
-            res matches Ok(ptr) ==> ptr == slot,
+            res matches Ok(ptr) ==> {
+                &&& final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value() + 1
+                &&& final(inner_perms).ref_count.value() <= REF_COUNT_MAX
+                &&& old(inner_perms).ref_count.value() > 0
+                &&& ptr == slot
+            },
             res is Err ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value(),
             final(inner_perms).ref_count.id() == old(inner_perms).ref_count.id(),
             final(inner_perms).storage == old(inner_perms).storage,
@@ -579,7 +578,6 @@ impl MetaSlot {
 
         proof {
             assert(regions0 == *old(regions));
-            assert(has_safe_slot(paddr));
             // `get_slot` succeeded ⟹ `has_safe_slot(paddr)`; with `regions.inv()`
             // that recovers the slot facts the caller used to supply: the slot is
             // present, its address is `frame_to_meta(paddr)`, and its inner-perm
@@ -652,73 +650,16 @@ impl MetaSlot {
                         assert(slot_own.inner_perms.ref_count.id()
                             == regions0.slot_owners[idx].inner_perms.ref_count.id());
 
-                        let ghost orig = regions0.slot_owners[idx];
-                        assert(orig.inv());
-                        assert(pre == orig.inner_perms.ref_count.value());
-
-                        assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
-
-                        if res is Ok {
-                            assert(slot_own.inner_perms.ref_count.value() == pre + 1);
-                            assert(slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX);
-                            assert(pre > 0);
-                            assert(0 < orig.inner_perms.ref_count.value());
-                            assert(orig.inner_perms.ref_count.value() <= REF_COUNT_MAX);
-                            assert(orig.inner_perms.vtable_ptr.is_init());
-                            assert(slot_own.inner_perms.vtable_ptr.is_init());
-                        } else {
-                            assert(slot_own.inner_perms.ref_count.value() == pre);
-                            assert(slot_own.inner_perms.ref_count.value()
-                                == orig.inner_perms.ref_count.value());
-                            assert(slot_own.inner_perms.ref_count.id()
-                                == orig.inner_perms.ref_count.id());
-                            assert(slot_own.inner_perms.storage == orig.inner_perms.storage);
-                            assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
-                            assert(slot_own.inner_perms.in_list == orig.inner_perms.in_list);
-                        }
                         assert(slot_own.inv());
-                        assert(slot_perm.value().wf(slot_own));
-                        assert(slot_own.self_addr == slot_perm.addr());
-
-                        if res is Err {
-                            assert(slot_own.inner_perms.ref_count.value() == pre);
-                            assert(slot_own.inner_perms.ref_count.id()
-                                == orig.inner_perms.ref_count.id());
-                            assert(slot_own.inner_perms.storage == orig.inner_perms.storage);
-                            assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
-                            assert(slot_own.inner_perms.in_list == orig.inner_perms.in_list);
-                        }
                         regions.slot_owners.tracked_insert(idx, slot_own);
 
                         assert(regions.slot_owners.dom() == regions0.slot_owners.dom());
                         assert(regions.slots == regions0.slots);
 
-                        assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i]
-                            == regions0.slot_owners[i] by {};
-
-                        assert(regions.slot_owners[idx].inner_perms.ref_count.id()
-                            == regions0.slot_owners[idx].inner_perms.ref_count.id());
-                        assert(regions.slot_owners[idx].inner_perms.storage
-                            == regions0.slot_owners[idx].inner_perms.storage);
-                        assert(regions.slot_owners[idx].inner_perms.vtable_ptr
-                            == regions0.slot_owners[idx].inner_perms.vtable_ptr);
-                        assert(regions.slot_owners[idx].inner_perms.in_list
-                            == regions0.slot_owners[idx].inner_perms.in_list);
-                        assert(regions.slot_owners[idx].self_addr
-                            == regions0.slot_owners[idx].self_addr);
-                        assert(regions.slot_owners[idx].usage == regions0.slot_owners[idx].usage);
-
-                        // For ptr postcondition: slot_perm.pptr() == old(regions).slots[idx].pptr()
-                        assert(*slot_perm == regions0.slots[idx]);
-
                         // For Err ==> *regions == *old(regions)
                         if res is Err {
                             // On Err, ref_count unchanged so slot_own == orig.
                             // Use extensional equality axiom for PermissionU64.
-                            assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                                == regions0.slot_owners[idx].inner_perms.ref_count.value());
-                            assert(regions.slot_owners[idx].inner_perms.ref_count.id()
-                                == regions0.slot_owners[idx].inner_perms.ref_count.id());
                             vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
                                 regions.slot_owners[idx].inner_perms.ref_count,
                                 regions0.slot_owners[idx].inner_perms.ref_count,

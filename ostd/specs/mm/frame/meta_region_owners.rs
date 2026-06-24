@@ -45,6 +45,7 @@ verus! {
 /// Double-free happens when `from_raw` is called on a frame that is not forgotten, or that has been
 /// dropped with `ManuallyDrop::drop` instead of `into_raw`. All functions in
 /// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
+#[verifier::ext_equal]
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
