@@ -1011,14 +1011,12 @@ impl<C: PageTableConfig> CursorView<C> {
     )
         requires
             self.inv(),
-            split_view.inv(),
             size >= PAGE_SIZE,
             self.cur_va <= split_view.cur_va,
             self.cur_va < split_view.cur_va ==> !self.present(),
             self.mappings.filter(|m2: Mapping| self.cur_va <= m2.va_range.start < split_view.cur_va)
                 == Set::<Mapping>::empty(),
-            self.split_while_huge(size).mappings == split_view.split_while_huge(size).mappings,
-            split_view.split_while_huge(size).mappings.contains(m),
+            self.split_while_huge(size).mappings.contains(m),
             self.cur_va <= m.va_range.start < split_view.cur_va,
         ensures
             self.mappings.contains(m),
@@ -1043,6 +1041,74 @@ impl<C: PageTableConfig> CursorView<C> {
             } else {
             }
         }
+    }
+
+    pub proof fn split_while_huge_difference_preserves_empty_prefix(
+        self,
+        split_view: CursorView<C>,
+        size: usize,
+        after_mappings: Set<Mapping>,
+        removed_mappings: Set<Mapping>,
+    )
+        requires
+            self.inv(),
+            size >= PAGE_SIZE,
+            self.cur_va <= split_view.cur_va,
+            self.cur_va < split_view.cur_va ==> !self.present(),
+            self.mappings.filter(|m2: Mapping| self.cur_va <= m2.va_range.start < split_view.cur_va)
+                == Set::<Mapping>::empty(),
+            after_mappings == self.split_while_huge(size).mappings - removed_mappings,
+        ensures
+            after_mappings.filter(|m: Mapping| self.cur_va <= m.va_range.start < split_view.cur_va)
+                == Set::<Mapping>::empty(),
+    {
+        assert forall|m: Mapping| #[trigger]
+            after_mappings.contains(m) && self.cur_va <= m.va_range.start && m.va_range.start
+                < split_view.cur_va implies false by {
+            assert(self.split_while_huge(size).mappings.contains(m));
+            self.split_while_huge_preserves_empty_prefix(split_view, size, m);
+            assert(self.mappings.contains(m));
+            assert(self.mappings.filter(
+                |m2: Mapping| self.cur_va <= m2.va_range.start < split_view.cur_va,
+            ).contains(m));
+        };
+        assert(after_mappings.filter(
+            |m: Mapping| self.cur_va <= m.va_range.start < split_view.cur_va,
+        ) == Set::<Mapping>::empty());
+    }
+
+    pub proof fn difference_of_slot_has_empty_prefix(
+        before_mappings: Set<Mapping>,
+        after_mappings: Set<Mapping>,
+        start: Vaddr,
+        size: usize,
+        end: Vaddr,
+    )
+        requires
+            after_mappings == before_mappings - before_mappings.filter(
+                |m: Mapping| start <= m.va_range.start < (start + size) as Vaddr,
+            ),
+            end <= (start + size) as Vaddr,
+        ensures
+            after_mappings.filter(|m: Mapping| start <= m.va_range.start < end) == Set::<
+                Mapping,
+            >::empty(),
+    {
+        assert forall|m: Mapping| #[trigger]
+            after_mappings.contains(m) && start <= m.va_range.start < end implies false by {
+            assert(after_mappings.contains(m));
+            assert(start <= m.va_range.start < end);
+            assert(before_mappings.contains(m));
+            assert(before_mappings.filter(
+                |m2: Mapping| start <= m2.va_range.start < (start + size) as Vaddr,
+            ).contains(m));
+            assert(!(before_mappings - before_mappings.filter(
+                |m2: Mapping| start <= m2.va_range.start < (start + size) as Vaddr,
+            )).contains(m));
+        };
+        assert(after_mappings.filter(|m: Mapping| start <= m.va_range.start < end) == Set::<
+            Mapping,
+        >::empty());
     }
 
     /// `split_while_huge` produces a set disjoint from any set that is

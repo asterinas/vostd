@@ -3649,26 +3649,32 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 == Set::<Mapping>::empty());
 
             let ghost ps = page_size(level_after_find);
+            let view = CursorView::<C> {
+                cur_va: frag_va as Vaddr,
+                mappings: old(owner)@.mappings,
+                phantom: PhantomData,
+            };
+            old(owner).view_preserves_inv();
+            assert(ps >= PAGE_SIZE) by {
+                crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
+                level_after_find);
+            };
+            assert(owner@.mappings == owner_before_replace@.mappings - old_cur_subtree_mappings);
+            assert(owner@.mappings == old(owner)@.split_while_huge(ps).mappings
+                - old_cur_subtree_mappings);
+            old(owner)@.split_while_huge_difference_preserves_empty_prefix(
+                view,
+                ps,
+                owner@.mappings,
+                old_cur_subtree_mappings,
+            );
             assert forall|m: Mapping|
                 #![auto]
                 owner@.mappings.contains(m) && old_va <= m.va_range.start && m.va_range.start
                     < frag_va implies old(owner)@.mappings.contains(m) by {
-                assert(owner_before_replace@.mappings.contains(m));
-                let view = CursorView::<C> {
-                    cur_va: frag_va as Vaddr,
-                    mappings: old(owner)@.mappings,
-                    phantom: PhantomData,
-                };
-                old(owner).view_preserves_inv();
-                owner_before_replace.view_preserves_inv();
-                if !old(owner)@.mappings.contains(m) {
-                    assert(ps >= PAGE_SIZE) by {
-                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-                        level_after_find);
-                    };
-                    assert(view.split_while_huge(ps).mappings.contains(m));
-                    old(owner)@.split_while_huge_preserves_empty_prefix(view, ps, m);
-                }
+                assert(owner@.mappings.filter(
+                    |m2: Mapping| old_va <= m2.va_range.start < frag_va,
+                ).contains(m));
             };
 
             owner_before_replace.va.reflect_prop(va_after_find);
@@ -3680,6 +3686,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 |m: Mapping| frag_va <= m.va_range.start < (frag_va + ps) as Vaddr,
             ));
             assert(self.0.va <= (frag_va + ps) as Vaddr);
+            CursorView::<C>::difference_of_slot_has_empty_prefix(
+                owner_before_replace@.mappings,
+                owner@.mappings,
+                frag_va,
+                ps,
+                self.0.va,
+            );
             assert(owner@.mappings.filter(|m: Mapping| frag_va <= m.va_range.start < self.0.va)
                 == Set::<Mapping>::empty());
         }
