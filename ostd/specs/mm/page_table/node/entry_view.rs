@@ -110,7 +110,6 @@ impl<C: PageTableConfig> LeafPageTableEntryView<C> {
 pub ghost enum EntryView<C: PageTableConfig> {
     Leaf { leaf: LeafPageTableEntryView<C> },
     Intermediate { node: IntermediatePageTableEntryView<C> },
-    LockedSubtree { views: Seq<FrameView<C>> },
     Absent,
 }
 
@@ -120,7 +119,6 @@ impl<C: PageTableConfig> Inv for EntryView<C> {
         match self {
             Self::Leaf { leaf: _ } => self->leaf.inv(),
             Self::Intermediate { node: _ } => self->node.inv(),
-            Self::LockedSubtree { views: _ } => forall|i: int| #[trigger] self->views[i].inv(),
             Self::Absent => true,
         }
         */

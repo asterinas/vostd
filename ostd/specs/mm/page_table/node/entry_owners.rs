@@ -23,20 +23,25 @@ use core::marker::PhantomData;
 
 verus! {
 
+/// # Verification Design
+/// The owner type for a page table leaf: a frame mapped in a node. Asterinas supports
+/// huge pages, so it is not necessarily at level 1.
+/// - `mapped_pa` is the physical address of the mapped frame.
+/// - `size` is the size of the mapping, which corresponds to the level of the parent
+///   page table. 4k at level 1, 2M at level 2, and 1G at level 3.
+/// - `prop` is a bitfield tracking the properties of the page ([`PageProperty`])
+/// - `is_tracked` refers to whether the frame is ref-counted (when `true`) or
+///   raw MMIO (when `false`).
 pub tracked struct FrameEntryOwner {
     pub mapped_pa: usize,
     pub size: usize,
     pub prop: PageProperty,
-    /// Whether the frame is ref-counted (Tracked) or raw MMIO (Untracked).
-    /// Determines whether the slot at `frame_to_index(mapped_pa)` carries a
-    /// non-zero refcount and participates in `metaregion_sound`'s rc check.
     pub is_tracked: bool,
 }
 
 pub tracked enum EntryOwnerKind<C: PageTableConfig> {
     Node(NodeOwner<C>),
     Frame(FrameEntryOwner),
-    Locked(ghost Seq<FrameView<C>>),
     /// Translation-only / borrowed-sub-tree variant.
     ///
     /// Present when the slot's PTE references a sub-tree owned by *another*
@@ -45,7 +50,7 @@ pub tracked enum EntryOwnerKind<C: PageTableConfig> {
     /// records the mappings reachable through that sub-tree so the
     /// embedding can reason about what the borrowed translation provides
     /// without descending into a sub-tree it does not own. Mutually
-    /// exclusive with `node`, `frame`, `locked`, and `absent` by construction.
+    /// exclusive with `node`, `frame`, and `absent` by construction.
     Borrowed(ghost Set<Mapping>),
     Absent,
 }
@@ -68,11 +73,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     #[verifier::inline]
-    pub open spec fn is_locked(self) -> bool {
-        self.kind is Locked
-    }
-
-    #[verifier::inline]
     pub open spec fn is_absent(self) -> bool {
         self.kind is Absent
     }
@@ -88,10 +88,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn frame(self) -> FrameEntryOwner {
         self.kind->Frame_0
-    }
-
-    pub open spec fn locked(self) -> Seq<FrameView<C>> {
-        self.kind->Locked_0
     }
 
     pub open spec fn borrowed(self) -> Set<Mapping> {
@@ -1012,7 +1008,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
         }
-        &&& self.is_locked() ==> { true }
         &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()
     }
@@ -1053,9 +1048,6 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                     phantom: PhantomData,
                 },
             }
-        } else if self.is_locked() {
-            let view = self.locked();
-            EntryView::LockedSubtree { views: view }
         } else {
             EntryView::Absent
         }

@@ -27,24 +27,14 @@ verus! {
 
 /// Represents the ownership of the meta-frame memory region.
 /// # Verification Design
-/// ## Slot owners
+/// ## Slot owners and permissions
 /// Every metadata slot has its owner ([`MetaSlotOwner`]) tracked by the `slot_owners` map at all times.
 /// This makes the `MetaRegionOwners` the one place that tracks every frame, whether or not it is
-/// in use.
-/// ## Slot permissions
-/// We treat the slot permissions differently depending on how they are used. The permissions of unused slots
-/// are tracked in `slots`, as are those of frames that do not otherwise belong to any other data structure.
-/// This is necessary because those frames can have a new reference taken at any time via `Frame::from_in_use`.
-/// Unique frames and frames that are forgotten with `into_raw` have their permissions tracked by the owner of
-/// whatever object they belong to. Their permissions will be returned to `slots` when the object is dropped.
-/// Whether or not the frame has a permission in `slots`, it will always have an owner in `slot_owners`,
-/// which tracks information that needs to be globally visible.
+/// in use. Likewise, every slot has an permission stored in `slots`.
 /// ## Safety
-/// Forgetting a slot with `into_raw` or `ManuallyDrop::new` will leak the frame.
-/// Forgetting it multiple times without restoring it will likely result in a memory leak, but not double-free.
-/// Double-free happens when `from_raw` is called on a frame that is not forgotten, or that has been
-/// dropped with `ManuallyDrop::drop` instead of `into_raw`. All functions in
-/// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
+/// The `frame_obligations` table tracks how many active (in-scope) frames exist for each slot.
+/// Each one corresponds to an active drop obligation that must be consumed when its owner leaves scope,
+/// either by dropping it with an explicit call to `drop` or forgetting it with `ManuallyDrop`.
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,

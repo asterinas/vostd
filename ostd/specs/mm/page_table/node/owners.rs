@@ -211,14 +211,22 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
     }
 }
 
+/// # Verification Design
+/// The owner type for a page table node. It contains:
+/// - `meta_own`, a `PageMetaOwner`, which holds the permissions for node-specific
+///   metadata fields, `nr_children` and `stray`
+/// - `children_perm` is an array permission for the underlying frame in which the node
+///   is allocated, interpreted as an array of `NR_ENTRIES` page table entries
+/// - `slot_index` identifies the underlying frame's index in the metadata region
+/// - Each node is a page table with a level between 1 and 4 (on x86); `level` tracks
+///   the level of this node.
+/// - `tree_level` is the level field of the `ghost_tree::Node` that carries this object.
+///   Carried here for convenience, though it can be computed from `level`.
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub level: PagingLevel,
     pub tree_level: int,
-    /// Borrow-model handle for the node's metadata slot: identifies the slot
-    /// in `MetaRegionOwners` where the perm is parked. Consumers source the
-    /// perm via `regions.borrow_typed_perm(slot_index)`.
     pub slot_index: usize,
 }
 
