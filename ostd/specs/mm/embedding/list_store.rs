@@ -1069,7 +1069,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// `LinkedList::push_front`: move the loose handle `lid` to the front
     /// of list `id`. The frame is forgotten into the list (its
     /// drop-obligation consumed); the `loose` entry is removed.
-    #[allow(deprecated)]
     pub proof fn step_push_front(tracked &mut self, id: ListId, lid: LooseId)
         requires
             old(self).inv(),
@@ -1082,7 +1081,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost old_regions = self.regions;
         let ghost fidx = self.loose[lid].slot_index;
         // The other lists' ids — the lazily-minted id must avoid these.
-        let ghost used = Set::new_assuming_finite(
+        let ghost used = Set::<u64>::full().unwrap().filter(
             |x: u64|
                 (exists|i: ListId| #[trigger]
                     old_self.lists.dom().contains(i) && i != id && old_self.lists[i].list_id == x)
@@ -1372,7 +1371,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// `LinkedList::push_back`: move the loose handle `lid` to the back
     /// of list `id`. Same global effect as [`Self::step_push_front`] —
     /// only the link's position within the list differs.
-    #[allow(deprecated)]
     pub proof fn step_push_back(tracked &mut self, id: ListId, lid: LooseId)
         requires
             old(self).inv(),
@@ -1384,7 +1382,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost old_self = *self;
         let ghost old_regions = self.regions;
         let ghost fidx = self.loose[lid].slot_index;
-        let ghost used = Set::new_assuming_finite(
+        let ghost used = Set::<u64>::full().unwrap().filter(
             |x: u64|
                 (exists|i: ListId| #[trigger]
                     old_self.lists.dom().contains(i) && i != id && old_self.lists[i].list_id == x)
@@ -1658,7 +1656,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// loose handle `lid` into list `id` at index `n` (`0 <= n <= len`).
     /// The general form of [`Self::step_push_front`] /
     /// [`Self::step_push_back`]; same global effect.
-    #[allow(deprecated)]
     pub proof fn step_insert_before_at(tracked &mut self, id: ListId, n: int, lid: LooseId)
         requires
             old(self).inv(),
@@ -1671,7 +1668,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost old_self = *self;
         let ghost old_regions = self.regions;
         let ghost fidx = self.loose[lid].slot_index;
-        let ghost used = Set::new_assuming_finite(
+        let ghost used = Set::<u64>::full().unwrap().filter(
             |x: u64|
                 (exists|i: ListId| #[trigger]
                     old_self.lists.dom().contains(i) && i != id && old_self.lists[i].list_id == x)
@@ -2432,7 +2429,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// [`Self::step_insert_before_at`], but on the list parked in
     /// `cursors` rather than `lists` — so *every* held list is an "other
     /// list" preserved by the axiom's frame.
-    #[allow(deprecated)]
     pub proof fn step_cursor_insert_before(tracked &mut self, id: CursorId, lid: LooseId)
         requires
             old(self).inv(),
@@ -2446,7 +2442,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost fidx = self.loose[lid].slot_index;
         let ghost n = self.cursors[id].index;
         // Avoid every other list's *and* every other cursor's id.
-        let ghost used = Set::new_assuming_finite(
+        let ghost used = Set::<u64>::full().unwrap().filter(
             |x: u64|
                 (exists|i: ListId| #[trigger]
                     old_self.lists.dom().contains(i) && old_self.lists[i].list_id == x) || (exists|
