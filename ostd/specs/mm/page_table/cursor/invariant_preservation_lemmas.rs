@@ -170,8 +170,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,
-            regions1.slot_owners[changed_idx].self_addr
-                == regions0.slot_owners[changed_idx].self_addr,
+            regions1.slot_owners[changed_idx].slot_vaddr
+                == regions0.slot_owners[changed_idx].slot_vaddr,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt.insert(new_path),
@@ -468,8 +468,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,
-            regions1.slot_owners[changed_idx].self_addr
-                == regions0.slot_owners[changed_idx].self_addr,
+            regions1.slot_owners[changed_idx].slot_vaddr
+                == regions0.slot_owners[changed_idx].slot_vaddr,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt.remove(removed_path),
@@ -616,8 +616,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 i != removed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[removed_idx].inner_perms
                 == regions0.slot_owners[removed_idx].inner_perms,
-            regions1.slot_owners[removed_idx].self_addr
-                == regions0.slot_owners[removed_idx].self_addr,
+            regions1.slot_owners[removed_idx].slot_vaddr
+                == regions0.slot_owners[removed_idx].slot_vaddr,
             regions1.slot_owners[removed_idx].usage == regions0.slot_owners[removed_idx].usage,
             regions1.slot_owners[removed_idx].paths_in_pt
                 == regions0.slot_owners[removed_idx].paths_in_pt.remove(removed_path),

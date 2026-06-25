@@ -696,7 +696,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& new_perm.slot_owners[idx].inner_perms.in_list
             == old_perm.slot_owners[idx].inner_perms.in_list
         &&& new_perm.slot_owners[idx].paths_in_pt == old_perm.slot_owners[idx].paths_in_pt
-        &&& new_perm.slot_owners[idx].self_addr == old_perm.slot_owners[idx].self_addr
+        &&& new_perm.slot_owners[idx].slot_vaddr == old_perm.slot_owners[idx].slot_vaddr
         &&& new_perm.slot_owners[idx].usage
             == old_perm.slot_owners[idx].usage
         // Other slot_owners unchanged
@@ -766,7 +766,7 @@ impl<M: ?Sized> Drop for Frame<M> {
         // are untouched here.
         proof {
             assert(last_ref_cnt == so0.inner_perms.ref_count.value());
-            assert(slot_own.self_addr == so0.self_addr);
+            assert(slot_own.slot_vaddr == so0.slot_vaddr);
             assert(slot_own.usage == so0.usage);
             assert(slot_own.paths_in_pt == so0.paths_in_pt);
         }
@@ -794,10 +794,10 @@ impl<M: ?Sized> Drop for Frame<M> {
 
             proof {
                 // last-ref teardown: slot is UNUSED, identity preserved
-                // (drop_last_in_place ensures self_addr/usage/paths_in_pt).
+                // (drop_last_in_place ensures slot_vaddr/usage/paths_in_pt).
                 assert(so0.inner_perms.ref_count.value() == 1);
                 assert(slot_own.inner_perms.ref_count.value() == REF_COUNT_UNUSED);
-                assert(slot_own.self_addr == so0.self_addr);
+                assert(slot_own.slot_vaddr == so0.slot_vaddr);
                 assert(slot_own.usage == so0.usage);
                 assert(slot_own.paths_in_pt == so0.paths_in_pt);
             }
@@ -814,7 +814,7 @@ impl<M: ?Sized> Drop for Frame<M> {
                 assert(so0.inner_perms.ref_count.value() > 1);
                 assert(slot_own.inner_perms.ref_count.value() == (so0.inner_perms.ref_count.value()
                     - 1) as u64);
-                assert(slot_own.self_addr == so0.self_addr);
+                assert(slot_own.slot_vaddr == so0.slot_vaddr);
                 assert(slot_own.usage == so0.usage);
                 assert(slot_own.paths_in_pt == so0.paths_in_pt);
             }
@@ -833,7 +833,7 @@ impl<M: ?Sized> Drop for Frame<M> {
             // is now `slot_own` (the post-drop owner).
             assert(so0 == old_regions.slot_owners[idx]);
             assert(regions.slot_owners[idx] == slot_own);
-            assert(regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr);
+            assert(regions.slot_owners[idx].slot_vaddr == old_regions.slot_owners[idx].slot_vaddr);
             assert(regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage);
             assert(regions.slot_owners[idx].paths_in_pt
                 == old_regions.slot_owners[idx].paths_in_pt);
@@ -864,13 +864,13 @@ impl<M: ?Sized> Drop for Frame<M> {
                 &&& regions.slots[i].is_init()
                 &&& regions.slots[i].addr() == meta_addr(i)
                 &&& regions.slots[i].value().wf(regions.slot_owners[i])
-                &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
+                &&& regions.slot_owners[i].slot_vaddr == regions.slots[i].addr()
             }) by {
                 if i == idx {
                     assert(regions.slots[i].is_init());
                     assert(regions.slots[i].addr() == meta_addr(i));
                     assert(regions.slots[i].value().wf(regions.slot_owners[i]));
-                    assert(regions.slot_owners[i].self_addr == regions.slots[i].addr());
+                    assert(regions.slot_owners[i].slot_vaddr == regions.slots[i].addr());
                 }
             }
 
@@ -995,9 +995,9 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].paths_in_pt,
-        final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
+        final(regions).slot_owners[frame_to_index(paddr)].slot_vaddr == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].self_addr,
+        ).slot_owners[frame_to_index(paddr)].slot_vaddr,
         final(regions).slot_owners[frame_to_index(paddr)].usage == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].usage,
@@ -1034,7 +1034,7 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
             regions,
         ).slot_owners[idx].inner_perms.ref_count.id());
 
-        // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, self_addr ok
+        // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, slot_vaddr ok
         assert(slot_own.inv());
 
         // wf: the slot's cell ids still match the (updated) inner_perms ids

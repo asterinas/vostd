@@ -778,7 +778,7 @@ impl MetaSlot {
             final(owner).inner_perms.vtable_ptr.is_uninit(),
             final(owner).inner_perms.vtable_ptr.pptr() == old(owner).inner_perms.vtable_ptr.pptr(),
             final(owner).inner_perms.in_list == old(owner).inner_perms.in_list,
-            final(owner).self_addr == old(owner).self_addr,
+            final(owner).slot_vaddr == old(owner).slot_vaddr,
             final(owner).usage == old(owner).usage,
             final(owner).paths_in_pt == old(owner).paths_in_pt,
     )]
@@ -828,7 +828,7 @@ impl MetaSlot {
             final(slot_own).inner_perms.in_list == old(slot_own).inner_perms.in_list,
             final(slot_own).inner_perms.vtable_ptr.is_uninit(),
             final(slot_own).inner_perms.vtable_ptr.pptr() == old(slot_own).inner_perms.vtable_ptr.pptr(),
-            final(slot_own).self_addr == old(slot_own).self_addr,
+            final(slot_own).slot_vaddr == old(slot_own).slot_vaddr,
             final(slot_own).usage == old(slot_own).usage,
             final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
     )]

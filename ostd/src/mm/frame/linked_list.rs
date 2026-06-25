@@ -854,7 +854,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& final(regions).slot_owners[idx].inner_perms.in_list.value() == 0
                 &&& final(regions).slot_owners[idx].inner_perms.storage.is_init()
                 &&& final(regions).slot_owners[idx].inner_perms.vtable_ptr.is_init()
-                &&& final(regions).slot_owners[idx].self_addr == meta_addr(idx)
+                &&& final(regions).slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& final(regions).slot_owners[idx].paths_in_pt == old(
                     regions,
                 ).slot_owners[idx].paths_in_pt
@@ -863,9 +863,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 #![trigger final(regions).slot_owners[j]]
                 j != frame_to_index(meta_to_frame(old(self).current->0.addr())) ==> {
                     &&& final(regions).slot_owners[j].usage == old(regions).slot_owners[j].usage
-                    &&& final(regions).slot_owners[j].self_addr == old(
+                    &&& final(regions).slot_owners[j].slot_vaddr == old(
                         regions,
-                    ).slot_owners[j].self_addr
+                    ).slot_owners[j].slot_vaddr
                     &&& final(regions).slot_owners[j].paths_in_pt == old(
                         regions,
                     ).slot_owners[j].paths_in_pt
@@ -919,7 +919,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(regions.slots.dom() == regions0.slots.dom());
             assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
             } by {}
         }
@@ -954,7 +954,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(regions.slots.dom() == regions0.slots.dom());
                 assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                    &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                    &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {
                     if j == frame_to_index(meta_to_frame(prev.addr())) {
@@ -969,7 +969,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(regions.slots.dom() == regions0.slots.dom());
                 assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                    &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                    &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {}
             }
@@ -998,7 +998,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(regions.slots.dom() == regions0.slots.dom());
                 assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                    &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                    &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {
                     if j == frame_to_index(meta_to_frame(next.addr())) {
@@ -1015,7 +1015,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 assert(regions.slots.dom() == regions0.slots.dom());
                 assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                    &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                    &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {}
             }
@@ -1041,7 +1041,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(regions.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt);
             assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
             } by {}
         }
@@ -1529,7 +1529,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
                 )) ==> {
                 &&& s1.1.frame_obligations.count(idx) == s0.1.frame_obligations.count(idx)
                 &&& s1.1.slot_owners[idx].usage == s0.1.slot_owners[idx].usage
-                &&& s1.1.slot_owners[idx].self_addr == s0.1.slot_owners[idx].self_addr
+                &&& s1.1.slot_owners[idx].slot_vaddr == s0.1.slot_owners[idx].slot_vaddr
                 &&& s1.1.slot_owners[idx].paths_in_pt == s0.1.slot_owners[idx].paths_in_pt
             }
         &&& s1.1.slots.dom() =~= s0.1.slots.dom()
@@ -1643,8 +1643,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                             == original_regions.frame_obligations.count(idx)
                         &&& regions.slot_owners[idx].usage
                             == original_regions.slot_owners[idx].usage
-                        &&& regions.slot_owners[idx].self_addr
-                            == original_regions.slot_owners[idx].self_addr
+                        &&& regions.slot_owners[idx].slot_vaddr
+                            == original_regions.slot_owners[idx].slot_vaddr
                         &&& regions.slot_owners[idx].paths_in_pt
                             == original_regions.slot_owners[idx].paths_in_pt
                     },

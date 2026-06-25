@@ -1186,7 +1186,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value.node().metaregion_sound_node(*regions),
                 // The new node's own-slot rc + paths_in_pt — the only
                 // `metaregion_sound` conjuncts not derivable from
-                // `metaregion_sound_node` (self_addr/wf derive). Carried so
+                // `metaregion_sound_node` (slot_vaddr/wf derive). Carried so
                 // `into_pte`'s `Child::invariants` holds after the loop.
                 regions.slot_owners[frame_to_index(
                     meta_to_frame(new_owner_meta_addr),

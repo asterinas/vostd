@@ -70,7 +70,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// [`UniqueFrame::drop`]) can state a single invariant instead of re-listing
     /// each conjunct.
     ///
-    /// The slot's `slot_owners.contains_key(idx)`, `self_addr == meta_addr(idx)`,
+    /// The slot's `slot_owners.contains_key(idx)`, `slot_vaddr == meta_addr(idx)`,
     /// `storage.is_init()`, and `vtable_ptr.is_init()` are **derived**, not
     /// required: `regions.inv()` (with `owner.inv()`'s `idx < max_meta_slots`)
     /// delivers the first two and `slot_owners[idx].inv()`; the latter's UNIQUE
@@ -132,7 +132,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& perm.addr() == meta_addr(self.slot_index)
         &&& perm.addr() == perm.points_to.addr()
         &&& perm.value().metadata.wf(self.meta_own)
-        &&& regions.slot_owners[self.slot_index].self_addr == meta_addr(self.slot_index)
+        &&& regions.slot_owners[self.slot_index].slot_vaddr == meta_addr(self.slot_index)
         &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value()
             == REF_COUNT_UNIQUE
         // Data-frame node-repark discriminator (our change): a unique frame's
@@ -219,8 +219,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     ) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].self_addr
-            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].self_addr
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].slot_vaddr
+            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].slot_vaddr
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt

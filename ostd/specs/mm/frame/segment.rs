@@ -146,7 +146,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     ///
     /// For every frame `i` in the segment, this asserts:
     /// - the slot owner is present in `regions` and the perm matches it,
-    /// - the slot's `self_addr` is consistent with its index,
+    /// - the slot's `slot_vaddr` is consistent with its index,
     /// - the slot has a live, non-`UNUSED` reference count,
     /// - `raw_count == 1` (the segment holds one forgotten reference per frame),
     /// - the slot's perm is *not* in `regions.slots` (it lives in `self.perms`),
@@ -173,7 +173,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                     idx,
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
-                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
                 // Segment frames are shared (never `UNIQUE`); the upper
@@ -214,7 +214,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                     idx,
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
-                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX

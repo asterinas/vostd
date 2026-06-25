@@ -606,7 +606,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
-            &&& regions.slot_owners[idx].self_addr == self.node().meta_addr_self()
+            &&& regions.slot_owners[idx].slot_vaddr == self.node().meta_addr_self()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node().metaregion_sound_node(regions)
@@ -765,7 +765,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
             // At changed_idx, only paths_in_pt differs.
             r1.slot_owners[changed_idx].inner_perms == r0.slot_owners[changed_idx].inner_perms,
-            r1.slot_owners[changed_idx].self_addr == r0.slot_owners[changed_idx].self_addr,
+            r1.slot_owners[changed_idx].slot_vaddr == r0.slot_owners[changed_idx].slot_vaddr,
             r1.slot_owners[changed_idx].usage == r0.slot_owners[changed_idx].usage,
             // For nodes at changed_idx: the new paths_in_pt must match this entry's path.
             self.is_node() && self.meta_slot_paddr() is Some && frame_to_index(
@@ -876,7 +876,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     == r0.slot_owners[idx].inner_perms.vtable_ptr
                 &&& r1.slot_owners[idx].inner_perms.in_list
                     == r0.slot_owners[idx].inner_perms.in_list
-                &&& r1.slot_owners[idx].self_addr == r0.slot_owners[idx].self_addr
+                &&& r1.slot_owners[idx].slot_vaddr == r0.slot_owners[idx].slot_vaddr
                 &&& r1.slot_owners[idx].paths_in_pt
                     == r0.slot_owners[idx].paths_in_pt
                 // `usage` is part of `metaregion_sound_node` (node-repark
@@ -952,12 +952,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             self.node().meta_addr_self() != other.node().meta_addr_self(),
     {
-        let self_addr = self.node().meta_addr_self();
+        let slot_vaddr = self.node().meta_addr_self();
         let other_addr = other.node().meta_addr_self();
-        let self_idx = frame_to_index(meta_to_frame(self_addr));
+        let self_idx = frame_to_index(meta_to_frame(slot_vaddr));
         let other_idx = frame_to_index(meta_to_frame(other_addr));
 
-        if self_addr == other_addr {
+        if slot_vaddr == other_addr {
             assert(regions.slot_owners[self_idx].paths_in_pt == set![self.path]);
             assert(regions.slot_owners[other_idx].paths_in_pt == set![other.path]);
             assert(set![self.path].contains(other.path));

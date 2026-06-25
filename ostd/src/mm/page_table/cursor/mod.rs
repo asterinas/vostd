@@ -229,9 +229,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& final(regions).slot_owners[frame_to_index(pa)].paths_in_pt == old(
                     regions,
                 ).slot_owners[frame_to_index(pa)].paths_in_pt
-                &&& final(regions).slot_owners[frame_to_index(pa)].self_addr == old(
+                &&& final(regions).slot_owners[frame_to_index(pa)].slot_vaddr == old(
                     regions,
-                ).slot_owners[frame_to_index(pa)].self_addr
+                ).slot_owners[frame_to_index(pa)].slot_vaddr
                 &&& final(regions).slot_owners[frame_to_index(pa)].usage == old(
                     regions,
                 ).slot_owners[frame_to_index(pa)].usage
@@ -499,9 +499,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         &&& regions.slot_owners[idx].paths_in_pt == old(
                             regions,
                         ).slot_owners[idx].paths_in_pt
-                        &&& regions.slot_owners[idx].self_addr == old(
+                        &&& regions.slot_owners[idx].slot_vaddr == old(
                             regions,
-                        ).slot_owners[idx].self_addr
+                        ).slot_owners[idx].slot_vaddr
                         &&& regions.slot_owners[idx].usage == old(regions).slot_owners[idx].usage
                         &&& regions.slot_owners[idx].inner_perms.ref_count.id() == old(
                             regions,
@@ -675,7 +675,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
                             );
-                            assert(old_regions.slot_owners[idx].self_addr == meta_addr(idx));
+                            assert(old_regions.slot_owners[idx].slot_vaddr == meta_addr(idx));
                             assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED);
                             assert(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value());
@@ -3182,7 +3182,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     &&& regions.slots[i].is_init()
                     &&& regions.slots[i].addr() == meta_addr(i)
                     &&& regions.slots[i].value().wf(regions.slot_owners[i])
-                    &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
+                    &&& regions.slot_owners[i].slot_vaddr == regions.slots[i].addr()
                 } by {
                     assert(regions_before_new_child.slots.contains_key(i));
                     if i == pa_idx_install {

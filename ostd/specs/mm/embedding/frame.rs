@@ -209,9 +209,9 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
             ).slot_owners[i],
         final(regions).slots == old(regions).slots,
         final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-        final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
+        final(regions).slot_owners[frame_to_index(paddr)].slot_vaddr == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].self_addr,
+        ).slot_owners[frame_to_index(paddr)].slot_vaddr,
         final(regions).slot_owners[frame_to_index(paddr)].usage == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].usage,

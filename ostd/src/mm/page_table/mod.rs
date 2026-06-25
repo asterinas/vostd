@@ -392,8 +392,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     == old_regions.slot_owners[frame_to_index(pa)].inner_perms.in_list
                 &&& new_regions.slot_owners[frame_to_index(pa)].paths_in_pt
                     == old_regions.slot_owners[frame_to_index(pa)].paths_in_pt
-                &&& new_regions.slot_owners[frame_to_index(pa)].self_addr
-                    == old_regions.slot_owners[frame_to_index(pa)].self_addr
+                &&& new_regions.slot_owners[frame_to_index(pa)].slot_vaddr
+                    == old_regions.slot_owners[frame_to_index(pa)].slot_vaddr
                 &&& new_regions.slot_owners[frame_to_index(pa)].usage
                     == old_regions.slot_owners[frame_to_index(pa)].usage
             },

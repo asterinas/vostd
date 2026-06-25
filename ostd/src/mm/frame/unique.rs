@@ -400,7 +400,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
         proof {
             assert(regions.slot_owners.contains_key(idx));
-            assert(regions.slot_owners[idx].self_addr == meta_addr(idx));
+            assert(regions.slot_owners[idx].slot_vaddr == meta_addr(idx));
             assert(regions.slot_owners[idx].inner_perms.storage.is_init());
             assert(regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
         }
@@ -546,11 +546,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         proof {
             // Unfold `inv_with_regions` to recover the per-slot facts.
             // `owner.inv()` gives `idx < max_meta_slots`, so `regions.inv()`
-            // delivers `contains_key(idx)`, the `self_addr` shape, and
+            // delivers `contains_key(idx)`, the `slot_vaddr` shape, and
             // `slot_owners[idx].inv()`; the latter's UNIQUE branch (under
             // `rc == REF_COUNT_UNIQUE`) gives the storage/vtable init.
             assert(regions.slot_owners.contains_key(idx));
-            assert(regions.slot_owners[idx].self_addr == meta_addr(idx));
+            assert(regions.slot_owners[idx].slot_vaddr == meta_addr(idx));
             assert(regions.slot_owners[idx].inner_perms.storage.is_init());
             assert(regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
 

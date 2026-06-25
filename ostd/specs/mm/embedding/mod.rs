@@ -110,7 +110,7 @@
 //!
 //! 4. **Strengthen `cursor_mut_unmap_embedded`** — DONE. The axiom
 //!    now mirrors exec: universal preservation of
-//!    `raw_count`/`in_list`/`usage`/`self_addr`/`vtable_ptr`;
+//!    `raw_count`/`in_list`/`usage`/`slot_vaddr`/`vtable_ptr`;
 //!    storage preserved at slots ending non-UNUSED; rc doesn't bump
 //!    to UNIQUE; at Frame slots the "non-mapping count"
 //!    `rc - paths.len` is invariant with both monotonically non-
@@ -2143,7 +2143,7 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
         cursor::CursorMutRegionsMethod::Unmap(len),
     );
     // Discharge `accounting_inv` clause-by-clause. The unmap axiom
-    // gives: usage/raw_count/in_list/self_addr/vtable_ptr preserved
+    // gives: usage/raw_count/in_list/slot_vaddr/vtable_ptr preserved
     // universally; rc doesn't bump to UNIQUE; storage preserved at
     // post-non-UNUSED; at Frame slots, `rc - paths.len` is invariant
     // with both monotonically non-increasing. `s.frames` is unchanged.
