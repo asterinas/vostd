@@ -2956,7 +2956,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     assert(bounds.0 as int == base + start * cell);
     assert(bounds.1 as int == base + end * cell - 1);
 
-    assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
+    assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
         &&& vaddr_range_bounds_spec::<C>().0 <= m.va_range.start
         &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
     } by {
@@ -2968,7 +2968,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         let cont = owner.continuations[i];
         cont.lemma_view_mappings_contains();
         let j = choose|j: int|
-            0 <= j < cont.children.len() && cont.children[j] is Some && PageTableOwner(
+            0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
             ).view_rec(cont.path().push_tail(j as usize)).contains(m);
         cont.pt_inv_children_unroll(j);

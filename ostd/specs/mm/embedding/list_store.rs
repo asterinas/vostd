@@ -1084,7 +1084,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost old_regions = self.regions;
         let ghost fidx = self.loose[lid].slot_index;
         // The other lists' ids — the lazily-minted id must avoid these.
-        let ghost used = Set::new_assuming_finite(
+        let ghost used = Set::<u64>::full().unwrap().filter(
             |x: u64|
                 (exists|i: ListId| #[trigger]
                     old_self.lists.dom().contains(i) && i != id && old_self.lists[i].list_id == x)
@@ -1385,7 +1385,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost old_self = *self;
         let ghost old_regions = self.regions;
         let ghost fidx = self.loose[lid].slot_index;
-        let ghost used = Set::new_assuming_finite(
+        let ghost used = Set::<u64>::full().unwrap().filter(
             |x: u64|
                 (exists|i: ListId| #[trigger]
                     old_self.lists.dom().contains(i) && i != id && old_self.lists[i].list_id == x)
@@ -1671,7 +1671,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost old_self = *self;
         let ghost old_regions = self.regions;
         let ghost fidx = self.loose[lid].slot_index;
-        let ghost used = Set::new_assuming_finite(
+        let ghost used = Set::<u64>::full().unwrap().filter(
             |x: u64|
                 (exists|i: ListId| #[trigger]
                     old_self.lists.dom().contains(i) && i != id && old_self.lists[i].list_id == x)
@@ -2445,7 +2445,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost fidx = self.loose[lid].slot_index;
         let ghost n = self.cursors[id].index;
         // Avoid every other list's *and* every other cursor's id.
-        let ghost used = Set::new_assuming_finite(
+        let ghost used = Set::<u64>::full().unwrap().filter(
             |x: u64|
                 (exists|i: ListId| #[trigger]
                     old_self.lists.dom().contains(i) && old_self.lists[i].list_id == x) || (exists|
