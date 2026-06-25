@@ -110,12 +110,24 @@ jobs:
       - name: Run verification
         run: |
           set -o pipefail
-          if ! make 2>&1; then
+          if ! make 2>&1 | tee verify_output.txt; then
             echo "❌ Verification failed"
             echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
             exit 1
           else
             echo "✅ Verification passed!"
+          fi
+
+      - name: Check for auto-trigger notes
+        if: always()
+        run: |
+          if grep -q "note: automatically chose triggers for this expression:" verify_output.txt 2>/dev/null; then
+            echo "❌ Found auto-trigger notes in verification output"
+            echo "TRIGGER_NOTE_FOUND=1" >> "$GITHUB_ENV"
+            grep -n "note: automatically chose triggers for this expression:" verify_output.txt
+            exit 1
+          else
+            echo "✅ No auto-trigger notes found"
           fi
 
       - name: Run format
@@ -146,5 +158,10 @@ jobs:
               echo "- Verification: ❌ failed"
             else
               echo "- Verification: ✅ passed"
+            fi
+            if [[ "${TRIGGER_NOTE_FOUND:-0}" == "1" ]]; then
+              echo "- Auto-trigger check: ❌ found auto-trigger notes"
+            else
+              echo "- Auto-trigger check: ✅ no auto-trigger notes"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
