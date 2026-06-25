@@ -4126,6 +4126,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         owner0.cursor_path_nesting(i, owner0.level as int - 1);
                         cont0.path().push_tail_property_index(idx as usize);
                         cont.path().push_tail_property_index(j as usize);
+                        cont.pt_inv_children_unroll(j);
+                        PageTableOwner::<C>::pt_inv_implies_path_correct(subtree, path_j);
                         PageTableOwner::<C>::neq_old_from_path_disjoint(
                             subtree,
                             path_j,
@@ -4161,6 +4163,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             cont0.path().push_tail_property_index(j as usize);
                             cont0.path().push_tail_property_index(idx as usize);
                             cont0.path().push_tail_property_len(j as usize);
+                            cont0.pt_inv_children_unroll(j);
+                            PageTableOwner::<C>::pt_inv_implies_path_correct(subtree, path_j);
                             PageTableOwner::<C>::neq_old_from_path_disjoint(
                                 subtree,
                                 path_j,

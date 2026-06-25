@@ -274,6 +274,25 @@ impl MetaRegionOwners {
     // ----------------------------------------------------------------------
     // Frame-side per-instance ledger.
     // ----------------------------------------------------------------------
+    pub open spec fn mint_frame_obligation(self, slot_idx: usize) -> Self {
+        Self {
+            slots: self.slots,
+            slot_owners: self.slot_owners,
+            frame_obligations: self.frame_obligations.insert(slot_idx),
+        }
+    }
+
+    pub open spec fn redeem_frame_obligation(self, slot_idx: usize) -> Self
+        recommends
+            self.frame_obligations.count(slot_idx) > 0,
+    {
+        Self {
+            slots: self.slots,
+            slot_owners: self.slot_owners,
+            frame_obligations: self.frame_obligations.remove(slot_idx),
+        }
+    }
+
     /// Pairs the production of a per-Frame [`DropObligation`] with a
     /// `+1` on the `frame_obligations[slot_idx]` count. Called by Frame's
     /// `constructor_spec` (i.e. `ManuallyDrop::new(frame, ..)`).
@@ -281,9 +300,7 @@ impl MetaRegionOwners {
         DropObligation<usize>)
         ensures
             obl.value() == slot_idx,
-            final(self).frame_obligations == old(self).frame_obligations.insert(slot_idx),
-            final(self).slots == old(self).slots,
-            final(self).slot_owners == old(self).slot_owners,
+            *final(self) == old(self).mint_frame_obligation(slot_idx),
     ;
 
     /// Redeems a per-Frame obligation, decrementing `frame_obligations`
@@ -296,9 +313,7 @@ impl MetaRegionOwners {
         requires
             old(self).frame_obligations.count(obl.value()) > 0,
         ensures
-            final(self).frame_obligations == old(self).frame_obligations.remove(obl.value()),
-            final(self).slots == old(self).slots,
-            final(self).slot_owners == old(self).slot_owners,
+            *final(self) == old(self).redeem_frame_obligation(obl.value()),
     ;
 }
 
