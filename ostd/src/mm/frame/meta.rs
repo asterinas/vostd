@@ -656,6 +656,14 @@ impl MetaSlot {
     }*/
     /// Gets the stored metadata as type `M`.
     ///
+    /// Calling the method should be safe, but using the returned pointer would
+    /// be unsafe. Specifically, the derefernecer should ensure that:
+    ///  - the stored metadata is initialized (by [`Self::write_meta`]) and
+    ///    valid;
+    ///  - the initialized metadata is of type `M`;
+    ///  - the returned pointer should not be dereferenced as mutable unless
+    ///    having exclusive access to the metadata slot.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety**: The caller must provide an existing permission that matches the contents of the metadata slot.
@@ -688,6 +696,10 @@ impl MetaSlot {
     }
 
     /// Writes the metadata to the slot without reading or dropping the previous value.
+    ///
+    /// # Safety
+    ///
+    /// The caller should have exclusive access to the metadata slot's fields.
     ///
     /// # Verification Design
     /// This function is axiomatized for now because of trait constraints.
@@ -730,6 +742,12 @@ impl MetaSlot {
     }
 
     /// Drops the metadata and deallocates the frame.
+    ///
+    /// # Safety
+    ///
+    /// The caller should ensure that:
+    ///  - the reference count is `0` (so we are the sole owner of the frame);
+    ///  - the metadata is initialized;
     ///
     /// # Verified Properties
     /// ## Preconditions

@@ -209,12 +209,6 @@ impl MetaSlot {
         &&& perm.addr() % META_SLOT_SIZE == 0
     }
 
-    pub open spec fn get_from_in_use_panic_cond(paddr: Paddr, regions: MetaRegionOwners) -> bool {
-        let idx = frame_to_index(paddr);
-        let pre_perms = regions.slot_owners[idx].inner_perms.ref_count.value();
-        pre_perms + 1 >= REF_COUNT_MAX
-    }
-
     pub open spec fn get_from_in_use_success(
         paddr: Paddr,
         pre: MetaRegionOwners,
