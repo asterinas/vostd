@@ -283,18 +283,16 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             }
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
-        let ghost pre = *regions;
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
             Err(err)
         } else {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
-            let ghost idx = frame_to_index(paddr);
             proof {
+                let ghost idx = frame_to_index(paddr);
                 assert(frame_to_index(paddr) < max_meta_slots());
-                assert(pre.slot_owners.contains_key(idx));
-                assert(pre.slots.contains_key(idx));
+                assert(regions.slot_owners.contains_key(idx));
                 regions.sync_slot_perm(idx, &perm);
                 // Mint the pending-Drop obligation for the new live value.
                 let tracked _ = regions.tracked_mint_frame_obligation(idx);

@@ -277,22 +277,14 @@ impl MetaRegionOwners {
     // Frame-side per-instance ledger.
     // ----------------------------------------------------------------------
     pub open spec fn mint_frame_obligation(self, slot_idx: usize) -> Self {
-        Self {
-            slots: self.slots,
-            slot_owners: self.slot_owners,
-            frame_obligations: self.frame_obligations.insert(slot_idx),
-        }
+        Self { frame_obligations: self.frame_obligations.insert(slot_idx), ..self }
     }
 
     pub open spec fn redeem_frame_obligation(self, slot_idx: usize) -> Self
         recommends
             self.frame_obligations.count(slot_idx) > 0,
     {
-        Self {
-            slots: self.slots,
-            slot_owners: self.slot_owners,
-            frame_obligations: self.frame_obligations.remove(slot_idx),
-        }
+        Self { frame_obligations: self.frame_obligations.remove(slot_idx), ..self }
     }
 
     /// Pairs the production of a per-Frame [`DropObligation`] with a
