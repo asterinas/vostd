@@ -5,15 +5,16 @@ use vstd_extra::ownership::*;
 
 use super::meta_owners::*;
 use crate::mm::frame::{
-    meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    meta::{
+        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
     *,
 };
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::Paddr;
-use crate::specs::mm::frame::mapping::{
-    frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
-};
+use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
 use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
 
 verus! {

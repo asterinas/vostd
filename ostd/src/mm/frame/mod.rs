@@ -64,7 +64,6 @@ pub use segment::Segment;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
-pub use meta::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
 pub use untyped::{AnyUFrameMeta, UFrame};
@@ -74,12 +73,19 @@ use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 use crate::mm::page_table::RCClone;
 use crate::mm::{
     MAX_PADDR, Paddr, PagingLevel, Vaddr,
+    frame::meta::{
+        META_SLOT_SIZE,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
 use crate::specs::arch::*;
-use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    frame_specs::*,
+    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+};
 
 verus! {
 
@@ -289,7 +295,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
             let ghost idx = frame_to_index(paddr);
             proof {
-                assert(frame_to_index(paddr) < crate::mm::frame::meta::mapping::max_meta_slots());
+                assert(frame_to_index(paddr) < max_meta_slots());
                 assert(pre.slot_owners.contains_key(idx));
                 assert(pre.slots.contains_key(idx));
                 regions.sync_slot_perm(idx, &perm);
@@ -468,7 +474,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         let ghost self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let ghost other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
         proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             regions.inv_implies_correct_addr(meta_to_frame(self.ptr.addr()));
             regions.inv_implies_correct_addr(meta_to_frame(other.ptr.addr()));
@@ -552,7 +558,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             // The slot perm is canonical in `regions.slots`; `inv_with_regions` already
             // pins its presence and that `slots[idx].pptr() == self.ptr`, so the
             // caller no longer threads a separate `MetaPerm`.
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             regions.inv_implies_correct_addr(self.paddr());
             assert(regions.slots.contains_key(self.index()));
@@ -610,7 +616,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             final(regions).frame_obligations == old(regions).frame_obligations.remove(self.index()),
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
-        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         let tracked perm = regions.slots.tracked_borrow(self.index());
 
@@ -843,11 +849,10 @@ impl<M: ?Sized> Drop for Frame<M> {
             // For `idx`, `slot_own.inv()` and the perm/slot agreement at
             // `idx` are already asserted above.
             assert forall|i: usize|
-                i < crate::mm::frame::meta::mapping::max_meta_slots()
-                    <==> #[trigger] regions.slot_owners.contains_key(i) by {}
+                i < max_meta_slots() <==> #[trigger] regions.slot_owners.contains_key(i) by {}
 
             assert forall|i: usize| #[trigger] regions.slots.contains_key(i) implies i
-                < crate::mm::frame::meta::mapping::max_meta_slots() by {
+                < max_meta_slots() by {
                 if i == idx {
                     assert(regions.slot_owners.contains_key(idx));
                 }

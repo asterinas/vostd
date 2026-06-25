@@ -5,10 +5,13 @@ use vstd::prelude::*;
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::Frame;
 use crate::mm::frame::meta::REF_COUNT_UNUSED;
-use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
+use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::page_table::*;
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, group_page_meta, meta_addr},
+    meta_region_owners::MetaRegionOwners,
+};
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::*;
@@ -144,7 +147,7 @@ impl<C: PageTableConfig> Child<C> {
 
         if !pte.is_last(level) {
             proof {
-                broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+                broadcast use group_page_meta;
 
                 regions.inv_implies_correct_addr(paddr);
             }
@@ -237,7 +240,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
         if !pte.is_last(level) {
             proof {
-                broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+                broadcast use group_page_meta;
 
                 regions.inv_implies_correct_addr(paddr);
                 assert(entry_owner.metaregion_sound(*regions));

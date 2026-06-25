@@ -13,13 +13,15 @@ use vstd_extra::ownership::*;
 
 use super::*;
 use crate::mm::frame::AnyFrameMeta;
-use crate::mm::frame::meta::MetaSlot;
-pub use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
+use crate::mm::frame::meta::{
+    META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    mapping::meta_to_frame,
+};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
-use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, meta_addr, meta_to_frame};
+use crate::specs::mm::frame::mapping::meta_addr;
 
 verus! {
 

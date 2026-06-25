@@ -8,13 +8,19 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
-use crate::mm::frame::{Frame, FrameRef, meta::REF_COUNT_UNUSED};
+use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
+use crate::mm::frame::{
+    Frame, FrameRef,
+    meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
+};
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_MAX};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, group_page_meta},
+    meta_owners::MetaSlotOwner,
+    meta_region_owners::MetaRegionOwners,
+};
 use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
 use crate::specs::task::InAtomicMode;
 
@@ -684,7 +690,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             self.pte = new_pte;
 
             proof {
-                broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+                broadcast use group_page_meta;
 
             }
 
@@ -1013,7 +1019,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let paddr = new_page.start_paddr();
 
         proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             assert(new_owner.value.metaregion_sound(*regions));
             assert(new_owner.value.meta_slot_paddr().unwrap() == paddr);
@@ -1046,7 +1052,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // `!is_mmio`.
             broadcast use crate::specs::mm::frame::mapping::lemma_frame_to_index_injective;
             broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             let new_idx = frame_to_index(meta_to_frame(new_owner_meta_addr));
             let new_paddr = meta_to_frame(new_owner_meta_addr);
@@ -1079,8 +1085,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED
                     &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
-                        <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
                 }
             } by {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
@@ -1175,7 +1180,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         != REF_COUNT_UNUSED
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0
                     &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
-                        <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                        <= REF_COUNT_MAX
                 },
                 new_page.ptr.addr() == new_owner_meta_addr,
                 new_owner.value.node().metaregion_sound_node(*regions),
@@ -1185,12 +1190,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // `into_pte`'s `Child::invariants` holds after the loop.
                 regions.slot_owners[frame_to_index(
                     meta_to_frame(new_owner_meta_addr),
-                )].inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+                )].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
                 0 < regions.slot_owners[frame_to_index(
                     meta_to_frame(new_owner_meta_addr),
-                )].inner_perms.ref_count.value()
-                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
+                )].inner_perms.ref_count.value() <= REF_COUNT_MAX,
                 regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))].paths_in_pt
                     == set![new_owner_path],
         {
@@ -1940,7 +1943,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let new_pte = Child::PageTable(new_page).into_pte();
 
         proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
         }
 

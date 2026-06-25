@@ -3,7 +3,7 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::*;
+use crate::mm::frame::{meta::mapping::meta_to_frame, *};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};

@@ -33,12 +33,10 @@ use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
 use crate::arch::mm::{PageTableEntry, PagingConsts};
-use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_index,
-};
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::kspace::kvirt_area::disable_preempt;
-use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{mapping::frame_to_index, meta_owners::MetaPerm};
 use vstd_extra::ownership::Inv;
 use vstd_extra::panic::may_panic;
 
@@ -1506,7 +1504,7 @@ impl PageTable<KernelPtConfig> {
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     > 0
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
-                                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                                    <= REF_COUNT_MAX)
                             }
                     },
             );

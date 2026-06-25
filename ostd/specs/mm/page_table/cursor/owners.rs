@@ -17,7 +17,6 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
@@ -26,16 +25,17 @@ use crate::mm::{
     page_size,
 };
 use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE, has_safe_slot};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::Guards;
-use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
 };
 use crate::specs::mm::page_table::owners::*;
 use crate::specs::mm::page_table::view::PageTableView;
 use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
+use crate::specs::mm::{
+    frame::{mapping::meta_addr, meta_region_owners::MetaRegionOwners},
+    page_table::{AbstractVaddr, Guards, Mapping},
+};
 use crate::specs::task::InAtomicMode;
 
 verus! {
@@ -1201,7 +1201,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // is connected to its paddr's MMIO-ness by `axiom_frame_is_tracked_iff_not_mmio`,
         // and `usage == MMIO` to the paddr by `axiom_mmio_usage_iff_mmio_paddr`.
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
-        assert(regions.slot_owners[idx].self_addr == crate::mm::frame::meta::mapping::meta_addr(
+        assert(regions.slot_owners[idx].self_addr == crate::specs::mm::frame::mapping::meta_addr(
             idx,
         ));
         if C::tracked(item) {

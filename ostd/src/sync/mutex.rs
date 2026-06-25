@@ -86,7 +86,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         proof_decl! {
             let tracked mut locked_state: Option<PointsTo<T>> = None;
         }
-        {#[verus_spec(with => Tracked(locked_state))] self.acquire_lock()}.then(
+        (#[verus_spec(with => Tracked(locked_state))] self.acquire_lock()).then(
             || -> (ret: MutexGuard<T>)
                 requires
                     locked_state is Some,

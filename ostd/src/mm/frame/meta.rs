@@ -13,17 +13,19 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
-verus! {
-
 use vstd::prelude::*;
 
+verus! {
+
 pub(crate) mod mapping {
-    use super::MetaSlot;
+    //! The metadata of each physical page is linear mapped to fixed virtual addresses
+    //! in [`FRAME_METADATA_RANGE`].
     use core::mem::size_of;
-    use crate::specs::arch::*;
-    pub use crate::specs::mm::frame::mapping::*;
-    use vstd::prelude::*;
+    use super::MetaSlot;
     use crate::mm::{kspace::FRAME_METADATA_RANGE, Paddr, PagingConstsTrait, Vaddr};
+    use super::META_SLOT_SIZE;
+    use crate::specs::arch::*;
+    use vstd::prelude::*;
 
     pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
         (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE as int) as usize
@@ -45,13 +47,13 @@ pub(crate) mod mapping {
             frame_to_meta(paddr),
         no_unwind
     {
+        proof {
+            assert(size_of::<MetaSlot>() == META_SLOT_SIZE) by {
+                crate::specs::mm::frame::meta_specs::lemma_meta_slot_size();
+            };
+        }
         let base = FRAME_METADATA_RANGE.start;
         let offset = paddr / PAGE_SIZE;
-        proof {
-            super::lemma_meta_slot_size();
-            assert(size_of::<MetaSlot>() == META_SLOT_SIZE);
-            assert(base + offset * size_of::<MetaSlot>() < usize::MAX);
-        }
         base + offset * size_of::<MetaSlot>()
     }
 
@@ -66,15 +68,79 @@ pub(crate) mod mapping {
         returns
             meta_to_frame(vaddr),
     {
-        let base = FRAME_METADATA_RANGE.start;
         proof {
-            assert(META_SLOT_SIZE > 0) by (compute);
+            crate::specs::mm::frame::meta_specs::lemma_meta_slot_size();
         }
-        let offset = (vaddr - base) / META_SLOT_SIZE;
+        let base = FRAME_METADATA_RANGE.start;
+        let offset = (vaddr - base) / size_of::<MetaSlot>();
         offset * PAGE_SIZE
     }
 
 }
+
+} // verus!
+use vstd::atomic::{PAtomicU64, PermissionU64};
+use vstd::cell::pcell_maybe_uninit;
+use vstd::prelude::*;
+use vstd::simple_pptr::{PPtr, PointsTo};
+use vstd_extra::cast_ptr::{Repr, ReprPtr};
+use vstd_extra::ownership::*;
+use vstd_extra::panic::{may_panic, panic_diverge};
+use vstd_extra::prelude::*;
+
+use core::{
+    alloc::Layout,
+    any::Any,
+    cell::UnsafeCell,
+    fmt::Debug,
+    marker::PhantomData,
+    mem::{ManuallyDrop, MaybeUninit},
+    result::Result,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+use align_ext::AlignExt;
+//use log::info;
+
+use self::mapping::{frame_to_meta, meta_to_frame};
+use crate::mm::io::{Infallible, VmReader};
+use crate::specs::arch::*;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, meta_addr},
+    meta_owners::*,
+    meta_region_owners::MetaRegionOwners,
+};
+
+use crate::{
+    //    boot::memory_region::MemoryRegionType,
+    //    const_assert,
+    mm::{
+        /*VmReader,*/
+        /*Infallible,*/ Paddr,
+        PagingLevel,
+        //Segment,
+        Vaddr,
+        kspace::FRAME_METADATA_RANGE,
+        //        frame::allocator::{self, EarlyAllocatedFrameMeta},
+        paddr_to_vaddr,
+        //        page_table::boot_pt,
+        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
+    },
+    //    panic::abort,
+    //    util::ops::range_difference,
+};
+
+verus! {
+
+/* /// The maximum number of bytes of the metadata of a frame.
+pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE
+    - size_of::<AtomicU64>()
+    - size_of::<FrameMetaVtablePtr>()
+    - size_of::<AtomicU64>(); */
+/// The maximum alignment in bytes of the metadata of a frame.
+pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE;
+
+pub const META_SLOT_SIZE: usize = 64;
 
 #[repr(C)]
 pub struct MetaSlot {
@@ -129,81 +195,6 @@ pub struct MetaSlot {
     /// costs a synchronization.
     pub in_list: PAtomicU64,
 }
-
-global layout MetaSlot is size == 64, align == 8;
-
-proof fn lemma_meta_slot_size()
-    ensures
-        vstd::layout::size_of::<MetaSlot>() == META_SLOT_SIZE as nat,
-        core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
-{
-    broadcast use self::VERUS_layout_of_MetaSlot;
-
-    assert(vstd::layout::size_of::<MetaSlot>() == 64);
-    assert(META_SLOT_SIZE == 64) by (compute);
-    assert(vstd::layout::size_of::<MetaSlot>() as usize as int == vstd::layout::size_of::<
-        MetaSlot,
-    >());
-    assert(core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE);
-}
-
-} // verus!
-use vstd::atomic::{PAtomicU64, PermissionU64};
-use vstd::cell::pcell_maybe_uninit;
-use vstd::prelude::*;
-use vstd::simple_pptr::{PPtr, PointsTo};
-use vstd_extra::cast_ptr::{Repr, ReprPtr};
-use vstd_extra::ownership::*;
-use vstd_extra::panic::{may_panic, panic_diverge};
-use vstd_extra::prelude::*;
-
-use core::{
-    alloc::Layout,
-    any::Any,
-    cell::UnsafeCell,
-    fmt::Debug,
-    marker::PhantomData,
-    mem::{ManuallyDrop, MaybeUninit},
-    result::Result,
-    sync::atomic::{AtomicU64, Ordering},
-};
-
-use align_ext::AlignExt;
-//use log::info;
-
-use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
-use crate::mm::io::{Infallible, VmReader};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{meta_owners::*, meta_region_owners::MetaRegionOwners};
-
-use crate::{
-    //    boot::memory_region::MemoryRegionType,
-    //    const_assert,
-    mm::{
-        /*VmReader,*/
-        /*Infallible,*/ Paddr,
-        PagingLevel,
-        //Segment,
-        Vaddr,
-        kspace::FRAME_METADATA_RANGE,
-        //        frame::allocator::{self, EarlyAllocatedFrameMeta},
-        paddr_to_vaddr,
-        //        page_table::boot_pt,
-        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
-    },
-    //    panic::abort,
-    //    util::ops::range_difference,
-};
-
-verus! {
-
-/* /// The maximum number of bytes of the metadata of a frame.
-pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE
-    - size_of::<AtomicU64>()
-    - size_of::<FrameMetaVtablePtr>()
-    - size_of::<AtomicU64>(); */
-/// The maximum alignment in bytes of the metadata of a frame.
-pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE;
 
 pub const REF_COUNT_UNUSED: u64 = u64::MAX;
 

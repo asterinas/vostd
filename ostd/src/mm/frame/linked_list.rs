@@ -14,15 +14,18 @@ use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
 use vstd_extra::ownership::*;
 use vstd_extra::trans_macros::*;
 
-use crate::mm::frame::REF_COUNT_UNIQUE;
 use crate::mm::frame::UniqueFrame;
+use crate::mm::frame::meta::REF_COUNT_UNIQUE;
 use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::linked_list::linked_list_owners::*;
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, Metadata};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
+use crate::specs::mm::frame::{
+    mapping::group_page_meta,
+    meta_owners::{MetaSlotOwner, Metadata},
+};
 
 use core::borrow::BorrowMut;
 use core::{
@@ -33,11 +36,11 @@ use core::{
 
 use crate::specs::*;
 
-use crate::mm::frame::meta::mapping::{
-    META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_addr, meta_to_frame, meta_to_frame_spec,
+use crate::mm::frame::meta::{
+    AnyFrameMeta, META_SLOT_SIZE, MetaSlot, get_slot, mapping::meta_to_frame,
 };
-use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, get_slot};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
 
 verus! {
 
@@ -373,7 +376,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             // `regions.inv()` that pins the slot in the region maps, its
             // metadata as init, and its `in_list` permission as governing the
             // slot's atomic — the same facts `cursor_mut_at` derives in-body.
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             let idx = frame_to_index(frame);
             assert(idx < max_meta_slots());
@@ -438,7 +441,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         if let Ok(slot_ptr) = get_slot(frame) {
             let ghost idx = frame_to_index(frame);
             proof {
-                broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+                broadcast use group_page_meta;
 
                 assert(idx < max_meta_slots());
                 assert(regions.slot_owners.contains_key(idx));
