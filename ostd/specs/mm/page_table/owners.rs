@@ -18,12 +18,11 @@ use crate::mm::{
     page_table::{EntryOwner, EntryOwnerKind},
 };
 
-use crate::mm::frame::frame_to_index;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard};
 
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
 };
@@ -2152,6 +2151,27 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         assert(path.index(prefix.len() as int) == i);
     }
 
+    pub proof fn prefix_push_tail_implies_prefix<const N: usize>(
+        prefix: TreePath<N>,
+        path: TreePath<N>,
+        i: usize,
+    )
+        requires
+            prefix.inv(),
+            path.inv(),
+            0 <= i < N,
+            Self::is_prefix_of(prefix.push_tail(i), path),
+        ensures
+            Self::is_prefix_of(prefix, path),
+    {
+        prefix.push_tail_property(i);
+        assert(prefix.len() <= path.len());
+        assert forall|j: int| 0 <= j < prefix.len() implies prefix.index(j) == path.index(j) by {
+            assert(prefix.push_tail(i).index(j) == prefix.index(j));
+            assert(prefix.push_tail(i).index(j) == path.index(j));
+        };
+    }
+
     pub open spec fn is_at_pred(entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>) -> spec_fn(
         EntryOwner<C>,
         TreePath<NR_ENTRIES>,
@@ -2269,7 +2289,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
     /// Entries in a subtree whose structural path is disjoint from `old_entry.path`
     /// have different physical addresses from `old_entry`.
-    pub axiom fn neq_old_from_path_disjoint(
+    pub proof fn neq_old_from_path_disjoint(
         subtree: OwnerSubtree<C>,
         path_j: TreePath<NR_ENTRIES>,
         old_entry: EntryOwner<C>,
@@ -2282,6 +2302,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path_j.inv(),
             path_j.len() <= INC_LEVELS - 1,
             subtree.tree_predicate_map(path_j, Self::metaregion_sound_pred(regions)),
+            subtree.tree_predicate_map(path_j, Self::path_correct_pred()),
             old_entry.is_node(),
             old_entry.meta_slot_paddr() is Some,
             regions.slot_owners[frame_to_index(old_entry.meta_slot_paddr()->0)].paths_in_pt
@@ -2292,7 +2313,58 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 path_j,
                 |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry),
             ),
-    ;
+        decreases INC_LEVELS - subtree.level,
+    {
+        let f_sound = Self::metaregion_sound_pred(regions);
+        let f_path = Self::path_correct_pred();
+        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry);
+
+        assert(g(subtree.value, path_j)) by {
+            assert(f_sound(subtree.value, path_j));
+            assert(f_path(subtree.value, path_j));
+            assert(subtree.value.path == path_j);
+            if subtree.value.meta_slot_paddr() is Some {
+                let old_paddr = old_entry.meta_slot_paddr()->0;
+                let entry_paddr = subtree.value.meta_slot_paddr()->0;
+                if entry_paddr == old_paddr {
+                    let idx = frame_to_index(entry_paddr);
+                    let old_idx = frame_to_index(old_paddr);
+                    assert(idx == old_idx);
+                    if subtree.value.is_node() {
+                        assert(regions.slot_owners[idx].paths_in_pt == set![subtree.value.path]);
+                    } else if subtree.value.is_frame() {
+                        assert(regions.slot_owners[idx].paths_in_pt.contains(subtree.value.path));
+                    }
+                    assert(regions.slot_owners[idx].paths_in_pt == set![old_entry.path]);
+                    assert(set![old_entry.path].contains(subtree.value.path));
+                    assert(subtree.value.path == old_entry.path);
+                    assert(Self::is_prefix_of(path_j, old_entry.path));
+                }
+            }
+        };
+
+        if subtree.level < INC_LEVELS - 1 {
+            assert forall|i: int|
+                0 <= i < subtree.children.len() && (
+                #[trigger] subtree.children[i]) is Some implies subtree.children[i].unwrap().tree_predicate_map(
+            path_j.push_tail(i as usize), g) by {
+                let child = subtree.children[i].unwrap();
+                let child_path = path_j.push_tail(i as usize);
+                subtree.map_unroll_once(path_j, f_sound, i);
+                subtree.map_unroll_once(path_j, f_path, i);
+                path_j.push_tail_property(i as usize);
+                assert(child_path.inv());
+                assert(child_path.len() == child.level);
+                assert(child.value.path == child_path);
+                assert(!Self::is_prefix_of(child_path, old_entry.path)) by {
+                    if Self::is_prefix_of(child_path, old_entry.path) {
+                        Self::prefix_push_tail_implies_prefix(path_j, old_entry.path, i as usize);
+                    }
+                };
+                Self::neq_old_from_path_disjoint(child, child_path, old_entry, regions);
+            };
+        }
+    }
 
     pub proof fn is_at_eq_rec(
         subtree: OwnerSubtree<C>,

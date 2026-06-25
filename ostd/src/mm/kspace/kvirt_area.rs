@@ -1085,9 +1085,9 @@ impl KVirtArea {
     ) -> bool {
         &&& pa_range.end <= MAX_PADDR
         &&& forall|pa: Paddr|
-            #![trigger crate::mm::frame::meta::mapping::frame_to_index(pa)]
+            #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
             pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
-                let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
+                let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                 &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             }
@@ -1207,13 +1207,13 @@ impl KVirtArea {
                 assert(Self::untracked_range_slots_in_regions(&pa_range, pre_cursor_regions));
                 assert(pa_range.end <= MAX_PADDR);
                 assert forall|pa: Paddr|
-                    #![trigger crate::mm::frame::meta::mapping::frame_to_index(pa)]
+                    #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
                     pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 implies {
-                    let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
+                    let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                     &&& regions.slots.contains_key(idx)
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 } by {
-                    let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
+                    let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                     assert(pre_cursor_regions.slots.contains_key(idx));
                     assert(pre_cursor_regions.slot_owners.contains_key(idx));
                     assert(regions.slot_owners.contains_key(idx));
@@ -1260,9 +1260,9 @@ impl KVirtArea {
                     // `cursor.map` only touches the slot at its own mapped PA — see the
                     // focused assume in the loop body.
                     forall|pa: Paddr|
-                        #![trigger crate::mm::frame::meta::mapping::frame_to_index(pa)]
+                        #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
                         pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
-                            let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
+                            let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                             &&& regions.slots.contains_key(idx)
                             &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
@@ -1322,7 +1322,7 @@ impl KVirtArea {
                 // loop invariant's per-PA slot facts, instantiated at the current `pa`.
                 proof {
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
-                    let idx = crate::mm::frame::meta::mapping::frame_to_index(pa);
+                    let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                     assert(pa % PAGE_SIZE == 0);
                     assert(pa_range.start <= pa < pa_range.end);
                     assert(regions.slots.contains_key(idx));

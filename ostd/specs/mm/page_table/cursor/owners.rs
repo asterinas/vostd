@@ -17,7 +17,6 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
@@ -26,16 +25,17 @@ use crate::mm::{
     page_size,
 };
 use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE, has_safe_slot};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::Guards;
-use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
 };
 use crate::specs::mm::page_table::owners::*;
 use crate::specs::mm::page_table::view::PageTableView;
 use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
+use crate::specs::mm::{
+    frame::{mapping::meta_addr, meta_region_owners::MetaRegionOwners},
+    page_table::{AbstractVaddr, Guards, Mapping},
+};
 use crate::specs::task::InAtomicMode;
 
 verus! {
@@ -1201,7 +1201,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // is connected to its paddr's MMIO-ness by `axiom_frame_is_tracked_iff_not_mmio`,
         // and `usage == MMIO` to the paddr by `axiom_mmio_usage_iff_mmio_paddr`.
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
-        assert(regions.slot_owners[idx].self_addr == crate::mm::frame::meta::mapping::meta_addr(
+        assert(regions.slot_owners[idx].slot_vaddr == crate::specs::mm::frame::mapping::meta_addr(
             idx,
         ));
         if C::tracked(item) {
@@ -1245,7 +1245,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == old_regions.slot_owners[idx].inner_perms.in_list,
             // Other MetaSlotOwner fields at idx unchanged
             new_regions.slot_owners[idx].paths_in_pt == old_regions.slot_owners[idx].paths_in_pt,
-            new_regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr,
+            new_regions.slot_owners[idx].slot_vaddr == old_regions.slot_owners[idx].slot_vaddr,
             new_regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage,
             // All other slot_owners unchanged
             new_regions.slot_owners.dom() == old_regions.slot_owners.dom(),
@@ -1274,7 +1274,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 &&& new_regions.slot_owners[i].inv()
                 &&& new_regions.slots[i].is_init()
                 &&& new_regions.slots[i].value().wf(new_regions.slot_owners[i])
-                &&& new_regions.slot_owners[i].self_addr == new_regions.slots[i].addr()
+                &&& new_regions.slot_owners[i].slot_vaddr == new_regions.slots[i].addr()
             } by {
                 assert(old_regions.slots.contains_key(i));
             };
@@ -2615,7 +2615,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].inner_perms.in_list
                 == regions0.slot_owners[idx].inner_perms.in_list,
             regions1.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt,
-            regions1.slot_owners[idx].self_addr == regions0.slot_owners[idx].self_addr,
+            regions1.slot_owners[idx].slot_vaddr == regions0.slot_owners[idx].slot_vaddr,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
             regions1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             // Bumped rc stays in the SHARED range (needed for the node branch).
@@ -2670,8 +2670,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // All other fields at changed_idx preserved
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,
-            regions1.slot_owners[changed_idx].self_addr
-                == regions0.slot_owners[changed_idx].self_addr,
+            regions1.slot_owners[changed_idx].slot_vaddr
+                == regions0.slot_owners[changed_idx].slot_vaddr,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt,
@@ -2869,26 +2869,8 @@ impl<C: PageTableConfig> CursorView<C> {
 }
 
 /// Every mapping in a cursor's view has its VA range within the page
-/// table's managed positional range.
-///
-/// This is **now provable as a lemma** — with `vaddr_range_bounds_spec<C>`
-/// expressing positional bounds and `view_rec` constructing mappings as
-/// `vaddr(path)..vaddr(path) + page_size`, the conclusion follows from:
-///   1. `view_rec_vaddr_range`: for every `m`, there is a `path` such that
-///      `vaddr(path) <= m.va_range.start < m.va_range.end <= vaddr(path) + page_size`;
-///   2. `lemma_vaddr_path_alignment_and_bound`: `vaddr(path) + page_size <= 2^48`;
-///   3. Path rooted in `C::TOP_LEVEL_INDEX_RANGE_spec()`:
-///      `idx.start * 2^offset <= vaddr(path) <= (idx.end - 1) * 2^offset + (2^offset - page_size)`.
-///
-/// Remains an axiom only because the full induction through
-/// `view_mappings` → `continuations` → `view_rec` across cursor level
-/// transitions has not yet been written. Unlike the prior form (which was
-/// demonstrably false — it claimed mappings lived in the sign-extended
-/// canonical range, but path-derived mappings are positional), the claim
-/// here is sound. Consumers that need the canonical form should compose
-/// with `LEADING_BITS_spec`.
-// TODO: complete the induction and convert to `proof fn`.
-pub axiom fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorOwner<'rcu, C>)
+/// table's managed range.
+pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorOwner<'rcu, C>)
     requires
         owner.inv(),
     ensures
@@ -2898,12 +2880,135 @@ pub axiom fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
                 &&& vaddr_range_bounds_spec::<C>().0 <= m.va_range.start
                 &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
             },
-;
+{
+    C::lemma_page_table_config_constant_requirements();
+    crate::mm::page_table::lemma_pte_index_consts::<C>();
+    lemma_vaddr_range_bounds_spec_unfold::<C>();
+    vstd::arithmetic::power2::lemma2_to64();
+    vstd::arithmetic::power2::lemma2_to64_rest();
+    vstd::arithmetic::power2::lemma_pow2_adds(
+        (C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as nat,
+        pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
+    );
+    vstd::layout::unsigned_int_max_values();
+
+    let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
+    let start = idx.start as int;
+    let end = idx.end as int;
+    let lb = C::LEADING_BITS_spec() as int;
+    let base = lb * 0x1_0000_0000_0000int;
+    let cell = 0x80_0000_0000int;
+    let bounds = vaddr_range_bounds_spec::<C>();
+
+    let aw = C::ADDRESS_WIDTH() as nat;
+    let top_w = (C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as nat;
+    let p_aw = pow2(aw) as int;
+    let p_top = pow2(top_w) as int;
+    assert(end * cell <= p_aw) by (nonlinear_arith)
+        requires
+            end <= p_top,
+            cell > 0,
+            p_aw == p_top * cell,
+    ;
+    let start_pre = base + start * cell;
+    let end_exclusive = base + end * cell;
+    let end_pre = end_exclusive - 1;
+    if C::LEADING_BITS_spec() == 0usize {
+        assert(0 <= start_pre < 0x1_0000_0000_0000_0000int) by (nonlinear_arith)
+            requires
+                start_pre == start * cell,
+                start >= 0,
+                start < end,
+                cell > 0,
+                end * cell <= usize::MAX as int,
+                (usize::MAX as int) < 0x1_0000_0000_0000_0000int,
+        ;
+        assert(0 <= end_pre <= usize::MAX) by (nonlinear_arith)
+            requires
+                end_pre == end * cell - 1,
+                end > 0,
+                cell > 0,
+                end * cell <= usize::MAX as int,
+        ;
+    } else {
+        assert(base == 0x1_0000_0000_0000_0000int - p_aw);
+        assert(0 <= start_pre < 0x1_0000_0000_0000_0000int) by (nonlinear_arith)
+            requires
+                start_pre == 0x1_0000_0000_0000_0000int - p_aw + start * cell,
+                base == 0x1_0000_0000_0000_0000int - p_aw,
+                p_aw <= 0x1_0000_0000_0000_0000int,
+                start >= 0,
+                start < end,
+                cell > 0,
+                end * cell <= p_aw,
+        ;
+        assert(0 <= end_pre <= usize::MAX as int) by (nonlinear_arith)
+            requires
+                end_pre == 0x1_0000_0000_0000_0000int - p_aw + end * cell - 1,
+                base == 0x1_0000_0000_0000_0000int - p_aw,
+                end > 0,
+                cell > 0,
+                end * cell <= p_aw,
+                p_aw <= 0x1_0000_0000_0000_0000int,
+                usize::MAX == 0x1_0000_0000_0000_0000int - 1,
+        ;
+    }
+    assert(bounds.0 as int == base + start * cell);
+    assert(bounds.1 as int == base + end * cell - 1);
+
+    assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
+        &&& vaddr_range_bounds_spec::<C>().0 <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
+    } by {
+        owner.lemma_view_mappings_contains();
+        let i = choose|i: int|
+            owner.level - 1 <= i < NR_LEVELS && (
+            #[trigger] owner.continuations[i]).view_mappings().contains(m);
+        owner.inv_continuation(i);
+        let cont = owner.continuations[i];
+        cont.lemma_view_mappings_contains();
+        let j = choose|j: int|
+            0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
+                cont.children[j].unwrap(),
+            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+        cont.pt_inv_children_unroll(j);
+        cont.inv_children_rel_unroll(j);
+        let child = PageTableOwner(cont.children[j].unwrap());
+        let p = cont.path().push_tail(j as usize);
+        cont.path().push_tail_property_len(j as usize);
+        cont.path().push_tail_property_index(j as usize);
+        let pidx = p.index(0) as int;
+        assert(start <= pidx < end) by {
+            if i != NR_LEVELS - 1 {
+                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                    owner.inv_continuation(NR_LEVELS - 1);
+                    owner.continuations[NR_LEVELS - 1].path().push_tail_property_index(
+                        owner.continuations[NR_LEVELS - 1].idx,
+                    );
+                    if i == 2 {
+                    } else if i == 1 {
+                        owner.continuations[2].path().push_tail_property_index(
+                            owner.continuations[2].idx,
+                        );
+                    } else {
+                        owner.continuations[2].path().push_tail_property_index(
+                            owner.continuations[2].idx,
+                        );
+                        owner.continuations[1].path().push_tail_property_index(
+                            owner.continuations[1].idx,
+                        );
+                    }
+                }
+            }
+        }
+        child.view_rec_top_index_va_bound(p, m, end);
+    }
+}
 
 /// USER isolation theorem (proven, per-config): every mapping a `UserPtConfig`
 /// cursor exposes lives strictly in the user low half `[0, 2^47)`. Discharges
-/// the generic `axiom_view_in_vaddr_range` obligation for `UserPtConfig` without
-/// the axiom. The nested `view_mappings → continuations → view_rec` decomposition
+/// the generic `axiom_view_in_vaddr_range` bound for `UserPtConfig`. The nested
+/// `view_mappings → continuations → view_rec` decomposition
 /// is exposed via `lemma_view_mappings_contains` (cursor + continuation forms)
 /// before each `choose`; a contributing (frame/node) root child is neither
 /// borrowed nor absent, so the cursor-inv top-level clause forces it in-range,
@@ -2927,7 +3032,7 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         requires
             end == 256,
     ;
-    assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
+    assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
         &&& 0 <= m.va_range.start
         &&& m.va_range.end <= 0x8000_0000_0000int
     } by {
@@ -2939,7 +3044,7 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         let cont = owner.continuations[i];
         cont.lemma_view_mappings_contains();
         let j = choose|j: int|
-            0 <= j < cont.children.len() && cont.children[j] is Some && PageTableOwner(
+            0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
             ).view_rec(cont.path().push_tail(j as usize)).contains(m);
         cont.pt_inv_children_unroll(j);
@@ -3032,7 +3137,7 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
             end == 512,
             lb == 0xffff,
     ;
-    assert forall|m: Mapping| owner.view_mappings().contains(m) implies {
+    assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
         &&& vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
         &&& m.va_range.end <= vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
     } by {
@@ -3044,7 +3149,7 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         let cont = owner.continuations[i];
         cont.lemma_view_mappings_contains();
         let j = choose|j: int|
-            0 <= j < cont.children.len() && cont.children[j] is Some && PageTableOwner(
+            0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
             ).view_rec(cont.path().push_tail(j as usize)).contains(m);
         cont.pt_inv_children_unroll(j);
@@ -3108,14 +3213,8 @@ impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
         //     alignment, PA/VA size equal page_size, and PA bound.
         self.view_mapping_inv();
         // (4) Config-aware VA bound: every mapping's VA range is contained
-        //     in `C::VADDR_RANGE_spec()`. Discharged by a per-config axiom
-        //     (`PageTableConfig::axiom_view_in_vaddr_range`). For
-        //     `UserPtConfig` the proof is simple arithmetic on
-        //     `TOP_LEVEL_INDEX_RANGE_spec * page_size(top)`; for
-        //     `KernelPtConfig` it requires canonical high-half sign-extension
-        //     reasoning, which lives at the arch boundary rather than in
-        //     cursor proofs.
-        axiom_view_in_vaddr_range::<C>(&self);
+        //     in `vaddr_range_bounds_spec::<C>()`.
+        lemma_view_in_vaddr_range::<C>(&self);
     }
 }
 

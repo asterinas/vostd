@@ -977,8 +977,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 forall |m: Mapping| #[trigger] removed.contains(m) ==>
                     start_va <= m.va_range.start < end_va,
                 // Per-config VA bound: every removed mapping fits within the
-                // user VA space. Sourced from `axiom_view_in_vaddr_range` on
-                // the cursor view prior to removal.
+                // user VA space, sourced from the cursor view prior to removal.
                 forall |m: Mapping| #[trigger] removed.contains(m) ==>
                     m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
                 // Nothing in [start_va, end_va) with start < cursor_va remains,
@@ -1686,7 +1685,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     }
 
     proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
-        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
         // Derive `frame.inv()` from the structural-shape axiom + soundness lemmas.
 
         Self::item_from_raw_spec_frame_ptr(pa, level, prop);
@@ -1708,7 +1707,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         // res.frame)`, which delivers per-field facts at `frame_to_index(meta_to_frame(
         // item.frame.ptr.addr()))`. Bridge that index to `frame_to_index(pa)` via
         // `pa == item.frame.paddr() == meta_to_frame(item.frame.ptr.addr())`.
-        use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+        use crate::mm::frame::meta::mapping::meta_to_frame;
+        use crate::specs::mm::frame::mapping::frame_to_index;
         let frame_idx = frame_to_index(meta_to_frame(item.frame.ptr.addr()));
         assert(pa == item.frame.paddr());
         assert(frame_to_index(pa) == frame_idx);
@@ -1738,7 +1738,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         //       (the trait-level structural well-formedness method).
         //   (2) `frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa)`
         //       from `pa == item.frame.paddr()` (UserPtConfig::item_into_raw_spec).
-        use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+        use crate::mm::frame::meta::mapping::meta_to_frame;
+        use crate::specs::mm::frame::mapping::frame_to_index;
         Self::item_roundtrip(item, pa, level, prop);
         assert(item.frame.paddr() == pa);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);

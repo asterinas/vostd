@@ -33,12 +33,10 @@ use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
 use crate::arch::mm::{PageTableEntry, PagingConsts};
-use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_index,
-};
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::kspace::kvirt_area::disable_preempt;
-use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{mapping::frame_to_index, meta_owners::MetaPerm};
 use vstd_extra::ownership::Inv;
 use vstd_extra::panic::may_panic;
 
@@ -394,8 +392,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     == old_regions.slot_owners[frame_to_index(pa)].inner_perms.in_list
                 &&& new_regions.slot_owners[frame_to_index(pa)].paths_in_pt
                     == old_regions.slot_owners[frame_to_index(pa)].paths_in_pt
-                &&& new_regions.slot_owners[frame_to_index(pa)].self_addr
-                    == old_regions.slot_owners[frame_to_index(pa)].self_addr
+                &&& new_regions.slot_owners[frame_to_index(pa)].slot_vaddr
+                    == old_regions.slot_owners[frame_to_index(pa)].slot_vaddr
                 &&& new_regions.slot_owners[frame_to_index(pa)].usage
                     == old_regions.slot_owners[frame_to_index(pa)].usage
             },
@@ -1209,11 +1207,12 @@ pub(crate) proof fn lemma_vaddr_range_bounds_spec_kernel()
 }
 
 // Here are some const values that are determined by the paging constants.
-proof fn lemma_pte_index_consts<C: PagingConstsTrait>()
+pub(crate) proof fn lemma_pte_index_consts<C: PagingConstsTrait>()
     ensures
         usize::BITS == 64,
         0 < C::BASE_PAGE_SIZE(),
         C::BASE_PAGE_SIZE().ilog2() == 12u32,
+        C::NR_LEVELS() == NR_LEVELS,
         nr_subpage_per_huge::<C>() == NR_ENTRIES,
         nr_pte_index_bits::<C>() == 9usize,
         pow2(9) as usize == NR_ENTRIES,

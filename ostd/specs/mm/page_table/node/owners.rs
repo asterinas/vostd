@@ -5,8 +5,8 @@ use vstd::cell;
 use vstd::simple_pptr::*;
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::mapping::{max_meta_slots, meta_addr};
+use crate::mm::frame::meta::mapping::meta_to_frame;
+use crate::mm::frame::meta::{META_SLOT_SIZE, MetaSlot};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR};
 use crate::mm::paddr_to_vaddr;
@@ -14,7 +14,7 @@ use crate::mm::page_table::PageTableGuard;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_index, meta_to_frame};
+use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::owners::INC_LEVELS;
@@ -136,7 +136,7 @@ pub proof fn lemma_count_present_upto_zero_all_absent<E: PageTableEntryTrait>(s:
         count_present_upto(s, n) == 0,
         0 <= n,
     ensures
-        forall|k: int| 0 <= k < n ==> !s[k].is_present(),
+        forall|k: int| 0 <= k < n ==> !#[trigger] s[k].is_present(),
     decreases n,
 {
     if n > 0 {

@@ -186,7 +186,7 @@ pub axiom fn segment_drop_embedded(
                     let so_new = final(regions).slot_owners[idx];
                     &&& so_new.usage == so_old.usage
                     &&& so_new.paths_in_pt == so_old.paths_in_pt
-                    &&& so_new.self_addr == so_old.self_addr
+                    &&& so_new.slot_vaddr == so_old.slot_vaddr
                     &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
                     &&& so_old.inner_perms.ref_count.value() == 1
                         ==> so_new.inner_perms.ref_count.value() == REF_COUNT_UNUSED
@@ -255,7 +255,7 @@ pub axiom fn segment_next_embedded(
             let so_new = final(regions).slot_owners[idx];
             &&& so_new.inner_perms.ref_count == so_old.inner_perms.ref_count
             &&& so_new.usage == so_old.usage
-            &&& so_new.self_addr == so_old.self_addr
+            &&& so_new.slot_vaddr == so_old.slot_vaddr
             &&& so_new.paths_in_pt == so_old.paths_in_pt
             &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
             &&& so_new.inner_perms.storage == so_old.inner_perms.storage
@@ -369,7 +369,7 @@ pub(super) proof fn drop_step(
                 let so_new = final(regions).slot_owners[idx];
                 &&& so_new.usage == so_old.usage
                 &&& so_new.paths_in_pt == so_old.paths_in_pt
-                &&& so_new.self_addr == so_old.self_addr
+                &&& so_new.slot_vaddr == so_old.slot_vaddr
                 &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
                 &&& so_old.inner_perms.ref_count.value() == 1
                     ==> so_new.inner_perms.ref_count.value() == REF_COUNT_UNUSED
@@ -431,7 +431,7 @@ pub axiom fn segment_clone_embedded(
                     &&& so_new.inner_perms.ref_count.value()
                             == (so_old.inner_perms.ref_count.value() + 1) as u64
                     &&& so_new.usage == so_old.usage
-                    &&& so_new.self_addr == so_old.self_addr
+                    &&& so_new.slot_vaddr == so_old.slot_vaddr
                     &&& so_new.paths_in_pt == so_old.paths_in_pt
                     &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
                     &&& so_new.inner_perms.storage == so_old.inner_perms.storage

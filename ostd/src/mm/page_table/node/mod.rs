@@ -47,14 +47,20 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::allocator::FrameAllocOptions;
-use crate::mm::frame::meta::mapping::{META_SLOT_SIZE, frame_to_meta, meta_to_frame};
+use crate::mm::frame::meta::{
+    META_SLOT_SIZE,
+    mapping::{frame_to_meta, meta_to_frame},
+};
 use crate::mm::frame::meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED};
-use crate::mm::frame::{AnyFrameMeta, Frame, frame_to_index};
+use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, lemma_frame_to_index_injective},
+    meta_region_owners::MetaRegionOwners,
+};
 use crate::specs::mm::page_table::node::owners::*;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
@@ -347,7 +353,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             initial_dom,
                             cursor_pre_read,
                         );
-                        broadcast use crate::mm::frame::meta::mapping::lemma_frame_to_index_injective;
+                        broadcast use lemma_frame_to_index_injective;
 
                         assert forall|idx: usize| #[trigger]
                             removed_indices.contains(idx) implies idx != frame_to_index(

@@ -44,12 +44,12 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
+use crate::mm::frame::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::Paddr;
 use crate::specs::arch::has_safe_slot;
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{PageUsage, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{meta_owners::PageUsage, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
 verus! {
@@ -93,7 +93,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
             &&& so_new.inner_perms.in_list.value() == 0
             &&& so_new.inner_perms.storage.is_init()
             &&& so_new.paths_in_pt == so_old.paths_in_pt
-            &&& so_new.self_addr == so_old.self_addr
+            &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         // All other slots fully preserved.
         forall|i: usize|
@@ -109,7 +109,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
 /// exclusive handle is released: the slot transitions
 /// `rc == REF_COUNT_UNIQUE` → `rc == REF_COUNT_UNUSED` (last-ref
 /// teardown via `drop_last_in_place`, uninitialising storage), with
-/// `usage`, `paths_in_pt` (empty), `in_list` (0), and `self_addr`
+/// `usage`, `paths_in_pt` (empty), `in_list` (0), and `slot_vaddr`
 /// preserved.
 ///
 /// **Preconditions** mirror `UniqueFrame::inv_with_regions` (the parts
@@ -129,7 +129,7 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
         final(regions).inv(),
         final(regions).slots =~= old(regions).slots,
         // At `paddr`: UNIQUE → UNUSED teardown; usage / paths / in_list
-        // / self_addr preserved.
+        // / slot_vaddr preserved.
         {
             let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
@@ -138,7 +138,7 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             &&& so_new.usage == so_old.usage
             &&& so_new.paths_in_pt == so_old.paths_in_pt
             &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
-            &&& so_new.self_addr == so_old.self_addr
+            &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         // All other slots fully preserved.
         forall|i: usize|
@@ -154,7 +154,7 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
 /// exclusive handle at `paddr` into a shared one: `rc` drops from the
 /// `REF_COUNT_UNIQUE` sentinel to 1, with `usage` (Frame),
 /// `paths_in_pt` (empty), `in_list` (0), `storage`, `vtable_ptr`, and
-/// `self_addr` preserved (only the count `store` runs). `metaregion_sound`
+/// `slot_vaddr` preserved (only the count `store` runs). `metaregion_sound`
 /// is preserved: a UNIQUE slot has no live PTE (a mapping is a
 /// reference), so no cursor's `OwnerSubtree` maps it, and dropping the
 /// count to 1 keeps it referenced.
@@ -176,7 +176,7 @@ pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             &&& so_new.paths_in_pt == so_old.paths_in_pt
             &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
             &&& so_new.inner_perms.storage == so_old.inner_perms.storage
-            &&& so_new.self_addr == so_old.self_addr
+            &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
@@ -192,7 +192,7 @@ pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr:
 /// transitions from a sole-reference shared frame (`rc == 1`,
 /// `usage == Frame`, no PTE) to an exclusive UNIQUE one, with `usage`,
 /// `paths_in_pt` (empty), `in_list` (0), `storage`, `vtable_ptr`, and
-/// `self_addr` preserved. (The failure path — `rc != 1` — leaves
+/// `slot_vaddr` preserved. (The failure path — `rc != 1` — leaves
 /// `regions` untouched and is modeled in the step as a no-op.)
 pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, paddr: Paddr)
     requires
@@ -213,7 +213,7 @@ pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, pa
             &&& so_new.paths_in_pt == so_old.paths_in_pt
             &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
             &&& so_new.inner_perms.storage == so_old.inner_perms.storage
-            &&& so_new.self_addr == so_old.self_addr
+            &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]

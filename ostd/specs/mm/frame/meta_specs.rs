@@ -11,22 +11,33 @@ use super::meta_owners::{
     MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, Metadata, PageUsage,
 };
 use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-    mapping::{
-        frame_to_index, frame_to_meta, frame_to_meta_spec, index_to_frame,
-        lemma_paddr_to_meta_biinjective, meta_addr, meta_to_frame_spec,
-    },
+    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    mapping::{frame_to_meta, meta_to_frame},
 };
 use crate::mm::frame::*;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::MetadataInnerPerms;
+use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, index_to_frame, lemma_paddr_to_meta_biinjective, meta_addr},
+    meta_owners::MetadataInnerPerms,
+};
 
 use core::marker::PhantomData;
 
 verus! {
+
+global layout MetaSlot is size == 64, align == 8;
+
+pub proof fn lemma_meta_slot_size()
+    ensures
+        core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
+        vstd::layout::size_of::<MetaSlot>() == META_SLOT_SIZE,
+{
+    broadcast use VERUS_layout_of_MetaSlot;
+
+}
 
 impl MetaSlot {
     /// A helper function that casts a `MetaSlot` pointer to a `Metadata` pointer of type `M`.
@@ -85,7 +96,7 @@ impl MetaSlot {
                 post.slot_owners[idx].inner_perms,
             )
             &&& post.slot_owners[idx].usage == PageUsage::Frame
-            &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
+            &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
             &&& pre.slot_owners[idx].inner_perms.ref_count.value()
@@ -118,7 +129,7 @@ impl MetaSlot {
             &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
             &&& MetaSlot::get_from_unused_inner_perms_spec(false, post.slot_owners[idx].inner_perms)
             &&& post.slot_owners[idx].usage == PageUsage::PageTable
-            &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
+            &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
             &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
@@ -198,12 +209,6 @@ impl MetaSlot {
         &&& perm.addr() % META_SLOT_SIZE == 0
     }
 
-    pub open spec fn get_from_in_use_panic_cond(paddr: Paddr, regions: MetaRegionOwners) -> bool {
-        let idx = frame_to_index(paddr);
-        let pre_perms = regions.slot_owners[idx].inner_perms.ref_count.value();
-        pre_perms + 1 >= REF_COUNT_MAX
-    }
-
     pub open spec fn get_from_in_use_success(
         paddr: Paddr,
         pre: MetaRegionOwners,
@@ -226,7 +231,7 @@ impl MetaSlot {
                 == pre.slot_owners[idx].inner_perms.vtable_ptr
             &&& post.slot_owners[idx].inner_perms.in_list
                 == pre.slot_owners[idx].inner_perms.in_list
-            &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
+            &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].usage == pre.slot_owners[idx].usage
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
@@ -277,7 +282,7 @@ pub broadcast proof fn lemma_meta_addr_to_index(i: usize)
     requires
         i < MAX_NR_PAGES,
     ensures
-        #[trigger] frame_to_index(meta_to_frame_spec(meta_addr(i))) == i,
+        #[trigger] frame_to_index(meta_to_frame(meta_addr(i))) == i,
 {
     assert(MAX_NR_PAGES == 0x80000 && PAGE_SIZE == 4096 && MAX_PADDR == 0x8000_0000
         && META_SLOT_SIZE == 64) by (compute_only);
@@ -301,10 +306,10 @@ pub broadcast proof fn lemma_meta_addr_to_index(i: usize)
             PAGE_SIZE == 4096,
     ;
     // `meta_addr(i)` is exactly the metadata address of physical page `p`.
-    assert(meta_addr(i) == frame_to_meta_spec(p));
+    assert(meta_addr(i) == frame_to_meta(p));
     // Existing biinjectivity closes `meta_to_frame(frame_to_meta(p)) == p`.
     lemma_paddr_to_meta_biinjective(p);
-    assert(meta_to_frame_spec(meta_addr(i)) == p);
+    assert(meta_to_frame(meta_addr(i)) == p);
     assert(frame_to_index(p) == i);
 }
 
