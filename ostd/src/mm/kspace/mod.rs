@@ -406,10 +406,29 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
 impl KernelPtConfig {
     /// The spec agrees with the exec, which ensures 1 <= level <= NR_LEVELS.
-    pub axiom fn item_into_raw_spec_level_bounds(item: MappedItem)
+    /// The Tracked branch is proved; the Untracked branch needs `1 <= level <= NR_LEVELS`
+    /// as a precondition (moved from the axiom to caller obligations).
+    pub proof fn item_into_raw_spec_level_bounds(item: MappedItem)
+        requires
+            match item {
+                MappedItem::Untracked(_, level, _) => 1 <= level <= NR_LEVELS,
+                _ => true,
+            },
         ensures
             1 <= KernelPtConfig::item_into_raw_spec(item).1 <= crate::specs::arch::NR_LEVELS,
-    ;
+    {
+        match item {
+            MappedItem::Tracked(_, _) => {
+                Self::item_into_raw_spec_tracked_level(item);
+                // item_into_raw_spec(item).1 == 1; 1 <= 1 <= NR_LEVELS always.
+                assert(1 <= NR_LEVELS);
+            },
+            MappedItem::Untracked(pa, level, prop) => {
+                Self::item_into_raw_spec_untracked(pa, level, prop);
+                // item_into_raw_spec(item).1 == level, bounded by precondition.
+            },
+        }
+    }
 
     /// Tracked frames use 4K pages (level 1). Used to prove alignment in map_frames.
     pub axiom fn item_into_raw_spec_tracked_level(item: MappedItem)
