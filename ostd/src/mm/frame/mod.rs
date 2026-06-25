@@ -30,6 +30,14 @@
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
 //pub mod allocator;
+use vstd::atomic::PermissionU64;
+use vstd::prelude::*;
+use vstd::simple_pptr::{self, PPtr};
+use vstd_extra::cast_ptr::*;
+use vstd_extra::drop_tracking::*;
+use vstd_extra::ownership::*;
+use vstd_extra::panic::may_panic;
+
 pub mod allocator;
 pub mod linked_list;
 pub mod meta;
@@ -39,17 +47,10 @@ pub mod untyped;
 
 mod frame_ref;
 pub mod obligation_demo;
+pub use frame_ref::FrameRef;
 
 #[cfg(ktest)]
 mod test;
-
-use vstd::atomic::PermissionU64;
-use vstd::prelude::*;
-use vstd::simple_pptr::{self, PPtr};
-use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::may_panic;
 
 use core::{
     marker::PhantomData,
@@ -57,22 +58,23 @@ use core::{
 };
 
 //pub use allocator::GlobalFrameAllocator;
-use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
+use meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping};
 pub use segment::Segment;
+pub use untyped::{AnyUFrameMeta, UFrame};
+
+use super::PagingLevel;
 
 // Re-export commonly used types
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
-pub use untyped::{AnyUFrameMeta, UFrame};
 
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
 use crate::mm::page_table::RCClone;
 use crate::mm::{
-    MAX_PADDR, Paddr, PagingLevel, Vaddr,
+    MAX_PADDR, Paddr, Vaddr,
     frame::meta::{
         META_SLOT_SIZE,
         mapping::{frame_to_meta, meta_to_frame},
@@ -125,14 +127,6 @@ pub struct Frame<M: ?Sized> {
 }
 
 /*
-impl<M: ?Sized> Inv for Frame<M> {
-    open spec fn inv(self) -> bool {
-        &&& self.ptr.addr() % META_SLOT_SIZE == 0
-        &&& FRAME_METADATA_RANGE.start <= self.ptr.addr() < FRAME_METADATA_RANGE.start
-            + MAX_NR_PAGES * META_SLOT_SIZE
-    }
-}
-
 // Unbounded so the PT-node `on_drop` body can use `Frame::<Self>::from_raw` /
 // `Drop for Frame<Self>` without forcing trait resolution back through the
 // in-flight `AnyFrameMeta for PageTablePageMeta<C>` impl. Body is pure
@@ -276,14 +270,17 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             old(regions).inv(),
         ensures
             final(regions).inv(),
-            r matches Ok(res) ==> res.ptr.addr() == frame_to_meta(paddr),
-            r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
-            r is Ok ==> MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions)),
+            r matches Ok(res) ==> {
+                &&& res.ptr.addr() == frame_to_meta(paddr)
+                &&& MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions))
+                &&& MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions))
+                &&& MetaSlot::live_frame_obligations_ok_spec(paddr, *old(regions), *final(regions))
+            },
             !has_safe_slot(paddr) ==> r is Err,
-            r is Ok ==> MetaSlot::live_frame_obligations_ok_spec(paddr, *old(regions), *final(regions)),
-            r is Err ==> MetaSlot::live_frame_obligations_err_spec(*old(regions), *final(regions)),
-            // On failure nothing was claimed: the region state is untouched.
-            r is Err ==> *final(regions) == *old(regions),
+            r is Err ==> {
+                &&& MetaSlot::live_frame_obligations_err_spec(*old(regions), *final(regions))
+                &&& *final(regions) == *old(regions)
+            }
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         let ghost pre = *regions;
