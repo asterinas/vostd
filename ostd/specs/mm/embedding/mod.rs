@@ -742,7 +742,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
             // `unique_frames.dom()` is finite (built by finitely many
             // `insert_unique`), needed wherever the embedding reasons
             // about the unique-handle set as a whole.
-        // Every registered `UniqueEntry`'s paddr is in-bound.
+            // Every registered `UniqueEntry`'s paddr is in-bound.
         &&& forall|uid: UniqueId| #[trigger]
             self.unique_frames.dom().contains(uid) ==> has_safe_slot(
                 self.unique_frames[uid].paddr,

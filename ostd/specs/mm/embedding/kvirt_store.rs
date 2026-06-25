@@ -78,7 +78,9 @@ impl KVmStore {
         // The global kernel page table relates to the shared region map —
         // every present page-table node sits at a sound region slot, just
         // as `VmStore::inv` requires of each cursor's owner.
-        &&& self.kernel_pt.metaregion_sound(self.regions)
+        &&& self.kernel_pt.metaregion_sound(
+            self.regions,
+        )
         // Each allocated area is a well-formed kernel virtual range:
         // within `[KERNEL_BASE_VADDR, FRAME_METADATA_BASE_VADDR]` (the
         // VMALLOC region the real allocator draws from), page-aligned,
