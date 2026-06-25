@@ -533,15 +533,9 @@ impl MetaSlot {
             match slot.borrow(Tracked(&slot_perm)).ref_count.load(
                 Tracked(&mut slot_own.inner_perms.ref_count),
             ) {
-                REF_COUNT_UNUSED => {
-                    return Err(GetFrameError::Unused);
-                },
-                REF_COUNT_UNIQUE => {
-                    return Err(GetFrameError::Unique);
-                },
-                0 => {
-                    return Err(GetFrameError::Busy);
-                },
+                REF_COUNT_UNUSED => return Err(GetFrameError::Unused),
+                REF_COUNT_UNIQUE => return Err(GetFrameError::Unique),
+                0 => return Err(GetFrameError::Busy),
                 last_ref_cnt => {
                     if last_ref_cnt >= REF_COUNT_MAX {
                         // See `Self::inc_ref_count` for the explanation.
