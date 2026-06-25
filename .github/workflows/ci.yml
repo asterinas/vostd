@@ -118,16 +118,31 @@ jobs:
             echo "✅ Verification passed!"
           fi
 
-      - name: Check for auto-trigger notes
+      - name: Check for verification warnings
         if: always()
         run: |
-          if grep -q "note: automatically chose triggers for this expression:" verify_output.txt 2>/dev/null; then
-            echo "❌ Found auto-trigger notes in verification output"
-            echo "TRIGGER_NOTE_FOUND=1" >> "$GITHUB_ENV"
-            grep -n "note: automatically chose triggers for this expression:" verify_output.txt
+          WARNINGS=(
+            "note: automatically chose triggers for this expression:|auto-trigger notes"
+            "warning: use of deprecated method \`vstd::set::Set::<A>::finite\`|deprecated Set::finite()"
+            "warning: use of deprecated associated function \`vstd::set::Set::<A>::new_assuming_finite\`|deprecated Set::new_assuming_finite()"
+          )
+
+          FAILED=0
+          for ITEM in "${WARNINGS[@]}"; do
+            PATTERN="${ITEM%%|*}"
+            LABEL="${ITEM##*|}"
+            if grep -q "$PATTERN" verify_output.txt 2>/dev/null; then
+              echo "❌ Found $LABEL"
+              grep -n "$PATTERN" verify_output.txt
+              FAILED=1
+            else
+              echo "✅ No $LABEL found"
+            fi
+          done
+
+          if [[ "$FAILED" == "1" ]]; then
+            echo "VERIFY_WARNINGS_FOUND=1" >> "$GITHUB_ENV"
             exit 1
-          else
-            echo "✅ No auto-trigger notes found"
           fi
 
       - name: Run format
@@ -159,9 +174,9 @@ jobs:
             else
               echo "- Verification: ✅ passed"
             fi
-            if [[ "${TRIGGER_NOTE_FOUND:-0}" == "1" ]]; then
-              echo "- Auto-trigger check: ❌ found auto-trigger notes"
+            if [[ "${VERIFY_WARNINGS_FOUND:-0}" == "1" ]]; then
+              echo "- Verification warnings: ❌ found"
             else
-              echo "- Auto-trigger check: ✅ no auto-trigger notes"
+              echo "- Verification warnings: ✅ none"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
