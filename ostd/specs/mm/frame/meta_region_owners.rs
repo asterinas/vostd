@@ -15,13 +15,15 @@ use super::*;
 use crate::mm::Paddr;
 use crate::mm::frame::Link;
 use crate::mm::frame::meta::{
-    AnyFrameMeta, MetaSlot, REF_COUNT_MAX,
-    mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr},
+    AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::frame_to_meta,
 };
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;
-use crate::specs::mm::frame::meta_owners::Metadata;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, max_meta_slots, meta_addr},
+    meta_owners::Metadata,
+};
 
 verus! {
 
@@ -45,6 +47,7 @@ verus! {
 /// Double-free happens when `from_raw` is called on a frame that is not forgotten, or that has been
 /// dropped with `ManuallyDrop::drop` instead of `into_raw`. All functions in
 /// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
+#[verifier::ext_equal]
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
@@ -81,7 +84,7 @@ impl Inv for MetaRegionOwners {
                     &&& self.slots[i].is_init()
                     &&& self.slots[i].addr() == meta_addr(i)
                     &&& self.slots[i].value().wf(self.slot_owners[i])
-                    &&& self.slot_owners[i].self_addr == self.slots[i].addr()
+                    &&& self.slot_owners[i].slot_vaddr == self.slots[i].addr()
                 }
         }
     }
@@ -148,7 +151,7 @@ impl MetaRegionOwners {
     /// is live, `self` is mutably borrowed; on borrow-end, `self.slots[i]` and
     /// `self.slot_owners[i].inner_perms` are restored from the final cast_ptr.
     /// Every other slot/slot_owner is fully preserved, and the other fields of
-    /// `slot_owners[i]` (raw_count/usage/self_addr/paths_in_pt) are unchanged.
+    /// `slot_owners[i]` (raw_count/usage/slot_vaddr/paths_in_pt) are unchanged.
     pub axiom fn borrow_mut_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         &mut self,
         i: usize,
@@ -172,7 +175,7 @@ impl MetaRegionOwners {
             forall|k: usize|
                 k != i ==> #[trigger] final(self).slot_owners[k] == old(self).slot_owners[k],
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
-            final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
+            final(self).slot_owners[i].slot_vaddr == old(self).slot_owners[i].slot_vaddr,
             final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
             final(self).frame_obligations == old(self).frame_obligations,
     ;

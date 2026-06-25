@@ -6,10 +6,10 @@ use vstd_extra::ownership::*;
 
 use core::ops::Range;
 
-use crate::mm::frame::{AnyFrameMeta, MetaSlot, Segment};
+use crate::mm::frame::{AnyFrameMeta, MetaSlot, Segment, meta::META_SLOT_SIZE};
 use crate::mm::{Paddr, Vaddr, paddr_to_vaddr};
 use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_index, meta_addr};
+use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::virt_mem::MemView;
 
@@ -146,7 +146,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     ///
     /// For every frame `i` in the segment, this asserts:
     /// - the slot owner is present in `regions` and the perm matches it,
-    /// - the slot's `self_addr` is consistent with its index,
+    /// - the slot's `slot_vaddr` is consistent with its index,
     /// - the slot has a live, non-`UNUSED` reference count,
     /// - `raw_count == 1` (the segment holds one forgotten reference per frame),
     /// - the slot's perm is *not* in `regions.slots` (it lives in `self.perms`),
@@ -173,7 +173,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                     idx,
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
-                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
                 // Segment frames are shared (never `UNIQUE`); the upper
@@ -214,7 +214,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                     idx,
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
-                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX

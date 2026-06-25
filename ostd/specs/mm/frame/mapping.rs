@@ -5,18 +5,15 @@ use super::*;
 use core::mem::size_of;
 use core::ops::Range;
 
-use crate::mm::frame::MetaSlot;
-pub use crate::mm::frame::meta::mapping::{
-    frame_to_meta, frame_to_meta_spec, meta_to_frame, meta_to_frame_spec,
+use crate::mm::frame::meta::{
+    META_SLOT_SIZE, MetaSlot,
+    mapping::{frame_to_meta, meta_to_frame},
 };
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, Vaddr};
-use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::*;
 
 verus! {
-
-/// Metaslot size.
-pub const META_SLOT_SIZE: usize = 64;
 
 pub open spec fn max_meta_slots() -> int {
     (FRAME_METADATA_RANGE.end - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int

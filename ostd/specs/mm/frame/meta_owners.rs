@@ -13,13 +13,15 @@ use vstd_extra::ownership::*;
 
 use super::*;
 use crate::mm::frame::AnyFrameMeta;
-use crate::mm::frame::meta::MetaSlot;
-pub use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
+use crate::mm::frame::meta::{
+    META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    mapping::meta_to_frame,
+};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
-use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, meta_addr, meta_to_frame};
+use crate::specs::mm::frame::mapping::meta_addr;
 
 verus! {
 
@@ -66,7 +68,7 @@ pub uninterp spec fn is_mmio_paddr(pa: Paddr) -> bool;
 pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
     ensures
         (#[trigger] slot.usage == PageUsage::MMIO) <==> is_mmio_paddr(
-            meta_to_frame(slot.self_addr),
+            meta_to_frame(slot.slot_vaddr),
         ),
 ;
 
@@ -189,7 +191,7 @@ pub tracked struct MetadataInnerPerms {
 
 pub tracked struct MetaSlotOwner {
     pub inner_perms: MetadataInnerPerms,
-    pub ghost self_addr: Vaddr,
+    pub ghost slot_vaddr: Vaddr,
     pub ghost usage: PageUsage,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
@@ -245,8 +247,8 @@ impl Inv for MetaSlotOwner {
         &&& self.inner_perms.ref_count.value() == 0 ==> {
             &&& self.inner_perms.in_list.value() == 0
         }
-        &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
-        &&& self.self_addr % META_SLOT_SIZE == 0
+        &&& FRAME_METADATA_RANGE.start <= self.slot_vaddr < FRAME_METADATA_RANGE.end
+        &&& self.slot_vaddr % META_SLOT_SIZE == 0
     }
 }
 
@@ -256,7 +258,7 @@ pub ghost struct MetaSlotModel {
     pub ref_count: u64,
     pub vtable_ptr: MemContents<usize>,
     pub in_list: u64,
-    pub self_addr: Vaddr,
+    pub slot_vaddr: Vaddr,
     pub usage: PageUsage,
 }
 
@@ -283,7 +285,7 @@ impl View for MetaSlotOwner {
         let ref_count = self.inner_perms.ref_count.value();
         let vtable_ptr = self.inner_perms.vtable_ptr.mem_contents();
         let in_list = self.inner_perms.in_list.value();
-        let self_addr = self.self_addr;
+        let slot_vaddr = self.slot_vaddr;
         let usage = self.usage;
         let status = match ref_count {
             REF_COUNT_UNUSED => MetaSlotStatus::UNUSED,
@@ -292,7 +294,7 @@ impl View for MetaSlotOwner {
             _ if ref_count <= REF_COUNT_MAX => MetaSlotStatus::SHARED,
             _ => MetaSlotStatus::OVERFLOW,
         };
-        MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, self_addr, usage }
+        MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, slot_vaddr, usage }
     }
 }
 

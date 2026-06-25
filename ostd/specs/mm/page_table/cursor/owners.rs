@@ -17,7 +17,6 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
@@ -26,16 +25,17 @@ use crate::mm::{
     page_size,
 };
 use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE, has_safe_slot};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::Guards;
-use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
 };
 use crate::specs::mm::page_table::owners::*;
 use crate::specs::mm::page_table::view::PageTableView;
 use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
+use crate::specs::mm::{
+    frame::{mapping::meta_addr, meta_region_owners::MetaRegionOwners},
+    page_table::{AbstractVaddr, Guards, Mapping},
+};
 use crate::specs::task::InAtomicMode;
 
 verus! {
@@ -1201,7 +1201,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // is connected to its paddr's MMIO-ness by `axiom_frame_is_tracked_iff_not_mmio`,
         // and `usage == MMIO` to the paddr by `axiom_mmio_usage_iff_mmio_paddr`.
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
-        assert(regions.slot_owners[idx].self_addr == crate::mm::frame::meta::mapping::meta_addr(
+        assert(regions.slot_owners[idx].slot_vaddr == crate::specs::mm::frame::mapping::meta_addr(
             idx,
         ));
         if C::tracked(item) {
@@ -1245,7 +1245,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == old_regions.slot_owners[idx].inner_perms.in_list,
             // Other MetaSlotOwner fields at idx unchanged
             new_regions.slot_owners[idx].paths_in_pt == old_regions.slot_owners[idx].paths_in_pt,
-            new_regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr,
+            new_regions.slot_owners[idx].slot_vaddr == old_regions.slot_owners[idx].slot_vaddr,
             new_regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage,
             // All other slot_owners unchanged
             new_regions.slot_owners.dom() == old_regions.slot_owners.dom(),
@@ -1274,7 +1274,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 &&& new_regions.slot_owners[i].inv()
                 &&& new_regions.slots[i].is_init()
                 &&& new_regions.slots[i].value().wf(new_regions.slot_owners[i])
-                &&& new_regions.slot_owners[i].self_addr == new_regions.slots[i].addr()
+                &&& new_regions.slot_owners[i].slot_vaddr == new_regions.slots[i].addr()
             } by {
                 assert(old_regions.slots.contains_key(i));
             };
@@ -2615,7 +2615,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].inner_perms.in_list
                 == regions0.slot_owners[idx].inner_perms.in_list,
             regions1.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt,
-            regions1.slot_owners[idx].self_addr == regions0.slot_owners[idx].self_addr,
+            regions1.slot_owners[idx].slot_vaddr == regions0.slot_owners[idx].slot_vaddr,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
             regions1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             // Bumped rc stays in the SHARED range (needed for the node branch).
@@ -2670,8 +2670,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // All other fields at changed_idx preserved
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,
-            regions1.slot_owners[changed_idx].self_addr
-                == regions0.slot_owners[changed_idx].self_addr,
+            regions1.slot_owners[changed_idx].slot_vaddr
+                == regions0.slot_owners[changed_idx].slot_vaddr,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt,

@@ -18,12 +18,11 @@ use crate::mm::{
     page_table::{EntryOwner, EntryOwnerKind},
 };
 
-use crate::mm::frame::frame_to_index;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard};
 
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
 };

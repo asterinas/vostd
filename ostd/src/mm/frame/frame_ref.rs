@@ -8,12 +8,15 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::prelude::*;
 
 use crate::mm::frame::MetaPerm;
-use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
+use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, group_page_meta, max_meta_slots},
+    meta_owners::MetaSlotStorage,
+};
 
 use super::Frame;
 
@@ -63,7 +66,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             old(regions).inv_implies_correct_addr(raw);
         }

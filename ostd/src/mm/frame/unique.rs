@@ -16,16 +16,19 @@ use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 
 use core::{marker::PhantomData, sync::atomic::Ordering};
 
-use super::meta::mapping::{
-    META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
+use super::meta::{
+    META_SLOT_SIZE,
+    mapping::{frame_to_meta, meta_to_frame},
 };
 use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::{Paddr, PagingConsts, PagingLevel};
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
-use crate::specs::mm::frame::meta_owners::Metadata;
 use crate::specs::mm::frame::meta_specs::lemma_meta_addr_to_index;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+    meta_owners::{MetaSlotStorage, Metadata},
+};
 
 verus! {
 
@@ -397,7 +400,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
         proof {
             assert(regions.slot_owners.contains_key(idx));
-            assert(regions.slot_owners[idx].self_addr == meta_addr(idx));
+            assert(regions.slot_owners[idx].slot_vaddr == meta_addr(idx));
             assert(regions.slot_owners[idx].inner_perms.storage.is_init());
             assert(regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
         }
@@ -543,11 +546,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         proof {
             // Unfold `inv_with_regions` to recover the per-slot facts.
             // `owner.inv()` gives `idx < max_meta_slots`, so `regions.inv()`
-            // delivers `contains_key(idx)`, the `self_addr` shape, and
+            // delivers `contains_key(idx)`, the `slot_vaddr` shape, and
             // `slot_owners[idx].inv()`; the latter's UNIQUE branch (under
             // `rc == REF_COUNT_UNIQUE`) gives the storage/vtable init.
             assert(regions.slot_owners.contains_key(idx));
-            assert(regions.slot_owners[idx].self_addr == meta_addr(idx));
+            assert(regions.slot_owners[idx].slot_vaddr == meta_addr(idx));
             assert(regions.slot_owners[idx].inner_perms.storage.is_init());
             assert(regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
 
@@ -598,7 +601,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     pub fn from_unique(unique: UniqueFrame<M>) -> Self {
         let ghost idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
         proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             lemma_meta_addr_to_index(owner.slot_index);
             regions.inv_implies_correct_addr(meta_to_frame(unique.ptr.addr()));
@@ -642,7 +645,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     pub fn try_from_shared(frame: Frame<M>) -> Result<Self, Frame<M>> {
         let ghost idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
         proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             regions.inv_implies_correct_addr(meta_to_frame(frame.ptr.addr()));
             assert(regions.slots[idx].addr() == frame.ptr.addr());

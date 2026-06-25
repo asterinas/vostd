@@ -64,7 +64,6 @@ pub use segment::Segment;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
-pub use meta::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
 pub use untyped::{AnyUFrameMeta, UFrame};
@@ -74,12 +73,19 @@ use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 use crate::mm::page_table::RCClone;
 use crate::mm::{
     MAX_PADDR, Paddr, PagingLevel, Vaddr,
+    frame::meta::{
+        META_SLOT_SIZE,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
 };
 use crate::specs::arch::*;
-use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    frame_specs::*,
+    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+};
 
 verus! {
 
@@ -289,7 +295,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             let (ptr, Tracked(perm)) = from_unused.unwrap();
             let ghost idx = frame_to_index(paddr);
             proof {
-                assert(frame_to_index(paddr) < crate::mm::frame::meta::mapping::max_meta_slots());
+                assert(frame_to_index(paddr) < max_meta_slots());
                 assert(pre.slot_owners.contains_key(idx));
                 assert(pre.slots.contains_key(idx));
                 regions.sync_slot_perm(idx, &perm);
@@ -468,7 +474,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         let ghost self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let ghost other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
         proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             regions.inv_implies_correct_addr(meta_to_frame(self.ptr.addr()));
             regions.inv_implies_correct_addr(meta_to_frame(other.ptr.addr()));
@@ -552,7 +558,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             // The slot perm is canonical in `regions.slots`; `inv_with_regions` already
             // pins its presence and that `slots[idx].pptr() == self.ptr`, so the
             // caller no longer threads a separate `MetaPerm`.
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             regions.inv_implies_correct_addr(self.paddr());
             assert(regions.slots.contains_key(self.index()));
@@ -610,7 +616,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             final(regions).frame_obligations == old(regions).frame_obligations.remove(self.index()),
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
-        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         let tracked perm = regions.slots.tracked_borrow(self.index());
 
@@ -690,7 +696,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& new_perm.slot_owners[idx].inner_perms.in_list
             == old_perm.slot_owners[idx].inner_perms.in_list
         &&& new_perm.slot_owners[idx].paths_in_pt == old_perm.slot_owners[idx].paths_in_pt
-        &&& new_perm.slot_owners[idx].self_addr == old_perm.slot_owners[idx].self_addr
+        &&& new_perm.slot_owners[idx].slot_vaddr == old_perm.slot_owners[idx].slot_vaddr
         &&& new_perm.slot_owners[idx].usage
             == old_perm.slot_owners[idx].usage
         // Other slot_owners unchanged
@@ -760,7 +766,7 @@ impl<M: ?Sized> Drop for Frame<M> {
         // are untouched here.
         proof {
             assert(last_ref_cnt == so0.inner_perms.ref_count.value());
-            assert(slot_own.self_addr == so0.self_addr);
+            assert(slot_own.slot_vaddr == so0.slot_vaddr);
             assert(slot_own.usage == so0.usage);
             assert(slot_own.paths_in_pt == so0.paths_in_pt);
         }
@@ -788,10 +794,10 @@ impl<M: ?Sized> Drop for Frame<M> {
 
             proof {
                 // last-ref teardown: slot is UNUSED, identity preserved
-                // (drop_last_in_place ensures self_addr/usage/paths_in_pt).
+                // (drop_last_in_place ensures slot_vaddr/usage/paths_in_pt).
                 assert(so0.inner_perms.ref_count.value() == 1);
                 assert(slot_own.inner_perms.ref_count.value() == REF_COUNT_UNUSED);
-                assert(slot_own.self_addr == so0.self_addr);
+                assert(slot_own.slot_vaddr == so0.slot_vaddr);
                 assert(slot_own.usage == so0.usage);
                 assert(slot_own.paths_in_pt == so0.paths_in_pt);
             }
@@ -808,7 +814,7 @@ impl<M: ?Sized> Drop for Frame<M> {
                 assert(so0.inner_perms.ref_count.value() > 1);
                 assert(slot_own.inner_perms.ref_count.value() == (so0.inner_perms.ref_count.value()
                     - 1) as u64);
-                assert(slot_own.self_addr == so0.self_addr);
+                assert(slot_own.slot_vaddr == so0.slot_vaddr);
                 assert(slot_own.usage == so0.usage);
                 assert(slot_own.paths_in_pt == so0.paths_in_pt);
             }
@@ -827,7 +833,7 @@ impl<M: ?Sized> Drop for Frame<M> {
             // is now `slot_own` (the post-drop owner).
             assert(so0 == old_regions.slot_owners[idx]);
             assert(regions.slot_owners[idx] == slot_own);
-            assert(regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr);
+            assert(regions.slot_owners[idx].slot_vaddr == old_regions.slot_owners[idx].slot_vaddr);
             assert(regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage);
             assert(regions.slot_owners[idx].paths_in_pt
                 == old_regions.slot_owners[idx].paths_in_pt);
@@ -843,11 +849,10 @@ impl<M: ?Sized> Drop for Frame<M> {
             // For `idx`, `slot_own.inv()` and the perm/slot agreement at
             // `idx` are already asserted above.
             assert forall|i: usize|
-                i < crate::mm::frame::meta::mapping::max_meta_slots()
-                    <==> #[trigger] regions.slot_owners.contains_key(i) by {}
+                i < max_meta_slots() <==> #[trigger] regions.slot_owners.contains_key(i) by {}
 
             assert forall|i: usize| #[trigger] regions.slots.contains_key(i) implies i
-                < crate::mm::frame::meta::mapping::max_meta_slots() by {
+                < max_meta_slots() by {
                 if i == idx {
                     assert(regions.slot_owners.contains_key(idx));
                 }
@@ -859,13 +864,13 @@ impl<M: ?Sized> Drop for Frame<M> {
                 &&& regions.slots[i].is_init()
                 &&& regions.slots[i].addr() == meta_addr(i)
                 &&& regions.slots[i].value().wf(regions.slot_owners[i])
-                &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
+                &&& regions.slot_owners[i].slot_vaddr == regions.slots[i].addr()
             }) by {
                 if i == idx {
                     assert(regions.slots[i].is_init());
                     assert(regions.slots[i].addr() == meta_addr(i));
                     assert(regions.slots[i].value().wf(regions.slot_owners[i]));
-                    assert(regions.slot_owners[i].self_addr == regions.slots[i].addr());
+                    assert(regions.slot_owners[i].slot_vaddr == regions.slots[i].addr());
                 }
             }
 
@@ -990,9 +995,9 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].paths_in_pt,
-        final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
+        final(regions).slot_owners[frame_to_index(paddr)].slot_vaddr == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].self_addr,
+        ).slot_owners[frame_to_index(paddr)].slot_vaddr,
         final(regions).slot_owners[frame_to_index(paddr)].usage == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].usage,
@@ -1029,7 +1034,7 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
             regions,
         ).slot_owners[idx].inner_perms.ref_count.id());
 
-        // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, self_addr ok
+        // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, slot_vaddr ok
         assert(slot_own.inv());
 
         // wf: the slot's cell ids still match the (updated) inner_perms ids

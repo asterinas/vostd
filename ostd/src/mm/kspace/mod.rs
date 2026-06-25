@@ -55,9 +55,11 @@ use super::{
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::MetaPerm;
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    mapping::group_page_meta,
+    meta_owners::{MetaPerm, MetaSlotStorage},
+};
 use crate::{
     arch::mm::{PageTableEntry, PagingConsts},
     boot::memory_region::MemoryRegionType,
@@ -300,7 +302,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     }
 
     proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
-        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         let item = Self::item_from_raw_spec(pa, level, prop);
         if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
@@ -344,7 +346,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
         assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
         match (item, res) {
             (MappedItem::Tracked(frame, prop_actual), MappedItem::Tracked(res_frame, _)) => {
-                use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+                use crate::mm::frame::meta::mapping::meta_to_frame;
+                use crate::specs::mm::frame::mapping::frame_to_index;
                 Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
                 let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
                 assert(pa == meta_to_frame(frame.ptr.addr()));
@@ -384,7 +387,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
         Self::item_from_raw_well_formed(pa, level, prop);
         match item {
             MappedItem::Tracked(frame, prop_actual) => {
-                use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+                use crate::mm::frame::meta::mapping::meta_to_frame;
+                use crate::specs::mm::frame::mapping::frame_to_index;
                 Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
                 Self::item_roundtrip(item, pa, level, prop);
                 assert(meta_to_frame(frame.ptr.addr()) == pa);

@@ -5,15 +5,15 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-    mapping::{META_SLOT_SIZE, frame_to_index, meta_to_frame},
+    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    mapping::{frame_to_meta, meta_to_frame},
 };
 use crate::mm::frame::*;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
 
 use core::marker::PhantomData;
 
@@ -33,7 +33,7 @@ impl<'a, M: ?Sized> Frame<M> {
     /// the PT-node ownership model only exposes `!= UNUSED`.)
     pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& regions.slot_owners.contains_key(frame_to_index(paddr))
-        &&& regions.slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr)
+        &&& regions.slot_owners[frame_to_index(paddr)].slot_vaddr == frame_to_meta(paddr)
         &&& has_safe_slot(paddr)
         &&& regions.inv()
         &&& regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
@@ -50,7 +50,7 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& new_regions.slots.contains_key(frame_to_index(paddr))
         &&& new_regions.slot_owners[frame_to_index(paddr)]
             =~= old_regions.slot_owners[frame_to_index(paddr)]
-        &&& new_regions.slot_owners[frame_to_index(paddr)].self_addr == r.ptr.addr()
+        &&& new_regions.slot_owners[frame_to_index(paddr)].slot_vaddr == r.ptr.addr()
         &&& forall|i: usize|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
@@ -273,7 +273,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
             =~= s0.slot_owners.dom()
         // The slot's identity / page-table linkage is preserved by a
         // drop (it only adjusts refcount and, on teardown, storage).
-        &&& so1.self_addr == so0.self_addr
+        &&& so1.slot_vaddr == so0.slot_vaddr
         &&& so1.usage == so0.usage
         &&& so1.paths_in_pt
             == so0.paths_in_pt

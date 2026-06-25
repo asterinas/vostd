@@ -1685,7 +1685,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     }
 
     proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
-        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
         // Derive `frame.inv()` from the structural-shape axiom + soundness lemmas.
 
         Self::item_from_raw_spec_frame_ptr(pa, level, prop);
@@ -1707,7 +1707,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         // res.frame)`, which delivers per-field facts at `frame_to_index(meta_to_frame(
         // item.frame.ptr.addr()))`. Bridge that index to `frame_to_index(pa)` via
         // `pa == item.frame.paddr() == meta_to_frame(item.frame.ptr.addr())`.
-        use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+        use crate::mm::frame::meta::mapping::meta_to_frame;
+        use crate::specs::mm::frame::mapping::frame_to_index;
         let frame_idx = frame_to_index(meta_to_frame(item.frame.ptr.addr()));
         assert(pa == item.frame.paddr());
         assert(frame_to_index(pa) == frame_idx);
@@ -1737,7 +1738,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         //       (the trait-level structural well-formedness method).
         //   (2) `frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa)`
         //       from `pa == item.frame.paddr()` (UserPtConfig::item_into_raw_spec).
-        use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+        use crate::mm::frame::meta::mapping::meta_to_frame;
+        use crate::specs::mm::frame::mapping::frame_to_index;
         Self::item_roundtrip(item, pa, level, prop);
         assert(item.frame.paddr() == pa);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
