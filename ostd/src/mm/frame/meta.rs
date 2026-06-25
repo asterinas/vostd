@@ -519,15 +519,6 @@ impl MetaSlot {
 
         loop
             invariant
-                regions.slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX
-                    ==> may_panic(),
-                regions.slot_owners[idx].self_addr == old(regions).slot_owners[idx].self_addr,
-                regions.slot_owners[idx].usage == old(regions).slot_owners[idx].usage,
-                regions.slot_owners[idx].paths_in_pt == old(regions).slot_owners[idx].paths_in_pt,
-                FRAME_METADATA_RANGE.start <= regions.slot_owners[idx].self_addr
-                    < FRAME_METADATA_RANGE.end,
-                regions.slot_owners[idx].self_addr % META_SLOT_SIZE == 0,
-                regions.slot_owners[idx].self_addr == slot_perm.addr(),
                 *regions == *old(regions),
         {
             proof {
