@@ -170,7 +170,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             #![trigger self.loose.dom().contains(lid1), self.loose.dom().contains(lid2)]
             self.loose.dom().contains(lid1) && self.loose.dom().contains(lid2)
                 && self.loose[lid1].slot_index == self.loose[lid2].slot_index ==> lid1 == lid2
-        &&& self.cursors.dom().finite()
         // A cursored list is *checked out*: it lives in `cursors`
         // (keyed by its home id), never simultaneously in `lists`. This
         // is the borrow — a live `CursorMut` holds the list exclusively.
@@ -1069,6 +1068,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// `LinkedList::push_front`: move the loose handle `lid` to the front
     /// of list `id`. The frame is forgotten into the list (its
     /// drop-obligation consumed); the `loose` entry is removed.
+    #[allow(deprecated)]
     pub proof fn step_push_front(tracked &mut self, id: ListId, lid: LooseId)
         requires
             old(self).inv(),
@@ -1371,6 +1371,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// `LinkedList::push_back`: move the loose handle `lid` to the back
     /// of list `id`. Same global effect as [`Self::step_push_front`] —
     /// only the link's position within the list differs.
+    #[allow(deprecated)]
     pub proof fn step_push_back(tracked &mut self, id: ListId, lid: LooseId)
         requires
             old(self).inv(),
@@ -1656,6 +1657,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// loose handle `lid` into list `id` at index `n` (`0 <= n <= len`).
     /// The general form of [`Self::step_push_front`] /
     /// [`Self::step_push_back`]; same global effect.
+    #[allow(deprecated)]
     pub proof fn step_insert_before_at(tracked &mut self, id: ListId, n: int, lid: LooseId)
         requires
             old(self).inv(),
@@ -2429,6 +2431,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// [`Self::step_insert_before_at`], but on the list parked in
     /// `cursors` rather than `lists` — so *every* held list is an "other
     /// list" preserved by the axiom's frame.
+    #[allow(deprecated)]
     pub proof fn step_cursor_insert_before(tracked &mut self, id: CursorId, lid: LooseId)
         requires
             old(self).inv(),

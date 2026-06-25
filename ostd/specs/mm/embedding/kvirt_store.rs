@@ -79,7 +79,6 @@ impl KVmStore {
         // every present page-table node sits at a sound region slot, just
         // as `VmStore::inv` requires of each cursor's owner.
         &&& self.kernel_pt.metaregion_sound(self.regions)
-        &&& self.kvirt_areas.dom().finite()
         // Each allocated area is a well-formed kernel virtual range:
         // within `[KERNEL_BASE_VADDR, FRAME_METADATA_BASE_VADDR]` (the
         // VMALLOC region the real allocator draws from), page-aligned,

@@ -742,7 +742,6 @@ impl<'a, 'rcu> VmStore<'rcu> {
             // `unique_frames.dom()` is finite (built by finitely many
             // `insert_unique`), needed wherever the embedding reasons
             // about the unique-handle set as a whole.
-        &&& self.unique_frames.dom().finite()
         // Every registered `UniqueEntry`'s paddr is in-bound.
         &&& forall|uid: UniqueId| #[trigger]
             self.unique_frames.dom().contains(uid) ==> has_safe_slot(
@@ -1377,7 +1376,6 @@ impl<'rcu> VmStore<'rcu> {
     pub proof fn extract_unique(tracked &mut self, uid: UniqueId) -> (tracked res: UniqueEntry)
         requires
             old(self).unique_frames.dom().contains(uid),
-            old(self).unique_frames.dom().finite(),
         ensures
             final(self).regions == old(self).regions,
             final(self).tlb_model == old(self).tlb_model,
@@ -3802,7 +3800,6 @@ proof fn step_segment_clone_range<'rcu>(
     // new entry's range is well-formed (aligned / non-empty / bound).
     assert(sid_range.end <= MAX_PADDR);
     assert(sub_range.end <= MAX_PADDR);
-    assert(old_segments.dom().finite());
 
     // Derive the clone axiom's per-frame preconditions from `s.inv()`:
     // every paddr in `sub_range` is covered by `sid`, hence
