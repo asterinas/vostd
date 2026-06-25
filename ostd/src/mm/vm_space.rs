@@ -977,8 +977,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 forall |m: Mapping| #[trigger] removed.contains(m) ==>
                     start_va <= m.va_range.start < end_va,
                 // Per-config VA bound: every removed mapping fits within the
-                // user VA space. Sourced from `axiom_view_in_vaddr_range` on
-                // the cursor view prior to removal.
+                // user VA space, sourced from the cursor view prior to removal.
                 forall |m: Mapping| #[trigger] removed.contains(m) ==>
                     m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
                 // Nothing in [start_va, end_va) with start < cursor_va remains,

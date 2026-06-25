@@ -6,7 +6,6 @@ use core::mem::size_of;
 use core::ops::Range;
 
 use crate::mm::frame::MetaSlot;
-use crate::mm::frame::meta::axiom_size_of_meta_slot;
 pub use crate::mm::frame::meta::mapping::{
     frame_to_meta, frame_to_meta_spec, meta_to_frame, meta_to_frame_spec,
 };
@@ -123,7 +122,6 @@ pub broadcast proof fn lemma_meta_to_frame_alignment(meta: Vaddr)
 }
 
 pub broadcast group group_page_meta {
-    axiom_size_of_meta_slot,
     lemma_FRAME_METADATA_RANGE_is_page_aligned,
     lemma_FRAME_METADATA_RANGE_is_large_enough,
     lemma_paddr_to_meta_biinjective,

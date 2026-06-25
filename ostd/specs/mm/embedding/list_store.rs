@@ -131,8 +131,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     /// The store's top-level invariant.
     pub open spec fn inv(self) -> bool {
         &&& self.regions.inv()
-        &&& self.lists.dom().finite()
-        &&& self.loose.dom().finite()
         // Each held list is well-formed and every link relates to its
         // UNIQUE region slot (incl. the `next`/`prev` pointer wiring).
         &&& forall|id: ListId| #[trigger]
@@ -250,9 +248,6 @@ pub axiom fn axiom_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall
     lists: Map<ListId, LinkedListOwner<M>>,
     cursors: Map<CursorId, CursorOwner<M>>,
 )
-    requires
-        lists.dom().finite(),
-        cursors.dom().finite(),
     ensures
         !lists.dom().contains(fresh_list_id(lists, cursors)) && !cursors.dom().contains(
             fresh_list_id(lists, cursors),
@@ -919,7 +914,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             forall|i: int|
                 0 <= i < old(self).lists[id].list.len() ==> old(
                     self,
-                ).regions.frame_obligations.count(old(self).lists[id].slot_index_at(i)) == 0,
+                ).regions.frame_obligations.count(#[trigger] old(self).lists[id].slot_index_at(i))
+                    == 0,
         ensures
             final(self).inv(),
             !final(self).lists.dom().contains(id),
@@ -1012,16 +1008,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         };
 
         // --- lists×lists uniqueness (subset of old) ---
-        assert forall|i1: ListId, i2: ListId|
-            self.lists.dom().contains(i1) && self.lists.dom().contains(i2) && self.lists[i1].list_id
-                == self.lists[i2].list_id && self.lists[i1].list_id != 0 implies i1 == i2 by {
+        assert forall|i1: ListId, i2: ListId| #[trigger]
+            self.lists.dom().contains(i1) && #[trigger] self.lists.dom().contains(i2)
+                && self.lists[i1].list_id == self.lists[i2].list_id && self.lists[i1].list_id
+                != 0 implies i1 == i2 by {
             assert(old_self.lists.dom().contains(i1));
             assert(old_self.lists.dom().contains(i2));
         };
 
         // --- loose-internal disjointness (loose unchanged) ---
-        assert forall|l1: LooseId, l2: LooseId|
-            self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+        assert forall|l1: LooseId, l2: LooseId| #[trigger]
+            self.loose.dom().contains(l1) && #[trigger] self.loose.dom().contains(l2)
                 && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
             assert(old_self.loose.dom().contains(l1));
             assert(old_self.loose.dom().contains(l2));
@@ -1029,15 +1026,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
 
         // --- disjointness + cross/cursor uniqueness (lists lost `id`) ---
         assert(self.lists.dom().disjoint(self.cursors.dom()));
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+        assert forall|id2: ListId, cid: CursorId| #[trigger]
+            self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                 && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                 && self.lists[id2].list_id != 0 implies false by {
             assert(old_self.lists.dom().contains(id2));
             assert(old_self.cursors.dom().contains(cid));
         };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+        assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+            self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                 && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                 && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
             assert(old_self.cursors.dom().contains(cid1));
@@ -1111,7 +1108,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         // Other lists with a nonzero id keep it distinct from `new_id`:
         // the pushed list either kept its (uniquely-minted) id or minted
         // one outside `used` (which holds every other list's id).
-        assert forall|i: ListId|
+        assert forall|i: ListId| #[trigger]
             self.lists.dom().contains(i) && i != id && self.lists[i].list_id
                 != 0 implies self.lists[i].list_id != new_id by {
             assert(old_self.lists.dom().contains(i));
@@ -1160,8 +1157,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         };
 
         // --- list_id uniqueness (non-empty lists) ---
-        assert forall|i1: ListId, i2: ListId|
-            self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+        assert forall|i1: ListId, i2: ListId| #[trigger]
+            self.lists.dom().contains(i1) && #[trigger] self.lists.dom().contains(i2)
                 && self.lists[i1].list.len() > 0 && self.lists[i2].list.len() > 0
                 && self.lists[i1].list_id == self.lists[i2].list_id implies i1 == i2 by {
             if i1 != id && i2 != id {
@@ -1175,8 +1172,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         };
 
         // --- loose-internal slot disjointness (subset of old) ---
-        assert forall|l1: LooseId, l2: LooseId|
-            self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+        assert forall|l1: LooseId, l2: LooseId| #[trigger]
+            self.loose.dom().contains(l1) && #[trigger] self.loose.dom().contains(l2)
                 && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
             assert(old_self.loose.dom().contains(l1));
             assert(old_self.loose.dom().contains(l2));
@@ -1207,8 +1204,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.cursors[cid].list_own.list_id != new_id);
             assert(self.cursors[cid].list_own.relate_region(self.regions));
         };
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+        assert forall|id2: ListId, cid: CursorId| #[trigger]
+            self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                 && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                 && self.lists[id2].list_id != 0 implies false by {
             assert(old_self.cursors.dom().contains(cid));
@@ -1224,8 +1221,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.lists[id2] == self.lists[id2]);
             }
         };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+        assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+            self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                 && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                 && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
             assert(old_self.cursors.dom().contains(cid1));
@@ -1307,8 +1304,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             };
 
             // --- list_id uniqueness (all ids unchanged) ---
-            assert forall|i1: ListId, i2: ListId|
-                self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+            assert forall|i1: ListId, i2: ListId| #[trigger]
+                self.lists.dom().contains(i1) && #[trigger] self.lists.dom().contains(i2)
                     && self.lists[i1].list_id == self.lists[i2].list_id && self.lists[i1].list_id
                     != 0 implies i1 == i2 by {
                 assert(old_self.lists.dom().contains(i1));
@@ -1318,8 +1315,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             };
 
             // --- loose-internal disjointness ---
-            assert forall|l1: LooseId, l2: LooseId|
-                self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+            assert forall|l1: LooseId, l2: LooseId| #[trigger]
+                self.loose.dom().contains(l1) && #[trigger] self.loose.dom().contains(l2)
                     && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
                 if l1 == new_loose && l2 != new_loose {
                     assert(old_self.loose.dom().contains(l2));
@@ -1352,16 +1349,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(self.cursors[cid].list_own.list_id != old_list_id);
                 assert(self.cursors[cid].list_own.relate_region(self.regions));
             };
-            assert forall|id2: ListId, cid: CursorId|
-                self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+            assert forall|id2: ListId, cid: CursorId| #[trigger]
+                self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                     && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                     && self.lists[id2].list_id != 0 implies false by {
                 assert(old_self.cursors.dom().contains(cid));
                 assert(old_self.lists.dom().contains(id2));
                 assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
             };
-            assert forall|cid1: CursorId, cid2: CursorId|
-                self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+            assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+                self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                     && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                     && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
                 assert(old_self.cursors.dom().contains(cid1));
@@ -1408,7 +1405,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
         let ghost new_id = self.lists[id].list_id;
 
-        assert forall|i: ListId|
+        assert forall|i: ListId| #[trigger]
             self.lists.dom().contains(i) && i != id && self.lists[i].list_id
                 != 0 implies self.lists[i].list_id != new_id by {
             assert(old_self.lists.dom().contains(i));
@@ -1452,8 +1449,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.loose[lid2].slot_index != fidx);
         };
 
-        assert forall|i1: ListId, i2: ListId|
-            self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+        assert forall|i1: ListId, i2: ListId| #[trigger]
+            self.lists.dom().contains(i1) && #[trigger] self.lists.dom().contains(i2)
                 && self.lists[i1].list.len() > 0 && self.lists[i2].list.len() > 0
                 && self.lists[i1].list_id == self.lists[i2].list_id implies i1 == i2 by {
             if i1 != id && i2 != id {
@@ -1466,8 +1463,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             }
         };
 
-        assert forall|l1: LooseId, l2: LooseId|
-            self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+        assert forall|l1: LooseId, l2: LooseId| #[trigger]
+            self.loose.dom().contains(l1) && #[trigger] self.loose.dom().contains(l2)
                 && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
             assert(old_self.loose.dom().contains(l1));
             assert(old_self.loose.dom().contains(l2));
@@ -1498,8 +1495,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.cursors[cid].list_own.list_id != new_id);
             assert(self.cursors[cid].list_own.relate_region(self.regions));
         };
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+        assert forall|id2: ListId, cid: CursorId| #[trigger]
+            self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                 && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                 && self.lists[id2].list_id != 0 implies false by {
             assert(old_self.cursors.dom().contains(cid));
@@ -1515,8 +1512,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.lists[id2] == self.lists[id2]);
             }
         };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+        assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+            self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                 && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                 && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
             assert(old_self.cursors.dom().contains(cid1));
@@ -1592,8 +1589,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 }
             };
 
-            assert forall|i1: ListId, i2: ListId|
-                self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+            assert forall|i1: ListId, i2: ListId| #[trigger]
+                self.lists.dom().contains(i1) && #[trigger] self.lists.dom().contains(i2)
                     && self.lists[i1].list_id == self.lists[i2].list_id && self.lists[i1].list_id
                     != 0 implies i1 == i2 by {
                 assert(old_self.lists.dom().contains(i1));
@@ -1602,8 +1599,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(self.lists[i2].list_id == old_self.lists[i2].list_id);
             };
 
-            assert forall|l1: LooseId, l2: LooseId|
-                self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+            assert forall|l1: LooseId, l2: LooseId| #[trigger]
+                self.loose.dom().contains(l1) && #[trigger] self.loose.dom().contains(l2)
                     && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
                 if l1 == new_loose && l2 != new_loose {
                     assert(old_self.loose.dom().contains(l2));
@@ -1636,16 +1633,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(self.cursors[cid].list_own.list_id != old_list_id);
                 assert(self.cursors[cid].list_own.relate_region(self.regions));
             };
-            assert forall|id2: ListId, cid: CursorId|
-                self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+            assert forall|id2: ListId, cid: CursorId| #[trigger]
+                self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                     && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                     && self.lists[id2].list_id != 0 implies false by {
                 assert(old_self.cursors.dom().contains(cid));
                 assert(old_self.lists.dom().contains(id2));
                 assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
             };
-            assert forall|cid1: CursorId, cid2: CursorId|
-                self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+            assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+                self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                     && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                     && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
                 assert(old_self.cursors.dom().contains(cid1));
@@ -1694,7 +1691,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
         let ghost new_id = self.lists[id].list_id;
 
-        assert forall|i: ListId|
+        assert forall|i: ListId| #[trigger]
             self.lists.dom().contains(i) && i != id && self.lists[i].list_id
                 != 0 implies self.lists[i].list_id != new_id by {
             assert(old_self.lists.dom().contains(i));
@@ -1738,8 +1735,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.loose[lid2].slot_index != fidx);
         };
 
-        assert forall|i1: ListId, i2: ListId|
-            self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+        assert forall|i1: ListId, i2: ListId| #[trigger]
+            self.lists.dom().contains(i1) && #[trigger] self.lists.dom().contains(i2)
                 && self.lists[i1].list.len() > 0 && self.lists[i2].list.len() > 0
                 && self.lists[i1].list_id == self.lists[i2].list_id implies i1 == i2 by {
             if i1 != id && i2 != id {
@@ -1752,8 +1749,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             }
         };
 
-        assert forall|l1: LooseId, l2: LooseId|
-            self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+        assert forall|l1: LooseId, l2: LooseId| #[trigger]
+            self.loose.dom().contains(l1) && #[trigger] self.loose.dom().contains(l2)
                 && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
             assert(old_self.loose.dom().contains(l1));
             assert(old_self.loose.dom().contains(l2));
@@ -1784,8 +1781,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.cursors[cid].list_own.list_id != new_id);
             assert(self.cursors[cid].list_own.relate_region(self.regions));
         };
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+        assert forall|id2: ListId, cid: CursorId| #[trigger]
+            self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                 && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                 && self.lists[id2].list_id != 0 implies false by {
             assert(old_self.cursors.dom().contains(cid));
@@ -1801,8 +1798,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.lists[id2] == self.lists[id2]);
             }
         };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+        assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+            self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                 && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                 && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
             assert(old_self.cursors.dom().contains(cid1));
@@ -1881,8 +1878,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 }
             };
 
-            assert forall|i1: ListId, i2: ListId|
-                self.lists.dom().contains(i1) && self.lists.dom().contains(i2)
+            assert forall|i1: ListId, i2: ListId| #[trigger]
+                self.lists.dom().contains(i1) && #[trigger] self.lists.dom().contains(i2)
                     && self.lists[i1].list_id == self.lists[i2].list_id && self.lists[i1].list_id
                     != 0 implies i1 == i2 by {
                 assert(old_self.lists.dom().contains(i1));
@@ -1891,8 +1888,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(self.lists[i2].list_id == old_self.lists[i2].list_id);
             };
 
-            assert forall|l1: LooseId, l2: LooseId|
-                self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
+            assert forall|l1: LooseId, l2: LooseId| #[trigger]
+                self.loose.dom().contains(l1) && #[trigger] self.loose.dom().contains(l2)
                     && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
                 if l1 == new_loose && l2 != new_loose {
                     assert(old_self.loose.dom().contains(l2));
@@ -1925,16 +1922,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(self.cursors[cid].list_own.list_id != old_list_id);
                 assert(self.cursors[cid].list_own.relate_region(self.regions));
             };
-            assert forall|id2: ListId, cid: CursorId|
-                self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+            assert forall|id2: ListId, cid: CursorId| #[trigger]
+                self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                     && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                     && self.lists[id2].list_id != 0 implies false by {
                 assert(old_self.cursors.dom().contains(cid));
                 assert(old_self.lists.dom().contains(id2));
                 assert(old_self.lists[id2].list_id == self.lists[id2].list_id);
             };
-            assert forall|cid1: CursorId, cid2: CursorId|
-                self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+            assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+                self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                     && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                     && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
                 assert(old_self.cursors.dom().contains(cid1));
@@ -1985,15 +1982,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         } by {
             assert(old_self.loose.dom().contains(lid));
         };
-        assert forall|i1: ListId, i2: ListId|
-            new_self.lists.dom().contains(i1) && new_self.lists.dom().contains(i2)
+        assert forall|i1: ListId, i2: ListId| #[trigger]
+            new_self.lists.dom().contains(i1) && #[trigger] new_self.lists.dom().contains(i2)
                 && new_self.lists[i1].list_id == new_self.lists[i2].list_id
                 && new_self.lists[i1].list_id != 0 implies i1 == i2 by {
             assert(old_self.lists.dom().contains(i1));
             assert(old_self.lists.dom().contains(i2));
         };
-        assert forall|l1: LooseId, l2: LooseId|
-            new_self.loose.dom().contains(l1) && new_self.loose.dom().contains(l2)
+        assert forall|l1: LooseId, l2: LooseId| #[trigger]
+            new_self.loose.dom().contains(l1) && #[trigger] new_self.loose.dom().contains(l2)
                 && new_self.loose[l1].slot_index == new_self.loose[l2].slot_index implies l1
             == l2 by {
             assert(old_self.loose.dom().contains(l1));
@@ -2012,8 +2009,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.lists[id].relate_region(old_self.regions));
             }
         };
-        assert forall|id2: ListId, cid: CursorId|
-            new_self.lists.dom().contains(id2) && new_self.cursors.dom().contains(cid)
+        assert forall|id2: ListId, cid: CursorId| #[trigger]
+            new_self.lists.dom().contains(id2) && #[trigger] new_self.cursors.dom().contains(cid)
                 && new_self.lists[id2].list_id == new_self.cursors[cid].list_own.list_id
                 && new_self.lists[id2].list_id != 0 implies false by {
             assert(id2 != id);
@@ -2027,10 +2024,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.cursors[cid] == new_self.cursors[cid]);
             }
         };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            new_self.cursors.dom().contains(cid1) && new_self.cursors.dom().contains(cid2)
-                && new_self.cursors[cid1].list_own.list_id
-                == new_self.cursors[cid2].list_own.list_id
+        assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+            new_self.cursors.dom().contains(cid1) && #[trigger] new_self.cursors.dom().contains(
+                cid2,
+            ) && new_self.cursors[cid1].list_own.list_id == new_self.cursors[cid2].list_own.list_id
                 && new_self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
             if cid1 == id && cid2 != id {
                 assert(old_self.cursors.dom().contains(cid2));
@@ -2084,8 +2081,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         } by {
             assert(old_self.loose.dom().contains(lid));
         };
-        assert forall|i1: ListId, i2: ListId|
-            new_self.lists.dom().contains(i1) && new_self.lists.dom().contains(i2)
+        assert forall|i1: ListId, i2: ListId| #[trigger]
+            new_self.lists.dom().contains(i1) && #[trigger] new_self.lists.dom().contains(i2)
                 && new_self.lists[i1].list_id == new_self.lists[i2].list_id
                 && new_self.lists[i1].list_id != 0 implies i1 == i2 by {
             // The reinstated list at `id` carries the cursor's id; any
@@ -2104,8 +2101,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.lists.dom().contains(i2));
             }
         };
-        assert forall|l1: LooseId, l2: LooseId|
-            new_self.loose.dom().contains(l1) && new_self.loose.dom().contains(l2)
+        assert forall|l1: LooseId, l2: LooseId| #[trigger]
+            new_self.loose.dom().contains(l1) && #[trigger] new_self.loose.dom().contains(l2)
                 && new_self.loose[l1].slot_index == new_self.loose[l2].slot_index implies l1
             == l2 by {
             assert(old_self.loose.dom().contains(l1));
@@ -2120,8 +2117,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(old_self.cursors.dom().contains(cid));
             assert(old_self.cursors[cid] == new_self.cursors[cid]);
         };
-        assert forall|id2: ListId, cid: CursorId|
-            new_self.lists.dom().contains(id2) && new_self.cursors.dom().contains(cid)
+        assert forall|id2: ListId, cid: CursorId| #[trigger]
+            new_self.lists.dom().contains(id2) && #[trigger] new_self.cursors.dom().contains(cid)
                 && new_self.lists[id2].list_id == new_self.cursors[cid].list_own.list_id
                 && new_self.lists[id2].list_id != 0 implies false by {
             assert(cid != id);
@@ -2135,10 +2132,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.lists[id2] == new_self.lists[id2]);
             }
         };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            new_self.cursors.dom().contains(cid1) && new_self.cursors.dom().contains(cid2)
-                && new_self.cursors[cid1].list_own.list_id
-                == new_self.cursors[cid2].list_own.list_id
+        assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+            new_self.cursors.dom().contains(cid1) && #[trigger] new_self.cursors.dom().contains(
+                cid2,
+            ) && new_self.cursors[cid1].list_own.list_id == new_self.cursors[cid2].list_own.list_id
                 && new_self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
             assert(old_self.cursors.dom().contains(cid1));
             assert(old_self.cursors.dom().contains(cid2));
@@ -2180,15 +2177,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         } by {
             assert(old_self.loose.dom().contains(lid));
         };
-        assert forall|i1: ListId, i2: ListId|
-            new_self.lists.dom().contains(i1) && new_self.lists.dom().contains(i2)
+        assert forall|i1: ListId, i2: ListId| #[trigger]
+            new_self.lists.dom().contains(i1) && #[trigger] new_self.lists.dom().contains(i2)
                 && new_self.lists[i1].list_id == new_self.lists[i2].list_id
                 && new_self.lists[i1].list_id != 0 implies i1 == i2 by {
             assert(old_self.lists.dom().contains(i1));
             assert(old_self.lists.dom().contains(i2));
         };
-        assert forall|l1: LooseId, l2: LooseId|
-            new_self.loose.dom().contains(l1) && new_self.loose.dom().contains(l2)
+        assert forall|l1: LooseId, l2: LooseId| #[trigger]
+            new_self.loose.dom().contains(l1) && #[trigger] new_self.loose.dom().contains(l2)
                 && new_self.loose[l1].slot_index == new_self.loose[l2].slot_index implies l1
             == l2 by {
             assert(old_self.loose.dom().contains(l1));
@@ -2208,8 +2205,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.cursors[id].inv_region(old_self.regions));
             }
         };
-        assert forall|id2: ListId, cid: CursorId|
-            new_self.lists.dom().contains(id2) && new_self.cursors.dom().contains(cid)
+        assert forall|id2: ListId, cid: CursorId| #[trigger]
+            new_self.lists.dom().contains(id2) && #[trigger] new_self.cursors.dom().contains(cid)
                 && new_self.lists[id2].list_id == new_self.cursors[cid].list_own.list_id
                 && new_self.lists[id2].list_id != 0 implies false by {
             assert(old_self.lists.dom().contains(id2));
@@ -2217,10 +2214,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(new_self.cursors[cid].list_own.list_id
                 == old_self.cursors[cid].list_own.list_id);
         };
-        assert forall|cid1: CursorId, cid2: CursorId|
-            new_self.cursors.dom().contains(cid1) && new_self.cursors.dom().contains(cid2)
-                && new_self.cursors[cid1].list_own.list_id
-                == new_self.cursors[cid2].list_own.list_id
+        assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+            new_self.cursors.dom().contains(cid1) && #[trigger] new_self.cursors.dom().contains(
+                cid2,
+            ) && new_self.cursors[cid1].list_own.list_id == new_self.cursors[cid2].list_own.list_id
                 && new_self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
             assert(old_self.cursors.dom().contains(cid1));
             assert(old_self.cursors.dom().contains(cid2));
@@ -2477,7 +2474,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         // `new_id` is distinct from every list id and every *other*
         // cursor id (minted outside `used`, or — when the cursor's list
         // already had an id — separated by the old uniqueness).
-        assert forall|i: ListId|
+        assert forall|i: ListId| #[trigger]
             old_self.lists.dom().contains(i) && self.lists[i].list_id
                 != 0 implies self.lists[i].list_id != new_id by {
             if old_self.cursors[id].list_own.list_id != 0 {
@@ -2487,7 +2484,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(used.contains(self.lists[i].list_id));
             }
         };
-        assert forall|cid: CursorId|
+        assert forall|cid: CursorId| #[trigger]
             old_self.cursors.dom().contains(cid) && cid != id
                 && old_self.cursors[cid].list_own.list_id
                 != 0 implies old_self.cursors[cid].list_own.list_id != new_id by {
@@ -2554,8 +2551,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         };
 
         // --- cross list/cursor uniqueness ---
-        assert forall|id2: ListId, cid: CursorId|
-            self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+        assert forall|id2: ListId, cid: CursorId| #[trigger]
+            self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                 && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                 && self.lists[id2].list_id != 0 implies false by {
             assert(old_self.lists.dom().contains(id2));
@@ -2570,8 +2567,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         };
 
         // --- cursor×cursor uniqueness ---
-        assert forall|cid1: CursorId, cid2: CursorId|
-            self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+        assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+            self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                 && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                 && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
             if cid1 == id && cid2 != id {
@@ -2696,8 +2693,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             };
 
             // --- cross list/cursor uniqueness ---
-            assert forall|id2: ListId, cid: CursorId|
-                self.lists.dom().contains(id2) && self.cursors.dom().contains(cid)
+            assert forall|id2: ListId, cid: CursorId| #[trigger]
+                self.lists.dom().contains(id2) && #[trigger] self.cursors.dom().contains(cid)
                     && self.lists[id2].list_id == self.cursors[cid].list_own.list_id
                     && self.lists[id2].list_id != 0 implies false by {
                 assert(old_self.lists.dom().contains(id2));
@@ -2712,8 +2709,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             };
 
             // --- cursor×cursor uniqueness ---
-            assert forall|cid1: CursorId, cid2: CursorId|
-                self.cursors.dom().contains(cid1) && self.cursors.dom().contains(cid2)
+            assert forall|cid1: CursorId, cid2: CursorId| #[trigger]
+                self.cursors.dom().contains(cid1) && #[trigger] self.cursors.dom().contains(cid2)
                     && self.cursors[cid1].list_own.list_id == self.cursors[cid2].list_own.list_id
                     && self.cursors[cid1].list_own.list_id != 0 implies cid1 == cid2 by {
                 assert(old_self.cursors.dom().contains(cid1));
@@ -2726,6 +2723,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
 
             // --- loose-internal slot disjointness ---
             assert forall|l1: LooseId, l2: LooseId|
+                #![trigger self.loose.dom().contains(l1), self.loose.dom().contains(l2)]
                 self.loose.dom().contains(l1) && self.loose.dom().contains(l2)
                     && self.loose[l1].slot_index == self.loose[l2].slot_index implies l1 == l2 by {
                 if l1 == new_loose && l2 != new_loose {
