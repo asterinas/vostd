@@ -138,10 +138,12 @@ proof fn lemma_meta_slot_size()
         core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
 {
     broadcast use self::VERUS_layout_of_MetaSlot;
+
     assert(vstd::layout::size_of::<MetaSlot>() == 64);
     assert(META_SLOT_SIZE == 64) by (compute);
-    assert(vstd::layout::size_of::<MetaSlot>() as usize as int
-        == vstd::layout::size_of::<MetaSlot>());
+    assert(vstd::layout::size_of::<MetaSlot>() as usize as int == vstd::layout::size_of::<
+        MetaSlot,
+    >());
     assert(core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE);
 }
 
