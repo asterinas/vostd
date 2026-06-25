@@ -518,7 +518,9 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             {
-                &&& final(regions).slot_owners[i].slot_vaddr == old(regions).slot_owners[i].slot_vaddr
+                &&& final(regions).slot_owners[i].slot_vaddr == old(
+                    regions,
+                ).slot_owners[i].slot_vaddr
                 &&& final(regions).slot_owners[i].usage == old(regions).slot_owners[i].usage
                 &&& final(regions).slot_owners[i].inner_perms.in_list == old(
                     regions,
@@ -940,7 +942,9 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             {
-                &&& final(regions).slot_owners[i].slot_vaddr == old(regions).slot_owners[i].slot_vaddr
+                &&& final(regions).slot_owners[i].slot_vaddr == old(
+                    regions,
+                ).slot_owners[i].slot_vaddr
                 &&& final(regions).slot_owners[i].usage == old(regions).slot_owners[i].usage
                 &&& final(regions).slot_owners[i].inner_perms.in_list == old(
                     regions,
