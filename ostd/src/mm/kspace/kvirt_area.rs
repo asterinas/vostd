@@ -1348,7 +1348,7 @@ impl KVirtArea {
 
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                     level_raw);
-                    assert(1 <= level <= NR_LEVELS); // from loop invariant on it.seq()[i].1
+                    assert(1 <= level <= NR_LEVELS);  // from loop invariant on it.seq()[i].1
                     KernelPtConfig::item_into_raw_spec_level_bounds(item);
                     let split_self = old_cursor_model.split_while_huge(page_size(level_raw));
 
