@@ -56,7 +56,7 @@
         ".github/instructions.md",
         "dv/**",
         "doc",
-        "tools/verus",
+        "tools/verus/**",
         "target/**",
         "Cargo.lock",
         ".vscode/settings.json",
