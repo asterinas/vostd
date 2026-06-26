@@ -253,9 +253,7 @@ pub axiom fn kvirt_alloc_range_bounds(
 /// KernelPtConfig (which uses sign-extended high-half addresses).
 pub proof fn lemma_kernel_range_valid(r: core::ops::Range<Vaddr>)
     requires
-        KERNEL_BASE_VADDR <= r.start,
-        r.end <= KERNEL_END_VADDR,
-        r.start < r.end,
+        KERNEL_BASE_VADDR <= r.start < r.end <= KERNEL_END_VADDR,
         r.start % PAGE_SIZE == 0,
         r.end % PAGE_SIZE == 0,
     ensures
