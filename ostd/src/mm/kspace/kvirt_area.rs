@@ -249,8 +249,8 @@ pub axiom fn kvirt_alloc_range_bounds(
          && r.end <= FRAME_METADATA_BASE_VADDR,
 ;
 
-/// Non-empty, page-aligned kernel ranges within [KERNEL_BASE_VADDR, KERNEL_END_VADDR]
-/// are valid for KernelPtConfig.
+/// Kernel ranges within [KERNEL_BASE_VADDR, KERNEL_END_VADDR] with alignment are valid for
+/// KernelPtConfig (which uses sign-extended high-half addresses).
 pub proof fn lemma_kernel_range_valid(r: core::ops::Range<Vaddr>)
     requires
         KERNEL_BASE_VADDR <= r.start,
@@ -836,7 +836,6 @@ impl KVirtArea {
                     old_cursor_model,
                     PAGE_SIZE,
                 );
-
 
                 // va is PAGE_SIZE-aligned (loop invariant via cursor.0.invariants),
                 // so nat_align_down returns va unchanged.
