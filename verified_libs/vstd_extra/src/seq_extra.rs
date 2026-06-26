@@ -19,7 +19,6 @@ pub proof fn seq_tracked_split_at<T>(tracked s: &mut Seq<T>, n: int) -> (tracked
         Seq::tracked_empty()
     } else {
         let ghost orig = *s;
-        let ghost orig_len = orig.len() as int;
         let tracked last = s.tracked_pop();
         let tracked mut result = seq_tracked_split_at(s, n);
         result.tracked_push(last);
