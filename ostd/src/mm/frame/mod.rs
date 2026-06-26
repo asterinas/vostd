@@ -468,6 +468,87 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
         refcnt
     }
+
+    /// Forgets the handle to the frame.
+    ///
+    /// This will result in the frame being leaked without calling the custom dropper.
+    ///
+    /// A physical address to the frame is returned in case the frame needs to be
+    /// restored using [`Frame::from_raw`] later. This is useful when some architectural
+    /// data structures need to hold the frame handle such as the page table.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// - **Safety**: The frame must be in use (not unused).
+    /// ## Postconditions
+    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
+    /// - **Correctness**: The function returns the physical address of the frame.
+    /// - **Correctness**: The frame's raw count is incremented.
+    /// - **Safety**: Frames other than this one are not affected by the call.
+    /// ## Safety
+    /// - We require the slot to be in use to ensure that a fresh frame handle will not be created until the raw frame is restored.
+    /// - The owner's raw count is incremented so that we can enforce the safety requirement on `Frame::from_raw`.
+    #[verus_spec(r =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        requires
+            old(regions).inv(),
+            old(regions).slots.contains_key(self.index()),
+            self.inv(),
+            old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            old(regions).slot_owners[self.index()].usage !is PageTable,
+            old(regions).frame_obligations.count(self.index()) > 0,
+        ensures
+            final(regions).inv(),
+            r == self.paddr(),
+            final(regions).slot_owners[self.index()].usage
+                == old(regions).slot_owners[self.index()].usage,
+            self.into_raw_post_noninterference(*old(regions), *final(regions)),
+            final(regions).slots == old(regions).slots,
+            final(regions).frame_obligations == old(regions).frame_obligations.remove(self.index()),
+    )]
+    pub(in crate::mm) fn into_raw(self) -> Paddr {
+        broadcast use group_page_meta;
+
+        let tracked perm = regions.slots.tracked_borrow(self.index());
+
+        assert(perm.addr() == self.ptr.addr()) by {
+            assert(frame_to_meta(meta_to_frame(self.ptr.addr())) == self.ptr.addr());
+        };
+
+        #[verus_spec(with Tracked(perm))]
+        let paddr = self.start_paddr();
+
+        let _ = ManuallyDrop::new(self, Tracked(regions));
+
+        paddr
+    }
+
+    /// Gets the metadata slot of the frame.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety**: The caller must have a valid permission for the frame.
+    /// ## Postconditions
+    /// - **Correctness**: The function returns a reference to the metadata slot of the frame.
+    /// ## Safety
+    /// - There is no way to mutably borrow the metadata slot, so taking an immutable reference is safe.
+    /// (The fields of the slot can be mutably borrowed, but not the slot itself.)
+    #[verus_spec(slot =>
+        with
+            Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
+        requires
+            slot_perm.pptr() == self.ptr,
+            slot_perm.is_init(),
+        returns
+            slot_perm.value(),
+    )]
+    pub fn slot<'a>(&'a self) -> &'a MetaSlot {
+        // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
+        // mutably borrowed, so taking an immutable reference to it is safe.
+        self.ptr.borrow(Tracked(slot_perm))
+    }
 }
 
 #[verus_verify]
@@ -566,87 +647,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
                 self.start_paddr(),
             )
         }
-    }
-
-    /// Forgets the handle to the frame.
-    ///
-    /// This will result in the frame being leaked without calling the custom dropper.
-    ///
-    /// A physical address to the frame is returned in case the frame needs to be
-    /// restored using [`Frame::from_raw`] later. This is useful when some architectural
-    /// data structures need to hold the frame handle such as the page table.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety Invariant**: Metaslot region invariants must hold.
-    /// - **Safety**: The frame must be in use (not unused).
-    /// ## Postconditions
-    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
-    /// - **Correctness**: The function returns the physical address of the frame.
-    /// - **Correctness**: The frame's raw count is incremented.
-    /// - **Safety**: Frames other than this one are not affected by the call.
-    /// ## Safety
-    /// - We require the slot to be in use to ensure that a fresh frame handle will not be created until the raw frame is restored.
-    /// - The owner's raw count is incremented so that we can enforce the safety requirement on `Frame::from_raw`.
-    #[verus_spec(r =>
-        with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        requires
-            old(regions).inv(),
-            old(regions).slots.contains_key(self.index()),
-            self.inv(),
-            old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-            old(regions).slot_owners[self.index()].usage !is PageTable,
-            old(regions).frame_obligations.count(self.index()) > 0,
-        ensures
-            final(regions).inv(),
-            r == self.paddr(),
-            final(regions).slot_owners[self.index()].usage
-                == old(regions).slot_owners[self.index()].usage,
-            self.into_raw_post_noninterference(*old(regions), *final(regions)),
-            final(regions).slots == old(regions).slots,
-            final(regions).frame_obligations == old(regions).frame_obligations.remove(self.index()),
-    )]
-    pub(in crate::mm) fn into_raw(self) -> Paddr {
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
-
-        let tracked perm = regions.slots.tracked_borrow(self.index());
-
-        assert(perm.addr() == self.ptr.addr()) by {
-            assert(frame_to_meta(meta_to_frame(self.ptr.addr())) == self.ptr.addr());
-        };
-
-        #[verus_spec(with Tracked(perm))]
-        let paddr = self.start_paddr();
-
-        let _ = ManuallyDrop::new(self, Tracked(regions));
-
-        paddr
-    }
-
-    /// Gets the metadata slot of the frame.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety**: The caller must have a valid permission for the frame.
-    /// ## Postconditions
-    /// - **Correctness**: The function returns a reference to the metadata slot of the frame.
-    /// ## Safety
-    /// - There is no way to mutably borrow the metadata slot, so taking an immutable reference is safe.
-    /// (The fields of the slot can be mutably borrowed, but not the slot itself.)
-    #[verus_spec(slot =>
-        with
-            Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
-        requires
-            slot_perm.pptr() == self.ptr,
-            slot_perm.is_init(),
-        returns
-            slot_perm.value(),
-    )]
-    pub fn slot(&self) -> &'a MetaSlot {
-        // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
-        // mutably borrowed, so taking an immutable reference to it is safe.
-        self.ptr.borrow(Tracked(slot_perm))
     }
 }
 
