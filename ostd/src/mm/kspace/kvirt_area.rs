@@ -256,11 +256,9 @@ pub axiom fn kvirt_alloc_range_bounds(
          && r.end <= FRAME_METADATA_BASE_VADDR,
 ;
 
-/// Kernel ranges within [KERNEL_BASE_VADDR, KERNEL_END_VADDR] with alignment are valid for
-/// KernelPtConfig (which uses sign-extended high-half addresses).
-/// Proved by expanding `is_valid_range_spec` via `lemma_vaddr_range_bounds_spec_kernel`
-/// and connecting the module constants to numeric literals with `compute_only`.
-pub proof fn axiom_kernel_range_valid(r: core::ops::Range<Vaddr>)
+/// Non-empty, page-aligned kernel ranges within [KERNEL_BASE_VADDR, KERNEL_END_VADDR]
+/// are valid for KernelPtConfig.
+pub proof fn lemma_kernel_range_valid(r: core::ops::Range<Vaddr>)
     requires
         KERNEL_BASE_VADDR <= r.start,
         r.end <= KERNEL_END_VADDR,
@@ -476,7 +474,7 @@ impl KVirtArea {
         }
         let vaddr = start..start + PAGE_SIZE;
         proof {
-            axiom_kernel_range_valid(vaddr);
+            lemma_kernel_range_valid(vaddr);
             // Discharge cursor's `LOCKED_END_BOUND_spec` precondition: with the
             // +PAGE_SIZE margin built into `KernelPtConfig::LOCKED_END_BOUND_spec`,
             // `start <= addr <= self.range.end <= FRAME_METADATA_BASE_VADDR`
@@ -676,10 +674,10 @@ impl KVirtArea {
 
         proof {
             // Bridge: FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR, so the allocator's
-            // tightened bound still satisfies axiom_kernel_range_valid's precondition.
+            // tightened bound still satisfies lemma_kernel_range_valid's precondition.
             assert(FRAME_METADATA_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
             if cursor_range.start < cursor_range.end {
-                axiom_kernel_range_valid(cursor_range);
+                lemma_kernel_range_valid(cursor_range);
             }
             // Discharge cursor_mut's `LOCKED_END_BOUND_spec` precondition: kvirt_alloc
             // bounded `range.end <= FRAME_METADATA_BASE_VADDR == LOCKED_END_BOUND` for
@@ -712,7 +710,7 @@ impl KVirtArea {
             // Discharge `assert!(cursor_res.is_ok())` via the may_panic chain:
             // if `cursor_res` is `Err`, `cursor_mut`'s contrapositive ensures
             // `!cursor_new_success_conditions(cursor_range)`. Alignment +
-            // range validity hold (top asserts + axiom_kernel_range_valid),
+            // range validity hold (top asserts + lemma_kernel_range_valid),
             // so the failure must be `cursor_range.start >= cursor_range.end`
             // ⟺ `map_offset >= range.end - range.start == area_size`
             // ⟺ `map_offset >= area_size` ⟹ `bounds_panic_condition`
@@ -1178,7 +1176,7 @@ impl KVirtArea {
 
             proof {
                 assert(FRAME_METADATA_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
-                axiom_kernel_range_valid(va_range);
+                lemma_kernel_range_valid(va_range);
                 assert(va_range.end as int
                     <= <KernelPtConfig as PageTableConfig>::LOCKED_END_BOUND_spec());
                 // Discharge `cursor_new_success_conditions(&va_range)` so
