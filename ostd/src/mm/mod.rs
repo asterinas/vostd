@@ -13,7 +13,7 @@ pub type Paddr = usize;
 
 pub(crate) mod dma;
 pub mod frame;
-//pub mod heap;
+pub mod heap;
 pub mod io;
 pub mod kspace;
 pub(crate) mod page_prop;
