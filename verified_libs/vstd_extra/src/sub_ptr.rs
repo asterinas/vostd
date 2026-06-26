@@ -145,7 +145,7 @@ impl<R, T: SubRepr<R>> PointsTo<R, T> {
         addr: Ghost<usize>,
         tracked points_to: simple_pptr::PointsTo<R>,
     ) -> tracked Self {
-        Self { addr: addr@, points_to: points_to, _T: PhantomData }
+        Self { addr: addr@, points_to, _T: PhantomData }
     }
 
     pub open spec fn wf(self) -> bool {

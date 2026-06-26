@@ -106,7 +106,7 @@ impl<const N: usize> TreePath<N> {
             Self::elem_inv(self.pop_head().0),
             self.pop_head().1.inv(),
     {
-        let (hd, s1) = self.pop_head();
+        let (_, s1) = self.pop_head();
         assert(forall|i: int| 0 <= i < s1.len() ==> s1.index(i) == self.index(i + 1));
     }
 
@@ -156,9 +156,8 @@ impl<const N: usize> TreePath<N> {
             Self::elem_inv(self.pop_tail().0),
             self.pop_tail().1.inv(),
     {
-        let (tl, s1) = self.pop_tail();
-        if s1.is_empty() {
-        } else {
+        let (_, s1) = self.pop_tail();
+        if s1.len() > 0 {
             assert(forall|i: int| 0 <= i < s1.len() ==> s1.index(i) == self.index(i));
         }
     }
@@ -599,7 +598,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             #[trigger] Self::new(lv).inv(),
             forall|i: int| 0 <= i < N ==> #[trigger] Self::new(lv).value.rel_children(i, None),
     {
-        let n = Self::new(lv);
         T::default_preserves_inv();
         T::default_preserves_la_inv();
     }
@@ -797,21 +795,17 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.set_value(value).children == self.children,
             self.set_value(value).inv(),
     {
-        let n = self.set_value(value);
-
-        if n.level == L - 1 {
+        if self.level == L - 1 {
         } else {
-            assert forall|i: int| 0 <= i < Self::size() implies match #[trigger] n.children[i] {
+            assert forall|i: int| 0 <= i < Self::size() implies match #[trigger] self.set_value(
+                value,
+            ).children[i] {
                 Some(child) => {
-                    &&& child.level == n.level + 1
-                    &&& n.value.rel_children(i, Some(child.value))
+                    &&& child.level == self.set_value(value).level + 1
+                    &&& self.set_value(value).value.rel_children(i, Some(child.value))
                 },
-                None => n.value.rel_children(i, None),
-            } by {
-                if n.children[i] is Some {
-                    let child = n.children[i]->0;
-                }
-            }
+                None => self.set_value(value).value.rel_children(i, None),
+            } by {}
         }
     }
 
@@ -970,12 +964,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
                 let c = self.child(hd)->0;
                 self.child_some_properties(hd);
                 c.lemma_recursive_insert_preserves_value(tl, node);
-                let updated_child = c.recursive_insert(tl, node);
             } else {
                 let c = Node::new(self.level + 1);
                 Self::new_preserves_inv(self.level + 1);
                 c.lemma_recursive_insert_preserves_value(tl, node);
-                let updated_child = c.recursive_insert(tl, node);
             }
         }
     }

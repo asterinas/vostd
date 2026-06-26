@@ -186,13 +186,10 @@ pub broadcast proof fn lemma_seq_all_add<T>(s1: Seq<T>, s2: Seq<T>, f: spec_fn(T
     ensures
         s1.all(f) && s2.all(f) <==> #[trigger] (s1 + s2).all(f),
     decreases s2.len(),
-// Induction proof on the length of s2
-
 {
     if s2.len() == 0 {
         assert(s1 + s2 == s1);
     } else {
-        // Induction step: assume the lemma holds for s2.drop_last() and show that s2==s2.drop_last().push(s2.last()).
         lemma_seq_all_add(s1, s2.drop_last(), f);
         if s1.all(f) && s2.all(f) {
             assert((s1 + s2).all(f));

@@ -24,8 +24,6 @@ pub broadcast proof fn lemma_pow2_increases(e1: nat, e2: nat)
 {
     if e1 < e2 {
         lemma_pow2_strictly_increases(e1, e2);
-    } else if e1 == e2 {
-        assert(pow2(e1) == pow2(e2));
     }
 }
 

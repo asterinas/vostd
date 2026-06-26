@@ -83,13 +83,13 @@ impl<R, T: Repr<R>> FromSpecImpl<PPtr<R>> for ReprPtr<R, T> {
     }
 
     open spec fn from_spec(ptr: PPtr<R>) -> Self {
-        Self { ptr: ptr, _T: PhantomData }
+        Self { ptr, _T: PhantomData }
     }
 }
 
 impl<R, T: Repr<R>> From<PPtr<R>> for ReprPtr<R, T> {
     fn from(ptr: PPtr<R>) -> Self {
-        Self { ptr: ptr, _T: PhantomData }
+        Self { ptr, _T: PhantomData }
     }
 }
 
@@ -111,7 +111,7 @@ impl<R, T: Repr<R>> From<ReprPtr<R, T>> for PPtr<R> {
 
 impl<R, T: Repr<R>> ReprPtr<R, T> {
     pub open spec fn new_spec(ptr: PPtr<R>) -> Self {
-        Self { ptr: ptr, _T: PhantomData }
+        Self { ptr, _T: PhantomData }
     }
 
     pub fn from_pptr(ptr: PPtr<R>) -> (res: Self)
@@ -120,7 +120,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             res.addr() == ptr.addr(),
             res.ptr == ptr,
     {
-        Self { ptr: ptr, _T: PhantomData }
+        Self { ptr, _T: PhantomData }
     }
 
     pub open spec fn to_pptr(self) -> PPtr<R> {
@@ -233,7 +233,7 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
         returns
             Self::new_spec(points_to, inner_perms),
     {
-        Self { points_to: points_to, inner_perms, _T: PhantomData }
+        Self { points_to, inner_perms, _T: PhantomData }
     }
 
     pub open spec fn wf(self, perm: &T::Perm) -> bool {
