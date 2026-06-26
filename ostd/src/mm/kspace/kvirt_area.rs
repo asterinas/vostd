@@ -139,15 +139,8 @@ proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int
     if from < to {
         sum_page_sizes_extend_right(elems, from + 1, to);
         // Help Verus: unfold sum_page_sizes_spec(elems, from, to) and (from, to+1)
-        assert(sum_page_sizes_spec(elems, from, to) == page_size(elems[from].1) as nat
-            + sum_page_sizes_spec(elems, from + 1, to));
-        assert(sum_page_sizes_spec(elems, from, to + 1) == page_size(elems[from].1) as nat
-            + sum_page_sizes_spec(elems, from + 1, to + 1));
     } else {
         // from == to; explicitly unfold both sides
-        assert(sum_page_sizes_spec(elems, from, to) == 0nat);
-        assert(sum_page_sizes_spec(elems, from, to + 1) == page_size(elems[from].1) as nat
-            + sum_page_sizes_spec(elems, from + 1, to + 1));
         assert(sum_page_sizes_spec(elems, from + 1, to + 1) == 0nat);
     }
 }
@@ -270,13 +263,6 @@ pub proof fn lemma_kernel_range_valid(r: core::ops::Range<Vaddr>)
 {
     crate::mm::page_table::lemma_vaddr_range_bounds_spec_kernel();
     assert(KERNEL_BASE_VADDR == 0xFFFF_8000_0000_0000usize) by (compute_only);
-    assert(KERNEL_END_VADDR <= 0xFFFF_FFFF_FFFF_FFFFusize) by (compute_only);
-    assert(r.end > 0);
-    assert(r.end - 1 <= 0xFFFF_FFFF_FFFF_FFFFusize) by (nonlinear_arith)
-        requires
-            r.end <= KERNEL_END_VADDR,
-            KERNEL_END_VADDR <= 0xFFFF_FFFF_FFFF_FFFFusize,
-    ;
 }
 
 /// Kernel virtual area.
@@ -458,19 +444,13 @@ impl KVirtArea {
 
             let witness: nat = choose|i: nat|
                 vstd::arithmetic::power::pow(2, i) == PAGE_SIZE as int;
-            assert(vstd::arithmetic::power2::pow2(witness) == PAGE_SIZE);
         }
         let start = addr.align_down(PAGE_SIZE);
         proof {
-            assert(start <= addr);
-            assert(addr <= self.range.end);
             // Tightened invariant: end <= FRAME_METADATA_BASE_VADDR, which is
             // ~64 GB below KERNEL_END_VADDR. So start + PAGE_SIZE <= KERNEL_END_VADDR
             // always holds, even when addr == end (start == end in that case).
-            assert(self.range.end <= FRAME_METADATA_BASE_VADDR);
             assert(FRAME_METADATA_BASE_VADDR + PAGE_SIZE <= KERNEL_END_VADDR) by (compute_only);
-            assert(start >= self.range.start);
-            assert(start + PAGE_SIZE <= KERNEL_END_VADDR);
         }
         let vaddr = start..start + PAGE_SIZE;
         proof {
@@ -479,8 +459,6 @@ impl KVirtArea {
             // +PAGE_SIZE margin built into `KernelPtConfig::LOCKED_END_BOUND_spec`,
             // `start <= addr <= self.range.end <= FRAME_METADATA_BASE_VADDR`
             // gives `start + PAGE_SIZE <= FRAME_METADATA_BASE_VADDR + PAGE_SIZE`.
-            assert(vaddr.end as int
-                <= <KernelPtConfig as PageTableConfig>::LOCKED_END_BOUND_spec());
         }
         let page_table = {
             proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
@@ -499,13 +477,9 @@ impl KVirtArea {
             // `as_page_table_owner_preserves_view_mappings` turns the cursor's view into a
             // `view_rec` call on the owner at the root path.
             cursor_owner.as_page_table_owner_preserves_view_mappings();
-            assert(cursor_owner.view_mappings() == owner.pt_owner.view_rec(
-                owner.pt_owner.0.value.path,
-            ));
             // cur_va agreement: `cursor.wf(cursor_owner)` gives `cursor_owner.va.reflect(cursor.va)`,
             // which `reflect_prop` converts into `cursor_owner.va.to_vaddr() == cursor.va`.
             cursor_owner.va.reflect_prop(cursor.va);
-            assert(cursor_owner.cur_va() == start);
         }
         let ghost pre_query_view = cursor_owner@;
         let ghost pre_query_cursor_va = cursor.va;
@@ -526,11 +500,6 @@ impl KVirtArea {
                 // Trigger Cursor::new's forward saturated-slot bridge.
                 assert((*old(regions)).slot_owners[idx].inner_perms.ref_count.value() == (
                 *regions).slot_owners[idx].inner_perms.ref_count.value());
-                assert(cursor_owner@.mappings == owner.cursor_view_at(addr).mappings);
-                assert(cursor_owner@.cur_va == owner.cursor_view_at(addr).cur_va);
-                assert(cursor_owner@ == owner.cursor_view_at(addr));
-                assert(self.query_panic_condition(owner, addr, *old(regions)));
-                assert(may_panic());
             }
         }
         let state = (
@@ -540,12 +509,7 @@ impl KVirtArea {
             // `Cursor::query` preserves `self.va` (loop invariant + new ensures) and
             // `cursor_owner@.mappings`. With `cursor.wf(cursor_owner)` reestablished
             // by post-query invariants, we can recover `cursor_owner@.cur_va == start`.
-            assert(cursor.va == pre_query_cursor_va);
-            assert(cursor_owner@.mappings == pre_query_view.mappings);
             cursor_owner.va.reflect_prop(cursor.va);
-            assert(cursor_owner@.cur_va == start);
-            assert(cursor_owner@.mappings == owner.cursor_view_at(addr).mappings);
-            assert(cursor_owner@.cur_va == owner.cursor_view_at(addr).cur_va);
             // Discharge `ensures !self.query_panic_condition(...)`:
             //  - Bound conjunct: top `assert!(self.start() <= addr && self.end() > addr)`
             //    held on this return path.
@@ -556,23 +520,6 @@ impl KVirtArea {
             //    in-range) gives pre_query_regions[idx].value < MAX. Contradiction.
             let pa = owner.cursor_view_at(addr).query_mapping().pa_range.start;
             let idx = frame_to_index(pa);
-            assert(self.range.start <= addr < self.range.end);
-            assert(pre_query_view == owner.cursor_view_at(addr));
-            if owner.cursor_view_at(addr).present() && !is_mmio_paddr(pa) && (*old(
-                regions,
-            )).slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX {
-                // Reverse saturated-slot bridge (Cursor::new).
-                assert(pre_query_regions.slot_owners[idx].inner_perms.ref_count.value() == (*old(
-                    regions,
-                )).slot_owners[idx].inner_perms.ref_count.value());
-                // cursor.query's `ensures !P_cursor`: with in-range (always) +
-                // pre_query_view.present() (== owner.cursor_view_at(addr).present()
-                // via ==) + !is_mmio_paddr(pa') where pa' = pre_query_view's
-                // query_mapping().pa_range.start (== pa via ==), the saturation
-                // conjunct must be false: pre_query_regions[idx].value < MAX.
-                assert(false);
-            }
-            assert(!self.query_panic_condition(owner, addr, *old(regions)));
         }
         state.1
     }
@@ -659,7 +606,6 @@ impl KVirtArea {
         frames: alloc::vec::Vec<DynFrame>,
         prop: PageProperty,
     ) -> Self {
-        assert!(area_size.is_multiple_of(PAGE_SIZE));
         assert!(map_offset.is_multiple_of(PAGE_SIZE));
 
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
@@ -679,16 +625,6 @@ impl KVirtArea {
             if cursor_range.start < cursor_range.end {
                 lemma_kernel_range_valid(cursor_range);
             }
-            // Discharge cursor_mut's `LOCKED_END_BOUND_spec` precondition: kvirt_alloc
-            // bounded `range.end <= FRAME_METADATA_BASE_VADDR == LOCKED_END_BOUND` for
-            // KernelPtConfig.
-
-            assert(cursor_range.end as int
-                <= <KernelPtConfig as PageTableConfig>::LOCKED_END_BOUND_spec());
-            assert(cursor_range.start % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
-                == 0);
-            assert(cursor_range.end % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
-                == 0);
         }
 
         let page_table = {
@@ -706,34 +642,10 @@ impl KVirtArea {
         #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         let cursor_res = page_table.cursor_mut(preempt_guard, &cursor_range);
 
-        proof {
-            // Discharge `assert!(cursor_res.is_ok())` via the may_panic chain:
-            // if `cursor_res` is `Err`, `cursor_mut`'s contrapositive ensures
-            // `!cursor_new_success_conditions(cursor_range)`. Alignment +
-            // range validity hold (top asserts + lemma_kernel_range_valid),
-            // so the failure must be `cursor_range.start >= cursor_range.end`
-            // ⟺ `map_offset >= range.end - range.start == area_size`
-            // ⟺ `map_offset >= area_size` ⟹ `bounds_panic_condition`
-            // ⟹ `may_panic()` via the requires implication.
-            if !cursor_res.is_ok() {
-                assert(!crate::mm::page_table::Cursor::<
-                    KernelPtConfig,
-                    A,
-                >::cursor_new_success_conditions(&cursor_range));
-                assert(map_offset >= area_size);
-                assert(Self::map_frames_bounds_panic_condition(
-                    area_size,
-                    map_offset,
-                    frames.len(),
-                ));
-                assert(may_panic());
-            }
-        }
         assert!(cursor_res.is_ok());
         let (mut cursor, Tracked(cursor_owner)) = cursor_res.unwrap();
 
         proof {
-            assert(pre_cursor_regions == *old(regions));
             assert forall|i: int| 0 <= i < frames.len() implies CursorMut::<
                 'a,
                 KernelPtConfig,
@@ -743,14 +655,7 @@ impl KVirtArea {
                 let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
                 let idx_i = frame_to_index(pa_i);
                 KernelPtConfig::item_into_raw_spec_tracked_level(item_i);
-                assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                    item_i,
-                    pre_cursor_regions,
-                ));
-                assert(pre_cursor_regions.slots.contains_key(idx_i));
-                assert(pre_cursor_regions.slot_owners.contains_key(idx_i));
                 assert(regions.slot_owners.contains_key(idx_i));
-                assert(regions.slots.contains_key(idx_i));
             };
         }
 
@@ -801,44 +706,9 @@ impl KVirtArea {
                         *regions,
                     ),
         {
-            proof {
-                // Discharge the per-iter capacity assert via the may_panic
-                // chain: if `cursor.0.va >= cursor.0.barrier_va.end`, the
-                // loop-invariant cursor-VA tracking + range relationship
-                // gives `map_offset + it.index()*PAGE_SIZE >= area_size`;
-                // with `it.index() < frames.len()`, this implies
-                // `map_offset + frames.len()*PAGE_SIZE > area_size` (the
-                // capacity disjunct of `map_frames_bounds_panic_condition`)
-                // ⟹ `may_panic()`.
-                if !(cursor.0.va < cursor.0.barrier_va.end) {
-                    assert(it.index() < frames.len());
-                    assert(map_offset as int + (frames.len() as int) * (PAGE_SIZE as int)
-                        > area_size as int) by (nonlinear_arith)
-                        requires
-                            cursor.0.va == range.start + map_offset + it.index() * PAGE_SIZE,
-                            cursor.0.barrier_va.end == range.end,
-                            range.end - range.start == area_size,
-                            cursor.0.va >= cursor.0.barrier_va.end,
-                            it.index() < frames.len(),
-                            PAGE_SIZE > 0,
-                    ;
-                    assert(Self::map_frames_bounds_panic_condition(
-                        area_size,
-                        map_offset,
-                        frames.len(),
-                    ));
-                    assert(may_panic());
-                }
-            }
-            assert!(cursor.0.va < cursor.0.barrier_va.end);
-
             let ghost cur_mapped_pa: usize = crate::mm::frame::meta::mapping::meta_to_frame(
                 frame.ptr.addr(),
             );
-            proof {
-                assert(entry_owners.contains_key(cur_mapped_pa));
-                assert(frame_entry_wf(frame, prop, entry_owners[cur_mapped_pa]));
-            }
 
             let ghost cur_pa_from_wf: usize = KernelPtConfig::item_into_raw_spec(
                 MappedItem::Tracked(frame_as_dynframe(it.seq().index(it.index() as int)), prop),
@@ -864,11 +734,6 @@ impl KVirtArea {
                     DynFrame { ptr: frame.ptr, _marker: PhantomData },
                     prop,
                 );
-                assert(orig_mapped_pa == cur_mapped_pa);
-                assert(orig_prop == prop);
-                assert(cur_parent_level == 1);
-                assert(orig_size == page_size(cur_parent_level));
-                assert(pre_remove_owners[cur_mapped_pa].inv_base());
             }
 
             let tracked mut entry_owner = entry_owners.tracked_remove(cur_mapped_pa);
@@ -879,9 +744,7 @@ impl KVirtArea {
             // frame_entry_wf requires `entry_owner.parent_level == level`, so:
             proof {
                 KernelPtConfig::item_into_raw_spec_tracked_level(item);
-                assert(cur_parent_level == 1);
             }
-            assert(cursor.0.invariants(cursor_owner, *regions, *guards));
 
             let ghost regions_before_map = *regions;
             let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor_owner@;
@@ -908,7 +771,6 @@ impl KVirtArea {
             // `item_slot_in_regions` for the current item is delivered by the
             // loop invariant (instantiated at i = it.index()), itself established by
             // the function precondition.
-            assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
             proof {
                 // Discharge `cursor.map`'s `map_panic_conditions ==>
                 // may_panic()` via the chain. Most disjuncts of
@@ -922,25 +784,6 @@ impl KVirtArea {
                 // `map_offset + frames.len()*PAGE > area_size` (capacity
                 // disjunct) ⟹ `may_panic()`.
                 KernelPtConfig::lemma_kernel_htl_lt_nr_levels();
-                if cursor.map_panic_conditions(item) {
-                    assert(it.index() < frames.len());
-                    assert(map_offset as int + (frames.len() as int) * (PAGE_SIZE as int)
-                        > area_size as int) by (nonlinear_arith)
-                        requires
-                            cursor.0.va == range.start + map_offset + it.index() * PAGE_SIZE,
-                            cursor.0.barrier_va.end == range.end,
-                            range.end - range.start == area_size,
-                            cursor.0.va + PAGE_SIZE > cursor.0.barrier_va.end,
-                            it.index() < frames.len(),
-                            PAGE_SIZE > 0,
-                    ;
-                    assert(Self::map_frames_bounds_panic_condition(
-                        area_size,
-                        map_offset,
-                        frames.len(),
-                    ));
-                    assert(may_panic());
-                }
             }
             let res = unsafe {
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
@@ -968,24 +811,6 @@ impl KVirtArea {
                     let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
                     let idx_i = frame_to_index(pa_i);
                     KernelPtConfig::item_into_raw_spec_tracked_level(item_i);
-                    // Loop invariant gives item_slot_in_regions for item_i
-                    // against `regions_before_map`. cursor.map preserves
-                    // slots-monotonicity and the relevant ref_count fact at
-                    // either branch (idx_i != cur_pa_idx via direct equality,
-                    // idx_i == cur_pa_idx via mapped-idx > 0 preservation).
-                    assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                        item_i,
-                        regions_before_map,
-                    ));
-                    if idx_i != cur_pa_idx {
-                        assert(regions.slot_owners[idx_i].inner_perms.ref_count.value()
-                            == regions_before_map.slot_owners[idx_i].inner_perms.ref_count.value());
-                        // `rc <= MAX` transfers from `regions_before_map` (where
-                        // `item_slot_in_regions` carries the SHARED bound) via the
-                        // ref_count equality at this non-mapped index.
-                        assert(regions.slot_owners[idx_i].inner_perms.ref_count.value()
-                            <= REF_COUNT_MAX);
-                    }
                 };
             }
 
@@ -1012,10 +837,6 @@ impl KVirtArea {
                     PAGE_SIZE,
                 );
 
-                assert(aligned_nat == vstd_extra::arithmetic::nat_align_up(
-                    old_cursor_owner_va.to_vaddr() as nat,
-                    PAGE_SIZE as nat,
-                ));
 
                 // va is PAGE_SIZE-aligned (loop invariant via cursor.0.invariants),
                 // so nat_align_down returns va unchanged.
@@ -1023,10 +844,6 @@ impl KVirtArea {
                     old_cursor_owner_va.to_vaddr() as nat,
                     PAGE_SIZE as nat,
                 );
-                assert(vstd_extra::arithmetic::nat_align_down(
-                    old_cursor_owner_va.to_vaddr() as nat,
-                    PAGE_SIZE as nat,
-                ) == old_cursor_owner_va.to_vaddr() as nat);
 
                 cursor_owner.va.reflect_prop(cursor.0.va);
 
@@ -1045,21 +862,6 @@ impl KVirtArea {
             }
         }
 
-        proof {
-            assert(map_offset as int + frames.len() as int * PAGE_SIZE as int <= area_size as int)
-                by (nonlinear_arith)
-                requires
-                    cursor.0.va as int == range.start as int + map_offset as int
-                        + frames.len() as int * PAGE_SIZE as int,
-                    cursor.0.va <= cursor.0.barrier_va.end,
-                    cursor.0.barrier_va.end == range.end,
-                    range.end - range.start == area_size,
-            ;
-            // The diverging `assert!`s at the top (`area_size % PAGE_SIZE`
-            // and `map_offset % PAGE_SIZE`) did not fire, so the
-            // caller-precludable panic condition is false on this path.
-            assert(!Self::map_frames_panic_condition(area_size, map_offset, frames.len()));
-        }
         Self { range }
     }
 
@@ -1154,13 +956,6 @@ impl KVirtArea {
         pa_range: Range<Paddr>,
         prop: PageProperty,
     ) -> Self {
-        assert!(pa_range.start.is_multiple_of(PAGE_SIZE));
-        assert!(pa_range.end.is_multiple_of(PAGE_SIZE));
-        assert!(area_size.is_multiple_of(PAGE_SIZE));
-        assert!(map_offset.is_multiple_of(PAGE_SIZE));
-
-        assert!(map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= area_size);
-
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
         // Rust's `unwrap()` panics if not ok. TODO: make our own wrapper.
         assert!(range_res.is_ok());
@@ -1177,25 +972,6 @@ impl KVirtArea {
             proof {
                 assert(FRAME_METADATA_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
                 lemma_kernel_range_valid(va_range);
-                assert(va_range.end as int
-                    <= <KernelPtConfig as PageTableConfig>::LOCKED_END_BOUND_spec());
-                // Discharge `cursor_new_success_conditions(&va_range)` so
-                // `cursor_mut`'s `ensures cursor_new_success_conditions ==> r
-                // is Ok` fires — making `assert!(cursor_res.is_ok())` below
-                // dischargeable *without* `may_panic`. Under `!map_untracked_frames_panic_condition`
-                // we have pa_range / area_size / map_offset alignment and
-                // `map_offset + len <= area_size`. `len > 0` by the
-                // surrounding `if pa_range.start < pa_range.end`, so
-                // `va_range.start < va_range.end`.
-                assert(va_range.start < va_range.end);
-                assert(va_range.start % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
-                    == 0);
-                assert(va_range.end % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
-                    == 0);
-                assert(crate::mm::page_table::Cursor::<
-                    KernelPtConfig,
-                    A,
-                >::cursor_new_success_conditions(&va_range));
             }
 
             let page_table = {
@@ -1214,14 +990,9 @@ impl KVirtArea {
             #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
             let cursor_res = page_table.cursor_mut(preempt_guard, &va_range);
 
-            assert!(cursor_res.is_ok());
-
             let (mut cursor, Tracked(cursor_owner)) = cursor_res.unwrap();
 
             proof {
-                assert(pre_cursor_regions == *old(regions));
-                assert(Self::untracked_range_slots_in_regions(&pa_range, pre_cursor_regions));
-                assert(pa_range.end <= MAX_PADDR);
                 assert forall|pa: Paddr|
                     #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
                     pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 implies {
@@ -1230,10 +1001,7 @@ impl KVirtArea {
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 } by {
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
-                    assert(pre_cursor_regions.slots.contains_key(idx));
-                    assert(pre_cursor_regions.slot_owners.contains_key(idx));
                     assert(regions.slot_owners.contains_key(idx));
-                    assert(regions.slots.contains_key(idx));
                 };
             }
 
@@ -1294,8 +1062,6 @@ impl KVirtArea {
                 let item = MappedItem::Untracked(pa, level, prop);
                 proof {
                     lemma_page_size_ge_page_size(level);
-                    assert(pa as nat + page_size(level) as nat <= pa_range.end as nat);
-                    assert(pa < MAX_PADDR);
                 }
                 proof_decl! {
                     let tracked entry_owner =
@@ -1329,8 +1095,6 @@ impl KVirtArea {
 
                 proof {
                     KernelPtConfig::lemma_kernel_htl_lt_nr_levels();
-                    assert(!cursor.map_panic_conditions(item));
-                    assert(cursor.item_wf(item, entry_owner));
                 }
 
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
@@ -1339,15 +1103,6 @@ impl KVirtArea {
                 proof {
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
-                    assert(pa % PAGE_SIZE == 0);
-                    assert(pa_range.start <= pa < pa_range.end);
-                    assert(regions.slots.contains_key(idx));
-                    assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED);
-                    assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                        item,
-                        *regions,
-                    ));
                 }
                 let _ = unsafe {
                     #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
@@ -1364,7 +1119,6 @@ impl KVirtArea {
 
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                     level_raw);
-                    assert(1 <= level <= NR_LEVELS);  // from loop invariant on it.seq()[i].1
                     KernelPtConfig::item_into_raw_spec_level_bounds(item);
                     let split_self = old_cursor_model.split_while_huge(page_size(level_raw));
 
@@ -1383,10 +1137,6 @@ impl KVirtArea {
                         old_cursor_owner_va.to_vaddr() as nat,
                         page_size(level_raw) as nat,
                     );
-                    assert(vstd_extra::arithmetic::nat_align_down(
-                        old_cursor_owner_va.to_vaddr() as nat,
-                        page_size(level_raw) as nat,
-                    ) + page_size(level_raw) as nat <= usize::MAX as nat);
                     old_cursor_owner_va.align_up_advances_general(level_raw as int);
 
                     sum_page_sizes_extend_right(it.seq(), 0, pos@);
@@ -1396,16 +1146,8 @@ impl KVirtArea {
                         0,
                         pos@ + 1,
                     );
-                    assert(pa_next_nat == pa as nat + page_size(level) as nat);
                 }
             }
-        }
-        proof {
-            // The diverging `assert!`s at the top (range/size/offset
-            // alignment and the `map_offset + len <= area_size` capacity
-            // check) did not fire, so the caller-precludable panic
-            // condition is false on this path.
-            assert(!Self::map_untracked_frames_panic_condition(area_size, map_offset, &pa_range));
         }
         Self { range }
     }
