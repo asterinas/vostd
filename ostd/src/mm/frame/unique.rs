@@ -391,7 +391,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
-            self.inv_with_regions(owner, *old(regions)),
+            self.wf_with_region(owner, *old(regions)),
         ensures
             final(regions).inv(),
     )]
@@ -528,7 +528,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
-            old(self).inv_with_regions(owner, *old(regions)),
+            old(self).wf_with_region(owner, *old(regions)),
             old(regions).frame_obligations.count(owner.slot_index) > 0,
         ensures
             final(regions).inv(),
@@ -544,7 +544,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         let ghost idx = owner.slot_index;
 
         proof {
-            // Unfold `inv_with_regions` to recover the per-slot facts.
+            // Unfold `wf_with_region` to recover the per-slot facts.
             // `owner.inv()` gives `idx < max_meta_slots`, so `regions.inv()`
             // delivers `contains_key(idx)`, the `slot_vaddr` shape, and
             // `slot_owners[idx].inv()`; the latter's UNIQUE branch (under

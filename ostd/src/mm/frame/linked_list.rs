@@ -84,7 +84,7 @@ pub struct Link<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 /// `next`/`prev` pointer chain) is captured by
 /// [`LinkedListOwner::relate_region`] (opaque, with per-position
 /// [`LinkedListOwner::relate_region_at`]). The cursor exposes this via
-/// [`CursorOwner::inv_region`] and [`CursorMut::wf_region`].
+/// [`CursorOwner::wf_with_region`] and [`CursorMut::wf_region`].
 /// ## Safety
 /// A given linked list can only have one cursor at a time, so there are no data races.
 /// The `prev` and `next` fields of the metadata for each link always points to valid
@@ -610,11 +610,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     )]
     pub fn move_next(&mut self)
         requires
-            owner.inv_region(*regions),
+            owner.wf_with_region(*regions),
             old(self).wf_region(owner, *regions),
         ensures
             owner.move_next_owner_spec()@ == owner@.move_next_spec(),
-            owner.move_next_owner_spec().inv_region(*regions),
+            owner.move_next_owner_spec().wf_with_region(*regions),
             final(self).wf_region(owner.move_next_owner_spec(), *regions),
     {
         let ghost old_self = *self;
@@ -666,11 +666,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     )]
     pub fn move_prev(&mut self)
         requires
-            owner.inv_region(*regions),
+            owner.wf_with_region(*regions),
             old(self).wf_region(owner, *regions),
         ensures
             owner.move_prev_owner_spec()@ == owner@.move_prev_spec(),
-            owner.move_prev_owner_spec().inv_region(*regions),
+            owner.move_prev_owner_spec().wf_with_region(*regions),
             final(self).wf_region(owner.move_prev_owner_spec(), *regions),
     {
         let ghost old_self = *self;
@@ -742,7 +742,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     pub fn current_meta<'b>(&'b mut self) -> (res: Option<&'b mut M>)
         requires
             old(self).wf_region(*old(owner), *old(regions)),
-            old(owner).inv_region(*old(regions)),
+            old(owner).wf_with_region(*old(regions)),
             old(regions).inv(),
         ensures
             final(owner).index == old(owner).index,
@@ -762,7 +762,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             Some(current) => {
                 proof {
                     assert(self.wf_region(*owner, *regions));
-                    assert(owner.inv_region(*regions));
+                    assert(owner.wf_with_region(*regions));
                     assert(0 <= owner.index <= owner.length());
                     if !(0 <= owner.index < owner.length()) {
                         assert(owner.index == owner.length());
@@ -787,7 +787,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             None => {
                 proof {
                     assert(self.wf_region(*owner, *regions));
-                    assert(owner.inv_region(*regions));
+                    assert(owner.wf_with_region(*regions));
                     if 0 <= owner.index < owner.length() {
                         assert(self.current.is_some());
                         assert(false);
@@ -826,7 +826,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     >)
         requires
             old(self).wf_region(*old(owner), *old(regions)),
-            old(owner).inv_region(*old(regions)),
+            old(owner).wf_with_region(*old(regions)),
             old(regions).inv(),
         ensures
             old(owner).length() == 0 ==> res.is_none(),
@@ -835,7 +835,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             res.is_some() ==> final(owner)@ == old(owner)@.remove(),
             res.is_some() ==> (res->0).1@.frame_link_inv(*final(regions)),
             // Invariant preservation
-            res.is_some() ==> final(owner).inv_region(*final(regions)),
+            res.is_some() ==> final(owner).wf_with_region(*final(regions)),
             res.is_some() ==> final(self).wf_region(*final(owner), *final(regions)),
             res.is_none() ==> *final(owner) == *old(owner),
             final(regions).inv(),
@@ -1129,14 +1129,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     pub fn insert_before(&mut self, mut frame: UniqueFrame<Link<M>>)
         requires
             old(self).wf_region(*old(owner), *old(regions)),
-            old(owner).inv_region(*old(regions)),
+            old(owner).wf_with_region(*old(regions)),
             old(regions).inv(),
             old(frame_own).inv(),
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(*old(regions)),
         ensures
-            final(owner).inv_region(*final(regions)),
+            final(owner).wf_with_region(*final(regions)),
             final(self).wf_region(*final(owner), *final(regions)),
             final(regions).inv(),
             final(owner).list_own.list == old(owner).list_own.list.insert(
@@ -1615,7 +1615,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 cursor.wf_region(cursor_own, *regions),
                 cursor.current.is_some() <==> k < n,
             invariant
-                cursor_own.inv_region(*regions),
+                cursor_own.wf_with_region(*regions),
                 cursor_own.list_own.list_id == original_list_id,
                 cursor_own.index == 0,
                 regions.inv(),

@@ -64,7 +64,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> OwnerOf for UniqueFrame<
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// Cross-object validity of a live UNIQUE handle against the region map —
-    /// the [`UniqueFrame`] analog of [`Frame::inv_with_regions`] (which covers
+    /// the [`UniqueFrame`] analog of [`Frame::wf_with_region`] (which covers
     /// the SHARED state). Bundles the structural `wf` / `owner.inv` /
     /// `regions.inv` facts with the UNIQUE-state slot facts so a consumer (e.g.
     /// [`UniqueFrame::drop`]) can state a single invariant instead of re-listing
@@ -78,11 +78,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// The genuinely-extra conjuncts are the UNIQUE state itself plus
     /// `in_list == 0` and `paths_in_pt.is_empty()` (a sole owner is neither on
     /// the free list nor mapped into any page table).
-    pub open spec fn inv_with_regions(
-        self,
-        owner: UniqueFrameOwner<M>,
-        s: MetaRegionOwners,
-    ) -> bool {
+    pub open spec fn wf_with_region(self, owner: UniqueFrameOwner<M>, s: MetaRegionOwners) -> bool {
         let idx = owner.slot_index;
         let so = s.slot_owners[idx];
         &&& self.wf(owner)

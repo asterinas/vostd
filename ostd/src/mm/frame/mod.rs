@@ -191,46 +191,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     }
 }
 
-impl<M: ?Sized> Frame<M> {
-    /// Cross-object well-formedness predicate: this `Frame` handle and
-    /// the supplied [`MetaRegionOwners`] state are mutually consistent.
-    /// Packages the static "Frame ⟷ state" conjuncts (slot/pointer
-    /// identity, slot in-use range) so that consumer specs
-    /// ([`drop_requires`], [`clone_requires`]) read uniformly.
-    ///
-    /// **Name**: `wf_state` (not just `wf`) to avoid clashing with the
-    /// `OwnerOf::wf(self, Self::Owner)` impl that
-    /// [`PageTableNode<C> = Frame<PageTablePageMeta<C>>`] inherits — the
-    /// two predicates take different argument types and serve different
-    /// purposes (per-handle vs. per-owner well-formedness).
-    ///
-    /// The rc range (`> 0 ∧ ≠ UNUSED ∧ ≠ UNIQUE ∧ ≤ MAX`) captures the
-    /// fact that holding a `Frame<M>` is itself evidence that the slot
-    /// is in the SHARED state — no UNUSED, no UNIQUE (which is reserved
-    /// for [`UniqueFrame`]). Combined with
-    /// [`MetaSlotOwner::inv`]'s SHARED branch (post Item 1), `wf_state`
-    /// implies `storage.is_init`, `in_list == 0`, and `vtable_ptr.is_init`
-    /// at the slot, so consumers don't have to repeat those.
-    ///
-    /// **Not preserved by `drop` for `self`**: dropping `self` releases
-    /// the reference; for *other* handles to the same slot, `wf_state`
-    /// is preserved by `drop`'s `>1` branch (post rc ∈ [1, MAX-1]) and
-    /// vacuous in the `==1` branch (no other handles to break).
-    pub open spec fn wf_state(self, s: MetaRegionOwners) -> bool {
-        let idx = self.index();
-        let slot_own = s.slot_owners[idx];
-        &&& self.inv()
-        &&& s.inv()
-        &&& s.slots.contains_key(idx)
-        &&& s.slots[idx].pptr() == self.ptr
-        &&& s.slot_owners.contains_key(idx)
-        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
-        &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
-        &&& slot_own.inner_perms.ref_count.value() > 0
-        &&& slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX
-    }
-}
-
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// Gets a [`Frame`] with a specific usage from a raw, unused page.
@@ -479,7 +439,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
-            self.inv_with_regions(*old(regions)),
+            self.wf_with_region(*old(regions)),
         ensures
             final(regions).inv(),
             res.inner@.ptr.addr() == self.ptr.addr(),

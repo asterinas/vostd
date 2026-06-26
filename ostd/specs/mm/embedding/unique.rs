@@ -112,7 +112,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
 /// `usage`, `paths_in_pt` (empty), `in_list` (0), and `slot_vaddr`
 /// preserved.
 ///
-/// **Preconditions** mirror `UniqueFrame::inv_with_regions` (the parts
+/// **Preconditions** mirror `UniqueFrame::wf_with_region` (the parts
 /// expressible at the `regions` level): the slot is UNIQUE with
 /// `in_list == 0`, initialised storage, and no PTE mappings
 /// (`paths_in_pt.is_empty()`).

@@ -129,7 +129,7 @@ impl<M: ?Sized> Frame<M> {
     /// identity, slot in-use range) so that consumer specs
     /// ([`drop_requires`], [`clone_requires`]) read uniformly.
     ///
-    /// **Name**: `inv_with_regions` (not just `wf`) to avoid clashing with the
+    /// **Name**: `wf_with_region` (not just `wf`) to avoid clashing with the
     /// `OwnerOf::wf(self, Self::Owner)` impl that
     /// [`PageTableNode<C> = Frame<PageTablePageMeta<C>>`] inherits — the
     /// two predicates take different argument types and serve different
@@ -139,15 +139,15 @@ impl<M: ?Sized> Frame<M> {
     /// fact that holding a `Frame<M>` is itself evidence that the slot
     /// is in the SHARED state — no UNUSED, no UNIQUE (which is reserved
     /// for [`UniqueFrame`]). Combined with
-    /// [`MetaSlotOwner::inv`]'s SHARED branch (post Item 1), `inv_with_regions`
+    /// [`MetaSlotOwner::inv`]'s SHARED branch (post Item 1), `wf_with_region`
     /// implies `storage.is_init`, `in_list == 0`, and `vtable_ptr.is_init`
     /// at the slot, so consumers don't have to repeat those.
     ///
     /// **Not preserved by `drop` for `self`**: dropping `self` releases
-    /// the reference; for *other* handles to the same slot, `inv_with_regions`
+    /// the reference; for *other* handles to the same slot, `wf_with_region`
     /// is preserved by `drop`'s `>1` branch (post rc ∈ [1, MAX-1]) and
     /// vacuous in the `==1` branch (no other handles to break).
-    pub open spec fn inv_with_regions(self, s: MetaRegionOwners) -> bool {
+    pub open spec fn wf_with_region(self, s: MetaRegionOwners) -> bool {
         let idx = self.index();
         let slot_own = s.slot_owners[idx];
         &&& self.inv()
@@ -231,10 +231,10 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let slot_own = s.slot_owners[idx];
         // Cross-object validity: this Frame is consistent with `s` and
-        // the slot is in the SHARED rc range. `inv_with_regions` carries the
+        // the slot is in the SHARED rc range. `wf_with_region` carries the
         // slot identity + pointer agreement + `rc ∈ (0, MAX] ∧ ≠ UNIQUE`
         // bounds.
-        &&& self.inv_with_regions(
+        &&& self.wf_with_region(
             s,
         )
         // Borrow-protocol transition: `raw_count` is dormant. The

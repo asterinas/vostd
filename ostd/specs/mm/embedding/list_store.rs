@@ -183,13 +183,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         // Each live cursor's checked-out list is well-formed and every
         // link relates to its UNIQUE region slot, exactly as for a held
         // list; additionally the cursor index is in range
-        // (`inv_region`). `list_own.inv()` is carried so the trusted
+        // (`wf_with_region`). `list_own.inv()` is carried so the trusted
         // per-op other-lists frame (stated over `inv() && relate_region`)
         // applies to a cursor's list under region-changing ops.
         &&& forall|cid: CursorId| #[trigger]
             self.cursors.dom().contains(cid) ==> {
                 &&& self.cursors[cid].list_own.inv()
-                &&& self.cursors[cid].inv_region(self.regions)
+                &&& self.cursors[cid].wf_with_region(self.regions)
             }
             // A cursor's list shares no nonzero id with any held list —
             // cross list/cursor slot disjointness, mirroring lists×lists.
@@ -999,11 +999,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         // --- per-cursor preserved (cursor lists are "other lists") ---
         assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
             &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
+            &&& self.cursors[cid].wf_with_region(self.regions)
         } by {
             assert(old_self.cursors.dom().contains(cid));
             assert(old_self.cursors[cid].list_own.inv());
-            assert(old_self.cursors[cid].inv_region(old_regions));
+            assert(old_self.cursors[cid].wf_with_region(old_regions));
             assert(self.cursors[cid].list_own.relate_region(old_regions));
             if !is_empty {
                 assert(self.cursors[cid].list_own.list_id != dropped_id);
@@ -1193,11 +1193,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(self.lists.dom() =~= old_self.lists.dom());
         assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
             &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
+            &&& self.cursors[cid].wf_with_region(self.regions)
         } by {
             assert(old_self.cursors.dom().contains(cid));
             assert(old_self.cursors[cid].list_own.inv());
-            assert(old_self.cursors[cid].inv_region(old_regions));
+            assert(old_self.cursors[cid].wf_with_region(old_regions));
             assert(self.cursors[cid].list_own.relate_region(old_regions));
             if old_self.lists[id].list_id != 0 {
                 assert(new_id == old_self.lists[id].list_id);
@@ -1341,11 +1341,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.lists.dom() =~= old_self.lists.dom());
             assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
                 &&& self.cursors[cid].list_own.inv()
-                &&& self.cursors[cid].inv_region(self.regions)
+                &&& self.cursors[cid].wf_with_region(self.regions)
             } by {
                 assert(old_self.cursors.dom().contains(cid));
                 assert(old_self.cursors[cid].list_own.inv());
-                assert(old_self.cursors[cid].inv_region(old_regions));
+                assert(old_self.cursors[cid].wf_with_region(old_regions));
                 assert(self.cursors[cid].list_own.relate_region(old_regions));
                 assert(old_self.lists.dom().contains(id));
                 assert(old_self.lists[id].list_id == old_list_id);
@@ -1484,11 +1484,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(self.lists.dom() =~= old_self.lists.dom());
         assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
             &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
+            &&& self.cursors[cid].wf_with_region(self.regions)
         } by {
             assert(old_self.cursors.dom().contains(cid));
             assert(old_self.cursors[cid].list_own.inv());
-            assert(old_self.cursors[cid].inv_region(old_regions));
+            assert(old_self.cursors[cid].wf_with_region(old_regions));
             assert(self.cursors[cid].list_own.relate_region(old_regions));
             if old_self.lists[id].list_id != 0 {
                 assert(new_id == old_self.lists[id].list_id);
@@ -1625,11 +1625,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.lists.dom() =~= old_self.lists.dom());
             assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
                 &&& self.cursors[cid].list_own.inv()
-                &&& self.cursors[cid].inv_region(self.regions)
+                &&& self.cursors[cid].wf_with_region(self.regions)
             } by {
                 assert(old_self.cursors.dom().contains(cid));
                 assert(old_self.cursors[cid].list_own.inv());
-                assert(old_self.cursors[cid].inv_region(old_regions));
+                assert(old_self.cursors[cid].wf_with_region(old_regions));
                 assert(self.cursors[cid].list_own.relate_region(old_regions));
                 assert(old_self.lists.dom().contains(id));
                 assert(old_self.lists[id].list_id == old_list_id);
@@ -1770,11 +1770,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(self.lists.dom() =~= old_self.lists.dom());
         assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
             &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
+            &&& self.cursors[cid].wf_with_region(self.regions)
         } by {
             assert(old_self.cursors.dom().contains(cid));
             assert(old_self.cursors[cid].list_own.inv());
-            assert(old_self.cursors[cid].inv_region(old_regions));
+            assert(old_self.cursors[cid].wf_with_region(old_regions));
             assert(self.cursors[cid].list_own.relate_region(old_regions));
             if old_self.lists[id].list_id != 0 {
                 assert(new_id == old_self.lists[id].list_id);
@@ -1914,11 +1914,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.lists.dom() =~= old_self.lists.dom());
             assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
                 &&& self.cursors[cid].list_own.inv()
-                &&& self.cursors[cid].inv_region(self.regions)
+                &&& self.cursors[cid].wf_with_region(self.regions)
             } by {
                 assert(old_self.cursors.dom().contains(cid));
                 assert(old_self.cursors[cid].list_own.inv());
-                assert(old_self.cursors[cid].inv_region(old_regions));
+                assert(old_self.cursors[cid].wf_with_region(old_regions));
                 assert(self.cursors[cid].list_own.relate_region(old_regions));
                 assert(old_self.lists.dom().contains(id));
                 assert(old_self.lists[id].list_id == old_list_id);
@@ -2002,7 +2002,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(new_self.lists.dom().disjoint(new_self.cursors.dom()));
         assert forall|cid: CursorId| #[trigger] new_self.cursors.dom().contains(cid) implies {
             &&& new_self.cursors[cid].list_own.inv()
-            &&& new_self.cursors[cid].inv_region(new_self.regions)
+            &&& new_self.cursors[cid].wf_with_region(new_self.regions)
         } by {
             if cid != id {
                 assert(old_self.cursors.dom().contains(cid));
@@ -2069,7 +2069,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             if i == id {
                 assert(new_self.lists[id] == old_self.cursors[id].list_own);
                 assert(old_self.cursors[id].list_own.inv());
-                assert(old_self.cursors[id].inv_region(old_self.regions));
+                assert(old_self.cursors[id].wf_with_region(old_self.regions));
             } else {
                 assert(old_self.lists.dom().contains(i));
                 assert(old_self.lists[i] == new_self.lists[i]);
@@ -2114,7 +2114,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(new_self.lists.dom().disjoint(new_self.cursors.dom()));
         assert forall|cid: CursorId| #[trigger] new_self.cursors.dom().contains(cid) implies {
             &&& new_self.cursors[cid].list_own.inv()
-            &&& new_self.cursors[cid].inv_region(new_self.regions)
+            &&& new_self.cursors[cid].wf_with_region(new_self.regions)
         } by {
             assert(cid != id);
             assert(old_self.cursors.dom().contains(cid));
@@ -2197,7 +2197,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(new_self.lists.dom().disjoint(new_self.cursors.dom()));
         assert forall|cid: CursorId| #[trigger] new_self.cursors.dom().contains(cid) implies {
             &&& new_self.cursors[cid].list_own.inv()
-            &&& new_self.cursors[cid].inv_region(new_self.regions)
+            &&& new_self.cursors[cid].wf_with_region(new_self.regions)
         } by {
             assert(old_self.cursors.dom().contains(cid));
             if cid != id {
@@ -2205,7 +2205,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             } else {
                 assert(new_self.cursors[id].list_own == old_self.cursors[id].list_own);
                 assert(old_self.cursors[id].list_own.inv());
-                assert(old_self.cursors[id].inv_region(old_self.regions));
+                assert(old_self.cursors[id].wf_with_region(old_self.regions));
             }
         };
         assert forall|id2: ListId, cid: CursorId| #[trigger]
@@ -2455,7 +2455,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                         && old_self.cursors[cid].list_own.list_id == x),
         );
         assert(self.cursors[id].list_own.inv());
-        assert(self.cursors[id].inv_region(self.regions));
+        assert(self.cursors[id].wf_with_region(self.regions));
         assert(self.cursors[id].list_own.relate_region(self.regions));
         assert(self.loose[lid].inv());
         assert(self.loose[lid].global_inv(self.regions));
@@ -2536,7 +2536,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         // --- per-cursor: operating cursor rebuilt; others preserved ---
         assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
             &&& self.cursors[cid].list_own.inv()
-            &&& self.cursors[cid].inv_region(self.regions)
+            &&& self.cursors[cid].wf_with_region(self.regions)
         } by {
             if cid == id {
                 assert(self.cursors[id].list_own == owner);
@@ -2546,7 +2546,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 assert(old_self.cursors.dom().contains(cid));
                 assert(old_self.cursors[cid] == self.cursors[cid]);
                 assert(old_self.cursors[cid].list_own.inv());
-                assert(old_self.cursors[cid].inv_region(old_regions));
+                assert(old_self.cursors[cid].wf_with_region(old_regions));
                 assert(self.cursors[cid].list_own.relate_region(old_regions));
                 assert(self.cursors[cid].list_own.list_id != new_id);
                 assert(self.cursors[cid].list_own.relate_region(self.regions));
@@ -2678,7 +2678,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             // --- per-cursor: operating cursor rebuilt; others preserved ---
             assert forall|cid: CursorId| #[trigger] self.cursors.dom().contains(cid) implies {
                 &&& self.cursors[cid].list_own.inv()
-                &&& self.cursors[cid].inv_region(self.regions)
+                &&& self.cursors[cid].wf_with_region(self.regions)
             } by {
                 if cid == id {
                     assert(self.cursors[id].list_own == owner);
@@ -2688,7 +2688,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                     assert(old_self.cursors.dom().contains(cid));
                     assert(old_self.cursors[cid] == self.cursors[cid]);
                     assert(old_self.cursors[cid].list_own.inv());
-                    assert(old_self.cursors[cid].inv_region(old_regions));
+                    assert(old_self.cursors[cid].wf_with_region(old_regions));
                     assert(self.cursors[cid].list_own.relate_region(old_regions));
                     assert(self.cursors[cid].list_own.list_id != old_list_id);
                     assert(self.cursors[cid].list_own.relate_region(self.regions));

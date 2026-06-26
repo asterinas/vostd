@@ -1135,7 +1135,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
                 broadcast use group_page_meta;
 
                 assert((**regions_ref).slots[frame.index()].pptr() == frame.ptr);
-                assert(frame.inv_with_regions(**regions_ref));
+                assert(frame.wf_with_region(**regions_ref));
             }
 
             range.start = range.start + PAGE_SIZE;

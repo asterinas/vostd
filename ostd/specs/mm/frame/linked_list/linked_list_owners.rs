@@ -1113,7 +1113,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     /// Region-based analog of [`CursorOwner::inv`]: replaces `list_own.inv()`
     /// (over the owned `perms`) with `list_own.relate_region(regions)` (over
     /// the region permissions).
-    pub open spec fn inv_region(self, regions: MetaRegionOwners) -> bool {
+    pub open spec fn wf_with_region(self, regions: MetaRegionOwners) -> bool {
         &&& 0 <= self.index <= self.length()
         &&& self.list_own.relate_region(regions)
     }
