@@ -10,9 +10,6 @@ target/
 # Verus
 .verus-log/
 
-# VS Code
-.vscode/settings.json
-
 # Zed
 .zed/settings.json
 
