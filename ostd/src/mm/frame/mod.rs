@@ -126,18 +126,23 @@ pub struct Frame<M: ?Sized> {
     pub _marker: PhantomData<M>,
 }
 
-/*
-// Unbounded so the PT-node `on_drop` body can use `Frame::<Self>::from_raw` /
-// `Drop for Frame<Self>` without forcing trait resolution back through the
-// in-flight `AnyFrameMeta for PageTablePageMeta<C>` impl. Body is pure
-// pointer arithmetic — no M-specific machinery.
-impl<M: ?Sized> Frame<M> {
-    pub open spec fn paddr(self) -> usize {
-        meta_to_frame(self.ptr.addr())
-    }
-}*/
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + ?Sized> Send for Frame<M> {
+
+}
+
+#[verifier::external]
+unsafe impl<M: AnyFrameMeta + ?Sized> Sync for Frame<M> {
+
+}
 
 /*
+impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Frame({:#x})", self.start_paddr())
+    }
+}
+
 impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
     fn eq(&self, other: &Self) -> bool {
         self.start_paddr() == other.start_paddr()
@@ -146,6 +151,47 @@ impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
 
 impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
 */
+
+#[verus_verify]
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
+    /// Compares two frames by their start physical address.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: the frames and metadata regions must satisfy the global invariants.
+    /// ## Postconditions
+    /// - **Correctness**: the function returns true if the frames have
+    /// the same physical addresses and false otherwise.
+    /// ## Safety
+    /// Everything is immutable, so the safety invariant is preserved implicitly.
+    /// ## Verification Design
+    /// This is an inherent impl equivalent to `PartialEq::eq` for `Frame<M>`: freed from the
+    /// trait signature so that this version can thread the tracked `MetaRegionOwners` via `verus_spec`.
+    #[verus_spec(res =>
+        with
+            Tracked(regions): Tracked<&MetaRegionOwners>,
+        requires
+            self.inv(),
+            other.inv(),
+            regions.inv(),
+        ensures
+            res == (meta_to_frame(self.ptr.addr()) == meta_to_frame(other.ptr.addr())),
+    )]
+    pub fn eq(&self, other: &Self) -> bool {
+        let ghost self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let ghost other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
+        proof {
+            regions.inv_implies_correct_addr(meta_to_frame(self.ptr.addr()));
+            regions.inv_implies_correct_addr(meta_to_frame(other.ptr.addr()));
+        }
+        let tracked self_perm = regions.slots.tracked_borrow(self_idx);
+        let tracked other_perm = regions.slots.tracked_borrow(other_idx);
+
+        (#[verus_spec(with Tracked(self_perm))]
+        self.start_paddr() == #[verus_spec(with Tracked(other_perm))]
+        other.start_paddr())
+    }
+}
 
 impl<M: ?Sized> Frame<M> {
     /// Cross-object well-formedness predicate: this `Frame` handle and
@@ -188,7 +234,7 @@ impl<M: ?Sized> Frame<M> {
 }
 
 #[verus_verify]
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// Gets a [`Frame`] with a specific usage from a raw, unused page.
     ///
     /// The caller should provide the initial metadata of the page.
@@ -262,7 +308,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         returns
             perm.value().metadata,
     )]
-    pub fn meta(&self) -> &'a M {
+    pub fn meta<'a>(&'a self) -> &'a M {
         // SAFETY: The type is tracked by the type system.
         // unsafe { &*self.slot().as_meta_ptr::<M>() }
         #[verus_spec(with Tracked(&perm.points_to))]
@@ -272,6 +318,155 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         let ptr = slot.as_meta_ptr();
 
         &ptr.borrow(Tracked(perm)).metadata
+    }
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
+    /// Gets a dynamically typed [`Frame`] from a raw, in-use page.
+    ///
+    /// If the provided frame is not in use at the moment, it will return an error.
+    ///
+    /// The returned frame will have an extra reference count to the frame.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// - *Termination*: The function may panic if `paddr` is a valid slot and its reference count is saturated.
+    /// ## Postconditions
+    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
+    /// - **Correctness**: If successful, the function returns the frame at `paddr`.
+    /// - **Correctness**: If successful, the frame has an extra reference count.
+    /// - **Correctness**: If `paddr` does not have a valid metadata slot, the function returns an error.
+    /// - **Safety**: Frames other than the one at `paddr` are not affected by the call.
+    /// ## Safety
+    /// - If `paddr` is a valid frame address, it is safe to take a reference to the frame.
+    /// - If `paddr` is not a valid frame address, the function will return an error.
+    #[verus_spec(res =>
+        with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
+        requires
+            old(regions).inv(),
+            has_safe_slot(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+        ensures
+            final(regions).inv(),
+            res matches Ok(res) ==> {
+                &&& final(regions).ref_count(frame_to_index(paddr)) ==
+                    old(regions).ref_count(frame_to_index(paddr)) + 1
+                &&& res.ptr == old(regions).slots[frame_to_index(paddr)].pptr()
+                &&& MetaSlot::live_frame_obligations_ok_spec(paddr, *old(regions), *final(regions))
+            },
+            !has_safe_slot(paddr) ==> res is Err,
+            old(regions).slot_owners_agree_except(*final(regions), frame_to_index(paddr)),
+            res is Err ==> *old(regions) == *final(regions),
+    )]
+    pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
+        let res = #[verus_spec(with Tracked(regions))]
+        MetaSlot::get_from_in_use(paddr);
+        match res {
+            Ok(ptr) => {
+                proof {
+                    // Mint the pending-Drop obligation for the new live value.
+                    let tracked _ = regions.tracked_mint_frame_obligation(frame_to_index(paddr));
+                }
+                Ok(Self { ptr, _marker: PhantomData })
+            },
+            Err(e) => Err(e),
+        }
+    }
+}
+
+#[verus_verify]
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
+    /// Gets the physical address of the start of the frame.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Bookkeeping**: takes the permission for the frame's metadata slot.
+    /// ## Postconditions
+    /// - **Correctness**: returns the physical address of the frame.
+    /// ## Safety
+    /// The caller cannot obtain a frame that doesn't have a valid permission,
+    /// and this function does not mutate any state, so it is always sound to call.
+    #[verus_spec(
+        with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+    requires
+        perm.addr() == self.ptr.addr(),
+        perm.is_init(),
+        FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end,
+        perm.addr() % META_SLOT_SIZE == 0,
+    returns
+        meta_to_frame(self.ptr.addr()),
+    )]
+    pub fn start_paddr(&self) -> Paddr {
+        #[verus_spec(with Tracked(perm))]
+        let slot = self.slot();
+
+        #[verus_spec(with Tracked(perm))]
+        slot.frame_paddr()
+    }
+
+    /// Gets the map level of this page.
+    ///
+    /// This is the level of the page table entry that maps the frame,
+    /// which determines the size of the frame.
+    ///
+    /// Currently, the level is always 1, which means the frame is a regular
+    /// page frame.
+    pub const fn map_level(&self) -> PagingLevel
+        returns
+            1u8,
+    {
+        1
+    }
+
+    /// Gets the size of this page in bytes.
+    pub const fn size(&self) -> usize
+        returns
+            PAGE_SIZE,
+    {
+        PAGE_SIZE
+    }
+
+    /*    /// Gets the dynamically-typed metadata of this frame.
+    ///
+    /// If the type is known at compile time, use [`Frame::meta`] instead.
+    pub fn dyn_meta(&self) -> FrameMeta {
+        // SAFETY: The metadata is initialized and valid.
+        unsafe { &*self.slot().dyn_meta_ptr() }
+    }*/
+    /// Gets the reference count of the frame.
+    ///
+    /// It returns the number of all references to the frame, including all the
+    /// existing frame handles ([`Frame`], [`Frame<dyn AnyFrameMeta>`]), and all
+    /// the mappings in the page table that points to the frame.
+    ///
+    /// ## Safety
+    ///
+    /// The function is safe to call, but using it requires extra care. The
+    /// reference count can be changed by other threads at any time including
+    /// potentially between calling this method and acting on the result.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// - **Bookkeeping**: The caller must have a valid and well-typed permission for the frame.
+    /// ## Postconditions
+    /// - **Correctness**: The function returns the reference count of the frame.
+    #[verus_spec(
+        with
+            Tracked(slot_own): Tracked<&mut MetaSlotOwner>,
+            Tracked(perm) : Tracked<&PointsTo<MetaSlot, Metadata<M>>>,
+        requires
+            perm.points_to.pptr() == self.ptr,
+            perm.is_init(),
+            perm.wf(&perm.inner_perms),
+            perm.inner_perms.ref_count.id() == perm.points_to.value().ref_count.id(),
+        returns
+            perm.value().ref_count,
+    )]
+    pub fn reference_count(&self) -> u64 {
+        let refcnt = (#[verus_spec(with Tracked(&perm.points_to))]
+        self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
+        refcnt
     }
 }
 
@@ -332,199 +527,7 @@ impl<M> Frame<M> {
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
-    /// Gets a dynamically typed [`Frame`] from a raw, in-use page.
-    ///
-    /// If the provided frame is not in use at the moment, it will return an error.
-    ///
-    /// The returned frame will have an extra reference count to the frame.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety Invariant**: Metaslot region invariants must hold.
-    /// - *Termination*: The function may panic if `paddr` is a valid slot and its reference count is saturated.
-    /// ## Postconditions
-    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
-    /// - **Correctness**: If successful, the function returns the frame at `paddr`.
-    /// - **Correctness**: If successful, the frame has an extra reference count.
-    /// - **Correctness**: If `paddr` does not have a valid metadata slot, the function returns an error.
-    /// - **Safety**: Frames other than the one at `paddr` are not affected by the call.
-    /// ## Safety
-    /// - If `paddr` is a valid frame address, it is safe to take a reference to the frame.
-    /// - If `paddr` is not a valid frame address, the function will return an error.
-    #[verus_spec(res =>
-        with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
-        requires
-            old(regions).inv(),
-            has_safe_slot(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
-        ensures
-            final(regions).inv(),
-            res matches Ok(res) ==> {
-                &&& final(regions).ref_count(frame_to_index(paddr)) ==
-                    old(regions).ref_count(frame_to_index(paddr)) + 1
-                &&& res.ptr == old(regions).slots[frame_to_index(paddr)].pptr()
-                &&& MetaSlot::live_frame_obligations_ok_spec(paddr, *old(regions), *final(regions))
-            },
-            !has_safe_slot(paddr) ==> res is Err,
-            old(regions).slot_owners_agree_except(*final(regions), frame_to_index(paddr)),
-            res is Err ==> *old(regions) == *final(regions),
-    )]
-    pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
-        let res = #[verus_spec(with Tracked(regions))]
-        MetaSlot::get_from_in_use(paddr);
-        match res {
-            Ok(ptr) => {
-                proof {
-                    // Mint the pending-Drop obligation for the new live value.
-                    let tracked _ = regions.tracked_mint_frame_obligation(frame_to_index(paddr));
-                }
-                Ok(Self { ptr, _marker: PhantomData })
-            },
-            Err(e) => Err(e),
-        }
-    }
-}
-
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
-    /// Gets the map level of this page.
-    ///
-    /// This is the level of the page table entry that maps the frame,
-    /// which determines the size of the frame.
-    ///
-    /// Currently, the level is always 1, which means the frame is a regular
-    /// page frame.
-    pub const fn map_level(&self) -> PagingLevel
-        returns
-            1u8,
-    {
-        1
-    }
-
-    /// Gets the size of this page in bytes.
-    pub const fn size(&self) -> usize
-        returns
-            PAGE_SIZE,
-    {
-        PAGE_SIZE
-    }
-}
-
-#[verus_verify]
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
-    /// Gets the physical address of the start of the frame.
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Bookkeeping**: takes the permission for the frame's metadata slot.
-    /// ## Postconditions
-    /// - **Correctness**: returns the physical address of the frame.
-    /// ## Safety
-    /// The caller cannot obtain a frame that doesn't have a valid permission,
-    /// and this function does not mutate any state, so it is always sound to call.
-    #[verus_spec(
-        with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
-    requires
-        perm.addr() == self.ptr.addr(),
-        perm.is_init(),
-        FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end,
-        perm.addr() % META_SLOT_SIZE == 0,
-    returns
-        meta_to_frame(self.ptr.addr()),
-    )]
-    pub fn start_paddr(&self) -> Paddr {
-        #[verus_spec(with Tracked(perm))]
-        let slot = self.slot();
-
-        #[verus_spec(with Tracked(perm))]
-        slot.frame_paddr()
-    }
-
-    /// Compares two frames by their start physical address.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety Invariant**: the frames and metadata regions must satisfy the global invariants.
-    /// ## Postconditions
-    /// - **Correctness**: the function returns true if the frames have
-    /// the same physical addresses and false otherwise.
-    /// ## Safety
-    /// Everything is immutable, so the safety invariant is preserved implicitly.
-    /// ## Verification Design
-    /// This is an inherent impl equivalent to `PartialEq::eq` for `Frame<M>`: freed from the
-    /// trait signature so that this version can thread the tracked `MetaRegionOwners` via `verus_spec`.
-    #[verus_spec(res =>
-        with
-            Tracked(regions): Tracked<&MetaRegionOwners>,
-        requires
-            self.inv(),
-            other.inv(),
-            regions.inv(),
-        ensures
-            res == (meta_to_frame(self.ptr.addr()) == meta_to_frame(other.ptr.addr())),
-    )]
-    pub fn eq(&self, other: &Self) -> bool {
-        let ghost self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
-        let ghost other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
-        proof {
-            broadcast use group_page_meta;
-
-            regions.inv_implies_correct_addr(meta_to_frame(self.ptr.addr()));
-            regions.inv_implies_correct_addr(meta_to_frame(other.ptr.addr()));
-            assert(regions.slots.contains_key(self_idx));
-            assert(regions.slots.contains_key(other_idx));
-            assert(regions.slots[self_idx].addr() == self.ptr.addr());
-            assert(regions.slots[other_idx].addr() == other.ptr.addr());
-        }
-        let tracked self_perm = regions.slots.tracked_borrow(self_idx);
-        let tracked other_perm = regions.slots.tracked_borrow(other_idx);
-
-        (#[verus_spec(with Tracked(self_perm))]
-        self.start_paddr() == #[verus_spec(with Tracked(other_perm))]
-        other.start_paddr())
-    }
-
-    /*    /// Gets the dynamically-typed metadata of this frame.
-    ///
-    /// If the type is known at compile time, use [`Frame::meta`] instead.
-    pub fn dyn_meta(&self) -> FrameMeta {
-        // SAFETY: The metadata is initialized and valid.
-        unsafe { &*self.slot().dyn_meta_ptr() }
-    }*/
-    /// Gets the reference count of the frame.
-    ///
-    /// It returns the number of all references to the frame, including all the
-    /// existing frame handles ([`Frame`], [`Frame<dyn AnyFrameMeta>`]), and all
-    /// the mappings in the page table that points to the frame.
-    ///
-    /// ## Safety
-    ///
-    /// The function is safe to call, but using it requires extra care. The
-    /// reference count can be changed by other threads at any time including
-    /// potentially between calling this method and acting on the result.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety Invariant**: Metaslot region invariants must hold.
-    /// - **Bookkeeping**: The caller must have a valid and well-typed permission for the frame.
-    /// ## Postconditions
-    /// - **Correctness**: The function returns the reference count of the frame.
-    #[verus_spec(
-        with
-            Tracked(slot_own): Tracked<&mut MetaSlotOwner>,
-            Tracked(perm) : Tracked<&PointsTo<MetaSlot, Metadata<M>>>,
-        requires
-            perm.points_to.pptr() == self.ptr,
-            perm.is_init(),
-            perm.wf(&perm.inner_perms),
-            perm.inner_perms.ref_count.id() == perm.points_to.value().ref_count.id(),
-        returns
-            perm.value().ref_count,
-    )]
-    pub fn reference_count(&self) -> u64 {
-        let refcnt = (#[verus_spec(with Tracked(&perm.points_to))]
-        self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
-        refcnt
-    }
-
     /// Borrows a reference from the given frame.
     /// # Verified Properties
     /// ## Preconditions
@@ -533,6 +536,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
     /// - **Safety Invariant**: Metaslot region invariants hold after the call.
     /// - **Correctness**: The function returns a reference to the frame.
     /// - **Correctness**: The system context is unchanged.
+    // FIXME: the lifetime is suspicious
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -541,9 +545,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         ensures
             final(regions).inv(),
             res.inner@.ptr.addr() == self.ptr.addr(),
-            final(regions).slot_owners == old(regions).slot_owners,
-            final(regions).slots == old(regions).slots,
-            final(regions).frame_obligations == old(regions).frame_obligations,
+            *final(regions) == *old(regions),
     )]
     pub fn borrow(&self) -> FrameRef<'a, M> {
         proof {
@@ -553,8 +555,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
             broadcast use group_page_meta;
 
             regions.inv_implies_correct_addr(self.paddr());
-            assert(regions.slots.contains_key(self.index()));
-            assert(regions.slots[self.index()].addr() == self.ptr.addr());
         }
         let tracked slot_perm = regions.slots.tracked_borrow(self.index());
 
