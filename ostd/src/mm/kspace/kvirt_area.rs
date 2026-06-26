@@ -258,13 +258,28 @@ pub axiom fn kvirt_alloc_range_bounds(
 
 /// Kernel ranges within [KERNEL_BASE_VADDR, KERNEL_END_VADDR] with alignment are valid for
 /// KernelPtConfig (which uses sign-extended high-half addresses).
-pub axiom fn axiom_kernel_range_valid(r: core::ops::Range<Vaddr>)
+/// Proved by expanding `is_valid_range_spec` via `lemma_vaddr_range_bounds_spec_kernel`
+/// and connecting the module constants to numeric literals with `compute_only`.
+pub proof fn axiom_kernel_range_valid(r: core::ops::Range<Vaddr>)
+    requires
+        KERNEL_BASE_VADDR <= r.start,
+        r.end <= KERNEL_END_VADDR,
+        r.start < r.end,
+        r.start % PAGE_SIZE == 0,
+        r.end % PAGE_SIZE == 0,
     ensures
-        (KERNEL_BASE_VADDR <= r.start && r.end <= KERNEL_END_VADDR && r.start < r.end && r.start
-            % PAGE_SIZE == 0 && r.end % PAGE_SIZE == 0) ==> is_valid_range_spec::<KernelPtConfig>(
-            &r,
-        ),
-;
+        is_valid_range_spec::<KernelPtConfig>(&r),
+{
+    crate::mm::page_table::lemma_vaddr_range_bounds_spec_kernel();
+    assert(KERNEL_BASE_VADDR == 0xFFFF_8000_0000_0000usize) by (compute_only);
+    assert(KERNEL_END_VADDR <= 0xFFFF_FFFF_FFFF_FFFFusize) by (compute_only);
+    assert(r.end > 0);
+    assert(r.end - 1 <= 0xFFFF_FFFF_FFFF_FFFFusize) by (nonlinear_arith)
+        requires
+            r.end <= KERNEL_END_VADDR,
+            KERNEL_END_VADDR <= 0xFFFF_FFFF_FFFF_FFFFusize,
+    ;
+}
 
 /// Kernel virtual area.
 ///
@@ -663,10 +678,13 @@ impl KVirtArea {
             // Bridge: FRAME_METADATA_BASE_VADDR < KERNEL_END_VADDR, so the allocator's
             // tightened bound still satisfies axiom_kernel_range_valid's precondition.
             assert(FRAME_METADATA_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
-            axiom_kernel_range_valid(cursor_range);
+            if cursor_range.start < cursor_range.end {
+                axiom_kernel_range_valid(cursor_range);
+            }
             // Discharge cursor_mut's `LOCKED_END_BOUND_spec` precondition: kvirt_alloc
             // bounded `range.end <= FRAME_METADATA_BASE_VADDR == LOCKED_END_BOUND` for
             // KernelPtConfig.
+
             assert(cursor_range.end as int
                 <= <KernelPtConfig as PageTableConfig>::LOCKED_END_BOUND_spec());
             assert(cursor_range.start % <KernelPtConfig as PagingConstsTrait>::BASE_PAGE_SIZE_spec()
