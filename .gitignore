@@ -55,6 +55,7 @@ doc
 *.rlib
 
 # Agents
+.agents/
 .codex/
 .claude/
 .copilot/
