@@ -178,14 +178,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             res == (meta_to_frame(self.ptr.addr()) == meta_to_frame(other.ptr.addr())),
     )]
     pub fn eq(&self, other: &Self) -> bool {
-        let ghost self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
-        let ghost other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
         proof {
-            regions.inv_implies_correct_addr(meta_to_frame(self.ptr.addr()));
-            regions.inv_implies_correct_addr(meta_to_frame(other.ptr.addr()));
+            regions.inv_implies_correct_addr(self.paddr());
+            regions.inv_implies_correct_addr(other.paddr());
         }
-        let tracked self_perm = regions.slots.tracked_borrow(self_idx);
-        let tracked other_perm = regions.slots.tracked_borrow(other_idx);
+        let tracked self_perm = regions.slots.tracked_borrow(self.index());
+        let tracked other_perm = regions.slots.tracked_borrow(other.index());
 
         (#[verus_spec(with Tracked(self_perm))]
         self.start_paddr() == #[verus_spec(with Tracked(other_perm))]
@@ -391,8 +389,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     requires
         perm.addr() == self.ptr.addr(),
         perm.is_init(),
-        FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end,
-        perm.addr() % META_SLOT_SIZE == 0,
+        self.inv(),
     returns
         meta_to_frame(self.ptr.addr()),
     )]
@@ -453,7 +450,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     /// - **Correctness**: The function returns the reference count of the frame.
     #[verus_spec(
         with
-            Tracked(slot_own): Tracked<&mut MetaSlotOwner>,
+            Tracked(slot_own): Tracked<&MetaSlotOwner>,
             Tracked(perm) : Tracked<&PointsTo<MetaSlot, Metadata<M>>>,
         requires
             perm.points_to.pptr() == self.ptr,
@@ -467,6 +464,41 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         let refcnt = (#[verus_spec(with Tracked(&perm.points_to))]
         self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
         refcnt
+    }
+
+    /// Borrows a reference from the given frame.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// ## Postconditions
+    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
+    /// - **Correctness**: The function returns a reference to the frame.
+    /// - **Correctness**: The system context is unchanged.
+    // FIXME: the lifetime is suspicious
+    #[verus_spec(res =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        requires
+            self.inv_with_regions(*old(regions)),
+        ensures
+            final(regions).inv(),
+            res.inner@.ptr.addr() == self.ptr.addr(),
+            *final(regions) == *old(regions),
+    )]
+    pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
+        proof {
+            regions.inv_implies_correct_addr(self.paddr());
+        }
+        let tracked slot_perm = regions.slots.tracked_borrow(self.index());
+
+        // SAFETY: Both the lifetime and the type matches `self`.
+        unsafe {
+            #[verus_spec(with Tracked(regions))]
+            FrameRef::borrow_paddr(
+                #[verus_spec(with Tracked(slot_perm))]
+                self.start_paddr(),
+            )
+        }
     }
 
     /// Forgets the handle to the frame.
@@ -604,49 +636,6 @@ impl<M> Frame<M> {
 
         proof_with!(|= Tracked(obl_minted));
         Self { ptr, _marker: PhantomData }
-    }
-}
-
-#[verus_verify]
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
-    /// Borrows a reference from the given frame.
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety Invariant**: Metaslot region invariants must hold.
-    /// ## Postconditions
-    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
-    /// - **Correctness**: The function returns a reference to the frame.
-    /// - **Correctness**: The system context is unchanged.
-    // FIXME: the lifetime is suspicious
-    #[verus_spec(res =>
-        with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        requires
-            self.inv_with_regions(*old(regions)),
-        ensures
-            final(regions).inv(),
-            res.inner@.ptr.addr() == self.ptr.addr(),
-            *final(regions) == *old(regions),
-    )]
-    pub fn borrow(&self) -> FrameRef<'a, M> {
-        proof {
-            // The slot perm is canonical in `regions.slots`; `inv_with_regions` already
-            // pins its presence and that `slots[idx].pptr() == self.ptr`, so the
-            // caller no longer threads a separate `MetaPerm`.
-            broadcast use group_page_meta;
-
-            regions.inv_implies_correct_addr(self.paddr());
-        }
-        let tracked slot_perm = regions.slots.tracked_borrow(self.index());
-
-        // SAFETY: Both the lifetime and the type matches `self`.
-        unsafe {
-            #[verus_spec(with Tracked(regions))]
-            FrameRef::borrow_paddr(
-                #[verus_spec(with Tracked(slot_perm))]
-                self.start_paddr(),
-            )
-        }
     }
 }
 
