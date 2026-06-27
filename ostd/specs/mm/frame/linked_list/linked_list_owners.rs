@@ -383,7 +383,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             self.list.len() < usize::MAX,
     {
         self.length_le_max_meta_slots(regions);
-        assert(max_meta_slots() < usize::MAX) by (compute_only);
     }
 
     /// Unfolds the opaque `relate_region_at` ONCE and exposes its clauses.
@@ -594,7 +593,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.relate_region(fr),
     {
         let nlen = new.list.len() as int;
-        assert(nlen == old.list.len() - 1);
 
         assert forall|k: int| #![trigger new.slot_index_at(k)] 0 <= k < nlen implies {
             let p = if k < n {
@@ -604,9 +602,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             };
             &&& new.list[k] == old.list[p]
             &&& new.slot_index_at(k) == old.slot_index_at(p)
-        } by {
-            assert(new.list[k] == old.list.remove(n)[k]);
-        }
+        } by {}
 
         assert forall|a: int, b: int|
             #![trigger new.slot_index_at(a), new.slot_index_at(b)]
@@ -622,9 +618,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             } else {
                 b + 1
             };
-            assert(pa != pb);
-            assert(new.slot_index_at(a) == old.slot_index_at(pa));
-            assert(new.slot_index_at(b) == old.slot_index_at(pb));
         }
 
         assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies {
@@ -677,8 +670,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.relate_region_at_from_clauses(fr, k);
         }
 
-        assert(new.list.len() > 0 ==> new.list_id != 0);
-        assert(new.relate_region(fr));
     }
 
     /// The list-rewiring "surgery" for inserting `link` before index `n`
@@ -788,7 +779,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.relate_region(fr),
     {
         let nlen = new.list.len() as int;
-        assert(nlen == old.list.len() + 1);
         let ins = new.slot_index_at(n);
 
         assert forall|k: int| #![trigger new.slot_index_at(k)] 0 <= k < nlen implies ({
@@ -798,9 +788,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             &&& (k == n ==> new.list[k] == link && new.slot_index_at(k) == ins)
             &&& (k > n ==> new.list[k] == old.list[k - 1] && new.slot_index_at(k)
                 == old.slot_index_at(k - 1))
-        }) by {
-            assert(new.list[k] == old.list.insert(n, link)[k]);
-        }
+        }) by {}
 
         assert forall|a: int, b: int|
             #![trigger new.slot_index_at(a), new.slot_index_at(b)]
@@ -850,8 +838,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         }
 
         // `new` has `old.len + 1 ≥ 1 > 0` elements and a non-zero id by hypothesis.
-        assert(new.list.len() > 0 ==> new.list_id != 0);
-        assert(new.relate_region(fr));
     }
 
     pub open spec fn view_helper(owners: Seq<LinkOwner>) -> Seq<LinkModel>
@@ -1289,7 +1275,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
     proof fn from_to_repr(self, perm: MetadataInnerPerms) {
         let md = <Metadata<Link<M>> as FromSpec<MetadataAsLink<M>>>::from_spec(self);
         <Metadata<Link<M>> as Repr<MetaSlot>>::from_to_repr(md, perm);
-        assert(<MetadataAsLink<M> as FromSpec<Metadata<Link<M>>>>::from_spec(md) == self);
     }
 
     proof fn to_from_repr(r: MetaSlot, perm: MetadataInnerPerms) {

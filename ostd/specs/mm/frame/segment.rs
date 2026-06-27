@@ -418,10 +418,7 @@ pub proof fn tracked_mint_seg_obligations(
                     (range_start + i * PAGE_SIZE) as usize,
                 )) implies regions.frame_obligations.count(jdx) == g0.frame_obligations.count(
             jdx,
-        ) by {
-            assert(jdx != idx);
-            assert(gmid.frame_obligations.count(jdx) == g0.frame_obligations.count(jdx));
-        };
+        ) by {};
         // Each segment frame gained at least one entry.
         assert forall|i: int|
             #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
@@ -483,9 +480,7 @@ pub proof fn tracked_redeem_seg_obligations(
             #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
             0 <= i < n - 1 implies regions.frame_obligations.count(
             frame_to_index((range_start + i * PAGE_SIZE) as usize),
-        ) >= 1 by {
-            assert(frame_to_index((range_start + i * PAGE_SIZE) as usize) != idx);
-        };
+        ) >= 1 by {};
         tracked_redeem_seg_obligations(regions, range_start, n - 1);
     }
 }

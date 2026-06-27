@@ -294,7 +294,6 @@ pub broadcast proof fn lemma_meta_addr_to_index(i: usize)
             PAGE_SIZE == 4096,
             MAX_PADDR == 0x8000_0000,
     ;
-    assert(p == i * PAGE_SIZE);
     assert(p % PAGE_SIZE == 0) by (nonlinear_arith)
         requires
             p == i * PAGE_SIZE,
@@ -306,11 +305,8 @@ pub broadcast proof fn lemma_meta_addr_to_index(i: usize)
             PAGE_SIZE == 4096,
     ;
     // `meta_addr(i)` is exactly the metadata address of physical page `p`.
-    assert(meta_addr(i) == frame_to_meta(p));
     // Existing biinjectivity closes `meta_to_frame(frame_to_meta(p)) == p`.
     lemma_paddr_to_meta_biinjective(p);
-    assert(meta_to_frame(meta_addr(i)) == p);
-    assert(frame_to_index(p) == i);
 }
 
 } // verus!

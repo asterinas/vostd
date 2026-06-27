@@ -235,7 +235,6 @@ impl MetaRegionOwners {
         ensures
             self.slot_owners.contains_key(frame_to_index(paddr) as usize),
     {
-        assert((frame_to_index(paddr)) < max_meta_slots() as usize);
     }
 
     /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
