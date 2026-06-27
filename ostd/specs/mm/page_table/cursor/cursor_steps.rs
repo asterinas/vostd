@@ -1370,10 +1370,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
 
-        assert(new_cont.inv()) by {
-            assert(new_cont.tree_level == INC_LEVELS - new_cont.level() - 1);
-            assert(new_cont.path().len() == new_cont.tree_level);
-        };
+        assert(new_cont.inv());
 
         assert(new_owner.level <= 4 ==> {
             &&& new_owner.continuations.contains_key(3)

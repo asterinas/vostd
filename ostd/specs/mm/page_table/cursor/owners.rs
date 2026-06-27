@@ -1026,13 +1026,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if old(self).popped_too_high {
             old(self).in_locked_range_prefix_match();
         }
-        assert(self.va.index[self.level as int - 1] == self.continuations[self.level as int
-            - 1].idx);
-        assert(self.prefix == old(self).prefix);
-        assert(self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
-        // inc_index doesn't change children, so pt_inv_children transfers.
-        assert(cont.children == old(self).continuations[self.level - 1].children);
-        assert(cont.pt_inv_children());
         assert(self.va.inv());
     }
 
