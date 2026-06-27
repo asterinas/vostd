@@ -1750,7 +1750,6 @@ impl AbstractVaddr {
         } by {
             assert(self.index.contains_key(i));
         };
-        assert(new_va.inv());
         self.to_vaddr_bounded();
         new_va.to_vaddr_bounded();
         assert(new_va.to_vaddr() as int - self.to_vaddr() as int == new_va.to_vaddr_indices(0)

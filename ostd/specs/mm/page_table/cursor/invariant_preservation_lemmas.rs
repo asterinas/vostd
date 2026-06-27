@@ -352,7 +352,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 // child.value.path == child_path (inv_children_rel) and
                 // child.value.path.inv() (EntryOwner::inv_base).
                 assert(child.value.path == child_path);
-                assert(child_path.inv());
                 // L1: pt_inv ⟹ tree-wide path correctness.
                 PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
                 // Every mapping of this child subtree is in self@.mappings.

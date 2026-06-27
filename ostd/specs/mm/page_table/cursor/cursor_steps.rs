@@ -392,7 +392,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old_cont.path().push_tail_property(old_cont.idx as usize);
         };
         old_cont.inv_children_unroll(old_cont.idx as int);
-        assert(child_subtree.inv());
         let pto = PageTableOwner(child_subtree);
         assert(pto.view_rec(child_path) == child_cont.view_mappings()) by {
             assert forall|m: Mapping| #[trigger]
@@ -510,12 +509,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(child.children == child_node.children);
         assert(child.tree_level == old_cont.tree_level + 1);
 
-        assert(self.va.inv());
         assert(self.va.index.contains_key(self.level - 2));
         assert(0 <= self.va.index[self.level - 2] < NR_ENTRIES);
         assert(child.idx == self.va.index[self.level - 2] as usize);
-
-        assert(child.entry_own.inv());
 
         assert(child.entry_own.path.len() == old_cont.entry_own.node().tree_level + 1);
         assert(old_cont.entry_own.node().tree_level == old_cont.tree_level) by {
@@ -536,7 +532,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(gc.value.path.len() == child.entry_own.node().tree_level + 1);
             assert(gc.value.path == child.entry_own.path.push_tail(0usize));
             assert(child.entry_own.inv_base());
-            assert(child.entry_own.path.inv());
             child.entry_own.path.push_tail_property(0usize);
             assert(child.entry_own.path.push_tail(0usize).len() == child.entry_own.path.len() + 1);
         };
@@ -572,10 +567,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     Some(gc.value),
                 ));
                 child.inv_children_unroll(j);
-                assert(gc.inv());
             };
         };
-        assert(child.inv());
 
         assert(new_owner.continuations[new_owner.level - 1].all_some()) by {
             assert(new_owner.continuations[new_owner.level - 1] == child);
@@ -650,12 +643,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
         assert(modified_cont.entry_own.is_node());
-        assert(modified_cont.entry_own.inv());
         assert(modified_cont.entry_own.node().relate_guard(modified_cont.guard));
         assert(modified_cont.tree_level == INC_LEVELS - modified_cont.level() - 1);
         assert(modified_cont.tree_level < INC_LEVELS - 1);
         assert(modified_cont.path().len() == modified_cont.tree_level);
-        assert(modified_cont.inv());
 
         assert(new_owner.level <= 4 ==> {
             &&& new_owner.continuations.contains_key(3)
@@ -1143,7 +1134,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             child_cont.inv_children_unroll(j);
         };
-        assert(child_subtree.inv());
 
         // Pre-prove tree_predicate_map for child_subtree (f)
         assert(child_subtree.tree_predicate_map(child_cont.path(), f)) by {
@@ -1250,10 +1240,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.inv(),
     {
         let child = self.continuations[self.level - 1];
-        assert(child.inv());
         assert(child.all_some());
         let cont = self.continuations[self.level as int];
-        assert(cont.inv());
         let (new_cont, _) = cont.restore(child);
         let new_owner = self.pop_level_owner().0;
 
@@ -1332,7 +1320,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             child.inv_children_unroll(j);
         };
-        assert(child_node.inv());
 
         assert(new_cont.inv_children()) by {
             assert forall|i: int|
@@ -1369,8 +1356,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
         };
-
-        assert(new_cont.inv());
 
         assert(new_owner.level <= 4 ==> {
             &&& new_owner.continuations.contains_key(3)
@@ -1503,7 +1488,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             child.inv_children_unroll(j);
         };
-        assert(child_subtree.inv());
 
         assert(OwnerSubtree::<C>::implies(
             CursorOwner::<'rcu, C>::node_unlocked(guards),
@@ -2183,9 +2167,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let popped = self.pop_level_owner().0;
         let child_subtree = child.as_subtree();
 
-        assert(child.inv());
         assert(child.all_some());
-        assert(parent.inv());
         assert(parent.all_but_index_some());
         assert(child.path() == parent.path().push_tail(parent.idx as usize));
 
