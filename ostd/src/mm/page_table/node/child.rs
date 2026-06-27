@@ -98,9 +98,7 @@ impl<C: PageTableConfig> Child<C> {
                 proof {
                     // `MD::new` removed one entry at `node_index`, matching
                     // `into_pte_regions_spec`'s `.remove(index)`.
-                    assert(regions.frame_obligations == fo0.remove(node_index));
                     let spec_regions = owner.into_pte_regions_spec(*old(regions));
-                    assert(regions.slot_owners == spec_regions.slot_owners);
                 }
 
                 C::E::new_pt(paddr)
@@ -175,7 +173,6 @@ impl<C: PageTableConfig> Child<C> {
                 assert(regions.slot_owners == entry_own.from_pte_regions_spec(
                     *old(regions),
                 ).slot_owners);
-                assert(regions.slots == entry_own.from_pte_regions_spec(*old(regions)).slots);
             }
 
             return Child::PageTable(node);
@@ -243,8 +240,6 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 broadcast use group_page_meta;
 
                 regions.inv_implies_correct_addr(paddr);
-                assert(entry_owner.metaregion_sound(*regions));
-                assert(entry_owner.meta_slot_paddr().unwrap() == paddr);
             }
 
             let node = unsafe {
@@ -256,12 +251,10 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 // borrow_paddr postcondition gives raw_count == 1 and field-by-field preservation.
                 // Since raw_count was already 1 (entry is in PTE),
                 // slot_owners[idx] == old(slot_owners[idx]) follows field by field.
-                assert(regions.slot_owners == old(regions).slot_owners);
                 // slots: borrow_paddr inserts at borrow_idx. Prove existing keys preserved.
                 // The node's slot was NOT in old.slots: by active_entry_not_in_free_pool,
                 // a node entry's index can't equal any free-pool index.
                 let borrow_idx = frame_to_index(paddr);
-                assert(entry_owner.is_node());
                 let ghost entry_snap = *entry_owner;
                 assert(!old(regions).slots.contains_key(borrow_idx)) by {
                     if old(regions).slots.contains_key(borrow_idx) {
@@ -277,7 +270,6 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 assert forall|k: usize| old(regions).slots.contains_key(k) implies old(
                     regions,
                 ).slots[k] == #[trigger] regions.slots[k] by {
-                    assert(k != borrow_idx);
                     // regions.slots == old.slots.insert(borrow_idx, _), and k != borrow_idx
                 };
             }

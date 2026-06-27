@@ -759,7 +759,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
             // Prove si % ai == 0: va_range.start and cur_node_va are both multiples of ps.
             // cur_node_va % ps == 0: cur_node_va % page_size(level+1) == 0 and ps | page_size(level+1).
             let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
-            assert(psu % ai == 0);
             assert(cur_node_va as int % ai == 0) by {
                 // cur_node_va % psu == 0, psu % ai == 0
                 // ==> cur_node_va is a multiple of ai
@@ -769,8 +768,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
                 let m = psu / ai;
                 // lemma gives: cur_node_va == psu * k + (cur_node_va % psu)
                 //              psu == ai * m + (psu % ai)
-                assert(cur_node_va as int == psu * k + cur_node_va as int % psu);
-                assert(psu == ai * m + psu % ai);
                 assert(cur_node_va as int == (m * k) * ai) by (nonlinear_arith)
                     requires
                         cur_node_va as int == psu * k + 0,
@@ -783,7 +780,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
             assert(si % ai == 0) by {
                 // va_range.start = si + cur_node_va, both multiples of ai
                 // si % ai + cur_node_va % ai == va_range.start % ai (mod ai)
-                assert(si + cur_node_va as int == va_range.start as int);
                 lemma_mod_adds(si, cur_node_va as int, ai);
                 // gives: si%ai + 0 == 0 + ai * ((si%ai + 0)/ai)
                 // so si%ai == ai * (si%ai / ai)
@@ -800,7 +796,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
             let qi = (xi + ai - 1) / ai;
             let ri = (xi + ai - 1) % ai;
             // xi + ai - 1 == ai * qi + ri
-            assert(xi + ai - 1 == ai * qi + ri);
             vstd::arithmetic::mul::lemma_mul_is_commutative(ai, qi);
             assert(qi * ai >= xi) by (nonlinear_arith)
                 requires
@@ -826,7 +821,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         // diff <= page_size(level+1) = NR_ENTRIES * ps
         // So ceil_div(diff, ps) <= NR_ENTRIES.
         let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
-        assert(psu == NR_ENTRIES as int * ai);
         // (psu + ai - 1) / ai == NR_ENTRIES (since psu = NR_ENTRIES * ai)
         assert(psu + ai - 1 == NR_ENTRIES as int * ai + (ai - 1)) by (nonlinear_arith)
             requires

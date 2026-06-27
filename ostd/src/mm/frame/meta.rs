@@ -444,7 +444,6 @@ impl MetaSlot {
                     regions.slot_owners[idx].inner_perms.ref_count,
                     old(regions).slot_owners[idx].inner_perms.ref_count,
                 );
-                assert(*regions == *old(regions));
             }
 
             return Err(err);
@@ -471,7 +470,6 @@ impl MetaSlot {
 
         proof {
             slot_own.usage = PageUsage::Frame;
-            assert(slot_perm.value().wf(slot_own));
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
         }
 
@@ -559,7 +557,6 @@ impl MetaSlot {
                             slot_own.inner_perms.ref_count,
                             old(regions).slot_owners[idx].inner_perms.ref_count,
                         );
-                        assert(*regions == *old(regions));
                     }
 
                 },

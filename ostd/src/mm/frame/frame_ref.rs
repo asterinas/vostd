@@ -91,7 +91,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
         proof {
             // `from_raw` did `insert(idx)`; `MD::new` did `remove(idx)`.
             // The pair is identity on the multiset.
-            assert(regions.frame_obligations == regions0.frame_obligations);
         }
 
         Self { inner, _marker: PhantomData }
