@@ -380,12 +380,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     )]
     pub(in crate::mm) fn replace(&mut self, new_child: Child<C>) -> Child<C> {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
-        let ghost old_idx = frame_to_index(owner.meta_slot_paddr().unwrap());
         // For restoring `count_consistent` (the `nr_children == count_present`
         // invariant) at the end: snapshot the parent's PTE array and counter
         // before the PTE write + counter inc/dec.
         let ghost cp0 = parent_owner.children_perm.value();
-        let ghost nr0 = parent_owner.meta_own.nr_children.value();
 
         #[cfg(feature = "allow_panic")]
         {
@@ -415,8 +413,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             Child::from_pte(self.pte, level)
         };
 
-        let ghost regions_after_from = *regions;
-
         if old_child.is_none() && !new_child.is_none() {
             let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
                 parent_owner.slot_index,
@@ -442,8 +438,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
         #[verus_spec(with Tracked(new_owner), Tracked(regions))]
         let new_pte = new_child.into_pte();
-
-        let ghost regions_after_into = *regions;
 
         // SAFETY:
         //  1. The index is within the bounds.
@@ -655,7 +649,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // predicate.
             let ghost regions_pre = *regions;
             let ghost pre_meta_perm = parent_owner.meta_perm_of(*regions);
-            proof {}
 
             proof_decl! {
                 let tracked mut new_node_owner: Tracked<OwnerSubtree<C>>;
@@ -1190,9 +1183,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value.frame().is_tracked,
             );
 
-            proof {
-                let ghost child_before_remove = new_owner.child(i as usize).unwrap();
-            }
+            proof {}
             let tracked mut new_owner_child = new_owner.children.tracked_remove(
                 i as int,
             ).tracked_unwrap();
@@ -1298,9 +1289,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ));
                 }
 
-                // Capture the slot's inner_perms before modification; the
                 // tracked_remove/insert below only touches paths_in_pt.
-                let ghost orig_inner_perms = regions.slot_owners[small_idx].inner_perms;
 
                 regions.inv_implies_correct_addr(small_pa);
                 let tracked mut small_slot = regions.slot_owners.tracked_remove(small_idx);
@@ -1313,7 +1302,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 }
                 let ghost target_idx = frame_to_index(small_pa);
                 if i != 0 {
-                    let ghost big_j =
+                    let ghost _ =
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_split_sub_page_big_j(
                     pa, level, i);
                     assert(regions.slot_owners[target_idx].usage !is MMIO ==> {
@@ -1324,13 +1313,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 }
             }
 
-            proof {}
             // Take the node OUT (vs borrowing in place) to keep Verus's
             // loop-invariant maintenance tracking intact across the per-child
             // `replace`; the in-place `tracked_borrow_mut_node` form loses the
             // new node's own-slot facts at the loop back-edge.
             let tracked mut new_owner_node = new_owner.value.tracked_take_node();
-            proof {}
             // Snapshot the node's own-slot facts while the loop invariant still
             // holds (regions unchanged since loop entry), so we can frame them
             // across the `replace` below.
@@ -1855,7 +1842,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             parent_owner.nr_children_absent_slot_bound(idx);
         }
         let ghost regions_pre = *regions;
-        let ghost pre_meta_perm = parent_owner.meta_perm_of(*regions);
         // Snapshot the parent's PTE array for restoring `count_consistent`
         // after the absent→present (`new_pte`) install below.
         let ghost cp0 = parent_owner.children_perm.value();
