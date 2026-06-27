@@ -515,9 +515,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(0 <= self.va.index[self.level - 2] < NR_ENTRIES);
         assert(child.idx == self.va.index[self.level - 2] as usize);
 
-        assert(child.entry_own.inv()) by {
-            old_cont.inv_children_unroll(old_cont.idx as int);
-        };
+        assert(child.entry_own.inv());
 
         assert(child.entry_own.path.len() == old_cont.entry_own.node().tree_level + 1);
         assert(old_cont.entry_own.node().tree_level == old_cont.tree_level) by {
@@ -1145,9 +1143,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             child_cont.inv_children_unroll(j);
         };
-        assert(child_subtree.inv()) by {
-            assert(child_subtree.inv_node());
-        };
+        assert(child_subtree.inv());
 
         // Pre-prove tree_predicate_map for child_subtree (f)
         assert(child_subtree.tree_predicate_map(child_cont.path(), f)) by {
@@ -1336,9 +1332,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             child.inv_children_unroll(j);
         };
-        assert(child_node.inv()) by {
-            assert(child_node.inv_node());
-        };
+        assert(child_node.inv());
 
         assert(new_cont.inv_children()) by {
             assert forall|i: int|
