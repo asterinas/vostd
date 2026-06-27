@@ -218,10 +218,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         });
                         entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
                     } else {
-                        assert(!entry.is_node());
-                        assert(entry.is_frame());
                         if entry.parent_level > 1 {
-                            assert(entry.frame_sub_pages_valid(regions1));
                         }
                     }
                 }
@@ -351,7 +348,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let child_path = cont.path().push_tail(j as usize);
                 // child.value.path == child_path (inv_children_rel) and
                 // child.value.path.inv() (EntryOwner::inv_base).
-                assert(child.value.path == child_path);
                 // L1: pt_inv ⟹ tree-wide path correctness.
                 PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
                 // Every mapping of this child subtree is in self@.mappings.
@@ -434,8 +430,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
         } by {
             let e = self.continuations[i].entry_own;
-            assert(nn(e, e.path));
-            assert(nf(e, e.path));
         }
     }
 
@@ -520,9 +514,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         // cross-slot conjunct (`frame_sub_pages_valid`)
                         // is carried by the dedicated own-slot lemma
                         // (which has the sub-page arithmetic baked in).
-                        assert(!entry.is_node());
                         if entry.is_frame() {
-                            assert(entry.path != removed_path);
                             assert(regions0.slot_owners[changed_idx].paths_in_pt.contains(
                                 entry.path,
                             ));
@@ -531,7 +523,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             ));
                             entry.frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
                         }
-                        assert(entry.metaregion_sound(regions1));
                     }
                 }
             };
@@ -567,9 +558,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     });
                     cont_entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
                 } else {
-                    assert(!cont_entry.is_node());
                     if cont_entry.is_frame() {
-                        assert(cont_entry.path != removed_path);
                         assert(regions0.slot_owners[changed_idx].paths_in_pt.contains(
                             cont_entry.path,
                         ));
@@ -578,7 +567,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         ));
                         cont_entry.frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
                     }
-                    assert(cont_entry.metaregion_sound(regions1));
                 }
             }
         };
@@ -627,7 +615,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         owner_before_replace.cur_subtree_eq_filtered_mappings_path();
         let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
-        assert(obr_subtree == set![target]);
 
         let ghost sv = vaddr_of::<C>(removed_path) as int;
         let ghost sz = page_size(owner_before_replace.level) as int;
@@ -642,13 +629,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|mm: Mapping| #[trigger] self@.mappings.contains(mm) implies mm.va_range.start
             != sv by {
             if mm.va_range.start == sv {
-                assert(owner_before_replace@.mappings.contains(mm));
                 assert(owner_before_replace@.mappings.filter(
                     |m2: Mapping| sv <= m2.va_range.start < sv + sz,
                 ).contains(mm));
-                assert(obr_subtree.contains(mm));
-                assert(mm == target);
-                assert(!self@.mappings.contains(target));
             }
         };
 

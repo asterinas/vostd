@@ -123,10 +123,8 @@ pub proof fn lemma_count_present_upto_update<E: PageTableEntryTrait>(
         assert(count_present_upto(s2, n - 1) == count_present_upto(s, n - 1)) by {
             lemma_count_present_upto_unchanged(s, s2, n - 1, idx);
         }
-        assert(s2[n - 1] == pte);
     } else {
         lemma_count_present_upto_update(s, n - 1, idx, pte);
-        assert(s2[n - 1] == s[n - 1]);
     }
 }
 
