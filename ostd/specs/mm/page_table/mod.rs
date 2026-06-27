@@ -222,10 +222,6 @@ impl AbstractVaddr {
         let o = abs.offset as usize;
         let tb = abs.leading_bits as usize;
         let va = abs.to_vaddr();
-        assert(i0 < 512usize);
-        assert(i1 < 512usize);
-        assert(i2 < 512usize);
-        assert(i3 < 512usize);
         assert(va == o + i0 * 4096usize + i1 * 0x20_0000usize + i2 * 0x4000_0000usize + i3
             * 0x80_0000_0000usize + tb * 0x1_0000_0000_0000usize);
 
@@ -505,12 +501,6 @@ impl AbstractVaddr {
         let i1 = self.index[1];
         let i2 = self.index[2];
         let i3 = self.index[3];
-        assert(0 <= o < 4096);
-        assert(0 <= lb < 0x1_0000);
-        assert(0 <= i0 < 512);
-        assert(0 <= i1 < 512);
-        assert(0 <= i2 < 512);
-        assert(0 <= i3 < 512);
         assert(self.to_vaddr_indices(4) == 0);
         assert(self.to_vaddr_indices(3) == i3 * 0x80_0000_0000int);
         assert(self.to_vaddr_indices(2) == i2 * 0x4000_0000int + i3 * 0x80_0000_0000int);
@@ -538,7 +528,6 @@ impl AbstractVaddr {
                         * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int,
                     ps == 0x1000,
             ;
-            assert(0 <= diff < ps);
         } else if level == 2 {
             assert(ps == 0x20_0000);
             assert(diff == o + i0 * 0x1000int);
@@ -611,7 +600,6 @@ impl AbstractVaddr {
         let ps = page_size(level as PagingLevel) as int;
 
         assert(av % ps == 0);
-        assert(0 <= va - av);
         assert(va - av < ps);
 
         // av = ps * q for some q, so va = ps * q + (va - av).
@@ -830,7 +818,6 @@ impl AbstractVaddr {
         self.align_down_shape(level);
         self.align_down_to_vaddr_nat_align_down(level);
         lemma_page_size_ge_page_size(level as PagingLevel);
-        assert(ps > 0);
         vstd_extra::arithmetic::lemma_nat_align_down_sound(va, ps);
         self.to_vaddr_bounded();
 
@@ -920,7 +907,6 @@ impl AbstractVaddr {
 
                 // prev_aligned.to_vaddr() % page_size(level + 1) == 0.
                 let ps1 = page_size((level + 1) as PagingLevel) as nat;
-                assert(ps1 > 0);
                 vstd_extra::arithmetic::lemma_nat_align_down_sound(self.to_vaddr() as nat, ps1);
                 assert(prev_aligned.to_vaddr() as nat % ps1 == 0);
 
@@ -1903,7 +1889,6 @@ impl AbstractVaddr {
             };
         } else {
             let level = (NR_LEVELS - path.len()) as int;
-            assert(0 <= level < NR_LEVELS);
             self.to_path_inv(level);
             self.to_path_len(level);
             assert forall|i: int| 0 <= i < path.len() implies #[trigger] path.index(i)
@@ -1999,8 +1984,6 @@ impl AbstractVaddr {
             self.to_vaddr() as nat,
             page_size((level + 1) as PagingLevel) as nat,
         );
-        assert(nad <= self.to_vaddr() as nat);
-        assert(nad <= usize::MAX);
         assert(aligned.leading_bits == self.leading_bits);
         assert(vaddr(self.to_path(level)) as int == aligned.compute_vaddr() as int);
         assert(aligned.to_vaddr() as int == aligned.compute_vaddr() as int + aligned.leading_bits

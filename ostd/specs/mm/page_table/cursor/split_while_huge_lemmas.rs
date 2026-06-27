@@ -88,7 +88,6 @@ impl<C: PageTableConfig> CursorView<C> {
         assert((cur_va as int) >= (m.va_range.start as int) + ki * (new_size as int));
         assert((cur_va as int) < (m.va_range.start as int) + (ki + 1) * (new_size as int));
         assert(sub.va_range.start <= cur_va);
-        assert(cur_va < sub.va_range.end);
 
         let new_self = v.split_if_mapped_huge_spec(new_size);
         let domain = Set::<int>::range(0int, ps as int / new_size as int);

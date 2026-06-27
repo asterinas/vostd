@@ -340,7 +340,6 @@ impl VmIoOwner {
                         let pa = right.addr_transl(i).unwrap().0;
                         assert(view_g.memory.contains_key(pa));
                         assert(view_g.is_mapped(i, pa));
-                        assert(i >= split_end);
                         assert(right.memory.dom().contains(pa));
                         assert(right.memory[pa] == view_g.memory[pa]);
                     };

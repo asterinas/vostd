@@ -372,7 +372,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             mapped.to_set_ensures();
             assert(mapped.contains(elem_s));
             let i = mapped.lemma_contains_to_index(elem_s);
-            assert(0 <= i < self.children.len());
             if self.children[i] is Some {
                 assert(mapped[i] == PageTableOwner(self.children[i]->0).view_rec(
                     self.path().push_tail(i as usize),
@@ -1634,8 +1633,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // va in [start, start + ps) means va = k*ps + r for 0 <= r < ps, so va/ps = k.
         assert(va_val as int / ps as int == k) by {
             let r = va_val as int - start as int;
-            assert(0 <= r);
-            assert(r < ps as int);
             assert(va_val as int == k * ps as int + r) by (nonlinear_arith)
                 requires
                     va_val as int == start as int + r,
@@ -1650,8 +1647,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(pf_val as int / ps as int == k) by {
             let r = pf_val as int - start as int;
-            assert(0 <= r);
-            assert(r < ps as int);
             assert(pf_val as int == k * ps as int + r) by (nonlinear_arith)
                 requires
                     pf_val as int == start as int + r,
@@ -1849,7 +1844,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Page-size positivity: `page_size(_) >= PAGE_SIZE > 0`.
         lemma_page_size_ge_page_size(gl as PagingLevel);
         lemma_page_size_ge_page_size((gl + 1) as PagingLevel);
-        assert(pg > 0 && pg1 > 0);
 
         self.locked_range_span();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(
@@ -1861,8 +1855,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // (`in_locked_range`: `locked_range.start <= self.va.to_vaddr() <
         // locked_range.end`; `reflect_prop`: `to_vaddr() == self_va`; span:
         // `end == start + pg`.) So the locked range is the `pg`-block at `ls`.
-        assert(ls <= self_va < ls + pg);
-        assert(ls <= va < ls + pg);
 
         vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, pg);
         vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, pg1);
@@ -1876,9 +1868,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let pgi = pg as int;
             // `ls <= nad`: sound's `forall n <= self_va, n % pg == 0 ==> n <=
             // nad` instantiated at `n = ls` (`ls <= self_va`, `ls % pg == 0`).
-            assert(lsi <= nad);
             // `nad <= self_va < ls + pg`  ⟹  `0 <= nad - ls < pg`.
-            assert(0 <= nad - lsi && nad - lsi < pgi);
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(nad, pgi);
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(lsi, pgi);
             let kn = nad / pgi;
@@ -2117,10 +2107,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.to_vaddr_bounded();  // 0 <= P_v < 2^48
         assert(self.va.leading_bits == lb);  // inv: va.lb == prefix.lb
         let pv = (self.va.offset + self.va.to_vaddr_indices(0)) as int;
-        assert(0 <= pv < big);
         assert(self_va as int == pv + lb * big);
         vstd_extra::arithmetic::lemma_nat_align_down_sound(self_va as nat, big as nat);
-        assert(0 <= lb < 0x1_0000int);
         assert(nat_align_down(self_va as nat, big as nat) == (lb * big) as nat) by (nonlinear_arith)
             requires
                 self_va as nat == (pv + lb * big) as nat,
@@ -2138,7 +2126,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // ---- combine -----------------------------------------------------
         // node_start == lb*2^48 == locked_range().start <= va,
         // va < end == node_start + ps_nr <= node_start + 2^48 == node_start + node_size.
-        assert(ps_nr < big);
     }
 
     /// `prefix.to_vaddr() + page_size(guard_level) <= usize::MAX`.
@@ -2205,7 +2192,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             (gl + 1) as PagingLevel);
         };
         assert(tvi + NR_ENTRIES * ps <= 0x1_0000_0000_0000int);
-        assert(ps >= 0x1000);
 
         assert(pv + ps <= usize::MAX as int) by (nonlinear_arith)
             requires
@@ -2287,10 +2273,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             (gl + 1) as PagingLevel);
         };
         assert(tvi + NR_ENTRIES * ps <= 0x1_0000_0000_0000int);
-        assert(ps >= 0x1000);
-        assert(psl >= 0x1000);
-        assert(psl <= ps);
-        assert(va_val < pv + ps);
 
         assert(va_val + psl <= usize::MAX as int) by (nonlinear_arith)
             requires
@@ -3047,7 +3029,6 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
                 assert(child.0.value.is_frame() || child.0.value.is_node());
                 assert(!child.0.value.is_borrowed());
                 assert(!child.0.value.is_absent());
-                assert(0 <= j < end);
             } else {
                 // Non-root continuation: `p.index(0) == cont.path().index(0)`,
                 // which (via the inv path chain) equals the root continuation's
@@ -3073,7 +3054,6 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
                         );
                     }
                 }
-                assert(0 <= owner.continuations[NR_LEVELS - 1].idx < end);
             }
         }
         child.view_rec_top_index_va_bound(p, m, end);
@@ -3151,7 +3131,6 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
                 assert(child.0.value.is_frame() || child.0.value.is_node());
                 assert(!child.0.value.is_borrowed());
                 assert(!child.0.value.is_absent());
-                assert(start <= j < end);
             } else {
                 // Non-root: `p.index(0) == cont.path().index(0) == root.idx ∈
                 // [256, 512)` (path chain + cursor-inv idx clause).
@@ -3176,7 +3155,6 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
                         );
                     }
                 }
-                assert(start <= owner.continuations[NR_LEVELS - 1].idx < end);
             }
         }
         child.view_rec_top_index_va_bound(p, m, end);

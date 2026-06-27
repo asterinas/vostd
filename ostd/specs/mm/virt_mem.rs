@@ -354,13 +354,11 @@ impl MemView {
                 |m: Mapping| m.va_range.start <= va < m.va_range.end,
             );
 
-            assert(l_mappings <= o_mappings);
             assert forall|m: Mapping| #[trigger] o_mappings.contains(m) implies l_mappings.contains(
                 m,
             ) by {
                 assert(left.mappings.contains(m));
             };
-            assert(o_mappings <= l_mappings);
             assert(o_mappings == l_mappings);
         }
 

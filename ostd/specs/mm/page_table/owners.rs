@@ -915,7 +915,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             mapped.to_set_ensures();
             assert(mapped.contains(elem_s));
             let i = mapped.lemma_contains_to_index(elem_s);
-            assert(0 <= i < self.0.children.len());
             if self.0.children[i] is Some {
                 assert(mapped[i] == PageTableOwner(self.0.children[i]->0).view_rec(
                     path.push_tail(i as usize),
@@ -1652,7 +1651,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(self.view_rec(path) == set![m]);
             assert(set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size));
             let ps = page_size(pt_level) as int;
-            assert(ps > 0);
             assert((frame.mapped_pa as int + ps) % ps == 0) by (nonlinear_arith)
                 requires
                     (frame.mapped_pa as int) % ps == 0,
@@ -1689,7 +1687,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             //     `vaddr(path) + ps <= 2^48`: from strict bound plus alignment.
             let v = vaddr(path) as int;
             assert((v % ps) == 0);
-            assert(v < 0x1_0000_0000_0000int);
             assert(v + ps <= 0x1_0000_0000_0000int) by (nonlinear_arith)
                 requires
                     v % ps == 0,

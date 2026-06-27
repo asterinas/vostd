@@ -457,7 +457,6 @@ pub proof fn lemma_frame_drop_pre_derivable<'rcu>(s: VmStore<'rcu>, fid: FrameId
     // `fid` registered ⟹ paddr in-bound ⟹ idx is a managed slot.
     assert(has_safe_slot(paddr));
     s.regions.inv_implies_correct_addr(paddr);
-    assert(idx < max_meta_slots());
     // `fid` registered ⟹ handle_count(s.frames, idx) >= 1.
     assert(s.frames.dom().filter(
         |gid: FrameId| frame_to_index(s.frames[gid].paddr) == idx,
@@ -474,13 +473,11 @@ pub proof fn lemma_frame_drop_pre_derivable<'rcu>(s: VmStore<'rcu>, fid: FrameId
     assert(so.inner_perms.storage.is_init());
     // rc != UNUSED ⟹ rc > 0 (UNUSED is u64::MAX; rc could still be 0,
     // but clause 4 gives rc == H + P ≥ 1).
-    assert(rc > 0);
     // `MetaSlotOwner::inv` SHARED branch: 0 < rc <= MAX ⟹ storage.is_init,
     // in_list == 0, vtable_ptr.is_init.
     assert(s.regions.slot_owners.contains_key(idx));
     // rc != UNUSED ∧ rc != UNIQUE ∧ rc > 0 ⟹ rc ∈ [1, MAX]
     // (forbidden range MAX < rc < UNIQUE is empty per MetaSlotOwner::inv).
-    assert(rc <= REF_COUNT_MAX);
     assert(so.inner_perms.in_list.value() == 0);
     // rc == 1 ⟹ paths empty (from rc == H + P and H >= 1).
     if rc == 1 {
@@ -2350,7 +2347,6 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
         assert(has_safe_slot(s.unique_frames[u].paddr));
         s.regions.inv_implies_correct_addr(s.unique_frames[u].paddr);
         assert(s.regions.slot_owners.contains_key(u_idx));
-        assert(u_idx < max_meta_slots());
         // usage / in_list preserved universally by the unmap axiom.
         assert(s.regions.slot_owners[u_idx].usage == old_regions.slot_owners[u_idx].usage);
         assert(s.regions.slot_owners[u_idx].inner_perms.in_list
@@ -2694,7 +2690,6 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     assert(has_safe_slot(p));
     s.regions.inv_implies_correct_addr(p);
     let ghost idx_p = frame_to_index(p);
-    assert(idx_p < max_meta_slots());
     // `fid ∈ s.frames` ⟹ `handle_count(s.frames, idx_p) ≥ 1`. Used
     // below to chain `lemma_handle_count_remove` and re-establish
     // accounting_inv's Frame-scoped clauses.
@@ -2802,8 +2797,6 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
                 // drop_step rc>1 branch: post rc = pre - 1, storage preserved.
                 assert(post_rc == (pre_rc - 1) as u64);
                 assert(post_rc as nat == post_h + post_p);
-                assert(post_rc >= 1);
-                assert(post_rc <= REF_COUNT_MAX);
                 assert(s.regions.slot_owners[idx].inner_perms.storage
                     == old_regions.slot_owners[idx].inner_perms.storage);
             } else {
@@ -3070,11 +3063,9 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             paddr,
         ));
         // rc >= 1 since cover >= 1 ⟹ H + P + cover >= 1.
-        assert(rc >= 1);
         // Triggers MetaSlotOwner::inv's SHARED branch (Item 1): rc in
         // [1, MAX] ⟹ storage init, in_list == 0.
         assert(old_regions.slot_owners.contains_key(idx));
-        assert(rc <= REF_COUNT_MAX);
         // rc == 1 case: rc = H + P + cover = 1, cover >= 1 ⟹ cover == 1
         // and H == 0 and P == 0 ⟹ paths empty.
         if rc == 1 {
@@ -3220,11 +3211,9 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             assert(handle_count(s.frames, idx) == pre_H);
             assert(segment_cover_count(s.segments, paddr) == (pre_cover - 1) as nat);
             // post rc <= MAX (pre rc was, post = pre - 1, still in range).
-            assert(post_rc <= REF_COUNT_MAX);
             // storage.is_init at post: post rc ∈ SHARED (1 <= post rc <= MAX)
             // ⟹ MetaSlotOwner::inv SHARED branch ⟹ storage.is_init.
             assert(s.regions.slot_owners.contains_key(idx));
-            assert(post_rc >= 1);
             assert(s.regions.slot_owners[idx].inner_perms.storage.is_init());
         } else {
             assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
@@ -3538,9 +3527,7 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     assert(pre_rc == pre_H + pre_P + pre_cover);
     assert(pre_rc != REF_COUNT_UNUSED);
     assert(pre_rc != REF_COUNT_UNIQUE);
-    assert(pre_rc >= 1);
     assert(old_regions.slot_owners.contains_key(target_idx));
-    assert(pre_rc <= REF_COUNT_MAX);
     assert(has_safe_slot(paddr));
     s.regions.inv_implies_correct_addr(paddr);
     assert(s.regions.slots.contains_key(target_idx));
@@ -3654,7 +3641,6 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     if !will_become_empty {
         assert(new_range_start % PAGE_SIZE == 0);
         assert(new_range_end % PAGE_SIZE == 0);
-        assert(new_range_end <= MAX_PADDR);
     }
     // Accounting clauses.
 
@@ -3880,12 +3866,10 @@ proof fn step_segment_clone_range<'rcu>(
             assert(old_segments.dom().contains(sid));
             assert(sid_range.start <= paddr_c < sid_range.end);
             assert(old_regions.slot_owners[cov_idx].usage == PageUsage::Frame);
-            assert(paddr_c < sid_range.end);
         } else {
             assert(old_segments.dom().contains(sid_other));
             assert(old_segments[sid_other] == s.segments[sid_other]);
             assert(old_regions.slot_owners[cov_idx].usage == PageUsage::Frame);
-            assert(paddr_c < s.segments[sid_other].range.end);
         }
         // `cov_idx < max_meta_slots()` via `inv_implies_correct_addr`
         // (`slot_owners.contains_key`) + `MetaRegionOwners::inv`'s
@@ -4081,7 +4065,6 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
         // `idx` in range; `paddr` is its page base.
         s.regions.inv_implies_correct_addr(paddr);
         assert(s.regions.slot_owners.contains_key(idx));
-        assert(idx < max_meta_slots());
         assert(index_to_frame(idx) == paddr);
 
         // Pre "no users" facts at the UNUSED slot (accounting clause 1).
@@ -4279,7 +4262,6 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     assert(has_safe_slot(paddr));
     s.regions.inv_implies_correct_addr(paddr);
     assert(s.regions.slot_owners.contains_key(idx));
-    assert(idx < max_meta_slots());
     assert(index_to_frame(idx) == paddr);
     assert(s.regions.slot_owners[idx].usage == PageUsage::Frame);
     assert(s.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
@@ -4470,7 +4452,6 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     assert(has_safe_slot(paddr));
     s.regions.inv_implies_correct_addr(paddr);
     assert(s.regions.slot_owners.contains_key(idx));
-    assert(idx < max_meta_slots());
     assert(index_to_frame(idx) == paddr);
     assert(s.regions.slot_owners[idx].usage == PageUsage::Frame);
     assert(s.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
@@ -4663,7 +4644,6 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     assert(has_safe_slot(paddr));
     s.regions.inv_implies_correct_addr(paddr);
     assert(s.regions.slot_owners.contains_key(idx));
-    assert(idx < max_meta_slots());
     assert(index_to_frame(idx) == paddr);
     assert(s.regions.slot_owners[idx].usage == PageUsage::Frame);
     assert(s.frames.dom().filter(
@@ -5207,7 +5187,6 @@ pub proof fn lemma_segment_cover_split(
     if sid_covers {
         // orig >= 1 (sid contributes).
         lemma_segment_cover_contains(segments, sid, paddr);
-        assert(orig >= 1);
         assert(cover_after_remove == (orig - 1) as nat);
         assert(cover_after_remove + 1 == orig);
         if left_covers {

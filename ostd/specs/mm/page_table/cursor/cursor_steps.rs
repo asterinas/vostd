@@ -510,7 +510,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(child.tree_level == old_cont.tree_level + 1);
 
         assert(self.va.index.contains_key(self.level - 2));
-        assert(0 <= self.va.index[self.level - 2] < NR_ENTRIES);
         assert(child.idx == self.va.index[self.level - 2] as usize);
 
         assert(child.entry_own.path.len() == old_cont.entry_own.node().tree_level + 1);
@@ -613,7 +612,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Flattened: hoist inv_children and inv_children_rel proofs so the
         // inner `assert forall` blocks live at depth 2.
         assert(modified_cont.children.len() == NR_ENTRIES);
-        assert(0 <= modified_cont.idx < NR_ENTRIES);
         assert(modified_cont.inv_children()) by {
             assert forall|i: int|
                 0 <= i < modified_cont.children.len()

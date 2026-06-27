@@ -465,7 +465,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(1, 2);
             assert(child_pa % page_size(1) == 0);
             assert(child_pa + page_size(1) <= MAX_PADDR) by {
-                assert(idx < 512);
                 assert(idx * 4096 + 4096 <= 2097152);
                 assert(child_pa + page_size(1) <= pa + page_size(2));
             };
@@ -547,7 +546,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
                     self.parent_level,
                 );
-                assert(pa_plus_int < MAX_PADDR);
                 vstd::arithmetic::div_mod::lemma_div_multiples_vanish_quotient(
                     j as int,
                     pa as int,
@@ -921,7 +919,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
                     self.parent_level,
                 );
-                assert(pa_plus_int < MAX_PADDR);
                 // sub_idx = (pa + j*PAGE_SIZE) / PAGE_SIZE = pa/PAGE_SIZE + j (since pa % PAGE_SIZE == 0).
                 vstd::arithmetic::div_mod::lemma_div_multiples_vanish_quotient(
                     j as int,

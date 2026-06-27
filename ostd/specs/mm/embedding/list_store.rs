@@ -2430,7 +2430,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         assert(self.loose[lid].global_inv(self.regions));
         assert(self.loose[lid].frame_link_inv(self.regions));
         assert(self.regions.slot_owners[fidx].inner_perms.in_list.value() == 0);
-        assert(0 <= n <= self.cursors[id].list_own.list.len());
 
         let tracked cur = self.cursors.tracked_remove(id);
         let tracked CursorOwner { list_own: mut owner, index: _ } = cur;
@@ -2586,7 +2585,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             let ghost old_list_id = self.cursors[id].list_own.list_id;
             let ghost popped_idx = self.cursors[id].list_own.slot_index_at(n);
             assert(self.cursors[id].list_own.relate_region(self.regions));
-            assert(0 <= n < self.cursors[id].list_own.list.len());
             // A non-empty list carries a nonzero id (`LinkedListOwner::inv`).
             assert(old_list_id != 0);
 
