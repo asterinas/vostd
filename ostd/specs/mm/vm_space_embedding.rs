@@ -571,9 +571,7 @@ proof fn cursor_method_step<'a, 'rcu>(
             final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
             && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
-            if j == c {
-                // entry's owner.inv() comes from the axiom; vm_space is preserved.
-            } else {
+            if j != c {
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };
@@ -618,9 +616,7 @@ proof fn cursor_mut_regions_step<'a, 'rcu>(
             final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
             && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
-            if j == c {
-                // entry's owner.inv() comes from the axiom; vm_space preserved.
-            } else {
+            if j != c {
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };
@@ -661,9 +657,7 @@ proof fn map_step<'a, 'rcu>(
             final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
             && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
-            if j == c {
-                // entry's owner.inv() comes from the axiom; vm_space preserved.
-            } else {
+            if j != c {
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };

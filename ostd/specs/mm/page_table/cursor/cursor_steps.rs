@@ -157,18 +157,6 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
                 }
             };
 
-            assert(excepted_path.len() <= child_path.len() || (exists|k: int|
-                0 <= k < child_path.len() && #[trigger] excepted_path.index(k) != child_path.index(
-                    k,
-                ))) by {
-                if excepted_path.len() <= path.len() {
-                } else {
-                    let k = choose|k: int|
-                        0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k);
-                    assert(child_path.index(k) == path.index(k));
-                }
-            };
-
             subtree_unlock_upgrade(
                 child,
                 child_path,
@@ -285,8 +273,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn push_level_owner(self, guard: PageTableGuard<'rcu, C>) -> Self {
         let cont = self.continuations[self.level - 1];
         let (child, cont) = cont.make_cont(self.va.index[self.level - 2] as usize, guard);
-        let new_continuations = self.continuations.insert(self.level - 1, cont);
-        let new_continuations = new_continuations.insert(self.level - 2, child);
+        let new_continuations = self.continuations.insert(self.level - 1, cont).insert(
+            self.level - 2,
+            child,
+        );
 
         let new_level = (self.level - 1) as u8;
         Self { continuations: new_continuations, level: new_level, popped_too_high: false, ..self }
@@ -1234,8 +1224,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let child = self.continuations[self.level - 1];
         let cont = self.continuations[self.level as int];
         let (new_cont, guard) = cont.restore(child);
-        let new_continuations = self.continuations.insert(self.level as int, new_cont);
-        let new_continuations = new_continuations.remove(self.level - 1);
+        let new_continuations = self.continuations.insert(self.level as int, new_cont).remove(
+            self.level - 1,
+        );
         let new_level = (self.level + 1) as u8;
         let popped_too_high = if new_level >= self.guard_level {
             true

@@ -1788,7 +1788,6 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
             s.regions.inv_implies_correct_addr(paddr);
             let ghost id = fresh_frame_id(s.frames);
             lemma_fresh_frame_id_not_in_dom(s.frames);
-            let ghost entry_paddr = paddr;
             let tracked frame_entry = axiom_frame_entry_new(paddr);
             s.insert_frame(id, frame_entry);
             // Pre target_idx: usage == Frame (axiom), so by pre clause 3
@@ -2507,7 +2506,6 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
             let ghost id = fresh_frame_id(s.frames);
             lemma_fresh_frame_id_not_in_dom(s.frames);
             let ghost target_idx = frame_to_index(paddr);
-            let ghost entry_paddr = entry.paddr;
             s.insert_frame(id, entry);
             assert(s.frames[id].paddr == paddr);
 
@@ -4905,8 +4903,7 @@ pub proof fn lemma_segment_cover_insert_inside(
         assert forall|s: SegmentId| #[trigger] new_filt.contains(s) implies old_filt.insert(
             sid,
         ).contains(s) by {
-            if s == sid {
-            } else {
+            if s != sid {
                 assert(segments2[s] == segments[s]);
             }
         };

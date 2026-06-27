@@ -1042,7 +1042,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
             assert(0 <= self.va.leading_bits < 0x1_0000int);
         };
-        assert(self.inv());
     }
 
     pub proof fn inv_continuation(self, i: int)

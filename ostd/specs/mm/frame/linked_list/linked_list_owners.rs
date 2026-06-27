@@ -869,8 +869,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             Self::view_helper(owners).len() == owners.len(),
         decreases owners.len(),
     {
-        if owners.len() == 0 {
-        } else {
+        if owners.len() > 0 {
             Self::view_preserves_len(owners.remove(0))
         }
     }
