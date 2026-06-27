@@ -379,7 +379,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             broadcast use group_page_meta;
 
             let idx = frame_to_index(frame);
-            assert(idx < max_meta_slots());
             assert(regions.slot_owners.contains_key(idx));
             assert(regions.slots.contains_key(idx));
             assert(regions.slots[idx].is_init());
@@ -443,7 +442,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             proof {
                 broadcast use group_page_meta;
 
-                assert(idx < max_meta_slots());
                 assert(regions.slot_owners.contains_key(idx));
                 assert(regions.slots.contains_key(idx));
             }
@@ -763,7 +761,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 proof {
                     assert(self.wf_region(*owner, *regions));
                     assert(owner.wf_with_region(*regions));
-                    assert(0 <= owner.index <= owner.length());
                     if !(0 <= owner.index < owner.length()) {
                         assert(owner.index == owner.length());
                         assert(self.current.is_none());
@@ -889,7 +886,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let current_md = MetadataAsLink::cast_to_metadata(current);
 
         proof {
-            assert(0 <= owner.index < owner.list_own.list.len());
             owner.list_own.relate_region_at_facts(*regions, owner.index);
             if owner.index > 0 {
                 owner.list_own.relate_region_at_facts(*regions, owner.index - 1);
@@ -934,7 +930,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         if let Some(prev_link) = prev_ptr {
             let prev = MetadataAsLink::cast_to_metadata(prev_link);
             proof {
-                assert(owner0.index > 0);
                 assert(prev.addr() == owner0.list_own.list[owner0.index - 1].paddr);
                 assert(frame_to_index(meta_to_frame(prev.addr())) == owner0.list_own.slot_index_at(
                     owner0.index - 1,
@@ -962,7 +957,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
             }
 
-            assert(owner0.index > 0);
         } else {
             self.list.front = next_ptr;
             proof {
@@ -978,7 +972,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         if let Some(next_link) = next_ptr {
             let next = MetadataAsLink::cast_to_metadata(next_link);
             proof {
-                assert(owner0.index < owner0.list_own.list.len() - 1);
                 assert(next.addr() == owner0.list_own.list[owner0.index + 1].paddr);
                 assert(frame_to_index(meta_to_frame(next.addr())) == owner0.list_own.slot_index_at(
                     owner0.index + 1,
@@ -1326,7 +1319,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof {
             assert(self.list.size == owner.list_own.list.len());
             assert(owner.list_own.list.len() == owner0.list_own.list.len());
-            assert(owner0.list_own.list.len() < usize::MAX);
         }
         self.list.size = self.list.size + 1;
 
@@ -1400,8 +1392,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(FRAME_METADATA_RANGE.start <= fpn.addr() < FRAME_METADATA_RANGE.start
                 + MAX_NR_PAGES * META_SLOT_SIZE);
             assert(fpn.is_init());
-            assert(nn == 0 <==> fpn.value().metadata.prev is None);
-            assert(nn == oldl.list.len() <==> fpn.value().metadata.next is None);
             assert(nn > 0 ==> {
                 &&& fpn.value().metadata.prev is Some
                 &&& fpn.value().metadata.prev.unwrap().addr() == oldl.list[nn - 1].paddr
@@ -1688,7 +1678,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         {
             proof {
                 if cursor.current.is_some() {
-                    assert(cursor_own.length() > 0);
                     cursor_own.list_own.relate_region_at_facts(*regions, 0);
                     let ghost _trigger = original_list[k as int];
                     assert(cursor.current.unwrap().addr() == original_list[k].paddr);
@@ -1764,7 +1753,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
                         let ghost _a = original_list[j as int];
                         let ghost _b = original_list[k as int];
-                        assert(j < k);
                         assert(idx != cur_idx);
                     };
 

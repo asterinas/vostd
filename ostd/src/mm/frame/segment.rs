@@ -161,10 +161,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             if paddr >= self.range.end {
                 break;
             }
-            proof {
-                assert(paddr + PAGE_SIZE <= self.range.end);
-                assert(paddr + PAGE_SIZE <= MAX_PADDR);
-            }
+            proof {}
 
             unsafe {
                 #[verus_spec(with Tracked(perm))]
@@ -456,7 +453,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 regions.slots.contains_key(frame_to_index(addr))
             } by {
                 let j = (addr - range.start) / PAGE_SIZE as int;
-                assert(0 <= j < addrs.len() as int);
                 assert(addrs[j as int] == addr);
             }
         }
@@ -1144,7 +1140,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
                 remaining.resolve_cons(item);
                 broadcast use vstd::seq::group_seq_axioms;
 
-                assert(old_remaining.len() > 0);
                 assert(remaining.seq() == old_remaining.drop_first());
                 assert(item == old_remaining[0]);
             }
@@ -1459,8 +1454,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                 break;
             }
             proof {
-                assert(paddr + PAGE_SIZE <= self.range.end);
-                assert(paddr + PAGE_SIZE <= MAX_PADDR);
             }
 
             #[verus_spec(with Tracked(perm))]

@@ -730,7 +730,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         lemma_nr_entries_times_sub_page_size((cur_node_level + 1) as PagingLevel);
 
         // diff + ps - 1 fits in usize: both <= page_size(5) = 2^48
-        assert(diff as int + ps as int - 1 < usize::MAX as int);
     }
 
     let start_idx = (va_range.start - cur_node_va) / ps;
@@ -828,7 +827,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         // So ceil_div(diff, ps) <= NR_ENTRIES.
         let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
         assert(psu == NR_ENTRIES as int * ai);
-        assert(xi <= psu);
         // (psu + ai - 1) / ai == NR_ENTRIES (since psu = NR_ENTRIES * ai)
         assert(psu + ai - 1 == NR_ENTRIES as int * ai + (ai - 1)) by (nonlinear_arith)
             requires

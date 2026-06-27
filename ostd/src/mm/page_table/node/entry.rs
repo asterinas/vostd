@@ -819,7 +819,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
 
                 assert(owner.level + (level as nat) == INC_LEVELS);
-                assert(owner.level < INC_LEVELS - 1);
 
                 // Root predicates.
                 assert(f_nu(owner.value, owner.value.path));
@@ -1304,7 +1303,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         // term, so its `usage != MMIO ==> rc <= REF_COUNT_MAX`
                         // carries onto this child sub-page (`sub_idx` equals the
                         // big-frame sub-page index via the correspondence above).
-                        assert(0 < big_j_int);
                         assert(regions.slots.contains_key(
                             frame_to_index((pa + big_j * PAGE_SIZE) as usize),
                         ));
@@ -2032,7 +2030,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 *old(regions),
                 *regions,
             ));
-            assert(Entry::<C>::path_tracked_pred_preserved(*old(regions), *regions));
 
             // (b) `tree_predicate_map` over the fresh node: each predicate
             // holds at the node root and trivially at the absent children
@@ -2044,7 +2041,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
 
             assert(owner.level + (level as nat) == INC_LEVELS);
-            assert(owner.level < INC_LEVELS - 1);
 
             // Root predicates.
             assert(f_nu(owner.value, owner.value.path));

@@ -463,14 +463,11 @@ impl<'a> VmWriter<'a, Infallible> {
                         len > 0,
                 ;
                 assert(i * len + len == (i + 1) * len) by (nonlinear_arith);
-                assert(cursor_i.vaddr + len <= end);
                 // forall va in [cursor_i.vaddr, cursor_i.vaddr + len), mv.addr_transl is Some
                 assert forall|va: usize|
                     cursor_i.vaddr <= va < cursor_i.vaddr + len implies #[trigger] mv.addr_transl(
                     va,
-                ) is Some by {
-                    assert(start <= va < end);
-                };
+                ) is Some by {};
             }
             // SAFETY: written_num is bounded by avail / size_of::<T>() so each
             // write targets memory owned by this writer, and cursor is aligned.
