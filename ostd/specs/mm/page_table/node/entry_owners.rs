@@ -415,14 +415,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.frame().mapped_pa == pte.paddr(),
             self.frame().prop == pte.prop(),
     {
-        if !pte.is_present() {
-            assert(self.is_absent());
-            assert(!pte.is_last(parent_level));
-            assert(false);
-        }
-        assert(self.is_frame());
-        assert(self.frame().mapped_pa == pte.paddr());
-        assert(self.frame().prop == pte.prop());
     }
 
     pub proof fn huge_frame_split_child_at(self, regions: MetaRegionOwners, idx: usize)

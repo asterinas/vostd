@@ -189,11 +189,6 @@ impl<T, const TOTAL: u64> CountGhostResource<T, TOTAL> {
             self.wf(),
     {
         use_type_invariant(self);
-        if self.is_empty() {
-            assert(self.frac() == 0int);
-            assert(TOTAL > 0);
-            assert(false);
-        }
     }
 
     /// Updates the value stored in this `CountGhostResource`.
@@ -424,11 +419,6 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             self.wf(),
     {
         use_type_invariant(self);
-        if self.is_empty() {
-            assert(self.frac() == 0int);
-            assert(TOTAL > 0);
-            assert(false);
-        }
     }
 
     pub proof fn validate_with_frac(tracked &self, tracked frac: &Count<T, TOTAL>)

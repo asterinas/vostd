@@ -977,20 +977,9 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
             let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
             let p_off = pow2(off) as int;
             let p_aw_m1 = pow2(aw_m1) as int;
-            assert(C::VA_SIGN_EXT() == C::VA_SIGN_EXT());
-            assert(C::NR_LEVELS() == C::NR_LEVELS());
-            assert(C::ADDRESS_WIDTH() == C::ADDRESS_WIDTH());
             assert(pt_start as int == i_start * p_off);
             assert(sign_bit_set == ((pt_start as int / p_aw_m1) % 2 == 1));
             assert(sign_bit_set == ((i_start * p_off / p_aw_m1) % 2 == 1));
-            // Now invoke the lemma's contrapositive form explicitly.
-            if C::LEADING_BITS_spec() != 0usize {
-                assert(C::VA_SIGN_EXT() && ((i_start * p_off / p_aw_m1) % 2 == 1));
-                assert(va_sign_ext);
-                assert(sign_bit_set);
-                assert(false);
-            }
-            assert(C::LEADING_BITS_spec() == 0usize);
         }
     }
     proof {

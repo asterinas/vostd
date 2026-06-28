@@ -1970,10 +1970,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad as int, ps as int);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps as int);
         vstd::arithmetic::div_mod::lemma_div_is_ordered(ad as int, end as int, ps as int);
-        if ad as int / ps as int == end as int / ps as int {
-            assert(false);
-        }
-        assert(ad as int / ps as int + 1 <= end as int / ps as int);
         let ad_q = ad as int / ps as int;
         let end_q = end as int / ps as int;
         let ps_i = ps as int;

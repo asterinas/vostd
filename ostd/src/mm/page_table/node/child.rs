@@ -170,9 +170,6 @@ impl<C: PageTableConfig> Child<C> {
                 // `frame.drop`). Net effect over `from_pte` is +1 on
                 // the ledger, balancing the prior `-1` from
                 // `into_pte`'s `MD::new` consume.
-                assert(regions.slot_owners == entry_own.from_pte_regions_spec(
-                    *old(regions),
-                ).slot_owners);
             }
 
             return Child::PageTable(node);

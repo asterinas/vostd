@@ -90,7 +90,6 @@ impl RcuMonitor {
         let state = SpinLock::new(State::new());
         proof {
             use_type_invariant(&state);
-            assert(state.type_inv());
         }
         let res = RcuMonitor {
             is_monitoring: AtomicBool::new(Ghost(state), false, Tracked(false)),
@@ -99,8 +98,6 @@ impl RcuMonitor {
 
         proof {
             use_type_invariant(&res.state);
-            assert(res.state.type_inv());
-            assert(res.inv());
         }
         res
     }
@@ -116,7 +113,6 @@ impl RcuMonitor {
         let data = Self::new();
         proof {
             use_type_invariant(&data);
-            assert(data.inv());
         }
         AtomicDataWithOwner { data, permission: Tracked(RcuMonitorOwner {  }) }
     }

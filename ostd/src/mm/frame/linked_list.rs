@@ -759,15 +759,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         match self.current {
             Some(current) => {
                 proof {
-                    assert(self.wf_region(*owner, *regions));
-                    assert(owner.wf_with_region(*regions));
-                    if !(0 <= owner.index < owner.length()) {
-                        assert(owner.index == owner.length());
-                        assert(self.current.is_none());
-                        assert(false);
-                    }
                     owner.list_own.relate_region_at_facts(*regions, owner.index);
-                    assert(current == self.current.unwrap());
                 }
                 let current_md = MetadataAsLink::cast_to_metadata(current);
                 let ghost idx = frame_to_index(meta_to_frame(current.addr()));
@@ -781,17 +773,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let meta = &mut link_md.metadata.meta;
                 Some(meta)
             },
-            None => {
-                proof {
-                    assert(self.wf_region(*owner, *regions));
-                    assert(owner.wf_with_region(*regions));
-                    if 0 <= owner.index < owner.length() {
-                        assert(self.current.is_some());
-                        assert(false);
-                    }
-                }
-                None
-            },
+            None => None,
         }
     }
 

@@ -484,22 +484,6 @@ impl KVirtArea {
         let ghost pre_query_regions = *regions;
         let ghost pre_query_cursor_barrier = cursor.barrier_va;
         let ghost pre_query_cursor_va_run = cursor.va;
-        proof {
-            // Discharge `Cursor::query`'s saturation precondition. Bridges:
-            //  (a) `cursor_owner@ == owner.cursor_view_at(addr)` (mappings + cur_va).
-            //  (b) `Cursor::new`'s saturated-slot bridge: a slot at `>= REF_COUNT_MAX`
-            //      post-`Cursor::new` had the same value pre-`Cursor::new`. So if
-            //      cursor would saturate at idx, the kvirt-entry snapshot was also
-            //      saturated there ⟹ kvirt's P fires ⟹ `may_panic()`.
-            let pa = cursor_owner@.query_mapping().pa_range.start;
-            let idx = frame_to_index(pa);
-            if cursor_owner@.present() && !is_mmio_paddr(pa) && (
-            *regions).slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX {
-                // Trigger Cursor::new's forward saturated-slot bridge.
-                assert((*old(regions)).slot_owners[idx].inner_perms.ref_count.value() == (
-                *regions).slot_owners[idx].inner_perms.ref_count.value());
-            }
-        }
         let state = (
         #[verus_spec(with Tracked(&mut cursor_owner), Tracked(regions), Tracked(guards))]
         cursor.query()).unwrap();

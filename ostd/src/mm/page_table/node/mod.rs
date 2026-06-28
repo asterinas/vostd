@@ -191,14 +191,12 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             C::axiom_pte_align_divides_size();
             let k = size_of_e / align_of_e;
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size_of_e, align_of_e);
-            assert(size_of_e == align_of_e * k);
             vstd::arithmetic::mul::lemma_mul_is_commutative(align_of_e, k);
             vstd::arithmetic::mul::lemma_mul_is_associative(range.start as int, k, align_of_e);
             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
                 range.start as int * k,
                 align_of_e,
             );
-            assert((range.start as int * size_of_e) % align_of_e == 0);
             vstd::arithmetic::div_mod::lemma_mod_adds(
                 pre_skip_cursor,
                 range.start as int * size_of_e,
@@ -228,7 +226,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 NR_ENTRIES as int - range_start,
                 size_of_e,
             );
-            assert(post_skip_remain >= (range_end - range_start) * size_of_e);
         }
 
         while iter_count < n_iters
@@ -328,10 +325,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             let pte = pte.unwrap();
             proof {
                 ostd_pod::lemma_decode_pod_inverse::<C::E>(pte);
-                assert(pte == Self::walk_pte_at_view(initial_view, cursor_pre_read));
                 vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
                 vstd::arithmetic::mul::lemma_mul_nonnegative(iter_count as int, size_of_e);
-                assert(initial_reader.cursor.vaddr <= cursor_pre_read);
             }
             if pte.is_present() {
                 let paddr = pte.paddr();
@@ -416,7 +411,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         // Pinning these in SMT context lets `tracked_remove`'s
                         // dom-containment precondition and `from_raw`'s
                         // `from_raw_requires_safety` (via embedding) discharge.
-                        assert(regions.slots.dom().contains(frame_to_index(paddr)));
                     }
                     proof {
                         removed_indices = removed_indices.insert(frame_to_index(paddr));
@@ -678,14 +672,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         proof {
             let ghost guards0 = *guards;
             guards.guards = guards.guards.insert(owner.meta_addr_self());
-            assert(owner.relate_guard(guard));
 
-            assert(forall|other: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
-                    ==> #[trigger] CursorOwner::node_unlocked_except(
-                    *guards,
-                    owner.meta_addr_self(),
-                )(other, path));
         }
 
         guard
