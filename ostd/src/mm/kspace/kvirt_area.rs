@@ -978,6 +978,7 @@ impl KVirtArea {
                     #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
                     pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 implies {
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
+                    &&& regions.slot_owners.contains_key(idx)
                     &&& regions.slots.contains_key(idx)
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 } by {
@@ -1028,6 +1029,7 @@ impl KVirtArea {
                         #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
                         pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
                             let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
+                            &&& regions.slot_owners.contains_key(idx)
                             &&& regions.slots.contains_key(idx)
                             &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
