@@ -4,35 +4,31 @@ use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
 
-use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
-use super::Frame;
-use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot};
+use crate::specs::arch::*;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+    meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata},
+    meta_region_owners::MetaRegionOwners,
+    meta_specs::lemma_meta_addr_to_index,
+    unique::UniqueFrameOwner,
+};
 
 use core::{marker::PhantomData, sync::atomic::Ordering};
 
-use super::meta::{
-    META_SLOT_SIZE,
+use super::{
+    AnyFrameMeta, Frame, MetaSlot,
     mapping::{frame_to_meta, meta_to_frame},
+    meta::{GetFrameError, META_SLOT_SIZE, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
 };
-use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::{Paddr, PagingConsts, PagingLevel};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_specs::lemma_meta_addr_to_index;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
-use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
-    meta_owners::{MetaSlotStorage, Metadata},
-};
 
 verus! {
 
-pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
+pub struct UniqueFrame<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,
 }
