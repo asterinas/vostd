@@ -837,6 +837,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
 /// ## Safety
 /// We enforce the safety requirements that `paddr` represents a valid frame and the caller has already held a reference to the it.
 /// It is safe to require these as preconditions because the function is internal, so the caller must obey the preconditions.
+// FIXME: why do we need this wrapper function.
 #[verus_spec(
     with
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
