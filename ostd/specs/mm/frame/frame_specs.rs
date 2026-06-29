@@ -180,11 +180,11 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     type Key = usize;
 
     open spec fn key(self) -> Self::Key {
-        frame_to_index(meta_to_frame(self.ptr.addr()))
+        self.index()
     }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.slot_owners.contains_key(self.index())
         &&& s.inv()
     }
 
@@ -194,12 +194,11 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         s1: Self::State,
         obl_key: Self::Key,
     ) -> bool {
-        let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == slot_own
+        let slot_own = s0.slot_owners[self.index()];
+        &&& s1.slot_owners[self.index()] == slot_own
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+            i != self.index() ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom()
             =~= s0.slot_owners.dom()
