@@ -195,19 +195,11 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     }
 
     proof fn from_to_repr(self, perm: ()) {
-        assert(self.to_repr_spec(perm) == (MetaSlotStorage::PTNode(self.into_spec()), ()));
-        assert(StoredPageTablePageMeta::into_spec::<C>(self.into_spec()) == self);
     }
 
     proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
         match r {
-            MetaSlotStorage::PTNode(node) => {
-                assert(Self::from_repr_spec(r, perm) == node.into_spec::<C>());
-                assert(Self::from_repr_spec(r, perm).to_repr_spec(perm) == (
-                    MetaSlotStorage::PTNode(node),
-                    (),
-                ));
-            },
+            MetaSlotStorage::PTNode(node) => {},
             _ => {
                 assert(false);
             },
@@ -215,7 +207,6 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     }
 
     proof fn to_repr_wf(self, perm: ()) {
-        assert(self.to_repr_spec(perm).0 is PTNode);
     }
 }
 

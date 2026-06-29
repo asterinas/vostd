@@ -3486,7 +3486,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         assert(subtree.value.meta_slot_paddr() is None);
         proof {
             owner.absent_not_in_tree(subtree.value);
-            reveal(CursorContinuation::inv_children);
         }
 
         let ghost owner_before_replace = *owner;

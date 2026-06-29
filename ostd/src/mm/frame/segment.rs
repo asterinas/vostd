@@ -1451,9 +1451,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             if paddr >= self.range.end {
                 break;
             }
-            proof {
-            }
-
             #[verus_spec(with Tracked(perm))]
             crate::mm::frame::inc_frame_ref_count(paddr);
 
