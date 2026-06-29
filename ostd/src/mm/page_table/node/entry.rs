@@ -1161,7 +1161,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 owner.value.frame().is_tracked,
             );
 
-            proof {}
             let tracked mut new_owner_child = new_owner.children.tracked_remove(
                 i as int,
             ).tracked_unwrap();
@@ -1864,7 +1863,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // `set_children_perm`/`write_pte`, and the parent slot perm is untouched
         // (`alloc` allocates a different slot, `write_pte` leaves regions
         // immutable).
-        proof {}
 
         let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
             parent_owner.slot_index,

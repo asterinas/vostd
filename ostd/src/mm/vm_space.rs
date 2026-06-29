@@ -840,7 +840,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
-        assert(self.pt_cursor.item_wf(item, entry_owner)) by {};
+        assert(self.pt_cursor.item_wf(item, entry_owner));
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (unsafe {
