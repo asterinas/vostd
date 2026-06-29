@@ -478,7 +478,6 @@ impl<'a> VmWriter<'a, Infallible> {
             i = i + 1;
             proof {
                 // cursor_i.vaddr == cursor_i_pre.vaddr + len == start + i*len
-                assert(cursor_i.vaddr == cursor_i_pre.vaddr + len);
                 assert(cursor_i_pre.vaddr + len == start + i * len) by (nonlinear_arith)
                     requires
                         cursor_i_pre.vaddr == start + (i - 1) * len,
@@ -493,36 +492,24 @@ impl<'a> VmWriter<'a, Infallible> {
                 // alignment: cursor_i.vaddr == start + i*len, both summands divisible by align.
                 let alignT = core::mem::align_of::<T>() as int;
                 // Bridge usize invariants to int.
-                assert(len as int % alignT == 0);
-                assert(start as int % alignT == 0);
                 // (i*len) % alignT == ((i % alignT) * (len % alignT)) % alignT == 0.
                 ::vstd::arithmetic::div_mod::lemma_mul_mod_noop(i as int, len as int, alignT);
-                assert((i as int % alignT) * (len as int % alignT) == 0);
-                assert(0int % alignT == 0);
-                assert((i as int * len as int) % alignT == 0);
                 // ((start + i*len)) % alignT == ((start % alignT) + ((i*len) % alignT)) % alignT == 0.
                 ::vstd::arithmetic::div_mod::lemma_add_mod_noop(
                     start as int,
                     i as int * len as int,
                     alignT,
                 );
-                assert((start as int + i as int * len as int) % alignT == 0);
-                // Bridge back to usize form: cursor_i.vaddr == start + i*len.
-                assert(cursor_i.vaddr as int == start as int + i as int * len as int);
             }
         }
 
         proof {
-            assert(cursor_i.vaddr == start + written_num * len);
-            assert(cursor_i.vaddr == end);
             writer_owner.mem_view = Some(VmIoMemView::WriteView(mv));
             // Split off the front of writer_owner (the filled region) as a new
             // VmIoOwner and convert its WriteView to a ReadView so the caller
             // can read back what was just written.
             reader_owner_inner = writer_owner.split(avail);
             reader_owner_inner.write_to_read();
-            // r * size_of::<T>() == avail, since r == written_num and written_num * len == avail.
-            assert(written_num as int * len as int == avail as int);
         }
 
         // All available space has been filled; cursor moves to end.

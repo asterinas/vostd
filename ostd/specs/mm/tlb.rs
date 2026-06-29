@@ -90,7 +90,6 @@ impl TlbModel {
         assert(filtered.contains(witness));
 
         if self.mappings.contains(m) {
-            assert(self.mappings.insert(m) == self.mappings);
         } else {
             assert(filtered.contains(m));
             assert(pt.mappings.contains(m));

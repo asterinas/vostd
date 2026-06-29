@@ -820,7 +820,6 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
     let idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
     proof {
         C::lemma_paging_consts_requirements();
-        assert(1 <= C::NR_LEVELS() <= NR_LEVELS);
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
 
@@ -885,7 +884,6 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     let address_width = C::ADDRESS_WIDTH();
     proof {
         C::lemma_page_table_config_constant_requirements();
-        assert(0 < address_width as int <= 64);
     }
 
     let shift = address_width - 1;
@@ -952,7 +950,6 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
     if va_sign_ext && sign_bit_set {
         proof {
             C::lemma_page_table_config_constant_requirements();
-            assert(va_sign_ext == C::VA_SIGN_EXT());
             let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
             let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
             let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;

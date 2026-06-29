@@ -840,8 +840,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
-        assert(self.pt_cursor.item_wf(item, entry_owner));
-
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (unsafe {
             #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
@@ -937,7 +935,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         assert!(self.virt_addr() + len <= self.pt_cursor.0.barrier_va.end);
 
         assert(!self.pt_cursor.0.find_next_panic_condition(len));
-        assert(!old(self).pt_cursor.0.find_next_panic_condition(len));
 
         let end_va = self.virt_addr() + len;
         let mut num_unmapped: usize = 0;
@@ -955,7 +952,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             // and for UserPtConfig that evaluates to 2^47.
             crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
             assert((self.pt_cursor.0.va + len) % PAGE_SIZE as int == 0) by (compute);
-            assert(adjusted_base.difference(removed) == adjusted_base);
         }
 
         #[verus_spec(
@@ -1091,7 +1087,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(
                         removed);
                     }
-                    assert(num_unmapped < usize::MAX);
                     num_unmapped += 1;
                     #[verus_spec(with Tracked(tlb_model))]
                     self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into_dyn());
@@ -1149,13 +1144,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                         + frag_ghost->StrayPageTable_len,
                             ),
                         );
-                        assert(num_unmapped + num_frames < usize::MAX);
                     }
                     num_unmapped += num_frames;
                     proof {
                         assert(0x0000_8000_0000_0000usize < KERNEL_VADDR_RANGE.end as usize)
                             by (compute_only);
-                        assert(va + len <= KERNEL_VADDR_RANGE.end as usize);
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_plus_page_size_no_overflow(
                         va, len);
                     }
@@ -1201,7 +1194,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 // Mapped-case setup: establish split_while_huge properties once.
                 if is_mapped {
-                    assert(sv.cur_va < 0x0000_8000_0000_0000usize);
                     assert forall|m: Mapping, x: Mapping| #[trigger]
                         prev_mappings.contains(m) && #[trigger] old_removed.contains(
                             x,
@@ -1251,7 +1243,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         vstd::set_lib::lemma_set_disjoint_lens(old_removed, set![mm]);
                         assert(removed == old_removed + set![mm]);
                         vstd::set_lib::lemma_set_empty_equivalency_len(Set::<Mapping>::empty());
-                        assert(set![mm] == Set::<Mapping>::empty().insert(mm));
                         vstd::set::lemma_set_insert_len(Set::<Mapping>::empty(), mm);
                     },
                 }
@@ -1287,7 +1278,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 assert forall|e: Mapping| #[trigger]
                     adjusted_base.difference(removed).contains(e)
                         <==> cursor_owner@.mappings.contains(e) by {};
-                assert(cursor_owner@.mappings == adjusted_base.difference(removed));
 
                 assert(removed.subset_of(adjusted_base)) by {
                     assert forall|e: Mapping| #[trigger]
@@ -1448,8 +1438,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             // Bridge from loop invariant to unmap_spec.
             let start = old_view.cur_va;
             let end = (old_view.cur_va + len) as Vaddr;
-
-            assert(new_view.cur_va >= end);
 
             assert forall|m: Mapping|
                 #![auto]
