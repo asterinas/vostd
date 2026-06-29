@@ -74,11 +74,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             old(regions).inv(),
         ensures
             !has_safe_slot(paddr) ==> res is Err,
-            res is Ok ==> res.unwrap().wf(owner@->0),
-            // Creating a live value mints its pending-Drop obligation.
-            res is Ok ==> final(regions).frame_obligations == old(
-                regions,
-            ).frame_obligations.insert(frame_to_index(paddr)),
+            res is Ok ==> {
+                &&& res.unwrap().wf(owner@->0)
+                &&& final(regions).frame_obligations == old(regions).frame_obligations.insert(frame_to_index(paddr))
+            },
             res is Err ==> final(regions).frame_obligations == old(regions).frame_obligations,
             final(regions).inv(),
     )]
@@ -251,6 +250,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// ## Safety
     /// The existence of a valid owner guarantees that the memory is initialized with metadata of type `M`,
     /// and represents that the caller has exclusive ownership of the frame. (See [Safe Encapsulation])
+    // FIXME：returning mutable reference
     #[verus_spec(res =>
         with
             Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
@@ -280,7 +280,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     /// Gets the size of this page in bytes.
     pub const fn size(&self) -> usize
         returns
-            4096usize,
+            PAGE_SIZE,
     {
         PAGE_SIZE
     }
@@ -346,31 +346,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         // access to the frame.
         unsafe { &mut *self.slot().dyn_meta_ptr() }
     }*/
-    pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
-        &&& regions.slot_owners.contains_key(
-            frame_to_index(meta_to_frame(self.ptr.addr())),
-        )
-        // `self` is a live value with a pending Drop; forgetting it (`MD::new`)
-        // discharges that obligation.
-        &&& regions.frame_obligations.count(frame_to_index(meta_to_frame(self.ptr.addr()))) > 0
-        &&& regions.inv()
-    }
-
-    pub open spec fn into_raw_ensures(
-        self,
-        old_regions: MetaRegionOwners,
-        regions: MetaRegionOwners,
-        r: Paddr,
-    ) -> bool {
-        &&& r == meta_to_frame(self.ptr.addr())
-        &&& regions.inv()
-        &&& regions.slots == old_regions.slots
-        &&& regions.slot_owners == old_regions.slot_owners
-        &&& regions.frame_obligations == old_regions.frame_obligations.remove(
-            frame_to_index(meta_to_frame(self.ptr.addr())),
-        )
-    }
-
     /// Resets the frame to unused without up-calling the allocator.
     ///
     /// This is solely useful for the allocator implementation/testing and
@@ -396,12 +371,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
         proof {
             assert(regions.slot_owners.contains_key(idx));
-            assert(regions.slot_owners[idx].slot_vaddr == meta_addr(idx));
-            assert(regions.slot_owners[idx].inner_perms.storage.is_init());
-            assert(regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
         }
 
-        let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+        let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         let tracked perm_ref = regions.slots.tracked_borrow(idx);
 
         #[verus_spec(with Tracked(perm_ref))]
@@ -411,13 +383,34 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         // SAFETY: We are the sole owner and the reference count is 0.
         // The slot is initialized.
         unsafe {
-            #[verus_spec(with Tracked(&mut slot_own))]
+            #[verus_spec(with Tracked(slot_own))]
             slot.drop_last_in_place()
         };
+    }
 
-        proof {
-            regions.slot_owners.tracked_insert(idx, slot_own);
-        }
+    pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
+        &&& regions.slot_owners.contains_key(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
+        // `self` is a live value with a pending Drop; forgetting it (`MD::new`)
+        // discharges that obligation.
+        &&& regions.frame_obligations.count(frame_to_index(meta_to_frame(self.ptr.addr()))) > 0
+        &&& regions.inv()
+    }
+
+    pub open spec fn into_raw_ensures(
+        self,
+        old_regions: MetaRegionOwners,
+        regions: MetaRegionOwners,
+        r: Paddr,
+    ) -> bool {
+        &&& r == meta_to_frame(self.ptr.addr())
+        &&& regions.inv()
+        &&& regions.slots == old_regions.slots
+        &&& regions.slot_owners == old_regions.slot_owners
+        &&& regions.frame_obligations == old_regions.frame_obligations.remove(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
     }
 
     /// Converts this frame into a raw physical address.
@@ -644,10 +637,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             broadcast use group_page_meta;
 
             regions.inv_implies_correct_addr(meta_to_frame(frame.ptr.addr()));
-            assert(regions.slots[idx].addr() == frame.ptr.addr());
-            assert(regions.slots[idx].pptr() == frame.ptr);
         }
-        let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+        let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);
         let tracked inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
@@ -658,10 +649,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             1,
             REF_COUNT_UNIQUE,
         );
-
-        proof {
-            regions.slot_owners.tracked_insert(idx, slot_own);
-        }
 
         match res {
             // Frame and UniqueFrame share layout; construct directly.
