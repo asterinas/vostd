@@ -261,7 +261,7 @@ pub axiom fn axiom_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall
 /// effect on `(regions, owner, frame_own)`. The first block of `ensures`
 /// mirrors the now-verified exec `push_front` ensures verbatim
 /// (`relate_region` of the pushed owner, the list / id / `in_list`
-/// effects, `frame_obligations` consumption, and the outside-the-list
+/// effects, `s` consumption, and the outside-the-list
 /// slot-preservation frame). The last two add facts that *follow* from
 /// them — sound, hence safe to assert here:
 ///   - **fresh minted id** (`old.list_id == 0 ==> final.list_id ∉
