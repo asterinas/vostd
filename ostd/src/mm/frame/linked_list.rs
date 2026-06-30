@@ -1144,8 +1144,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         }
 
-        #[verus_spec(with Tracked(&*frame_own), Tracked(&*regions))]
-        let frame_ptr = frame.meta_mut();
+        let frame_ptr = ReprPtr::<MetaSlot, Metadata<Link<M>>>::from_pptr(frame.ptr);
         let frame_ptr_as_link = MetadataAsLink::cast_from_metadata(frame_ptr);
 
         let ghost frame_idx_g: usize = frame_own.slot_index;
