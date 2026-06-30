@@ -20,7 +20,6 @@ use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::linked_list::linked_list_owners::*;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
 use crate::specs::mm::frame::{
     unique::UniqueFrameOwner,
     meta_region_owners::MetaRegionOwners,
