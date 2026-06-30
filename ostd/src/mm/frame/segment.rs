@@ -744,9 +744,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             invariant
                 self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
                 regions.inv(),
-                regions.slots == old_regions.slots,
-                regions.slot_owners.dom() == old_regions.slot_owners.dom(),
-                regions.frame_obligations == old_regions.frame_obligations,
+                regions.slots == old(regions).slots,
+                regions.slot_owners.dom() == old(regions).slot_owners.dom(),
+                regions.frame_obligations == old(regions).frame_obligations,
                 paddr == (start + i * PAGE_SIZE) as usize,
                 paddr <= end,
                 0 <= i <= addr_len,
@@ -757,13 +757,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     first_perm_idx + i <= j < last_perm_idx ==> (
                     *regions).slot_owners[frame_to_index(
                         (self.range.start + j * PAGE_SIZE) as usize,
-                    )] == old_regions.slot_owners[frame_to_index(
+                    )] == old(regions).slot_owners[frame_to_index(
                         (self.range.start + j * PAGE_SIZE) as usize,
                     )],
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    first_perm_idx <= j < first_perm_idx + i
-                        ==> old_regions.slot_owners[frame_to_index(
+                    first_perm_idx <= j < first_perm_idx + i ==> old(
+                        regions,
+                    ).slot_owners[frame_to_index(
                         (self.range.start + j * PAGE_SIZE) as usize,
                     )].inner_perms.ref_count.value() < REF_COUNT_MAX,
             decreases addr_len - i,
@@ -790,7 +791,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     first_perm_idx + i <= j < last_perm_idx implies (
                 *regions).slot_owners[frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
-                    == old_regions.slot_owners[frame_to_index(
+                    == old(regions).slot_owners[frame_to_index(
                     (self.range.start + j * PAGE_SIZE) as usize,
                 )] by {};
             }
