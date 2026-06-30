@@ -19,12 +19,12 @@ use crate::mm::frame::meta::REF_COUNT_UNIQUE;
 use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
-use crate::specs::mm::frame::linked_list::linked_list_owners::*;
 use crate::specs::mm::frame::{
-    unique::UniqueFrameOwner,
-    meta_region_owners::MetaRegionOwners,
+    linked_list::linked_list_owners::*,
     mapping::group_page_meta,
     meta_owners::{MetaSlotOwner, Metadata},
+    meta_region_owners::MetaRegionOwners,
+    unique::UniqueFrameOwner,
 };
 
 use core::borrow::BorrowMut;
