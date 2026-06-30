@@ -340,8 +340,6 @@ impl MemView {
                     #[trigger] original.addr_transl(va) == right.addr_transl(va)
                 },
     {
-        assert(right.memory.dom().subset_of(original.memory.dom()));
-
         assert forall|va: usize| vaddr <= va < vaddr + len implies original.addr_transl(va)
             == left.addr_transl(va) by {
             assert(left.mappings == original.mappings.filter(
@@ -473,7 +471,6 @@ impl MemView {
         let right_pas = original.memory.dom().filter(
             |pa: usize| exists|va: usize| va >= split_end && original.is_mapped(va, pa),
         );
-        assert(right.memory == original.memory.restrict(right_pas));
         assert forall|va: usize|
             va >= split_end && original.addr_transl(va) is Some && original.memory.contains_key(
                 original.addr_transl(va).unwrap().0,
@@ -498,7 +495,6 @@ impl MemView {
         if n == 0 {
             return;
         }
-        assert(a.read(va) == b.read(va));
         Self::lemma_read_bytes_eq_pointwise(a, b, (va + 1) as usize, (n - 1) as usize);
     }
 }

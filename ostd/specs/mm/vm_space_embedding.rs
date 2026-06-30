@@ -562,8 +562,6 @@ proof fn cursor_method_step<'a, 'rcu>(
                 len,
             ),
         }
-        assert(entry.vm_space == old_vm_space);
-        assert(entry.kind == old_kind);
         s.cursors.tracked_insert(c, entry);
     }
     assert(final(s).inv()) by {
@@ -602,7 +600,6 @@ proof fn cursor_mut_regions_step<'a, 'rcu>(
                 cursor_mut_unmap_embedded(&mut entry.owner, &mut s.regions, len);
             },
         }
-        assert(entry.vm_space == old_vm_space);
         s.cursors.tracked_insert(c, entry);
     }
     assert(final(s).inv()) by {
@@ -644,7 +641,6 @@ proof fn map_step<'a, 'rcu>(
         let tracked mut entry = s.cursors.tracked_remove(c);
         let ghost old_vm_space = entry.vm_space;
         cursor_mut_map_embedded(&mut entry.owner, &mut s.regions, frame, prop);
-        assert(entry.vm_space == old_vm_space);
         s.cursors.tracked_insert(c, entry);
     }
     assert(final(s).inv()) by {

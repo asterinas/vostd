@@ -281,6 +281,7 @@ impl MetaRegionOwners {
         Self { frame_obligations: self.frame_obligations.remove(slot_idx), ..self }
     }
 
+    // FIXME: use authorative monoid instead of current unsound implementations
     /// Pairs the production of a per-Frame [`DropObligation`] with a
     /// `+1` on the `frame_obligations[slot_idx]` count. Called by Frame's
     /// `constructor_spec` (i.e. `ManuallyDrop::new(frame, ..)`).
