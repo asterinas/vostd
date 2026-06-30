@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
-use vstd::std_specs::convert::ExFrom;
 
 use crate::mm::page_table::PageTableError;
 

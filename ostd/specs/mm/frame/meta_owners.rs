@@ -21,7 +21,6 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
-use crate::specs::mm::frame::mapping::meta_addr;
 
 verus! {
 

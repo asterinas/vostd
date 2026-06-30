@@ -1,6 +1,6 @@
 use vstd::atomic::*;
 use vstd::atomic::*;
-use vstd::cell;
+
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
 
@@ -18,7 +18,7 @@ use crate::mm::frame::*;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::{
     mapping::{frame_to_index, index_to_frame, lemma_paddr_to_meta_biinjective, meta_addr},
     meta_owners::MetadataInnerPerms,

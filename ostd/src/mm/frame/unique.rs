@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The unique frame pointer that is not shared with others.
-use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
 
@@ -11,7 +10,7 @@ use vstd_extra::ownership::*;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
     mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
-    meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata},
+    meta_owners::{MetaSlotStorage, Metadata},
     meta_region_owners::MetaRegionOwners,
     meta_specs::lemma_meta_addr_to_index,
     unique::UniqueFrameOwner,

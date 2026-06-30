@@ -1,9 +1,8 @@
 use vstd::prelude::*;
 
-use vstd::cell;
 use vstd::modes::tracked_swap;
 use vstd::simple_pptr::PointsTo;
-use vstd_extra::array_ptr;
+
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 

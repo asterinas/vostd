@@ -19,7 +19,6 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::Guards;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::task::InAtomicMode;
-use vstd_extra::ghost_tree::TreePath;
 
 use align_ext::AlignExt;
 use core::ops::IndexMut;

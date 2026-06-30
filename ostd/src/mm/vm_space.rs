@@ -7,10 +7,10 @@
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
 use alloc::vec::Vec;
-use vstd::atomic::PermissionU64;
-use vstd::pervasive::{arbitrary, proof_from_false};
+
+use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
-use vstd::simple_pptr::PointsTo;
+
 use vstd::vpanic;
 
 use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
@@ -25,9 +25,9 @@ use crate::mm::{
     page_table::{EntryOwner, PageTableFrag, PageTableGuard},
 };
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage, MetadataInnerPerms};
+
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::io::VmIoMemView;
+
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::tlb::TlbModel;
@@ -1613,7 +1613,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     proof fn lemma_page_table_config_constant_requirements() {
         use crate::mm::nr_subpage_per_huge;
         use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
-        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
+        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
         use vstd_extra::prelude::lemma_usize_pow2_ilog2;
 
         lemma2_to64();

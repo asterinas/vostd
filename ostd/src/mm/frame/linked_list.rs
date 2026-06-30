@@ -5,7 +5,6 @@
 //! [super::meta]) to allow any type of frame to be used in a linked list.
 use vstd::prelude::*;
 
-use vstd::atomic::PermissionU64;
 use vstd::seq_lib::*;
 use vstd::simple_pptr::*;
 

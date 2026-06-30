@@ -12,10 +12,10 @@ use crate::mm::frame::{
     *,
 };
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::MAX_NR_PAGES;
 use crate::specs::mm::Paddr;
 use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
-use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
 

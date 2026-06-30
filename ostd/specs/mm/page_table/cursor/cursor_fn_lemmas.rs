@@ -12,11 +12,6 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use vstd_extra::arithmetic::{
-    lemma_nat_align_down_monotone, lemma_nat_align_down_sound, lemma_nat_align_down_within_block,
-    lemma_nat_align_up_sound,
-};
-
 use crate::mm::page_table::*;
 use crate::mm::{PagingLevel, Vaddr, page_size};
 use crate::specs::arch::*;
@@ -24,11 +19,9 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_divides, lemma_page_size_ge_page_size,
-};
+
+use crate::specs::mm::page_table::nat_align_down;
 use crate::specs::mm::page_table::owners::*;
-use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
 
 use core::ops::Range;
 

@@ -9,7 +9,7 @@ use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::page_table::*;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, meta_addr},
+    mapping::{frame_to_index, group_page_meta},
     meta_region_owners::MetaRegionOwners,
 };
 

@@ -12,8 +12,8 @@ use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides;
 use crate::specs::mm::page_table::owners::{
-    INC_LEVELS, OwnerSubtree, PageTableOwner, lemma_vaddr_of_eq_int, page_size_monotonic,
-    sibling_paths_disjoint, vaddr, vaddr_of,
+    INC_LEVELS, OwnerSubtree, PageTableOwner, lemma_vaddr_of_eq_int, sibling_paths_disjoint, vaddr,
+    vaddr_of,
 };
 use crate::specs::mm::page_table::{AbstractVaddr, Mapping};
 
