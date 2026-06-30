@@ -57,6 +57,7 @@
 use vstd::prelude::*;
 use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
+use vstd_extra::set_extra::lemma_finite_int_set_has_unused;
 
 use crate::mm::Paddr;
 use crate::mm::frame::{
@@ -247,7 +248,7 @@ pub open spec fn fresh_list_id<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     choose|id: ListId| !lists.dom().contains(id) && !cursors.dom().contains(id)
 }
 
-pub axiom fn axiom_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn lemma_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     lists: Map<ListId, LinkedListOwner<M>>,
     cursors: Map<CursorId, CursorOwner<M>>,
 )
@@ -255,13 +256,15 @@ pub axiom fn axiom_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall
         !lists.dom().contains(fresh_list_id(lists, cursors)) && !cursors.dom().contains(
             fresh_list_id(lists, cursors),
         ),
-;
+{
+    lemma_finite_int_set_has_unused(lists.dom() + cursors.dom());
+}
 
 /// Trusted reflection of [`crate::mm::frame::LinkedList::push_front`]'s
 /// effect on `(regions, owner, frame_own)`. The first block of `ensures`
 /// mirrors the now-verified exec `push_front` ensures verbatim
 /// (`relate_region` of the pushed owner, the list / id / `in_list`
-/// effects, `frame_obligations` consumption, and the outside-the-list
+/// effects, `s` consumption, and the outside-the-list
 /// slot-preservation frame). The last two add facts that *follow* from
 /// them — sound, hence safe to assert here:
 ///   - **fresh minted id** (`old.list_id == 0 ==> final.list_id ∉
@@ -346,12 +349,14 @@ pub open spec fn fresh_loose_id<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     choose|id: LooseId| !m.dom().contains(id)
 }
 
-pub axiom fn axiom_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     m: Map<LooseId, UniqueFrameOwner<Link<M>>>,
 )
     ensures
         !m.dom().contains(fresh_loose_id(m)),
-;
+{
+    lemma_finite_int_set_has_unused(m.dom());
+}
 
 /// Trusted reflection of the (now properly `&mut owner`-threaded and
 /// fully verified) [`crate::mm::frame::LinkedList::pop_front`]. Pops the
@@ -880,7 +885,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
     {
         let ghost old_self = *self;
         let ghost id = fresh_list_id(self.lists, self.cursors);
-        axiom_fresh_list_id_not_in_dom(self.lists, self.cursors);
+        lemma_fresh_list_id_not_in_dom(self.lists, self.cursors);
         let tracked empty = axiom_empty_list_owner::<M>();
         self.lists.tracked_insert(id, empty);
         assert(self.lists[id].list.len() == 0);
@@ -1252,7 +1257,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             let tracked frame_own = pop_front_embedded(&mut self.regions, &mut owner);
             self.lists.tracked_insert(id, owner);
             let ghost new_loose = fresh_loose_id(self.loose);
-            axiom_fresh_loose_id_not_in_dom(self.loose);
+            lemma_fresh_loose_id_not_in_dom(self.loose);
             self.loose.tracked_insert(new_loose, frame_own);
 
             assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
@@ -1535,7 +1540,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             let tracked frame_own = pop_back_embedded(&mut self.regions, &mut owner);
             self.lists.tracked_insert(id, owner);
             let ghost new_loose = fresh_loose_id(self.loose);
-            axiom_fresh_loose_id_not_in_dom(self.loose);
+            lemma_fresh_loose_id_not_in_dom(self.loose);
             self.loose.tracked_insert(new_loose, frame_own);
 
             assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
@@ -1817,7 +1822,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             let tracked frame_own = take_at_embedded(&mut self.regions, &mut owner, n);
             self.lists.tracked_insert(id, owner);
             let ghost new_loose = fresh_loose_id(self.loose);
-            axiom_fresh_loose_id_not_in_dom(self.loose);
+            lemma_fresh_loose_id_not_in_dom(self.loose);
             self.loose.tracked_insert(new_loose, frame_own);
 
             assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
@@ -2594,7 +2599,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             let tracked cur2 = CursorOwner::tracked_cursor_mut_at_owner(owner, n);
             self.cursors.tracked_insert(id, cur2);
             let ghost new_loose = fresh_loose_id(self.loose);
-            axiom_fresh_loose_id_not_in_dom(self.loose);
+            lemma_fresh_loose_id_not_in_dom(self.loose);
             self.loose.tracked_insert(new_loose, frame_own);
 
             assert(self.cursors =~= old_self.cursors.remove(id).insert(id, cur2));

@@ -29,6 +29,7 @@ use core::ops::Range;
 
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
+use vstd_extra::set_extra::*;
 
 use crate::mm::Vaddr;
 use crate::mm::frame::UFrame;
@@ -384,17 +385,21 @@ pub open spec fn fresh_cursor_id<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>) -> C
 
 /// Witnesses that [`fresh_vm_space_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
-pub axiom fn axiom_fresh_vm_space_id_not_in_dom<'a>(m: Map<VmSpaceId, VmSpaceOwner>)
+pub proof fn lemma_fresh_vm_space_id_not_in_dom<'a>(m: Map<VmSpaceId, VmSpaceOwner>)
     ensures
         !m.dom().contains(fresh_vm_space_id(m)),
-;
+{
+    lemma_finite_int_set_has_unused(m.dom());
+}
 
 /// Witnesses that [`fresh_cursor_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
-pub axiom fn axiom_fresh_cursor_id_not_in_dom<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>)
+pub proof fn lemma_fresh_cursor_id_not_in_dom<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>)
     ensures
         !m.dom().contains(fresh_cursor_id(m)),
-;
+{
+    lemma_finite_int_set_has_unused(m.dom());
+}
 
 /// Tracked constructor for [`CursorEntry`].
 ///
@@ -445,7 +450,7 @@ proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
 {
     let tracked owner = vm_space_new_embedded(&mut s.regions);
     let ghost id = fresh_vm_space_id(s.vm_spaces);
-    axiom_fresh_vm_space_id_not_in_dom(s.vm_spaces);
+    lemma_fresh_vm_space_id_not_in_dom(s.vm_spaces);
     s.vm_spaces.tracked_insert(id, owner);
 }
 
@@ -486,7 +491,7 @@ proof fn open_cursor_step<'a, 'rcu>(
         match res {
             Option::Some(owner) => {
                 let ghost id = fresh_cursor_id(s.cursors);
-                axiom_fresh_cursor_id_not_in_dom(s.cursors);
+                lemma_fresh_cursor_id_not_in_dom(s.cursors);
                 let tracked entry = axiom_cursor_entry_new(vs, kind, owner);
                 s.cursors.tracked_insert(id, entry);
                 assert(final(s).inv()) by {
