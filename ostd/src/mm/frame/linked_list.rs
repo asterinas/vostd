@@ -14,33 +14,36 @@ use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
 use vstd_extra::ownership::*;
 use vstd_extra::trans_macros::*;
 
-use crate::mm::frame::UniqueFrame;
-use crate::mm::frame::meta::REF_COUNT_UNIQUE;
-use crate::mm::frame::meta::mapping::frame_to_meta;
-use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::mm::frame::meta::{
+    META_SLOT_SIZE, REF_COUNT_UNIQUE,
+    mapping::{frame_to_meta, meta_to_frame},
+};
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
     linked_list::linked_list_owners::*,
-    mapping::group_page_meta,
+    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
     meta_owners::{MetaSlotOwner, Metadata},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
 };
+use crate::specs::*;
 
-use core::borrow::BorrowMut;
+use super::{
+    MetaSlot, mapping,
+    meta::{AnyFrameMeta, get_slot},
+    unique::UniqueFrame,
+};
+use crate::{
+    arch::mm::PagingConsts,
+    mm::{Paddr, Vaddr},
+    //panic::abort,
+};
 use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
     sync::atomic::{AtomicU64, Ordering},
 };
-
-use crate::specs::*;
-
-use crate::mm::frame::meta::{
-    AnyFrameMeta, META_SLOT_SIZE, MetaSlot, get_slot, mapping::meta_to_frame,
-};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
 
 verus! {
 
