@@ -250,29 +250,34 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// ## Safety
     /// The existence of a valid owner guarantees that the memory is initialized with metadata of type `M`,
     /// and represents that the caller has exclusive ownership of the frame. (See [Safe Encapsulation])
-    // FIXME：returning mutable reference
     #[verus_spec(res =>
         with
-            Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>,
+            Tracked(owner): Tracked<&'a UniqueFrameOwner<M>>,
+            Tracked(regions): Tracked<&'a mut MetaRegionOwners>,
         requires
             owner.inv(),
             old(self).wf(*owner),
-            owner.global_inv(*regions),
+            owner.global_inv(*old(regions)),
         ensures
-            res.addr() == final(self).ptr.addr(),
-            res.ptr.addr() == final(self).ptr.addr(),
             *final(self) == *old(self),
+            final(regions).slots.dom() == old(regions).slots.dom(),
+            final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
-    pub fn meta_mut(&mut self) -> ReprPtr<MetaSlot, Metadata<M>> {
-        let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
-        // SAFETY: The type is tracked by the type system.
-        // And we have the exclusive access to the metadata.
-        #[verus_spec(with Tracked(outer))]
-        let slot = self.slot();
+    pub fn meta_mut<'a>(&'a mut self) -> &'a mut M {
+        let ptr = {
+            let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
+            // SAFETY: The type is tracked by the type system.
+            // And we have the exclusive access to the metadata.
+            #[verus_spec(with Tracked(outer))]
+            let slot = self.slot();
 
-        #[verus_spec(with Tracked(outer))]
-        slot.as_meta_ptr()
+            #[verus_spec(with Tracked(outer))]
+            slot.as_meta_ptr()
+        };
+
+        let tracked perm = regions.borrow_mut_typed_perm::<M>(owner.slot_index);
+        let metadata = ptr.borrow_mut(Tracked(perm));
+        &mut metadata.metadata
     }
 }
 
