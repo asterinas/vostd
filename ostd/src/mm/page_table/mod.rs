@@ -411,6 +411,9 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
     // Derived properties.
 
+            Self::TOP_LEVEL_INDEX_RANGE().end <= NR_ENTRIES,
+            // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
+            // so that we only need to call this lemma in proofs.
             Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
                 (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset::<Self::C>(
                     Self::C::NR_LEVELS(),
