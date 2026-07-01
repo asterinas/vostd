@@ -959,12 +959,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path.len() < INC_LEVELS - 1,
             i < NR_ENTRIES,
         ensures
-            vaddr(path.push_tail(i)) as int == vaddr(path) as int + (i as int) * (page_size(
+            vaddr(path.push_tail(i)) == vaddr(path) + i * page_size(
                 (INC_LEVELS - path.len() - 1) as PagingLevel,
-            ) as int),
-            vaddr(path) as int + (i as int + 1) * (page_size(
-                (INC_LEVELS - path.len() - 1) as PagingLevel,
-            ) as int) <= usize::MAX as int,
+            ),
+            vaddr(path) + (i + 1) * page_size((INC_LEVELS - path.len() - 1) as PagingLevel)
+                <= usize::MAX,
     {
         broadcast use TreePath::push_tail_property;
         broadcast use TreePath::index_satisfies_elem_inv;

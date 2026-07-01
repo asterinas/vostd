@@ -1465,8 +1465,8 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     >)
         requires
             !Self::obeys_vmio_write_requires(),
-            offset + align <= usize::MAX as int,
-            core::mem::size_of::<T>() + align <= usize::MAX as int,
+            offset + align <= usize::MAX,
+            core::mem::size_of::<T>() + align <= usize::MAX,
             iter.obeys_prophetic_iter_laws(),
             iter.decrease() is Some,
             // `align_up` (called for `align > 1`) diverges unless `align`

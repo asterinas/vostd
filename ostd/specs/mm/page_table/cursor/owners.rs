@@ -2189,7 +2189,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(tvi + NR_ENTRIES * ps <= 0x1_0000_0000_0000int);
 
-        assert(pv + ps <= usize::MAX as int) by (nonlinear_arith)
+        assert(pv + ps <= usize::MAX) by (nonlinear_arith)
             requires
                 pv == tvi + lb * 0x1_0000_0000_0000int,
                 tvi + NR_ENTRIES * ps <= 0x1_0000_0000_0000int,
@@ -2270,7 +2270,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(tvi + NR_ENTRIES * ps <= 0x1_0000_0000_0000int);
 
-        assert(va_val + psl <= usize::MAX as int) by (nonlinear_arith)
+        assert(va_val + psl <= usize::MAX) by (nonlinear_arith)
             requires
                 va_val < pv + ps,
                 pv == tvi + lb * 0x1_0000_0000_0000int,
@@ -2883,15 +2883,15 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
                 start >= 0,
                 start < end,
                 cell > 0,
-                end * cell <= usize::MAX as int,
-                (usize::MAX as int) < 0x1_0000_0000_0000_0000int,
+                end * cell <= usize::MAX,
+                usize::MAX < 0x1_0000_0000_0000_0000int,
         ;
         assert(0 <= end_pre <= usize::MAX) by (nonlinear_arith)
             requires
                 end_pre == end * cell - 1,
                 end > 0,
                 cell > 0,
-                end * cell <= usize::MAX as int,
+                end * cell <= usize::MAX,
         ;
     } else {
         assert(base == 0x1_0000_0000_0000_0000int - p_aw);
@@ -2905,7 +2905,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
                 cell > 0,
                 end * cell <= p_aw,
         ;
-        assert(0 <= end_pre <= usize::MAX as int) by (nonlinear_arith)
+        assert(0 <= end_pre <= usize::MAX) by (nonlinear_arith)
             requires
                 end_pre == 0x1_0000_0000_0000_0000int - p_aw + end * cell - 1,
                 base == 0x1_0000_0000_0000_0000int - p_aw,
