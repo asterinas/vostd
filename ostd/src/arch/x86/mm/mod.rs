@@ -106,6 +106,13 @@ impl PagingConstsTrait for PagingConsts {
     proof fn lemma_paging_consts_requirements()
     {
         lemma_pow2_is_pow2_to64();
+        lemma2_to64();
+        lemma2_to64_rest();
+        assert(usize::BITS == 64) by (compute);
+        vstd::layout::unsigned_int_max_values();
+        lemma_usize_pow2_ilog2(12);
+        lemma_usize_pow2_ilog2(9);
+        lemma_pow2_adds(9, 39);
     }
 }
 

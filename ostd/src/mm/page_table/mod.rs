@@ -380,8 +380,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
-            0 <= pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) <= Self::C::ADDRESS_WIDTH(),
-            pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) as nat,
@@ -413,9 +411,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
     // Derived properties.
 
-            Self::TOP_LEVEL_INDEX_RANGE().end <= NR_ENTRIES,
-            // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
-            // so that we only need to call this lemma in proofs.
             Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
                 (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset::<Self::C>(
                     Self::C::NR_LEVELS(),
@@ -426,8 +421,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
-            0 <= pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) <= Self::C::ADDRESS_WIDTH(),
-            pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) as nat,
@@ -451,6 +444,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 )) as nat,
             ) == NR_ENTRIES,
     {
+        Self::C::lemma_paging_consts_properties();
         Self::lemma_page_table_config_constant_requirements();
     }
 
@@ -552,9 +546,9 @@ pub open spec fn nr_pte_index_bits_spec<C: PagingConstsTrait>() -> usize {
 /// The number of virtual address bits used to index a PTE in a page.
 #[inline(always)]
 #[verifier::when_used_as_spec(nr_pte_index_bits_spec)]
-pub fn nr_pte_index_bits<C: PagingConstsTrait>() -> (res: usize)
-    ensures
-        res == nr_pte_index_bits_spec::<C>(),
+pub fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
+    returns
+        nr_pte_index_bits_spec::<C>(),
 {
     proof {
         C::lemma_paging_consts_properties();

@@ -138,12 +138,17 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// `CursorMut::take_next`'s `replace_cur_entry` discharge).
     proof fn lemma_paging_consts_requirements()
         ensures
+            0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            // Copied from the postcondition of `lemma_paging_consts_requirements`
+            // so that we only need to call this lemma in proofs.
             0 < Self::BASE_PAGE_SIZE(),
             is_pow2(Self::BASE_PAGE_SIZE() as int),
             Self::NR_LEVELS() > 0,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            0 < Self::ADDRESS_WIDTH() <= usize::BITS,
+            0 < Self::ADDRESS_WIDTH() < usize::BITS,
+            Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2() * (
+            Self::NR_LEVELS() - 1) <= Self::ADDRESS_WIDTH(),
             // The following statement holds for all architectures,
             // but the actual value of the constants may vary.
             Self::BASE_PAGE_SIZE() == PAGE_SIZE,
@@ -166,7 +171,9 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::NR_LEVELS() > 0,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            0 < Self::ADDRESS_WIDTH() <= usize::BITS,
+            0 < Self::ADDRESS_WIDTH() < usize::BITS,
+            Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE() / Self::PTE_SIZE()).ilog2() * (
+            Self::NR_LEVELS() - 1) <= Self::ADDRESS_WIDTH(),
             // The following statement holds for all architectures,
             // but the actual value of the constants may vary.
             Self::BASE_PAGE_SIZE() == PAGE_SIZE,

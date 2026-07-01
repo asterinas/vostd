@@ -66,6 +66,7 @@ pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(idx_end: usiz
         0 < idx_end * pow2(offset as nat),
         offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
+    C::lemma_paging_consts_properties();
     C::lemma_page_table_config_constant_properties();
     lemma_pow2_pos(offset as nat);
 
@@ -149,6 +150,7 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
             pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int) - 1,
 {
+    C::lemma_paging_consts_properties();
     C::lemma_page_table_config_constant_properties();
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
     let aw = C::ADDRESS_WIDTH() as nat;
