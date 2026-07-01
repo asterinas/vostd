@@ -156,7 +156,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::TOP_LEVEL_CAN_UNMAP(),
     ;
 
-    /// VERIFICATION only: Upper bound on `locked_range().end as int` for cursors of this config.
+    /// VERIFICATION only: Upper bound on `locked_range().end` for cursors of this config.
     ///
     /// May be tighter than the structural `vaddr_range_bounds_spec().1 + 1`
     /// when the actual sources of cursor ranges (e.g. the kvirt allocator
@@ -178,88 +178,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
     /// The paging constants.
     type C: PagingConstsTrait;
-
-    /// Core constant properties that each config must prove.
-    /// Combines bounds on the top-level index range, leading-bits
-    /// constraints, and the NR_ENTRIES identity.
-    proof fn lemma_page_table_config_constant_requirements()
-        ensures
-            (Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) < (pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ) as int),
-            Self::TOP_LEVEL_INDEX_RANGE_spec().end as int <= pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ) as int,
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS())
-                <= Self::C::ADDRESS_WIDTH() as int,
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS as int,
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) >= 0,
-            0 < Self::C::ADDRESS_WIDTH() as int,
-            (Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) < (
-            Self::TOP_LEVEL_INDEX_RANGE_spec().end as int),
-            Self::C::ADDRESS_WIDTH() as int <= 64,
-            (Self::TOP_LEVEL_INDEX_RANGE_spec().end) * (pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            )) <= usize::MAX as int,
-            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && (((
-            Self::TOP_LEVEL_INDEX_RANGE_spec().start) * (pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ))) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
-            (Self::C::VA_SIGN_EXT() && ((((Self::TOP_LEVEL_INDEX_RANGE_spec().start) * (pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ))) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
-                &&& 48 <= Self::C::ADDRESS_WIDTH() as int
-                &&& Self::C::ADDRESS_WIDTH() < usize::BITS
-                &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
-                    - pow2(Self::C::ADDRESS_WIDTH() as nat)
-            },
-            Self::LEADING_BITS_spec() < 0x1_0000_usize,
-            pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ) == NR_ENTRIES,
-    ;
-
-    /// Properties derived from the constant requirements.
-    /// Implementors get this for free.
-    proof fn lemma_page_table_config_derived_properties()
-        ensures
-            Self::TOP_LEVEL_INDEX_RANGE_spec().end <= NR_ENTRIES,
-    {
-        Self::lemma_page_table_config_constant_requirements();
-    }
-
-    /// Layout identity: the PTE type's Rust `size_of` matches the config's
-    /// `PTE_SIZE_spec`. Concrete impls satisfy this via their `global
-    /// layout` declaration. Exposed for generic code that calls
-    /// `core::mem::size_of::<Self::E>()`.
-    proof fn axiom_pte_size_eq_size_of()
-        ensures
-            core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE_spec(),
-    ;
-
-    /// A full PT-node's worth of PTEs fills exactly one base page.
-    proof fn lemma_pte_walk_fills_page()
-        ensures
-            NR_ENTRIES * core::mem::size_of::<Self::E>() == crate::specs::arch::PAGE_SIZE,
-    ;
-
-    // dubious: why is this an axiom
-    /// `align_of::<E>()` divides `size_of::<E>()`. True for any sized Rust
-    /// type (the alignment divides the size by the layout rules), but
-    /// Verus's `size_of`/`align_of` are uninterpreted so we expose it as
-    /// an axiom. Used by PT-node `on_drop` to prove cursor alignment is
-    /// preserved across `read_once` iterations.
-    proof fn axiom_pte_align_divides_size()
-        ensures
-            core::mem::size_of::<Self::E>() % core::mem::align_of::<Self::E>() == 0,
-            core::mem::align_of::<Self::E>() > 0,
-    ;
 
     /// The item that can be mapped into the virtual memory space using the
     /// page table.
@@ -806,11 +724,6 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     bit != 0
 }
 
-#[verifier::inline]
-pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> int {
-    (C::BASE_PAGE_SIZE().ilog2()) + (nr_pte_index_bits::<C>()) * (level - 1)
-}
-
 /// Spec for the managed virtual address range (exclusive end).
 /// For configs without VA_SIGN_EXT (e.g. UserPtConfig) or when the base range has sign bit 0.
 /// Configs with sign extension (e.g. KernelPtConfig) use
@@ -923,7 +836,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
 /// disjoint.
 fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
     requires
-        (va as int) < pow2(C::ADDRESS_WIDTH() as nat) as int,
+        va < pow2(C::ADDRESS_WIDTH() as nat),
         C::ADDRESS_WIDTH() < usize::BITS,
         C::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int - pow2(
             C::ADDRESS_WIDTH() as nat,
@@ -1121,7 +1034,7 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
     proof {
         lemma_pte_index_consts::<C>();
         assert(offset == 12 + 9 * (level - 1));
-        assert(0 <= (offset as int) && (offset as int) < (usize::BITS as int)) by (nonlinear_arith)
+        assert(0 <= offset < usize::BITS) by (nonlinear_arith)
             requires
                 1 <= level <= NR_LEVELS,
                 NR_LEVELS == 4,
@@ -1150,7 +1063,7 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
 
 #[verifier::inline]
 pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {
-    (C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits::<C>() * (level as int - 1)) as usize
+    (C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits::<C>() * (level - 1)) as usize
 }
 
 /// The bit offset of the entry offset part in a virtual address.
@@ -1710,7 +1623,7 @@ impl<C: PageTableConfig> PageTable<C> {
         requires
             owner.inv(),
             // Per-config tightening; see `Cursor::new`.
-            va.end as int <= C::LOCKED_END_BOUND_spec(),
+            va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
@@ -1765,7 +1678,7 @@ impl<C: PageTableConfig> PageTable<C> {
         requires
             owner.inv(),
             // Per-config tightening; see `Cursor::new`.
-            va.end as int <= C::LOCKED_END_BOUND_spec(),
+            va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
