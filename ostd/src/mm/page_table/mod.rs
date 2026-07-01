@@ -797,8 +797,8 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
     }
     proof {
         // Both branches now establish the equation
-        //   start as int == lb * 2^48 + idx.start * 2^off
-        //   end as int   == lb * 2^48 + idx.end * 2^off - 1
+        //   start == lb * 2^48 + idx.start * 2^off
+        //   end == lb * 2^48 + idx.end * 2^off - 1
         // matching the unfolded `vaddr_range_bounds_spec`.
         assert(start == (C::LEADING_BITS_spec()) * 0x1_0000_0000_0000int + (
         C::TOP_LEVEL_INDEX_RANGE_spec().start) * (pow2(

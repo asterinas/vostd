@@ -176,13 +176,13 @@ proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: 
         forall|i: int|
             0 <= i < res@.len() ==> (#[trigger] res@[i]).1
                 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
-        sum_page_sizes_spec(res@, 0, res@.len() as int) == len as nat,
+        sum_page_sizes_spec(res@, 0, res@.len() as int) == len,
         forall|i: int|
             0 <= i < res@.len() ==> (va as nat + #[trigger] sum_page_sizes_spec(res@, 0, i))
                 % page_size(res@[i].1) as nat == 0,
         // PA tracking: each element's physical address equals pa + sum of preceding page sizes.
         forall|i: int|
-            0 <= i < res@.len() ==> (#[trigger] res@[i]).0 as nat == pa as nat
+            0 <= i < res@.len() ==> (#[trigger] res@[i]).0 == pa
                 + sum_page_sizes_spec(res@, 0, i),
 
 )]
@@ -520,7 +520,7 @@ impl KVirtArea {
         ||| area_size % PAGE_SIZE != 0
         ||| map_offset % PAGE_SIZE != 0
         ||| map_offset >= area_size
-        ||| map_offset + n_frames * PAGE_SIZE > area_size as int
+        ||| map_offset + n_frames * PAGE_SIZE > area_size
     }
 
     /// Full panic condition for [`Self::map_frames`] = bounds OR OOM.
@@ -858,7 +858,7 @@ impl KVirtArea {
         ||| pa_range.end % PAGE_SIZE != 0
         ||| area_size % PAGE_SIZE != 0
         ||| map_offset % PAGE_SIZE != 0
-        ||| map_offset + vstd_extra::external::range::range_usize_len(pa_range) > area_size as int
+        ||| map_offset + vstd_extra::external::range::range_usize_len(pa_range) > area_size
     }
 
     /// Full panic condition for [`Self::map_untracked_frames`] = bounds OR OOM.
@@ -1007,9 +1007,9 @@ impl KVirtArea {
                         ) as nat == 0,
                     forall|i: int|
                         #![auto]
-                        0 <= i < it.seq().len() ==> it.seq()[i].0 as nat == pa_range.start as nat
+                        0 <= i < it.seq().len() ==> it.seq()[i].0 == pa_range.start
                             + sum_page_sizes_spec(it.seq(), 0, i),
-                    sum_page_sizes_spec(it.seq(), 0, it.seq().len() as int) == len as nat,
+                    sum_page_sizes_spec(it.seq(), 0, it.seq().len() as int) == len,
                     // VA tracking: cursor has advanced past sum of processed pages.
                     cursor.0.va as nat == va_range.start as nat + sum_page_sizes_spec(
                         it.seq(),
