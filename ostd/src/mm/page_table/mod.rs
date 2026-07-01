@@ -76,16 +76,14 @@ pub trait RCClone: Sized {
         requires
             self.clone_requires(*old(perm)),
         ensures
-            // RCClone::clone` doesn't mint/redeem segment obligations. 
-            // The per-frame `frame_obligations` effect is left to each impl's `clone_ensures`
+    // RCClone::clone` doesn't mint/redeem segment obligations.
+    // The per-frame `frame_obligations` effect is left to each impl's `clone_ensures`
+
             res == *self,
             self.clone_ensures(*old(perm), *final(perm), res),
             final(perm).inv(),
             final(perm).slots == old(perm).slots,
-            final(perm).slot_owners.dom() == old(
-                perm,
-            ).slot_owners.dom(),
-
+            final(perm).slot_owners.dom() == old(perm).slot_owners.dom(),
     ;
 }
 
@@ -107,15 +105,21 @@ pub trait RCClone: Sized {
 ///    `item_into_raw`, `item_from_raw` restores the exact item that was
 ///    consumed by `item_into_raw`.
 pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
+    spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize>;
+
     /// The index range at the top level (`C::NR_LEVELS()`) page table.
     ///
     /// When configured with this value, the [`PageTable`] instance will only
     /// be allowed to manage the virtual address range that is covered by
     /// this range. The range can be smaller than the actual allowed range
     /// specified by the hardware MMU (limited by `C::ADDRESS_WIDTH`).
-    spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize>;
+    #[verifier::when_used_as_spec(TOP_LEVEL_INDEX_RANGE_spec)]
+    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize>
+        returns
+            Self::TOP_LEVEL_INDEX_RANGE(),
+    ;
 
-    /// The leading bits `[48, 64)` of every virtual address managed by this
+    /// VERIFICATION only: The leading bits `[48, 64)` of every virtual address managed by this
     /// config.
     ///
     /// Concretely, a mapping `m` in this page table has
@@ -137,26 +141,23 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         0
     }
 
-    fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>)
-        ensures
-            r == Self::TOP_LEVEL_INDEX_RANGE_spec(),
-    ;
+    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
+        true
+    }
 
     /// If we can remove the top-level page table entries.
     ///
     /// This is for the kernel page table, whose second-top-level page
     /// tables need `'static` lifetime to be shared with user page tables.
     /// Other page tables do not need to set this to `false`.
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
-        true
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool)
+    #[verifier::when_used_as_spec(TOP_LEVEL_CAN_UNMAP_spec)]
+    fn TOP_LEVEL_CAN_UNMAP() -> bool
         ensures
-            b == Self::TOP_LEVEL_CAN_UNMAP_spec(),
+        returns
+            Self::TOP_LEVEL_CAN_UNMAP(),
     ;
 
-    /// Upper bound on `locked_range().end as int` for cursors of this config.
+    /// VERIFICATION only: Upper bound on `locked_range().end as int` for cursors of this config.
     ///
     /// May be tighter than the structural `vaddr_range_bounds_spec().1 + 1`
     /// when the actual sources of cursor ranges (e.g. the kvirt allocator
@@ -178,88 +179,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
     /// The paging constants.
     type C: PagingConstsTrait;
-
-    /// Core constant properties that each config must prove.
-    /// Combines bounds on the top-level index range, leading-bits
-    /// constraints, and the NR_ENTRIES identity.
-    proof fn lemma_page_table_config_constant_requirements()
-        ensures
-            (Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) < (pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ) as int),
-            Self::TOP_LEVEL_INDEX_RANGE_spec().end as int <= pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ) as int,
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS())
-                <= Self::C::ADDRESS_WIDTH() as int,
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS as int,
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) >= 0,
-            0 < Self::C::ADDRESS_WIDTH() as int,
-            (Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) < (
-            Self::TOP_LEVEL_INDEX_RANGE_spec().end as int),
-            Self::C::ADDRESS_WIDTH() as int <= 64,
-            (Self::TOP_LEVEL_INDEX_RANGE_spec().end as int) * (pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int) <= usize::MAX as int,
-            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && (((
-            Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
-            (Self::C::VA_SIGN_EXT() && ((((Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
-                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
-                &&& 48 <= Self::C::ADDRESS_WIDTH() as int
-                &&& Self::C::ADDRESS_WIDTH() < usize::BITS
-                &&& Self::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int
-                    == 0x1_0000_0000_0000_0000int - pow2(Self::C::ADDRESS_WIDTH() as nat) as int
-            },
-            Self::LEADING_BITS_spec() < 0x1_0000_usize,
-            pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ) as int == NR_ENTRIES as int,
-    ;
-
-    /// Properties derived from the constant requirements.
-    /// Implementors get this for free.
-    proof fn lemma_page_table_config_derived_properties()
-        ensures
-            Self::TOP_LEVEL_INDEX_RANGE_spec().end <= NR_ENTRIES,
-    {
-        Self::lemma_page_table_config_constant_requirements();
-    }
-
-    /// Layout identity: the PTE type's Rust `size_of` matches the config's
-    /// `PTE_SIZE_spec`. Concrete impls satisfy this via their `global
-    /// layout` declaration. Exposed for generic code that calls
-    /// `core::mem::size_of::<Self::E>()`.
-    proof fn axiom_pte_size_eq_size_of()
-        ensures
-            core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE_spec(),
-    ;
-
-    /// A full PT-node's worth of PTEs fills exactly one base page.
-    proof fn lemma_pte_walk_fills_page()
-        ensures
-            NR_ENTRIES * core::mem::size_of::<Self::E>() == crate::specs::arch::PAGE_SIZE,
-    ;
-
-    // dubious: why is this an axiom
-    /// `align_of::<E>()` divides `size_of::<E>()`. True for any sized Rust
-    /// type (the alignment divides the size by the layout rules), but
-    /// Verus's `size_of`/`align_of` are uninterpreted so we expose it as
-    /// an axiom. Used by PT-node `on_drop` to prove cursor alignment is
-    /// preserved across `read_once` iterations.
-    proof fn axiom_pte_align_divides_size()
-        ensures
-            core::mem::size_of::<Self::E>() % core::mem::align_of::<Self::E>() == 0,
-            core::mem::align_of::<Self::E>() > 0,
-    ;
 
     /// The item that can be mapped into the virtual memory space using the
     /// page table.
@@ -287,10 +206,10 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             1 <= res.1 <= NR_LEVELS,
             res == Self::item_into_raw_spec(item),
-            res.0 % crate::specs::arch::PAGE_SIZE == 0,
-            res.0 < crate::specs::arch::MAX_PADDR,
+            res.0 % PAGE_SIZE == 0,
+            res.0 < MAX_PADDR,
             res.0 % page_size(res.1) == 0,
-            res.0 + page_size(res.1) <= crate::specs::arch::MAX_PADDR,
+            res.0 + page_size(res.1) <= MAX_PADDR,
     ;
 
     /// Restores the item from the physical address and the paging level.
@@ -442,6 +361,84 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             item.clone_requires(regions),
     ;
+
+    /// Core constant properties that each config must prove.
+    /// Combines bounds on the top-level index range, leading-bits
+    /// constraints, and the NR_ENTRIES identity.
+    proof fn lemma_page_table_config_constant_requirements()
+        ensures
+            Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
+                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                    Self::C::NR_LEVELS(),
+                )) as nat,
+            ),
+            Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
+                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                    Self::C::NR_LEVELS(),
+                )) as nat,
+            ),
+            0 <= pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) <= Self::C::ADDRESS_WIDTH(),
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
+            0 < Self::C::ADDRESS_WIDTH() <= usize::BITS,
+            Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
+            (Self::TOP_LEVEL_INDEX_RANGE().end as int) * (pow2(
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+            ) as int) <= usize::MAX,
+            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && (((
+            Self::TOP_LEVEL_INDEX_RANGE().start as int) * (pow2(
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
+            (Self::C::VA_SIGN_EXT() && ((((Self::TOP_LEVEL_INDEX_RANGE().start as int) * (pow2(
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
+                &&& 48 <= Self::C::ADDRESS_WIDTH()
+                &&& Self::C::ADDRESS_WIDTH() < usize::BITS
+                &&& Self::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int
+                    == 0x1_0000_0000_0000_0000int - pow2(Self::C::ADDRESS_WIDTH() as nat) as int
+            },
+            Self::LEADING_BITS_spec() < 0x1_0000_usize,
+            pow2(
+                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                    Self::C::NR_LEVELS(),
+                )) as nat,
+            ) == NR_ENTRIES,
+    ;
+
+    /// Properties derived from the constant requirements.
+    /// Implementors get this for free.
+    proof fn lemma_page_table_config_derived_properties()
+        ensures
+            Self::TOP_LEVEL_INDEX_RANGE().end <= NR_ENTRIES,
+    {
+        Self::lemma_page_table_config_constant_requirements();
+    }
+
+    /// Layout identity: the PTE type's Rust `size_of` matches the config's
+    /// `PTE_SIZE_spec`. Concrete impls satisfy this via their `global
+    /// layout` declaration. Exposed for generic code that calls
+    /// `core::mem::size_of::<Self::E>()`.
+    proof fn axiom_pte_size_eq_size_of()
+        ensures
+            core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE_spec(),
+    ;
+
+    /// A full PT-node's worth of PTEs fills exactly one base page.
+    proof fn lemma_pte_walk_fills_page()
+        ensures
+            NR_ENTRIES * core::mem::size_of::<Self::E>() == PAGE_SIZE,
+    ;
+
+    // dubious: why is this an axiom
+    /// `align_of::<E>()` divides `size_of::<E>()`. True for any sized Rust
+    /// type (the alignment divides the size by the layout rules), but
+    /// Verus's `size_of`/`align_of` are uninterpreted so we expose it as
+    /// an axiom. Used by PT-node `on_drop` to prove cursor alignment is
+    /// preserved across `read_once` iterations.
+    proof fn axiom_pte_align_divides_size()
+        ensures
+            core::mem::size_of::<Self::E>() % core::mem::align_of::<Self::E>() == 0,
+            core::mem::align_of::<Self::E>() > 0,
+    ;
 }
 
 // Implement it so that we can comfortably use low level functions
@@ -498,201 +495,6 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
     proof fn lemma_paging_consts_requirements() {
         C::C::lemma_paging_consts_requirements();
     }
-}
-
-/// The interface for defining architecture-specific page table entries.
-///
-/// Note that a default PTE should be a PTE that points to nothing.
-pub trait PageTableEntryTrait:
-    Clone + Copy + Debug + Default + Sized + Pod + PodOnce + Send + Sync + 'static {
-    spec fn new_absent_spec() -> Self;
-
-    /// Create a set of new invalid page table flags that indicates an absent page.
-    ///
-    /// Note that currently the implementation requires an all zero PTE to be an absent PTE.
-    #[verifier(when_used_as_spec(new_absent_spec))]
-    fn new_absent() -> (res: Self)
-        ensures
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
-            !res.is_present(),
-        returns
-            Self::new_absent(),
-    ;
-
-    spec fn is_present_spec(&self) -> bool;
-
-    /// Returns if the PTE points to something.
-    ///
-    /// For PTEs created by [`Self::new_absent`], this method should return
-    /// false. For PTEs created by [`Self::new_page`] or [`Self::new_pt`]
-    /// and modified with [`Self::set_prop`], this method should return true.
-    #[verifier::when_used_as_spec(is_present_spec)]
-    fn is_present(&self) -> bool
-        returns
-            self.is_present_spec(),
-    ;
-
-    spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self;
-
-    /// The preconditions for creating a new page-mapping PTE.
-    spec fn new_page_req(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> bool;
-
-    /// Creates a new PTE that maps to a page.
-    #[verifier::when_used_as_spec(new_page_spec)]
-    fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
-        requires
-            paddr < MAX_PADDR,
-            Self::new_page_req(paddr, level, prop),
-        ensures
-            res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
-            paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
-            res.is_present(),
-            res.is_last(level),
-            res.prop() == prop,
-        returns
-            Self::new_page(paddr, level, prop),
-    ;
-
-    spec fn new_pt_spec(paddr: Paddr) -> Self;
-
-    /// Create a new PTE that map to a child page table.
-    #[verifier::when_used_as_spec(new_pt_spec)]
-    fn new_pt(paddr: Paddr) -> (res: Self)
-        requires
-            paddr < MAX_PADDR,
-        ensures
-            res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
-            paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
-            res.is_present(),
-            forall|level: PagingLevel| !res.is_last(level),
-        returns
-            Self::new_pt(paddr),
-    ;
-
-    /// Returns the physical address from the PTE.
-    ///
-    /// The physical address recorded in the PTE is either:
-    /// - the physical address of the next-level page table, or
-    /// - the physical address of the page that the PTE maps to.
-    spec fn paddr_spec(&self) -> Paddr;
-
-    #[verifier::when_used_as_spec(paddr_spec)]
-    fn paddr(&self) -> (res: Paddr)
-        ensures
-            res % crate::specs::arch::PAGE_SIZE == 0,
-        returns
-            self.paddr(),
-    ;
-
-    spec fn prop_spec(&self) -> PageProperty;
-
-    #[verifier::when_used_as_spec(prop_spec)]
-    fn prop(&self) -> PageProperty
-        returns
-            self.prop(),
-    ;
-
-    /// The preconditions for setting the page property of a PTE.
-    spec fn set_prop_req(self, prop: PageProperty) -> bool;
-
-    fn set_prop(&mut self, prop: PageProperty)
-        requires
-            old(self).set_prop_req(prop),
-        ensures
-            !old(self).is_present() ==> *old(self) == *final(self),
-            old(self).is_present() ==> {
-                &&& final(self).prop() == prop
-                &&& final(self).paddr() == old(self).paddr()
-                &&& final(self).is_present()
-                &&& forall|level: PagingLevel|
-                    #![trigger old(self).is_last(level)]
-                    old(self).is_last(level) ==> final(self).is_last(level)
-            },
-    ;
-
-    spec fn is_last_spec(&self, level: PagingLevel) -> bool;
-
-    /// Returns if the PTE maps a page rather than a child page table.
-    ///
-    /// The method needs to know the level of the page table where the PTE resides,
-    /// since architectures like x86-64 have a huge bit only in intermediate levels.
-    #[verifier::when_used_as_spec(is_last_spec)]
-    fn is_last(&self, level: PagingLevel) -> bool
-        returns
-            self.is_last_spec(level),
-    ;
-
-    spec fn as_usize_spec(self) -> usize;
-
-    /// Converts the PTE into a raw `usize` value.
-    #[verifier::external_body]
-    #[verifier::when_used_as_spec(as_usize_spec)]
-    fn as_usize(self) -> usize
-        returns
-            self.as_usize(),
-    {
-        unimplemented!()
-        // const { assert!(size_of::<Self>() == size_of::<usize>()) };
-        // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
-        // unsafe { transmute_unchecked(self) }
-
-    }
-
-    /// Converts the raw `usize` value into a PTE.
-    #[verifier::external_body]
-    fn from_usize(pte_raw: usize) -> Self {
-        unimplemented!()
-        // const { assert!(size_of::<Self>() == size_of::<usize>()) };
-        // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
-        // unsafe { transmute_unchecked(pte_raw) }
-
-    }
-
-    /// Absent (zero) PTE has well-formed paddr for match_pte.
-    proof fn lemma_page_table_entry_properties()
-        ensures
-            Self::new_absent().paddr() % crate::specs::arch::PAGE_SIZE == 0,
-            Self::new_absent().paddr() < crate::specs::arch::MAX_PADDR,
-            !Self::new_absent().is_present(),
-            forall|level: PagingLevel|
-                #![trigger Self::new_absent().is_last(level)]
-                1 < level ==> !Self::new_absent().is_last(level),
-            forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
-                #![trigger Self::new_page(paddr, level, prop)]
-                Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
-                    || prop.cache is Writethrough || prop.cache is Uncacheable) ==> {
-                    &&& Self::new_page(paddr, level, prop).is_present()
-                    &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr
-                        & !((PAGE_SIZE - 1) as usize))
-                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
-                        paddr,
-                        level,
-                        prop,
-                    ).paddr() == paddr)
-                    &&& Self::new_page(paddr, level, prop).prop() == prop
-                    &&& Self::new_page(paddr, level, prop).is_last(level)
-                },
-            forall|paddr: Paddr|
-                #![trigger Self::new_pt(paddr)]
-                {
-                    &&& Self::new_pt(paddr).is_present()
-                    &&& (paddr < MAX_PADDR ==> Self::new_pt(paddr).paddr() == paddr & !((PAGE_SIZE
-                        - 1) as usize))
-                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr()
-                        == paddr)
-                    &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
-                },
-    ;
-
-    proof fn lemma_paddr_is_page_aligned(self)
-        ensures
-            self.paddr() % crate::specs::arch::PAGE_SIZE == 0,
-    ;
 }
 
 /// A handle to a page table.
@@ -1456,12 +1258,12 @@ impl PageTable<KernelPtConfig> {
                 |
                     e.is_frame() && e.parent_level > 1 ==> {
                         let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size(e.parent_level) / crate::specs::arch::PAGE_SIZE;
+                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx =
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                    (pa + j * crate::specs::arch::PAGE_SIZE) as usize,
+                                    (pa + j * PAGE_SIZE) as usize,
                                 );
                                 sub_idx != new_idx
                             }
@@ -1472,12 +1274,12 @@ impl PageTable<KernelPtConfig> {
                 |
                     e.is_frame() && e.parent_level > 1 ==> {
                         let pa = e.frame().mapped_pa;
-                        let nr_pages = page_size(e.parent_level) / crate::specs::arch::PAGE_SIZE;
+                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
                         forall|j: usize|
                             0 < j < nr_pages ==> {
                                 let sub_idx =
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                    (pa + j * crate::specs::arch::PAGE_SIZE) as usize,
+                                    (pa + j * PAGE_SIZE) as usize,
                                 );
                                 sub_idx != new_idx || (regions.slots.contains_key(sub_idx)
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -1736,11 +1538,11 @@ impl<C: PageTableConfig> PageTable<C> {
                         e.is_frame() && e.parent_level > 1 ==> {
                             let pa = e.frame().mapped_pa;
                             let nr_pages = page_size(
-                                e.parent_level) / crate::specs::arch::PAGE_SIZE;
+                                e.parent_level) / PAGE_SIZE;
                             forall |j: usize| 0 < j < nr_pages ==> {
                                 let sub_idx =
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
-                                        (pa + j * crate::specs::arch::PAGE_SIZE) as usize);
+                                        (pa + j * PAGE_SIZE) as usize);
                                 sub_idx != crate::specs::mm::frame::mapping::frame_to_index(
                                     (final(owner)@->0).0.value.meta_slot_paddr()->0)
                             }
@@ -1974,6 +1776,201 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
     }
 
     unreachable!("All present PTEs at the level 1 must be last-level PTEs");
+}
+
+/// A trait that abstracts architecture-specific page table entries (PTEs).
+///
+/// Note that a default PTE should be a PTE that points to nothing.
+pub trait PageTableEntryTrait:
+    Clone + Copy + Debug + Default + Sized + Pod + PodOnce + Send + Sync + 'static {
+    spec fn new_absent_spec() -> Self;
+
+    /// Create a set of new invalid page table flags that indicates an absent page.
+    ///
+    /// Note that currently the implementation requires an all zero PTE to be an absent PTE.
+    #[verifier(when_used_as_spec(new_absent_spec))]
+    fn new_absent() -> (res: Self)
+        ensures
+            res.paddr() % PAGE_SIZE == 0,
+            res.paddr() < MAX_PADDR,
+            !res.is_present(),
+        returns
+            Self::new_absent(),
+    ;
+
+    spec fn is_present_spec(&self) -> bool;
+
+    /// Returns if the PTE points to something.
+    ///
+    /// For PTEs created by [`Self::new_absent`], this method should return
+    /// false. For PTEs created by [`Self::new_page`] or [`Self::new_pt`]
+    /// and modified with [`Self::set_prop`], this method should return true.
+    #[verifier::when_used_as_spec(is_present_spec)]
+    fn is_present(&self) -> bool
+        returns
+            self.is_present_spec(),
+    ;
+
+    spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self;
+
+    /// The preconditions for creating a new page-mapping PTE.
+    spec fn new_page_req(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> bool;
+
+    /// Creates a new PTE that maps to a page.
+    #[verifier::when_used_as_spec(new_page_spec)]
+    fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
+        requires
+            paddr < MAX_PADDR,
+            Self::new_page_req(paddr, level, prop),
+        ensures
+            res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
+            paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
+            res.paddr() % PAGE_SIZE == 0,
+            res.paddr() < MAX_PADDR,
+            res.is_present(),
+            res.is_last(level),
+            res.prop() == prop,
+        returns
+            Self::new_page(paddr, level, prop),
+    ;
+
+    spec fn new_pt_spec(paddr: Paddr) -> Self;
+
+    /// Create a new PTE that map to a child page table.
+    #[verifier::when_used_as_spec(new_pt_spec)]
+    fn new_pt(paddr: Paddr) -> (res: Self)
+        requires
+            paddr < MAX_PADDR,
+        ensures
+            res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
+            paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
+            res.paddr() % PAGE_SIZE == 0,
+            res.paddr() < MAX_PADDR,
+            res.is_present(),
+            forall|level: PagingLevel| !res.is_last(level),
+        returns
+            Self::new_pt(paddr),
+    ;
+
+    /// Returns the physical address from the PTE.
+    ///
+    /// The physical address recorded in the PTE is either:
+    /// - the physical address of the next-level page table, or
+    /// - the physical address of the page that the PTE maps to.
+    spec fn paddr_spec(&self) -> Paddr;
+
+    #[verifier::when_used_as_spec(paddr_spec)]
+    fn paddr(&self) -> (res: Paddr)
+        ensures
+            res % PAGE_SIZE == 0,
+        returns
+            self.paddr(),
+    ;
+
+    spec fn prop_spec(&self) -> PageProperty;
+
+    #[verifier::when_used_as_spec(prop_spec)]
+    fn prop(&self) -> PageProperty
+        returns
+            self.prop(),
+    ;
+
+    /// The preconditions for setting the page property of a PTE.
+    spec fn set_prop_req(self, prop: PageProperty) -> bool;
+
+    fn set_prop(&mut self, prop: PageProperty)
+        requires
+            old(self).set_prop_req(prop),
+        ensures
+            !old(self).is_present() ==> *old(self) == *final(self),
+            old(self).is_present() ==> {
+                &&& final(self).prop() == prop
+                &&& final(self).paddr() == old(self).paddr()
+                &&& final(self).is_present()
+                &&& forall|level: PagingLevel|
+                    #![trigger old(self).is_last(level)]
+                    old(self).is_last(level) ==> final(self).is_last(level)
+            },
+    ;
+
+    spec fn is_last_spec(&self, level: PagingLevel) -> bool;
+
+    /// Returns if the PTE maps a page rather than a child page table.
+    ///
+    /// The method needs to know the level of the page table where the PTE resides,
+    /// since architectures like x86-64 have a huge bit only in intermediate levels.
+    #[verifier::when_used_as_spec(is_last_spec)]
+    fn is_last(&self, level: PagingLevel) -> bool
+        returns
+            self.is_last_spec(level),
+    ;
+
+    spec fn as_usize_spec(self) -> usize;
+
+    /// Converts the PTE into a raw `usize` value.
+    #[verifier::external_body]
+    #[verifier::when_used_as_spec(as_usize_spec)]
+    fn as_usize(self) -> usize
+        returns
+            self.as_usize(),
+    {
+        unimplemented!()
+        // const { assert!(size_of::<Self>() == size_of::<usize>()) };
+        // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
+        // unsafe { transmute_unchecked(self) }
+
+    }
+
+    /// Converts the raw `usize` value into a PTE.
+    #[verifier::external_body]
+    fn from_usize(pte_raw: usize) -> Self {
+        unimplemented!()
+        // const { assert!(size_of::<Self>() == size_of::<usize>()) };
+        // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
+        // unsafe { transmute_unchecked(pte_raw) }
+
+    }
+
+    /// Absent (zero) PTE has well-formed paddr for match_pte.
+    proof fn lemma_page_table_entry_properties()
+        ensures
+            Self::new_absent().paddr() % PAGE_SIZE == 0,
+            Self::new_absent().paddr() < MAX_PADDR,
+            !Self::new_absent().is_present(),
+            forall|level: PagingLevel|
+                #![trigger Self::new_absent().is_last(level)]
+                1 < level ==> !Self::new_absent().is_last(level),
+            forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
+                #![trigger Self::new_page(paddr, level, prop)]
+                Self::new_page_req(paddr, level, prop) && (prop.cache is Writeback
+                    || prop.cache is Writethrough || prop.cache is Uncacheable) ==> {
+                    &&& Self::new_page(paddr, level, prop).is_present()
+                    &&& (paddr < MAX_PADDR ==> Self::new_page(paddr, level, prop).paddr() == paddr
+                        & !((PAGE_SIZE - 1) as usize))
+                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_page(
+                        paddr,
+                        level,
+                        prop,
+                    ).paddr() == paddr)
+                    &&& Self::new_page(paddr, level, prop).prop() == prop
+                    &&& Self::new_page(paddr, level, prop).is_last(level)
+                },
+            forall|paddr: Paddr|
+                #![trigger Self::new_pt(paddr)]
+                {
+                    &&& Self::new_pt(paddr).is_present()
+                    &&& (paddr < MAX_PADDR ==> Self::new_pt(paddr).paddr() == paddr & !((PAGE_SIZE
+                        - 1) as usize))
+                    &&& (paddr < MAX_PADDR && paddr % PAGE_SIZE == 0 ==> Self::new_pt(paddr).paddr()
+                        == paddr)
+                    &&& forall|level: PagingLevel| !Self::new_pt(paddr).is_last(level)
+                },
+    ;
+
+    proof fn lemma_paddr_is_page_aligned(self)
+        ensures
+            self.paddr() % PAGE_SIZE == 0,
+    ;
 }
 
 /// Loads a page table entry with an atomic instruction.

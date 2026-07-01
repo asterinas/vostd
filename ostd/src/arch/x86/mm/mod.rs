@@ -677,7 +677,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 }
 
-
 impl PageTableEntry {
     pub closed spec fn raw_set_prop_spec(old_raw: usize, prop: PageProperty) -> usize {
         old_raw & !Self::PROP_MASK | PageProperty::encode_prop_flags_spec(prop)
