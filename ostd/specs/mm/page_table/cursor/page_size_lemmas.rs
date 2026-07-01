@@ -80,7 +80,6 @@ pub proof fn lemma_page_size_multiple_of_page_size(level: PagingLevel)
 }
 
 /// For any level in [1, NR_LEVELS+1], the page size is at least PAGE_SIZE.
-#[verifier::spinoff_prover]
 pub proof fn lemma_page_size_ge_page_size(level: PagingLevel)
     requires
         1 <= level <= NR_LEVELS + 1,

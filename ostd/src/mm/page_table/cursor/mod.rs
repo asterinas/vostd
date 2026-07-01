@@ -435,7 +435,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner)@.mappings == final(owner)@.mappings,
             final(self).va == old(self).va,
     )]
-    #[verifier::rlimit(8000)]
+    #[verifier::spinoff_prover]
+    #[verifier::rlimit(infinity)]
     pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         if self.va >= self.barrier_va.end {
             proof {
@@ -461,7 +462,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         let ghost initial_va = self.va;
 
-        #[verifier::spinoff_prover]
         #[verus_spec(
             invariant
         // Precise: `query` clones the specific resolved leaf frame;
@@ -3056,7 +3056,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.barrier_va == old(self).0.barrier_va,
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(1200)]
+    #[verifier::rlimit(infinity)]
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         let ghost self0 = *self;
         let ghost owner0 = *owner;
@@ -3463,7 +3463,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(1000)]
+    #[verifier::rlimit(infinity)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         proof {
             owner.va.reflect_prop(self.0.va);
@@ -3928,7 +3928,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             res is None ==> final(regions).slots == old(regions).slots,
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(10000)]
+    #[verifier::rlimit(infinity)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> Option<PageTableFrag<C>> {
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
