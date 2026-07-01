@@ -1181,7 +1181,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
-                list_own.list.len() as int - 1
+                list_own.list.len() - 1
             } else {
                 0
             },
@@ -1196,7 +1196,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
-                list_own.list.len() as int - 1
+                list_own.list.len() - 1
             } else {
                 0
             },
