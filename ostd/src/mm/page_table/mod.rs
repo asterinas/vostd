@@ -380,8 +380,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
-            0 <= pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS())
-                <= Self::C::ADDRESS_WIDTH(),
+            0 <= pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) <= Self::C::ADDRESS_WIDTH(),
             pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
@@ -427,8 +426,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
-            0 <= pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS())
-                <= Self::C::ADDRESS_WIDTH(),
+            0 <= pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) <= Self::C::ADDRESS_WIDTH(),
             pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
@@ -1097,7 +1095,7 @@ pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLe
 fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
     requires
         1 <= level <= NR_LEVELS,
-    returns 
+    returns
         pte_index_bit_offset_spec::<C>(level),
 {
     proof {
