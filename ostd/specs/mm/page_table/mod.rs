@@ -949,15 +949,13 @@ impl AbstractVaddr {
                 assert(prev_aligned.leading_bits == self.leading_bits);
                 assert(self.offset == 0);
 
-                assert(prev_aligned.to_vaddr() + (NR_ENTRIES - 1) * ps
-                    == self.to_vaddr() as int);
+                assert(prev_aligned.to_vaddr() + (NR_ENTRIES - 1) * ps == self.to_vaddr() as int);
 
                 // Now: prev_aligned.to_vaddr() + page_size(level + 1) == self.to_vaddr() + ps.
                 assert(prev_aligned.to_vaddr() + ps1 as int == self.to_vaddr() + ps)
                     by (nonlinear_arith)
                     requires
-                        prev_aligned.to_vaddr() + (NR_ENTRIES - 1) * ps
-                            == self.to_vaddr() as int,
+                        prev_aligned.to_vaddr() + (NR_ENTRIES - 1) * ps == self.to_vaddr() as int,
                         ps1 as int == NR_ENTRIES * ps,
                 ;
                 assert(prev_aligned.to_vaddr() + page_size((level + 1) as PagingLevel)
@@ -1091,8 +1089,7 @@ impl AbstractVaddr {
                 assert(self.to_vaddr() == (NR_ENTRIES - 1) * ps + self.leading_bits
                     * 0x1_0000_0000_0000int);
                 assert(NR_ENTRIES * ps == 0x1_0000_0000_0000int) by (compute);
-                assert(advanced_top.to_vaddr() as int == self.to_vaddr() + ps)
-                    by (nonlinear_arith)
+                assert(advanced_top.to_vaddr() as int == self.to_vaddr() + ps) by (nonlinear_arith)
                     requires
                         advanced_top.to_vaddr() as int == (self.leading_bits + 1)
                             * 0x1_0000_0000_0000int,

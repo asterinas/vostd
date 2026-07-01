@@ -317,8 +317,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         path.inv(),
         path.len() <= INC_LEVELS - 1,
     ensures
-        vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int
-            * 0x1_0000_0000_0000int,
+        vaddr_of::<C>(path) == vaddr(path) + C::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int,
 {
     C::lemma_page_table_config_constant_properties();
     lemma_vaddr_strict_bound(path);
@@ -998,8 +997,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(rec_vaddr(pt, 2) == 0);
             assert(rec_vaddr(pt, 1) == vaddr_make::<NR_LEVELS>(1, i) as usize);
             assert(vaddr_make::<NR_LEVELS>(1, i) == 0x4000_0000usize * i) by (compute);
-            assert(rec_vaddr(pt, 0) == (0x80_0000_0000usize * i0) + (0x4000_0000usize
-                * i) as int);
+            assert(rec_vaddr(pt, 0) == (0x80_0000_0000usize * i0) + (0x4000_0000usize * i) as int);
             assert(page_size(3) == 0x4000_0000usize);
             assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * (i + 1) <= usize::MAX)
                 by (nonlinear_arith)
@@ -1178,8 +1176,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             // counterparts, and the `vaddr` identity above lifts directly.
             lemma_vaddr_of_eq_int::<C>(path);
             lemma_vaddr_of_eq_int::<C>(path.push_tail(i as usize));
-            assert(vaddr_of::<C>(path.push_tail(i as usize)) == vaddr_of::<C>(path) as int
-                + i * child_ps);
+            assert(vaddr_of::<C>(path.push_tail(i as usize)) == vaddr_of::<C>(path) as int + i
+                * child_ps);
             assert(i * child_ps + child_ps == (i + 1) * child_ps) by (nonlinear_arith);
             assert(m.va_range.end <= vaddr_of::<C>(path) + (i + 1) * child_ps);
             assert(m.va_range.end <= vaddr_of::<C>(path) + parent_ps);
