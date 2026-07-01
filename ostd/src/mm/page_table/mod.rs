@@ -370,17 +370,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// FIXME： General architecture support. Move properties only relevant to paging constants to `PagingConstsTrait`.
     proof fn lemma_page_table_config_constant_requirements()
         ensures
-            Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ),
+            Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
                 (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset::<Self::C>(
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
-            Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) as nat,
             ) <= usize::MAX,
@@ -392,7 +387,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) as nat,
             )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
                 &&& 48 <= Self::C::ADDRESS_WIDTH()
-                &&& Self::C::ADDRESS_WIDTH() < usize::BITS
                 &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
                     - pow2(Self::C::ADDRESS_WIDTH() as nat)
             },
@@ -414,17 +408,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::TOP_LEVEL_INDEX_RANGE().end <= NR_ENTRIES,
             // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
             // so that we only need to call this lemma in proofs.
-            Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
-                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset::<Self::C>(
-                    Self::C::NR_LEVELS(),
-                )) as nat,
-            ),
+            Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
                 (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset::<Self::C>(
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
-            Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) as nat,
             ) <= usize::MAX,
@@ -436,7 +425,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) as nat,
             )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
                 &&& 48 <= Self::C::ADDRESS_WIDTH()
-                &&& Self::C::ADDRESS_WIDTH() < usize::BITS
                 &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
                     - pow2(Self::C::ADDRESS_WIDTH() as nat)
             },
@@ -769,6 +757,7 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
 
     proof {
         lemma_vaddr_range_bounds_spec_unfold::<C>();
+        C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
             start,
@@ -780,7 +769,6 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
     let sign_bit_set = sign_bit_of_va::<C>(pt_start);
     if va_sign_ext && sign_bit_set {
         proof {
-            C::lemma_page_table_config_constant_properties();
             let off = pte_index_bit_offset::<C>(C::NR_LEVELS()) as nat;
             let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
             let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
@@ -794,7 +782,6 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
             // The if-condition was false, so either va_sign_ext is false
             // or sign_bit_set is false. The contrapositive of the
             // leading-bits requirement gives LEADING_BITS == 0.
-            C::lemma_page_table_config_constant_properties();
             assert(!va_sign_ext || !sign_bit_set);
             // Bridge exec bool to spec form. `va_sign_ext == C::VA_SIGN_EXT()`
             // by `when_used_as_spec`; `sign_bit_set == ((pt_start as int /
