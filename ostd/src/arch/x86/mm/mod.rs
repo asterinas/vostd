@@ -218,6 +218,15 @@ unsafe impl Pod for PageTableEntry {
 }
 
 impl PageTableEntry {
+    pub proof fn lemma_layout()
+        ensures
+            core::mem::size_of::<PageTableEntry>() == 8,
+            core::mem::align_of::<PageTableEntry>() == 8,
+            core::mem::size_of::<PageTableEntry>() % core::mem::align_of::<PageTableEntry>() == 0,
+    {
+        broadcast use VERUS_layout_of_PageTableEntry;
+    }
+
     pub closed spec fn default_spec() -> Self {
         Self(0)
     }
