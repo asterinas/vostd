@@ -64,6 +64,37 @@ use crate::{
 
 verus! {
 
+proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usize)
+    requires
+        align > 0,
+        start % align == 0,
+        len % align == 0,
+    ensures
+        (start as int + i as int * len as int) % align as int == 0,
+{
+    let a = align as int;
+    let q_start = start as int / a;
+    let q_len = len as int / a;
+    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, a);
+    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
+    assert(start as int % a == 0);
+    assert(len as int % a == 0);
+    assert(start as int == q_start * a);
+    assert(len as int == q_len * a);
+    assert((q_start + i as int * q_len) * a == q_start * a + (i as int * q_len) * a) by (nonlinear_arith);
+    assert((i as int * q_len) * a == i as int * (q_len * a)) by (nonlinear_arith);
+    assert(i as int * (q_len * a) == i as int * len as int) by (nonlinear_arith)
+        requires
+            len as int == q_len * a,
+    ;
+    assert(q_start * a + i as int * len as int == start as int + i as int * len as int) by (nonlinear_arith)
+        requires
+            start as int == q_start * a,
+    ;
+    assert(start as int + i as int * len as int == (q_start + i as int * q_len) * a);
+    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i as int * q_len, a);
+}
+
 /// Verus spec stub for [`<*mut T>::is_aligned`]: returns whether the pointer's address is a
 /// multiple of `align_of::<T>()`.
 pub assume_specification<T>[ <*mut T>::is_aligned ](_0: *mut T) -> (res: bool)
@@ -490,16 +521,9 @@ impl<'a> VmWriter<'a, Infallible> {
                         len > 0,
                 ;
                 // alignment: cursor_i.vaddr == start + i*len, both summands divisible by align.
-                let alignT = core::mem::align_of::<T>() as int;
-                // Bridge usize invariants to int.
-                // (i*len) % alignT == ((i % alignT) * (len % alignT)) % alignT == 0.
-                ::vstd::arithmetic::div_mod::lemma_mul_mod_noop(i as int, len as int, alignT);
-                // ((start + i*len)) % alignT == ((start % alignT) + ((i*len) % alignT)) % alignT == 0.
-                ::vstd::arithmetic::div_mod::lemma_add_mod_noop(
-                    start as int,
-                    i as int * len as int,
-                    alignT,
-                );
+                assert(cursor_i.vaddr == start + i * len);
+                lemma_add_aligned_stride(start, i, len, core::mem::align_of::<T>());
+                assert(cursor_i.vaddr % core::mem::align_of::<T>() == 0);
             }
         }
 

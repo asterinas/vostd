@@ -683,6 +683,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// rewired to point at the inserted link. Mirror of
     /// [`pop_preserves_relate_region`].
     #[verifier::spinoff_prover]
+    #[verifier::rlimit(60)]
     pub proof fn insert_preserves_relate_region(
         old: LinkedListOwner<M>,
         r0: MetaRegionOwners,
