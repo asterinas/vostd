@@ -81,13 +81,15 @@ proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usi
     assert(len as int % a == 0);
     assert(start as int == q_start * a);
     assert(len as int == q_len * a);
-    assert((q_start + i as int * q_len) * a == q_start * a + (i as int * q_len) * a) by (nonlinear_arith);
+    assert((q_start + i as int * q_len) * a == q_start * a + (i as int * q_len) * a)
+        by (nonlinear_arith);
     assert((i as int * q_len) * a == i as int * (q_len * a)) by (nonlinear_arith);
     assert(i as int * (q_len * a) == i as int * len as int) by (nonlinear_arith)
         requires
             len as int == q_len * a,
     ;
-    assert(q_start * a + i as int * len as int == start as int + i as int * len as int) by (nonlinear_arith)
+    assert(q_start * a + i as int * len as int == start as int + i as int * len as int)
+        by (nonlinear_arith)
         requires
             start as int == q_start * a,
     ;
