@@ -1140,7 +1140,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         {
             proof {
                 C::lemma_page_table_config_constant_requirements();
-                C::lemma_paging_consts_requirements();
+                C::lemma_paging_consts_properties();
                 // Prove required facts while we still have new_owner.value.node available.
                 let ghost the_node = new_owner.value.node();
 

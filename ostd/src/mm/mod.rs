@@ -120,6 +120,12 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::VA_SIGN_EXT(),
     ;
 
+    /// The requirements of the paging constants so that the memory management system can work correctly.
+    ///
+    /// NOTE: The postcondition is designed to be minimal, to actually be used in proofs, call `lemma_paging_consts_properties`
+    /// instead to get all the properties that are derived from the requirements.
+    ///
+    /// FIXME： General architecture support.
     /// All configs in vostd use the same value for the per-config
     /// `NR_LEVELS()` as the architecture-level constant `NR_LEVELS`
     /// (= 4 for x86_64). This is *implicit* in the cursor framework:
@@ -137,15 +143,31 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::NR_LEVELS() > 0,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
-            // FIXME: remove this once we have a more general
+            // The following statement holds for all architectures,
+            // but the actual value of the constants may vary.
             Self::BASE_PAGE_SIZE() == PAGE_SIZE,
             Self::NR_LEVELS() == NR_LEVELS,
             Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
     ;
 
-    proof fn lemma_paging_consts_derived_properties()
+    /// The derived properties of the paging constants.
+    ///
+    /// NOTE: Implementations of `PagingConstsTrait` do not need to implement this lemma, the proof is automatically inherited from the default implementation.
+    proof fn lemma_paging_consts_properties()
         ensures
             0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            // Copied from the postcondition of `lemma_paging_consts_requirements`
+            // so that we only need to call this lemma in proofs.
+            0 < Self::BASE_PAGE_SIZE(),
+            is_pow2(Self::BASE_PAGE_SIZE() as int),
+            Self::NR_LEVELS() > 0,
+            is_pow2(Self::PTE_SIZE() as int),
+            0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            // The following statement holds for all architectures,
+            // but the actual value of the constants may vary.
+            Self::BASE_PAGE_SIZE() == PAGE_SIZE,
+            Self::NR_LEVELS() == NR_LEVELS,
+            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
     {
         Self::lemma_paging_consts_requirements();
         broadcast use group_div_basics;
@@ -190,7 +212,7 @@ pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
         res == nr_subpage_per_huge_spec::<C>(),
 {
     proof {
-        C::lemma_paging_consts_requirements();
+        C::lemma_paging_consts_properties();
     }
     C::BASE_PAGE_SIZE() / C::PTE_SIZE()
 }

@@ -377,7 +377,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
-            0 <= pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) <= Self::C::ADDRESS_WIDTH(),
+            0 <= pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS())
+                <= Self::C::ADDRESS_WIDTH(),
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
             0 < Self::C::ADDRESS_WIDTH() <= usize::BITS,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
@@ -516,7 +517,7 @@ pub fn nr_pte_index_bits<C: PagingConstsTrait>() -> (res: usize)
         res == nr_pte_index_bits_spec::<C>(),
 {
     proof {
-        C::lemma_paging_consts_derived_properties();
+        C::lemma_paging_consts_properties();
     }
     nr_subpage_per_huge::<C>().ilog2() as usize
 }
@@ -525,7 +526,7 @@ pub proof fn lemma_nr_pte_index_bits_bounded<C: PagingConstsTrait>()
     ensures
         0 <= nr_pte_index_bits::<C>() <= C::BASE_PAGE_SIZE().ilog2(),
 {
-    C::lemma_paging_consts_derived_properties();
+    C::lemma_paging_consts_properties();
     let nr = nr_subpage_per_huge::<C>();
     assert(1 <= nr <= C::BASE_PAGE_SIZE());
     let bits = nr.ilog2();
@@ -600,7 +601,7 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
         ret == C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
     proof {
-        C::lemma_paging_consts_requirements();
+        C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_requirements();
     }
 
@@ -616,7 +617,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
 {
     let idx_start = C::TOP_LEVEL_INDEX_RANGE().start;
     proof {
-        C::lemma_paging_consts_requirements();
+        C::lemma_paging_consts_properties();
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
 
@@ -646,7 +647,7 @@ fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
 {
     let idx_end = C::TOP_LEVEL_INDEX_RANGE().end;
     proof {
-        C::lemma_paging_consts_requirements();
+        C::lemma_paging_consts_properties();
     }
     let offset = pte_index_bit_offset::<C>(C::NR_LEVELS());
 
@@ -1000,7 +1001,7 @@ pub(crate) proof fn lemma_pte_index_consts<C: PagingConstsTrait>()
         nr_pte_index_bits::<C>() == 9usize,
         pow2(9) as usize == NR_ENTRIES,
 {
-    C::lemma_paging_consts_requirements();
+    C::lemma_paging_consts_properties();
     lemma2_to64();
     lemma_usize_pow2_ilog2(12);
     lemma_usize_pow2_ilog2(9);
