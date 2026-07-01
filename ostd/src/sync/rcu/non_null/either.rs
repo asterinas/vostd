@@ -318,6 +318,7 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
         }
     }
 
+    #[verifier::spinoff_prover]
     fn ref_as_raw(ptr_ref: Self::Ref) -> (NonNull<Self::Target>, Tracked<Self::RefPermission>) {
         proof!{
             Self::lemma_align_bits_range();

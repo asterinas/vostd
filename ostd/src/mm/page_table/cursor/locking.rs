@@ -109,6 +109,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
             CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
             CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
 )]
+#[verifier::spinoff_prover]
 pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     pt: &'rcu PageTable<C>,
     guard: &'rcu A,

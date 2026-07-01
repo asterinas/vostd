@@ -921,6 +921,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(cursor_owner)@.unmap_spec(len, final(cursor_owner)@, r),
             final(tlb_model).inv(),
     )]
+    #[verifier::spinoff_prover]
     pub fn unmap(&mut self, len: usize) -> usize {
         proof {
             cursor_owner.va.reflect_prop(self.pt_cursor.0.va);

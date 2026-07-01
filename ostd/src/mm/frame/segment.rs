@@ -577,6 +577,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             r.0.invariants(&result_owners.0@, *final(regions)),
             r.1.invariants(&result_owners.1@, *final(regions)),
     )]
+    #[verifier::spinoff_prover]
     pub fn split(self, offset: usize) -> (Self, Self) {
         assert!(offset % PAGE_SIZE == 0);
         assert!(0 < offset && offset < self.size());
@@ -724,6 +725,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
             final(regions).frame_obligations == old(regions).frame_obligations,
     )]
+    #[verifier::spinoff_prover]
     #[verifier::loop_isolation(false)]
     pub fn slice(&self, range: &Range<usize>) -> Self {
         // KNOWN BUG: potential overflows https://github.com/asterinas/asterinas/issues/3165
