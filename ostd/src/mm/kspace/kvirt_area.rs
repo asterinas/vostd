@@ -129,8 +129,7 @@ pub open spec fn sum_page_sizes_spec(elems: Seq<(Paddr, u8)>, from: int, to: int
 /// `sum(from, to+1) == sum(from, to) + page_size(elems[to])`.
 proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int)
     requires
-        0 <= from <= to,
-        to < elems.len() as int,
+        0 <= from <= to < elems.len(),
     ensures
         sum_page_sizes_spec(elems, from, to + 1) == sum_page_sizes_spec(elems, from, to)
             + page_size(elems[to].1) as nat,
@@ -148,8 +147,7 @@ proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int
 /// `sum(from, to1) <= sum(from, to2)` when `to1 <= to2`.
 proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: int)
     requires
-        0 <= from <= to1 <= to2,
-        to2 <= elems.len() as int,
+        0 <= from <= to1 <= to2 <= elems.len(),
     ensures
         sum_page_sizes_spec(elems, from, to1) <= sum_page_sizes_spec(elems, from, to2),
     decreases to2 - to1,
