@@ -1082,8 +1082,8 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
 }
 
 #[verifier::inline]
-pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> int {
-    C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits::<C>() * (level as int - 1)
+pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {
+    (C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits::<C>() * (level as int - 1)) as usize
 }
 
 /// The bit offset of the entry offset part in a virtual address.
@@ -1092,7 +1092,7 @@ pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLe
 /// x86-64 as an example, the `pte_index_bit_offset(2)` should return 21, which
 /// is 12 (the 4KiB in-page offset) plus 9 (index width in the level-1 table).
 #[verifier::when_used_as_spec(pte_index_bit_offset_spec)]
-fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
+pub fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
     requires
         1 <= level <= NR_LEVELS,
     returns
