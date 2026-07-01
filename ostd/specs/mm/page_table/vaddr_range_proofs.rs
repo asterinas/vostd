@@ -27,7 +27,8 @@ pub proof fn lemma_pt_va_range_start_shift_facts<C: PageTableConfig>(
         idx_start * pow2(offset as nat) <= usize::MAX,
         offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_paging_consts_properties();
+    C::lemma_page_table_config_constant_properties();
     vstd::layout::unsigned_int_max_values();
 
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
@@ -65,7 +66,8 @@ pub proof fn lemma_pt_va_range_end_shift_facts<C: PageTableConfig>(idx_end: usiz
         0 < idx_end * pow2(offset as nat),
         offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
 {
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_paging_consts_properties();
+    C::lemma_page_table_config_constant_properties();
     lemma_pow2_pos(offset as nat);
 
     let i_end = C::TOP_LEVEL_INDEX_RANGE_spec().end as int;
@@ -116,7 +118,8 @@ pub proof fn lemma_sign_bit_facts<C: PageTableConfig>(
     ensures
         (bit != 0) == ((va as int / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1),
 {
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_paging_consts_properties();
+    C::lemma_page_table_config_constant_properties();
 
     vstd::bits::lemma_usize_shr_is_div(va, shift);
     vstd::bits::lemma_usize_low_bits_mask_is_mod(shifted, 1);
@@ -147,7 +150,8 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
             pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) as int) - 1,
 {
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_paging_consts_properties();
+    C::lemma_page_table_config_constant_properties();
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
     let aw = C::ADDRESS_WIDTH() as nat;
     let top_w = (aw as int - off as int) as nat;
@@ -176,7 +180,7 @@ pub proof fn lemma_idx_times_pow2_bound<C: PageTableConfig>(start: Vaddr, end: V
             i_end <= p_top,
             p_off > 0,
     ;
-    // i_end > 0 — from `lemma_page_table_config_constant_requirements`'s
+    // i_end > 0 — from `lemma_page_table_config_constant_properties`'s
     // `idx.start < idx.end` plus `idx.start >= 0` (usize).
     assert(e_pre > 0) by (nonlinear_arith)
         requires

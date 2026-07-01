@@ -827,6 +827,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// - **Safety Invariants**: The node allocated in place of the split page satisfies the safety invariants.
     /// - **Safety**: All other nodes have their invariants preserved.
     #[verifier::spinoff_prover]
+    #[verifier::rlimit(infinity)]
     #[verus_spec(res =>
         with Tracked(owner) : Tracked<&mut OwnerSubtree<C>>,
              Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
@@ -1139,8 +1140,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     == set![new_owner_path],
         {
             proof {
-                C::lemma_page_table_config_constant_requirements();
-                C::lemma_paging_consts_requirements();
+                C::lemma_page_table_config_constant_properties();
+                C::lemma_paging_consts_properties();
                 // Prove required facts while we still have new_owner.value.node available.
                 let ghost the_node = new_owner.value.node();
 

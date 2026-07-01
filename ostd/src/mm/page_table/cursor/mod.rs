@@ -351,7 +351,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         PageTableError,
     > {
         proof {
-            C::lemma_paging_consts_requirements();
+            C::lemma_paging_consts_properties();
         }
 
         let valid = is_valid_range::<C>(va);
@@ -1077,7 +1077,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 }
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
-                                C::lemma_paging_consts_requirements();
+                                C::lemma_paging_consts_properties();
                                 assert((self.level as int) < NR_LEVELS as int);
                             }
                         }

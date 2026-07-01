@@ -2843,7 +2843,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
                 &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
             },
 {
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_paging_consts_properties();
+    C::lemma_page_table_config_constant_properties();
     crate::mm::page_table::lemma_pte_index_consts::<C>();
     lemma_vaddr_range_bounds_spec_unfold::<C>();
     vstd::arithmetic::power2::lemma2_to64();

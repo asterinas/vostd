@@ -106,6 +106,13 @@ impl PagingConstsTrait for PagingConsts {
     proof fn lemma_paging_consts_requirements()
     {
         lemma_pow2_is_pow2_to64();
+        lemma2_to64();
+        lemma2_to64_rest();
+        assert(usize::BITS == 64) by (compute);
+        vstd::layout::unsigned_int_max_values();
+        lemma_usize_pow2_ilog2(12);
+        lemma_usize_pow2_ilog2(9);
+        lemma_pow2_adds(9, 39);
     }
 }
 
@@ -218,6 +225,15 @@ unsafe impl Pod for PageTableEntry {
 }
 
 impl PageTableEntry {
+    pub proof fn lemma_layout()
+        ensures
+            core::mem::size_of::<PageTableEntry>() == 8,
+            core::mem::align_of::<PageTableEntry>() == 8,
+            core::mem::size_of::<PageTableEntry>() % core::mem::align_of::<PageTableEntry>() == 0,
+    {
+        broadcast use VERUS_layout_of_PageTableEntry;
+    }
+
     pub closed spec fn default_spec() -> Self {
         Self(0)
     }
@@ -676,7 +692,6 @@ impl PageTableEntryTrait for PageTableEntry {
         lemma_auxiliary_bit_properties(self.0);
     }
 }
-
 
 impl PageTableEntry {
     pub closed spec fn raw_set_prop_spec(old_raw: usize, prop: PageProperty) -> usize {

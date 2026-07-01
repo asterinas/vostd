@@ -277,14 +277,18 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    axiom fn axiom_pte_size_eq_size_of();
-
-    proof fn lemma_pte_walk_fills_page() {
-        Self::lemma_page_table_config_constant_requirements();
-        Self::axiom_pte_size_eq_size_of();
+    proof fn lemma_pte_size_eq_size_of() {
+        PageTableEntry::lemma_layout();
     }
 
-    axiom fn axiom_pte_align_divides_size();
+    proof fn lemma_pte_walk_fills_page() {
+        Self::lemma_page_table_config_constant_properties();
+        Self::lemma_pte_size_eq_size_of();
+    }
+
+    proof fn lemma_pte_align_divides_size() {
+        PageTableEntry::lemma_layout();
+    }
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 

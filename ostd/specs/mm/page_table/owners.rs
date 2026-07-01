@@ -320,7 +320,7 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
         vaddr_of::<C>(path) as int == vaddr(path) as int + C::LEADING_BITS_spec() as int
             * 0x1_0000_0000_0000int,
 {
-    C::lemma_page_table_config_constant_requirements();
+    C::lemma_page_table_config_constant_properties();
     lemma_vaddr_strict_bound(path);
     let lb = C::LEADING_BITS_spec() as int;
     let v = vaddr(path) as int;
@@ -1663,7 +1663,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
             // Bridge `vaddr_of(path) as int == vaddr(path) + LB * 2^48`.
             lemma_vaddr_of_eq_int::<C>(path);
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
             lemma_vaddr_strict_bound(path);
             let lb = C::LEADING_BITS_spec() as int;
             vstd::arithmetic::power2::lemma2_to64();
