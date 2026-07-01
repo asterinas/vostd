@@ -1,5 +1,5 @@
 use vstd::atomic::*;
-use vstd::cell;
+
 use vstd::prelude::*;
 use vstd::seq_lib::*;
 use vstd::set_lib::*;

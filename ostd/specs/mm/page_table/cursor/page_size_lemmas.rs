@@ -1,5 +1,5 @@
 use crate::specs::arch::*;
-use vstd::arithmetic::power2::pow2;
+
 use vstd::prelude::*;
 
 use crate::arch::mm::PagingConsts;

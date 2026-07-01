@@ -6,8 +6,7 @@ use vstd::arithmetic::power2::pow2;
 use vstd::seq::*;
 use vstd::seq_lib::*;
 use vstd::set_lib::*;
-use vstd_extra::array_ptr;
-use vstd_extra::cast_ptr::Repr;
+
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;

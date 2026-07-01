@@ -17,9 +17,9 @@ use crate::specs::mm::io::{VmIoMemView, VmIoOwner};
 use crate::specs::mm::page_table::cursor::CursorView;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
-use crate::specs::mm::page_table::{Guards, Mapping, OwnerSubtree, PageTableOwner, PageTableView};
-use crate::specs::mm::tlb::TlbModel;
-use crate::specs::mm::virt_mem::{FrameContents, MemView};
+use crate::specs::mm::page_table::{Mapping, OwnerSubtree};
+
+use crate::specs::mm::virt_mem::MemView;
 use crate::specs::task::InAtomicMode;
 
 verus! {

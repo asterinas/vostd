@@ -15,10 +15,8 @@ use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
-use vstd::layout;
 use vstd::raw_ptr;
 use vstd::set;
-use vstd::set_lib;
 
 use core::marker::PhantomData;
 use core::ops::Range;

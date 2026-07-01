@@ -2,7 +2,6 @@
 //! TLB flush operations.
 use vstd::prelude::*;
 
-use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
 
 use alloc::vec::Vec;
@@ -17,8 +16,7 @@ use super::{
 };
 
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu};
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
-use crate::specs::mm::page_table::Mapping;
+
 use crate::specs::mm::tlb::TlbModel;
 
 /*use crate::{

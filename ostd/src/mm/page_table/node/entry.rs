@@ -2,8 +2,6 @@
 //! This module provides accessors to the page table entries in a node.
 use vstd::prelude::*;
 
-use vstd_extra::cast_ptr;
-use vstd_extra::drop_tracking::ManuallyDrop;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
@@ -18,7 +16,6 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::{
     mapping::{frame_to_index, group_page_meta},
-    meta_owners::MetaSlotOwner,
     meta_region_owners::MetaRegionOwners,
 };
 use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};

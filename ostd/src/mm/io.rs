@@ -39,7 +39,7 @@
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
 use crate::arch::mm::{__memcpy_fallible, __memset_fallible};
-use crate::specs::arch::PAGE_SIZE;
+
 use core::marker::PhantomData;
 use core::ops::Range;
 use vstd::arithmetic::power2::is_pow2;

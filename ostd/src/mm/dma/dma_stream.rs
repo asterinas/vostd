@@ -2,7 +2,7 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{predicate::Predicate, prelude::*};
-use vstd_extra::array_ptr::{ArrayPtr, PointsToArray};
+
 use vstd_extra::external::convert::AsRefSpec;
 use vstd_extra::ownership::{Inv, OwnerOf};
 

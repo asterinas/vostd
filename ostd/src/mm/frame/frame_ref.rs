@@ -9,11 +9,9 @@ use vstd_extra::prelude::*;
 
 use crate::mm::frame::MetaPerm;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
-use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
+
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, max_meta_slots},
-    meta_owners::MetaSlotStorage,
-    meta_region_owners::MetaRegionOwners,
+    mapping::frame_to_index, meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners,
 };
 
 use super::{

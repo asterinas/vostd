@@ -7,7 +7,7 @@ use crate::arch::mm::PagingConsts;
 use crate::mm::frame::meta::mapping::meta_to_frame;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::Guards;
 use crate::specs::mm::Mapping;
 use crate::specs::mm::MetaRegionOwners;
@@ -17,12 +17,8 @@ use crate::specs::mm::page_table::node::EntryOwner;
 use crate::specs::mm::page_table::owners::{INC_LEVELS, OwnerSubtree, PageTableOwner};
 
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_divides, lemma_page_size_ge_page_size,
-};
-use vstd_extra::arithmetic::{
-    lemma_nat_align_down_sound, lemma_nat_align_down_within_block, nat_align_down, nat_align_up,
-};
+use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size;
+use vstd_extra::arithmetic::{lemma_nat_align_down_sound, nat_align_down};
 
 use core::ops::Range;
 

@@ -3,7 +3,7 @@
 use vstd::modes::tracked_swap;
 use vstd::prelude::*;
 use vstd::proph::ProphecyGhost;
-use vstd::simple_pptr;
+
 use vstd::std_specs::iter::{IteratorSpec, IteratorSpecImpl};
 use vstd_extra::assert;
 use vstd_extra::cast_ptr::*;
