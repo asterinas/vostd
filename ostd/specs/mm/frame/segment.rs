@@ -104,6 +104,7 @@ pub open spec fn seg_nframes(range: Range<Paddr>) -> int {
     (range.end - range.start) / PAGE_SIZE as int
 }
 
+// FIXME: is this necessary?
 pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     /// The physical-address range of the segment that this owner corresponds to.
     ///
@@ -163,22 +164,13 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                 // Per-frame linear-drop: the segment holds one (forgotten)
                 // reference per frame, recorded as a `frame_obligations` count.
-                // Combined with the boundary `clean_inv()` (which requires the
-                // multiset empty), this gates `Segment::drop`'s per-frame
-                // redeem against a genuine outstanding entry — the per-frame
-                // analogue of the old `obligations.contains(range)` check.
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(
-                    idx,
-                )
-                // Borrow-protocol transition: `raw_count` is dormant.
+                &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
-                // Segment frames are shared (never `UNIQUE`); the upper
-                // bound also keeps post-`fetch_sub` out of the forbidden
-                // `(REF_COUNT_MAX, REF_COUNT_UNIQUE)` zone.
+                // Segment frames are shared (never `UNIQUE`).
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 // A segment holds its frames as a unit; they are not

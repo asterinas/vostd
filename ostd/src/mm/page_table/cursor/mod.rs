@@ -435,7 +435,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner)@.mappings == final(owner)@.mappings,
             final(self).va == old(self).va,
     )]
-    #[verifier::rlimit(8000)]
+    #[verifier::spinoff_prover]
+    #[verifier::rlimit(infinity)]
     pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         if self.va >= self.barrier_va.end {
             proof {
@@ -461,7 +462,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         let ghost initial_va = self.va;
 
-        #[verifier::spinoff_prover]
         #[verus_spec(
             invariant
         // Precise: `query` clones the specific resolved leaf frame;
@@ -936,6 +936,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // If the found entry is past old_va, old_va was not covered by any mapping.
             res is Some && final(self).va > old(self).va ==> !old(owner)@.present(),
     )]
+    #[verifier::spinoff_prover]
     fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<
         Vaddr,
     > {
@@ -1513,6 +1514,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             },
             !(final(self).barrier_va.start <= va < final(self).barrier_va.end) ==> res is Err,
     )]
+    #[verifier::spinoff_prover]
     pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError> {
         assert_eq!(va % PAGE_SIZE, 0);
 
@@ -1657,6 +1659,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 #![trigger final(regions).slot_owners[idx]]
                 final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
     )]
+    #[verifier::spinoff_prover]
     fn move_forward(&mut self) {
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
@@ -1817,6 +1820,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).in_locked_range() ==> final(owner).in_locked_range(),
             *final(regions) == *old(regions),
     )]
+    #[verifier::spinoff_prover]
     fn pop_level(&mut self) {
         let taken = self.path[self.level as usize - 1].take().unwrap_or_panic();
         proof {
@@ -1908,6 +1912,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).max_steps() < old(owner).max_steps(),
             old(owner)@.mappings == final(owner)@.mappings,
     )]
+    #[verifier::spinoff_prover]
     fn push_level(&mut self, child_pt: PageTableGuard<'rcu, C>) {
         assert(owner.va.index.contains_key(owner.level - 2)) by {
             assert(owner.level >= 2 && owner.va.inv());
@@ -1971,6 +1976,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 *res.node,
             ),
     )]
+    #[verifier::spinoff_prover]
     fn cur_entry(&mut self) -> Entry<'_, 'rcu, C> {
         let ghost owner0 = *owner;
 
@@ -2107,6 +2113,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             *final(regions) == *old(regions),
             *final(guards) == *old(guards),
     )]
+    #[verifier::spinoff_prover]
     fn protect_cur_entry(&mut self, op: impl FnOnce(PageProperty) -> PageProperty) {
         proof {
             assert(self.0.wf(*owner));
@@ -2326,6 +2333,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
             !(final(self).0.barrier_va.start <= va < final(self).0.barrier_va.end) ==> res is Err,
     )]
+    #[verifier::spinoff_prover]
     pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError> {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.jump(va)
@@ -2410,6 +2418,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(owner)@ == old(owner)@,
             *final(regions) == *old(regions),
     )]
+    #[verifier::spinoff_prover]
     fn map_branch_pt(&mut self, pt: PageTableNodeRef<'rcu, C>, rcu_guard: &'rcu A) {
         let ghost guards0 = *guards;
 
@@ -2482,6 +2491,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             forall|idx: usize| #![trigger final(regions).slots.contains_key(idx)]
                 old(regions).slots.contains_key(idx) ==> final(regions).slots.contains_key(idx),
     )]
+    #[verifier::spinoff_prover]
     pub fn map_loop(&mut self, level: PagingLevel, rcu_guard: &'rcu A) {
         let ghost guard_level = self.0.guard_level;
         let ghost barrier_va = self.0.barrier_va;
@@ -3045,7 +3055,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.guard_level == old(self).0.guard_level,
             final(self).0.barrier_va == old(self).0.barrier_va,
     )]
-    #[verifier::rlimit(1200)]
+    #[verifier::spinoff_prover]
+    #[verifier::rlimit(infinity)]
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         let ghost self0 = *self;
         let ghost owner0 = *owner;
@@ -3452,7 +3463,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(1000)]
+    #[verifier::rlimit(infinity)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         proof {
             owner.va.reflect_prop(self.0.va);
@@ -3916,7 +3927,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // fully preserves `regions.slots`.
             res is None ==> final(regions).slots == old(regions).slots,
     )]
-    #[verifier::rlimit(10000)]
+    #[verifier::spinoff_prover]
+    #[verifier::rlimit(infinity)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> Option<PageTableFrag<C>> {
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 

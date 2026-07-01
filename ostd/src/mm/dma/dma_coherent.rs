@@ -2,7 +2,7 @@
 use core::marker::PhantomData;
 
 use vstd::{predicate::Predicate, prelude::*};
-use vstd_extra::array_ptr::{ArrayPtr, PointsToArray};
+
 use vstd_extra::ownership::{Inv, OwnerOf};
 
 use crate::{

@@ -1,7 +1,7 @@
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 use vstd::seq_lib::*;
-use vstd::set::{lemma_set_choose_len, lemma_set_contains_len};
+use vstd::set::lemma_set_contains_len;
 
 use vstd_extra::arithmetic::{
     lemma_nat_align_down_monotone, lemma_nat_align_down_sound, lemma_nat_align_down_within_block,
@@ -30,7 +30,7 @@ use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
 };
 use crate::specs::mm::page_table::owners::*;
-use crate::specs::mm::page_table::view::PageTableView;
+
 use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
 use crate::specs::mm::{
     frame::{mapping::meta_addr, meta_region_owners::MetaRegionOwners},

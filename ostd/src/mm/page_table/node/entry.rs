@@ -2,8 +2,6 @@
 //! This module provides accessors to the page table entries in a node.
 use vstd::prelude::*;
 
-use vstd_extra::cast_ptr;
-use vstd_extra::drop_tracking::ManuallyDrop;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
@@ -18,7 +16,6 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::{
     mapping::{frame_to_index, group_page_meta},
-    meta_owners::MetaSlotOwner,
     meta_region_owners::MetaRegionOwners,
 };
 use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
@@ -378,6 +375,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     == #[trigger] final(regions).slots[k],
             Self::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
     )]
+    #[verifier::spinoff_prover]
     pub(in crate::mm) fn replace(&mut self, new_child: Child<C>) -> Child<C> {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
         // For restoring `count_consistent` (the `nr_children == count_present`
@@ -612,6 +610,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i) && i != final(owner).value.node().meta_addr_self() ==> final(guards).unlocked(i),
     )]
+    #[verifier::spinoff_prover]
     pub(in crate::mm) fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
         PageTableGuard<'rcu, C>,
     > {
@@ -828,7 +827,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// - **Safety Invariants**: The node allocated in place of the split page satisfies the safety invariants.
     /// - **Safety**: All other nodes have their invariants preserved.
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(80)]
     #[verus_spec(res =>
         with Tracked(owner) : Tracked<&mut OwnerSubtree<C>>,
              Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
@@ -1595,6 +1593,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Entry::<C>::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
             *final(self) == *old(self),
     )]
+    #[verifier::spinoff_prover]
     pub(in crate::mm) fn replace_child(&mut self, idx: usize, new_child: Child<C>) -> Child<C> {
         #[cfg(feature = "allow_panic")]
         {

@@ -23,7 +23,7 @@ use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
 use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size;
 use crate::specs::mm::page_table::owners::*;
-use vstd_extra::arithmetic::{nat_align_down, nat_align_up};
+use vstd_extra::arithmetic::nat_align_down;
 
 verus! {
 
@@ -205,7 +205,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     // ─── Proofs: VA range / view ─────────────────────────────────────────
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(100)]
     pub proof fn cur_va_range_reflects_view(self)
         requires
             self.inv(),

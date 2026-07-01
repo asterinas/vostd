@@ -13,15 +13,14 @@ use crate::mm::paddr_to_vaddr;
 use crate::mm::page_table::PageTableGuard;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::owners::INC_LEVELS;
 
 use vstd_extra::array_ptr;
-use vstd_extra::cast_ptr::Repr;
-use vstd_extra::ghost_tree::TreePath;
+
 use vstd_extra::ownership::*;
 
 verus! {
