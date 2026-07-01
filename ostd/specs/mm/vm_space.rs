@@ -130,16 +130,14 @@ impl<'a> Inv for VmSpaceOwner {
                     }
                 &&& !self.shared_reader ==> forall|i, j: int|
                     #![trigger self.readers[i], self.readers[j]]
-                    0 <= i < self.readers.len() && 0 <= j < self.readers.len() && i
-                        != j ==> {
+                    0 <= i < self.readers.len() && 0 <= j < self.readers.len() && i != j ==> {
                         let r1 = self.readers[i];
                         let r2 = self.readers[j];
                         r1.disjoint(r2)
                     }
                 &&& forall|i, j: int|
                     #![trigger self.writers[i], self.writers[j]]
-                    0 <= i < self.writers.len() && 0 <= j < self.writers.len() && i
-                        != j ==> {
+                    0 <= i < self.writers.len() && 0 <= j < self.writers.len() && i != j ==> {
                         let w1 = self.writers[i];
                         let w2 = self.writers[j];
                         w1.disjoint(w2)
@@ -549,9 +547,7 @@ impl<'a> VmSpaceOwner {
                 }
             }
 
-            assert forall|i: int|
-                #![trigger self.writers[i]]
-                0 <= i < self.writers.len() implies {
+            assert forall|i: int| #![trigger self.writers[i]] 0 <= i < self.writers.len() implies {
                 let other_writer = self.writers[i];
 
                 &&& other_writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv))
@@ -569,8 +565,7 @@ impl<'a> VmSpaceOwner {
                     0 <= i < old(self).writers.len() ==> #[trigger] old(self).writers[i]
                         == other_writer);
                 assert(exists|i: int|
-                    0 <= i < old(self).writers.len() ==> #[trigger] old(self).writers[i]
-                        == writer);
+                    0 <= i < old(self).writers.len() ==> #[trigger] old(self).writers[i] == writer);
                 assert(mv.mappings.disjoint(writer_mv.mappings));
             }
         }

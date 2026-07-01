@@ -242,7 +242,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 // `lemma_mul_nonnegative` preconditions discharge in the body.
                 0 <= range_start,
                 range_start <= range_end,
-                range_end <= NR_ENTRIES as int,
+                range_end <= NR_ENTRIES,
                 reader.remain_spec() == post_skip_remain - iter_count * size_of_e,
                 post_skip_remain >= (range_end - range_start) * size_of_e,
                 regions.slots.dom() == initial_dom,
@@ -282,7 +282,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                 + range_start * size_of_e
                                 + j * size_of_e) as usize,
                         )]
-                        0 <= j < iter_count as int && {
+                        0 <= j < iter_count && {
                             let cj = (initial_reader.cursor.vaddr + range_start * size_of_e + j
                                 * size_of_e) as usize;
                             let pte_j = Self::walk_pte_at_view(initial_view, cj);
@@ -355,7 +355,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                         + range_start * size_of_e
                                         + j * size_of_e) as usize,
                                 )]
-                                0 <= j < iter_count as int && {
+                                0 <= j < iter_count && {
                                     let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
                                         + j * size_of_e) as usize;
                                     let pte_j = Self::walk_pte_at_view(initial_view, cj);

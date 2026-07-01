@@ -1200,7 +1200,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             sub_pages_per_subframe as int,
                         );
                         vstd::arithmetic::mul::lemma_mul_inequality(
-                            (i + 1) as int,
+                            i + 1,
                             NR_ENTRIES as int,
                             sub_pages_per_subframe as int,
                         );
@@ -1215,13 +1215,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             PAGE_SIZE as int,
                         );
                         vstd::arithmetic::div_mod::lemma_div_by_multiple(
-                            NR_ENTRIES as int * sub_pages_per_subframe as int,
+                            NR_ENTRIES * sub_pages_per_subframe,
                             PAGE_SIZE as int,
                         );
                         let big_j: usize = big_j_int as usize;
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
                             PAGE_SIZE as int,
-                            i as int * sub_pages_per_subframe as int,
+                            i * sub_pages_per_subframe,
                             j_prime as int,
                         );
                         vstd::arithmetic::mul::lemma_mul_is_associative(
@@ -1249,7 +1249,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // metaregion_sound frame arm shape.
                 if i == 0 {
                     // small_pa == pa + 0 * page_size(level-1) == pa.
-                    assert(i as int * page_size((level - 1) as PagingLevel) as int == 0) by {
+                    assert(i * page_size((level - 1) as PagingLevel) == 0) by {
                         vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
                             page_size((level - 1) as PagingLevel) as int,
                         );

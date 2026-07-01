@@ -355,12 +355,12 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                         let big = 1usize << l_align_bits;
                         let q = ptr_addr / big;
                         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ptr_addr as int, big as int);
-                        assert(ptr_addr as int == (q as int * scale as int) * tag as int) by (nonlinear_arith)
+                        assert(ptr_addr == (q * scale) * tag) by (nonlinear_arith)
                         requires
-                            ptr_addr as int == q as int * big as int,
+                            ptr_addr == q * big,
                             big == tag * scale,
                         ;
-                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q * scale, tag as int);
                     };
                     assert(ptr_addr & tag == 0) by (bit_vector)
                     requires
@@ -422,12 +422,12 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                         let big = 1usize << r_align_bits;
                         let q = ptr_addr / big;
                         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ptr_addr as int, big as int);
-                        assert(ptr_addr as int == (q as int * scale as int) * tag as int) by (nonlinear_arith)
+                        assert(ptr_addr == (q * scale) * tag) by (nonlinear_arith)
                         requires
-                            ptr_addr as int == q as int * big as int,
+                            ptr_addr == q * big,
                             big == tag * scale,
                         ;
-                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q * scale, tag as int);
                     };
                     assert(tagged_addr % tag == 0) by {
                         vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(ptr_addr as int, tag as int);
