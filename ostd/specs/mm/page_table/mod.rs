@@ -470,8 +470,8 @@ impl AbstractVaddr {
             1 <= level <= NR_LEVELS,
         ensures
             self.align_down(level).to_vaddr() as int % page_size(level as PagingLevel) as int == 0,
-            0 <= self.to_vaddr() as int - self.align_down(level).to_vaddr() as int,
-            (self.to_vaddr() as int - self.align_down(level).to_vaddr() as int) < page_size(
+            0 <= self.to_vaddr() - self.align_down(level).to_vaddr() as int,
+            (self.to_vaddr() - self.align_down(level).to_vaddr() as int) < page_size(
                 level as PagingLevel,
             ) as int,
     {
@@ -949,14 +949,14 @@ impl AbstractVaddr {
                 assert(prev_aligned.leading_bits == self.leading_bits);
                 assert(self.offset == 0);
 
-                assert(prev_aligned.to_vaddr() as int + (NR_ENTRIES - 1) * ps
+                assert(prev_aligned.to_vaddr() + (NR_ENTRIES - 1) * ps
                     == self.to_vaddr() as int);
 
                 // Now: prev_aligned.to_vaddr() + page_size(level + 1) == self.to_vaddr() + ps.
-                assert(prev_aligned.to_vaddr() as int + ps1 as int == self.to_vaddr() as int + ps)
+                assert(prev_aligned.to_vaddr() + ps1 as int == self.to_vaddr() + ps)
                     by (nonlinear_arith)
                     requires
-                        prev_aligned.to_vaddr() as int + (NR_ENTRIES - 1) * ps
+                        prev_aligned.to_vaddr() + (NR_ENTRIES - 1) * ps
                             == self.to_vaddr() as int,
                         ps1 as int == NR_ENTRIES * ps,
                 ;
@@ -1001,13 +1001,13 @@ impl AbstractVaddr {
                 assert(self.to_vaddr_indices(NR_LEVELS - 1) == self.index[NR_LEVELS - 1] * ps_top);
                 assert(self.to_vaddr_indices(0) == (NR_ENTRIES - 1) * ps_top);
                 assert(self.offset == 0);
-                assert(self.to_vaddr() as int == (NR_ENTRIES - 1) * ps_top + self.leading_bits
+                assert(self.to_vaddr() == (NR_ENTRIES - 1) * ps_top + self.leading_bits
                     * 0x1_0000_0000_0000int);
                 assert(NR_ENTRIES * ps_top == 0x1_0000_0000_0000int) by (compute);
                 // Now apply the overflow bound.
                 assert(self.leading_bits + 1 < 0x1_0000) by (nonlinear_arith)
                     requires
-                        self.to_vaddr() as int == (NR_ENTRIES - 1) * ps_top + self.leading_bits
+                        self.to_vaddr() == (NR_ENTRIES - 1) * ps_top + self.leading_bits
                             * 0x1_0000_0000_0000int,
                         self.to_vaddr() + ps_top <= usize::MAX,
                         ps_top == 0x80_0000_0000,
@@ -1088,15 +1088,15 @@ impl AbstractVaddr {
                 assert(advanced_top.leading_bits == self.leading_bits + 1);
                 assert(advanced_top.to_vaddr() as int == (self.leading_bits + 1)
                     * 0x1_0000_0000_0000int);
-                assert(self.to_vaddr() as int == (NR_ENTRIES - 1) * ps + self.leading_bits
+                assert(self.to_vaddr() == (NR_ENTRIES - 1) * ps + self.leading_bits
                     * 0x1_0000_0000_0000int);
                 assert(NR_ENTRIES * ps == 0x1_0000_0000_0000int) by (compute);
-                assert(advanced_top.to_vaddr() as int == self.to_vaddr() as int + ps)
+                assert(advanced_top.to_vaddr() as int == self.to_vaddr() + ps)
                     by (nonlinear_arith)
                     requires
                         advanced_top.to_vaddr() as int == (self.leading_bits + 1)
                             * 0x1_0000_0000_0000int,
-                        self.to_vaddr() as int == (NR_ENTRIES - 1) * ps + self.leading_bits
+                        self.to_vaddr() == (NR_ENTRIES - 1) * ps + self.leading_bits
                             * 0x1_0000_0000_0000int,
                         NR_ENTRIES * ps == 0x1_0000_0000_0000int,
                 ;
@@ -1608,7 +1608,7 @@ impl AbstractVaddr {
         }
     }
 
-    /// `rec_compute_vaddr(start) as int == to_vaddr_indices(start) + offset`.
+    /// `rec_compute_vaddr(start) == to_vaddr_indices(start) + offset`.
     /// The two formulations of the positional sum agree (no overflow in the
     /// `as Vaddr` casts since the sum is bounded by `pow2(12 + 9*NR_LEVELS) + PAGE_SIZE`).
     pub proof fn rec_compute_vaddr_is_to_vaddr_indices(self, start: int)
@@ -1616,7 +1616,7 @@ impl AbstractVaddr {
             self.inv(),
             0 <= start <= NR_LEVELS,
         ensures
-            self.rec_compute_vaddr(start) as int == self.to_vaddr_indices(start) + self.offset,
+            self.rec_compute_vaddr(start) == self.to_vaddr_indices(start) + self.offset,
         decreases NR_LEVELS - start,
     {
         vstd::arithmetic::power2::lemma2_to64();
@@ -1653,7 +1653,7 @@ impl AbstractVaddr {
         requires
             self.inv(),
         ensures
-            self.to_vaddr() as int == self.compute_vaddr() as int + self.leading_bits
+            self.to_vaddr() == self.compute_vaddr() as int + self.leading_bits
                 * 0x1_0000_0000_0000int,
     {
         self.to_vaddr_bounded();
@@ -1696,7 +1696,7 @@ impl AbstractVaddr {
             self.inv(),
         ensures
             0 <= self.offset + self.to_vaddr_indices(0) < 0x1_0000_0000_0000int,
-            self.to_vaddr() as int == self.offset + self.to_vaddr_indices(0) + self.leading_bits
+            self.to_vaddr() == self.offset + self.to_vaddr_indices(0) + self.leading_bits
                 * 0x1_0000_0000_0000int,
             self.offset + self.to_vaddr_indices(0) + self.leading_bits * 0x1_0000_0000_0000int
                 < 0x1_0000_0000_0000_0000int,
@@ -1738,7 +1738,7 @@ impl AbstractVaddr {
         };
         self.to_vaddr_bounded();
         new_va.to_vaddr_bounded();
-        assert(new_va.to_vaddr() as int - self.to_vaddr() as int == new_va.to_vaddr_indices(0)
+        assert(new_va.to_vaddr() as int - self.to_vaddr() == new_va.to_vaddr_indices(0)
             - self.to_vaddr_indices(0));
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
