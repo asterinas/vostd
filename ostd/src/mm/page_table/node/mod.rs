@@ -148,7 +148,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
     /// Drops the children of a page-table node: walks each present PTE and
     /// drops the referenced child page-table-node frame or mapped item.
-    #[verifier::rlimit(400)]
     #[verifier::spinoff_prover]
     fn on_drop(
         &mut self,

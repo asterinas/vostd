@@ -428,6 +428,7 @@ impl KVirtArea {
             // non-panic conditions
             self.range.start <= addr < self.range.end
     )]
+    #[verifier::spinoff_prover]
     #[allow(private_interfaces)]
     pub fn query<'rcu, A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem> {
         use align_ext::AlignExt;
@@ -581,6 +582,7 @@ impl KVirtArea {
         ensures
             !Self::map_frames_panic_condition(area_size, map_offset, frames.len()),
     )]
+    #[verifier::spinoff_prover]
     #[allow(private_interfaces)]
     pub fn map_frames<'a, A: InAtomicMode + 'a>(
         area_size: usize,
@@ -930,6 +932,7 @@ impl KVirtArea {
             res.inv(),
             !Self::map_untracked_frames_panic_condition(area_size, map_offset, &pa_range),
     )]
+    #[verifier::spinoff_prover]
     #[allow(private_interfaces)]
     pub unsafe fn map_untracked_frames<A: InAtomicMode + 'a, 'a>(
         area_size: usize,

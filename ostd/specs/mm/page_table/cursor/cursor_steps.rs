@@ -1972,7 +1972,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
     }
 
-    #[verifier::rlimit(4)]
     #[verifier::spinoff_prover]
     pub proof fn move_forward_va_is_align_up(self)
         requires

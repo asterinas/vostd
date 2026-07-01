@@ -538,7 +538,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// neighbor of `k` maps to `p ± 1` except across the cut (new position `n-1`
     /// reaches old `n+1`, new position `n` reaches old `n-1`), which is exactly
     /// where the body rewired the link pointers.
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
     pub proof fn pop_preserves_relate_region(
         old: LinkedListOwner<M>,
@@ -683,7 +682,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// (or `None` at the ends), and old `n-1`'s `next` / old `n`'s `prev` are
     /// rewired to point at the inserted link. Mirror of
     /// [`pop_preserves_relate_region`].
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
     pub proof fn insert_preserves_relate_region(
         old: LinkedListOwner<M>,
