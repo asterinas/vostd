@@ -743,11 +743,6 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     bit != 0
 }
 
-#[verifier::inline]
-pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> int {
-    C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits::<C>() * (level as int - 1)
-}
-
 /// Spec for the managed virtual address range (exclusive end).
 /// For configs without VA_SIGN_EXT (e.g. UserPtConfig) or when the base range has sign bit 0.
 /// Configs with sign extension (e.g. KernelPtConfig) use
@@ -1088,16 +1083,22 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
     shifted & mask
 }
 
+#[verifier::inline]
+pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> int {
+    C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits::<C>() * (level as int - 1)
+}
+
 /// The bit offset of the entry offset part in a virtual address.
 ///
 /// This function returns the bit offset of the least significant bit. Take
 /// x86-64 as an example, the `pte_index_bit_offset(2)` should return 21, which
 /// is 12 (the 4KiB in-page offset) plus 9 (index width in the level-1 table).
-fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> (ret: usize)
+#[verifier::when_used_as_spec(pte_index_bit_offset_spec)]
+fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
     requires
         1 <= level <= NR_LEVELS,
-    ensures
-        ret as int == pte_index_bit_offset_spec::<C>(level),
+    returns
+        pte_index_bit_offset_spec::<C>(level),
 {
     proof {
         lemma_pte_index_consts::<C>();
