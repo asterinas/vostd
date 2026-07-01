@@ -110,7 +110,7 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
         path.inv(),
         path.len() <= INC_LEVELS - 1,
     ensures
-        (vaddr(path) as int) < 0x1_0000_0000_0000int,
+        vaddr(path) < 0x1_0000_0000_0000int,
 {
     broadcast use TreePath::index_satisfies_elem_inv;
     broadcast use TreePath::push_tail_property;
@@ -213,9 +213,9 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
         path.inv(),
         1 <= path.len() <= INC_LEVELS - 1,
     ensures
-        (path.index(0)) * 0x80_0000_0000int <= vaddr(path) as int,
-        (vaddr(path) as int) + page_size((INC_LEVELS - path.len()) as PagingLevel) as int <= (
-        path.index(0) + 1) * 0x80_0000_0000int,
+        (path.index(0)) * 0x80_0000_0000int <= vaddr(path),
+        vaddr(path) + page_size((INC_LEVELS - path.len()) as PagingLevel) <= (path.index(0) + 1)
+            * 0x80_0000_0000int,
 {
     broadcast use TreePath::index_satisfies_elem_inv;
 
@@ -399,16 +399,16 @@ pub proof fn sibling_paths_disjoint<C: PageTableConfig>(
     if j < k {
         assert(vj + s <= vk) by (nonlinear_arith)
             requires
-                vj == vp + (j as int) * s,
-                vk == vp + (k as int) * s,
+                vj == vp + j * s,
+                vk == vp + k * s,
                 j < k,
                 s >= 0,
         ;
     } else {
         assert(vk + s <= vj) by (nonlinear_arith)
             requires
-                vj == vp + (j as int) * s,
-                vk == vp + (k as int) * s,
+                vj == vp + j * s,
+                vk == vp + k * s,
                 k < j,
                 s >= 0,
         ;
@@ -556,7 +556,7 @@ pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
                 &&& c_new.level == c_old.level
                 &&& c_new.children == c_old.children
             },
-    decreases NR_ENTRIES - i as int,
+    decreases NR_ENTRIES - i,
 {
     if i < NR_ENTRIES {
         let tracked mut child_opt = owner.children.tracked_remove(i as int);
@@ -997,7 +997,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(rec_vaddr(pt, 2) == 0);
             assert(rec_vaddr(pt, 1) == vaddr_make::<NR_LEVELS>(1, i) as usize);
             assert(vaddr_make::<NR_LEVELS>(1, i) == 0x4000_0000usize * i) by (compute);
-            assert(rec_vaddr(pt, 0) == (0x80_0000_0000usize * i0) + (0x4000_0000usize * i) as int);
+            assert(rec_vaddr(pt, 0) == (0x80_0000_0000usize * i0) + 0x4000_0000usize * i);
             assert(page_size(3) == 0x4000_0000usize);
             assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * (i + 1) <= usize::MAX)
                 by (nonlinear_arith)
@@ -1098,11 +1098,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.value.parent_level == (INC_LEVELS - self.0.level) as PagingLevel,
             self.view_rec(path).contains(m),
         ensures
-            vaddr_of::<C>(path) as int <= m.va_range.start,
+            vaddr_of::<C>(path) <= m.va_range.start,
             m.va_range.start < m.va_range.end,
             m.va_range.end <= vaddr_of::<C>(path) + page_size(
                 (INC_LEVELS - path.len()) as PagingLevel,
-            ) as int,
+            ),
         decreases INC_LEVELS - path.len(),
     {
         broadcast use PageTableOwner::group_lemmas;
@@ -1176,8 +1176,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             // counterparts, and the `vaddr` identity above lifts directly.
             lemma_vaddr_of_eq_int::<C>(path);
             lemma_vaddr_of_eq_int::<C>(path.push_tail(i as usize));
-            assert(vaddr_of::<C>(path.push_tail(i as usize)) == vaddr_of::<C>(path) as int + i
-                * child_ps);
+            assert(vaddr_of::<C>(path.push_tail(i as usize)) == vaddr_of::<C>(path) + i * child_ps);
             assert(i * child_ps + child_ps == (i + 1) * child_ps) by (nonlinear_arith);
             assert(m.va_range.end <= vaddr_of::<C>(path) + (i + 1) * child_ps);
             assert(m.va_range.end <= vaddr_of::<C>(path) + parent_ps);
@@ -1196,13 +1195,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             1 <= path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level,
             self.0.value.parent_level == (INC_LEVELS - self.0.level) as PagingLevel,
-            (path.index(0) as int) < t,
+            path.index(0) < t,
             self.view_rec(path).contains(m),
         ensures
-            (path.index(0)) * 0x80_0000_0000int + (C::LEADING_BITS_spec() as int)
-                * 0x1_0000_0000_0000int <= m.va_range.start,
+            (path.index(0)) * 0x80_0000_0000int + C::LEADING_BITS_spec() * 0x1_0000_0000_0000int
+                <= m.va_range.start,
             m.va_range.start < m.va_range.end,
-            m.va_range.end <= t * 0x80_0000_0000int + (C::LEADING_BITS_spec() as int)
+            m.va_range.end <= t * 0x80_0000_0000int + C::LEADING_BITS_spec()
                 * 0x1_0000_0000_0000int,
     {
         self.view_rec_vaddr_range(path, m);
@@ -1217,7 +1216,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         assert((path.index(0) + 1) * 0x80_0000_0000int <= t * 0x80_0000_0000int)
             by (nonlinear_arith)
             requires
-                (path.index(0) as int) < t,
+                path.index(0) < t,
         ;
     }
 
@@ -1288,7 +1287,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 self.view_rec(path).contains(mm) ==> ambient.contains(mm),
             forall|mm: Mapping|
                 #![trigger ambient.contains(mm)]
-                ambient.contains(mm) ==> mm.va_range.start != vaddr_of::<C>(removed_path) as int,
+                ambient.contains(mm) ==> mm.va_range.start != vaddr_of::<C>(removed_path),
         ensures
             self.0.tree_predicate_map(
                 path,
@@ -1325,7 +1324,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(self.view_rec(path) == set![expected]);
             assert(self.view_rec(path).contains(expected));
             assert(ambient.contains(expected));
-            assert(vaddr_of::<C>(path) != vaddr_of::<C>(removed_path) as int);
+            assert(vaddr_of::<C>(path) != vaddr_of::<C>(removed_path));
             assert(self.0.value.path != removed_path);
         }
         assert(g(self.0.value, path));
@@ -1519,7 +1518,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             )) as usize);
             assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
             assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
-            let s = (0x80_0000_0000usize * i0 + 0x4000_0000usize * i1) as int;
+            let s = 0x80_0000_0000usize * i0 + 0x4000_0000usize * i1;
             assert(rec_vaddr(path, 0) == s);
             assert(page_size(3) == 0x4000_0000usize);
             assert(s % 0x4000_0000 == 0) by (nonlinear_arith)
@@ -1552,7 +1551,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
             assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
             assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
-            let s = (0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2) as int;
+            let s = 0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2;
             assert(rec_vaddr(path, 0) == s);
             assert(page_size(2) == 0x20_0000usize);
             assert(s % 0x20_0000 == 0) by (nonlinear_arith)
@@ -1658,7 +1657,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     (frame.mapped_pa as int) % ps == 0,
                     ps > 0,
             ;
-            // Bridge `vaddr_of(path) as int == vaddr(path) + LB * 2^48`.
+            // Bridge `vaddr_of(path) == vaddr(path) + LB * 2^48`.
             lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
             lemma_vaddr_strict_bound(path);
@@ -2419,7 +2418,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             Self::is_prefix_of(path, entry.path),
             regions.slot_owners[frame_to_index(m.pa_range.start)].paths_in_pt == set![entry.path],
-            m.va_range.start == vaddr_of::<C>(entry.path) as int,
+            m.va_range.start == vaddr_of::<C>(entry.path),
             m.page_size == page_size((INC_LEVELS - entry.path.len()) as PagingLevel),
             entry.is_frame(),
             m.property == entry.frame().prop,
