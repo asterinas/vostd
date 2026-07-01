@@ -195,10 +195,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
         )) == pow2(47));
         assert(((Self::TOP_LEVEL_INDEX_RANGE_spec().start * pow2(
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
         )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) == 1);
         assert(((Self::TOP_LEVEL_INDEX_RANGE_spec().start * pow2(
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
         )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1);
         lemma_pow2_adds(16, 48);
         assert(Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int

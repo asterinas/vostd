@@ -28,7 +28,7 @@ pub(crate) mod mapping {
     use vstd::prelude::*;
 
     pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
-        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE as int) as usize
+        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE) as usize
     }
 
     pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr {

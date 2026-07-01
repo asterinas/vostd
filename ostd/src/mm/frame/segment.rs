@@ -296,7 +296,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         == paddr_out,
                 forall|j: int|
                     #![trigger addrs[j]]
-                    0 <= j < addrs.len() as int ==> {
+                    0 <= j < addrs.len() ==> {
                         let idx = frame_to_index(addrs[j]);
                         &&& regions.slots.contains_key(idx)
                         &&& regions.slot_owners.contains_key(idx)
@@ -344,7 +344,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             0 <= k <= i,
                             forall|j: int|
                                 #![trigger addrs[j]]
-                                k <= j < addrs.len() as int ==> {
+                                k <= j < addrs.len() ==> {
                                     let idx = frame_to_index(addrs[j]);
                                     &&& regions.slots.contains_key(idx)
                                     &&& regions.slot_owners.contains_key(idx)
@@ -381,7 +381,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         proof {
                             assert forall|j: int|
                                 #![trigger addrs[j]]
-                                (k + 1) <= j < addrs.len() as int implies ({
+                                (k + 1) <= j < addrs.len() implies ({
                                 let idx = frame_to_index(addrs[j]);
                                 &&& regions.slots.contains_key(idx)
                                 &&& regions.slot_owners.contains_key(idx)
@@ -708,13 +708,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             range.start % PAGE_SIZE != 0 ==> may_panic(),
             range.end % PAGE_SIZE != 0 ==> may_panic(),
             range.start > range.end ==> may_panic(),
-            self.range.start + range.end > self.range.end as int ==> may_panic(),
+            self.range.start + range.end > self.range.end ==> may_panic(),
             self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
         ensures
             range.start % PAGE_SIZE == 0,
             range.end % PAGE_SIZE == 0,
             range.start <= range.end,
-            self.range.start + range.end <= self.range.end as int,
+            self.range.start + range.end <= self.range.end,
             !self.page_in_range_saturated(range, *old(regions)),
             r.inv(),
             r.start_paddr() == self.start_paddr() + range.start,
@@ -1303,7 +1303,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                 paddr % PAGE_SIZE == 0,
                 paddr <= MAX_PADDR,
                 0 <= k <= n,
-                n == (self.range.end - self.range.start) as int / PAGE_SIZE as int,
+                n == (self.range.end - self.range.start) / PAGE_SIZE as int,
                 paddr < self.range.end <==> k < n,
                 forall|j: int|
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]

@@ -70,7 +70,7 @@ proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usi
         start % align == 0,
         len % align == 0,
     ensures
-        (start as int + i as int * len as int) % align as int == 0,
+        (start + i * len) % align as int == 0,
 {
     let a = align as int;
     let q_start = start as int / a;
@@ -79,21 +79,19 @@ proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usi
     vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
     assert(start as int % a == 0);
     assert(len as int % a == 0);
-    assert(start as int == q_start * a);
-    assert(len as int == q_len * a);
-    assert((q_start + i as int * q_len) * a == q_start * a + (i as int * q_len) * a)
-        by (nonlinear_arith);
-    assert((i as int * q_len) * a == i as int * (q_len * a)) by (nonlinear_arith);
-    assert(i as int * (q_len * a) == i as int * len as int) by (nonlinear_arith)
+    assert(start == q_start * a);
+    assert(len == q_len * a);
+    assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a) by (nonlinear_arith);
+    assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
+    assert(i * (q_len * a) == i * len) by (nonlinear_arith)
         requires
-            len as int == q_len * a,
+            len == q_len * a,
     ;
-    assert(q_start * a + i as int * len as int == start as int + i as int * len as int)
-        by (nonlinear_arith)
+    assert(q_start * a + i * len == start + i * len) by (nonlinear_arith)
         requires
-            start as int == q_start * a,
+            start == q_start * a,
     ;
-    assert(start as int + i as int * len as int == (q_start + i as int * q_len) * a);
+    assert(start + i * len == (q_start + i * q_len) * a);
     vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i as int * q_len, a);
 }
 
@@ -391,7 +389,7 @@ impl<'a> VmWriter<'a, Infallible> {
     /// for `T`, or the available space isn't a multiple of `size_of::<T>()`.
     pub open spec fn fill_panic_condition<T>(self) -> bool {
         ||| self.cursor.vaddr as int % core::mem::align_of::<T>() as int != 0
-        ||| (self.end.vaddr - self.cursor.vaddr) as int % core::mem::size_of::<T>() as int != 0
+        ||| (self.end.vaddr - self.cursor.vaddr) % core::mem::size_of::<T>() as int != 0
     }
 
     /// Fills the available space by repeatedly writing the same `Pod` value.
