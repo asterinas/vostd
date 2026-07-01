@@ -279,7 +279,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // `kvirt_alloc_range_bounds` axiom; default-config callers
             // (UserPtConfig) get this for free since the default bound is
             // `usize::MAX + 1`.
-            va.end as int <= C::LOCKED_END_BOUND_spec(),
+            va.end  <= C::LOCKED_END_BOUND_spec(),
         ensures
             Self::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
@@ -926,7 +926,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // `level < NR_LEVELS || TOP_LEVEL_CAN_UNMAP` precondition
             // *without* `may_panic()` for Node returns.
             res is Some && find_unmap_subtree && final(owner).cur_entry_owner().is_node()
-                ==> C::TOP_LEVEL_CAN_UNMAP_spec() || (final(self).level as int) < NR_LEVELS as int,
+                ==> C::TOP_LEVEL_CAN_UNMAP_spec() || final(self).level < NR_LEVELS,
             old(owner)@.mappings.filter(|m: Mapping|
                 old(self).va <= m.va_range.start < final(self).va) == Set::<Mapping>::empty(),
             res is None ==> {
@@ -1078,7 +1078,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             }
                             if !C::TOP_LEVEL_CAN_UNMAP_spec() {
                                 C::lemma_paging_consts_properties();
-                                assert((self.level as int) < NR_LEVELS as int);
+                                assert(self.level < NR_LEVELS);
                             }
                         }
                         return Some(cur_va);
@@ -1155,7 +1155,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             let ghost subtree = owner.cur_subtree();
                             // `pt_inv` for the current subtree, from the current
                             // continuation's `pt_inv_children`.
-                            owner.inv_continuation((owner.level - 1) as int);
+                            owner.inv_continuation(owner.level - 1);
                             owner.continuations[owner.level - 1].pt_inv_children_unroll(
                                 owner.index() as int,
                             );
@@ -2011,7 +2011,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             parent_continuation.entry_own.tracked_put_node(parent_own);
             parent_continuation.tracked_put_child(child);
             assert(parent_continuation.children == cont0.children);
-            owner.continuations.tracked_insert((owner.level - 1) as int, parent_continuation);
+            owner.continuations.tracked_insert(owner.level - 1, parent_continuation);
             assert(owner.continuations == owner0.continuations);
         }
 
@@ -2182,7 +2182,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             pt_own.inv(),
             // Per-config tightening; see `Cursor::new`.
-            va.end as int <= C::LOCKED_END_BOUND_spec(),
+            va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
             Cursor::<C, A>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
@@ -2753,7 +2753,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 owner.level - 1 <= i
                                     < NR_LEVELS implies owner.continuations[i].entry_own.metaregion_sound(
                             *regions) by {
-                                if i >= owner.level as int {
+                                if i >= owner.level {
                                     assert(owner.continuations[i]
                                         == owner_pre_none.continuations[i]);
                                 }
@@ -3948,7 +3948,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let entry_idx = pte_index::<C>(self.0.va, self.0.level);
         let ghost cur_path_guard = self.0.path[level - 1]->0;
 
-        let tracked mut continuation = owner.continuations.tracked_remove((owner.level - 1) as int);
+        let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
         let ghost cont0 = continuation;
         let ghost owner1 = *owner;
 
@@ -4018,7 +4018,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             cont1.view_mappings_put_child(new_owner);
 
             let ghost final_cont = continuation;
-            owner.continuations.tracked_insert((owner.level - 1) as int, continuation);
+            owner.continuations.tracked_insert(owner.level - 1, continuation);
 
             CursorOwner::view_mappings_replace_lowest(owner0, *owner, cont0, final_cont);
 
@@ -4133,7 +4133,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         cont.inv_children_unroll(j);
                         let subtree = cont.children[j].unwrap();
                         let path_j = cont.path().push_tail(j as usize);
-                        owner0.cursor_path_nesting(i, owner0.level as int - 1);
+                        owner0.cursor_path_nesting(i, owner0.level - 1);
                         cont0.path().push_tail_property_index(idx as usize);
                         cont.path().push_tail_property_index(j as usize);
                         cont.pt_inv_children_unroll(j);
@@ -4218,7 +4218,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         < NR_LEVELS implies owner.continuations[i].entry_own.metaregion_sound(
                     *regions,
                 ) by {
-                    if i >= owner.level as int {
+                    if i >= owner.level {
                         assert(owner.continuations[i] == owner0.continuations[i]);
                     }
                     owner0.inv_continuation(i);
@@ -4396,7 +4396,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         &&& f(owner.continuations[i].entry_own, owner.continuations[i].path())
                         &&& owner.continuations[i].map_children(f)
                     } by {
-                        if i >= owner.level as int {
+                        if i >= owner.level {
                             assert(owner.continuations[i] == owner_before_dfs.continuations[i]);
                         } else {
                             assert(owner.continuations[i].entry_own

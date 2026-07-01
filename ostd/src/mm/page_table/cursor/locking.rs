@@ -40,7 +40,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         va.start < va.end,
         // Per-config tightening; see `Cursor::new`. Pulled through to the
         // cursor's `LOCKED_END_BOUND_spec` invariant.
-        va.end as int <= C::LOCKED_END_BOUND_spec(),
+        va.end <= C::LOCKED_END_BOUND_spec(),
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).in_locked_range(),
@@ -695,8 +695,8 @@ pub open spec fn idx_range_spec(
     va_end: Vaddr,
 ) -> (usize, usize) {
     let ps = page_size(cur_node_level) as int;
-    let start_idx = ((va_start - cur_node_va) as int) / ps;
-    let end_idx = ceil_div((va_end - cur_node_va) as int, ps);
+    let start_idx = (va_start - cur_node_va) / ps;
+    let end_idx = ceil_div(va_end - cur_node_va, ps);
     (start_idx as usize, end_idx as usize)
 }
 
@@ -741,7 +741,7 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
 
         let ai = ps as int;
         let xi = diff as int;
-        let si = (va_range.start - cur_node_va) as int;
+        let si = va_range.start - cur_node_va;
 
         // -- start_idx < end_idx --
         // si < xi (non-empty range), si % ai == 0 (both endpoints aligned).
