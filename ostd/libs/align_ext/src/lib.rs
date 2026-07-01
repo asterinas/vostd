@@ -130,32 +130,32 @@ macro_rules! impl_align_ext {
                         let x_int = self as int + align as int - 1;
                         let x = x_int as Self;
                         if self as int % align as int == 0 {
-                            assert((align as int - 1) % align as int == align as int - 1) by {
-                                lemma_small_mod((align as int - 1) as nat, align as nat);
+                            assert((align as int - 1) % align as int == align - 1) by {
+                                lemma_small_mod((align - 1) as nat, align as nat);
                             }
-                            assert(x_int % align as int == align as int - 1) by {
-                                lemma_mod_adds(self as int, align as int - 1, align as int);
+                            assert(x_int % align as int == align - 1) by {
+                                lemma_mod_adds(self as int, align - 1, align as int);
                             }
                         } else {
                             let q = self as int / align as int;
                             let r = self as int % align as int;
                             lemma_fundamental_div_mod(self as int, align as int);
-                            assert(self as int == q * align as int + r) by {
+                            assert(self == q * align + r) by {
                                 lemma_mul_is_commutative(align as int, q);
                             }
 
-                            assert((q + 1) * align as int == q * align as int + align as int) by {
+                            assert((q + 1) * align == q * align + align) by {
                                 lemma_mul_is_distributive_add_other_way(align as int, q, 1);
                             }
-                            assert(((q + 1) * align as int) % align as int == 0) by {
+                            assert(((q + 1) * align) % align as int == 0) by {
                                 lemma_mod_multiples_basic(q + 1, align as int);
                             }
                             assert((r - 1) % align as int == r - 1) by {
                                 lemma_small_mod((r - 1) as nat, align as nat);
                             }
-                            assert(x_int == (q + 1) * align as int + (r - 1));
+                            assert(x_int == (q + 1) * align + (r - 1));
                             assert(x_int % align as int == (r - 1)) by {
-                                lemma_mod_adds((q + 1) * align as int, r - 1, align as int);
+                                lemma_mod_adds((q + 1) * align, r - 1, align as int);
                             }
                         }
 
