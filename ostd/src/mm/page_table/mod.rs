@@ -4,21 +4,18 @@ use vstd::prelude::*;
 use vstd::simple_pptr;
 use vstd::std_specs::clone::*;
 use vstd_extra::assert;
-use vstd_extra::prelude::*;
 use vstd_extra::panic::may_panic;
-
-use crate::Pod;
-use crate::specs::mm::page_table::*;
+use vstd_extra::prelude::*;
 
 use crate::specs::arch::*;
-use crate::specs::mm::page_table::cursor::*;
+use crate::specs::mm::page_table::{cursor::*, *};
 use crate::specs::task::InAtomicMode;
 
-use crate::arch::mm::{PageTableEntry, PagingConsts};
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::kspace::kvirt_area::disable_preempt;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::{mapping::frame_to_index, meta_owners::MetaPerm};
+use crate::specs::mm::frame::{
+    mapping::frame_to_index, meta_owners::MetaPerm, meta_region_owners::MetaRegionOwners,
+};
 
 use core::{
     fmt::Debug,
@@ -34,6 +31,12 @@ use super::{
     page_prop::{CachePolicy, PageProperty},
     page_size,
     vm_space::UserPtConfig,
+};
+
+use crate::{
+    //task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
+    Pod,
+    arch::mm::{PageTableEntry, PagingConsts},
 };
 
 mod node;
@@ -73,6 +76,8 @@ pub trait RCClone: Sized {
         requires
             self.clone_requires(*old(perm)),
         ensures
+            // RCClone::clone` doesn't mint/redeem segment obligations. 
+            // The per-frame `frame_obligations` effect is left to each impl's `clone_ensures`
             res == *self,
             self.clone_ensures(*old(perm), *final(perm), res),
             final(perm).inv(),
@@ -80,12 +85,6 @@ pub trait RCClone: Sized {
             final(perm).slot_owners.dom() == old(
                 perm,
             ).slot_owners.dom(),
-    // Linear-drop pilot: `RCClone::clone` doesn't mint/redeem
-    // segment obligations. The per-frame `frame_obligations` effect
-    // is left to each impl's `clone_ensures` — canonically a clone
-    // creates a fresh live value, so `Frame::clone` MINTS one entry
-    // (`.insert(idx)`); ref-count-only clones (`Segment`) stay
-    // net-zero. Hardcoding `== old` here would forbid the mint.
 
     ;
 }
