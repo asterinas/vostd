@@ -443,7 +443,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// `PTE_SIZE_spec`. Concrete impls satisfy this via their `global
     /// layout` declaration. Exposed for generic code that calls
     /// `core::mem::size_of::<Self::E>()`.
-    proof fn axiom_pte_size_eq_size_of()
+    proof fn lemma_pte_size_eq_size_of()
         ensures
             core::mem::size_of::<Self::E>() == Self::C::PTE_SIZE_spec(),
     ;
@@ -454,13 +454,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             NR_ENTRIES * core::mem::size_of::<Self::E>() == PAGE_SIZE,
     ;
 
-    // dubious: why is this an axiom
     /// `align_of::<E>()` divides `size_of::<E>()`. True for any sized Rust
     /// type (the alignment divides the size by the layout rules), but
     /// Verus's `size_of`/`align_of` are uninterpreted so we expose it as
-    /// an axiom. Used by PT-node `on_drop` to prove cursor alignment is
+    /// a proof obligation. Used by PT-node `on_drop` to prove cursor alignment is
     /// preserved across `read_once` iterations.
-    proof fn axiom_pte_align_divides_size()
+    proof fn lemma_pte_align_divides_size()
         ensures
             core::mem::size_of::<Self::E>() % core::mem::align_of::<Self::E>() == 0,
             core::mem::align_of::<Self::E>() > 0,
