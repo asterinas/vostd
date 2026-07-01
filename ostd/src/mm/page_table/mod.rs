@@ -371,12 +371,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     proof fn lemma_page_table_config_constant_requirements()
         ensures
             Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
             Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
@@ -384,24 +384,24 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 <= Self::C::ADDRESS_WIDTH(),
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
-            (Self::TOP_LEVEL_INDEX_RANGE().end as int) * (pow2(
+            Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int) <= usize::MAX,
-            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && (((
-            Self::TOP_LEVEL_INDEX_RANGE().start as int) * (pow2(
+            ) <= usize::MAX,
+            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && ((
+            Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
-            (Self::C::VA_SIGN_EXT() && ((((Self::TOP_LEVEL_INDEX_RANGE().start as int) * (pow2(
+            )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
+            (Self::C::VA_SIGN_EXT() && (((Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
+            )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
                 &&& 48 <= Self::C::ADDRESS_WIDTH()
                 &&& Self::C::ADDRESS_WIDTH() < usize::BITS
-                &&& Self::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int
-                    == 0x1_0000_0000_0000_0000int - pow2(Self::C::ADDRESS_WIDTH() as nat) as int
+                &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
+                    - pow2(Self::C::ADDRESS_WIDTH() as nat)
             },
             Self::LEADING_BITS_spec() < 0x1_0000_usize,
             pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ) == NR_ENTRIES,
@@ -418,12 +418,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
             // so that we only need to call this lemma in proofs.
             Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
             Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ),
@@ -431,24 +431,24 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
                 <= Self::C::ADDRESS_WIDTH(),
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
-            (Self::TOP_LEVEL_INDEX_RANGE().end as int) * (pow2(
+            Self::TOP_LEVEL_INDEX_RANGE().end * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int) <= usize::MAX,
-            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && (((
-            Self::TOP_LEVEL_INDEX_RANGE().start as int) * (pow2(
+            ) <= usize::MAX,
+            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && ((
+            Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
-            (Self::C::VA_SIGN_EXT() && ((((Self::TOP_LEVEL_INDEX_RANGE().start as int) * (pow2(
+            )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
+            (Self::C::VA_SIGN_EXT() && (((Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
+            )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
                 &&& 48 <= Self::C::ADDRESS_WIDTH()
                 &&& Self::C::ADDRESS_WIDTH() < usize::BITS
-                &&& Self::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int
-                    == 0x1_0000_0000_0000_0000int - pow2(Self::C::ADDRESS_WIDTH() as nat) as int
+                &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
+                    - pow2(Self::C::ADDRESS_WIDTH() as nat)
             },
             Self::LEADING_BITS_spec() < 0x1_0000_usize,
             pow2(
-                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                (Self::C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<Self::C>(
                     Self::C::NR_LEVELS(),
                 )) as nat,
             ) == NR_ENTRIES,
@@ -745,7 +745,7 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
 
 #[verifier::inline]
 pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> int {
-    (C::BASE_PAGE_SIZE().ilog2() as int) + (nr_pte_index_bits::<C>() as int) * (level as int - 1)
+    C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits::<C>() * (level as int - 1)
 }
 
 /// Spec for the managed virtual address range (exclusive end).
@@ -756,8 +756,8 @@ pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLe
 pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> Range<Vaddr> {
     let idx_range = C::TOP_LEVEL_INDEX_RANGE_spec();
     let offset = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
-    let start = (idx_range.start as int) * pow2(offset);
-    let end_inclusive = (idx_range.end as int) * pow2(offset) - 1;
+    let start = idx_range.start * pow2(offset);
+    let end_inclusive = idx_range.end * pow2(offset) - 1;
     (start as Vaddr)..((end_inclusive + 1) as Vaddr)
 }
 
