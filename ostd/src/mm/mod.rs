@@ -143,6 +143,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::NR_LEVELS() > 0,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            0 < Self::ADDRESS_WIDTH() <= usize::BITS,
             // The following statement holds for all architectures,
             // but the actual value of the constants may vary.
             Self::BASE_PAGE_SIZE() == PAGE_SIZE,
@@ -155,6 +156,8 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     /// NOTE: Implementations of `PagingConstsTrait` do not need to implement this lemma, the proof is automatically inherited from the default implementation.
     proof fn lemma_paging_consts_properties()
         ensures
+    // Derived properties.
+
             0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
             // Copied from the postcondition of `lemma_paging_consts_requirements`
             // so that we only need to call this lemma in proofs.
@@ -163,6 +166,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::NR_LEVELS() > 0,
             is_pow2(Self::PTE_SIZE() as int),
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            0 < Self::ADDRESS_WIDTH() <= usize::BITS,
             // The following statement holds for all architectures,
             // but the actual value of the constants may vary.
             Self::BASE_PAGE_SIZE() == PAGE_SIZE,

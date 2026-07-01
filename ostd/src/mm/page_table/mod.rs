@@ -362,9 +362,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             item.clone_requires(regions),
     ;
 
-    /// Core constant properties that each config must prove.
-    /// Combines bounds on the top-level index range, leading-bits
-    /// constraints, and the NR_ENTRIES identity.
+    /// The requirements of the page table configuration constants so that the memory management system can work correctly.
+    ///
+    /// NOTE: The postcondition is designed to be minimal, to actually be used in proofs, call `lemma_page_table_config_constant_properties`
+    /// instead to get all the properties that are derived from the requirements.
+    ///
+    /// FIXME： General architecture support. Move properties only relevant to paging constants to `PagingConstsTrait`.
     proof fn lemma_page_table_config_constant_requirements()
         ensures
             Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
@@ -380,7 +383,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             0 <= pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS())
                 <= Self::C::ADDRESS_WIDTH(),
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
-            0 < Self::C::ADDRESS_WIDTH() <= usize::BITS,
             Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
             (Self::TOP_LEVEL_INDEX_RANGE().end as int) * (pow2(
                 pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
@@ -405,11 +407,51 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             ) == NR_ENTRIES,
     ;
 
-    /// Properties derived from the constant requirements.
-    /// Implementors get this for free.
-    proof fn lemma_page_table_config_derived_properties()
+    // The derived properties of the page table config constants.
+    ///
+    /// NOTE: Implementations of `PageTableConfig` do not need to implement this lemma, the proof is automatically inherited from the default implementation.
+    proof fn lemma_page_table_config_constant_properties()
         ensures
+    // Derived properties.
+
             Self::TOP_LEVEL_INDEX_RANGE().end <= NR_ENTRIES,
+            // Copied from the postcondition of `lemma_page_table_config_constant_requirements`
+            // so that we only need to call this lemma in proofs.
+            Self::TOP_LEVEL_INDEX_RANGE().start < pow2(
+                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                    Self::C::NR_LEVELS(),
+                )) as nat,
+            ),
+            Self::TOP_LEVEL_INDEX_RANGE().end <= pow2(
+                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                    Self::C::NR_LEVELS(),
+                )) as nat,
+            ),
+            0 <= pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS())
+                <= Self::C::ADDRESS_WIDTH(),
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) < usize::BITS,
+            Self::TOP_LEVEL_INDEX_RANGE().start < Self::TOP_LEVEL_INDEX_RANGE().end,
+            (Self::TOP_LEVEL_INDEX_RANGE().end as int) * (pow2(
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+            ) as int) <= usize::MAX,
+            Self::LEADING_BITS_spec() != 0usize ==> (Self::C::VA_SIGN_EXT() && (((
+            Self::TOP_LEVEL_INDEX_RANGE().start as int) * (pow2(
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1),
+            (Self::C::VA_SIGN_EXT() && ((((Self::TOP_LEVEL_INDEX_RANGE().start as int) * (pow2(
+                pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+            ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
+                &&& 48 <= Self::C::ADDRESS_WIDTH()
+                &&& Self::C::ADDRESS_WIDTH() < usize::BITS
+                &&& Self::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int
+                    == 0x1_0000_0000_0000_0000int - pow2(Self::C::ADDRESS_WIDTH() as nat) as int
+            },
+            Self::LEADING_BITS_spec() < 0x1_0000_usize,
+            pow2(
+                (Self::C::ADDRESS_WIDTH() as int - pte_index_bit_offset_spec::<Self::C>(
+                    Self::C::NR_LEVELS(),
+                )) as nat,
+            ) == NR_ENTRIES,
     {
         Self::lemma_page_table_config_constant_requirements();
     }
@@ -602,7 +644,7 @@ fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
 {
     proof {
         C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
     }
 
     C::ADDRESS_WIDTH() - pte_index_bit_offset::<C>(C::NR_LEVELS())
@@ -681,7 +723,8 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
 {
     let address_width = C::ADDRESS_WIDTH();
     proof {
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
     }
 
     let shift = address_width - 1;
@@ -736,7 +779,7 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
 
     proof {
         lemma_vaddr_range_bounds_spec_unfold::<C>();
-        C::lemma_page_table_config_constant_requirements();
+        C::lemma_page_table_config_constant_properties();
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
             start,
             end,
@@ -747,7 +790,7 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
     let sign_bit_set = sign_bit_of_va::<C>(pt_start);
     if va_sign_ext && sign_bit_set {
         proof {
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
             let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
             let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
             let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
@@ -761,7 +804,7 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
             // The if-condition was false, so either va_sign_ext is false
             // or sign_bit_set is false. The contrapositive of the
             // leading-bits requirement gives LEADING_BITS == 0.
-            C::lemma_page_table_config_constant_requirements();
+            C::lemma_page_table_config_constant_properties();
             assert(!va_sign_ext || !sign_bit_set);
             // Bridge exec bool to spec form. `va_sign_ext == C::VA_SIGN_EXT()`
             // by `when_used_as_spec`; `sign_bit_set == ((pt_start as int /

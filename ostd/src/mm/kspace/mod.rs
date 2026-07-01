@@ -280,7 +280,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     axiom fn axiom_pte_size_eq_size_of();
 
     proof fn lemma_pte_walk_fills_page() {
-        Self::lemma_page_table_config_constant_requirements();
+        Self::lemma_page_table_config_constant_properties();
         Self::axiom_pte_size_eq_size_of();
     }
 

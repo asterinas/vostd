@@ -166,7 +166,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
         proof {
             C::lemma_pte_walk_fills_page();
-            C::lemma_page_table_config_derived_properties();
+            C::lemma_page_table_config_constant_properties();
             C::lemma_page_table_config_constant_requirements();
             vstd::arithmetic::mul::lemma_mul_inequality(
                 range.start as int,
@@ -212,7 +212,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
         proof {
             C::lemma_pte_walk_fills_page();
-            C::lemma_page_table_config_derived_properties();
+            C::lemma_page_table_config_constant_properties();
             C::lemma_page_table_config_constant_requirements();
             C::lemma_paging_consts_properties();
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
