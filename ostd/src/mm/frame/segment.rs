@@ -637,17 +637,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             assert forall|i: int, j: int|
                 #![trigger frame_to_index((seg1.range.start + i * PAGE_SIZE) as usize),
                     frame_to_index((seg1.range.start + j * PAGE_SIZE) as usize)]
-                0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(seg1.range) implies
-                frame_to_index((seg1.range.start + i * PAGE_SIZE) as usize)
-                    != frame_to_index((seg1.range.start + j * PAGE_SIZE) as usize) by {
+                0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(
+                    seg1.range,
+                ) implies frame_to_index((seg1.range.start + i * PAGE_SIZE) as usize)
+                != frame_to_index((seg1.range.start + j * PAGE_SIZE) as usize) by {
                 old@.relate_regions_distinct(old_regions, i, j);
             }
             assert forall|i: int, j: int|
                 #![trigger frame_to_index((seg2.range.start + i * PAGE_SIZE) as usize),
                     frame_to_index((seg2.range.start + j * PAGE_SIZE) as usize)]
-                0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(seg2.range) implies
-                frame_to_index((seg2.range.start + i * PAGE_SIZE) as usize)
-                    != frame_to_index((seg2.range.start + j * PAGE_SIZE) as usize) by {
+                0 <= i < j < crate::specs::mm::frame::segment::seg_nframes(
+                    seg2.range,
+                ) implies frame_to_index((seg2.range.start + i * PAGE_SIZE) as usize)
+                != frame_to_index((seg2.range.start + j * PAGE_SIZE) as usize) by {
                 old@.relate_regions_distinct(
                     old_regions,
                     i + (offset / PAGE_SIZE) as int,
@@ -931,10 +933,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
     }
 
     pub closed spec fn current_segment(&self) -> Segment<M> {
-        Segment {
-            range: self.range.start..self.range.end,
-            _marker: core::marker::PhantomData::<M>,
-        }
+        Segment { range: self.range.start..self.range.end, _marker: core::marker::PhantomData::<M> }
     }
 
     #[verifier::prophetic]
@@ -1075,7 +1074,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
 
                 assert forall|i: int|
                     #![trigger frame_to_index((new_segment.range.start + i * PAGE_SIZE) as usize)]
-                    0 <= i < crate::specs::mm::frame::segment::seg_nframes(new_segment.range) implies {
+                    0 <= i < crate::specs::mm::frame::segment::seg_nframes(
+                        new_segment.range,
+                    ) implies {
                     let idx = frame_to_index((new_segment.range.start + i * PAGE_SIZE) as usize);
                     &&& (**regions_ref).frame_obligations.count(idx) >= 1
                     &&& (**regions_ref).slot_owners.contains_key(idx)
