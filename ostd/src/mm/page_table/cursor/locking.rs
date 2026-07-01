@@ -115,7 +115,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
-    let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS as int - 1];
+    let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS - 1];
 
     let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::tracked_new(
         pt_own.0,
@@ -236,7 +236,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         Tracked(guards): Tracked<&mut Guards<'rcu>>
     requires
         old(cursor_own).level == NR_LEVELS,
-        old(cursor_own).continuations[(NR_LEVELS - 1) as int].all_some(),
+        old(cursor_own).continuations[NR_LEVELS - 1].all_some(),
     ensures
         // Phase 6: the retry loop in the commented-out body would handle the
         // stray-node race; the external_body shipped here is the post-retry
@@ -250,12 +250,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& final(cursor_own).popped_too_high == false
             &&& 1 <= final(cursor_own).level <= NR_LEVELS
             &&& final(cursor_own).continuations.dom().contains(final(cursor_own).level - 1)
-            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].inv()
-            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard == r->0
+            &&& final(cursor_own).continuations[final(cursor_own).level - 1].inv()
+            &&& final(cursor_own).continuations[final(cursor_own).level - 1].guard == r->0
         },
         // The subtree root's entry_own is a valid node with matching guard.
         {
-            let cont = final(cursor_own).continuations[(final(cursor_own).level - 1) as int];
+            let cont = final(cursor_own).continuations[final(cursor_own).level - 1];
             &&& cont.entry_own.is_node()
             &&& cont.entry_own.inv()
             &&& cont.entry_own.node().relate_guard(cont.guard)
@@ -263,7 +263,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         },
         // The subtree root is lock_held in guards.
         final(guards).lock_held(
-            final(cursor_own).continuations[(final(cursor_own).level - 1) as int]
+            final(cursor_own).continuations[final(cursor_own).level - 1]
                 .entry_own.node().meta_addr_self()),
         // regions invariant preserved
         final(regions).inv(),
@@ -768,9 +768,9 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
                 let m = psu / ai;
                 // lemma gives: cur_node_va == psu * k + (cur_node_va % psu)
                 //              psu == ai * m + (psu % ai)
-                assert(cur_node_va as int == (m * k) * ai) by (nonlinear_arith)
+                assert(cur_node_va == (m * k) * ai) by (nonlinear_arith)
                     requires
-                        cur_node_va as int == psu * k + 0,
+                        cur_node_va == psu * k + 0,
                         psu == ai * m + 0,
                         cur_node_va as int % psu == 0,
                         psu % ai == 0,
@@ -804,10 +804,10 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
                     ai > 0,
             ;
 
-            assert(start_idx as int * ai < end_idx as int * ai) by (nonlinear_arith)
+            assert(start_idx * ai < end_idx * ai) by (nonlinear_arith)
                 requires
-                    start_idx as int * ai == si,
-                    end_idx as int * ai >= xi,
+                    start_idx * ai == si,
+                    end_idx * ai >= xi,
                     si < xi,
             ;
             vstd::arithmetic::mul::lemma_mul_strict_inequality_converse(
@@ -822,9 +822,9 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         // So ceil_div(diff, ps) <= NR_ENTRIES.
         let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
         // (psu + ai - 1) / ai == NR_ENTRIES (since psu = NR_ENTRIES * ai)
-        assert(psu + ai - 1 == NR_ENTRIES as int * ai + (ai - 1)) by (nonlinear_arith)
+        assert(psu + ai - 1 == NR_ENTRIES * ai + (ai - 1)) by (nonlinear_arith)
             requires
-                psu == NR_ENTRIES as int * ai,
+                psu == NR_ENTRIES * ai,
         ;
         lemma_fundamental_div_mod_converse(psu + ai - 1, ai, NR_ENTRIES as int, ai - 1);
         // So (psu + ai - 1) / ai == NR_ENTRIES

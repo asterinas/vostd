@@ -301,7 +301,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(owner).relate_region(*final(regions)),
             final(regions).inv(),
             old(owner).list.len() > 0 ==> final(owner).list == old(owner).list.insert(
-                old(owner).list.len() as int - 1, final(frame_own).meta_own),
+                old(owner).list.len() - 1, final(frame_own).meta_own),
             old(owner).list.len() == 0 ==> final(owner).list == old(owner).list.insert(
                 0, final(frame_own).meta_own),
             // Id preserved when already minted; a fresh (empty) list adopts a
@@ -1512,7 +1512,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         proof {
             if n > 0 {
                 cursor_own.list_own.relate_region_at_facts(*regions, 0);
-                cursor_own.list_own.relate_region_at_facts(*regions, n as int - 1);
+                cursor_own.list_own.relate_region_at_facts(*regions, n - 1);
             }
         }
 

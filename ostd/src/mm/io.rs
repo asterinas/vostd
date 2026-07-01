@@ -396,7 +396,7 @@ impl<'a> VmWriter<'a, Infallible> {
             reader_owner@.has_read_view(),
             reader_owner@.is_kernel == old(writer_owner).is_kernel,
             // Return value: exactly `avail / size_of::<T>()` elements written.
-            r as int * core::mem::size_of::<T>() == old(self).avail_spec(),
+            r * core::mem::size_of::<T>() == old(self).avail_spec(),
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.cast::<T>();
@@ -1465,8 +1465,8 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     >)
         requires
             !Self::obeys_vmio_write_requires(),
-            offset as int + align as int <= usize::MAX as int,
-            core::mem::size_of::<T>() as int + align as int <= usize::MAX as int,
+            offset + align <= usize::MAX as int,
+            core::mem::size_of::<T>() + align <= usize::MAX as int,
             iter.obeys_prophetic_iter_laws(),
             iter.decrease() is Some,
             // `align_up` (called for `align > 1`) diverges unless `align`

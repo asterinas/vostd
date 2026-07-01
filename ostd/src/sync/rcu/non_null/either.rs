@@ -63,12 +63,12 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                         let big = 1usize << l_align_bits;
                         let q = left_addr / big;
                         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(left_addr as int, big as int);
-                        assert(left_addr as int == (q as int * scale as int) * tag as int) by (nonlinear_arith)
+                        assert(left_addr == q * scale * tag) by (nonlinear_arith)
                         requires
-                            left_addr as int == q as int * big as int,
+                            left_addr == q * big,
                             big == tag * scale,
                         ;
-                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q * scale, tag as int);
                     };
                     lemma_aligned_addr_clears_tag_bit(left_addr, tag, align_bits, l_align_bits);
                 }
@@ -116,12 +116,12 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                         let big = 1usize << r_align_bits;
                         let q = addr / big;
                         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(addr as int, big as int);
-                        assert(addr as int == (q as int * scale as int) * tag as int) by (nonlinear_arith)
+                        assert(addr == q * scale * tag) by (nonlinear_arith)
                         requires
-                            addr as int == q as int * big as int,
+                            addr == q * big,
                             big == tag * scale,
                         ;
-                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q as int * scale as int, tag as int);
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q * scale, tag as int);
                     }
                     lemma_aligned_addr_clears_tag_bit(addr, tag, align_bits, r_align_bits);
                     assert(tagged_addr & !tag == addr) by (bit_vector)

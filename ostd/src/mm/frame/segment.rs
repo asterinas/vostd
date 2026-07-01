@@ -277,7 +277,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         while i < addr_len
             invariant
                 i <= addr_len,
-                i as int == addrs.len(),
+                i == addrs.len(),
                 range.start % PAGE_SIZE == 0,
                 range.end % PAGE_SIZE == 0,
                 range.end <= MAX_PADDR,
@@ -335,7 +335,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             regions.frame_obligations == old(regions).frame_obligations,
                             regions.slot_owners.dom() == old(regions).slot_owners.dom(),
                             range.start % PAGE_SIZE == 0,
-                            i as int == addrs.len(),
+                            i == addrs.len(),
                             segment.range.end == range.start + i * PAGE_SIZE,
                             segment.range.end <= MAX_PADDR,
                             range.start <= p <= segment.range.end,
@@ -629,7 +629,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
                 &&& regions.slot_owners[idx].usage is Frame
             } by {
-                owner.relate_regions_at(old_regions, i + (offset / PAGE_SIZE) as int);
+                owner.relate_regions_at(old_regions, i + (offset / PAGE_SIZE));
             }
 
             assert forall|i: int, j: int|
@@ -651,7 +651,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 owner.relate_regions_distinct(
                     old_regions,
                     i + (offset / PAGE_SIZE) as int,
-                    j + (offset / PAGE_SIZE) as int,
+                    j + (offset / PAGE_SIZE),
                 );
             }
         }
@@ -708,13 +708,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             range.start % PAGE_SIZE != 0 ==> may_panic(),
             range.end % PAGE_SIZE != 0 ==> may_panic(),
             range.start > range.end ==> may_panic(),
-            self.range.start as int + range.end as int > self.range.end as int ==> may_panic(),
+            self.range.start + range.end > self.range.end as int ==> may_panic(),
             self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
         ensures
             range.start % PAGE_SIZE == 0,
             range.end % PAGE_SIZE == 0,
             range.start <= range.end,
-            self.range.start as int + range.end as int <= self.range.end as int,
+            self.range.start + range.end <= self.range.end as int,
             !self.page_in_range_saturated(range, *old(regions)),
             r.inv(),
             r.start_paddr() == self.start_paddr() + range.start,

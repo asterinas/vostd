@@ -926,7 +926,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // `inv_children_rel` for the unchanged children when restoring the
             // parent NodeOwner into the cursor's continuation.
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
-                forall|j: int| 0 <= j < NR_ENTRIES && j != old(self).idx as int ==>
+                forall|j: int| 0 <= j < NR_ENTRIES && j != old(self).idx ==>
                     #[trigger] final(parent_owner).children_perm.value()[j]
                         == old(parent_owner).children_perm.value()[j],
     )]
@@ -1193,8 +1193,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel)
                             / PAGE_SIZE;
-                        let big_j_int: int = i as int * sub_pages_per_subframe as int
-                            + j_prime as int;
+                        let big_j_int: int = i * sub_pages_per_subframe + j_prime;
                         vstd::arithmetic::mul::lemma_mul_nonnegative(
                             i as int,
                             sub_pages_per_subframe as int,
@@ -1438,7 +1437,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).frame().is_tracked == old(owner).frame().is_tracked,
             final(owner).path == old(owner).path,
             final(owner).parent_level == old(owner).parent_level,
-            forall|j: int| 0 <= j < NR_ENTRIES && j != idx as int ==>
+            forall|j: int| 0 <= j < NR_ENTRIES && j != idx ==>
                 #[trigger] final(parent_owner).children_perm.value()[j]
                     == old(parent_owner).children_perm.value()[j],
             // Only a present PTE's `prop` changed, so the present-count — and
@@ -1553,7 +1552,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(parent_owner).level == old(parent_owner).level,
             final(parent_owner).relate_guard(*final(self)),
             final(parent_owner).metaregion_sound_node(*final(regions)),
-            forall|j: int| 0 <= j < NR_ENTRIES && j != idx as int ==>
+            forall|j: int| 0 <= j < NR_ENTRIES && j != idx ==>
                 #[trigger] final(parent_owner).children_perm.value()[j]
                     == old(parent_owner).children_perm.value()[j],
             forall|slot: usize|
@@ -1779,7 +1778,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(parent_owner).level == old(parent_owner).level,
             final(parent_owner).relate_guard(*final(self)),
             final(parent_owner).metaregion_sound_node(*final(regions)),
-            forall|j: int| 0 <= j < NR_ENTRIES && j != idx as int ==>
+            forall|j: int| 0 <= j < NR_ENTRIES && j != idx ==>
                 #[trigger] final(parent_owner).children_perm.value()[j]
                     == old(parent_owner).children_perm.value()[j],
             *final(self) == *old(self),
@@ -1982,7 +1981,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 *final(regions),
             ),
             forall|i: int|
-                0 <= i < NR_ENTRIES && i != idx as int ==> #[trigger] old(parent_owner).children_perm.value()[i]
+                0 <= i < NR_ENTRIES && i != idx ==> #[trigger] old(parent_owner).children_perm.value()[i]
                     == final(parent_owner).children_perm.value()[i],
             final(parent_owner).slot_index == old(parent_owner).slot_index,
             final(parent_owner).level == old(parent_owner).level,

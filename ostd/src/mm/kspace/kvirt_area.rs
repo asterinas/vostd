@@ -441,8 +441,7 @@ impl KVirtArea {
                 vstd::arithmetic::power2::lemma_pow2,
             ;
 
-            let witness: nat = choose|i: nat|
-                vstd::arithmetic::power::pow(2, i) == PAGE_SIZE as int;
+            let witness: nat = choose|i: nat| vstd::arithmetic::power::pow(2, i) == PAGE_SIZE;
         }
         let start = addr.align_down(PAGE_SIZE);
         proof {
@@ -521,7 +520,7 @@ impl KVirtArea {
         ||| area_size % PAGE_SIZE != 0
         ||| map_offset % PAGE_SIZE != 0
         ||| map_offset >= area_size
-        ||| map_offset as int + n_frames as int * PAGE_SIZE as int > area_size as int
+        ||| map_offset + n_frames * PAGE_SIZE > area_size as int
     }
 
     /// Full panic condition for [`Self::map_frames`] = bounds OR OOM.
@@ -741,7 +740,7 @@ impl KVirtArea {
                 KernelPtConfig::item_into_raw_spec_tracked_level(item);
                 lemma_va_align_page_size_level_1(cursor.0.va);
                 cursor_owner.locked_range_page_aligned();
-                let ghost diff: int = cursor.0.barrier_va.end as int - cursor.0.va as int;
+                let ghost diff: int = cursor.0.barrier_va.end - cursor.0.va;
                 vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
                     nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
                 );
@@ -782,8 +781,7 @@ impl KVirtArea {
             proof {
                 let cur_pa = KernelPtConfig::item_into_raw_spec(item).0;
                 let cur_pa_idx = frame_to_index(cur_pa);
-                assert forall|i: int|
-                    (it.index() as int + 1) <= i < it.seq().len() implies CursorMut::<
+                assert forall|i: int| (it.index() + 1) <= i < it.seq().len() implies CursorMut::<
                     'a,
                     KernelPtConfig,
                     A,
@@ -860,8 +858,7 @@ impl KVirtArea {
         ||| pa_range.end % PAGE_SIZE != 0
         ||| area_size % PAGE_SIZE != 0
         ||| map_offset % PAGE_SIZE != 0
-        ||| map_offset as int + vstd_extra::external::range::range_usize_len(pa_range) as int
-            > area_size as int
+        ||| map_offset + vstd_extra::external::range::range_usize_len(pa_range) > area_size as int
     }
 
     /// Full panic condition for [`Self::map_untracked_frames`] = bounds OR OOM.
