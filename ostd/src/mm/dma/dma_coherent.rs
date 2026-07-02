@@ -20,7 +20,6 @@ use crate::{
     },
     specs::{
         arch::{PAGE_SIZE, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
-        mm::frame::segment::SegmentOwner,
         mm::virt_mem::VirtPtr,
     },
     sync::{AtomicDataWithOwner, PreemptDisabled, RwArc, RwLockReadGuard},
@@ -60,7 +59,7 @@ pub struct DmaCoherentInner<M: AnyUFrameMeta + ?Sized> {
 
 /// The owner of the inner part of a [`DmaCoherent`].
 pub tracked struct DmaCoherentInnerOwner<M: AnyUFrameMeta + ?Sized> {
-    pub segment_owner: SegmentOwner<M>,
+    pub _marker: PhantomData<M>,
 }
 
 pub type DmaCoherentInnerAtomic<M> = AtomicDataWithOwner<
@@ -83,7 +82,7 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherentInner<M> {
 
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaCoherentInnerOwner<M> {
     open spec fn inv(self) -> bool {
-        self.segment_owner.inv()
+        true
     }
 }
 
@@ -94,11 +93,8 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
     /// The `is_cache_coherent` argument specifies whether the target device can
     /// access main memory in a CPU-cache-coherent way.
     #[verus_spec(r =>
-        with
-            Tracked(segment_owner): Tracked<SegmentOwner<M>>,
         requires
             segment.inv(),
-            segment.wf(&segment_owner),
         ensures
             r matches Ok(r) ==> r.inner.wf(),
     )]
@@ -163,7 +159,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaCoherent<M> {
             },
         };
 
-        let tracked inner_owner = DmaCoherentInnerOwner { segment_owner };
+        let tracked inner_owner = DmaCoherentInnerOwner { _marker: PhantomData::<M> };
 
         let inner = RwArc::new(
             AtomicDataWithOwner::new(
@@ -459,7 +455,6 @@ impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaCoherentInner<M>> for DmaCoherentIn
     open spec fn predicate(&self, v: DmaCoherentInner<M>) -> bool {
         &&& self.inv()
         &&& v.inv()
-        &&& v.segment.wf(&self.segment_owner)
     }
 }
 

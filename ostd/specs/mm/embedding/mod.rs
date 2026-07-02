@@ -219,20 +219,18 @@ pub tracked struct FrameEntry {
 /// Per-Segment entry in the store. Represents one outstanding
 /// `Segment<M>` covering the contiguous physical range `range`.
 ///
-/// Per exec [`SegmentOwner::relate_regions`]: every frame slot in
-/// `range` carries one *forgotten* reference for this segment — i.e.,
-/// `raw_count` at the slot equals the number of `SegmentEntry`s
-/// covering it (see [`segment_cover_count`]). The frame's
-/// `ref_count >= 1` is bumped by the segment's owning reference (one
-/// per frame); the segment does *not* hold a separate `Frame` handle,
-/// so the embedding's `frames` map is unrelated to per-segment frame
-/// refcounting.
+/// Per exec [`Segment::relate_regions`]: every frame slot in `range`
+/// carries one pending `frame_obligations` entry for this segment. The
+/// frame's `ref_count >= 1` is bumped by the segment's owning reference
+/// (one per frame); the segment does *not* hold a separate `Frame`
+/// handle, so the embedding's `frames` map is unrelated to per-segment
+/// frame refcounting.
 ///
 /// Multiple `SegmentEntry`s may overlap (e.g. after `clone`); each
-/// independently contributes `+1` to every covered slot's `raw_count`
-/// and `ref_count`.
+/// independently contributes `+1` to every covered slot's obligation
+/// count and `ref_count`.
 ///
-/// [`SegmentOwner::relate_regions`]: crate::specs::mm::frame::segment::SegmentOwner::relate_regions
+/// [`Segment::relate_regions`]: crate::mm::frame::Segment::relate_regions
 pub tracked struct SegmentEntry {
     pub range: Range<Paddr>,
 }
