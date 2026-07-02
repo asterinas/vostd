@@ -71,14 +71,14 @@ cargo dv verify
 To verify only `ostd`, run:
 
 ```bash
-cargo dv verify --targets ostd
+cargo dv verify -f --targets ostd
 ```
 
 The `ostd` crate relies on a verified library: `vstd_extra`. To build it
 independently through `cargo-verus build`, run:
 
 ```bash
-cargo dv compile --targets vstd_extra
+cargo dv build --targets vstd_extra
 ```
 
 ### Clean Build Artifacts
@@ -106,6 +106,7 @@ make doc
 or
 
 ```bash
+cargo dv build
 cargo dv doc --target ostd
 ```
 

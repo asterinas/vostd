@@ -16,7 +16,10 @@ verify:
 fmt:
 	cargo dv fmt
 
-doc: verify
+build:
+	cargo dv build
+
+doc: build
 	cargo dv doc --target ostd
 
 verus:
