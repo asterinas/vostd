@@ -12,7 +12,7 @@ This work is ongoing. Our current focus is on verifying OSTD’s *memory managem
 
 ## Project Structure
 
-Implementation code from the OSTD [mainline](https://github.com/asterinas/asterinas), together with its accompanying proofs, resides in the `ostd` directory, while specifications are located under `specs`.
+Implementation code from the OSTD [mainline](https://github.com/asterinas/asterinas), together with its accompanying proofs, resides in the `ostd/src` directory, while specifications are located under `ostd/specs`.
 
 This repository currently contains verification code for `ostd/src/mm` and `ostd/src/sync`. It is independent of the concurrency proofs presented in our [SOSP paper](https://dl.acm.org/doi/10.1145/3731569.3764836) — *“CortenMM: Efficient Memory Management with Strong Correctness Guarantees.”*  For the SOSP artifact, please refer to the [func-correct](https://github.com/asterinas/vostd/tree/func-correct) branch for verification code, and to [this repo](https://github.com/TELOS-syslab/CortenMM-Artifact) for the complete artifact.
 
@@ -52,7 +52,7 @@ Verus should be automatically cloned and built in the `tools` directory. If down
 >
 > We use [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the upstream repository. You may choose to install the [upstream Verus source](https://github.com/verus-lang/verus) via `cargo dv bootstrap --upstream-verus`, however, we cannot guarantee that it will always verify successfully with our project. That said, our CI continuously tests against upstream, and we typically resolve any breaking changes within about a week.
 >
-> If you have already installed Verus, you can either set `VERUS_PATH` to the directory containing the Verus binary and `VERUS_Z3_PATH` to the Z3 binary, or simply add them to your `PATH`. Please also note that our project relies on the experimental `new-mut-ref` feature by default, so a newer version of Verus is required.
+> If you have already installed Verus elsewhere and just want to reproduce the verification result, a quick alternative is to set `VERUS_PATH` to the directory containing the Verus binary, `CARGO_VERUS_PATH`  to the directory containing the `cargo-verus` binary, and `VERUS_Z3_PATH` to the Z3 binary, or simply add them to your `PATH`. Then run `cargo verus verify`.
 
 ### Build Verification Targets
 
@@ -68,22 +68,21 @@ or
 cargo dv verify
 ```
 
-To verify only `ostd`, run:
+To verify only `ostd` and skip its dependencies, run:
 
 ```bash
 cargo dv verify -f --targets ostd
 ```
 
-The `ostd` crate relies on a verified library: `vstd_extra`. To build it
-independently through `cargo-verus build`, run:
+The `ostd` crate relies on a verified crate: `vstd_extra`. To verify it independently, run:
 
 ```bash
-cargo dv build --targets vstd_extra
+cargo dv verify --targets vstd_extra
 ```
 
 ### Clean Build Artifacts
 
-`cargo verus` automatically skips recompilation and reverification for libraries that have not changed since the last build. To remove the build artifact force a fresh build, run:
+Recompilation and reverification are automatically skipped for crates that have not changed since the last build. To remove the build artifact for a fresh build, run:
 
 ```bash
 make clean
@@ -97,7 +96,7 @@ cargo dv clean
 
 ### Documentation
 
-We provide comprehensive API-level documentation that describes the verified APIs along with their auxiliary lemmas. To generate the documentation, run:
+We provide comprehensive API-level documentation that describes the verified APIs along with their specifications. To generate the documentation, run:
 
 ```bash
 make doc
@@ -126,9 +125,11 @@ We welcome your contributions!
 
 - We add an `axiom_` prefix to the name of each `axiom fn` and a `lemma_` prefix to each `proof fn`.
 - We prefer associated functions to isolated lemmas.
+- Specifications and lemmas are preferred to be add to `ostd/specs`.
+- General definitions and lemmas should be add to `verified_libs/vstd_extra`.
 
 ### Tips
 
 - During your development process, please frequently run `make verus-upgrade` or `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
-- Format checking is not enforced, but we still recommend formatting your code with `cargo dv fmt --paths path_to_your_file` before submission.
+- Format checking is enforced, please format your code with `cargo dv fmt` before submission.
 - If you are contributing to Verus, we recommend submitting pull requests to [the upstream repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.
