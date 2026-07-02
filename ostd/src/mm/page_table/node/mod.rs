@@ -165,7 +165,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         };
 
         proof {
-            C::lemma_pte_walk_fills_page();
+            C::lemma_paging_consts_properties();
             C::lemma_page_table_config_constant_properties();
             vstd::arithmetic::mul::lemma_mul_inequality(
                 range.start as int,
@@ -207,7 +207,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost mut removed_indices: vstd::set::Set<usize> = vstd::set::Set::empty();
 
         proof {
-            C::lemma_pte_walk_fills_page();
             C::lemma_page_table_config_constant_properties();
             C::lemma_paging_consts_properties();
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(

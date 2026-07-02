@@ -165,6 +165,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     // Derived properties.
 
             0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            NR_ENTRIES * Self::PTE_SIZE() == PAGE_SIZE,
             // Copied from the postcondition of `lemma_paging_consts_requirements`
             // so that we only need to call this lemma in proofs.
             0 < Self::BASE_PAGE_SIZE(),

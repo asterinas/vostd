@@ -1653,10 +1653,6 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
-    proof fn lemma_pte_walk_fills_page() {
-        Self::lemma_page_table_config_constant_properties();
-    }
-
     proof fn lemma_pte_align_divides_size() {
         PageTableEntry::lemma_layout();
     }
