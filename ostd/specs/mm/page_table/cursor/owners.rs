@@ -24,7 +24,7 @@ use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge,
     page_size,
 };
-use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE, has_safe_slot};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
@@ -2840,7 +2840,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
 {
     C::lemma_paging_consts_properties();
     C::lemma_page_table_config_constant_properties();
-    crate::mm::page_table::lemma_pte_index_consts::<C>();
+    lemma_arch_specific_consts_properties::<C>();
     lemma_vaddr_range_bounds_spec_unfold::<C>();
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
