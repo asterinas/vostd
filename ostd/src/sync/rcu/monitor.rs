@@ -106,9 +106,9 @@ fn run_completed_callbacks(
         completed@ == callback_summaries(callbacks),
 {
     proof {
-        assert forall|i: int|
-            0 <= i < callbacks@.len() implies completed.covers((#[trigger] callbacks@[i])@) by
-        {
+        assert forall|i: int| 0 <= i < callbacks@.len() implies completed.covers(
+            (#[trigger] callbacks@[i])@,
+        ) by {
             let summaries = callback_summaries(callbacks);
             assert(completed@ == summaries);
             assert(summaries[i] == callbacks@[i]@);
@@ -131,9 +131,9 @@ fn run_completed_callbacks(
             assert(callback == before[0]);
             assert(callback@ == before[0]@);
             assert(completed.covers(callback@));
-            assert forall|i: int|
-                0 <= i < callbacks@.len() implies completed.covers((#[trigger] callbacks@[i])@) by
-            {
+            assert forall|i: int| 0 <= i < callbacks@.len() implies completed.covers(
+                (#[trigger] callbacks@[i])@,
+            ) by {
                 assert(callbacks@ == before.subrange(1, before.len() as int));
                 assert(callbacks@[i] == before[i + 1]);
                 assert(0 <= i + 1 < before.len());
@@ -323,14 +323,11 @@ impl State {
     /// the current grace period running and returns no completed callbacks.
     /// The exact CPU-mask contents are still outside the proof view; the proof
     /// treats `record_quiescent_state`'s boolean result as the completion cut.
-    fn finish_grace_period(
-        &mut self,
-        this_cpu: CpuId,
-    ) -> ((completed_gp, completed_callbacks, completed_token): (
-        bool,
-        Callbacks,
-        Tracked<CompletedGracePeriod>,
-    ))
+    fn finish_grace_period(&mut self, this_cpu: CpuId) -> ((
+        completed_gp,
+        completed_callbacks,
+        completed_token,
+    ): (bool, Callbacks, Tracked<CompletedGracePeriod>))
         ensures
             final(self).wf(),
             completed_token@@ == callback_summaries(completed_callbacks),
@@ -338,8 +335,7 @@ impl State {
             completed_gp ==> completed_token@@ == old(self)@.current_gp.callbacks,
             !completed_gp ==> completed_token@@ == Seq::<rcu_spec::RcuCallbackSummary>::empty(),
             (!completed_gp && !(old(self)@.current_gp.is_complete)) ==> !(
-                final(self)@.current_gp.is_complete
-            ),
+            final(self)@.current_gp.is_complete),
     {
         proof {
             use_type_invariant(&*self);
@@ -614,16 +610,15 @@ impl RcuMonitor {
         if !is_monitoring {
             return;
         }
-
         let mut state = self.state.lock();
         if state.current_gp.is_complete {
             state.drop();
             return;
         }
-
         let this_cpu = CpuId::current();
-        let (completed_gp, completed_callbacks, Tracked(completed)) =
-            state.finish_grace_period(this_cpu);
+        let (completed_gp, completed_callbacks, Tracked(completed)) = state.finish_grace_period(
+            this_cpu,
+        );
         if !completed_gp {
             state.drop();
             return;

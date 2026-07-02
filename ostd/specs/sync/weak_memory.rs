@@ -24,6 +24,7 @@ use super::rcu as rcu_spec;
 #[cfg(target_has_atomic = "64")]
 use core::sync::atomic::{AtomicI64, AtomicU64};
 
+use vstd::assert_sets_equal;
 use vstd::invariant::{AtomicInvariant, InvariantPredicate};
 use vstd::prelude::*;
 use vstd::resource::Loc;
@@ -155,12 +156,41 @@ pub tracked struct HistAuth<V> {
     ghost len: nat,
 }
 
+proof fn lemma_timestamp_range_insert_last(hi: Timestamp)
+    ensures
+        Set::range(0nat, hi).insert(hi) == Set::range(0nat, hi + 1),
+{
+    broadcast use vstd::set_lib::range_set_properties;
+
+    assert_sets_equal!(Set::range(0nat, hi).insert(hi), Set::range(0nat, hi + 1), ts: Timestamp => {
+        if Set::range(0nat, hi).insert(hi).contains(ts) {
+            if ts != hi {
+                assert(Set::range(0nat, hi).contains(ts));
+                assert(ts < hi);
+            }
+            assert(ts < hi + 1);
+            assert(Set::range(0nat, hi + 1).contains(ts));
+        }
+
+        if Set::range(0nat, hi + 1).contains(ts) {
+            assert(ts < hi + 1);
+            if ts == hi {
+                assert(Set::range(0nat, hi).insert(hi).contains(ts));
+            } else {
+                assert(ts < hi);
+                assert(Set::range(0nat, hi).contains(ts));
+                assert(Set::range(0nat, hi).insert(hi).contains(ts));
+            }
+        }
+    });
+}
+
 impl<V> HistAuth<V> {
     pub closed spec fn id(self) -> AtomicId {
         self.auth.id()
     }
 
-    pub closed spec fn map(self) -> IMap<Timestamp, Msg<V>> {
+    pub closed spec fn map(self) -> Map<Timestamp, Msg<V>> {
         self.auth@
     }
 
@@ -177,7 +207,7 @@ impl<V> HistAuth<V> {
 
     pub open spec fn wf(self) -> bool {
         &&& self.len() > 0
-        &&& self.map().dom() =~= ISet::new(|ts: Timestamp| ts < self.len())
+        &&& self.map().dom() == Set::range(0nat, self.len())
     }
 
     pub open spec fn valid_ts(self, ts: Timestamp) -> bool {
@@ -213,9 +243,19 @@ impl<V> HistAuth<V> {
             snap.agrees_with(*final(self)),
     {
         let ghost ts = self.len();
+        let ghost old_dom = self.map().dom();
 
         let tracked pt = self.auth.insert(ts, msg);
         self.len = self.len + 1;
+
+        // Full-crate verification does not reliably rediscover this range/domain
+        // fact after the ghost-map insert, so keep the append step explicit.
+        lemma_timestamp_range_insert_last(ts);
+        assert(old_dom == Set::range(0nat, ts));
+        assert(self.map().dom() == old_dom.insert(ts));
+        assert(self.map().dom() == Set::range(0nat, ts + 1));
+        assert(ts + 1 == self.len());
+        assert(self.map().dom() == Set::range(0nat, self.len()));
 
         let tracked psnap = pt.persist();
         MsgSnap { snap: psnap }
