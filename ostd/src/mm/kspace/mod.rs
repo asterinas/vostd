@@ -54,10 +54,12 @@ use super::{
 };
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;
-use crate::specs::arch::NR_LEVELS;
-use crate::specs::mm::frame::meta_owners::MetaPerm;
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{
+    mapping::group_page_meta,
+    meta_owners::{MetaPerm, MetaSlotStorage},
+};
 use crate::{
     arch::mm::{PageTableEntry, PagingConsts},
     boot::memory_region::MemoryRegionType,
@@ -153,6 +155,7 @@ pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPr
     Ghost(TrivialPred),
 );
 
+#[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Clone, Debug)]
 pub(crate) struct KernelPtConfig {}
 
@@ -167,10 +170,42 @@ unsafe impl PageTableConfig for KernelPtConfig {
         0xffff
     }
 
-    fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>)
-        ensures
-            r == Self::TOP_LEVEL_INDEX_RANGE_spec(),
-    {
+    proof fn lemma_page_table_config_constant_requirements() {
+        use crate::mm::nr_subpage_per_huge;
+        use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
+        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
+        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
+
+        lemma2_to64();
+        lemma2_to64_rest();
+        assert(usize::BITS == 64) by (compute);
+        vstd::layout::unsigned_int_max_values();
+        lemma_usize_pow2_ilog2(12);
+        lemma_usize_pow2_ilog2(9);
+        lemma_pow2_adds(9, 39);
+        lemma_pow2_adds(8, 39);
+        assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
+        assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
+        assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
+        assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
+        assert(256 * pow2(39) == pow2(47));
+        assert((256 * pow2(39) as int) / (pow2(47) as int) == 1);
+        assert(pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) == 39);
+        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().start * (pow2(
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+        )) == pow2(47));
+        assert(((Self::TOP_LEVEL_INDEX_RANGE_spec().start * pow2(
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+        )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) == 1);
+        assert(((Self::TOP_LEVEL_INDEX_RANGE_spec().start * pow2(
+            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
+        )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1);
+        lemma_pow2_adds(16, 48);
+        assert(Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
+            - pow2(Self::C::ADDRESS_WIDTH() as nat));
+    }
+
+    fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>) {
         256..512
     }
 
@@ -178,10 +213,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         false
     }
 
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool)
-        ensures
-            b == Self::TOP_LEVEL_CAN_UNMAP_spec(),
-    {
+    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
         false
     }
 
@@ -245,15 +277,18 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
+    proof fn lemma_pte_size_eq_size_of() {
+        PageTableEntry::lemma_layout();
+    }
 
-    axiom fn axiom_pte_size_eq_size_of();
+    proof fn lemma_pte_walk_fills_page() {
+        Self::lemma_page_table_config_constant_properties();
+        Self::lemma_pte_size_eq_size_of();
+    }
 
-    axiom fn axiom_pte_walk_fills_page();
-
-    axiom fn axiom_top_level_index_range_within_nr_entries();
-
-    axiom fn axiom_pte_align_divides_size();
+    proof fn lemma_pte_align_divides_size() {
+        PageTableEntry::lemma_layout();
+    }
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 
@@ -271,7 +306,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     }
 
     proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
-        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         let item = Self::item_from_raw_spec(pa, level, prop);
         if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
@@ -315,7 +350,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
         assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
         match (item, res) {
             (MappedItem::Tracked(frame, prop_actual), MappedItem::Tracked(res_frame, _)) => {
-                use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+                use crate::mm::frame::meta::mapping::meta_to_frame;
+                use crate::specs::mm::frame::mapping::frame_to_index;
                 Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
                 let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
                 assert(pa == meta_to_frame(frame.ptr.addr()));
@@ -355,7 +391,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
         Self::item_from_raw_well_formed(pa, level, prop);
         match item {
             MappedItem::Tracked(frame, prop_actual) => {
-                use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+                use crate::mm::frame::meta::mapping::meta_to_frame;
+                use crate::specs::mm::frame::mapping::frame_to_index;
                 Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
                 Self::item_roundtrip(item, pa, level, prop);
                 assert(meta_to_frame(frame.ptr.addr()) == pa);
@@ -373,10 +410,24 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
 impl KernelPtConfig {
     /// The spec agrees with the exec, which ensures 1 <= level <= NR_LEVELS.
-    pub axiom fn item_into_raw_spec_level_bounds(item: MappedItem)
+    pub proof fn item_into_raw_spec_level_bounds(item: MappedItem)
+        requires
+            item matches MappedItem::Untracked(_, level, _) ==> 1 <= level <= NR_LEVELS,
         ensures
             1 <= KernelPtConfig::item_into_raw_spec(item).1 <= crate::specs::arch::NR_LEVELS,
-    ;
+    {
+        match item {
+            MappedItem::Tracked(_, _) => {
+                Self::item_into_raw_spec_tracked_level(item);
+                // item_into_raw_spec(item).1 == 1; 1 <= 1 <= NR_LEVELS always.
+                assert(1 <= NR_LEVELS);
+            },
+            MappedItem::Untracked(pa, level, prop) => {
+                Self::item_into_raw_spec_untracked(pa, level, prop);
+                // item_into_raw_spec(item).1 == level, bounded by precondition.
+            },
+        }
+    }
 
     /// Tracked frames use 4K pages (level 1). Used to prove alignment in map_frames.
     pub axiom fn item_into_raw_spec_tracked_level(item: MappedItem)
@@ -416,7 +467,7 @@ impl KernelPtConfig {
     /// Once we have this address shape, `Frame::inv()` follows from `lemma_frame_to_meta_soundness`.
     pub axiom fn item_from_raw_spec_tracked_ptr(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            crate::mm::frame::meta::has_safe_slot(pa),
+            has_safe_slot(pa),
             prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
         ensures
             match KernelPtConfig::item_from_raw_spec(pa, level, prop) {
@@ -441,10 +492,13 @@ impl KernelPtConfig {
     ;
 
     /// For KernelPtConfig (x86_64): HIGHEST_TRANSLATION_LEVEL = 2 < NR_LEVELS = 4.
-    pub axiom fn axiom_kernel_htl_lt_nr_levels()
+    pub proof fn lemma_kernel_htl_lt_nr_levels()
         ensures
-            (KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() as int) < NR_LEVELS as int,
-    ;
+            KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() < NR_LEVELS,
+    {
+        assert(KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() == 2);
+        assert(NR_LEVELS == 4usize);
+    }
 }
 
 /*

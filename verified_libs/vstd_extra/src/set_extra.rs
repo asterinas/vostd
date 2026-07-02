@@ -3,6 +3,25 @@ use vstd::{iset::fold::*, prelude::*, set::fold::*, set_lib::*};
 
 verus! {
 
+/// A finite `Set<int>` cannot contain every integer: there always exists
+/// an `int` outside the set. Used to prove the freshness axioms.
+pub proof fn lemma_finite_int_set_has_unused(s: Set<int>)
+    ensures
+        exists|id: int| !s.contains(id),
+{
+    let n = s.len() as int;
+    vstd::set_lib::lemma_int_range(0, n + 1);
+    if forall|i: int| 0 <= i < n + 1 ==> s.contains(i) {
+        assert(Set::range(0, n + 1).subset_of(s)) by {
+            assert forall|i: int| Set::<int>::range(0, n + 1).contains(i) implies s.contains(
+                i,
+            ) by {}
+        }
+        vstd::set_lib::lemma_len_subset(Set::range(0, n + 1), s);
+        assert(false);
+    }
+}
+
 /// If all elements in set `s` does not satisfy the predicate `f`, then the filtered set
 /// is empty.
 pub proof fn lemma_filter_all_false<T>(s: Set<T>, f: spec_fn(T) -> bool)

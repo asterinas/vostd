@@ -5,7 +5,6 @@
 //! [super::meta]) to allow any type of frame to be used in a linked list.
 use vstd::prelude::*;
 
-use vstd::atomic::PermissionU64;
 use vstd::seq_lib::*;
 use vstd::simple_pptr::*;
 
@@ -14,39 +13,37 @@ use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
 use vstd_extra::ownership::*;
 use vstd_extra::trans_macros::*;
 
-use crate::mm::frame::UniqueFrame;
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
-use crate::mm::frame::meta::mapping::frame_to_meta;
-use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::mm::frame::meta::{
+    META_SLOT_SIZE, REF_COUNT_UNIQUE,
+    mapping::{frame_to_meta, meta_to_frame},
+};
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::*;
-use crate::specs::mm::frame::linked_list::linked_list_owners::*;
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, Metadata};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
+use crate::specs::mm::frame::{
+    linked_list::linked_list_owners::*,
+    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+    meta_owners::{MetaSlotOwner, Metadata},
+    meta_region_owners::MetaRegionOwners,
+    unique::UniqueFrameOwner,
+};
 
-use core::borrow::BorrowMut;
+use super::{
+    MetaSlot, mapping,
+    meta::{AnyFrameMeta, get_slot},
+    unique::UniqueFrame,
+};
+use crate::{
+    arch::mm::PagingConsts,
+    mm::{Paddr, Vaddr},
+    //panic::abort,
+};
 use core::{
     ops::{Deref, DerefMut},
     ptr::NonNull,
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use crate::specs::*;
-
-use crate::mm::frame::meta::mapping::{
-    META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_addr, meta_to_frame, meta_to_frame_spec,
-};
-use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, get_slot, has_safe_slot};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-
 verus! {
-
-/// A link in the linked list.
-pub struct Link<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
-    pub next: Option<ReprPtr<MetaSlot, MetadataAsLink<M>>>,
-    pub prev: Option<ReprPtr<MetaSlot, MetadataAsLink<M>>>,
-    pub meta: M,
-}
 
 /// A linked list of frames.
 ///
@@ -60,6 +57,41 @@ pub struct Link<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 ///     [`from_in_use`] a frame that is inside a linked list.
 ///  3. We also allow creating cursors at a specific frame, allowing $O(1)$
 ///     removal without iterating through the list at a cost of some checks.
+///
+/// # Example
+///
+/// To create metadata types that allows linked list links, wrap the metadata
+/// type in [`Link`]:
+///
+/// ```rust
+/// use ostd::{
+///     mm::{frame::{linked_list::{Link, LinkedList}, Frame}, FrameAllocOptions},
+///     impl_untyped_frame_meta_for,
+/// };
+///
+/// #[derive(Debug)]
+/// struct MyMeta { mark: usize }
+///
+/// type MyFrame = Frame<Link<MyMeta>>;
+///
+/// impl_untyped_frame_meta_for!(MyMeta);
+///
+/// let alloc_options = FrameAllocOptions::new();
+/// let frame1 = alloc_options.alloc_frame_with(Link::new(MyMeta { mark: 1 })).unwrap();
+/// let frame2 = alloc_options.alloc_frame_with(Link::new(MyMeta { mark: 2 })).unwrap();
+///
+/// let mut list = LinkedList::new();
+/// list.push_front(frame1.try_into().unwrap());
+/// list.push_front(frame2.try_into().unwrap());
+///
+/// let mut cursor = list.cursor_front_mut();
+/// assert_eq!(cursor.current_meta().unwrap().mark, 2);
+/// cursor.move_next();
+/// assert_eq!(cursor.current_meta().unwrap().mark, 1);
+/// ```
+///
+/// [`from_in_use`]: super::Frame::from_in_use
+///
 /// # Verified Properties
 /// ## Verification Design
 /// The linked list is abstractly represented by a [`LinkedListOwner`]:
@@ -81,7 +113,7 @@ pub struct Link<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 /// `next`/`prev` pointer chain) is captured by
 /// [`LinkedListOwner::relate_region`] (opaque, with per-position
 /// [`LinkedListOwner::relate_region_at`]). The cursor exposes this via
-/// [`CursorOwner::inv_region`] and [`CursorMut::wf_region`].
+/// [`CursorOwner::wf_with_region`] and [`CursorMut::wf_region`].
 /// ## Safety
 /// A given linked list can only have one cursor at a time, so there are no data races.
 /// The `prev` and `next` fields of the metadata for each link always points to valid
@@ -118,10 +150,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Default for LinkedList<M> {
     }
 }
 
-// SAFETY: Only the pointers are not `Send` and `Sync`. But our interfaces
-// enforces that only with `&mut` references can we access with the pointers.
-//unsafe impl<M> Send for LinkedList<M> where Link<M>: AnyFrameMeta {}
-//unsafe impl<M> Sync for LinkedList<M> where Link<M>: AnyFrameMeta {}
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// Gets the number of frames in the linked list.
@@ -132,7 +160,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             self.wf(owner),
             owner.inv(),
         ensures
-            s == self.model(owner).list.len(),
+            s == owner@.list.len(),
     )]
     pub fn size(&self) -> usize {
         proof {
@@ -225,7 +253,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             owner.relate_region(*old(regions)),
         ensures
             owner.list.len() == 0 ==> r.is_none(),
-            r.is_some() ==> (r->0).0.model((r->0).1@).meta == owner.list[0]@,
+            r.is_some() ==> (r->0).1@@.meta == owner.list[0]@,
             r.is_some() ==> (r->0).1@.frame_link_inv(*final(regions)),
     )]
     pub fn pop_front(&mut self) -> Option<
@@ -237,7 +265,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         proof {
             if owner.list.len() > 0 {
-                let _ = owner.list[0];
                 owner.relate_region_at_facts(*regions, 0);
             }
         }
@@ -274,7 +301,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(owner).relate_region(*final(regions)),
             final(regions).inv(),
             old(owner).list.len() > 0 ==> final(owner).list == old(owner).list.insert(
-                old(owner).list.len() as int - 1, final(frame_own).meta_own),
+                old(owner).list.len() - 1, final(frame_own).meta_own),
             old(owner).list.len() == 0 ==> final(owner).list == old(owner).list.insert(
                 0, final(frame_own).meta_own),
             // Id preserved when already minted; a fresh (empty) list adopts a
@@ -320,7 +347,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             owner.relate_region(*old(regions)),
         ensures
             owner.list.len() == 0 ==> r.is_none(),
-            r.is_some() ==> (r->0).0.model((r->0).1@).meta == owner.list[owner.list.len() - 1]@,
+            r.is_some() ==> (r->0).1@@.meta == owner.list[owner.list.len() - 1]@,
             r.is_some() ==> (r->0).1@.frame_link_inv(*final(regions)),
     )]
     pub fn pop_back(&mut self) -> Option<
@@ -332,7 +359,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         proof {
             if owner.list.len() > 0 {
-                let _ = owner.list[owner.list.len() - 1];
                 owner.relate_region_at_facts(*regions, owner.list.len() - 1);
             }
         }
@@ -375,10 +401,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             // `regions.inv()` that pins the slot in the region maps, its
             // metadata as init, and its `in_list` permission as governing the
             // slot's atomic — the same facts `cursor_mut_at` derives in-body.
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            broadcast use group_page_meta;
 
             let idx = frame_to_index(frame);
-            assert(idx < max_meta_slots());
             assert(regions.slot_owners.contains_key(idx));
             assert(regions.slots.contains_key(idx));
             assert(regions.slots[idx].is_init());
@@ -392,13 +417,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         let slot = slot_ptr.take(Tracked(&mut slot_perm));
 
-        let tracked mut inner_perms = slot_own.take_inner_perms();
+        let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         let in_list = slot.in_list.load(Tracked(&mut inner_perms.in_list));
         slot_ptr.put(Tracked(&mut slot_perm), slot);
 
         proof {
-            slot_own.sync_inner(&inner_perms);
             regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
             regions.slots.tracked_insert(frame_to_index(frame), slot_perm);
         }
@@ -441,15 +465,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         if let Ok(slot_ptr) = get_slot(frame) {
             let ghost idx = frame_to_index(frame);
             proof {
-                broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+                broadcast use group_page_meta;
 
-                assert(idx < max_meta_slots());
                 assert(regions.slot_owners.contains_key(idx));
                 assert(regions.slots.contains_key(idx));
             }
             let tracked slot_perm = regions.slots.tracked_borrow(idx);
             let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
-            let tracked mut inner_perms = slot_own.take_inner_perms();
+            let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
             let slot = slot_ptr.borrow(Tracked(slot_perm));
 
@@ -462,7 +485,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             let meta_ptr = slot.as_meta_ptr::<Link<M>>();
 
             proof {
-                slot_own.sync_inner(&inner_perms);
                 regions.slot_owners.tracked_insert(idx, slot_own);
             }
 
@@ -611,24 +633,20 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     )]
     pub fn move_next(&mut self)
         requires
-            owner.inv_region(*regions),
+            owner.wf_with_region(*regions),
             old(self).wf_region(owner, *regions),
         ensures
-            final(self).model(owner.move_next_owner_spec()) == old(self).model(
-                owner,
-            ).move_next_spec(),
-            owner.move_next_owner_spec().inv_region(*regions),
+            owner.move_next_owner_spec()@ == owner@.move_next_spec(),
+            owner.move_next_owner_spec().wf_with_region(*regions),
             final(self).wf_region(owner.move_next_owner_spec(), *regions),
     {
         let ghost old_self = *self;
 
         proof {
             if self.current is Some {
-                let _ = owner.list_own.list[owner.index];
                 owner.list_own.relate_region_at_facts(*regions, owner.index);
             }
             if owner.index < owner.length() - 1 {
-                let _ = owner.list_own.list[owner.index + 1];
                 owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
             }
         }
@@ -654,12 +672,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             LinkedListOwner::<M>::view_preserves_len(owner.list_own.list);
-            assert(self.model(owner.move_next_owner_spec()).fore == old_self.model(
-                owner,
-            ).move_next_spec().fore);
-            assert(self.model(owner.move_next_owner_spec()).rear == old_self.model(
-                owner,
-            ).move_next_spec().rear);
+            assert(owner.move_next_owner_spec()@.fore == owner@.move_next_spec().fore);
+            assert(owner.move_next_owner_spec()@.rear == owner@.move_next_spec().rear);
         }
     }
 
@@ -675,24 +689,20 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     )]
     pub fn move_prev(&mut self)
         requires
-            owner.inv_region(*regions),
+            owner.wf_with_region(*regions),
             old(self).wf_region(owner, *regions),
         ensures
-            final(self).model(owner.move_prev_owner_spec()) == old(self).model(
-                owner,
-            ).move_prev_spec(),
-            owner.move_prev_owner_spec().inv_region(*regions),
+            owner.move_prev_owner_spec()@ == owner@.move_prev_spec(),
+            owner.move_prev_owner_spec().wf_with_region(*regions),
             final(self).wf_region(owner.move_prev_owner_spec(), *regions),
     {
         let ghost old_self = *self;
 
         proof {
             if self.current is Some {
-                let _ = owner.list_own.list[owner.index];
                 owner.list_own.relate_region_at_facts(*regions, owner.index);
             }
             if 0 < owner.index {
-                let _ = owner.list_own.list[owner.index - 1];
                 owner.list_own.relate_region_at_facts(*regions, owner.index - 1);
             }
         }
@@ -721,22 +731,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
             if owner@.list_model.list.len() > 0 {
                 if owner@.fore.len() > 0 {
-                    assert(self.model(owner.move_prev_owner_spec()).fore == old_self.model(
-                        owner,
-                    ).move_prev_spec().fore);
-                    assert(self.model(owner.move_prev_owner_spec()).rear == old_self.model(
-                        owner,
-                    ).move_prev_spec().rear);
+                    assert(owner.move_prev_owner_spec()@.fore == owner@.move_prev_spec().fore);
+                    assert(owner.move_prev_owner_spec()@.rear == owner@.move_prev_spec().rear);
                     if owner@.rear.len() > 0 {
-                        let _ = owner.list_own.list[owner.index];
                         owner.list_own.relate_region_at_facts(*regions, owner.index);
                     }
                 } else {
-                    let _ = owner.list_own.list[owner.index];
                     owner.list_own.relate_region_at_facts(*regions, owner.index);
-                    assert(self.model(owner.move_prev_owner_spec()).rear == old_self.model(
-                        owner,
-                    ).move_prev_spec().rear);
+                    assert(owner.move_prev_owner_spec()@.rear == owner@.move_prev_spec().rear);
                     assert(owner@.rear == owner@.list_model.list);
                 }
             }
@@ -763,7 +765,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     pub fn current_meta<'b>(&'b mut self) -> (res: Option<&'b mut M>)
         requires
             old(self).wf_region(*old(owner), *old(regions)),
-            old(owner).inv_region(*old(regions)),
+            old(owner).wf_with_region(*old(regions)),
             old(regions).inv(),
         ensures
             final(owner).index == old(owner).index,
@@ -782,17 +784,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         match self.current {
             Some(current) => {
                 proof {
-                    assert(self.wf_region(*owner, *regions));
-                    assert(owner.inv_region(*regions));
-                    assert(0 <= owner.index <= owner.length());
-                    if !(0 <= owner.index < owner.length()) {
-                        assert(owner.index == owner.length());
-                        assert(self.current.is_none());
-                        assert(false);
-                    }
-                    let _ = owner.list_own.list[owner.index];
                     owner.list_own.relate_region_at_facts(*regions, owner.index);
-                    assert(current == self.current.unwrap());
                 }
                 let current_md = MetadataAsLink::cast_to_metadata(current);
                 let ghost idx = frame_to_index(meta_to_frame(current.addr()));
@@ -806,17 +798,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let meta = &mut link_md.metadata.meta;
                 Some(meta)
             },
-            None => {
-                proof {
-                    assert(self.wf_region(*owner, *regions));
-                    assert(owner.inv_region(*regions));
-                    if 0 <= owner.index < owner.length() {
-                        assert(self.current.is_some());
-                        assert(false);
-                    }
-                }
-                None
-            },
+            None => None,
         }
     }
 
@@ -841,27 +823,22 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
             Tracked(owner) : Tracked<&mut CursorOwner<M>>
     )]
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
     pub fn take_current(&mut self) -> (res: Option<
         (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),
     >)
         requires
             old(self).wf_region(*old(owner), *old(regions)),
-            old(owner).inv_region(*old(regions)),
+            old(owner).wf_with_region(*old(regions)),
             old(regions).inv(),
         ensures
             old(owner).length() == 0 ==> res.is_none(),
             old(self).current.is_some() ==> res.is_some(),
-            res.is_some() ==> (res->0).0.model((res->0).1@).meta == old(owner).list_own.list[old(
-                owner,
-            ).index]@,
-            res.is_some() ==> final(self).model(*final(owner)) == old(self).model(
-                *old(owner),
-            ).remove(),
+            res.is_some() ==> (res->0).1@@.meta == old(owner).list_own.list[old(owner).index]@,
+            res.is_some() ==> final(owner)@ == old(owner)@.remove(),
             res.is_some() ==> (res->0).1@.frame_link_inv(*final(regions)),
             // Invariant preservation
-            res.is_some() ==> final(owner).inv_region(*final(regions)),
+            res.is_some() ==> final(owner).wf_with_region(*final(regions)),
             res.is_some() ==> final(self).wf_region(*final(owner), *final(regions)),
             res.is_none() ==> *final(owner) == *old(owner),
             final(regions).inv(),
@@ -876,11 +853,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let idx = frame_to_index(meta_to_frame(paddr));
                 &&& final(regions).slots.dom() == old(regions).slots.dom()
                 &&& final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                    == REF_COUNT_UNIQUE
                 &&& final(regions).slot_owners[idx].inner_perms.in_list.value() == 0
                 &&& final(regions).slot_owners[idx].inner_perms.storage.is_init()
                 &&& final(regions).slot_owners[idx].inner_perms.vtable_ptr.is_init()
-                &&& final(regions).slot_owners[idx].self_addr == meta_addr(idx)
+                &&& final(regions).slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& final(regions).slot_owners[idx].paths_in_pt == old(
                     regions,
                 ).slot_owners[idx].paths_in_pt
@@ -889,9 +866,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 #![trigger final(regions).slot_owners[j]]
                 j != frame_to_index(meta_to_frame(old(self).current->0.addr())) ==> {
                     &&& final(regions).slot_owners[j].usage == old(regions).slot_owners[j].usage
-                    &&& final(regions).slot_owners[j].self_addr == old(
+                    &&& final(regions).slot_owners[j].slot_vaddr == old(
                         regions,
-                    ).slot_owners[j].self_addr
+                    ).slot_owners[j].slot_vaddr
                     &&& final(regions).slot_owners[j].paths_in_pt == old(
                         regions,
                     ).slot_owners[j].paths_in_pt
@@ -915,15 +892,11 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let current_md = MetadataAsLink::cast_to_metadata(current);
 
         proof {
-            assert(0 <= owner.index < owner.list_own.list.len());
-            let _ = owner.list_own.list[owner.index];
             owner.list_own.relate_region_at_facts(*regions, owner.index);
             if owner.index > 0 {
-                let _ = owner.list_own.list[owner.index - 1];
                 owner.list_own.relate_region_at_facts(*regions, owner.index - 1);
             }
             if owner.index < owner.list_own.list.len() - 1 {
-                let _ = owner.list_own.list[owner.index + 1];
                 owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
             }
         }
@@ -946,9 +919,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             assert(regions.slots.dom() == regions0.slots.dom());
-            assert forall|j: usize| j != idx implies {
+            assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
             } by {}
         }
@@ -963,7 +936,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         if let Some(prev_link) = prev_ptr {
             let prev = MetadataAsLink::cast_to_metadata(prev_link);
             proof {
-                assert(owner0.index > 0);
                 assert(prev.addr() == owner0.list_own.list[owner0.index - 1].paddr);
                 assert(frame_to_index(meta_to_frame(prev.addr())) == owner0.list_own.slot_index_at(
                     owner0.index - 1,
@@ -981,9 +953,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                    &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                    &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {
                     if j == frame_to_index(meta_to_frame(prev.addr())) {
@@ -991,14 +963,13 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
             }
 
-            assert(owner0.index > 0);
         } else {
             self.list.front = next_ptr;
             proof {
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                    &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                    &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {}
             }
@@ -1007,7 +978,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         if let Some(next_link) = next_ptr {
             let next = MetadataAsLink::cast_to_metadata(next_link);
             proof {
-                assert(owner0.index < owner0.list_own.list.len() - 1);
                 assert(next.addr() == owner0.list_own.list[owner0.index + 1].paddr);
                 assert(frame_to_index(meta_to_frame(next.addr())) == owner0.list_own.slot_index_at(
                     owner0.index + 1,
@@ -1025,9 +995,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                    &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                    &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {
                     if j == frame_to_index(meta_to_frame(next.addr())) {
@@ -1042,9 +1012,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             self.current = None;
             proof {
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| j != idx implies {
+                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                    &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                    &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
                 } by {}
             }
@@ -1058,20 +1028,19 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         let tracked frame_outer = regions.slots.tracked_remove(idx);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
-        let tracked mut fip = frame_so.take_inner_perms();
+        let tracked mut fip = frame_so.tracked_borrow_mut_inner_perms();
         #[verus_spec(with Tracked(&frame_outer))]
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list), 0);
         proof {
-            frame_so.sync_inner(&fip);
             regions.slots.tracked_insert(idx, frame_outer);
             regions.slot_owners.tracked_insert(idx, frame_so);
             assert(regions.inv());
             assert(regions.slots.dom() == regions0.slots.dom());
             assert(regions.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt);
-            assert forall|j: usize| j != idx implies {
+            assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
-                &&& regions.slot_owners[j].self_addr == regions0.slot_owners[j].self_addr
+                &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
             } by {}
         }
@@ -1095,8 +1064,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& fp.addr() == oldl.list[p].paddr
                 &&& fp.points_to.addr() == oldl.list[p].paddr
                 &&& fp.points_to.pptr() == regions0.slots[i].pptr()
-                &&& fp.inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& fp.wf(&fp.inner_perms)
                 &&& fp.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
@@ -1120,13 +1088,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 ).value().metadata.prev)
             }) by {
                 let i = oldl.slot_index_at(p);
-                let _ = oldl.list[p];
                 oldl.relate_region_at_facts(regions0, p);
-                let _ = oldl.list[nn];
                 oldl.relate_region_at_facts(regions0, nn);
-                let _ = oldl.slot_index_at(nn - 1);
-                let _ = oldl.slot_index_at(nn + 1);
-                let _ = oldl.slot_index_at(nn);
             }
             LinkedListOwner::pop_preserves_relate_region(
                 oldl,
@@ -1160,19 +1123,18 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             Tracked(owner): Tracked<&mut CursorOwner<M>>,
             Tracked(frame_own): Tracked<&mut UniqueFrameOwner<Link<M>>>
     )]
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
     pub fn insert_before(&mut self, mut frame: UniqueFrame<Link<M>>)
         requires
             old(self).wf_region(*old(owner), *old(regions)),
-            old(owner).inv_region(*old(regions)),
+            old(owner).wf_with_region(*old(regions)),
             old(regions).inv(),
             old(frame_own).inv(),
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(*old(regions)),
         ensures
-            final(owner).inv_region(*final(regions)),
+            final(owner).wf_with_region(*final(regions)),
             final(self).wf_region(*final(owner), *final(regions)),
             final(regions).inv(),
             final(owner).list_own.list == old(owner).list_own.list.insert(
@@ -1188,9 +1150,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             final(owner).index == old(owner).index + 1,
             final(frame_own).meta_own.paddr == old(frame_own).meta_own.paddr,
             final(frame_own).meta_own.in_list == final(owner).list_own.list_id,
-            final(self).model(*final(owner)) == old(self).model(*old(owner)).insert(
-                final(frame_own).meta_own@,
-            ),
+            final(owner)@ == old(owner)@.insert(final(frame_own).meta_own@),
     {
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
@@ -1199,17 +1159,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof {
             owner0.list_own.length_lt_usize_max(regions0);
             if nn > 0 {
-                let _ = owner.list_own.list[nn - 1];
                 owner.list_own.relate_region_at_facts(*regions, nn - 1);
             }
             if nn < owner.list_own.list.len() {
-                let _ = owner.list_own.list[nn];
                 owner.list_own.relate_region_at_facts(*regions, nn);
             }
         }
 
-        #[verus_spec(with Tracked(&*frame_own), Tracked(&*regions))]
-        let frame_ptr = frame.meta_mut();
+        let frame_ptr = ReprPtr::<MetaSlot, Metadata<Link<M>>>::from_pptr(frame.ptr);
         let frame_ptr_as_link = MetadataAsLink::cast_from_metadata(frame_ptr);
 
         let ghost frame_idx_g: usize = frame_own.slot_index;
@@ -1252,18 +1209,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         regions.slots[frame_idx_g],
                         regions.slot_owners[frame_idx_g].inner_perms,
                     );
-                    assert(fpn_local.value().metadata.prev is Some);
                     assert(fpn_local.value().metadata.prev.unwrap().addr()
                         == owner0.list_own.list[nn - 1].paddr);
                     assert(fpn_local.value().metadata.prev.unwrap().ptr
                         == regions0.slots[owner0.list_own.slot_index_at(nn - 1)].pptr());
-                    assert(fpn_local.value().metadata.next is Some);
                     assert(fpn_local.value().metadata.next.unwrap().addr()
                         == owner0.list_own.list[nn].paddr);
                     assert(fpn_local.value().metadata.next.unwrap().ptr
                         == regions0.slots[owner0.list_own.slot_index_at(nn)].pptr());
-                    assert(fpn_local.inner_perms.ref_count.value()
-                        == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
                 }
             } else {
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
@@ -1275,23 +1228,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 update_field!(current_md => prev <- Some(frame_ptr_as_link), Meta(perm));
 
                 self.list.front = Some(frame_ptr_as_link);
-                proof {
-                    let fpn_local = vstd_extra::cast_ptr::PointsTo::<
-                        MetaSlot,
-                        Metadata<Link<M>>,
-                    >::new_spec(
-                        regions.slots[frame_idx_g],
-                        regions.slot_owners[frame_idx_g].inner_perms,
-                    );
-                    assert(fpn_local.value().metadata.prev is None);
-                    assert(fpn_local.value().metadata.next is Some);
-                    assert(fpn_local.value().metadata.next.unwrap().addr()
-                        == owner0.list_own.list[nn].paddr);
-                    assert(fpn_local.value().metadata.next.unwrap().ptr
-                        == regions0.slots[owner0.list_own.slot_index_at(nn)].pptr());
-                    assert(fpn_local.inner_perms.ref_count.value()
-                        == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
-                }
             }
         } else {
             if let Some(back) = self.list.back {
@@ -1306,40 +1242,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 update_field!(frame_ptr => prev <- Some(back), Meta(perm));
 
                 self.list.back = Some(frame_ptr_as_link);
-                proof {
-                    let fpn_local = vstd_extra::cast_ptr::PointsTo::<
-                        MetaSlot,
-                        Metadata<Link<M>>,
-                    >::new_spec(
-                        regions.slots[frame_idx_g],
-                        regions.slot_owners[frame_idx_g].inner_perms,
-                    );
-                    assert(fpn_local.value().metadata.prev is Some);
-                    assert(fpn_local.value().metadata.prev.unwrap().addr()
-                        == owner0.list_own.list[nn - 1].paddr);
-                    assert(fpn_local.value().metadata.prev.unwrap().ptr
-                        == regions0.slots[owner0.list_own.slot_index_at(nn - 1)].pptr());
-                    assert(fpn_local.value().metadata.next is None);
-                    assert(fpn_local.inner_perms.ref_count.value()
-                        == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
-                }
             } else {
                 // EMPTY list: just point both ends at the inserted frame.
                 self.list.front = Some(frame_ptr_as_link);
                 self.list.back = Some(frame_ptr_as_link);
-                proof {
-                    let fpn_local = vstd_extra::cast_ptr::PointsTo::<
-                        MetaSlot,
-                        Metadata<Link<M>>,
-                    >::new_spec(
-                        regions.slots[frame_idx_g],
-                        regions.slot_owners[frame_idx_g].inner_perms,
-                    );
-                    assert(fpn_local.value().metadata.prev is None);
-                    assert(fpn_local.value().metadata.next is None);
-                    assert(fpn_local.inner_perms.ref_count.value()
-                        == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
-                }
             }
         }
 
@@ -1348,35 +1254,26 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             assert(regions.slots.contains_key(frame_idx_g));
-            assert(regions.slot_owners[frame_idx_g].inner_perms.in_list.is_for(
-                regions.slots[frame_idx_g].value().in_list,
-            ));
         }
         let tracked frame_outer = regions.slots.tracked_remove(frame_idx_g);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(frame_idx_g);
-        let tracked mut fip = frame_so.take_inner_perms();
+        let tracked mut fip = frame_so.tracked_borrow_mut_inner_perms();
         #[verus_spec(with Tracked(&frame_outer))]
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list), list_id);
         proof {
-            frame_so.sync_inner(&fip);
             regions.slots.tracked_insert(frame_idx_g, frame_outer);
             regions.slot_owners.tracked_insert(frame_idx_g, frame_so);
-            assert(regions.inv());  // slot's UNIQUE branch: vtable+storage init preserved; in_list value change OK under UNIQUE.
+            assert(regions.inv());
         }
 
         #[verus_spec(with Tracked(&*frame_own), Tracked(regions))]
         let _ = frame.into_raw();
 
-        proof {
-            assert(self.list.size == owner.list_own.list.len());
-            assert(owner.list_own.list.len() == owner0.list_own.list.len());
-            assert(owner0.list_own.list.len() < usize::MAX);
-        }
         self.list.size = self.list.size + 1;
 
         proof {
-            CursorOwner::<M>::list_insert(owner, &mut frame_own.meta_own, list_id);
+            CursorOwner::<M>::tracked_list_insert(owner, &mut frame_own.meta_own, list_id);
 
             let oldl = owner0.list_own;
             let nn = owner0.index as int;
@@ -1396,8 +1293,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& fp.addr() == oldl.list[p].paddr
                 &&& fp.points_to.addr() == oldl.list[p].paddr
                 &&& fp.points_to.pptr() == regions0.slots[i].pptr()
-                &&& fp.inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& fp.wf(&fp.inner_perms)
                 &&& fp.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
@@ -1423,19 +1319,13 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 ).value().metadata.prev)
             }) by {
                 let i = oldl.slot_index_at(p);
-                let _ = oldl.list[p];
                 oldl.relate_region_at_facts(regions0, p);
                 if nn - 1 >= 0 && nn - 1 < oldl.list.len() {
-                    let _ = oldl.list[nn - 1];
                     oldl.relate_region_at_facts(regions0, nn - 1);
                 }
                 if nn >= 0 && nn < oldl.list.len() {
-                    let _ = oldl.list[nn];
                     oldl.relate_region_at_facts(regions0, nn);
                 }
-                let _ = oldl.slot_index_at(nn - 1);
-                let _ = oldl.slot_index_at(nn);
-                let _ = oldl.slot_index_at(nn + 1);
             }
 
             let fpn = vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<Link<M>>>::new_spec(
@@ -1444,31 +1334,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             );
             assert(regions.slots.contains_key(ins));
             assert(regions.slot_owners.contains_key(ins));
-            assert(fpn.addr() == flink.paddr);
-            assert(fpn.points_to.addr() == flink.paddr);
-            assert(fpn.inner_perms.ref_count.value()
-                == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE);
-            assert(fpn.wf(&fpn.inner_perms));
-            assert(fpn.addr() % META_SLOT_SIZE == 0);
-            assert(FRAME_METADATA_RANGE.start <= fpn.addr() < FRAME_METADATA_RANGE.start
-                + MAX_NR_PAGES * META_SLOT_SIZE);
-            assert(fpn.is_init());
-            assert(nn == 0 <==> fpn.value().metadata.prev is None);
-            assert(nn == oldl.list.len() <==> fpn.value().metadata.next is None);
-            assert(nn > 0 ==> {
-                &&& fpn.value().metadata.prev is Some
-                &&& fpn.value().metadata.prev.unwrap().addr() == oldl.list[nn - 1].paddr
-                &&& fpn.value().metadata.prev.unwrap().ptr == regions0.slots[oldl.slot_index_at(
-                    nn - 1,
-                )].pptr()
-            });
-            assert(nn < oldl.list.len() ==> {
-                &&& fpn.value().metadata.next is Some
-                &&& fpn.value().metadata.next.unwrap().addr() == oldl.list[nn].paddr
-                &&& fpn.value().metadata.next.unwrap().ptr == regions0.slots[oldl.slot_index_at(
-                    nn,
-                )].pptr()
-            });
 
             LinkedListOwner::insert_preserves_relate_region(
                 oldl,
@@ -1544,8 +1409,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
             #![trigger s.0.list[i]]
             0 <= i < s.0.list.len() ==> {
                 let idx = frame_to_index(meta_to_frame(s.0.list[i].paddr));
-                s.1.slot_owners[idx].inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                s.1.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
             }
         &&& forall|i: int|
             #![trigger s.0.list[i]]
@@ -1583,7 +1447,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
                 )) ==> {
                 &&& s1.1.frame_obligations.count(idx) == s0.1.frame_obligations.count(idx)
                 &&& s1.1.slot_owners[idx].usage == s0.1.slot_owners[idx].usage
-                &&& s1.1.slot_owners[idx].self_addr == s0.1.slot_owners[idx].self_addr
+                &&& s1.1.slot_owners[idx].slot_vaddr == s0.1.slot_owners[idx].slot_vaddr
                 &&& s1.1.slot_owners[idx].paths_in_pt == s0.1.slot_owners[idx].paths_in_pt
             }
         &&& s1.1.slots.dom() =~= s0.1.slots.dom()
@@ -1616,7 +1480,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
     fn drop(
         self,
@@ -1637,17 +1500,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         let ghost n = original_list.len();
         let ghost original_regions = s.1;
         proof {
-            assert forall|j: int| #![trigger original_list[j]] 0 <= j < n implies ({
-                let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
-                &&& original_regions.slot_owners.contains_key(idx)
-                &&& original_regions.slots.contains_key(idx)
-                &&& original_regions.frame_obligations.count(idx) == 0
-                &&& original_regions.slot_owners[idx].paths_in_pt.is_empty()
-                &&& original_regions.slot_owners[idx].inner_perms.ref_count.value()
-                    == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
-            }) by {
-                let _ = s.0.list[j];
-            };
             list_own = LinkedListOwner::<M>::tracked_take(&mut s.0);
         }
         let tracked regions: &mut MetaRegionOwners = &mut s.1;
@@ -1659,10 +1511,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
 
         proof {
             if n > 0 {
-                let _ = cursor_own.list_own.list[0];
                 cursor_own.list_own.relate_region_at_facts(*regions, 0);
-                let _ = cursor_own.list_own.list[n as int - 1];
-                cursor_own.list_own.relate_region_at_facts(*regions, n as int - 1);
+                cursor_own.list_own.relate_region_at_facts(*regions, n - 1);
             }
         }
 
@@ -1673,7 +1523,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 cursor.wf_region(cursor_own, *regions),
                 cursor.current.is_some() <==> k < n,
             invariant
-                cursor_own.inv_region(*regions),
+                cursor_own.wf_with_region(*regions),
                 cursor_own.list_own.list_id == original_list_id,
                 cursor_own.index == 0,
                 regions.inv(),
@@ -1701,8 +1551,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                             == original_regions.frame_obligations.count(idx)
                         &&& regions.slot_owners[idx].usage
                             == original_regions.slot_owners[idx].usage
-                        &&& regions.slot_owners[idx].self_addr
-                            == original_regions.slot_owners[idx].self_addr
+                        &&& regions.slot_owners[idx].slot_vaddr
+                            == original_regions.slot_owners[idx].slot_vaddr
                         &&& regions.slot_owners[idx].paths_in_pt
                             == original_regions.slot_owners[idx].paths_in_pt
                     },
@@ -1737,46 +1587,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         &&& original_regions.frame_obligations.count(idx) == 0
                         &&& original_regions.slot_owners[idx].paths_in_pt.is_empty()
                         &&& original_regions.slot_owners[idx].inner_perms.ref_count.value()
-                            == crate::specs::mm::frame::meta_owners::REF_COUNT_UNIQUE
+                            == REF_COUNT_UNIQUE
                     },
             ensures
                 k == n,
                 cursor_own.list_own.list.len() == 0,
             decreases n - k,
         {
-            proof {
-                if cursor.current.is_some() {
-                    assert(cursor_own.length() > 0);
-                    let _ = cursor_own.list_own.list[0];
-                    cursor_own.list_own.relate_region_at_facts(*regions, 0);
-                    let ghost _trigger = original_list[k as int];
-                    assert(cursor.current.unwrap().addr() == original_list[k].paddr);
-                }
-            }
-
             #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own))]
             let entry = cursor.take_current();
 
             if let Some(current) = entry {
-                let ghost cur_addr = current.0.ptr.addr();
-                let ghost cur_idx = frame_to_index(meta_to_frame(cur_addr));
-
                 let (mut frame, frame_own_tracked) = current;
                 let tracked frame_own = frame_own_tracked.get();
-
-                proof {
-                    let ghost _trig = original_list[k as int];
-                    assert(cur_addr == original_list[k].paddr);
-                    assert(cur_idx == frame_to_index(meta_to_frame(original_list[k].paddr)));
-                    assert(original_regions.frame_obligations.count(cur_idx) == 0);
-                    assert(original_regions.slot_owners[cur_idx].paths_in_pt.is_empty());
-                    assert(regions.slot_owners[cur_idx].paths_in_pt.is_empty());
-                    assert(frame_own.slot_index == cur_idx);
-                    // `take_current`'s `from_raw` minted the obligation for
-                    // the now-live recovered value.
-                    assert(regions.frame_obligations.count(cur_idx) == 1);
-                }
-
                 let ghost regions_pre_drop = *regions;
 
                 // Drop the frame, returning its slot to regions
@@ -1794,18 +1617,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                             == regions_pre_drop.frame_obligations.count(idx)
                     }) by {
                         let idx = cursor_own.list_own.slot_index_at(i);
-                        let _ = cursor_own.list_own.list[i];
                         let ghost _trig_k = original_list[k as int];
                         let ghost _trig_ik = original_list[i + k + 1];
                         assert(cursor_own.list_own.list[i] == original_list[i + k + 1]);
-                        assert(idx == frame_to_index(
-                            meta_to_frame(original_list[i + k + 1].paddr),
-                        ));
-                        assert(idx != cur_idx);
 
                         cursor_own.list_own.relate_region_at_facts(regions_pre_drop, i);
-                        assert(regions.frame_obligations
-                            == regions_pre_drop.frame_obligations.remove(cur_idx));
                     };
                     cursor_own.list_own.relate_region_preserved_external_change(
                         regions_pre_drop,
@@ -1821,11 +1637,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
                         regions.frame_obligations.count(idx) == 0
                     }) by {
-                        let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
                         let ghost _a = original_list[j as int];
                         let ghost _b = original_list[k as int];
-                        assert(j < k);
-                        assert(idx != cur_idx);
                     };
 
                     k = k + 1;
@@ -1843,6 +1656,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
             final_list_own.tracked_destroy_empty();
         }
     }
+}
+
+// SAFETY: `Link<M>` is `Send` and `Sync` if `M` is `Send` and `Sync` because
+// we only access these unsafe cells when the frame is not shared. This is
+// enforced by `UniqueFrame`.
+// #[verifier::external]
+// unsafe impl<M> Send for LinkedList<M> where Link<M>: AnyFrameMeta {}
+// #[verifier::external]
+// unsafe impl<M> Sync for LinkedList<M> where Link<M>: AnyFrameMeta {}
+/// A link in the linked list.
+pub struct Link<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
+    pub next: Option<ReprPtr<MetaSlot, MetadataAsLink<M>>>,
+    pub prev: Option<ReprPtr<MetaSlot, MetadataAsLink<M>>>,
+    pub meta: M,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Deref for Link<M> {

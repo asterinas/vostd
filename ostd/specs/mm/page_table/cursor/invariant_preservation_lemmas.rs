@@ -17,12 +17,11 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::meta::mapping::frame_to_index;
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
+use crate::mm::page_size;
 use crate::mm::page_table::*;
-use crate::specs::arch::PAGE_SIZE;
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::arch::*;
+use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
@@ -171,8 +170,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,
-            regions1.slot_owners[changed_idx].self_addr
-                == regions0.slot_owners[changed_idx].self_addr,
+            regions1.slot_owners[changed_idx].slot_vaddr
+                == regions0.slot_owners[changed_idx].slot_vaddr,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt.insert(new_path),
@@ -208,9 +207,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                     let sub_idx = #[trigger] frame_to_index(
                                         (pa + j * PAGE_SIZE) as usize,
                                     );
-                                    sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                                        || (regions1.slots.contains_key(sub_idx)
+                                    sub_idx != changed_idx
+                                        || regions1.slot_owners[sub_idx].usage is MMIO || (
+                                    regions1.slots.contains_key(sub_idx)
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                         != REF_COUNT_UNUSED
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -219,10 +218,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         });
                         entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
                     } else {
-                        assert(!entry.is_node());
-                        assert(entry.is_frame());
                         if entry.parent_level > 1 {
-                            assert(entry.frame_sub_pages_valid(regions1));
                         }
                     }
                 }
@@ -245,9 +241,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     forall|j: usize|
                         0 < j < nr_pages ==> {
                             let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
-                            sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                == crate::specs::mm::frame::meta_owners::PageUsage::MMIO || (
-                            regions1.slots.contains_key(sub_idx)
+                            sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage is MMIO
+                                || (regions1.slots.contains_key(sub_idx)
                                 && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                 != REF_COUNT_UNUSED
                                 && regions1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0)
@@ -322,9 +317,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             forall|m: Mapping|
                 #![trigger self@.mappings.contains(m)]
-                self@.mappings.contains(m) ==> m.va_range.start != vaddr_of::<C>(
-                    removed_path,
-                ) as int,
+                self@.mappings.contains(m) ==> m.va_range.start != vaddr_of::<C>(removed_path),
         ensures
             self.no_frame_with_path(removed_path),
     {
@@ -353,8 +346,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let child_path = cont.path().push_tail(j as usize);
                 // child.value.path == child_path (inv_children_rel) and
                 // child.value.path.inv() (EntryOwner::inv_base).
-                assert(child.value.path == child_path);
-                assert(child_path.inv());
                 // L1: pt_inv ⟹ tree-wide path correctness.
                 PageTableOwner::<C>::pt_inv_implies_path_correct(child, child_path);
                 // Every mapping of this child subtree is in self@.mappings.
@@ -437,8 +428,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ==> !e.is_node() && (e.is_frame() ==> e.path != removed_path)
         } by {
             let e = self.continuations[i].entry_own;
-            assert(nn(e, e.path));
-            assert(nf(e, e.path));
         }
     }
 
@@ -470,8 +459,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[changed_idx].inner_perms
                 == regions0.slot_owners[changed_idx].inner_perms,
-            regions1.slot_owners[changed_idx].self_addr
-                == regions0.slot_owners[changed_idx].self_addr,
+            regions1.slot_owners[changed_idx].slot_vaddr
+                == regions0.slot_owners[changed_idx].slot_vaddr,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt.remove(removed_path),
@@ -506,9 +495,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                     let sub_idx = #[trigger] frame_to_index(
                                         (pa + j * PAGE_SIZE) as usize,
                                     );
-                                    sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                        == crate::specs::mm::frame::meta_owners::PageUsage::MMIO
-                                        || (regions1.slots.contains_key(sub_idx)
+                                    sub_idx != changed_idx
+                                        || regions1.slot_owners[sub_idx].usage is MMIO || (
+                                    regions1.slots.contains_key(sub_idx)
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                         != REF_COUNT_UNUSED
                                         && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -523,9 +512,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         // cross-slot conjunct (`frame_sub_pages_valid`)
                         // is carried by the dedicated own-slot lemma
                         // (which has the sub-page arithmetic baked in).
-                        assert(!entry.is_node());
                         if entry.is_frame() {
-                            assert(entry.path != removed_path);
                             assert(regions0.slot_owners[changed_idx].paths_in_pt.contains(
                                 entry.path,
                             ));
@@ -534,7 +521,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             ));
                             entry.frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
                         }
-                        assert(entry.metaregion_sound(regions1));
                     }
                 }
             };
@@ -559,8 +545,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                 let sub_idx = #[trigger] frame_to_index(
                                     (pa + j * PAGE_SIZE) as usize,
                                 );
-                                sub_idx != changed_idx || regions1.slot_owners[sub_idx].usage
-                                    == crate::specs::mm::frame::meta_owners::PageUsage::MMIO || (
+                                sub_idx != changed_idx
+                                    || regions1.slot_owners[sub_idx].usage is MMIO || (
                                 regions1.slots.contains_key(sub_idx)
                                     && regions1.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     != REF_COUNT_UNUSED
@@ -570,9 +556,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     });
                     cont_entry.metaregion_sound_one_slot_changed(regions0, regions1, changed_idx);
                 } else {
-                    assert(!cont_entry.is_node());
                     if cont_entry.is_frame() {
-                        assert(cont_entry.path != removed_path);
                         assert(regions0.slot_owners[changed_idx].paths_in_pt.contains(
                             cont_entry.path,
                         ));
@@ -581,10 +565,77 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         ));
                         cont_entry.frame_sub_pages_valid_preserved_at_own_slot(regions0, regions1);
                     }
-                    assert(cont_entry.metaregion_sound(regions1));
                 }
             }
         };
+    }
+
+    /// Packages the `take_next` frame-unmap preservation proof after
+    /// `paths_in_pt` removes the unmapped frame path from one metadata slot.
+    pub proof fn take_next_remove_path_preserves_metaregion(
+        self,
+        owner_before_replace: Self,
+        regions0: MetaRegionOwners,
+        regions1: MetaRegionOwners,
+        removed_idx: usize,
+        removed_path: TreePath<NR_ENTRIES>,
+        target: Mapping,
+    )
+        requires
+            self.inv(),
+            owner_before_replace.inv(),
+            owner_before_replace.in_locked_range(),
+            self.metaregion_sound(regions0),
+            regions0.inv(),
+            regions0.slot_owners.contains_key(removed_idx),
+            regions0.slots.contains_key(removed_idx),
+            self@.mappings == owner_before_replace@.mappings - PageTableOwner(
+                owner_before_replace.cur_subtree(),
+            )@.mappings,
+            PageTableOwner(owner_before_replace.cur_subtree())@.mappings == set![target],
+            owner_before_replace.cur_subtree().value.path == removed_path,
+            regions1.slots == regions0.slots,
+            regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
+            forall|i: usize|
+                #![trigger regions1.slot_owners[i]]
+                i != removed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
+            regions1.slot_owners[removed_idx].inner_perms
+                == regions0.slot_owners[removed_idx].inner_perms,
+            regions1.slot_owners[removed_idx].slot_vaddr
+                == regions0.slot_owners[removed_idx].slot_vaddr,
+            regions1.slot_owners[removed_idx].usage == regions0.slot_owners[removed_idx].usage,
+            regions1.slot_owners[removed_idx].paths_in_pt
+                == regions0.slot_owners[removed_idx].paths_in_pt.remove(removed_path),
+        ensures
+            self.metaregion_sound(regions1),
+    {
+        self.no_node_at_idx_from_slot_key(regions0, removed_idx);
+
+        owner_before_replace.cur_subtree_eq_filtered_mappings_path();
+        let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
+
+        let ghost sv = vaddr_of::<C>(removed_path) as int;
+        let ghost sz = page_size(owner_before_replace.level) as int;
+        assert(obr_subtree == owner_before_replace@.mappings.filter(
+            |mm: Mapping| sv <= mm.va_range.start < sv + sz,
+        ));
+        assert(sz > 0) by {
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
+                owner_before_replace.level,
+            );
+        };
+        assert forall|mm: Mapping| #[trigger] self@.mappings.contains(mm) implies mm.va_range.start
+            != sv by {
+            if mm.va_range.start == sv {
+                assert(owner_before_replace@.mappings.filter(
+                    |m2: Mapping| sv <= m2.va_range.start < sv + sz,
+                ).contains(mm));
+            }
+        };
+
+        self.no_frame_with_path_from_no_view_mapping(removed_path);
+        self.path_removable_from_no_node_and_no_frame_path(removed_idx, removed_path);
+        self.metaregion_preserved_under_path_remove(regions0, regions1, removed_idx, removed_path);
     }
 }
 

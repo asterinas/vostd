@@ -5,15 +5,15 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, get_slot_spec,
-    mapping::{META_SLOT_SIZE, frame_to_index, meta_to_frame},
+    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    mapping::{frame_to_meta, meta_to_frame},
 };
 use crate::mm::frame::*;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::arch::*;
+
+use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
 
 use core::marker::PhantomData;
 
@@ -33,7 +33,7 @@ impl<'a, M: ?Sized> Frame<M> {
     /// the PT-node ownership model only exposes `!= UNUSED`.)
     pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& regions.slot_owners.contains_key(frame_to_index(paddr))
-        &&& regions.slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr)
+        &&& regions.slot_owners[frame_to_index(paddr)].slot_vaddr == frame_to_meta(paddr)
         &&& has_safe_slot(paddr)
         &&& regions.inv()
         &&& regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
@@ -50,7 +50,7 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& new_regions.slots.contains_key(frame_to_index(paddr))
         &&& new_regions.slot_owners[frame_to_index(paddr)]
             =~= old_regions.slot_owners[frame_to_index(paddr)]
-        &&& new_regions.slot_owners[frame_to_index(paddr)].self_addr == r.ptr.addr()
+        &&& new_regions.slot_owners[frame_to_index(paddr)].slot_vaddr == r.ptr.addr()
         &&& forall|i: usize|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
@@ -108,10 +108,6 @@ impl<M: ?Sized> Inv for Frame<M> {
     }
 }
 
-// Unbounded so the PT-node `on_drop` body can use `Frame::<Self>::from_raw` /
-// `Drop for Frame<Self>` without forcing trait resolution back through the
-// in-flight `AnyFrameMeta for PageTablePageMeta<C>` impl. Body is pure
-// pointer arithmetic — no M-specific machinery.
 impl<M: ?Sized> Frame<M> {
     pub open spec fn paddr(self) -> usize {
         meta_to_frame(self.ptr.addr())
@@ -129,7 +125,7 @@ impl<M: ?Sized> Frame<M> {
     /// identity, slot in-use range) so that consumer specs
     /// ([`drop_requires`], [`clone_requires`]) read uniformly.
     ///
-    /// **Name**: `inv_with_regions` (not just `wf`) to avoid clashing with the
+    /// **Name**: `wf_with_region` (not just `wf`) to avoid clashing with the
     /// `OwnerOf::wf(self, Self::Owner)` impl that
     /// [`PageTableNode<C> = Frame<PageTablePageMeta<C>>`] inherits — the
     /// two predicates take different argument types and serve different
@@ -139,15 +135,15 @@ impl<M: ?Sized> Frame<M> {
     /// fact that holding a `Frame<M>` is itself evidence that the slot
     /// is in the SHARED state — no UNUSED, no UNIQUE (which is reserved
     /// for [`UniqueFrame`]). Combined with
-    /// [`MetaSlotOwner::inv`]'s SHARED branch (post Item 1), `inv_with_regions`
+    /// [`MetaSlotOwner::inv`]'s SHARED branch (post Item 1), `wf_with_region`
     /// implies `storage.is_init`, `in_list == 0`, and `vtable_ptr.is_init`
     /// at the slot, so consumers don't have to repeat those.
     ///
     /// **Not preserved by `drop` for `self`**: dropping `self` releases
-    /// the reference; for *other* handles to the same slot, `inv_with_regions`
+    /// the reference; for *other* handles to the same slot, `wf_with_region`
     /// is preserved by `drop`'s `>1` branch (post rc ∈ [1, MAX-1]) and
     /// vacuous in the `==1` branch (no other handles to break).
-    pub open spec fn inv_with_regions(self, s: MetaRegionOwners) -> bool {
+    pub open spec fn wf_with_region(self, s: MetaRegionOwners) -> bool {
         let idx = self.index();
         let slot_own = s.slot_owners[idx];
         &&& self.inv()
@@ -180,11 +176,11 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     type Key = usize;
 
     open spec fn key(self) -> Self::Key {
-        frame_to_index(meta_to_frame(self.ptr.addr()))
+        self.index()
     }
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.slot_owners.contains_key(self.index())
         &&& s.inv()
     }
 
@@ -194,12 +190,11 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         s1: Self::State,
         obl_key: Self::Key,
     ) -> bool {
-        let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == slot_own
+        let slot_own = s0.slot_owners[self.index()];
+        &&& s1.slot_owners[self.index()] == slot_own
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+            i != self.index() ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom()
             =~= s0.slot_owners.dom()
@@ -231,10 +226,10 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let slot_own = s.slot_owners[idx];
         // Cross-object validity: this Frame is consistent with `s` and
-        // the slot is in the SHARED rc range. `inv_with_regions` carries the
+        // the slot is in the SHARED rc range. `wf_with_region` carries the
         // slot identity + pointer agreement + `rc ∈ (0, MAX] ∧ ≠ UNIQUE`
         // bounds.
-        &&& self.inv_with_regions(
+        &&& self.wf_with_region(
             s,
         )
         // Borrow-protocol transition: `raw_count` is dormant. The
@@ -273,7 +268,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
             =~= s0.slot_owners.dom()
         // The slot's identity / page-table linkage is preserved by a
         // drop (it only adjusts refcount and, on teardown, storage).
-        &&& so1.self_addr == so0.self_addr
+        &&& so1.slot_vaddr == so0.slot_vaddr
         &&& so1.usage == so0.usage
         &&& so1.paths_in_pt
             == so0.paths_in_pt

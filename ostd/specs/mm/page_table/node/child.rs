@@ -3,12 +3,11 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::*;
+use crate::mm::frame::{meta::mapping::meta_to_frame, *};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
@@ -104,7 +103,6 @@ impl<C: PageTableConfig> Child<C> {
         &&& regions.inv()
         &&& self.wf(owner)
         &&& owner.metaregion_sound(regions)
-        &&& owner.in_scope
     }
 }
 
@@ -114,7 +112,6 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         &&& regions.inv()
         &&& self.wf(owner)
         &&& owner.metaregion_sound(regions)
-        &&& !owner.in_scope
     }
 }
 
@@ -137,8 +134,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // Canonical model: forgetting a live PT-node into a PTE CONSUMES
             // its pending-Drop obligation (the body's `MD::new` redeems one
             // entry at the node's slot), mirroring `Frame::into_raw`. `slots`
-            // / `slot_owners` are untouched; the owner's `in_scope = false`
-            // records the ownership transfer. Balances the `+1` minted by
+            // / `slot_owners` are untouched. Balances the `+1` minted by
             // `from_pte` (`from_pte_regions_spec`) / `PageTableNode::alloc`.
             MetaRegionOwners {
                 frame_obligations: regions.frame_obligations.remove(index),
@@ -152,11 +148,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn into_pte_owner_spec(self) -> EntryOwner<C> {
-        EntryOwner { in_scope: false, ..self }
+        self
     }
 
     pub open spec fn from_pte_owner_spec(self) -> EntryOwner<C> {
-        EntryOwner { in_scope: true, ..self }
+        self
     }
 
     /// This is equivalent to the other `invariants` relations, combining the `inv` predicates for each
@@ -166,7 +162,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& regions.inv()
         &&& self.match_pte(pte, self.parent_level)
         &&& self.metaregion_sound(regions)
-        &&& !self.in_scope
     }
 }
 

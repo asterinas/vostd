@@ -10,14 +10,11 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingLevel, Vaddr, page_size};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::Mapping;
+
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::mm::page_table::owners::*;
@@ -176,7 +173,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// and `end` are BASE_PAGE_SIZE-aligned and `cur_va < end`, we have
     /// `cur_va + page_size(1) <= end`, so a level-1 frame always fits. Therefore
     /// `!cur_entry_fits_range` implies `level > 1`.
-    #[verifier::rlimit(4)]
     #[verifier::spinoff_prover]
     pub proof fn frame_not_fits_implies_level_gt_1(
         self,
@@ -209,7 +205,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
             self.va.align_down_concrete(1);
             // cur_va is PAGE_SIZE-aligned and cur_va < end, so cur_va + PAGE_SIZE <= end <= usize::MAX.
-            assert(self.va.to_vaddr() + page_size(1 as PagingLevel) <= usize::MAX);
             self.va.aligned_align_up_advances(1);
             // align_up(1).to_vaddr() == self.va.to_vaddr() + PAGE_SIZE.
         }
@@ -234,7 +229,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let nsp = PageTableOwner::<C>::not_in_scope_pred();
         assert(OwnerSubtree::implies(nsp, g)) by {
             assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.inv() && !entry.in_scope implies #[trigger] g(entry, path) by {};
+                entry.inv() && nsp(entry, path) implies #[trigger] g(entry, path) by {};
         };
         assert forall|i: int|
             #![trigger self.continuations[i]]

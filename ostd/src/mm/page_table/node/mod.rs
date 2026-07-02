@@ -47,16 +47,20 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::allocator::FrameAllocOptions;
-use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::mapping::{META_SLOT_SIZE, frame_to_meta, meta_to_frame};
-use crate::mm::frame::{AnyFrameMeta, Frame, frame_to_index};
+use crate::mm::frame::meta::{
+    META_SLOT_SIZE,
+    mapping::{frame_to_meta, meta_to_frame},
+};
+use crate::mm::frame::meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr};
-use crate::specs::mm::frame::meta_owners::{
-    MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED,
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata};
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, lemma_frame_to_index_injective},
+    meta_region_owners::MetaRegionOwners,
 };
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
@@ -144,7 +148,6 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
     /// Drops the children of a page-table node: walks each present PTE and
     /// drops the referenced child page-table-node frame or mapped item.
-    #[verifier::rlimit(400)]
     #[verifier::spinoff_prover]
     fn on_drop(
         &mut self,
@@ -162,10 +165,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         };
 
         proof {
-            C::axiom_pte_walk_fills_page();
-            C::axiom_top_level_index_range_within_nr_entries();
-            C::axiom_nr_subpage_per_huge_eq_nr_entries();
-            crate::mm::page_table::axiom_top_level_index_range_bounds::<C>();
+            C::lemma_pte_walk_fills_page();
+            C::lemma_page_table_config_constant_properties();
             vstd::arithmetic::mul::lemma_mul_inequality(
                 range.start as int,
                 NR_ENTRIES as int,
@@ -185,20 +186,15 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         reader.skip_in_place(range.start * core::mem::size_of::<C::E>());
 
         proof {
-            C::axiom_pte_align_divides_size();
+            C::lemma_pte_align_divides_size();
             let k = size_of_e / align_of_e;
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size_of_e, align_of_e);
-            assert(size_of_e == align_of_e * k);
             vstd::arithmetic::mul::lemma_mul_is_commutative(align_of_e, k);
             vstd::arithmetic::mul::lemma_mul_is_associative(range.start as int, k, align_of_e);
-            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                range.start as int * k,
-                align_of_e,
-            );
-            assert((range.start as int * size_of_e) % align_of_e == 0);
+            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(range.start * k, align_of_e);
             vstd::arithmetic::div_mod::lemma_mod_adds(
                 pre_skip_cursor,
-                range.start as int * size_of_e,
+                range.start * size_of_e,
                 align_of_e,
             );
         }
@@ -211,10 +207,9 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost mut removed_indices: vstd::set::Set<usize> = vstd::set::Set::empty();
 
         proof {
-            C::axiom_pte_walk_fills_page();
-            C::axiom_top_level_index_range_within_nr_entries();
-            C::axiom_nr_subpage_per_huge_eq_nr_entries();
-            crate::mm::page_table::axiom_top_level_index_range_bounds::<C>();
+            C::lemma_pte_walk_fills_page();
+            C::lemma_page_table_config_constant_properties();
+            C::lemma_paging_consts_properties();
             vstd::arithmetic::mul::lemma_mul_is_distributive_sub_other_way(
                 size_of_e,
                 NR_ENTRIES as int,
@@ -222,10 +217,9 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             );
             vstd::arithmetic::mul::lemma_mul_inequality(
                 range_end - range_start,
-                NR_ENTRIES as int - range_start,
+                NR_ENTRIES - range_start,
                 size_of_e,
             );
-            assert(post_skip_remain >= (range_end - range_start) * size_of_e);
         }
 
         while iter_count < n_iters
@@ -236,20 +230,20 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 vm_io_owner.read_view_initialized(),
                 regions.inv(),
                 reader.cursor.vaddr as int % align_of_e == 0,
-                size_of_e == core::mem::size_of::<C::E>() as int,
-                align_of_e == core::mem::align_of::<C::E>() as int,
+                size_of_e == core::mem::size_of::<C::E>(),
+                align_of_e == core::mem::align_of::<C::E>(),
                 size_of_e % align_of_e == 0,
                 align_of_e > 0,
                 size_of_e > 0,
                 iter_count <= n_iters,
-                n_iters as int == range_end - range_start,
+                n_iters == range_end - range_start,
                 // Verus loses non-negativity of `range_start` / `range_end`
                 // across the loop boundary; pin it via these invariants so
                 // `lemma_mul_nonnegative` preconditions discharge in the body.
                 0 <= range_start,
                 range_start <= range_end,
-                range_end <= NR_ENTRIES as int,
-                reader.remain_spec() as int == post_skip_remain - iter_count as int * size_of_e,
+                range_end <= NR_ENTRIES,
+                reader.remain_spec() == post_skip_remain - iter_count * size_of_e,
                 post_skip_remain >= (range_end - range_start) * size_of_e,
                 regions.slots.dom() == initial_dom,
                 Self::child_perms_embedding(*regions, removed_indices),
@@ -261,7 +255,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 self.level == level,
                 reader.end == initial_reader.end,
                 reader.cursor.vaddr == initial_reader.cursor.vaddr + range_start * size_of_e
-                    + iter_count as int * size_of_e,
+                    + iter_count * size_of_e,
                 forall|i: usize|
                     #![trigger initial_view.addr_transl(i)]
                     initial_reader.cursor.vaddr <= i < initial_reader.end.vaddr ==> {
@@ -288,7 +282,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                 + range_start * size_of_e
                                 + j * size_of_e) as usize,
                         )]
-                        0 <= j < iter_count as int && {
+                        0 <= j < iter_count && {
                             let cj = (initial_reader.cursor.vaddr + range_start * size_of_e + j
                                 * size_of_e) as usize;
                             let pte_j = Self::walk_pte_at_view(initial_view, cj);
@@ -306,7 +300,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 );
                 vstd::arithmetic::mul::lemma_mul_inequality(
                     1,
-                    range_end - range_start - iter_count as int,
+                    range_end - range_start - iter_count,
                     size_of_e,
                 );
             }
@@ -325,10 +319,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             let pte = pte.unwrap();
             proof {
                 ostd_pod::lemma_decode_pod_inverse::<C::E>(pte);
-                assert(pte == Self::walk_pte_at_view(initial_view, cursor_pre_read));
                 vstd::arithmetic::mul::lemma_mul_nonnegative(range_start, size_of_e);
                 vstd::arithmetic::mul::lemma_mul_nonnegative(iter_count as int, size_of_e);
-                assert(initial_reader.cursor.vaddr <= cursor_pre_read);
             }
             if pte.is_present() {
                 let paddr = pte.paddr();
@@ -340,7 +332,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             iter_count as int,
                         );
                         vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                            range_start + iter_count as int,
+                            range_start + iter_count,
                             size_of_e,
                         );
                         Self::lemma_coverage_at(
@@ -350,7 +342,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             initial_dom,
                             cursor_pre_read,
                         );
-                        broadcast use crate::mm::frame::meta::mapping::lemma_frame_to_index_injective;
+                        broadcast use lemma_frame_to_index_injective;
 
                         assert forall|idx: usize| #[trigger]
                             removed_indices.contains(idx) implies idx != frame_to_index(
@@ -363,7 +355,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                         + range_start * size_of_e
                                         + j * size_of_e) as usize,
                                 )]
-                                0 <= j < iter_count as int && {
+                                0 <= j < iter_count && {
                                     let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
                                         + j * size_of_e) as usize;
                                     let pte_j = Self::walk_pte_at_view(initial_view, cj);
@@ -413,13 +405,12 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         // Pinning these in SMT context lets `tracked_remove`'s
                         // dom-containment precondition and `from_raw`'s
                         // `from_raw_requires_safety` (via embedding) discharge.
-                        assert(regions.slots.dom().contains(frame_to_index(paddr)));
                     }
                     proof {
                         removed_indices = removed_indices.insert(frame_to_index(paddr));
                         assert({
                             let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
-                                + iter_count as int * size_of_e) as usize;
+                                + iter_count * size_of_e) as usize;
                             let pte_j = Self::walk_pte_at_view(initial_view, cj);
                             &&& cj == cursor_pre_read
                             &&& pte_j == pte
@@ -446,7 +437,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             }
             proof {
                 vstd::arithmetic::div_mod::lemma_mod_adds(
-                    reader.cursor.vaddr as int - size_of_e,
+                    reader.cursor.vaddr - size_of_e,
                     size_of_e,
                     align_of_e,
                 );
@@ -500,10 +491,10 @@ impl<C: PageTableConfig> PageTableNode<C> {
     /// Allocates a new empty page table node.
     #[verus_spec(res =>
         with Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&Guards<'rcu>>,
-            Ghost(idx): Ghost<usize>,
-        -> owner: Tracked<OwnerSubtree<C>>
+             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+             Tracked(guards): Tracked<&Guards<'rcu>>,
+             Ghost(idx): Ghost<usize>,
+                 -> owner: Tracked<OwnerSubtree<C>>,
         requires
             1 <= level < NR_LEVELS,
             idx < NR_ENTRIES,
@@ -516,7 +507,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             allocated_empty_node_grandchildren_none(owner@),
             res.ptr.addr() == owner@.value.node().meta_addr_self(),
             guards.unlocked(owner@.value.node().meta_addr_self()),
-            MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node().meta_addr_self()), false, *old(regions), *final(regions)),
+            MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value.node().meta_addr_self()), *old(regions), *final(regions)),
             MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value.node().meta_addr_self()), *old(regions), *final(regions)),
 
             final(regions).frame_obligations == old(regions).frame_obligations.insert(
@@ -657,7 +648,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// unless that guard was already forgotten.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(guards): Tracked<&mut Guards<'rcu>>
+             Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
             self.inner@.invariants(*owner),
             old(guards).unlocked(owner.meta_addr_self()),
@@ -675,14 +666,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         proof {
             let ghost guards0 = *guards;
             guards.guards = guards.guards.insert(owner.meta_addr_self());
-            assert(owner.relate_guard(guard));
 
-            assert(forall|other: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
-                    ==> #[trigger] CursorOwner::node_unlocked_except(
-                    *guards,
-                    owner.meta_addr_self(),
-                )(other, path));
         }
 
         guard
@@ -698,13 +682,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// [`nr_subpage_per_huge<C>`].
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(child_owner): Tracked<&EntryOwner<C>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>,
-    )]
-    pub fn entry<'a>(&'a mut self, idx: usize) -> (res: Entry<'a, 'rcu, C>)
+             Tracked(child_owner): Tracked<&EntryOwner<C>>,
+             Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             owner.inv(),
-            !child_owner.in_scope,
             child_owner.inv(),
             owner.relate_guard(*old(self)),
             child_owner.match_pte(
@@ -718,15 +699,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         ensures
             res.wf(*child_owner),
             res.idx == idx,
+            *res.node == *old(self),
+            *final(self) == *final(res.node),
             owner.relate_guard(*res.node),
-            *final(self) == *old(self),
-    {
+    )]
+    pub fn entry<'a>(&'a mut self, idx: usize) -> Entry<'a, 'rcu, C> {
         #[cfg(feature = "allow_panic")]
         assert!(idx < nr_subpage_per_huge::<C>());
-        // SAFETY: The index is within the bound. `*self` is unchanged because
-        // Entry::new_at's `*res.node == *old(guard)` ensures says the wrapped
-        // node equals the input guard's value, and the reborrow makes
-        // `*final(self) == *res.node`.
+        // SAFETY: The index is within the bound. `Entry::new_at` returns an
+        // entry whose node is the guard value we were handed.
         unsafe {
             #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(regions))]
             Entry::new_at(self, idx)
@@ -741,18 +722,17 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// - Returns the number of valid PTEs in the node.
     /// ## Safety
     /// - We require the caller to provide a permission token to ensure that this function is only called on a valid page table node.
-    #[verus_spec(
+    #[verus_spec(nr =>
         with Tracked(owner) : Tracked<&NodeOwner<C>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>,
-    )]
-    pub fn nr_children(&self) -> (nr: u16)
+             Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             self.inner.inner@.invariants(*owner),
             regions.inv(),
             owner.metaregion_sound_node(*regions),
         returns
             owner.meta_own.nr_children.value(),
-    {
+    )]
+    pub fn nr_children(&self) -> u16 {
         let tracked owner_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
             owner.slot_index,
         );
@@ -763,10 +743,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 
     /// Returns if the page table node is detached from its parent.
-    #[verus_spec(
-        with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
-    )]
-    pub(super) fn stray_mut<'a>(&'a mut self) -> (res: &'a pcell_maybe_uninit::PCell<bool>)
+    #[verus_spec(res =>
+        with
+            Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>,
         requires
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
@@ -775,7 +754,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         ensures
             res.id() == meta_perm.value().metadata.stray.id(),
             *final(self) == *old(self),
-    {
+    )]
+    pub(super) fn stray_mut<'a>(&'a mut self) -> &'a pcell_maybe_uninit::PCell<bool> {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(meta_perm))]
         let meta = self.meta();
@@ -791,11 +771,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// # Safety
     ///
     /// The caller must ensure that the index is within the bound.
-    #[verus_spec(
+    #[verus_spec(pte =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>,
-    )]
-    pub unsafe fn read_pte(&self, idx: usize) -> (pte: C::E)
+             Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             self.inner.inner@.invariants(*owner),
             regions.inv(),
@@ -803,7 +781,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             idx < NR_ENTRIES,
         ensures
             pte == owner.children_perm.value()[idx as int],
-    {
+    )]
+    pub unsafe fn read_pte(&self, idx: usize) -> C::E {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         let tracked owner_slot_perm = regions.slots.tracked_borrow(owner.slot_index);
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
@@ -836,9 +815,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     ///     after this method.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut NodeOwner<C>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>,
-    )]
-    pub unsafe fn write_pte(&mut self, idx: usize, pte: C::E)
+             Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             old(self).inner.inner@.invariants(*old(owner)),
             regions.inv(),
@@ -854,7 +831,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 pte,
             ),
             *final(self) == *old(self),
-    {
+    )]
+    pub unsafe fn write_pte(&mut self, idx: usize, pte: C::E) {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         let tracked owner_slot_perm = regions.slots.tracked_borrow(owner.slot_index);
         #[verusfmt::skip]
@@ -875,10 +853,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 
     /// Gets the mutable reference to the number of valid PTEs in the node.
-    #[verus_spec(
-        with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
-    )]
-    fn nr_children_mut<'a>(&'a mut self) -> (res: &'a pcell_maybe_uninit::PCell<u16>)
+    #[verus_spec(res =>
+        with
+            Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>,
         requires
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
@@ -887,7 +864,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         ensures
             res.id() == meta_perm.value().metadata.nr_children.id(),
             *final(self) == *old(self),
-    {
+    )]
+    fn nr_children_mut<'a>(&'a mut self) -> &'a pcell_maybe_uninit::PCell<u16> {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(meta_perm))]
         let meta = self.meta();
@@ -950,7 +928,6 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         ensures
             self.walk_coverage_at(view, dom, c),
     {
-        assert(Self::walk_pte_at_view(view, c) == Self::walk_pte_at_view(view, c));
     }
 
     /// Instantiate [`walk_uniqueness_from_view`]'s forall at one cursor pair.
@@ -1046,10 +1023,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
                 &&& so.inner_perms.ref_count.value() > 0
-                &&& so.inner_perms.ref_count.value()
-                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                &&& so.inner_perms.ref_count.value()
-                    <= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
                 &&& so.inner_perms.ref_count.value() == 1 ==> {
                     &&& so.inner_perms.storage.is_init()
                     &&& so.inner_perms.in_list.value() == 0

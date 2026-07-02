@@ -7,10 +7,10 @@
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
 use alloc::vec::Vec;
-use vstd::atomic::PermissionU64;
-use vstd::pervasive::{arbitrary, proof_from_false};
+
+use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
-use vstd::simple_pptr::PointsTo;
+
 use vstd::vpanic;
 
 use crate::arch::mm::{PageTableEntry, PagingConsts, current_page_table_paddr};
@@ -25,9 +25,9 @@ use crate::mm::{
     page_table::{EntryOwner, PageTableFrag, PageTableGuard},
 };
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage, MetadataInnerPerms};
+
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::io::VmIoMemView;
+
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::tlb::TlbModel;
@@ -38,21 +38,19 @@ use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
 use vstd_extra::panic::may_panic;
+use vstd_extra::prelude::*;
 use vstd_extra::{assert, assert_eq};
 
 use crate::mm::kspace::KERNEL_PAGE_TABLE;
 use crate::mm::tlb::*;
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
 
-use crate::specs::mm::io::VmIoOwner;
-use crate::{
-    mm::{
-        MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-        io::{Fallible, VmReader, VmWriter},
-        page_prop::PageProperty,
-    },
-    prelude::*,
+use crate::mm::{
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    io::{Fallible, VmReader, VmWriter},
+    page_prop::PageProperty,
 };
+use crate::specs::mm::io::VmIoOwner;
 
 use alloc::sync::Arc;
 
@@ -134,7 +132,7 @@ verus! {
 ///        // Writer correctness
 ///        // =====================
 ///        &&& forall|i: int|
-///            0 <= i < self.writers.len() as int ==> {
+///            0 <= i < self.writers.len() ==> {
 ///                &&& self.writers[i].inv()
 ///            }
 ///        }
@@ -190,11 +188,10 @@ impl<'a> VmSpace<'a> {
         proof_decl! {
             let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;
         }
-        let kpt = crate::mm::kspace::kvirt_area::get_kernel_page_table(
-            Tracked(&mut kernel_owner_opt),
-            Tracked(regions),
-            Tracked(guards),
-        );
+        let kpt = {
+            #[verus_spec(with Tracked(&mut kernel_owner_opt), Tracked(regions), Tracked(guards))]
+            crate::mm::kspace::kvirt_area::get_kernel_page_table()
+        };
         proof_decl! {
             let tracked kernel_owner = kernel_owner_opt.tracked_take();
         }
@@ -835,15 +832,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).map_item_ensures(
                 frame,
                 prop,
-                old(self).pt_cursor.0.model(*old(cursor_owner)),
-                final(self).pt_cursor.0.model(*final(cursor_owner)),
+                old(cursor_owner)@,
+                final(cursor_owner)@,
             ),
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
-
-        assert(self.pt_cursor.item_wf(item, entry_owner)) by {};
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (unsafe {
@@ -923,9 +918,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         ensures
             !old(self).pt_cursor.0.find_next_panic_condition(len),
             final(self).pt_cursor.0.invariants(*final(cursor_owner), *final(regions), *final(guards)),
-            old(self).pt_cursor.0.model(*old(cursor_owner)).unmap_spec(len, final(self).pt_cursor.0.model(*final(cursor_owner)), r),
+            old(cursor_owner)@.unmap_spec(len, final(cursor_owner)@, r),
             final(tlb_model).inv(),
     )]
+    #[verifier::spinoff_prover]
     pub fn unmap(&mut self, len: usize) -> usize {
         proof {
             cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
@@ -940,7 +936,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         assert!(self.virt_addr() + len <= self.pt_cursor.0.barrier_va.end);
 
         assert(!self.pt_cursor.0.find_next_panic_condition(len));
-        assert(!old(self).pt_cursor.0.find_next_panic_condition(len));
 
         let end_va = self.virt_addr() + len;
         let mut num_unmapped: usize = 0;
@@ -957,10 +952,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             // bounds locked_range().end by `vaddr_range_bounds_spec::<C>().1 + 1`,
             // and for UserPtConfig that evaluates to 2^47.
             crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
-            assert(end_va <= 0x0000_8000_0000_0000usize);
-
             assert((self.pt_cursor.0.va + len) % PAGE_SIZE as int == 0) by (compute);
-            assert(adjusted_base.difference(removed) == adjusted_base);
         }
 
         #[verus_spec(
@@ -982,10 +974,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 forall |m: Mapping| #[trigger] removed.contains(m) ==>
                     start_va <= m.va_range.start < end_va,
                 // Per-config VA bound: every removed mapping fits within the
-                // user VA space. Sourced from `axiom_view_in_vaddr_range` on
-                // the cursor view prior to removal.
+                // user VA space, sourced from the cursor view prior to removal.
                 forall |m: Mapping| #[trigger] removed.contains(m) ==>
-                    m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
+                    m.va_range.end <= 0x0000_8000_0000_0000_usize,
                 // Nothing in [start_va, end_va) with start < cursor_va remains,
                 // unless it is a sub-mapping of a boundary-straddling entry.
                 forall |m: Mapping| #![auto] adjusted_base.contains(m) && !removed.contains(m)
@@ -1029,10 +1020,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
                 cursor_owner.view_preserves_inv();
                 // Per-config VA bound on prev_mappings — needed for
-                // preserving the `removed`-end-bound loop invariant.
-                crate::specs::mm::page_table::cursor::owners::axiom_view_in_vaddr_range::<
-                    UserPtConfig,
-                >(cursor_owner);
+                // preserving the `removed`-end-bound loop invariant. The user
+                // cursor's view lies in [0, 0x8000_0000_0000) by the PROVEN
+                // `lemma_view_in_vaddr_range_user` (no longer the generic
+                // axiom), which follows from `cursor_owner.inv()`'s isolation
+                // (borrowed-kernel-half) clause.
+                crate::specs::mm::page_table::cursor::owners::lemma_view_in_vaddr_range_user(
+                    cursor_owner,
+                );
                 crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
             }
 
@@ -1093,7 +1088,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(
                         removed);
                     }
-                    assert(num_unmapped < usize::MAX);
                     num_unmapped += 1;
                     #[verus_spec(with Tracked(tlb_model))]
                     self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into_dyn());
@@ -1151,13 +1145,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                         + frag_ghost->StrayPageTable_len,
                             ),
                         );
-                        assert(num_unmapped + num_frames < usize::MAX);
                     }
                     num_unmapped += num_frames;
                     proof {
                         assert(0x0000_8000_0000_0000usize < KERNEL_VADDR_RANGE.end as usize)
                             by (compute_only);
-                        assert(va + len <= KERNEL_VADDR_RANGE.end as usize);
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_plus_page_size_no_overflow(
                         va, len);
                     }
@@ -1203,7 +1195,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 // Mapped-case setup: establish split_while_huge properties once.
                 if is_mapped {
-                    assert(sv.cur_va < 0x0000_8000_0000_0000usize);
                     assert forall|m: Mapping, x: Mapping| #[trigger]
                         prev_mappings.contains(m) && #[trigger] old_removed.contains(
                             x,
@@ -1215,7 +1206,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     sv.lemma_split_while_huge_preserves_inv(mm.page_size);
                 }
                 assert forall|m: Mapping| #[trigger] removed.contains(m) implies m.va_range.end
-                    <= 0x0000_8000_0000_0000_usize as int by {
+                    <= 0x0000_8000_0000_0000_usize by {
                     if !old_removed.contains(m) {
                         if is_mapped {
                             assert(m == mm);
@@ -1253,7 +1244,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         vstd::set_lib::lemma_set_disjoint_lens(old_removed, set![mm]);
                         assert(removed == old_removed + set![mm]);
                         vstd::set_lib::lemma_set_empty_equivalency_len(Set::<Mapping>::empty());
-                        assert(set![mm] == Set::<Mapping>::empty().insert(mm));
                         vstd::set::lemma_set_insert_len(Set::<Mapping>::empty(), mm);
                     },
                 }
@@ -1289,7 +1279,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 assert forall|e: Mapping| #[trigger]
                     adjusted_base.difference(removed).contains(e)
                         <==> cursor_owner@.mappings.contains(e) by {};
-                assert(cursor_owner@.mappings == adjusted_base.difference(removed));
 
                 assert(removed.subset_of(adjusted_base)) by {
                     assert forall|e: Mapping| #[trigger]
@@ -1444,14 +1433,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         proof {
             cursor_owner.va.reflect_prop(self.pt_cursor.0.va);
 
-            let old_view = old(self).pt_cursor.0.model(*old(cursor_owner));
-            let new_view = self.pt_cursor.0.model(*cursor_owner);
+            let old_view = old(cursor_owner)@;
+            let new_view = cursor_owner@;
 
             // Bridge from loop invariant to unmap_spec.
             let start = old_view.cur_va;
             let end = (old_view.cur_va + len) as Vaddr;
-
-            assert(new_view.cur_va >= end);
 
             assert forall|m: Mapping|
                 #![auto]
@@ -1571,6 +1558,7 @@ pub(super) fn get_activated_vm_space() -> *const VmSpace {
 }*/
 
 /// The configuration for user page tables.
+#[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Clone, Debug)]
 pub struct UserPtConfig {}
 
@@ -1623,6 +1611,22 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type C = PagingConsts;
 
+    proof fn lemma_page_table_config_constant_requirements() {
+        use crate::mm::nr_subpage_per_huge;
+        use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
+        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
+
+        lemma2_to64();
+        lemma2_to64_rest();
+        assert(usize::BITS == 64) by (compute);
+        vstd::layout::unsigned_int_max_values();
+        lemma_usize_pow2_ilog2(12);
+        lemma_usize_pow2_ilog2(9);
+        lemma_pow2_adds(9, 39);
+        assert(Self::LEADING_BITS_spec() == 0usize);
+    }
+
     type Item = MappedItem;
 
     open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
@@ -1649,15 +1653,18 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
-    axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
+    proof fn lemma_pte_size_eq_size_of() {
+        PageTableEntry::lemma_layout();
+    }
 
-    axiom fn axiom_pte_size_eq_size_of();
+    proof fn lemma_pte_walk_fills_page() {
+        Self::lemma_page_table_config_constant_properties();
+        Self::lemma_pte_size_eq_size_of();
+    }
 
-    axiom fn axiom_pte_walk_fills_page();
-
-    axiom fn axiom_top_level_index_range_within_nr_entries();
-
-    axiom fn axiom_pte_align_divides_size();
+    proof fn lemma_pte_align_divides_size() {
+        PageTableEntry::lemma_layout();
+    }
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 
@@ -1671,7 +1678,7 @@ unsafe impl PageTableConfig for UserPtConfig {
     }
 
     proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
-        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
         // Derive `frame.inv()` from the structural-shape axiom + soundness lemmas.
 
         Self::item_from_raw_spec_frame_ptr(pa, level, prop);
@@ -1693,7 +1700,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         // res.frame)`, which delivers per-field facts at `frame_to_index(meta_to_frame(
         // item.frame.ptr.addr()))`. Bridge that index to `frame_to_index(pa)` via
         // `pa == item.frame.paddr() == meta_to_frame(item.frame.ptr.addr())`.
-        use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+        use crate::mm::frame::meta::mapping::meta_to_frame;
+        use crate::specs::mm::frame::mapping::frame_to_index;
         let frame_idx = frame_to_index(meta_to_frame(item.frame.ptr.addr()));
         assert(pa == item.frame.paddr());
         assert(frame_to_index(pa) == frame_idx);
@@ -1723,7 +1731,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         //       (the trait-level structural well-formedness method).
         //   (2) `frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa)`
         //       from `pa == item.frame.paddr()` (UserPtConfig::item_into_raw_spec).
-        use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+        use crate::mm::frame::meta::mapping::meta_to_frame;
+        use crate::specs::mm::frame::mapping::frame_to_index;
         Self::item_roundtrip(item, pa, level, prop);
         assert(item.frame.paddr() == pa);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
@@ -1740,7 +1749,7 @@ impl UserPtConfig {
     /// `UFrame::from_raw(pa)` call whose ensures gives this address shape.
     pub axiom fn item_from_raw_spec_frame_ptr(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            crate::mm::frame::meta::has_safe_slot(pa),
+            has_safe_slot(pa),
         ensures
             UserPtConfig::item_from_raw_spec(pa, level, prop).frame.ptr.addr()
                 == crate::mm::frame::meta::mapping::frame_to_meta(pa),

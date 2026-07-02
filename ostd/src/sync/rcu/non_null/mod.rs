@@ -10,8 +10,6 @@ mod either;
 
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
-use crate::prelude::*;
-
 verus! {
 
 broadcast use {group_nonull_axioms, group_raw_ptr_axioms};

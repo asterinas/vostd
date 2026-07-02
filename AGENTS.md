@@ -44,7 +44,7 @@ Other components like `kernel`, `osdk`, `test`, and `docs` shall be ignored duri
 
 ## Verus Requirements
 
-For proof-sensitive changes, use `.agents/skills/verus-proof-guidance/SKILL.md` only when nontrivial Verus reasoning, specification changes, or verification failures require it. Keep routine edits lightweight.
+For proof-sensitive changes, use Verus-related skills in `.agents/skills` only when nontrivial Verus reasoning, specification changes, or verification failures require it. Keep routine edits lightweight.
 
 ## Hard Constraints
 

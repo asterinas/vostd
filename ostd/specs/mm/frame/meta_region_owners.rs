@@ -1,5 +1,5 @@
 use vstd::atomic::*;
-use vstd::cell;
+
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, *};
 
@@ -7,7 +7,7 @@ use core::ops::Range;
 
 use vstd_extra::cast_ptr::{self, Repr};
 use vstd_extra::drop_tracking::DropObligation;
-use vstd_extra::ghost_tree::TreePath;
+
 use vstd_extra::ownership::*;
 
 use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage};
@@ -15,40 +15,34 @@ use super::*;
 use crate::mm::Paddr;
 use crate::mm::frame::Link;
 use crate::mm::frame::meta::{
-    AnyFrameMeta, MetaSlot, REF_COUNT_MAX,
-    mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, max_meta_slots, meta_addr},
+    AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::frame_to_meta,
 };
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
-use crate::specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall;
-use crate::specs::mm::frame::meta_owners::Metadata;
+use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
+
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, max_meta_slots, meta_addr},
+    meta_owners::Metadata,
+};
 
 verus! {
 
-/// Represents the meta-frame memory region. Can be viewed as a collection of
-/// Cell<MetaSlot> at a fixed address range.
-pub struct MetaRegion;
-
 /// Represents the ownership of the meta-frame memory region.
 /// # Verification Design
-/// ## Slot owners
+/// ## Slot owners and permissions
 /// Every metadata slot has its owner ([`MetaSlotOwner`]) tracked by the `slot_owners` map at all times.
 /// This makes the `MetaRegionOwners` the one place that tracks every frame, whether or not it is
-/// in use.
-/// ## Slot permissions
-/// We treat the slot permissions differently depending on how they are used. The permissions of unused slots
-/// are tracked in `slots`, as are those of frames that do not otherwise belong to any other data structure.
-/// This is necessary because those frames can have a new reference taken at any time via `Frame::from_in_use`.
-/// Unique frames and frames that are forgotten with `into_raw` have their permissions tracked by the owner of
-/// whatever object they belong to. Their permissions will be returned to `slots` when the object is dropped.
-/// Whether or not the frame has a permission in `slots`, it will always have an owner in `slot_owners`,
-/// which tracks information that needs to be globally visible.
+/// in use. Likewise, every slot has an permission stored in `slots`.
 /// ## Safety
+/// The `frame_obligations` table tracks how many active (in-scope) frames exist for each slot.
+/// Each one corresponds to an active drop obligation that must be consumed when its owner leaves scope,
+/// either by dropping it with an explicit call to `drop` or forgetting it with `ManuallyDrop`.
 /// Forgetting a slot with `into_raw` or `ManuallyDrop::new` will leak the frame.
 /// Forgetting it multiple times without restoring it will likely result in a memory leak, but not double-free.
 /// Double-free happens when `from_raw` is called on a frame that is not forgotten, or that has been
 /// dropped with `ManuallyDrop::drop` instead of `into_raw`. All functions in
 /// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
+#[verifier::ext_equal]
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
@@ -81,19 +75,11 @@ impl Inv for MetaRegionOwners {
         &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
-                    &&& self.slot_owners.contains_key(i)
                     &&& self.slot_owners[i].inv()
                     &&& self.slots[i].is_init()
                     &&& self.slots[i].addr() == meta_addr(i)
                     &&& self.slots[i].value().wf(self.slot_owners[i])
-                    &&& self.slot_owners.contains_key(i)
-                    &&& self.slot_owners[i].self_addr == self.slots[i].addr()
-                }
-        }
-        &&& {
-            forall|i: usize| #[trigger]
-                self.slot_owners.contains_key(i) ==> {
-                    &&& self.slot_owners[i].inv()
+                    &&& self.slot_owners[i].slot_vaddr == self.slots[i].addr()
                 }
         }
     }
@@ -118,18 +104,6 @@ impl View for MetaRegionOwners {
 impl InvView for MetaRegionOwners {
     proof fn view_preserves_inv(self) {
     }
-}
-
-impl OwnerOf for MetaRegion {
-    type Owner = MetaRegionOwners;
-
-    open spec fn wf(self, owner: Self::Owner) -> bool {
-        true
-    }
-}
-
-impl ModelOf for MetaRegion {
-
 }
 
 impl MetaRegionOwners {
@@ -172,7 +146,7 @@ impl MetaRegionOwners {
     /// is live, `self` is mutably borrowed; on borrow-end, `self.slots[i]` and
     /// `self.slot_owners[i].inner_perms` are restored from the final cast_ptr.
     /// Every other slot/slot_owner is fully preserved, and the other fields of
-    /// `slot_owners[i]` (raw_count/usage/self_addr/paths_in_pt) are unchanged.
+    /// `slot_owners[i]` (raw_count/usage/slot_vaddr/paths_in_pt) are unchanged.
     pub axiom fn borrow_mut_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         &mut self,
         i: usize,
@@ -196,7 +170,7 @@ impl MetaRegionOwners {
             forall|k: usize|
                 k != i ==> #[trigger] final(self).slot_owners[k] == old(self).slot_owners[k],
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
-            final(self).slot_owners[i].self_addr == old(self).slot_owners[i].self_addr,
+            final(self).slot_owners[i].slot_vaddr == old(self).slot_owners[i].slot_vaddr,
             final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
             final(self).frame_obligations == old(self).frame_obligations,
     ;
@@ -256,21 +230,7 @@ impl MetaRegionOwners {
         ensures
             self.slot_owners.contains_key(frame_to_index(paddr) as usize),
     {
-        assert((frame_to_index(paddr)) < max_meta_slots() as usize);
     }
-
-    pub axiom fn copy_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        tracked &mut self,
-        index: usize,
-    ) -> (tracked perm: MetaPerm<M>)
-        requires
-            old(self).slots.contains_key(index),
-        ensures
-            perm.points_to == old(self).slots[index],
-            final(self).slots == old(self).slots.remove(index),
-            final(self).slot_owners == old(self).slot_owners,
-            final(self).frame_obligations == old(self).frame_obligations,
-    ;
 
     /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
     /// Used by `Frame::from_raw` after the migration to typed slot perms — the perm being
@@ -310,6 +270,18 @@ impl MetaRegionOwners {
     // ----------------------------------------------------------------------
     // Frame-side per-instance ledger.
     // ----------------------------------------------------------------------
+    pub open spec fn mint_frame_obligation(self, slot_idx: usize) -> Self {
+        Self { frame_obligations: self.frame_obligations.insert(slot_idx), ..self }
+    }
+
+    pub open spec fn redeem_frame_obligation(self, slot_idx: usize) -> Self
+        recommends
+            self.frame_obligations.count(slot_idx) > 0,
+    {
+        Self { frame_obligations: self.frame_obligations.remove(slot_idx), ..self }
+    }
+
+    // FIXME: use authorative monoid instead of current unsound implementations
     /// Pairs the production of a per-Frame [`DropObligation`] with a
     /// `+1` on the `frame_obligations[slot_idx]` count. Called by Frame's
     /// `constructor_spec` (i.e. `ManuallyDrop::new(frame, ..)`).
@@ -317,9 +289,7 @@ impl MetaRegionOwners {
         DropObligation<usize>)
         ensures
             obl.value() == slot_idx,
-            final(self).frame_obligations == old(self).frame_obligations.insert(slot_idx),
-            final(self).slots == old(self).slots,
-            final(self).slot_owners == old(self).slot_owners,
+            *final(self) == old(self).mint_frame_obligation(slot_idx),
     ;
 
     /// Redeems a per-Frame obligation, decrementing `frame_obligations`
@@ -332,9 +302,7 @@ impl MetaRegionOwners {
         requires
             old(self).frame_obligations.count(obl.value()) > 0,
         ensures
-            final(self).frame_obligations == old(self).frame_obligations.remove(obl.value()),
-            final(self).slots == old(self).slots,
-            final(self).slot_owners == old(self).slot_owners,
+            *final(self) == old(self).redeem_frame_obligation(obl.value()),
     ;
 }
 

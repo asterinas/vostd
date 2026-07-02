@@ -338,7 +338,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
             |tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock,
         ) == s.ProcSet.filter(
             |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock,
-        ).insert(tid)) by {};
+        ).insert(tid));
     };
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
         release_lock(tid).apply(s, s_prime) && s.inv_unchanged(n)
@@ -348,7 +348,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
             |tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock,
         ) == s.ProcSet.filter(
             |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock,
-        ).remove(tid)) by {};
+        ).remove(tid));
     };
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
         start().forward(tid).apply(s, s_prime) && s.inv_unchanged(n)
@@ -356,8 +356,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
             && s.inv_not_locked_iff_no_cs() implies s_prime.inv_not_locked_iff_no_cs() by {
         assert(s_prime.ProcSet.filter(
             |tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock,
-        ) == s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock))
-            by {};
+        ) == s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock));
     };
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
         cs().forward(tid).apply(s, s_prime) && s.inv_unchanged(n)
@@ -367,7 +366,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
             |tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock,
         ) == s.ProcSet.filter(
             |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock,
-        ).insert(tid)) by {};
+        ).insert(tid));
     };
 
     assert(forall|s: ProgramState, s_prime: ProgramState| #[trigger]

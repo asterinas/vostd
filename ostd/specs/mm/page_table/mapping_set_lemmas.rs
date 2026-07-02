@@ -74,8 +74,6 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: int, hi
         lemma_mapping_set_cardinality_in_range(below, lo, m.va_range.start);
         lemma_mapping_set_cardinality_in_range(above, m.va_range.end, hi);
 
-        assert(m.page_size >= PAGE_SIZE);
-        assert(m.page_size == m.va_range.end - m.va_range.start);
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(
             PAGE_SIZE as int,
             (below.len() + above.len()) as int,
@@ -95,7 +93,7 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
     requires
         wf_mapping_set(s),
         forall|m: Mapping| #[trigger]
-            s.contains(m) ==> 0 <= m.va_range.start && m.va_range.end <= bound as int,
+            s.contains(m) ==> 0 <= m.va_range.start && m.va_range.end <= bound,
     ensures
         s.len() <= bound / PAGE_SIZE,
 {
@@ -126,14 +124,14 @@ pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)
     requires
         wf_mapping_set(s),
         forall|m: Mapping| #[trigger]
-            s.contains(m) ==> m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
+            s.contains(m) ==> m.va_range.end <= 0x0000_8000_0000_0000_usize,
     ensures
         s.len() < usize::MAX,
 {
     // `0 <= m.va_range.start` follows from `wf_mapping_set(s)` ⇒ `m.inv()`,
     // which has `0 <= m.va_range.start`.
     assert forall|m: Mapping| #[trigger] s.contains(m) implies 0 <= m.va_range.start
-        && m.va_range.end <= 0x0000_8000_0000_0000_usize as int by {
+        && m.va_range.end <= 0x0000_8000_0000_0000_usize by {
         assert(m.inv());
     };
     lemma_mapping_set_cardinality_bound(s, 0x0000_8000_0000_0000_usize);
@@ -186,18 +184,6 @@ pub proof fn lemma_sub_mapping_pa_compose(m: Mapping, p: Mapping, orig: Mapping)
         m.property == orig.property,
 {
     assert(MAX_PADDR < usize::MAX) by (compute_only);
-    // All VA offsets fit within orig's page_size, so PA offsets don't overflow.
-    assert(p.va_range.start - orig.va_range.start <= orig.page_size);
-    assert(m.va_range.start - orig.va_range.start <= orig.page_size);
-    assert(orig.pa_range.start + (p.va_range.start - orig.va_range.start) < usize::MAX);
-    assert(p.pa_range.start as int == orig.pa_range.start as int + (p.va_range.start as int
-        - orig.va_range.start as int));
-    assert(orig.pa_range.start + (m.va_range.start - orig.va_range.start) < usize::MAX);
-    assert(p.pa_range.start + (m.va_range.start - p.va_range.start) < usize::MAX);
-    assert(m.pa_range.start as int == p.pa_range.start as int + (m.va_range.start as int
-        - p.va_range.start as int));
-    assert(m.pa_range.start as int == orig.pa_range.start as int + (m.va_range.start as int
-        - orig.va_range.start as int));
 }
 
 } // verus!

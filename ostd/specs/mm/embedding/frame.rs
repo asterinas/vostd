@@ -30,12 +30,14 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::Paddr;
-use crate::mm::frame::{MetaSlot, has_safe_slot};
-use crate::mm::vm_space::UserPtConfig;
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{
-    PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+use crate::mm::frame::{
+    MetaSlot,
+    meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
 };
+use crate::mm::vm_space::UserPtConfig;
+use crate::specs::arch::*;
+use crate::specs::mm::frame::mapping::frame_to_index;
+use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
@@ -207,9 +209,9 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
             ).slot_owners[i],
         final(regions).slots == old(regions).slots,
         final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
-        final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
+        final(regions).slot_owners[frame_to_index(paddr)].slot_vaddr == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].self_addr,
+        ).slot_owners[frame_to_index(paddr)].slot_vaddr,
         final(regions).slot_owners[frame_to_index(paddr)].usage == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].usage,

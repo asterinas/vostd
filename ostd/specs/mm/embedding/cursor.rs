@@ -48,15 +48,15 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::{UFrame, has_safe_slot};
+use crate::mm::frame::UFrame;
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::{Paddr, Vaddr};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{
-    PageUsage, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-};
+use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::node::Guards;
@@ -243,10 +243,10 @@ pub axiom fn cursor_query_embedded<'rcu>(
                 ).slot_owners[i]
             // At the cloned slot, only `ref_count` changes — everything
             // else (`raw_count`, `in_list`, `usage`, `paths_in_pt`,
-            // `storage`, `self_addr`, `vtable_ptr`) is preserved.
-            &&& final(regions).slot_owners[frame_to_index(paddr)].self_addr == old(
+            // `storage`, `slot_vaddr`, `vtable_ptr`) is preserved.
+            &&& final(regions).slot_owners[frame_to_index(paddr)].slot_vaddr == old(
                 regions,
-            ).slot_owners[frame_to_index(paddr)].self_addr
+            ).slot_owners[frame_to_index(paddr)].slot_vaddr
             &&& final(regions).slot_owners[frame_to_index(paddr)].usage == old(
                 regions,
             ).slot_owners[frame_to_index(paddr)].usage
@@ -511,14 +511,16 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         // `slots` (the boot-fixed metadata perm map) preserved.
         final(regions).slots == old(regions).slots,
         // **Universal per-slot preservation.** Unmap doesn't change a
-        // slot's identity (`usage`/`self_addr`/`raw_count`/`in_list`/
+        // slot's identity (`usage`/`slot_vaddr`/`raw_count`/`in_list`/
         // `vtable_ptr`) and never bumps `rc` to `UNIQUE` (UNIQUE is a
         // unique-handle sentinel produced only by
         // `Frame::into_unique`, not by unmap).
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             {
-                &&& final(regions).slot_owners[i].self_addr == old(regions).slot_owners[i].self_addr
+                &&& final(regions).slot_owners[i].slot_vaddr == old(
+                    regions,
+                ).slot_owners[i].slot_vaddr
                 &&& final(regions).slot_owners[i].usage == old(regions).slot_owners[i].usage
                 &&& final(regions).slot_owners[i].inner_perms.in_list == old(
                     regions,
@@ -536,6 +538,16 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
                     regions,
                 ).slot_owners[i].inner_perms.storage
             },
+        // Unparked (page-table-node) slots are untouched: a slot whose
+        // perm is not parked in `regions.slots` is a PT root, an ancestor
+        // of (hence outside) the unmapped range, so unmap leaves its
+        // `slot_owner` (rc/usage/…) intact. Preserves the embedding's
+        // slot-perm coverage exception.
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         // **Frame-slot per-PTE accounting.** For each Frame-usage slot
         // affected by unmap, removing `k` PTEs decreases both `rc` and
         // `paths_in_pt.len()` by `k`, preserving the difference
@@ -932,7 +944,7 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         final(tlb_model).inv(),
         // Mirror the faithful `cursor_mut_unmap_embedded` ensures: per-
         // slot universal preservation (raw_count, in_list, usage,
-        // self_addr, vtable_ptr); rc doesn't bump to UNIQUE; storage
+        // slot_vaddr, vtable_ptr); rc doesn't bump to UNIQUE; storage
         // preserved at non-UNUSED post; and at Frame slots, the
         // "non-mapping count" `rc - paths.len()` is invariant with
         // `rc` and `paths.len` monotonically non-increasing.
@@ -940,7 +952,9 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             {
-                &&& final(regions).slot_owners[i].self_addr == old(regions).slot_owners[i].self_addr
+                &&& final(regions).slot_owners[i].slot_vaddr == old(
+                    regions,
+                ).slot_owners[i].slot_vaddr
                 &&& final(regions).slot_owners[i].usage == old(regions).slot_owners[i].usage
                 &&& final(regions).slot_owners[i].inner_perms.in_list == old(
                     regions,
@@ -956,6 +970,13 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
                     regions,
                 ).slot_owners[i].inner_perms.storage
             },
+        // Unparked (page-table-node) slots untouched (see
+        // `cursor_mut_unmap_embedded`); preserves the coverage exception.
+        forall|i: usize|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
         forall|i: usize|
             #![trigger final(regions).slot_owners[i]]
             old(regions).slot_owners[i].usage == PageUsage::Frame ==> {

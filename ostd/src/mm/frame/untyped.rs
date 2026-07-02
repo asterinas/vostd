@@ -131,9 +131,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
         proof {
             lemma_paddr_to_vaddr_properties(self.start_paddr());
             assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-            assert(vaddr > 0);
             assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
-            assert(ptr.inv());
         }
 
         let reader = unsafe {
@@ -176,9 +174,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
         proof {
             lemma_paddr_to_vaddr_properties(self.start_paddr());
             assert(KERNEL_BASE_VADDR > 0) by (compute_only);
-            assert(vaddr > 0);
             assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
-            assert(ptr.inv());
         }
 
         let writer = unsafe {

@@ -13,17 +13,19 @@ use vstd_extra::ownership::*;
 
 use super::*;
 use crate::mm::frame::AnyFrameMeta;
-use crate::mm::frame::meta::MetaSlot;
+use crate::mm::frame::meta::{
+    META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    mapping::meta_to_frame,
+};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::mm::{Paddr, PagingLevel};
+use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
-use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, meta_addr, meta_to_frame};
 
 verus! {
 
 #[allow(non_camel_case_types)]
-pub enum MetaSlotStatus {
+pub ghost enum MetaSlotStatus {
     UNUSED,
     UNIQUE,
     SHARED,
@@ -31,21 +33,11 @@ pub enum MetaSlotStatus {
     UNDER_CONSTRUCTION,
 }
 
-pub enum PageState {
-    Unused,
-    Typed,
-    Untyped,
-}
-
-#[repr(u8)]
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum PageUsage {
+pub ghost enum PageUsage {
     // The zero variant is reserved for the unused type. Only an unused page
     // can be designated for one of the other purposes.
-    #[allow(dead_code)]
     Unused,
     /// The page is reserved or unusable. The kernel should not touch it.
-    #[allow(dead_code)]
     Reserved,
     /// The page is used as a frame, i.e., a page of untyped memory.
     Frame,
@@ -58,40 +50,7 @@ pub enum PageUsage {
     /// The page maps memory-mapped I/O (MMIO). Untracked: no refcount, slot
     /// stays in the free pool, but distinguishable from `Unused` so the
     /// kernel allocator never collides with an MMIO mapping.
-    #[allow(dead_code)]
     MMIO,
-}
-
-impl PageUsage {
-    pub open spec fn as_u8_spec(&self) -> u8 {
-        match self {
-            PageUsage::Unused => 0,
-            PageUsage::Reserved => 1,
-            PageUsage::Frame => 32,
-            PageUsage::PageTable => 64,
-            PageUsage::Meta => 65,
-            PageUsage::Kernel => 66,
-            PageUsage::MMIO => 67,
-        }
-    }
-
-    #[verifier::external_body]
-    #[verifier::when_used_as_spec(as_u8_spec)]
-    pub fn as_u8(&self) -> (res: u8)
-        ensures
-            res == self.as_u8_spec(),
-    {
-        *self as u8
-    }
-
-    #[vstd::contrib::auto_spec]
-    pub fn as_state(&self) -> (res: PageState) {
-        match &self {
-            PageUsage::Unused => PageState::Unused,
-            PageUsage::Frame => PageState::Untyped,
-            _ => PageState::Typed,
-        }
-    }
 }
 
 /// Whether `pa` falls in an MMIO physical-address range. Uninterpreted at the
@@ -108,7 +67,7 @@ pub uninterp spec fn is_mmio_paddr(pa: Paddr) -> bool;
 pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
     ensures
         (#[trigger] slot.usage == PageUsage::MMIO) <==> is_mmio_paddr(
-            meta_to_frame(slot.self_addr),
+            meta_to_frame(slot.slot_vaddr),
         ),
 ;
 
@@ -118,23 +77,13 @@ pub broadcast axiom fn axiom_mmio_usage_iff_mmio_paddr(slot: MetaSlotOwner)
 /// boundaries, and the verified `split_if_mapped_huge` relies on it to
 /// transfer MMIO-ness from a huge frame to its 4KB sub-pages. Non-broadcast:
 /// callers invoke this explicitly with the relevant `page_size`.
-pub axiom fn axiom_mmio_paddr_huge_page_closed(
-    pa: crate::mm::Paddr,
-    page_size: usize,
-    offset: usize,
-)
+pub axiom fn axiom_mmio_paddr_huge_page_closed(pa: Paddr, page_size: usize, offset: usize)
     requires
         pa % page_size == 0,
         offset < page_size,
     ensures
-        is_mmio_paddr((pa + offset) as crate::mm::Paddr) == is_mmio_paddr(pa),
+        is_mmio_paddr((pa + offset) as Paddr) == is_mmio_paddr(pa),
 ;
-
-pub const REF_COUNT_UNUSED: u64 = u64::MAX;
-
-pub const REF_COUNT_UNIQUE: u64 = u64::MAX - 1;
-
-pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 
 pub struct StoredPageTablePageMeta {
     pub nr_children: pcell_maybe_uninit::PCell<u16>,
@@ -241,8 +190,8 @@ pub tracked struct MetadataInnerPerms {
 
 pub tracked struct MetaSlotOwner {
     pub inner_perms: MetadataInnerPerms,
-    pub self_addr: usize,
-    pub usage: PageUsage,
+    pub ghost slot_vaddr: Vaddr,
+    pub ghost usage: PageUsage,
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
     /// location the frame is currently mapped — allowing a single frame to be
@@ -272,6 +221,11 @@ impl Inv for MetaSlotOwner {
         &&& self.inner_perms.ref_count.value() == REF_COUNT_UNIQUE ==> {
             &&& self.inner_perms.vtable_ptr.is_init()
             &&& self.inner_perms.storage.is_init()
+            // A UNIQUE non-MMIO slot has no live PTE mapping (same rationale as
+            // the UNUSED branch): a mapping would be a reference keeping the
+            // count above the unique sentinel. Lets the list-store embedding
+            // discharge `paths_in_pt.is_empty()` for linked-list frames.
+            &&& (self.usage != PageUsage::MMIO ==> self.paths_in_pt.is_empty())
         }
         // A SHARED slot (`0 < rc <= REF_COUNT_MAX`) is genuinely in use:
         // metadata storage is written, `vtable_ptr` resolves the
@@ -292,8 +246,8 @@ impl Inv for MetaSlotOwner {
         &&& self.inner_perms.ref_count.value() == 0 ==> {
             &&& self.inner_perms.in_list.value() == 0
         }
-        &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
-        &&& self.self_addr % META_SLOT_SIZE == 0
+        &&& FRAME_METADATA_RANGE.start <= self.slot_vaddr < FRAME_METADATA_RANGE.end
+        &&& self.slot_vaddr % META_SLOT_SIZE == 0
     }
 }
 
@@ -303,7 +257,7 @@ pub ghost struct MetaSlotModel {
     pub ref_count: u64,
     pub vtable_ptr: MemContents<usize>,
     pub in_list: u64,
-    pub self_addr: usize,
+    pub slot_vaddr: Vaddr,
     pub usage: PageUsage,
 }
 
@@ -330,7 +284,7 @@ impl View for MetaSlotOwner {
         let ref_count = self.inner_perms.ref_count.value();
         let vtable_ptr = self.inner_perms.vtable_ptr.mem_contents();
         let in_list = self.inner_perms.in_list.value();
-        let self_addr = self.self_addr;
+        let slot_vaddr = self.slot_vaddr;
         let usage = self.usage;
         let status = match ref_count {
             REF_COUNT_UNUSED => MetaSlotStatus::UNUSED,
@@ -339,7 +293,7 @@ impl View for MetaSlotOwner {
             _ if ref_count <= REF_COUNT_MAX => MetaSlotStatus::SHARED,
             _ => MetaSlotStatus::OVERFLOW,
         };
-        MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, self_addr, usage }
+        MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, slot_vaddr, usage }
     }
 }
 
@@ -359,23 +313,15 @@ impl OwnerOf for MetaSlot {
     }
 }
 
-impl ModelOf for MetaSlot {
-
-}
-
 impl MetaSlotOwner {
-    pub axiom fn take_inner_perms(tracked &mut self) -> (tracked res: MetadataInnerPerms)
+    pub proof fn tracked_borrow_mut_inner_perms(tracked &mut self) -> (tracked res:
+        &mut MetadataInnerPerms)
         ensures
-            res == old(self).inner_perms,
-            final(self).self_addr == old(self).self_addr,
-            final(self).usage == old(self).usage,
-            final(self).paths_in_pt == old(self).paths_in_pt,
-    ;
-
-    pub axiom fn sync_inner(tracked &mut self, inner_perms: &MetadataInnerPerms)
-        ensures
-            *final(self) == (Self { inner_perms: *inner_perms, ..*old(self) }),
-    ;
+            *res == old(self).inner_perms,
+            *final(self) == (Self { inner_perms: *final(res), ..*old(self) }),
+    {
+        &mut self.inner_perms
+    }
 }
 
 pub struct Metadata<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
@@ -574,7 +520,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
         perm_u64_with_value(perm.in_list, self.in_list);
         pptr_usize_with_value(perm.vtable_ptr, self.vtable_ptr);
         let (r, np) = self.to_repr_spec(perm);
-        assert(Self::from_repr_spec(r, np) == self);
     }
 
     proof fn to_from_repr(r: MetaSlot, perm: MetadataInnerPerms) {
@@ -593,11 +538,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
         //   np2.in_list    = perm.in_list                   (perm_u64_with_identity)
         let md = Self::from_repr_spec(r, perm);
         let (r2, np2) = md.to_repr_spec(perm);
-        assert(np2 == perm);
         // r2 is produced from np2 == perm; its ids match perm's; perm's ids match r's (by wf).
         meta_slot_from_perm_ids(np2);
         meta_slot_eq_by_ids(r2, r);
-        assert(r2 == r);
     }
 
     proof fn to_repr_wf(self, perm: MetadataInnerPerms) {

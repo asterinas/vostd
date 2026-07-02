@@ -13,18 +13,16 @@
 //! [`VmSpace`]: crate::mm::vm_space::VmSpace
 use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
+use vstd_extra::prelude::*;
 
-use vstd::layout;
 use vstd::raw_ptr;
 use vstd::set;
-use vstd::set_lib;
 
 use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::Pod;
 use crate::mm::{Paddr, PodOnce, Vaddr};
-use crate::prelude::Inv;
 use crate::specs::arch::MAX_PADDR;
 use crate::specs::mm::page_table::Mapping;
 use ostd_pod::{decode_pod, lemma_decode_pod_inverse, pod_bytes};
@@ -340,8 +338,6 @@ impl MemView {
                     #[trigger] original.addr_transl(va) == right.addr_transl(va)
                 },
     {
-        assert(right.memory.dom().subset_of(original.memory.dom()));
-
         assert forall|va: usize| vaddr <= va < vaddr + len implies original.addr_transl(va)
             == left.addr_transl(va) by {
             assert(left.mappings == original.mappings.filter(
@@ -354,13 +350,11 @@ impl MemView {
                 |m: Mapping| m.va_range.start <= va < m.va_range.end,
             );
 
-            assert(l_mappings <= o_mappings);
             assert forall|m: Mapping| #[trigger] o_mappings.contains(m) implies l_mappings.contains(
                 m,
             ) by {
                 assert(left.mappings.contains(m));
             };
-            assert(o_mappings <= l_mappings);
             assert(o_mappings == l_mappings);
         }
 
@@ -475,7 +469,6 @@ impl MemView {
         let right_pas = original.memory.dom().filter(
             |pa: usize| exists|va: usize| va >= split_end && original.is_mapped(va, pa),
         );
-        assert(right.memory == original.memory.restrict(right_pas));
         assert forall|va: usize|
             va >= split_end && original.addr_transl(va) is Some && original.memory.contains_key(
                 original.addr_transl(va).unwrap().0,
@@ -500,7 +493,6 @@ impl MemView {
         if n == 0 {
             return;
         }
-        assert(a.read(va) == b.read(va));
         Self::lemma_read_bytes_eq_pointwise(a, b, (va + 1) as usize, (n - 1) as usize);
     }
 }

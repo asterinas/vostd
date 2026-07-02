@@ -144,7 +144,6 @@ pub proof fn lemma_right_inverse_of_bijection_is_bijective<A, B>(
     ensures
         bijective_on(g, codomain, domain),
 {
-    // Prove that g is injective on codomain
     assert forall|x| #[trigger] codomain.map(g).contains(x) == domain.contains(x) by {
         if domain.contains(x) {
             assert(codomain.contains(f(x)));

@@ -3,11 +3,10 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::meta::mapping::frame_to_index;
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::page_table::*;
 use crate::specs::arch::NR_ENTRIES;
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::*;
 
 verus! {
@@ -156,7 +155,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ) -> bool {
         &&& old_owner.path == new_owner.path
         &&& old_owner.parent_level == new_owner.parent_level
-        &&& new_owner.in_scope
         &&& new_owner.is_node() ==> {
             &&& regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr()->0))
             &&& regions.slot_owners[frame_to_index(

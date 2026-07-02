@@ -136,11 +136,6 @@ pub proof fn lemma_insert_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -
         } else {
             value_filter(m, f)
         },
-        value_filter(m.insert(k, v), f) == if m.contains_key(k) {
-            value_filter(m, f).remove(k)
-        } else {
-            value_filter(m, f)
-        },
 {
 }
 
@@ -193,7 +188,6 @@ pub broadcast proof fn lemma_insert_value_filter_different_len_contains<K, V>(
         lemma_map_insert_len(m, k, v);
     } else {
         lemma_insert_value_filter_false(m, f, k, v);
-        assert(value_filter(m.insert(k, v), f).len() == value_filter(m, f).remove(k).len());
         lemma_map_remove_len(value_filter(m, f), k);
     }
 }
@@ -293,12 +287,9 @@ pub broadcast proof fn lemma_forall_map_insert<K, V>(
     assert(m.insert(k, v).contains_key(k));
     if m.contains_key(k) {
         assert(m.insert(k, v) == m.remove(k).insert(k, v));
-    } else {
-        assert(m.insert(k, v) == m.insert(k, v));
     }
     if forall_map(m.insert(k, v), f) {
-        if m.contains_key(k) {
-        } else {
+        if !m.contains_key(k) {
             assert(forall|k0| #[trigger] m.contains_key(k0) ==> m.insert(k, v).contains_key(k0));
         }
     }
@@ -322,12 +313,9 @@ pub broadcast proof fn lemma_forall_map_values_insert<K, V>(
     assert(m.insert(k, v).contains_key(k));
     if m.contains_key(k) {
         assert(m.insert(k, v) == m.remove(k).insert(k, v));
-    } else {
-        assert(m.insert(k, v) == m.insert(k, v));
     }
     if forall_map_values(m.insert(k, v), f) {
-        if m.contains_key(k) {
-        } else {
+        if !m.contains_key(k) {
             assert(forall|k0| #[trigger] m.contains_key(k0) ==> m.insert(k, v).contains_key(k0));
         }
     }
@@ -365,7 +353,6 @@ pub broadcast proof fn lemma_forall_map_values_remove<K, V>(
     } else {
         assert(m == m.remove(k));
     }
-
 }
 
 /// Returns a new map that projects the first key of a pair `(K1, K2)`,
@@ -401,14 +388,10 @@ pub proof fn lemma_project_first_key_sound<K1, K2, V>(m: Map<(K1, K2), V>, k1: K
                 k2,
             )]
         } by {
-        let dom = m.dom().filter(|p: (K1, K2)| p.0 == k1).map(|p: (K1, K2)| p.1);
         if m.contains_key((k1, k2)) {
             assert(m.dom().filter(|p: (K1, K2)| p.0 == k1).contains((k1, k2)));
-            assert(dom.contains(k2));
         }
-        if dom.contains(k2) {
-            let witness = choose|p: (K1, K2)|
-                m.dom().filter(|p: (K1, K2)| p.0 == k1).contains(p) && p.1 == k2;
+        if project_first_key(m, k1).contains_key(k2) {
             assert(m.contains_key((k1, k2)));
         }
     }

@@ -4,40 +4,45 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use super::meta_owners::*;
-use crate::mm::frame::*;
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::Paddr;
-use crate::specs::mm::frame::mapping::{
-    frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
+use crate::mm::frame::{
+    meta::{
+        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
+    *,
 };
-use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
+use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::MAX_NR_PAGES;
+use crate::specs::mm::Paddr;
+use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
 
-pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
+//FIXME: why do we need a index here?
+pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
     pub meta_own: M::Owner,
     pub ghost slot_index: usize,
 }
 
-pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
+pub ghost struct UniqueFrameModel<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
     pub meta: <M::Owner as View>::V,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
+impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
     open spec fn inv(self) -> bool {
         &&& self.slot_index < MAX_NR_PAGES
         &&& self.slot_index < max_meta_slots()
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameModel<M> {
+impl<M: AnyFrameMeta + Sized + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameModel<M> {
     open spec fn inv(self) -> bool {
         true
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> View for UniqueFrameOwner<M> {
+impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> View for UniqueFrameOwner<M> {
     type V = UniqueFrameModel<M>;
 
     open spec fn view(&self) -> Self::V {
@@ -58,8 +63,32 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> OwnerOf for UniqueFrame<
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> ModelOf for UniqueFrame<M> {
-
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+    /// Cross-object validity of a live UNIQUE handle against the region map —
+    /// the [`UniqueFrame`] analog of [`Frame::wf_with_region`] (which covers
+    /// the SHARED state). Bundles the structural `wf` / `owner.inv` /
+    /// `regions.inv` facts with the UNIQUE-state slot facts so a consumer (e.g.
+    /// [`UniqueFrame::drop`]) can state a single invariant instead of re-listing
+    /// each conjunct.
+    ///
+    /// The slot's `slot_owners.contains_key(idx)`, `slot_vaddr == meta_addr(idx)`,
+    /// `storage.is_init()`, and `vtable_ptr.is_init()` are **derived**, not
+    /// required: `regions.inv()` (with `owner.inv()`'s `idx < max_meta_slots`)
+    /// delivers the first two and `slot_owners[idx].inv()`; the latter's UNIQUE
+    /// branch (under `rc == REF_COUNT_UNIQUE`) gives the storage/vtable init.
+    /// The genuinely-extra conjuncts are the UNIQUE state itself plus
+    /// `in_list == 0` and `paths_in_pt.is_empty()` (a sole owner is neither on
+    /// the free list nor mapped into any page table).
+    pub open spec fn wf_with_region(self, owner: UniqueFrameOwner<M>, s: MetaRegionOwners) -> bool {
+        let idx = owner.slot_index;
+        let so = s.slot_owners[idx];
+        &&& self.wf(owner)
+        &&& owner.inv()
+        &&& s.inv()
+        &&& so.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        &&& so.inner_perms.in_list.value() == 0
+        &&& so.paths_in_pt.is_empty()
+    }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
@@ -100,8 +129,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& perm.addr() == meta_addr(self.slot_index)
         &&& perm.addr() == perm.points_to.addr()
         &&& perm.value().metadata.wf(self.meta_own)
-        &&& regions.slot_owners[self.slot_index].self_addr == meta_addr(self.slot_index)
-        &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        &&& regions.slot_owners[self.slot_index].slot_vaddr == meta_addr(self.slot_index)
+        &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value()
+            == REF_COUNT_UNIQUE
+        // Data-frame node-repark discriminator (our change): a unique frame's
+        // slot is tracked with `Frame` usage, distinguishing it from page-table
+        // node slots (`PageTable`) and letting linked-list/list-store consumers
+        // derive `usage == Frame` (e.g. for the empty-`paths_in_pt` argument).
+        &&& regions.slot_owners[self.slot_index].usage == PageUsage::Frame
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
 
@@ -181,8 +216,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     ) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].self_addr
-            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].self_addr
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].slot_vaddr
+            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].slot_vaddr
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt

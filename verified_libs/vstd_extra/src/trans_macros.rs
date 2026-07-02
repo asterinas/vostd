@@ -134,4 +134,4 @@ macro_rules! update_field {
     };
 }
 
-pub use crate::{assert, borrow_field, update_field};
+pub use crate::{borrow_field, update_field};

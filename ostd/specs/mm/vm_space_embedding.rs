@@ -29,6 +29,7 @@ use core::ops::Range;
 
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
+use vstd_extra::set_extra::*;
 
 use crate::mm::Vaddr;
 use crate::mm::frame::UFrame;
@@ -384,17 +385,21 @@ pub open spec fn fresh_cursor_id<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>) -> C
 
 /// Witnesses that [`fresh_vm_space_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
-pub axiom fn axiom_fresh_vm_space_id_not_in_dom<'a>(m: Map<VmSpaceId, VmSpaceOwner>)
+pub proof fn lemma_fresh_vm_space_id_not_in_dom<'a>(m: Map<VmSpaceId, VmSpaceOwner>)
     ensures
         !m.dom().contains(fresh_vm_space_id(m)),
-;
+{
+    lemma_finite_int_set_has_unused(m.dom());
+}
 
 /// Witnesses that [`fresh_cursor_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
-pub axiom fn axiom_fresh_cursor_id_not_in_dom<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>)
+pub proof fn lemma_fresh_cursor_id_not_in_dom<'rcu>(m: Map<CursorId, CursorEntry<'rcu>>)
     ensures
         !m.dom().contains(fresh_cursor_id(m)),
-;
+{
+    lemma_finite_int_set_has_unused(m.dom());
+}
 
 /// Tracked constructor for [`CursorEntry`].
 ///
@@ -445,9 +450,8 @@ proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
 {
     let tracked owner = vm_space_new_embedded(&mut s.regions);
     let ghost id = fresh_vm_space_id(s.vm_spaces);
-    axiom_fresh_vm_space_id_not_in_dom(s.vm_spaces);
+    lemma_fresh_vm_space_id_not_in_dom(s.vm_spaces);
     s.vm_spaces.tracked_insert(id, owner);
-    assert(final(s).inv()) by {};
 }
 
 proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId)
@@ -465,7 +469,6 @@ proof fn drop_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpace
         s.vm_ios.dom().contains(v) ==> s.vm_ios[v].vm_space != vs) {
         let _ = s.vm_spaces.tracked_remove(vs);
     }
-    assert(final(s).inv()) by {};
 }
 
 proof fn open_cursor_step<'a, 'rcu>(
@@ -488,7 +491,7 @@ proof fn open_cursor_step<'a, 'rcu>(
         match res {
             Option::Some(owner) => {
                 let ghost id = fresh_cursor_id(s.cursors);
-                axiom_fresh_cursor_id_not_in_dom(s.cursors);
+                lemma_fresh_cursor_id_not_in_dom(s.cursors);
                 let tracked entry = axiom_cursor_entry_new(vs, kind, owner);
                 s.cursors.tracked_insert(id, entry);
                 assert(final(s).inv()) by {
@@ -564,8 +567,6 @@ proof fn cursor_method_step<'a, 'rcu>(
                 len,
             ),
         }
-        assert(entry.vm_space == old_vm_space);
-        assert(entry.kind == old_kind);
         s.cursors.tracked_insert(c, entry);
     }
     assert(final(s).inv()) by {
@@ -573,9 +574,7 @@ proof fn cursor_method_step<'a, 'rcu>(
             final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
             && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
-            if j == c {
-                // entry's owner.inv() comes from the axiom; vm_space is preserved.
-            } else {
+            if j != c {
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };
@@ -606,7 +605,6 @@ proof fn cursor_mut_regions_step<'a, 'rcu>(
                 cursor_mut_unmap_embedded(&mut entry.owner, &mut s.regions, len);
             },
         }
-        assert(entry.vm_space == old_vm_space);
         s.cursors.tracked_insert(c, entry);
     }
     assert(final(s).inv()) by {
@@ -620,9 +618,7 @@ proof fn cursor_mut_regions_step<'a, 'rcu>(
             final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
             && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
-            if j == c {
-                // entry's owner.inv() comes from the axiom; vm_space preserved.
-            } else {
+            if j != c {
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };
@@ -650,7 +646,6 @@ proof fn map_step<'a, 'rcu>(
         let tracked mut entry = s.cursors.tracked_remove(c);
         let ghost old_vm_space = entry.vm_space;
         cursor_mut_map_embedded(&mut entry.owner, &mut s.regions, frame, prop);
-        assert(entry.vm_space == old_vm_space);
         s.cursors.tracked_insert(c, entry);
     }
     assert(final(s).inv()) by {
@@ -663,9 +658,7 @@ proof fn map_step<'a, 'rcu>(
             final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
             && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
             assert(old(s).cursors.dom().contains(j));
-            if j == c {
-                // entry's owner.inv() comes from the axiom; vm_space preserved.
-            } else {
+            if j != c {
                 assert(final(s).cursors[j] == old(s).cursors[j]);
             }
         };

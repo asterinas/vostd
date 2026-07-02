@@ -6,6 +6,7 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
+use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::{
     NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
     nr_subpage_per_huge, paddr_to_vaddr, page_table::*,
@@ -18,7 +19,6 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::Guards;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::task::InAtomicMode;
-use vstd_extra::ghost_tree::TreePath;
 
 use align_ext::AlignExt;
 use core::ops::IndexMut;
@@ -40,11 +40,12 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         va.start < va.end,
         // Per-config tightening; see `Cursor::new`. Pulled through to the
         // cursor's `LOCKED_END_BOUND_spec` invariant.
-        va.end as int <= C::LOCKED_END_BOUND_spec(),
+        va.end <= C::LOCKED_END_BOUND_spec(),
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).in_locked_range(),
         ret.0.level == ret.0.guard_level,
+        ret.0.guard_level == NR_LEVELS as PagingLevel,
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
@@ -61,21 +62,21 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         (forall |i: usize| #![trigger old(regions).slot_owners[i]]
             old(regions).slot_owners.contains_key(i)
             && old(regions).slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX)
+                < REF_COUNT_MAX)
         ==>
         (forall |i: usize| #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners.contains_key(i)
             && final(regions).slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX),
+                < REF_COUNT_MAX),
         // Locking only allocates page-table nodes from UNUSED slots, so any
         // slot that was already in use keeps its paths_in_pt intact.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
         // For *in-use* slots, refcount value and usage are exactly
@@ -85,7 +86,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
             old(regions).slot_owners.contains_key(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 && final(regions).slot_owners[idx].usage
@@ -95,12 +96,12 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // Composes helpers' clauses (see their ensures).
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
             final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                >= REF_COUNT_MAX
             ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
         forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                >= REF_COUNT_MAX
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
         // Frames that were item_not_mapped before remain so after locking.
@@ -108,12 +109,13 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
             CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
             CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
 )]
+#[verifier::spinoff_prover]
 pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     pt: &'rcu PageTable<C>,
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
-    let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS as int - 1];
+    let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS - 1];
 
     let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::tracked_new(
         pt_own.0,
@@ -185,17 +187,15 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             #![trigger old(regions).slot_owners[i]]
             old(regions).slot_owners.contains_key(i) && old(
                 regions,
-            ).slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED ==> old(
+            ).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==> old(
                 regions,
-            ).slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX) ==> (forall|i: usize|
+            ).slot_owners[i].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX) ==> (forall|
+            i: usize,
+        |
             #![trigger regions.slot_owners[i]]
             regions.slot_owners.contains_key(i)
-                && regions.slot_owners[i].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
-                ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
-                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX));
+                && regions.slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX));
     }
     res
 }
@@ -236,7 +236,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         Tracked(guards): Tracked<&mut Guards<'rcu>>
     requires
         old(cursor_own).level == NR_LEVELS,
-        old(cursor_own).continuations[(NR_LEVELS - 1) as int].all_some(),
+        old(cursor_own).continuations[NR_LEVELS - 1].all_some(),
     ensures
         // Phase 6: the retry loop in the commented-out body would handle the
         // stray-node race; the external_body shipped here is the post-retry
@@ -250,12 +250,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& final(cursor_own).popped_too_high == false
             &&& 1 <= final(cursor_own).level <= NR_LEVELS
             &&& final(cursor_own).continuations.dom().contains(final(cursor_own).level - 1)
-            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].inv()
-            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard == r->0
+            &&& final(cursor_own).continuations[final(cursor_own).level - 1].inv()
+            &&& final(cursor_own).continuations[final(cursor_own).level - 1].guard == r->0
         },
         // The subtree root's entry_own is a valid node with matching guard.
         {
-            let cont = final(cursor_own).continuations[(final(cursor_own).level - 1) as int];
+            let cont = final(cursor_own).continuations[final(cursor_own).level - 1];
             &&& cont.entry_own.is_node()
             &&& cont.entry_own.inv()
             &&& cont.entry_own.node().relate_guard(cont.guard)
@@ -263,7 +263,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         },
         // The subtree root is lock_held in guards.
         final(guards).lock_held(
-            final(cursor_own).continuations[(final(cursor_own).level - 1) as int]
+            final(cursor_own).continuations[final(cursor_own).level - 1]
                 .entry_own.node().meta_addr_self()),
         // regions invariant preserved
         final(regions).inv(),
@@ -271,7 +271,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // it does not mutate any slot that was already in use.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
         // For *in-use* slots (non-UNUSED refcount), the refcount value and
@@ -280,7 +280,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
             old(regions).slot_owners.contains_key(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 && final(regions).slot_owners[idx].usage
@@ -294,12 +294,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // condition back to the caller's `*old(regions)` snapshot.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
             final(regions).slot_owners[idx].inner_perms.ref_count.value()
-                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                >= REF_COUNT_MAX
             ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
         forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                >= crate::specs::mm::frame::meta_owners::REF_COUNT_MAX
+                >= REF_COUNT_MAX
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == old(regions).slot_owners[idx].inner_perms.ref_count.value(),
         // Therefore any frame that was `item_not_mapped` (its paths_in_pt was
@@ -695,8 +695,8 @@ pub open spec fn idx_range_spec(
     va_end: Vaddr,
 ) -> (usize, usize) {
     let ps = page_size(cur_node_level) as int;
-    let start_idx = ((va_start - cur_node_va) as int) / ps;
-    let end_idx = ceil_div((va_end - cur_node_va) as int, ps);
+    let start_idx = (va_start - cur_node_va) / ps;
+    let end_idx = ceil_div(va_end - cur_node_va, ps);
     (start_idx as usize, end_idx as usize)
 }
 
@@ -730,7 +730,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         lemma_nr_entries_times_sub_page_size((cur_node_level + 1) as PagingLevel);
 
         // diff + ps - 1 fits in usize: both <= page_size(5) = 2^48
-        assert(diff as int + ps as int - 1 < usize::MAX as int);
     }
 
     let start_idx = (va_range.start - cur_node_va) / ps;
@@ -742,7 +741,7 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
 
         let ai = ps as int;
         let xi = diff as int;
-        let si = (va_range.start - cur_node_va) as int;
+        let si = va_range.start - cur_node_va;
 
         // -- start_idx < end_idx --
         // si < xi (non-empty range), si % ai == 0 (both endpoints aligned).
@@ -760,7 +759,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
             // Prove si % ai == 0: va_range.start and cur_node_va are both multiples of ps.
             // cur_node_va % ps == 0: cur_node_va % page_size(level+1) == 0 and ps | page_size(level+1).
             let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
-            assert(psu % ai == 0);
             assert(cur_node_va as int % ai == 0) by {
                 // cur_node_va % psu == 0, psu % ai == 0
                 // ==> cur_node_va is a multiple of ai
@@ -770,11 +768,9 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
                 let m = psu / ai;
                 // lemma gives: cur_node_va == psu * k + (cur_node_va % psu)
                 //              psu == ai * m + (psu % ai)
-                assert(cur_node_va as int == psu * k + cur_node_va as int % psu);
-                assert(psu == ai * m + psu % ai);
-                assert(cur_node_va as int == (m * k) * ai) by (nonlinear_arith)
+                assert(cur_node_va == (m * k) * ai) by (nonlinear_arith)
                     requires
-                        cur_node_va as int == psu * k + 0,
+                        cur_node_va == psu * k + 0,
                         psu == ai * m + 0,
                         cur_node_va as int % psu == 0,
                         psu % ai == 0,
@@ -784,7 +780,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
             assert(si % ai == 0) by {
                 // va_range.start = si + cur_node_va, both multiples of ai
                 // si % ai + cur_node_va % ai == va_range.start % ai (mod ai)
-                assert(si + cur_node_va as int == va_range.start as int);
                 lemma_mod_adds(si, cur_node_va as int, ai);
                 // gives: si%ai + 0 == 0 + ai * ((si%ai + 0)/ai)
                 // so si%ai == ai * (si%ai / ai)
@@ -801,7 +796,6 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
             let qi = (xi + ai - 1) / ai;
             let ri = (xi + ai - 1) % ai;
             // xi + ai - 1 == ai * qi + ri
-            assert(xi + ai - 1 == ai * qi + ri);
             vstd::arithmetic::mul::lemma_mul_is_commutative(ai, qi);
             assert(qi * ai >= xi) by (nonlinear_arith)
                 requires
@@ -810,10 +804,10 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
                     ai > 0,
             ;
 
-            assert(start_idx as int * ai < end_idx as int * ai) by (nonlinear_arith)
+            assert(start_idx * ai < end_idx * ai) by (nonlinear_arith)
                 requires
-                    start_idx as int * ai == si,
-                    end_idx as int * ai >= xi,
+                    start_idx * ai == si,
+                    end_idx * ai >= xi,
                     si < xi,
             ;
             vstd::arithmetic::mul::lemma_mul_strict_inequality_converse(
@@ -827,12 +821,10 @@ fn dfs_get_idx_range<C: PagingConstsTrait>(
         // diff <= page_size(level+1) = NR_ENTRIES * ps
         // So ceil_div(diff, ps) <= NR_ENTRIES.
         let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
-        assert(psu == NR_ENTRIES as int * ai);
-        assert(xi <= psu);
         // (psu + ai - 1) / ai == NR_ENTRIES (since psu = NR_ENTRIES * ai)
-        assert(psu + ai - 1 == NR_ENTRIES as int * ai + (ai - 1)) by (nonlinear_arith)
+        assert(psu + ai - 1 == NR_ENTRIES * ai + (ai - 1)) by (nonlinear_arith)
             requires
-                psu == NR_ENTRIES as int * ai,
+                psu == NR_ENTRIES * ai,
         ;
         lemma_fundamental_div_mod_converse(psu + ai - 1, ai, NR_ENTRIES as int, ai - 1);
         // So (psu + ai - 1) / ai == NR_ENTRIES

@@ -8,30 +8,25 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::prelude::*;
 
 use crate::mm::frame::MetaPerm;
-use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
-use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, has_safe_slot};
-use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 
-use super::Frame;
+use crate::specs::mm::frame::{
+    mapping::frame_to_index, meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners,
+};
+
+use super::{
+    Frame,
+    meta::{AnyFrameMeta, MetaSlot},
+};
+use crate::mm::Paddr;
 
 verus! {
 
 /// A struct that can work as `&'a Frame<M>`.
-pub struct FrameRef<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> {
+// FIXME: field visibility
+pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
     pub inner: ManuallyDrop<Frame<M>>,
     pub _marker: PhantomData<&'a Frame<M>>,
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
-    type Target = Frame<M>;
-
-    #[verus_spec(ensures returns &self.inner.0)]
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
 }
 
 #[verus_verify]
@@ -53,7 +48,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
-            old(regions).slots.contains_key(frame_to_index(raw)),
         ensures
             final(regions).inv(),
             r.inner.0.ptr.addr() == frame_to_meta(raw),
@@ -63,13 +57,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
             old(regions).inv_implies_correct_addr(raw);
         }
-
-        let ghost idx = frame_to_index(raw);
-        let ghost regions0 = *regions;
 
         proof_decl! {
             let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
@@ -85,13 +74,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
 
         let inner = ManuallyDrop::new(frame, Tracked(regions));
 
-        proof {
-            // `from_raw` did `insert(idx)`; `MD::new` did `remove(idx)`.
-            // The pair is identity on the multiset.
-            assert(regions.frame_obligations == regions0.frame_obligations);
-        }
-
         Self { inner, _marker: PhantomData }
+    }
+}
+
+impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
+    type Target = Frame<M>;
+
+    #[verus_spec(ensures returns &self.inner.0)]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 

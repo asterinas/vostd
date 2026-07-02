@@ -4,12 +4,14 @@ use vstd::prelude::*;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::frame::Frame;
-use crate::mm::frame::meta::has_safe_slot;
-use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
+use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::page_table::*;
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::arch::*;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, group_page_meta},
+    meta_region_owners::MetaRegionOwners,
+};
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::*;
@@ -38,6 +40,7 @@ pub enum Child<C: PageTableConfig> {
     pub None,
 }
 
+#[verus_verify]
 impl<C: PageTableConfig> Child<C> {
     /// Returns whether the child is not present.
     #[vstd::contrib::auto_spec]
@@ -58,14 +61,11 @@ impl<C: PageTableConfig> Child<C> {
     /// ## Safety
     /// The `PTE` safety invariants ensure that the raw pointer to the entry is tracked correctly
     /// so that we can guarantee the safety condition on `from_pte`.
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut EntryOwner<C>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn into_pte(self) -> (res: C::E)
+             Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             self.invariants(*old(owner), *old(regions)),
-            old(owner).in_scope,
             self matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
                 frame_to_index(meta_to_frame(node.ptr.addr())),
             ) > 0,
@@ -76,7 +76,8 @@ impl<C: PageTableConfig> Child<C> {
             old(owner).is_node() ==> res == C::E::new_pt_spec(
                 meta_to_frame(old(owner).node().meta_addr_self()),
             ),
-    {
+    )]
+    pub fn into_pte(self) -> C::E {
         proof {
             C::E::lemma_page_table_entry_properties();
         }
@@ -97,27 +98,16 @@ impl<C: PageTableConfig> Child<C> {
                 proof {
                     // `MD::new` removed one entry at `node_index`, matching
                     // `into_pte_regions_spec`'s `.remove(index)`.
-                    assert(regions.frame_obligations == fo0.remove(node_index));
                     let spec_regions = owner.into_pte_regions_spec(*old(regions));
-                    assert(regions.slot_owners == spec_regions.slot_owners);
-                    owner.in_scope = false;
                 }
 
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => {
-                proof {
-                    owner.in_scope = false;
-                }
                 assume(C::E::new_page_req(paddr, level, prop));
                 C::E::new_page(paddr, level, prop)
             },
-            Child::None => {
-                proof {
-                    owner.in_scope = false;
-                }
-                C::E::new_absent()
-            },
+            Child::None => { C::E::new_absent() },
         }
     }
 
@@ -135,11 +125,9 @@ impl<C: PageTableConfig> Child<C> {
     /// ## Safety
     /// The `PTE` safety invariants require that the `PTE` was previously obtained using [`Self::into_pte`]
     /// (or another function that calls `ManuallyDrop::new`, which is sufficient for safety).
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(entry_own): Tracked<&mut EntryOwner<C>>,
-    )]
-    pub unsafe fn from_pte(pte: C::E, level: PagingLevel) -> (res: Self)
+             Tracked(entry_own): Tracked<&mut EntryOwner<C>>,
         requires
             old(entry_own).pte_invariants(pte, *old(regions)),
             level == old(entry_own).parent_level,
@@ -148,18 +136,16 @@ impl<C: PageTableConfig> Child<C> {
             res == Child::<C>::from_pte_spec(pte, level, *final(regions)),
             *final(entry_own) == old(entry_own).from_pte_owner_spec(),
             *final(regions) == final(entry_own).from_pte_regions_spec(*old(regions)),
-    {
+    )]
+    pub unsafe fn from_pte(pte: C::E, level: PagingLevel) -> Self {
         if !pte.is_present() {
-            proof {
-                entry_own.in_scope = true;
-            }
             return Child::None;
         }
         let paddr = pte.paddr();
 
         if !pte.is_last(level) {
             proof {
-                broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+                broadcast use group_page_meta;
 
                 regions.inv_implies_correct_addr(paddr);
             }
@@ -184,18 +170,9 @@ impl<C: PageTableConfig> Child<C> {
                 // `frame.drop`). Net effect over `from_pte` is +1 on
                 // the ledger, balancing the prior `-1` from
                 // `into_pte`'s `MD::new` consume.
-                entry_own.in_scope = true;
-
-                assert(regions.slot_owners == entry_own.from_pte_regions_spec(
-                    *old(regions),
-                ).slot_owners);
-                assert(regions.slots == entry_own.from_pte_regions_spec(*old(regions)).slots);
             }
 
             return Child::PageTable(node);
-        }
-        proof {
-            entry_own.in_scope = true;
         }
         Child::Frame(paddr, level, pte.prop())
     }
@@ -217,6 +194,7 @@ pub enum ChildRef<'a, C: PageTableConfig> {
     None,
 }
 
+#[verus_verify]
 impl<C: PageTableConfig> ChildRef<'_, C> {
     /// Converts a PTE to a reference to a child.
     ///
@@ -231,11 +209,9 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     /// ## Safety
     /// - The `PTE` safety invariants require that the `PTE` was previously obtained using [`Self::from_pte`]
     /// - The soundness of using the resulting `ChildRef` as a reference follows from `FrameRef` safety.
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(entry_owner): Tracked<&EntryOwner<C>>
-    )]
-    pub unsafe fn from_pte(pte: &C::E, level: PagingLevel) -> (res: Self)
+             Tracked(entry_owner): Tracked<&EntryOwner<C>>,
         requires
             entry_owner.pte_invariants(*pte, *old(regions)),
             level == entry_owner.parent_level,
@@ -249,7 +225,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             forall|k: usize|
                 old(regions).slots.contains_key(k) ==> old(regions).slots[k]
                     == #[trigger] final(regions).slots[k],
-    {
+    )]
+    pub unsafe fn from_pte(pte: &C::E, level: PagingLevel) -> Self {
         if !pte.is_present() {
             return ChildRef::None;
         }
@@ -257,11 +234,9 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
         if !pte.is_last(level) {
             proof {
-                broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+                broadcast use group_page_meta;
 
                 regions.inv_implies_correct_addr(paddr);
-                assert(entry_owner.metaregion_sound(*regions));
-                assert(entry_owner.meta_slot_paddr().unwrap() == paddr);
             }
 
             let node = unsafe {
@@ -271,14 +246,12 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
             proof {
                 // borrow_paddr postcondition gives raw_count == 1 and field-by-field preservation.
-                // Since raw_count was already 1 (entry is in PTE, in_scope == false),
+                // Since raw_count was already 1 (entry is in PTE),
                 // slot_owners[idx] == old(slot_owners[idx]) follows field by field.
-                assert(regions.slot_owners == old(regions).slot_owners);
                 // slots: borrow_paddr inserts at borrow_idx. Prove existing keys preserved.
                 // The node's slot was NOT in old.slots: by active_entry_not_in_free_pool,
                 // a node entry's index can't equal any free-pool index.
                 let borrow_idx = frame_to_index(paddr);
-                assert(entry_owner.is_node());
                 let ghost entry_snap = *entry_owner;
                 assert(!old(regions).slots.contains_key(borrow_idx)) by {
                     if old(regions).slots.contains_key(borrow_idx) {
@@ -294,7 +267,6 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 assert forall|k: usize| old(regions).slots.contains_key(k) implies old(
                     regions,
                 ).slots[k] == #[trigger] regions.slots[k] by {
-                    assert(k != borrow_idx);
                     // regions.slots == old.slots.insert(borrow_idx, _), and k != borrow_idx
                 };
             }

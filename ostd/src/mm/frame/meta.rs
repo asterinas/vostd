@@ -13,97 +13,107 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
-use vstd::atomic::{PAtomicU8, PAtomicU64, PermissionU64};
-use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
-use vstd::simple_pptr::{self, PPtr};
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::{may_panic, panic_diverge};
-use vstd_extra::prelude::*;
-
-use self::mapping::{META_SLOT_SIZE, frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
-use crate::mm::io::{Infallible, VmReader};
-use crate::specs::mm::frame::meta_owners::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
 
 pub(crate) mod mapping {
-    use crate::mm::frame::MetaSlot;
-    use crate::mm::frame::meta::meta_slot_size;
-    use crate::mm::{PAGE_SIZE, Paddr, Vaddr};
-    use crate::mm::kspace::FRAME_METADATA_RANGE;
-    use crate::specs::arch::MAX_PADDR;
-    pub use crate::specs::mm::frame::mapping::*;
+    //! The metadata of each physical page is linear mapped to fixed virtual addresses
+    //! in [`FRAME_METADATA_RANGE`].
+    use core::mem::size_of;
+    use super::MetaSlot;
+    use crate::mm::{kspace::FRAME_METADATA_RANGE, Paddr, PagingConstsTrait, Vaddr};
+    use super::META_SLOT_SIZE;
+    use crate::specs::arch::*;
     use vstd::prelude::*;
 
-    #[verifier::inline]
     pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
-        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * meta_slot_size()) as usize
+        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE) as usize
     }
 
-    #[verifier::inline]
     pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr {
         ((vaddr - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int * PAGE_SIZE) as usize
     }
 
     /// Converts a physical address of a base frame to the virtual address of the metadata slot.
-    #[inline(always)]
     #[verifier::when_used_as_spec(frame_to_meta_spec)]
-    pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
+    pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
         requires
             paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
         ensures
-            res == frame_to_meta_spec(paddr),
             res % META_SLOT_SIZE == 0,
+        returns
+            frame_to_meta(paddr),
+        no_unwind
     {
+        proof {
+            MetaSlot::lemma_layout();
+        }
         let base = FRAME_METADATA_RANGE.start;
         let offset = paddr / PAGE_SIZE;
-        base + offset * META_SLOT_SIZE
+        base + offset * size_of::<MetaSlot>()
     }
 
     /// Converts a virtual address of the metadata slot to the physical address of the frame.
-    #[inline(always)]
     #[verifier::when_used_as_spec(meta_to_frame_spec)]
-    pub fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
+    pub const fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
         requires
-            FRAME_METADATA_RANGE.start <= vaddr && vaddr < FRAME_METADATA_RANGE.end,
+            FRAME_METADATA_RANGE.start <= vaddr < FRAME_METADATA_RANGE.end,
             vaddr % META_SLOT_SIZE == 0,
         ensures
-            res == meta_to_frame_spec(vaddr),
             res % PAGE_SIZE == 0,
+        returns
+            meta_to_frame(vaddr),
     {
+        proof {
+            MetaSlot::lemma_layout();
+        }
         let base = FRAME_METADATA_RANGE.start;
-        let offset = (vaddr - base) / META_SLOT_SIZE;
+        let offset = (vaddr - base) / size_of::<MetaSlot>();
         offset * PAGE_SIZE
     }
 
 }
 
 } // verus!
+use vstd::atomic::{PAtomicU64, PermissionU64};
+use vstd::cell::pcell_maybe_uninit;
+use vstd::prelude::*;
+use vstd::simple_pptr::{PPtr, PointsTo};
+use vstd_extra::cast_ptr::{Repr, ReprPtr};
+use vstd_extra::ownership::*;
+use vstd_extra::panic::{may_panic, panic_diverge};
+use vstd_extra::prelude::*;
+
 use core::{
     alloc::Layout,
     any::Any,
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
-    mem::{ManuallyDrop, MaybeUninit, align_of, size_of},
+    mem::{ManuallyDrop, MaybeUninit},
     result::Result,
-    sync::atomic::{AtomicU8, AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use align_ext::AlignExt;
 //use log::info;
 
+use self::mapping::{frame_to_meta, meta_to_frame};
+use crate::mm::io::{Infallible, VmReader};
+use crate::specs::arch::*;
+use crate::specs::mm::frame::{
+    mapping::{frame_to_index, meta_addr},
+    meta_owners::*,
+    meta_region_owners::MetaRegionOwners,
+};
+
 use crate::{
     //    boot::memory_region::MemoryRegionType,
     //    const_assert,
     mm::{
-        MAX_NR_PAGES,
-        MAX_PADDR,
-        /*VmReader,*/ PAGE_SIZE,
+        /*VmReader,*/
         /*Infallible,*/ Paddr,
         PagingLevel,
         //Segment,
@@ -120,6 +130,16 @@ use crate::{
 
 verus! {
 
+/* /// The maximum number of bytes of the metadata of a frame.
+pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE
+    - size_of::<AtomicU64>()
+    - size_of::<FrameMetaVtablePtr>()
+    - size_of::<AtomicU64>(); */
+/// The maximum alignment in bytes of the metadata of a frame.
+pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE;
+
+pub const META_SLOT_SIZE: usize = 64;
+
 #[repr(C)]
 pub struct MetaSlot {
     /// The metadata of a frame.
@@ -132,6 +152,9 @@ pub struct MetaSlot {
     ///  - the subsequent fields can utilize the padding of the
     ///    reference count to save space.
     ///
+    /// Don't interpret this field as an array of bytes. It is a
+    /// placeholder for the metadata of a frame.
+    // storage: UnsafeCell<[u8; FRAME_METADATA_MAX_SIZE]>
     /// # Verification Design
     /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
     /// types of metadata defined in the development.
@@ -147,9 +170,18 @@ pub struct MetaSlot {
     ///  - `REF_COUNT_MAX..REF_COUNT_UNIQUE`: Illegal values to
     ///    prevent the reference count from overflowing. Otherwise,
     ///    overflowing the reference count will cause soundness issue.
+    ///
+    /// [`Frame::from_unused`]: super::Frame::from_unused
+    /// [`UniqueFrame`]: super::unique::UniqueFrame
+    /// [`drop_last_in_place`]: Self::drop_last_in_place
+    //
+    // Other than this field the fields should be `MaybeUninit`.
+    // See initialization in `alloc_meta_frames`.
     pub ref_count: PAtomicU64,
-    /// The virtual table that indicates the type of the metadata. Currently we do not verify this because
+    /// The virtual table that indicates the type of the metadata.
+    /// VERUS LIMITATION: Currently we do not verify this because
     /// of the dependency on the `dyn Trait` pattern. But we can revisit it now that `dyn Trait` is supported by Verus.
+    // pub vtable_ptr: UnsafeCell<MaybeUninit<FrameMetaVtablePtr>>,
     pub vtable_ptr: PPtr<usize>,
     /// This is only accessed by [`crate::mm::frame::linked_list`].
     /// It stores 0 if the frame is not in any list, otherwise it stores the
@@ -170,6 +202,90 @@ pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 
 type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
 
+/// All frame metadata types must implement this trait.
+///
+/// If a frame type needs specific drop behavior, it should specify
+/// when implementing this trait. When we drop the last handle to
+/// this frame, the `on_drop` method will be called. The `on_drop`
+/// method is called with the physical address of the frame.
+///
+/// The implemented structure should have a size less than or equal to
+/// [`FRAME_METADATA_MAX_SIZE`] and an alignment less than or equal to
+/// [`FRAME_METADATA_MAX_ALIGN`]. Otherwise, the metadata type cannot
+/// be used because storing it will fail compile-time assertions.
+///
+/// # Safety
+///
+/// If `on_drop` reads the page using the provided `VmReader`, the
+/// implementer must ensure that the frame is safe to read.
+pub unsafe trait AnyFrameMeta:   /*Any +*/
+Send + Sync {
+    /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
+    /// Impls that need richer caller-side invariants (e.g. the PT-node's
+    /// reader/region invariants) override this; the trait method's
+    /// `requires` clause calls it.
+    open spec fn on_drop_pre(
+        &self,
+        reader: VmReader<'_, Infallible>,
+        regions: MetaRegionOwners,
+        vm_io_owner: crate::specs::mm::io::VmIoOwner,
+    ) -> bool {
+        true
+    }
+
+    fn on_drop(
+        &mut self,
+        _reader: &mut VmReader<'_, Infallible>,
+        Tracked(_regions): Tracked<&mut MetaRegionOwners>,
+        Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
+    )
+        requires
+            old(_regions).inv(),
+            old(_reader).inv(),
+            old(_vm_io_owner).inv(),
+            old(_reader).wf(*old(_vm_io_owner)),
+            old(self).on_drop_pre(*old(_reader), *old(_regions), *old(_vm_io_owner)),
+        ensures
+            final(_regions).inv(),
+            final(_reader).inv(),
+            final(_vm_io_owner).inv(),
+            final(_reader).wf(*final(_vm_io_owner)),
+        default_ensures
+            *final(_reader) == *old(_reader),
+            *final(_regions) == *old(_regions),
+            *final(_vm_io_owner) == *old(_vm_io_owner),
+    {
+    }
+
+    fn is_untyped(&self) -> (res: bool)
+        default_ensures
+            res == false,
+    {
+        false
+    }
+
+    spec fn vtable_ptr(&self) -> usize where Self: Sized;
+}
+
+/*/// Makes a structure usable as a frame metadata.
+#[macro_export]
+macro_rules! impl_frame_meta_for {
+    // Implement without specifying the drop behavior.
+    ($t:ty) => {
+        // SAFETY: `on_drop` won't read the page.
+        unsafe impl $crate::mm::frame::meta::AnyFrameMeta for $t {}
+
+        $crate::const_assert!(
+            core::mem::size_of::<$t>() <= $crate::mm::frame::meta::FRAME_METADATA_MAX_SIZE
+        );
+        $crate::const_assert!(
+            $crate::mm::frame::meta::FRAME_METADATA_MAX_ALIGN % core::mem::align_of::<$t>() == 0
+        );
+    };
+}
+
+pub use impl_frame_meta_for;*/
+
 /// The error type for getting the frame from a physical address.
 #[derive(Debug)]
 pub enum GetFrameError {
@@ -187,89 +303,6 @@ pub enum GetFrameError {
     OutOfBound,
     /// The provided physical address is not aligned.
     NotAligned,
-    /// Verification only: `compare_exchange` returned `Err`, retry
-    Retry,
-}
-
-pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
-    recommends
-        paddr % 4096 == 0,
-        paddr < MAX_PADDR,
-{
-    let slot = frame_to_meta(paddr);
-    PPtr(slot, PhantomData::<MetaSlot>)
-}
-
-/// Space-holder of the AnyFrameMeta virtual table.
-///
-/// Dyn-compatible: no `Self`-by-value, no associated types on dispatched
-/// methods, no dyn-incompatible supertrait. `vtable_ptr` is `Self: Sized`
-/// because it's only used statically (the runtime vtable pointer lives on
-/// the slot, not on the instance). Sites that need `Repr<MetaSlotStorage>`
-/// must spell it out — it was previously a supertrait.
-pub unsafe trait AnyFrameMeta {
-    /// Per-impl precondition for [`Self::on_drop`]. Default is `true`.
-    /// Impls that need richer caller-side invariants (e.g. the PT-node's
-    /// reader/region invariants) override this; the trait method's
-    /// `requires` clause calls it.
-    open spec fn on_drop_pre(
-        &self,
-        reader: VmReader<'_, Infallible>,
-        regions: MetaRegionOwners,
-        vm_io_owner: crate::specs::mm::io::VmIoOwner,
-    ) -> bool {
-        true
-    }
-
-    exec fn on_drop(
-        &mut self,
-        _reader: &mut VmReader<'_, Infallible>,
-        Tracked(_regions): Tracked<&mut MetaRegionOwners>,
-        Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
-    )
-        requires
-            old(_regions).inv(),
-            old(_reader).inv(),
-            old(_vm_io_owner).inv(),
-            old(_reader).wf(*old(_vm_io_owner)),
-            old(self).on_drop_pre(*old(_reader), *old(_regions), *old(_vm_io_owner)),
-        ensures
-            final(_regions).inv(),
-            final(_reader).inv(),
-            final(_vm_io_owner).inv(),
-            final(_reader).wf(*final(_vm_io_owner)),
-    {
-    }
-
-    exec fn is_untyped(&self) -> bool {
-        false
-    }
-
-    spec fn vtable_ptr(&self) -> usize where Self: Sized;
-}
-
-global layout MetaSlot is size == 64, align == 8;
-
-pub broadcast axiom fn size_of_meta_slot()
-    ensures
-        #![trigger size_of::<MetaSlot>()]
-        #![trigger align_of::<MetaSlot>()]
-        size_of::<MetaSlot>() == 64,
-        align_of::<MetaSlot>() == 8,
-;
-
-#[inline(always)]
-#[verifier::allow_in_spec]
-pub const fn meta_slot_size() -> (res: usize)
-    returns
-        64usize,
-{
-    size_of::<MetaSlot>()
-}
-
-pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
-    &&& paddr % PAGE_SIZE == 0
-    &&& paddr < MAX_PADDR
 }
 
 /// Gets the reference to a metadata slot.
@@ -282,21 +315,22 @@ pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
 /// Verus ensures that the pointer will only be used when we have a permission object, so creating it is safe.
 #[verus_spec(res =>
     ensures
-        has_safe_slot(paddr) <==> res is Ok,
-        res is Ok ==> res.unwrap().addr() == frame_to_meta(paddr),
+        has_safe_slot(paddr) == res is Ok,
+        res is Ok ==> res->Ok_0.addr() == frame_to_meta(paddr),
 )]
 pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
     if paddr % PAGE_SIZE != 0 {
         return Err(GetFrameError::NotAligned);
     }
-    if paddr >= MAX_PADDR {
+    if paddr >= super::max_paddr() {
         return Err(GetFrameError::OutOfBound);
     }
-    let vaddr = frame_to_meta(paddr);
+    let vaddr = mapping::frame_to_meta(paddr);
     let ptr = PPtr::<MetaSlot>::from_addr(vaddr);
 
     // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
     // mutably borrowed, so taking an immutable reference to it is safe.
+    // Ok(unsafe { &*ptr })
     Ok(ptr)
 }
 
@@ -309,13 +343,13 @@ impl MetaSlot {
     #[verifier::external_body]
     #[verus_spec(
         with
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
         requires
             self == perm.value(),
         returns
             perm.addr(),
     )]
-    fn addr_of(&self) -> Paddr {
+    fn addr_of(&self) -> Vaddr {
         unimplemented!()
     }
 
@@ -340,6 +374,7 @@ impl MetaSlot {
     /// ## Safety
     /// - This function returns an error if `paddr` does not correspond to a valid slot or the slot is in use.
     /// - Accesses to the slot itself are gated by atomic checks, avoiding data races.
+    // FIXME: No need to give out the slot permission under the current `&mut MetaRegionOwners` design.
     #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
@@ -349,21 +384,19 @@ impl MetaSlot {
             // (caller is responsible for re-parking it via `sync_slot_perm`
             // to restore `regions.inv()`). On Err, regions is left intact
             // and the inv is preserved.
-            res is Err ==> final(regions).inv(),
-            // On failure the slot perm/owner are re-parked unchanged: nothing
-            // was claimed, so the whole region state is intact.
             res is Err ==> *final(regions) == *old(regions),
-            res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
-            res matches Ok((res, perm)) ==> perm@.value().wf(
-                final(regions).slot_owners[frame_to_index(paddr)]),
-            // The returned perm is exactly the slot perm that was extracted
-            // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
-            // and recover `final.slots == old.slots`.
-            res matches Ok((_, perm)) ==> perm@ == old(regions).slots[frame_to_index(paddr)],
-            res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
-            // The extracted slot perm is handed back via the out-param, so it
-            // leaves `regions.slots` (caller re-parks it via `sync_slot_perm`).
-            res is Ok ==> Self::slot_perm_extracted_spec(paddr, *old(regions), *final(regions)),
+            res matches Ok((res, perm)) ==> {
+                &&& Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@)
+                &&& perm@.value().wf(final(regions).slot_owners[frame_to_index(paddr)])
+                // The returned perm is exactly the slot perm that was extracted
+                // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
+                // and recover `final.slots == old.slots`.
+                &&& perm@ == old(regions).slots[frame_to_index(paddr)]
+                &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
+                // The extracted slot perm is handed back via the out-param, so it
+                // leaves `regions.slots` (caller re-parks it via `sync_slot_perm`).
+                &&& Self::slot_perm_extracted_spec(paddr, *old(regions), *final(regions))
+            },
             !has_safe_slot(paddr) ==> res is Err,
             // Linear-drop pilot: claiming an unused slot doesn't mint or
             // redeem segment or frame obligations on any path.
@@ -373,11 +406,10 @@ impl MetaSlot {
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
-    ) -> Result<(PPtr<Self>, Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>), GetFrameError> {
+    ) -> Result<(PPtr<Self>, Tracked<PointsTo<MetaSlot>>), GetFrameError> {
         let slot = get_slot(paddr)?;
 
         proof {
-            assert(has_safe_slot(paddr));
             regions.inv_implies_correct_addr(paddr);
         }
 
@@ -410,10 +442,6 @@ impl MetaSlot {
                     regions.slot_owners[idx].inner_perms.ref_count,
                     old(regions).slot_owners[idx].inner_perms.ref_count,
                 );
-                assert(regions.slot_owners[idx] == old(regions).slot_owners[idx]);
-                assert(regions.slot_owners == old(regions).slot_owners);
-                assert(regions.slots == old(regions).slots);
-                assert(*regions == *old(regions));
             }
 
             return Err(err);
@@ -440,79 +468,15 @@ impl MetaSlot {
 
         proof {
             slot_own.usage = PageUsage::Frame;
-            assert(slot_perm.value().wf(slot_own));
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
         }
 
         Ok((slot, Tracked(slot_perm)))
     }
 
-    /// The inner loop of `Self::get_from_in_use`.
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - The permission must point to the slot.
-    /// - The permission must be initialized.
-    /// - **Liveness**: The reference count of the inner permissions must not be at the maximum.
-    /// ## Postconditions
-    /// - The reference count of the inner permissions is increased by one.
-    #[verus_spec(res =>
-        with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
-            Tracked(inner_perms): Tracked<&mut MetadataInnerPerms>,
-        requires
-            perm.pptr() == slot,
-            perm.is_init(),
-            perm.value().ref_count.id() == old(inner_perms).ref_count.id(),
-            old(inner_perms).ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
-        ensures
-            res is Ok ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value() + 1,
-            res is Ok ==> final(inner_perms).ref_count.value() <= REF_COUNT_MAX,
-            res is Ok ==> old(inner_perms).ref_count.value() > 0,
-            res matches Ok(ptr) ==> ptr == slot,
-            res is Err ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value(),
-            final(inner_perms).ref_count.id() == old(inner_perms).ref_count.id(),
-            final(inner_perms).storage == old(inner_perms).storage,
-            final(inner_perms).vtable_ptr == old(inner_perms).vtable_ptr,
-            final(inner_perms).in_list == old(inner_perms).in_list,
-    )]
-    fn get_from_in_use_loop(slot: PPtr<MetaSlot>) -> Result<PPtr<Self>, GetFrameError> {
-        match slot.borrow(Tracked(perm)).ref_count.load(Tracked(&mut inner_perms.ref_count)) {
-            REF_COUNT_UNUSED => {
-                return Err(GetFrameError::Unused);
-            },
-            REF_COUNT_UNIQUE => {
-                return Err(GetFrameError::Unique);
-            },
-            0 => {
-                return Err(GetFrameError::Busy);
-            },
-            last_ref_cnt => {
-                if last_ref_cnt >= REF_COUNT_MAX {
-                    // See `Self::inc_ref_count` for the explanation.
-                    vstd_extra::panic::panic_diverge();
-                }
-                // Using `Acquire` here to pair with `get_from_unused` or
-                // `<Frame<M> as From<UniqueFrame<M>>>::from` (who must be
-                // performed after writing the metadata).
-                //
-                // It ensures that the written metadata will be visible to us.
-
-                if slot.borrow(Tracked(perm)).ref_count.compare_exchange_weak(
-                    Tracked(&mut inner_perms.ref_count),
-                    last_ref_cnt,
-                    last_ref_cnt + 1,
-                ).is_ok() {
-                    return Ok(slot);
-                } else {
-                    return Err(GetFrameError::Retry);
-                }
-            },
-        }
-    }
-
     /// Gets another owning pointer to the metadata slot from the given page.
     /// # Verified Properties
-    /// ## Verification Design
-    /// To simplify the verification, we verify the loop body separately from the outer loop. We do not prove termination.
+    /// We do not prove termination.
     /// ## Preconditions
     /// - **Safety Invariant**: Metaslot region invariants must hold.
     /// - **Bookkeeping**: The slot permissions must be available in order to check the reference count.
@@ -538,166 +502,64 @@ impl MetaSlot {
             final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     #[verifier::exec_allows_no_decreases_clause]
+    #[verifier::loop_isolation(false)]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
-        let ghost regions0 = *regions;
-
         let slot = get_slot(paddr)?;
 
         proof {
-            assert(regions0 == *old(regions));
-            assert(has_safe_slot(paddr));
-            // `get_slot` succeeded ⟹ `has_safe_slot(paddr)`; with `regions.inv()`
-            // that recovers the slot facts the caller used to supply: the slot is
-            // present, its address is `frame_to_meta(paddr)`, and its inner-perm
-            // ref-count cell matches the slot's (via the per-slot `wf`).
-            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
             regions.inv_implies_correct_addr(paddr);
         }
 
-        let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-        let tracked slot_perm = regions.slots.tracked_borrow(frame_to_index(paddr));
-
-        let ghost pre = slot_own.inner_perms.ref_count.value();
+        let ghost idx = frame_to_index(paddr);
+        let tracked slot_perm = regions.slots.tracked_borrow(idx);
 
         loop
             invariant
-                has_safe_slot(paddr),
-                slot_perm.addr() == slot.addr(),
-                slot_perm.is_init(),
-                slot_perm.value().ref_count.id() == slot_own.inner_perms.ref_count.id(),
-                slot_own.inner_perms.ref_count.value() == pre,
-                slot_own.inner_perms.ref_count.value() >= REF_COUNT_MAX ==> may_panic(),
-                regions0.slots.contains_key(frame_to_index(paddr)),
-                regions0.slot_owners.contains_key(frame_to_index(paddr)),
-                regions0.inv(),
-                regions0.slots[frame_to_index(paddr)] == *slot_perm,
-                slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
-                slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
-                slot_own.paths_in_pt == regions0.slot_owners[frame_to_index(paddr)].paths_in_pt,
-                FRAME_METADATA_RANGE.start <= slot_own.self_addr < FRAME_METADATA_RANGE.end,
-                slot_own.self_addr % META_SLOT_SIZE == 0,
-                slot_own.self_addr == slot_perm.addr(),
-                slot_perm.value().storage.id() == slot_own.inner_perms.storage.id(),
-                slot_perm.value().vtable_ptr == slot_own.inner_perms.vtable_ptr.pptr(),
-                slot_perm.value().in_list.id() == slot_own.inner_perms.in_list.id(),
-                slot_own.inner_perms.ref_count.id() == regions0.slot_owners[frame_to_index(
-                    paddr,
-                )].inner_perms.ref_count.id(),
-                slot_own.inner_perms.storage == regions0.slot_owners[frame_to_index(
-                    paddr,
-                )].inner_perms.storage,
-                slot_own.inner_perms.vtable_ptr == regions0.slot_owners[frame_to_index(
-                    paddr,
-                )].inner_perms.vtable_ptr,
-                slot_own.inner_perms.in_list == regions0.slot_owners[frame_to_index(
-                    paddr,
-                )].inner_perms.in_list,
-                // pre equals the original ref_count value
-                pre == regions0.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value(),
-                // regions0 equals old(regions)
-                regions0 == *old(regions),
-                // slot pptr matches what postcondition expects
-                slot == regions0.slots[frame_to_index(paddr)].pptr(),
-                // regions state: slot_owners has idx removed; slots borrowed (unchanged)
-                regions.slot_owners == regions0.slot_owners.remove(frame_to_index(paddr)),
-                regions.slots == regions0.slots,
-                // Linear-drop pilot: this path doesn't mint/redeem segment
-                // obligations, so the ledger is invariant.
-                regions.frame_obligations == regions0.frame_obligations,
+                *regions == *old(regions),
         {
-            match #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms))]
-            Self::get_from_in_use_loop(slot) {
-                Err(GetFrameError::Retry) => {
-                    core::hint::spin_loop();
-                },
-                res => {
+            proof {
+                vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
+                    regions.slot_owners[idx].inner_perms.ref_count,
+                    old(regions).slot_owners[idx].inner_perms.ref_count,
+                );
+            }
+
+            let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
+
+            match slot.borrow(Tracked(&slot_perm)).ref_count.load(
+                Tracked(&mut slot_own.inner_perms.ref_count),
+            ) {
+                REF_COUNT_UNUSED => return Err(GetFrameError::Unused),
+                REF_COUNT_UNIQUE => return Err(GetFrameError::Unique),
+                0 => return Err(GetFrameError::Busy),
+                last_ref_cnt => {
+                    if last_ref_cnt >= REF_COUNT_MAX {
+                        // See `Self::inc_ref_count` for the explanation.
+                        vstd_extra::panic::panic_diverge();
+                    }
+                    // Using `Acquire` here to pair with `get_from_unused` or
+                    // `<Frame<M> as From<UniqueFrame<M>>>::from` (who must be
+                    // performed after writing the metadata).
+                    //
+                    // It ensures that the written metadata will be visible to us.
+
+                    if slot.borrow(Tracked(&slot_perm)).ref_count.compare_exchange_weak(
+                        Tracked(&mut slot_own.inner_perms.ref_count),
+                        last_ref_cnt,
+                        last_ref_cnt + 1,
+                    ).is_ok() {
+                        return Ok(slot);
+                    }
                     proof {
-                        let idx = frame_to_index(paddr);
-
-                        assert(slot_own.inner_perms.ref_count.id()
-                            == regions0.slot_owners[idx].inner_perms.ref_count.id());
-
-                        let ghost orig = regions0.slot_owners[idx];
-                        assert(orig.inv());
-                        assert(pre == orig.inner_perms.ref_count.value());
-
-                        assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
-
-                        if res is Ok {
-                            assert(slot_own.inner_perms.ref_count.value() == pre + 1);
-                            assert(slot_own.inner_perms.ref_count.value() <= REF_COUNT_MAX);
-                            assert(pre > 0);
-                            assert(0 < orig.inner_perms.ref_count.value());
-                            assert(orig.inner_perms.ref_count.value() <= REF_COUNT_MAX);
-                            assert(orig.inner_perms.vtable_ptr.is_init());
-                            assert(slot_own.inner_perms.vtable_ptr.is_init());
-                        } else {
-                            assert(slot_own.inner_perms.ref_count.value() == pre);
-                            assert(slot_own.inner_perms.ref_count.value()
-                                == orig.inner_perms.ref_count.value());
-                            assert(slot_own.inner_perms.ref_count.id()
-                                == orig.inner_perms.ref_count.id());
-                            assert(slot_own.inner_perms.storage == orig.inner_perms.storage);
-                            assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
-                            assert(slot_own.inner_perms.in_list == orig.inner_perms.in_list);
-                        }
-                        assert(slot_own.inv());
-                        assert(slot_perm.value().wf(slot_own));
-                        assert(slot_own.self_addr == slot_perm.addr());
-
-                        if res is Err {
-                            assert(slot_own.inner_perms.ref_count.value() == pre);
-                            assert(slot_own.inner_perms.ref_count.id()
-                                == orig.inner_perms.ref_count.id());
-                            assert(slot_own.inner_perms.storage == orig.inner_perms.storage);
-                            assert(slot_own.inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
-                            assert(slot_own.inner_perms.in_list == orig.inner_perms.in_list);
-                        }
-                        regions.slot_owners.tracked_insert(idx, slot_own);
-
-                        assert(regions.slot_owners.dom() == regions0.slot_owners.dom());
-                        assert(regions.slots == regions0.slots);
-
-                        assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i]
-                            == regions0.slot_owners[i] by {};
-
-                        assert(regions.slot_owners[idx].inner_perms.ref_count.id()
-                            == regions0.slot_owners[idx].inner_perms.ref_count.id());
-                        assert(regions.slot_owners[idx].inner_perms.storage
-                            == regions0.slot_owners[idx].inner_perms.storage);
-                        assert(regions.slot_owners[idx].inner_perms.vtable_ptr
-                            == regions0.slot_owners[idx].inner_perms.vtable_ptr);
-                        assert(regions.slot_owners[idx].inner_perms.in_list
-                            == regions0.slot_owners[idx].inner_perms.in_list);
-                        assert(regions.slot_owners[idx].self_addr
-                            == regions0.slot_owners[idx].self_addr);
-                        assert(regions.slot_owners[idx].usage == regions0.slot_owners[idx].usage);
-
-                        // For ptr postcondition: slot_perm.pptr() == old(regions).slots[idx].pptr()
-                        assert(*slot_perm == regions0.slots[idx]);
-
-                        // For Err ==> *regions == *old(regions)
-                        if res is Err {
-                            // On Err, ref_count unchanged so slot_own == orig.
-                            // Use extensional equality axiom for PermissionU64.
-                            assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                                == regions0.slot_owners[idx].inner_perms.ref_count.value());
-                            assert(regions.slot_owners[idx].inner_perms.ref_count.id()
-                                == regions0.slot_owners[idx].inner_perms.ref_count.id());
-                            vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
-                                regions.slot_owners[idx].inner_perms.ref_count,
-                                regions0.slot_owners[idx].inner_perms.ref_count,
-                            );
-                            assert(regions.slot_owners[idx] == regions0.slot_owners[idx]);
-                            assert(regions.slot_owners == regions0.slot_owners);
-                            assert(*regions == *old(regions));
-                        }
+                        vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
+                            slot_own.inner_perms.ref_count,
+                            old(regions).slot_owners[idx].inner_perms.ref_count,
+                        );
                     }
 
-                    return res;
                 },
             }
+            core::hint::spin_loop();
         }
     }
 
@@ -747,7 +609,7 @@ impl MetaSlot {
     /// This is an internal function, so it is fine to require the caller to verify this.
     #[verus_spec(
         with
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
         requires
             perm.value() == self,
             Self::frame_paddr_safety_cond(*perm),
@@ -789,6 +651,14 @@ impl MetaSlot {
     }*/
     /// Gets the stored metadata as type `M`.
     ///
+    /// Calling the method should be safe, but using the returned pointer would
+    /// be unsafe. Specifically, the derefernecer should ensure that:
+    ///  - the stored metadata is initialized (by [`Self::write_meta`]) and
+    ///    valid;
+    ///  - the initialized metadata is of type `M`;
+    ///  - the returned pointer should not be dereferenced as mutable unless
+    ///    having exclusive access to the metadata slot.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety**: The caller must provide an existing permission that matches the contents of the metadata slot.
@@ -802,7 +672,7 @@ impl MetaSlot {
     ///  - the returned pointer should not be dereferenced as mutable unless having exclusive access to the metadata slot.
     #[verus_spec(res =>
         with
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
         requires
             self == perm.value(),
         ensures
@@ -822,6 +692,10 @@ impl MetaSlot {
 
     /// Writes the metadata to the slot without reading or dropping the previous value.
     ///
+    /// # Safety
+    ///
+    /// The caller should have exclusive access to the metadata slot's fields.
+    ///
     /// # Verification Design
     /// This function is axiomatized for now because of trait constraints.
     /// ## Preconditions
@@ -833,7 +707,7 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(meta_perm): Tracked<&mut vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
-            Tracked(vtable_perm): Tracked<&mut vstd::simple_pptr::PointsTo<usize>>,
+            Tracked(vtable_perm): Tracked<&mut PointsTo<usize>>,
         requires
             self.storage.id() == old(meta_perm).id(),
             self.vtable_ptr == old(vtable_perm).pptr(),
@@ -864,6 +738,12 @@ impl MetaSlot {
 
     /// Drops the metadata and deallocates the frame.
     ///
+    /// # Safety
+    ///
+    /// The caller should ensure that:
+    ///  - the reference count is `0` (so we are the sole owner of the frame);
+    ///  - the metadata is initialized;
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariant**: The metadata slot must satisfy the safety invariants.
@@ -893,7 +773,7 @@ impl MetaSlot {
             final(owner).inner_perms.vtable_ptr.is_uninit(),
             final(owner).inner_perms.vtable_ptr.pptr() == old(owner).inner_perms.vtable_ptr.pptr(),
             final(owner).inner_perms.in_list == old(owner).inner_perms.in_list,
-            final(owner).self_addr == old(owner).self_addr,
+            final(owner).slot_vaddr == old(owner).slot_vaddr,
             final(owner).usage == old(owner).usage,
             final(owner).paths_in_pt == old(owner).paths_in_pt,
     )]
@@ -943,12 +823,12 @@ impl MetaSlot {
             final(slot_own).inner_perms.in_list == old(slot_own).inner_perms.in_list,
             final(slot_own).inner_perms.vtable_ptr.is_uninit(),
             final(slot_own).inner_perms.vtable_ptr.pptr() == old(slot_own).inner_perms.vtable_ptr.pptr(),
-            final(slot_own).self_addr == old(slot_own).self_addr,
+            final(slot_own).slot_vaddr == old(slot_own).slot_vaddr,
             final(slot_own).usage == old(slot_own).usage,
             final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
     )]
     #[verifier::external_body]
-    pub(super) fn drop_meta_in_place(&self) {
+    pub(super) unsafe fn drop_meta_in_place(&self) {
         // Smoke test for the dyn-dispatch shape — body kept `external_body`
         // because (a) the args bundle isn't threaded through the call chain
         // yet (Tracked::assume_new forges it here), (b) `VmReader`,

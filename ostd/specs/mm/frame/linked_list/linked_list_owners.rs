@@ -1,5 +1,5 @@
 use vstd::atomic::*;
-use vstd::cell;
+
 use vstd::prelude::*;
 use vstd::seq_lib::*;
 use vstd::set_lib::*;
@@ -13,12 +13,17 @@ use core::marker::PhantomData;
 
 use super::*;
 use crate::mm::Paddr;
-use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
+use crate::mm::frame::meta::REF_COUNT_UNIQUE;
+use crate::mm::frame::{
+    AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot,
+    meta::{
+        META_SLOT_SIZE,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
+};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::MAX_NR_PAGES;
-use crate::specs::mm::frame::mapping::{
-    META_SLOT_SIZE, frame_to_index, max_meta_slots, meta_to_frame_spec,
-};
+use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
@@ -194,10 +199,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for Link<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ModelOf for Link<M> {
-
-}
-
 pub ghost struct LinkedListModel {
     pub list: Seq<LinkModel>,
 }
@@ -234,7 +235,10 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
     open spec fn inv(self) -> bool {
-        &&& self.list_id != 0
+        // Weakened (our change): an EMPTY list may carry `list_id == 0` (the
+        // lazily-minted-id convention used by the list-store embedding); the
+        // id is only constrained non-zero once the list is non-empty.
+        &&& self.list.len() > 0 ==> self.list_id != 0
         &&& forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
     }
 }
@@ -251,7 +255,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
 
     /// The region slot index keyed by the `i`-th link's meta-slot address.
     pub open spec fn slot_index_at(self, i: int) -> usize {
-        frame_to_index(meta_to_frame_spec(self.list[i].paddr))
+        frame_to_index(meta_to_frame(self.list[i].paddr))
     }
 
     /// The typed permission for the `i`-th link, reconstructed from the region:
@@ -284,6 +288,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         &&& perm.addr() == self.list[i].paddr
         &&& perm.points_to.addr() == self.list[i].paddr
         &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        &&& regions.slot_owners[idx].usage == PageUsage::Frame
         &&& perm.wf(&perm.inner_perms)
         &&& perm.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start + MAX_NR_PAGES
@@ -358,7 +363,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 #![trigger idxs.to_set().contains(x)]
                 idxs.to_set().contains(x) implies bound.contains(x) by {
                 let i = choose|i: int| 0 <= i < idxs.len() && idxs[i] == x;
-                let _ = self.list[i];
                 self.relate_region_at_facts(regions, i);
                 // `regions.inv()`: `contains_key(slot_index_at(i)) ⟹ < max_meta_slots()`.
             }
@@ -379,7 +383,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             self.list.len() < usize::MAX,
     {
         self.length_le_max_meta_slots(regions);
-        assert(max_meta_slots() < usize::MAX) by (compute_only);
     }
 
     /// Unfolds the opaque `relate_region_at` ONCE and exposes its clauses.
@@ -398,6 +401,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& perm.addr() == self.list[i].paddr
                 &&& perm.points_to.addr() == self.list[i].paddr
                 &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& regions.slot_owners[idx].usage == PageUsage::Frame
                 &&& perm.wf(&perm.inner_perms)
                 &&& perm.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
@@ -449,6 +453,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& perm.addr() == self.list[i].paddr
                 &&& perm.points_to.addr() == self.list[i].paddr
                 &&& perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& regions.slot_owners[idx].usage == PageUsage::Frame
                 &&& perm.wf(&perm.inner_perms)
                 &&& perm.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
@@ -519,12 +524,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             0 <= k < llen implies self.relate_region_at(regions2, k) by {
             let _ = self.list[k];
             self.relate_region_at_facts(regions1, k);
-            if k > 0 {
-                let _ = self.list[k - 1];
-            }
-            if k < llen - 1 {
-                let _ = self.list[k + 1];
-            }
             self.relate_region_at_from_clauses(regions2, k);
         }
     }
@@ -539,7 +538,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// neighbor of `k` maps to `p ± 1` except across the cut (new position `n-1`
     /// reaches old `n+1`, new position `n` reaches old `n-1`), which is exactly
     /// where the body rewired the link pointers.
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
     pub proof fn pop_preserves_relate_region(
         old: LinkedListOwner<M>,
@@ -567,6 +565,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fp.points_to.addr() == old.list[p].paddr
                     &&& fp.points_to.pptr() == r0.slots[i].pptr()
                     &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                    &&& fr.slot_owners[i].usage == PageUsage::Frame
                     &&& fp.wf(&fp.inner_perms)
                     &&& fp.addr() % META_SLOT_SIZE == 0
                     &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
@@ -593,7 +592,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.relate_region(fr),
     {
         let nlen = new.list.len() as int;
-        assert(nlen == old.list.len() - 1);
 
         assert forall|k: int| #![trigger new.slot_index_at(k)] 0 <= k < nlen implies {
             let p = if k < n {
@@ -603,9 +601,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             };
             &&& new.list[k] == old.list[p]
             &&& new.slot_index_at(k) == old.slot_index_at(p)
-        } by {
-            assert(new.list[k] == old.list.remove(n)[k]);
-        }
+        } by {}
 
         assert forall|a: int, b: int|
             #![trigger new.slot_index_at(a), new.slot_index_at(b)]
@@ -621,9 +617,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             } else {
                 b + 1
             };
-            assert(pa != pb);
-            assert(new.slot_index_at(a) == old.slot_index_at(pa));
-            assert(new.slot_index_at(b) == old.slot_index_at(pb));
         }
 
         assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies {
@@ -643,7 +636,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             } else {
                 m + 1
             };
-            let _ = old.list[pm];
             old.relate_region_at_facts(r0, pm);
         }
 
@@ -672,14 +664,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 old.relate_region_at_facts(r0, n - 1);
             }
             if n + 1 < old.list.len() {
-                let _ = old.list[n + 1];
                 old.relate_region_at_facts(r0, n + 1);
             }
             new.relate_region_at_from_clauses(fr, k);
         }
 
-        assert(new.list.len() > 0 ==> new.list_id != 0);
-        assert(new.relate_region(fr));
     }
 
     /// The list-rewiring "surgery" for inserting `link` before index `n`
@@ -693,8 +682,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// (or `None` at the ends), and old `n-1`'s `next` / old `n`'s `prev` are
     /// rewired to point at the inserted link. Mirror of
     /// [`pop_preserves_relate_region`].
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
+    #[verifier::rlimit(60)]
     pub proof fn insert_preserves_relate_region(
         old: LinkedListOwner<M>,
         r0: MetaRegionOwners,
@@ -724,6 +713,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& fpn.addr() == link.paddr
                 &&& fpn.points_to.addr() == link.paddr
                 &&& fpn.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& fr.slot_owners[ins].usage == PageUsage::Frame
                 &&& fpn.wf(&fpn.inner_perms)
                 &&& fpn.addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= fpn.addr() < FRAME_METADATA_RANGE.start
@@ -759,6 +749,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fp.points_to.addr() == old.list[p].paddr
                     &&& fp.points_to.pptr() == r0.slots[i].pptr()
                     &&& fp.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                    &&& fr.slot_owners[i].usage == PageUsage::Frame
                     &&& fp.wf(&fp.inner_perms)
                     &&& fp.addr() % META_SLOT_SIZE == 0
                     &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
@@ -787,7 +778,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             new.relate_region(fr),
     {
         let nlen = new.list.len() as int;
-        assert(nlen == old.list.len() + 1);
         let ins = new.slot_index_at(n);
 
         assert forall|k: int| #![trigger new.slot_index_at(k)] 0 <= k < nlen implies ({
@@ -797,33 +787,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             &&& (k == n ==> new.list[k] == link && new.slot_index_at(k) == ins)
             &&& (k > n ==> new.list[k] == old.list[k - 1] && new.slot_index_at(k)
                 == old.slot_index_at(k - 1))
-        }) by {
-            assert(new.list[k] == old.list.insert(n, link)[k]);
-        }
+        }) by {}
 
         assert forall|a: int, b: int|
             #![trigger new.slot_index_at(a), new.slot_index_at(b)]
             0 <= a < nlen && 0 <= b < nlen && a != b implies new.slot_index_at(a)
-            != new.slot_index_at(b) by {
-            let _ = new.slot_index_at(a);
-            let _ = new.slot_index_at(b);
-            if a != n {
-                let pa = if a < n {
-                    a
-                } else {
-                    a - 1
-                };
-                let _ = old.slot_index_at(pa);
-            }
-            if b != n {
-                let pb = if b < n {
-                    b
-                } else {
-                    b - 1
-                };
-                let _ = old.slot_index_at(pb);
-            }
-        }
+            != new.slot_index_at(b) by {}
 
         assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies ({
             &&& (m < n ==> new.meta_perm_of(fr, m).addr() == old.meta_perm_of(r0, m).addr()
@@ -838,11 +807,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             ).points_to.pptr())
         }) by {
             if m < n {
-                let _ = old.list[m];
                 old.relate_region_at_facts(r0, m);
             }
             if m > n {
-                let _ = old.list[m - 1];
                 old.relate_region_at_facts(r0, m - 1);
             }
         }
@@ -866,14 +833,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 let _ = old.list[n];
                 old.relate_region_at_facts(r0, n);
             }
-            let _ = old.slot_index_at(n - 1);
-            let _ = old.slot_index_at(n);
             new.relate_region_at_from_clauses(fr, k);
         }
 
         // `new` has `old.len + 1 ≥ 1 > 0` elements and a non-zero id by hypothesis.
-        assert(new.list.len() > 0 ==> new.list_id != 0);
-        assert(new.relate_region(fr));
     }
 
     pub open spec fn view_helper(owners: Seq<LinkOwner>) -> Seq<LinkModel>
@@ -891,8 +854,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             Self::view_helper(owners).len() == owners.len(),
         decreases owners.len(),
     {
-        if owners.len() == 0 {
-        } else {
+        if owners.len() > 0 {
             Self::view_preserves_len(owners.remove(0))
         }
     }
@@ -1020,10 +982,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for LinkedList<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ModelOf for LinkedList<M> {
-
-}
-
 pub ghost struct CursorModel {
     pub ghost fore: Seq<LinkModel>,
     pub ghost rear: Seq<LinkModel>,
@@ -1121,10 +1079,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     }
 }
 
-impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> ModelOf for CursorMut<'a, M> {
-
-}
-
 impl CursorModel {
     pub open spec fn current(self) -> Option<LinkModel> {
         if self.rear.len() > 0 {
@@ -1143,7 +1097,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     /// Region-based analog of [`CursorOwner::inv`]: replaces `list_own.inv()`
     /// (over the owned `perms`) with `list_own.relate_region(regions)` (over
     /// the region permissions).
-    pub open spec fn inv_region(self, regions: MetaRegionOwners) -> bool {
+    pub open spec fn wf_with_region(self, regions: MetaRegionOwners) -> bool {
         &&& 0 <= self.index <= self.length()
         &&& self.list_own.relate_region(regions)
     }
@@ -1156,6 +1110,26 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         }
     }
 
+    pub open spec fn list_insert(cursor: Self, link: LinkOwner, list_id: u64) -> (Self, LinkOwner)
+        recommends
+            list_id != 0,
+            0 <= cursor.index <= cursor.list_own.list.len(),
+            cursor.list_own.list.len() > 0 ==> list_id == cursor.list_own.list_id,
+    {
+        let link = LinkOwner { paddr: link.paddr, in_list: list_id };
+        (
+            Self {
+                list_own: LinkedListOwner::<M> {
+                    list: cursor.list_own.list.insert(cursor.index, link),
+                    list_id,
+                    _marker: PhantomData,
+                },
+                index: cursor.index + 1,
+            },
+            link,
+        )
+    }
+
     /// Tracked update to the cursor's owner state when a new link is inserted
     /// before the current position. The inserted `link`'s `paddr` is unchanged
     /// and its `in_list` is stamped with `list_id` — the (non-zero) id the
@@ -1164,19 +1138,22 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     /// already non-zero), and `index` advances by one. In the borrow model, the
     /// link's tracked permission remains parked in `MetaRegionOwners.slots`;
     /// this axiom doesn't need to take or carry a perm.
-    pub axiom fn list_insert(tracked cursor: &mut Self, tracked link: &mut LinkOwner, list_id: u64)
+    pub axiom fn tracked_list_insert(
+        tracked cursor: &mut Self,
+        tracked link: &mut LinkOwner,
+        list_id: u64,
+    )
         requires
             list_id != 0,
+            0 <= old(cursor).index <= old(cursor).list_own.list.len(),
+            old(cursor).list_own.list.len() > 0 ==> list_id == old(cursor).list_own.list_id,
             old(cursor).list_own.list_id != 0 ==> list_id == old(cursor).list_own.list_id,
         ensures
-            final(link).paddr == old(link).paddr,
-            final(link).in_list == list_id,
-            final(cursor).list_own.list == old(cursor).list_own.list.insert(
-                old(cursor).index,
-                *final(link),
-            ),
-            final(cursor).list_own.list_id == list_id,
-            final(cursor).index == old(cursor).index + 1,
+            ({
+                let res = Self::list_insert(*old(cursor), *old(link), list_id);
+
+                res.0 == *final(cursor) && res.1 == *final(link)
+            }),
     ;
 
     pub open spec fn front_owner(list_own: LinkedListOwner<M>) -> Self {
@@ -1204,7 +1181,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
-                list_own.list.len() as int - 1
+                list_own.list.len() - 1
             } else {
                 0
             },
@@ -1219,7 +1196,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
-                list_own.list.len() as int - 1
+                list_own.list.len() - 1
             } else {
                 0
             },
@@ -1297,7 +1274,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
     proof fn from_to_repr(self, perm: MetadataInnerPerms) {
         let md = <Metadata<Link<M>> as FromSpec<MetadataAsLink<M>>>::from_spec(self);
         <Metadata<Link<M>> as Repr<MetaSlot>>::from_to_repr(md, perm);
-        assert(<MetadataAsLink<M> as FromSpec<Metadata<Link<M>>>>::from_spec(md) == self);
     }
 
     proof fn to_from_repr(r: MetaSlot, perm: MetadataInnerPerms) {

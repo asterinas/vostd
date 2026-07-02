@@ -12,23 +12,16 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use vstd_extra::arithmetic::{
-    lemma_nat_align_down_monotone, lemma_nat_align_down_sound, lemma_nat_align_down_within_block,
-    lemma_nat_align_up_sound,
-};
-
 use crate::mm::page_table::*;
-use crate::mm::{PagingLevel, Vaddr};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
+use crate::mm::{PagingLevel, Vaddr, page_size};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_divides, lemma_page_size_ge_page_size,
-};
+
+use crate::specs::mm::page_table::nat_align_down;
 use crate::specs::mm::page_table::owners::*;
-use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
 
 use core::ops::Range;
 
@@ -43,6 +36,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.in_locked_range(),
+            !self.popped_too_high,
             self.metaregion_sound(regions),
             self.cur_entry_owner().is_frame(),
             other.cur_entry_owner().is_frame(),
@@ -72,7 +66,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].path() == self.continuations[self.level - 1].path(),
             other.continuations.dom() =~= self.continuations.dom(),
             forall|j: int|
-                0 <= j < NR_ENTRIES && j != self.continuations[self.level - 1].idx as int
+                0 <= j < NR_ENTRIES && j != self.continuations[self.level - 1].idx
                     ==> #[trigger] other.continuations[self.level - 1].children[j]
                     == self.continuations[self.level - 1].children[j],
             ({
@@ -135,6 +129,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn map_branch_none_inv_holds(self, owner0: Self)
         requires
             owner0.inv(),
+            // The map happens in the locked range and changes only the current
+            // continuation's slot at `idx` (a real, in-range slot). With this +
+            // "higher continuations unchanged", the root continuation's
+            // isolation clauses are preserved.
+            self.in_locked_range(),
+            !self.popped_too_high,
+            forall|j: int|
+                0 <= j < NR_ENTRIES && j != owner0.continuations[owner0.level - 1].idx ==> (
+                #[trigger] self.continuations[self.level - 1].children[j])
+                    == owner0.continuations[owner0.level - 1].children[j],
             self.level == owner0.level,
             self.va == owner0.va,
             self.guard_level == owner0.guard_level,
@@ -162,21 +166,32 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
     {
         let L = self.level as int;
-        assert(self.continuations[L - 1].level() == self.level) by {
-            assert(self.continuations[L - 1].path() == owner0.continuations[L - 1].path());
-            if L == 1 {
-            } else if L == 2 {
-            } else if L == 3 {
-            } else {
-            }
-        };
-        assert(self.continuations.contains_key(L - 1)) by {
-            if L == 1 {
-            } else if L == 2 {
-            } else if L == 3 {
-            } else {
-            }
-        };
+        assert(self.continuations[L - 1].level() == self.level);
+        assert(self.continuations.contains_key(L - 1));
+        // Isolation clauses for the root continuation (NR_LEVELS-1).
+        if self.level < NR_LEVELS {
+            // Root is above the current level ⟹ unchanged (higher-unchanged), so
+            // both clauses carry verbatim from `owner0.inv()`.
+            assert(self.continuations[NR_LEVELS - 1] == owner0.continuations[NR_LEVELS - 1]);
+        } else {
+            // Root IS the current continuation. The idx clause is vacuous
+            // (level == NR_LEVELS). For the outside-(borrowed||absent) clause:
+            // the map changed only the in-range slot `idx`, so every outside
+            // child keeps `owner0`'s value; `idx` is in-range (top index in
+            // [start, end), and `in_locked_range` rules out the sentinel).
+            owner0.in_locked_range_top_index_lt_top_end();
+            assert(self.continuations[NR_LEVELS - 1].idx == self.va.index[NR_LEVELS - 1]);
+            assert(self.continuations[NR_LEVELS - 1].idx == owner0.continuations[owner0.level
+                - 1].idx);
+            assert(C::TOP_LEVEL_INDEX_RANGE_spec().start <= owner0.continuations[owner0.level
+                - 1].idx < C::TOP_LEVEL_INDEX_RANGE_spec().end);
+            assert(forall|j: int|
+                0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE_spec().start <= j
+                    < C::TOP_LEVEL_INDEX_RANGE_spec().end) ==> (
+                #[trigger] self.continuations[NR_LEVELS - 1].children[j]) is Some ==> (
+                self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_borrowed()
+                    || self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_absent()));
+        }
     }
 
     /// After alloc_if_none (absent->node), `view_mappings` is unchanged (both contribute zero mappings).
@@ -311,7 +326,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level - 1 <= j < i,
             i < NR_LEVELS,
         ensures
-            self.continuations[j].path().len() as int > self.continuations[i].path().len() as int,
+            self.continuations[j].path().len() as int > self.continuations[i].path().len(),
             self.continuations[j].path().index(self.continuations[i].path().len() as int)
                 == self.continuations[i].idx,
     {
@@ -378,7 +393,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub proof fn lemma_page_size_spec_5_eq_pow2_48()
         ensures
-            page_size_spec(5) == pow2(48nat) as usize,
+            page_size(5) == pow2(48nat) as usize,
     {
         crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();

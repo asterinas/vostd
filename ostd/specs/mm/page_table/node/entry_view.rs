@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use crate::arch::mm::PagingConsts;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
 use crate::specs::arch::*;
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use vstd_extra::ownership::*;
@@ -30,8 +30,7 @@ pub open spec fn PHYSICAL_BASE_ADDRESS_SPEC() -> usize {
 }
 
 pub open spec fn pa_is_valid_kernel_address(pa: int) -> bool {
-    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE
-        * MAX_NR_PAGES as int
+    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE * MAX_NR_PAGES
 }
 
 pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {
@@ -56,12 +55,14 @@ impl<C: PageTableConfig> Inv for LeafPageTableEntryView<C> {
             self.level as int,
         )
         // The corresponding virtual address must be aligned to the page size.
-        &&& self.map_va % (page_size_spec(self.level) as int) == 0
+        &&& self.map_va % (page_size(self.level) as int) == 0
     }
 }
 
 impl<C: PageTableConfig> LeafPageTableEntryView<C> {
-    pub uninterp spec fn va_end(self) -> Vaddr;
+    pub open spec fn va_end(self) -> Vaddr {
+        (self.map_va + page_size(self.level)) as Vaddr
+    }
 }
 
 pub ghost struct IntermediatePageTableEntryView<C: PageTableConfig> {
@@ -82,7 +83,7 @@ impl<C: PageTableConfig> Inv for IntermediatePageTableEntryView<C> {
         // No self-loop.
         //        &&& self.map_to_pa != self.frame_pa
         // The corresponding virtual address must be aligned to the page size.
-        &&& self.map_va % (page_size_spec(self.level) as int) == 0
+        &&& self.map_va % (page_size(self.level) as int) == 0
     }
 }
 
@@ -110,7 +111,6 @@ impl<C: PageTableConfig> LeafPageTableEntryView<C> {
 pub ghost enum EntryView<C: PageTableConfig> {
     Leaf { leaf: LeafPageTableEntryView<C> },
     Intermediate { node: IntermediatePageTableEntryView<C> },
-    LockedSubtree { views: Seq<FrameView<C>> },
     Absent,
 }
 
@@ -120,7 +120,6 @@ impl<C: PageTableConfig> Inv for EntryView<C> {
         match self {
             Self::Leaf { leaf: _ } => self->leaf.inv(),
             Self::Intermediate { node: _ } => self->node.inv(),
-            Self::LockedSubtree { views: _ } => forall|i: int| #[trigger] self->views[i].inv(),
             Self::Absent => true,
         }
         */

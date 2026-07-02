@@ -6,10 +6,10 @@ use vstd_extra::ownership::*;
 
 use core::ops::Range;
 
-use crate::mm::frame::{AnyFrameMeta, MetaSlot, Segment};
+use crate::mm::frame::{AnyFrameMeta, MetaSlot, Segment, meta::META_SLOT_SIZE};
 use crate::mm::{Paddr, Vaddr, paddr_to_vaddr};
 use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::mapping::{META_SLOT_SIZE, frame_to_index, meta_addr};
+use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::virt_mem::MemView;
 
@@ -104,6 +104,7 @@ pub open spec fn seg_nframes(range: Range<Paddr>) -> int {
     (range.end - range.start) / PAGE_SIZE as int
 }
 
+// FIXME: is this necessary?
 pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     /// The physical-address range of the segment that this owner corresponds to.
     ///
@@ -146,7 +147,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     ///
     /// For every frame `i` in the segment, this asserts:
     /// - the slot owner is present in `regions` and the perm matches it,
-    /// - the slot's `self_addr` is consistent with its index,
+    /// - the slot's `slot_vaddr` is consistent with its index,
     /// - the slot has a live, non-`UNUSED` reference count,
     /// - `raw_count == 1` (the segment holds one forgotten reference per frame),
     /// - the slot's perm is *not* in `regions.slots` (it lives in `self.perms`),
@@ -163,22 +164,13 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                 // Per-frame linear-drop: the segment holds one (forgotten)
                 // reference per frame, recorded as a `frame_obligations` count.
-                // Combined with the boundary `clean_inv()` (which requires the
-                // multiset empty), this gates `Segment::drop`'s per-frame
-                // redeem against a genuine outstanding entry — the per-frame
-                // analogue of the old `obligations.contains(range)` check.
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(
-                    idx,
-                )
-                // Borrow-protocol transition: `raw_count` is dormant.
-                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slots.contains_key(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
-                // Segment frames are shared (never `UNIQUE`); the upper
-                // bound also keeps post-`fetch_sub` out of the forbidden
-                // `(REF_COUNT_MAX, REF_COUNT_UNIQUE)` zone.
+                // Segment frames are shared (never `UNIQUE`).
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 // A segment holds its frames as a unit; they are not
@@ -187,8 +179,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                 // precondition (`ref_count == 1 ==> paths_in_pt empty`)
                 // in the per-frame teardown loop.
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                &&& regions.slot_owners[idx].usage
-                    == crate::specs::mm::frame::meta_owners::PageUsage::Frame
+                &&& regions.slot_owners[idx].usage is Frame
             }
         &&& forall|i: int, j: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
@@ -215,13 +206,12 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
                     idx,
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
-                &&& regions.slot_owners[idx].self_addr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
                 &&& regions.slot_owners[idx].paths_in_pt.is_empty()
-                &&& regions.slot_owners[idx].usage
-                    == crate::specs::mm::frame::meta_owners::PageUsage::Frame
+                &&& regions.slot_owners[idx].usage is Frame
             }),
     {
         // Trigger the forall at index `i`.
@@ -420,10 +410,7 @@ pub proof fn tracked_mint_seg_obligations(
                     (range_start + i * PAGE_SIZE) as usize,
                 )) implies regions.frame_obligations.count(jdx) == g0.frame_obligations.count(
             jdx,
-        ) by {
-            assert(jdx != idx);
-            assert(gmid.frame_obligations.count(jdx) == g0.frame_obligations.count(jdx));
-        };
+        ) by {};
         // Each segment frame gained at least one entry.
         assert forall|i: int|
             #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
@@ -434,7 +421,6 @@ pub proof fn tracked_mint_seg_obligations(
             // i < n-1: recursion gives `gmid.count(idx_i) >= g0.count(idx_i)+1`;
             // the mint only grows counts. i == n-1: `gmid.count(idx) >= g0.count(idx)`
             // (monotone), and the mint adds exactly one at `idx`.
-            let _ = frame_to_index((range_start + i * PAGE_SIZE) as usize);
         };
     }
 }
@@ -486,9 +472,7 @@ pub proof fn tracked_redeem_seg_obligations(
             #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
             0 <= i < n - 1 implies regions.frame_obligations.count(
             frame_to_index((range_start + i * PAGE_SIZE) as usize),
-        ) >= 1 by {
-            assert(frame_to_index((range_start + i * PAGE_SIZE) as usize) != idx);
-        };
+        ) >= 1 by {};
         tracked_redeem_seg_obligations(regions, range_start, n - 1);
     }
 }

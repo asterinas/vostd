@@ -28,7 +28,8 @@ use crate::{
 mod util;
 
 verus! {
-#[derive(Clone,Debug, Default)]
+#[verifier::allow(autoderive_clone_without_spec)]
+#[derive(Clone, Debug, Default)]
 pub struct PagingConsts {}
 
 impl PagingConstsTrait for PagingConsts {
@@ -102,9 +103,16 @@ impl PagingConstsTrait for PagingConsts {
         8
     }
 
-    proof fn lemma_paging_consts_properties()
+    proof fn lemma_paging_consts_requirements()
     {
         lemma_pow2_is_pow2_to64();
+        lemma2_to64();
+        lemma2_to64_rest();
+        assert(usize::BITS == 64) by (compute);
+        vstd::layout::unsigned_int_max_values();
+        lemma_usize_pow2_ilog2(12);
+        lemma_usize_pow2_ilog2(9);
+        lemma_pow2_adds(9, 39);
     }
 }
 
@@ -204,11 +212,12 @@ pub(crate) fn tlb_flush_all_including_global() {
     }*/
 }
 
-#[verifier::ext_equal]
 #[derive(Clone, Copy/*, Pod, Default*/)]
 #[derive(Debug)]
 #[repr(C)]
 pub struct PageTableEntry(usize);
+
+global layout PageTableEntry is size == 8, align == 8;
 
 #[verus_verify]
 unsafe impl Pod for PageTableEntry {
@@ -216,6 +225,15 @@ unsafe impl Pod for PageTableEntry {
 }
 
 impl PageTableEntry {
+    pub proof fn lemma_layout()
+        ensures
+            core::mem::size_of::<PageTableEntry>() == 8,
+            core::mem::align_of::<PageTableEntry>() == 8,
+            core::mem::size_of::<PageTableEntry>() % core::mem::align_of::<PageTableEntry>() == 0,
+    {
+        broadcast use VERUS_layout_of_PageTableEntry;
+    }
+
     pub closed spec fn default_spec() -> Self {
         Self(0)
     }
@@ -674,7 +692,6 @@ impl PageTableEntryTrait for PageTableEntry {
         lemma_auxiliary_bit_properties(self.0);
     }
 }
-
 
 impl PageTableEntry {
     pub closed spec fn raw_set_prop_spec(old_raw: usize, prop: PageProperty) -> usize {

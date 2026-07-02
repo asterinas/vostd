@@ -5,7 +5,6 @@ use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::cpu::*;
 use crate::specs::mm::page_table::*;
 
-use vstd::set;
 use vstd_extra::ownership::*;
 
 verus! {
@@ -90,7 +89,6 @@ impl TlbModel {
         assert(filtered.contains(witness));
 
         if self.mappings.contains(m) {
-            assert(self.mappings.insert(m) == self.mappings);
         } else {
             assert(filtered.contains(m));
             assert(pt.mappings.contains(m));

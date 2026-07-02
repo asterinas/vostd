@@ -4,9 +4,10 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::arch::mm::PagingConsts;
+use crate::mm::frame::meta::mapping::meta_to_frame;
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::Guards;
 use crate::specs::mm::Mapping;
 use crate::specs::mm::MetaRegionOwners;
@@ -15,14 +16,9 @@ use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::node::EntryOwner;
 use crate::specs::mm::page_table::owners::{INC_LEVELS, OwnerSubtree, PageTableOwner};
 
-use crate::mm::page_table::page_size_spec as page_size;
-use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame};
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_divides, lemma_page_size_ge_page_size,
-};
-use vstd_extra::arithmetic::{
-    lemma_nat_align_down_sound, lemma_nat_align_down_within_block, nat_align_down, nat_align_up,
-};
+use crate::specs::mm::frame::mapping::frame_to_index;
+use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size;
+use vstd_extra::arithmetic::{lemma_nat_align_down_sound, nat_align_down};
 
 use core::ops::Range;
 
@@ -157,18 +153,6 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
                 }
             };
 
-            assert(excepted_path.len() <= child_path.len() || (exists|k: int|
-                0 <= k < child_path.len() && #[trigger] excepted_path.index(k) != child_path.index(
-                    k,
-                ))) by {
-                if excepted_path.len() <= path.len() {
-                } else {
-                    let k = choose|k: int|
-                        0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k);
-                    assert(child_path.index(k) == path.index(k));
-                }
-            };
-
             subtree_unlock_upgrade(
                 child,
                 child_path,
@@ -285,8 +269,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn push_level_owner(self, guard: PageTableGuard<'rcu, C>) -> Self {
         let cont = self.continuations[self.level - 1];
         let (child, cont) = cont.make_cont(self.va.index[self.level - 2] as usize, guard);
-        let new_continuations = self.continuations.insert(self.level - 1, cont);
-        let new_continuations = new_continuations.insert(self.level - 2, child);
+        let new_continuations = self.continuations.insert(self.level - 1, cont).insert(
+            self.level - 2,
+            child,
+        );
 
         let new_level = (self.level - 1) as u8;
         Self { continuations: new_continuations, level: new_level, popped_too_high: false, ..self }
@@ -307,12 +293,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // va.index[l-2] < NR_ENTRIES (from va.inv()).
         assert(self.va.index.contains_key(self.level - 2));
         let new_child = new_self.continuations[lm1 - 1];
-        assert(new_child.idx < NR_ENTRIES);
         Self::max_steps_subtree_positive(lm1);
         Self::max_steps_subtree_positive(l);
         // subtree(l) == NR * (subtree(lm1) + 1) (from def of max_steps_subtree, l > 1).
-        assert(Self::max_steps_subtree(l) == (NR_ENTRIES as nat) * (Self::max_steps_subtree(lm1)
-            + 1));
         // subtree(lm1) * (NR - new_child.idx) <= subtree(lm1) * NR < subtree(l).
         vstd::arithmetic::mul::lemma_mul_inequality(
             (NR_ENTRIES - new_child.idx) as int,
@@ -405,7 +388,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old_cont.path().push_tail_property(old_cont.idx as usize);
         };
         old_cont.inv_children_unroll(old_cont.idx as int);
-        assert(child_subtree.inv());
         let pto = PageTableOwner(child_subtree);
         assert(pto.view_rec(child_path) == child_cont.view_mappings()) by {
             assert forall|m: Mapping| #[trigger]
@@ -523,14 +505,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(child.children == child_node.children);
         assert(child.tree_level == old_cont.tree_level + 1);
 
-        assert(self.va.inv());
         assert(self.va.index.contains_key(self.level - 2));
-        assert(0 <= self.va.index[self.level - 2] < NR_ENTRIES);
         assert(child.idx == self.va.index[self.level - 2] as usize);
-
-        assert(child.entry_own.inv()) by {
-            old_cont.inv_children_unroll(old_cont.idx as int);
-        };
 
         assert(child.entry_own.path.len() == old_cont.entry_own.node().tree_level + 1);
         assert(old_cont.entry_own.node().tree_level == old_cont.tree_level) by {
@@ -551,7 +527,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(gc.value.path.len() == child.entry_own.node().tree_level + 1);
             assert(gc.value.path == child.entry_own.path.push_tail(0usize));
             assert(child.entry_own.inv_base());
-            assert(child.entry_own.path.inv());
             child.entry_own.path.push_tail_property(0usize);
             assert(child.entry_own.path.push_tail(0usize).len() == child.entry_own.path.len() + 1);
         };
@@ -572,7 +547,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= j < NR_ENTRIES && #[trigger] child.children[j] is Some implies {
                 &&& child.children[j].unwrap().value.parent_level == child.level()
                 &&& child.children[j].unwrap().level == child.tree_level + 1
-                &&& !child.children[j].unwrap().value.in_scope
                 &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     child.entry_own,
                     j,
@@ -588,10 +562,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     Some(gc.value),
                 ));
                 child.inv_children_unroll(j);
-                assert(gc.inv());
             };
         };
-        assert(child.inv());
 
         assert(new_owner.continuations[new_owner.level - 1].all_some()) by {
             assert(new_owner.continuations[new_owner.level - 1] == child);
@@ -636,7 +608,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Flattened: hoist inv_children and inv_children_rel proofs so the
         // inner `assert forall` blocks live at depth 2.
         assert(modified_cont.children.len() == NR_ENTRIES);
-        assert(0 <= modified_cont.idx < NR_ENTRIES);
         assert(modified_cont.inv_children()) by {
             assert forall|i: int|
                 0 <= i < modified_cont.children.len()
@@ -651,7 +622,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= i < NR_ENTRIES && #[trigger] modified_cont.children[i] is Some implies {
                 &&& modified_cont.children[i].unwrap().value.parent_level == modified_cont.level()
                 &&& modified_cont.children[i].unwrap().level == modified_cont.tree_level + 1
-                &&& !modified_cont.children[i].unwrap().value.in_scope
                 &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     modified_cont.entry_own,
                     i,
@@ -667,12 +637,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
         assert(modified_cont.entry_own.is_node());
-        assert(modified_cont.entry_own.inv());
         assert(modified_cont.entry_own.node().relate_guard(modified_cont.guard));
         assert(modified_cont.tree_level == INC_LEVELS - modified_cont.level() - 1);
         assert(modified_cont.tree_level < INC_LEVELS - 1);
         assert(modified_cont.path().len() == modified_cont.tree_level);
-        assert(modified_cont.inv());
 
         assert(new_owner.level <= 4 ==> {
             &&& new_owner.continuations.contains_key(3)
@@ -950,11 +918,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     old_cont.entry_own.path.push_tail_property(old_cont.idx as usize);
                 };
                 assert(cont_i.tree_level <= old_cont.tree_level) by {
-                    if self.level as int == 1 {
+                    if self.level == 1 {
                         assert(old_cont.level() == 1);
-                    } else if self.level as int == 2 {
+                    } else if self.level == 2 {
                         assert(old_cont.level() == 2);
-                    } else if self.level as int == 3 {
+                    } else if self.level == 3 {
                         assert(old_cont.level() == 3);
                     } else {
                         assert(old_cont.level() == 4);
@@ -1050,10 +1018,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let cont_i = self.continuations[i];
 
                 old_cont.entry_own.path.push_tail_property(old_cont.idx as usize);
-                if i == self.level as int {
+                if i == self.level {
                     assert(old_cont.path() == cont_i.path().push_tail(cont_i.idx as usize));
                     cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
-                } else if i == self.level as int + 1 {
+                } else if i == self.level + 1 {
                     let cont_sl = self.continuations[self.level as int];
                     assert(old_cont.path() == cont_sl.path().push_tail(cont_sl.idx as usize));
                     assert(cont_sl.path() == cont_i.path().push_tail(cont_i.idx as usize));
@@ -1063,7 +1031,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     );
                 } else {
                     let cont_sl = self.continuations[self.level as int];
-                    let cont_sl1 = self.continuations[self.level as int + 1];
+                    let cont_sl1 = self.continuations[self.level + 1];
                     assert(old_cont.path() == cont_sl.path().push_tail(cont_sl.idx as usize));
                     assert(cont_sl.path() == cont_sl1.path().push_tail(cont_sl1.idx as usize));
                     assert(cont_sl1.path() == cont_i.path().push_tail(cont_i.idx as usize));
@@ -1089,7 +1057,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     cont_i.path().push_tail_property(j as usize);
 
                     assert(child_path.index(cont_i.tree_level as int) == j as usize);
-                    assert(j != cont_i.idx as int);
+                    assert(j != cont_i.idx);
                     assert(child_path.index(cont_i.tree_level as int) != cur_entry_path.index(
                         cont_i.tree_level as int,
                     ));
@@ -1159,9 +1127,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             None => true,
         } by {
             child_cont.inv_children_unroll(j);
-        };
-        assert(child_subtree.inv()) by {
-            assert(child_subtree.inv_node());
         };
 
         // Pre-prove tree_predicate_map for child_subtree (f)
@@ -1239,8 +1204,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let child = self.continuations[self.level - 1];
         let cont = self.continuations[self.level as int];
         let (new_cont, guard) = cont.restore(child);
-        let new_continuations = self.continuations.insert(self.level as int, new_cont);
-        let new_continuations = new_continuations.remove(self.level - 1);
+        let new_continuations = self.continuations.insert(self.level as int, new_cont).remove(
+            self.level - 1,
+        );
         let new_level = (self.level + 1) as u8;
         let popped_too_high = if new_level >= self.guard_level {
             true
@@ -1268,10 +1234,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.inv(),
     {
         let child = self.continuations[self.level - 1];
-        assert(child.inv());
         assert(child.all_some());
         let cont = self.continuations[self.level as int];
-        assert(cont.inv());
         let (new_cont, _) = cont.restore(child);
         let new_owner = self.pop_level_owner().0;
 
@@ -1291,7 +1255,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
         assert(new_cont.all_some()) by {
             assert forall|i: int| 0 <= i < NR_ENTRIES implies new_cont.children[i] is Some by {
-                if i == cont.idx as int {
+                if i == cont.idx {
                     assert(new_cont.children[i] == Some(child_node));
                 } else {
                     assert(new_cont.children[i] == cont.children[i]);
@@ -1301,7 +1265,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert forall|i: int| new_owner.level <= i < NR_LEVELS implies (
         #[trigger] new_owner.continuations[i]).all_but_index_some() by {
-            if i == self.level as int {
+            if i == self.level {
                 assert(new_owner.continuations[i] == new_cont);
                 assert(new_cont.all_some());
             } else {
@@ -1350,15 +1314,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             child.inv_children_unroll(j);
         };
-        assert(child_node.inv()) by {
-            assert(child_node.inv_node());
-        };
 
         assert(new_cont.inv_children()) by {
             assert forall|i: int|
                 0 <= i < new_cont.children.len()
                     && #[trigger] new_cont.children[i] is Some implies new_cont.children[i].unwrap().inv() by {
-                if i == cont.idx as int {
+                if i == cont.idx {
                     assert(new_cont.children[i].unwrap() == child_node);
                 } else {
                     assert(new_cont.children[i] == cont.children[i]);
@@ -1372,7 +1333,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= i < NR_ENTRIES && #[trigger] new_cont.children[i] is Some implies {
                 &&& new_cont.children[i].unwrap().value.parent_level == new_cont.level()
                 &&& new_cont.children[i].unwrap().level == new_cont.tree_level + 1
-                &&& !new_cont.children[i].unwrap().value.in_scope
                 &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     new_cont.entry_own,
                     i,
@@ -1382,19 +1342,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     i as usize,
                 )
             } by {
-                if i == cont.idx as int {
+                if i == cont.idx {
                     assert(new_cont.children[i].unwrap() == child_node);
-                    assert(!child.entry_own.in_scope);
                 } else {
                     assert(new_cont.children[i] == cont.children[i]);
                     cont.inv_children_rel_unroll(i);
                 }
             };
-        };
-
-        assert(new_cont.inv()) by {
-            assert(new_cont.tree_level == INC_LEVELS - new_cont.level() - 1);
-            assert(new_cont.path().len() == new_cont.tree_level);
         };
 
         assert(new_owner.level <= 4 ==> {
@@ -1408,7 +1362,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.in_locked_range() ==> new_owner.va.index[3]
                 == new_owner.continuations[3].idx
         }) by {
-            if self.level as int == 3 {
+            if self.level == 3 {
                 assert(new_owner.continuations[3] == new_cont);
             } else {
                 assert(new_owner.continuations[3] == self.continuations[3]);
@@ -1435,7 +1389,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             )
         }) by {
             if new_owner.level <= 3 {
-                if self.level as int == 2 {
+                if self.level == 2 {
                     assert(new_owner.continuations[2] == new_cont);
                 } else {
                     assert(new_owner.continuations[2] == self.continuations[2]);
@@ -1509,7 +1463,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     < new_owner.guard_level implies new_owner.continuations[i].node_locked(
                 guards,
             ) by {
-                if i == self.level as int {
+                if i == self.level {
                     assert(new_owner.continuations[i] == new_cont);
                     assert(new_cont.guard == cont.guard);
                 } else {
@@ -1528,7 +1482,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             child.inv_children_unroll(j);
         };
-        assert(child_subtree.inv());
 
         assert(OwnerSubtree::<C>::implies(
             CursorOwner::<'rcu, C>::node_unlocked(guards),
@@ -1546,7 +1499,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     < NR_LEVELS implies new_owner.continuations[i].map_children(
                 CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
             ) by {
-                if i > self.level as int {
+                if i > self.level {
                     assert(new_owner.continuations[i] == self.continuations[i]);
                 } else {
                     assert(new_owner.continuations[i] == new_cont);
@@ -1568,7 +1521,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 #![auto]
                 new_owner.level - 1 <= i
                     < NR_LEVELS implies new_owner.continuations[i].map_children(f) by {
-                if i > self.level as int {
+                if i > self.level {
                 } else {
                     new_cont.map_children_lift_skip_idx(cont, cont.idx as int, f, f);
                 }
@@ -2019,7 +1972,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
     }
 
-    #[verifier::rlimit(4)]
     #[verifier::spinoff_prover]
     pub proof fn move_forward_va_is_align_up(self)
         requires
@@ -2147,8 +2099,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let popped_va = popped.va.to_vaddr() as nat;
                 let inc_p_va = inc_p.va.to_vaddr() as nat;
                 lemma_page_size_ge_page_size(popped.level as PagingLevel);
-                assert(popped.va.index[popped.level as int - 1]
-                    == popped.continuations[popped.level as int - 1].idx);
+                assert(popped.va.index[popped.level - 1] == popped.continuations[popped.level
+                    - 1].idx);
                 popped.va.index_increment_adds_page_size(popped.level as int);
                 assert(inc_p_va == popped_va + ps_p);
                 assert(popped_va + ps_p == ps_p * 1 + popped_va) by (nonlinear_arith);
@@ -2183,8 +2135,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(popped.index() + 1 < NR_ENTRIES);
                 assert(popped.move_forward_owner_spec().va == inc_p.zero_below_level().va);
             }
-            assert(self.va.index[self.level as int - 1] == self.continuations[self.level as int
-                - 1].idx);
+            assert(self.va.index[self.level - 1] == self.continuations[self.level - 1].idx);
             self.va.align_up_carry(self.level as int);
         }
     }
@@ -2208,9 +2159,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let popped = self.pop_level_owner().0;
         let child_subtree = child.as_subtree();
 
-        assert(child.inv());
         assert(child.all_some());
-        assert(parent.inv());
         assert(parent.all_but_index_some());
         assert(child.path() == parent.path().push_tail(parent.idx as usize));
 
@@ -2255,7 +2204,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let r = restored_parent;
         let p = parent.put_child(child_subtree);
         assert forall|j: int| 0 <= j < r.children.len() implies r.children[j] == p.children[j] by {
-            if j == parent.idx as int {
+            if j == parent.idx {
                 assert(r.children[j] == Some(child_subtree));
             } else {
                 assert(r.children[j] == parent.children[j]);
@@ -2301,7 +2250,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(child.view_mappings().contains(m));
                     assert(restored_parent.view_mappings().contains(m));
                     assert(popped.continuations[self.level as int].view_mappings().contains(m));
-                } else if i == self.level as int {
+                } else if i == self.level {
                     assert(parent.view_mappings().contains(m));
                     assert(restored_parent.view_mappings().contains(m));
                     assert(popped.continuations[self.level as int].view_mappings().contains(m));
@@ -2314,7 +2263,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let i = choose|i: int|
                     popped.level - 1 <= i < NR_LEVELS && (
                     #[trigger] popped.continuations[i]).view_mappings().contains(m);
-                if i == self.level as int {
+                if i == self.level {
                     assert(restored_parent.view_mappings().contains(m));
                     if child.view_mappings().contains(m) {
                         assert(self.continuations[self.level - 1].view_mappings().contains(m));

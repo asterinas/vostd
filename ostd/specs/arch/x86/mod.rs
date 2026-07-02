@@ -1,9 +1,8 @@
+use crate::mm::frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr};
-use crate::mm::{Paddr, Vaddr};
-use crate::specs::mm::frame::mapping::{
-    META_SLOT_SIZE, lemma_meta_to_frame_soundness, meta_to_frame,
-};
+use crate::mm::{Paddr, Vaddr, page_size};
+use crate::specs::mm::frame::mapping::lemma_meta_to_frame_soundness;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
@@ -29,6 +28,11 @@ pub const NR_LEVELS: usize = 4;
 pub const MAX_PADDR: usize = 0x8000_0000;
 
 pub const MAX_NR_PAGES: u64 = (MAX_PADDR / PAGE_SIZE) as u64;
+
+pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
+    &&& paddr % PAGE_SIZE == 0
+    &&& paddr < MAX_PADDR
+}
 
 } // verus!
 verus! {
