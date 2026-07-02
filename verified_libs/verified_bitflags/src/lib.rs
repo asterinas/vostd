@@ -121,7 +121,7 @@ macro_rules! bitflags {
             )*
         }
     ) => {
-        paste::paste! {
+        $crate::paste::paste! {
         verus! {
             $(#[$outer])*
             #[repr(transparent)]

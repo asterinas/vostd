@@ -66,7 +66,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].path() == self.continuations[self.level - 1].path(),
             other.continuations.dom() =~= self.continuations.dom(),
             forall|j: int|
-                0 <= j < NR_ENTRIES && j != self.continuations[self.level - 1].idx as int
+                0 <= j < NR_ENTRIES && j != self.continuations[self.level - 1].idx
                     ==> #[trigger] other.continuations[self.level - 1].children[j]
                     == self.continuations[self.level - 1].children[j],
             ({
@@ -136,7 +136,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             !self.popped_too_high,
             forall|j: int|
-                0 <= j < NR_ENTRIES && j != owner0.continuations[owner0.level - 1].idx as int ==> (
+                0 <= j < NR_ENTRIES && j != owner0.continuations[owner0.level - 1].idx ==> (
                 #[trigger] self.continuations[self.level - 1].children[j])
                     == owner0.continuations[owner0.level - 1].children[j],
             self.level == owner0.level,
@@ -326,7 +326,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level - 1 <= j < i,
             i < NR_LEVELS,
         ensures
-            self.continuations[j].path().len() as int > self.continuations[i].path().len() as int,
+            self.continuations[j].path().len() as int > self.continuations[i].path().len(),
             self.continuations[j].path().index(self.continuations[i].path().len() as int)
                 == self.continuations[i].idx,
     {

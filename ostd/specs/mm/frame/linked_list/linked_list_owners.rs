@@ -683,6 +683,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// rewired to point at the inserted link. Mirror of
     /// [`pop_preserves_relate_region`].
     #[verifier::spinoff_prover]
+    #[verifier::rlimit(60)]
     pub proof fn insert_preserves_relate_region(
         old: LinkedListOwner<M>,
         r0: MetaRegionOwners,
@@ -1180,7 +1181,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
-                list_own.list.len() as int - 1
+                list_own.list.len() - 1
             } else {
                 0
             },
@@ -1195,7 +1196,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
-                list_own.list.len() as int - 1
+                list_own.list.len() - 1
             } else {
                 0
             },

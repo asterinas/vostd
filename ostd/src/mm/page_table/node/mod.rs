@@ -191,13 +191,10 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(size_of_e, align_of_e);
             vstd::arithmetic::mul::lemma_mul_is_commutative(align_of_e, k);
             vstd::arithmetic::mul::lemma_mul_is_associative(range.start as int, k, align_of_e);
-            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                range.start as int * k,
-                align_of_e,
-            );
+            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(range.start * k, align_of_e);
             vstd::arithmetic::div_mod::lemma_mod_adds(
                 pre_skip_cursor,
-                range.start as int * size_of_e,
+                range.start * size_of_e,
                 align_of_e,
             );
         }
@@ -220,7 +217,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             );
             vstd::arithmetic::mul::lemma_mul_inequality(
                 range_end - range_start,
-                NR_ENTRIES as int - range_start,
+                NR_ENTRIES - range_start,
                 size_of_e,
             );
         }
@@ -233,20 +230,20 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 vm_io_owner.read_view_initialized(),
                 regions.inv(),
                 reader.cursor.vaddr as int % align_of_e == 0,
-                size_of_e == core::mem::size_of::<C::E>() as int,
-                align_of_e == core::mem::align_of::<C::E>() as int,
+                size_of_e == core::mem::size_of::<C::E>(),
+                align_of_e == core::mem::align_of::<C::E>(),
                 size_of_e % align_of_e == 0,
                 align_of_e > 0,
                 size_of_e > 0,
                 iter_count <= n_iters,
-                n_iters as int == range_end - range_start,
+                n_iters == range_end - range_start,
                 // Verus loses non-negativity of `range_start` / `range_end`
                 // across the loop boundary; pin it via these invariants so
                 // `lemma_mul_nonnegative` preconditions discharge in the body.
                 0 <= range_start,
                 range_start <= range_end,
-                range_end <= NR_ENTRIES as int,
-                reader.remain_spec() as int == post_skip_remain - iter_count as int * size_of_e,
+                range_end <= NR_ENTRIES,
+                reader.remain_spec() == post_skip_remain - iter_count * size_of_e,
                 post_skip_remain >= (range_end - range_start) * size_of_e,
                 regions.slots.dom() == initial_dom,
                 Self::child_perms_embedding(*regions, removed_indices),
@@ -258,7 +255,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 self.level == level,
                 reader.end == initial_reader.end,
                 reader.cursor.vaddr == initial_reader.cursor.vaddr + range_start * size_of_e
-                    + iter_count as int * size_of_e,
+                    + iter_count * size_of_e,
                 forall|i: usize|
                     #![trigger initial_view.addr_transl(i)]
                     initial_reader.cursor.vaddr <= i < initial_reader.end.vaddr ==> {
@@ -285,7 +282,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                 + range_start * size_of_e
                                 + j * size_of_e) as usize,
                         )]
-                        0 <= j < iter_count as int && {
+                        0 <= j < iter_count && {
                             let cj = (initial_reader.cursor.vaddr + range_start * size_of_e + j
                                 * size_of_e) as usize;
                             let pte_j = Self::walk_pte_at_view(initial_view, cj);
@@ -303,7 +300,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 );
                 vstd::arithmetic::mul::lemma_mul_inequality(
                     1,
-                    range_end - range_start - iter_count as int,
+                    range_end - range_start - iter_count,
                     size_of_e,
                 );
             }
@@ -335,7 +332,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                             iter_count as int,
                         );
                         vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
-                            range_start + iter_count as int,
+                            range_start + iter_count,
                             size_of_e,
                         );
                         Self::lemma_coverage_at(
@@ -358,7 +355,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                                         + range_start * size_of_e
                                         + j * size_of_e) as usize,
                                 )]
-                                0 <= j < iter_count as int && {
+                                0 <= j < iter_count && {
                                     let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
                                         + j * size_of_e) as usize;
                                     let pte_j = Self::walk_pte_at_view(initial_view, cj);
@@ -413,7 +410,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         removed_indices = removed_indices.insert(frame_to_index(paddr));
                         assert({
                             let cj = (initial_reader.cursor.vaddr + range_start * size_of_e
-                                + iter_count as int * size_of_e) as usize;
+                                + iter_count * size_of_e) as usize;
                             let pte_j = Self::walk_pte_at_view(initial_view, cj);
                             &&& cj == cursor_pre_read
                             &&& pte_j == pte
@@ -440,7 +437,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
             }
             proof {
                 vstd::arithmetic::div_mod::lemma_mod_adds(
-                    reader.cursor.vaddr as int - size_of_e,
+                    reader.cursor.vaddr - size_of_e,
                     size_of_e,
                     align_of_e,
                 );

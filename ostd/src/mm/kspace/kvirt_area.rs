@@ -129,8 +129,7 @@ pub open spec fn sum_page_sizes_spec(elems: Seq<(Paddr, u8)>, from: int, to: int
 /// `sum(from, to+1) == sum(from, to) + page_size(elems[to])`.
 proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int)
     requires
-        0 <= from <= to,
-        to < elems.len() as int,
+        0 <= from <= to < elems.len(),
     ensures
         sum_page_sizes_spec(elems, from, to + 1) == sum_page_sizes_spec(elems, from, to)
             + page_size(elems[to].1) as nat,
@@ -148,8 +147,7 @@ proof fn sum_page_sizes_extend_right(elems: Seq<(Paddr, u8)>, from: int, to: int
 /// `sum(from, to1) <= sum(from, to2)` when `to1 <= to2`.
 proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: int)
     requires
-        0 <= from <= to1 <= to2,
-        to2 <= elems.len() as int,
+        0 <= from <= to1 <= to2 <= elems.len(),
     ensures
         sum_page_sizes_spec(elems, from, to1) <= sum_page_sizes_spec(elems, from, to2),
     decreases to2 - to1,
@@ -176,13 +174,13 @@ proof fn sum_page_sizes_mono(elems: Seq<(Paddr, u8)>, from: int, to1: int, to2: 
         forall|i: int|
             0 <= i < res@.len() ==> (#[trigger] res@[i]).1
                 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
-        sum_page_sizes_spec(res@, 0, res@.len() as int) == len as nat,
+        sum_page_sizes_spec(res@, 0, res@.len() as int) == len,
         forall|i: int|
             0 <= i < res@.len() ==> (va as nat + #[trigger] sum_page_sizes_spec(res@, 0, i))
                 % page_size(res@[i].1) as nat == 0,
         // PA tracking: each element's physical address equals pa + sum of preceding page sizes.
         forall|i: int|
-            0 <= i < res@.len() ==> (#[trigger] res@[i]).0 as nat == pa as nat
+            0 <= i < res@.len() ==> (#[trigger] res@[i]).0 == pa
                 + sum_page_sizes_spec(res@, 0, i),
 
 )]
@@ -441,8 +439,7 @@ impl KVirtArea {
                 vstd::arithmetic::power2::lemma_pow2,
             ;
 
-            let witness: nat = choose|i: nat|
-                vstd::arithmetic::power::pow(2, i) == PAGE_SIZE as int;
+            let witness: nat = choose|i: nat| vstd::arithmetic::power::pow(2, i) == PAGE_SIZE;
         }
         let start = addr.align_down(PAGE_SIZE);
         proof {
@@ -521,7 +518,7 @@ impl KVirtArea {
         ||| area_size % PAGE_SIZE != 0
         ||| map_offset % PAGE_SIZE != 0
         ||| map_offset >= area_size
-        ||| map_offset as int + n_frames as int * PAGE_SIZE as int > area_size as int
+        ||| map_offset + n_frames * PAGE_SIZE > area_size
     }
 
     /// Full panic condition for [`Self::map_frames`] = bounds OR OOM.
@@ -741,7 +738,7 @@ impl KVirtArea {
                 KernelPtConfig::item_into_raw_spec_tracked_level(item);
                 lemma_va_align_page_size_level_1(cursor.0.va);
                 cursor_owner.locked_range_page_aligned();
-                let ghost diff: int = cursor.0.barrier_va.end as int - cursor.0.va as int;
+                let ghost diff: int = cursor.0.barrier_va.end - cursor.0.va;
                 vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
                     nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
                 );
@@ -782,8 +779,7 @@ impl KVirtArea {
             proof {
                 let cur_pa = KernelPtConfig::item_into_raw_spec(item).0;
                 let cur_pa_idx = frame_to_index(cur_pa);
-                assert forall|i: int|
-                    (it.index() as int + 1) <= i < it.seq().len() implies CursorMut::<
+                assert forall|i: int| (it.index() + 1) <= i < it.seq().len() implies CursorMut::<
                     'a,
                     KernelPtConfig,
                     A,
@@ -860,8 +856,7 @@ impl KVirtArea {
         ||| pa_range.end % PAGE_SIZE != 0
         ||| area_size % PAGE_SIZE != 0
         ||| map_offset % PAGE_SIZE != 0
-        ||| map_offset as int + vstd_extra::external::range::range_usize_len(pa_range) as int
-            > area_size as int
+        ||| map_offset + vstd_extra::external::range::range_usize_len(pa_range) > area_size
     }
 
     /// Full panic condition for [`Self::map_untracked_frames`] = bounds OR OOM.
@@ -1010,9 +1005,9 @@ impl KVirtArea {
                         ) as nat == 0,
                     forall|i: int|
                         #![auto]
-                        0 <= i < it.seq().len() ==> it.seq()[i].0 as nat == pa_range.start as nat
+                        0 <= i < it.seq().len() ==> it.seq()[i].0 == pa_range.start
                             + sum_page_sizes_spec(it.seq(), 0, i),
-                    sum_page_sizes_spec(it.seq(), 0, it.seq().len() as int) == len as nat,
+                    sum_page_sizes_spec(it.seq(), 0, it.seq().len() as int) == len,
                     // VA tracking: cursor has advanced past sum of processed pages.
                     cursor.0.va as nat == va_range.start as nat + sum_page_sizes_spec(
                         it.seq(),

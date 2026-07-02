@@ -144,8 +144,7 @@ pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
     requires
         2 <= level <= NR_LEVELS + 1,
     ensures
-        crate::specs::arch::NR_ENTRIES as int * page_size((level - 1) as PagingLevel) as int
-            == page_size(level) as int,
+        NR_ENTRIES * page_size((level - 1) as PagingLevel) == page_size(level),
 {
     lemma_page_size_spec_values();
     crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
@@ -164,15 +163,14 @@ pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
 pub proof fn lemma_split_sub_page_big_j(pa: Paddr, level: PagingLevel, i: usize) -> (big_j: usize)
     requires
         2 <= level <= NR_LEVELS,
-        0 < i < crate::specs::arch::NR_ENTRIES,
+        0 < i < NR_ENTRIES,
     ensures
         0 < big_j < page_size(level) / PAGE_SIZE,
-        (pa + i * page_size((level - 1) as PagingLevel)) as int == pa as int + big_j as int
-            * PAGE_SIZE as int,
-        big_j as int == i as int * (page_size((level - 1) as PagingLevel) / PAGE_SIZE) as int,
+        pa + i * page_size((level - 1) as PagingLevel) == pa + big_j * PAGE_SIZE,
+        big_j == i * (page_size((level - 1) as PagingLevel) / PAGE_SIZE),
 {
     let sub_pages_per_entry: int = (page_size((level - 1) as PagingLevel) / PAGE_SIZE) as int;
-    let big_j_int: int = i as int * sub_pages_per_entry;
+    let big_j_int: int = i * sub_pages_per_entry;
     lemma_page_size_spec_values();
     lemma_page_size_div_mul_eq((level - 1) as PagingLevel);
     lemma_page_size_div_mul_eq(level);
@@ -180,16 +178,16 @@ pub proof fn lemma_split_sub_page_big_j(pa: Paddr, level: PagingLevel, i: usize)
     vstd::arithmetic::mul::lemma_mul_strictly_positive(i as int, sub_pages_per_entry);
     vstd::arithmetic::mul::lemma_mul_strict_inequality(
         i as int,
-        crate::specs::arch::NR_ENTRIES as int,
+        NR_ENTRIES as int,
         sub_pages_per_entry,
     );
     vstd::arithmetic::mul::lemma_mul_is_associative(
-        crate::specs::arch::NR_ENTRIES as int,
+        NR_ENTRIES as int,
         sub_pages_per_entry,
         PAGE_SIZE as int,
     );
     vstd::arithmetic::div_mod::lemma_div_by_multiple(
-        crate::specs::arch::NR_ENTRIES as int * sub_pages_per_entry,
+        NR_ENTRIES as int * sub_pages_per_entry,
         PAGE_SIZE as int,
     );
     vstd::arithmetic::mul::lemma_mul_is_associative(

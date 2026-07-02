@@ -317,9 +317,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             forall|m: Mapping|
                 #![trigger self@.mappings.contains(m)]
-                self@.mappings.contains(m) ==> m.va_range.start != vaddr_of::<C>(
-                    removed_path,
-                ) as int,
+                self@.mappings.contains(m) ==> m.va_range.start != vaddr_of::<C>(removed_path),
         ensures
             self.no_frame_with_path(removed_path),
     {
