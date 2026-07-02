@@ -65,10 +65,17 @@ make
 or
 
 ```bash
+cargo dv verify
+```
+
+To verify only `ostd`, run:
+
+```bash
 cargo dv verify --targets ostd
 ```
 
-The `ostd` crate relies on a verified library: `vstd_extra`. To compile and verify the library independently, run:
+The `ostd` crate relies on a verified library: `vstd_extra`. To build it
+independently through `cargo-verus build`, run:
 
 ```bash
 cargo dv compile --targets vstd_extra
@@ -76,13 +83,7 @@ cargo dv compile --targets vstd_extra
 
 ### Clean Build Artifacts
 
-`dv` automatically skips recompilation and reverification for libraries that have not changed since the last build. To remove the build artifact of a particular library and force a fresh build, run:
-
-```bash
-cargo dv clean --targets vstd_extra
-```
-
-To clean all artifacts at once, run:
+`cargo verus` automatically skips recompilation and reverification for libraries that have not changed since the last build. To remove the build artifact force a fresh build, run:
 
 ```bash
 make clean
@@ -127,6 +128,6 @@ We welcome your contributions!
 
 ### Tips
 
-- During your development process, please frequently run `make verus update` or `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
+- During your development process, please frequently run `make verus-upgrade` or `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
 - Format checking is not enforced, but we still recommend formatting your code with `cargo dv fmt --paths path_to_your_file` before submission.
 - If you are contributing to Verus, we recommend submitting pull requests to [the upstream repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.
