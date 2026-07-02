@@ -519,11 +519,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 // sub_idx != self_idx by arithmetic: pa is PAGE_SIZE-aligned, so
                 // self_idx = pa / PAGE_SIZE, and sub_idx = (pa + j*PAGE_SIZE) / PAGE_SIZE
                 //         = pa/PAGE_SIZE + j = self_idx + j > self_idx (since j >= 1).
-                let pa_plus_int: int = pa as int + (j as int) * (PAGE_SIZE as int);
+                let pa_plus_int: int = pa + j * PAGE_SIZE;
                 crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                 self.parent_level);
-                assert((j as int) * (PAGE_SIZE as int) < (nr_pages as int) * (PAGE_SIZE as int))
-                    by {
+                assert(j * PAGE_SIZE < nr_pages * PAGE_SIZE) by {
                     vstd::arithmetic::mul::lemma_mul_strict_inequality(
                         j as int,
                         nr_pages as int,
@@ -538,7 +537,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     pa as int,
                     PAGE_SIZE as int,
                 );
-                assert(self_idx as int == pa as int / PAGE_SIZE as int);
+                assert(self_idx == pa as int / PAGE_SIZE as int);
                 assert(sub_idx != self_idx);
                 assert(r0.slot_owners.contains_key(sub_idx));
                 assert(r0.slot_owners[sub_idx] == r1.slot_owners[sub_idx]);
@@ -892,11 +891,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             } by {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                 assert(r0.slots.contains_key(sub_idx));
-                let pa_plus_int: int = pa as int + (j as int) * (PAGE_SIZE as int);
+                let pa_plus_int: int = pa + j * PAGE_SIZE;
                 crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                 self.parent_level);
-                assert((j as int) * (PAGE_SIZE as int) < (nr_pages as int) * (PAGE_SIZE as int))
-                    by {
+                assert(j * PAGE_SIZE < nr_pages * PAGE_SIZE) by {
                     vstd::arithmetic::mul::lemma_mul_strict_inequality(
                         j as int,
                         nr_pages as int,
@@ -912,7 +910,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     pa as int,
                     PAGE_SIZE as int,
                 );
-                assert(self_idx as int == pa as int / PAGE_SIZE as int);
+                assert(self_idx == pa as int / PAGE_SIZE as int);
                 assert(sub_idx != self_idx);
                 assert(r0.slot_owners.contains_key(sub_idx));
                 assert(r0.slot_owners[sub_idx] == r1.slot_owners[sub_idx]);

@@ -188,21 +188,21 @@ unsafe impl PageTableConfig for KernelPtConfig {
         assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
         assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
         assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-        assert((256 as int) * pow2(39) == pow2(47));
-        assert(((256 as int) * (pow2(39) as int)) / (pow2(47) as int) == 1);
+        assert(256 * pow2(39) == pow2(47));
+        assert((256 * pow2(39) as int) / (pow2(47) as int) == 1);
         assert(pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) == 39);
-        assert((Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
+        assert(Self::TOP_LEVEL_INDEX_RANGE_spec().start * (pow2(
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-        ) as int) == pow2(47) as int);
-        assert((((Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
+        )) == pow2(47));
+        assert(((Self::TOP_LEVEL_INDEX_RANGE_spec().start * pow2(
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-        ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) == 1);
-        assert((((Self::TOP_LEVEL_INDEX_RANGE_spec().start as int) * (pow2(
+        )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) == 1);
+        assert(((Self::TOP_LEVEL_INDEX_RANGE_spec().start * pow2(
             pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-        ) as int)) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1);
+        )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1);
         lemma_pow2_adds(16, 48);
-        assert(Self::LEADING_BITS_spec() as int * 0x1_0000_0000_0000int
-            == 0x1_0000_0000_0000_0000int - pow2(Self::C::ADDRESS_WIDTH() as nat) as int);
+        assert(Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
+            - pow2(Self::C::ADDRESS_WIDTH() as nat));
     }
 
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>) {
@@ -277,14 +277,18 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    axiom fn axiom_pte_size_eq_size_of();
-
-    proof fn lemma_pte_walk_fills_page() {
-        Self::lemma_page_table_config_constant_requirements();
-        Self::axiom_pte_size_eq_size_of();
+    proof fn lemma_pte_size_eq_size_of() {
+        PageTableEntry::lemma_layout();
     }
 
-    axiom fn axiom_pte_align_divides_size();
+    proof fn lemma_pte_walk_fills_page() {
+        Self::lemma_page_table_config_constant_properties();
+        Self::lemma_pte_size_eq_size_of();
+    }
+
+    proof fn lemma_pte_align_divides_size() {
+        PageTableEntry::lemma_layout();
+    }
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 
@@ -490,7 +494,7 @@ impl KernelPtConfig {
     /// For KernelPtConfig (x86_64): HIGHEST_TRANSLATION_LEVEL = 2 < NR_LEVELS = 4.
     pub proof fn lemma_kernel_htl_lt_nr_levels()
         ensures
-            (KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() as int) < NR_LEVELS as int,
+            KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() < NR_LEVELS,
     {
         assert(KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() == 2);
         assert(NR_LEVELS == 4usize);

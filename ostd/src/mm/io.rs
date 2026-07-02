@@ -64,6 +64,37 @@ use crate::{
 
 verus! {
 
+proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usize)
+    requires
+        align > 0,
+        start % align == 0,
+        len % align == 0,
+    ensures
+        (start + i * len) % align as int == 0,
+{
+    let a = align as int;
+    let q_start = start as int / a;
+    let q_len = len as int / a;
+    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, a);
+    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
+    assert(start as int % a == 0);
+    assert(len as int % a == 0);
+    assert(start == q_start * a);
+    assert(len == q_len * a);
+    assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a) by (nonlinear_arith);
+    assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
+    assert(i * (q_len * a) == i * len) by (nonlinear_arith)
+        requires
+            len == q_len * a,
+    ;
+    assert(q_start * a + i * len == start + i * len) by (nonlinear_arith)
+        requires
+            start == q_start * a,
+    ;
+    assert(start + i * len == (q_start + i * q_len) * a);
+    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i as int * q_len, a);
+}
+
 /// Verus spec stub for [`<*mut T>::is_aligned`]: returns whether the pointer's address is a
 /// multiple of `align_of::<T>()`.
 pub assume_specification<T>[ <*mut T>::is_aligned ](_0: *mut T) -> (res: bool)
@@ -358,7 +389,7 @@ impl<'a> VmWriter<'a, Infallible> {
     /// for `T`, or the available space isn't a multiple of `size_of::<T>()`.
     pub open spec fn fill_panic_condition<T>(self) -> bool {
         ||| self.cursor.vaddr as int % core::mem::align_of::<T>() as int != 0
-        ||| (self.end.vaddr - self.cursor.vaddr) as int % core::mem::size_of::<T>() as int != 0
+        ||| (self.end.vaddr - self.cursor.vaddr) % core::mem::size_of::<T>() as int != 0
     }
 
     /// Fills the available space by repeatedly writing the same `Pod` value.
@@ -396,7 +427,7 @@ impl<'a> VmWriter<'a, Infallible> {
             reader_owner@.has_read_view(),
             reader_owner@.is_kernel == old(writer_owner).is_kernel,
             // Return value: exactly `avail / size_of::<T>()` elements written.
-            r as int * core::mem::size_of::<T>() == old(self).avail_spec(),
+            r * core::mem::size_of::<T>() == old(self).avail_spec(),
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.cast::<T>();
@@ -490,16 +521,9 @@ impl<'a> VmWriter<'a, Infallible> {
                         len > 0,
                 ;
                 // alignment: cursor_i.vaddr == start + i*len, both summands divisible by align.
-                let alignT = core::mem::align_of::<T>() as int;
-                // Bridge usize invariants to int.
-                // (i*len) % alignT == ((i % alignT) * (len % alignT)) % alignT == 0.
-                ::vstd::arithmetic::div_mod::lemma_mul_mod_noop(i as int, len as int, alignT);
-                // ((start + i*len)) % alignT == ((start % alignT) + ((i*len) % alignT)) % alignT == 0.
-                ::vstd::arithmetic::div_mod::lemma_add_mod_noop(
-                    start as int,
-                    i as int * len as int,
-                    alignT,
-                );
+                assert(cursor_i.vaddr == start + i * len);
+                lemma_add_aligned_stride(start, i, len, core::mem::align_of::<T>());
+                assert(cursor_i.vaddr % core::mem::align_of::<T>() == 0);
             }
         }
 
@@ -1465,8 +1489,8 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     >)
         requires
             !Self::obeys_vmio_write_requires(),
-            offset as int + align as int <= usize::MAX as int,
-            core::mem::size_of::<T>() as int + align as int <= usize::MAX as int,
+            offset + align <= usize::MAX,
+            core::mem::size_of::<T>() + align <= usize::MAX,
             iter.obeys_prophetic_iter_laws(),
             iter.decrease() is Some,
             // `align_up` (called for `align > 1`) diverges unless `align`
