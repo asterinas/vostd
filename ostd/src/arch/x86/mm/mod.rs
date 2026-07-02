@@ -423,7 +423,7 @@ impl PageTableEntryTrait for PageTableEntry {
         proof {
             lemma_parse_flags_collorary(self.0);
             lemma_x86_page_flags_wf(self.0, flags);
-            assert(flags & PageFlags::all_bits() as usize == flags) by (compute);
+            assert(flags & PageFlags::all().bits() as usize == flags);
             #[cfg(not(feature = "cvm_guest"))]
             {
                 lemma_x86_priv_flags_wf(self.0, priv_flags);
@@ -838,7 +838,7 @@ proof fn lemma_page_property_flag_constants()
         PageFlags::DIRTY().bits() == 0x10,
         PageFlags::AVAIL1().bits() == 0x40,
         PageFlags::AVAIL2().bits() == 0x80,
-        PageFlags::all_bits() == 0xDFu8,
+        PageFlags::all().bits() == 0xDFu8,
         PageFlags::R().bits().ilog2() == 0,
         PageFlags::W().bits().ilog2() == 1,
         PageFlags::X().bits().ilog2() == 2,
@@ -849,13 +849,13 @@ proof fn lemma_page_property_flag_constants()
         PrivFlags::USER().bits() == 0x1,
         PrivFlags::GLOBAL().bits() == 0x2,
         #[cfg(not(all(target_arch = "x86_64", feature = "cvm_guest")))]
-        PrivFlags::all_bits() == 0x3u8,
+        PrivFlags::all().bits() == 0x3u8,
         PrivFlags::USER().bits().ilog2() == 0,
         PrivFlags::GLOBAL().bits().ilog2() == 1,
         #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
         (PrivFlags::SHARED().bits() == 0x80),
         #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
-        (PrivFlags::all_bits() == 0x83u8),
+        (PrivFlags::all().bits() == 0x83u8),
         #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
         (PrivFlags::SHARED().bits().ilog2() == 7),
 {
@@ -886,9 +886,19 @@ proof fn lemma_page_property_flag_constants()
     broadcast use PageFlags::lemma_consts;
     broadcast use PrivFlags::lemma_consts;
 
-    assert(PageFlags::all_bits() == 0xDFu8) by (compute);
+    PageFlags::lemma_all_constant();
+    assert((0u8 | 0x1u8 | 0x2u8 | 0x4u8 | 0x3u8 | 0x5u8 | 0x7u8 | 0x8u8 | 0x10u8
+        | 0x40u8 | 0x80u8) == 0xDFu8) by (bit_vector);
     #[cfg(not(all(target_arch = "x86_64", feature = "cvm_guest")))]
-    assert(PrivFlags::all_bits() == 0x3u8) by (compute);
+    {
+        PrivFlags::lemma_all_constant();
+        assert((0u8 | 0x1u8 | 0x2u8 | 0u8) == 0x3u8) by (bit_vector);
+    }
+    #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]
+    {
+        PrivFlags::lemma_all_constant();
+        assert((0u8 | 0x1u8 | 0x2u8 | 0x80u8) == 0x83u8) by (bit_vector);
+    }
 }
 
 #[cfg(all(target_arch = "x86_64", feature = "cvm_guest"))]

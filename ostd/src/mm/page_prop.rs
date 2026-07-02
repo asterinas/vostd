@@ -155,7 +155,7 @@ verus! {
 impl PageFlags {
     pub proof fn lemma_from_bits_bits(bits: u8)
         requires
-            bits & Self::all_bits() == bits,
+            bits & Self::all().bits() == bits,
         ensures
             Self::from_bits(bits)->0.bits() == bits,
     {
@@ -173,7 +173,7 @@ impl PageFlags {
 impl PrivilegedPageFlags {
     pub proof fn lemma_from_bits_bits(bits: u8)
         requires
-            bits & Self::all_bits() == bits,
+            bits & Self::all().bits() == bits,
         ensures
             Self::from_bits(bits)->0.bits() == bits,
     {
@@ -190,8 +190,8 @@ impl PrivilegedPageFlags {
 
 impl Inv for PageProperty {
     open spec fn inv(self) -> bool {
-        &&& self.flags.bits() & PageFlags::all_bits() == self.flags.bits()
-        &&& self.priv_flags.bits() & PrivilegedPageFlags::all_bits() == self.priv_flags.bits()
+        &&& self.flags.bits() & PageFlags::all().bits() == self.flags.bits()
+        &&& self.priv_flags.bits() & PrivilegedPageFlags::all().bits() == self.priv_flags.bits()
     }
 }
 
