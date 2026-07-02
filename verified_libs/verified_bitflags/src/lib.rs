@@ -15,10 +15,14 @@
 //!     pub const fn bits(&self) -> T;
 //!     pub const fn from_bits(bits: T) -> Option<Self>;
 //!     pub const fn from_bits_truncate(bits: T) -> Self;
+//!     pub const fn is_empty(&self) -> bool;
+//!     pub const fn is_all(&self) -> bool;
 //!     pub const fn contains(&self, other: Self) -> bool;
 //!     pub const fn intersects(&self, other: Self) -> bool;
 //!     pub fn insert(&mut self, other: Self);
+//!     pub fn remove(&mut self, other: Self);
 //!     pub fn toggle(&mut self, other: Self);
+//!     pub fn set(&mut self, other: Self, value: bool);
 //! }
 //! ```
 //!
@@ -102,8 +106,8 @@ macro_rules! __bitflags_cfg_guarded_stmt {
 ///     }
 /// }
 ///
-/// let f = Flags::A | Flags::B;
-/// assert!(f.contains(Flags::A));
+/// let f = Flags::A() | Flags::B();
+/// assert!(f.contains(Flags::A()));
 /// ```
 #[verusfmt::skip]
 #[macro_export]
@@ -116,8 +120,6 @@ macro_rules! bitflags {
                 const $Flag:ident = $value:expr;
             )*
         }
-
-        $($t:tt)*
     ) => {
         paste::paste! {
         verus! {
@@ -315,12 +317,75 @@ macro_rules! bitflags {
                 $vis const fn all() -> (r: Self)
                     ensures
                         r == Self::all_spec(),
+                        r.bits() == Self::all_bits(),
+                        r.flags_spec() == Self::flags_from_bits(Self::all_bits()),
                 {
                     Self::from_bits_unchecked(Self::all_bits())
                 }
 
+                /// The bits in `self` that correspond to declared flags.
+                $vis closed spec fn known_bits_spec(&self) -> $T {
+                    self.bits() & Self::all_bits()
+                }
+
+                #[verifier::when_used_as_spec(known_bits_spec)]
+                $vis const fn known_bits(&self) -> (r: $T)
+                    returns self.known_bits(),
+                {
+                    self.bits & Self::all_bits()
+                }
+
+                /// The bits in `self` that do not correspond to declared flags.
+                $vis closed spec fn unknown_bits_spec(&self) -> $T {
+                    self.bits() & !Self::all_bits()
+                }
+
+                #[verifier::when_used_as_spec(unknown_bits_spec)]
+                $vis const fn unknown_bits(&self) -> (r: $T)
+                    returns self.unknown_bits(),
+                {
+                    self.bits & !Self::all_bits()
+                }
+
+                /// This method returns `true` if any unknown bits are set.
+                $vis open spec fn contains_unknown_bits_spec(&self) -> bool {
+                    self.unknown_bits() != 0
+                }
+
+                #[verifier::when_used_as_spec(contains_unknown_bits_spec)]
+                $vis const fn contains_unknown_bits(&self) -> (r: bool)
+                    returns self.contains_unknown_bits(),
+                {
+                    self.unknown_bits() != 0
+                }
+
+                /// Whether all bits in `self` are unset.
+                $vis open spec fn is_empty_spec(&self) -> bool {
+                    self.bits() == 0
+                }
+
+                #[verifier::when_used_as_spec(is_empty_spec)]
+                $vis const fn is_empty(&self) -> (r: bool)
+                    returns self.is_empty(),
+                {
+                    self.bits == 0
+                }
+
+                /// Whether all known bits are set.
+                $vis open spec fn is_all_spec(&self) -> bool {
+                    Self::all_bits() | self.bits() == self.bits()
+                }
+
+                #[verifier::when_used_as_spec(is_all_spec)]
+                $vis const fn is_all(&self) -> (r: bool)
+                    returns self.is_all(),
+                {
+                    Self::all_bits() | self.bits == self.bits
+                }
+
+                /// Whether all set bits in `other` are also set in `self`.
                 $vis open spec fn contains_spec(&self, other: Self) -> bool {
-                    other@.subset_of(self@)
+                    (self.bits() & other.bits()) == other.bits()
                 }
 
                 $vis open spec fn contains_flags_spec(&self, other: Self) -> bool {
@@ -328,113 +393,22 @@ macro_rules! bitflags {
                 }
 
                 #[verifier::when_used_as_spec(contains_spec)]
-                $vis const fn contains(&self, other: Self) -> bool
+                $vis const fn contains(&self, other: Self) -> (r: bool)
                     returns self.contains(other),
                 {
-                    let res = $(
-                        (
-                            !$crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true }
-                            || (other.bits & (($value) as $T)) != (($value) as $T)
-                            || (self.bits & (($value) as $T)) == (($value) as $T)
-                        )
-                    )&&*;
-                    proof {
-                        assert(self@ =~= Self::flags_from_bits(self.bits()));
-                        assert(other@ =~= Self::flags_from_bits(other.bits()));
-
-                        if res {
-                            assert forall|flag: [< __ghost $name >]| #[trigger]
-                                other@.contains(flag) implies self@.contains(flag) by {
-                                match flag {
-                                    $(
-                                        [< __ghost $name >]::[< __ghost $Flag >] => {
-                                            assert(other@.contains(flag));
-                                            assert(Self::flags_from_bits(other.bits()).contains(flag));
-                                            assert(flag.enabled());
-                                            if flag.enabled() {
-                                                assert((other.bits() & (($value) as $T)) == (($value) as $T));
-                                                assert((self.bits() & (($value) as $T)) == (($value) as $T));
-                                                assert(Self::flags_from_bits(self.bits()).contains(flag));
-                                            }
-                                        },
-                                    )*
-                                }
-                            }
-                            assert(other@.subset_of(self@));
-                        }
-
-                        if other@.subset_of(self@) {
-                            $(
-                                if $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true }
-                                    && (other.bits() & (($value) as $T)) == (($value) as $T)
-                                {
-                                    assert(Self::flags_from_bits(other.bits()).contains(
-                                        [< __ghost $name >]::[< __ghost $Flag >],
-                                    ));
-                                    assert(other@.contains([< __ghost $name >]::[< __ghost $Flag >]));
-                                    assert(self@.contains([< __ghost $name >]::[< __ghost $Flag >]));
-                                    assert(Self::flags_from_bits(self.bits()).contains(
-                                        [< __ghost $name >]::[< __ghost $Flag >],
-                                    ));
-                                    assert((self.bits() & (($value) as $T)) == (($value) as $T));
-                                }
-                            )*
-                            assert(res);
-                        }
-                    }
-                    res
+                    (self.bits & other.bits) == other.bits
                 }
 
+                /// Whether any set bits in `other` are also set in `self`.
                 $vis open spec fn intersects_spec(&self, other: Self) -> bool {
-                    exists|flag: [< __ghost $name >]| #[trigger] self@.contains(flag) && other@.contains(flag)
+                    (self.bits() & other.bits()) != 0
                 }
 
                 #[verifier::when_used_as_spec(intersects_spec)]
-                $vis const fn intersects(&self, other: Self) -> bool
+                $vis const fn intersects(&self, other: Self) -> (r: bool)
                     returns self.intersects(other),
                 {
-                    let res = $(
-                        (
-                            $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true }
-                            && (self.bits & (($value) as $T)) == (($value) as $T)
-                            && (other.bits & (($value) as $T)) == (($value) as $T)
-                        )
-                    )||*;
-                    proof {
-
-                        if res {
-                            $(
-                                if $crate::__bitflags_cfg_expr! { ($(#[$inner $($args)*])*) true }
-                                    && (self.bits() & (($value) as $T)) == (($value) as $T)
-                                    && (other.bits() & (($value) as $T)) == (($value) as $T)
-                                {
-                                    assert(self@.contains([< __ghost $name >]::[< __ghost $Flag >]));
-                                    assert(other@.contains([< __ghost $name >]::[< __ghost $Flag >]));
-                                    assert(exists|flag: [< __ghost $name >]|
-                                        #[trigger] self@.contains(flag) && other@.contains(flag));
-                                }
-                            )*
-                            assert(exists|flag: [< __ghost $name >]|
-                                #[trigger] self@.contains(flag) && other@.contains(flag));
-                        }
-
-                        if exists|flag: [< __ghost $name >]| #[trigger] self@.contains(flag) && other@.contains(flag) {
-                            let flag = choose|flag: [< __ghost $name >]| self@.contains(flag) && other@.contains(flag);
-                            assert(self@.contains(flag));
-                            assert(other@.contains(flag));
-                            match flag {
-                                $(
-                                    [< __ghost $name >]::[< __ghost $Flag >] => {
-                                        assert(flag.enabled());
-                                        assert((self.bits() & (($value) as $T)) == (($value) as $T));
-                                        assert((other.bits() & (($value) as $T)) == (($value) as $T));
-                                    },
-                                )*
-                            }
-                            assert(res);
-                        }
-                    }
-                    res
+                    (self.bits & other.bits) != 0
                 }
 
                 $vis closed spec fn from_bits_truncate_spec(bits: $T) -> Self {
@@ -457,6 +431,9 @@ macro_rules! bitflags {
 
                 #[verifier::when_used_as_spec(from_bits_truncate_spec)]
                 $vis const fn from_bits_truncate(bits: $T) -> (r: Self)
+                    ensures
+                        r.bits() == (bits & Self::all_bits()),
+                        r.flags_spec() == Self::flags_from_bits(bits & Self::all_bits()),
                     returns Self::from_bits_truncate(bits),
                 {
                     Self::from_bits_unchecked(bits & Self::all_bits())
@@ -527,6 +504,18 @@ macro_rules! bitflags {
                     *self = Self::from_bits_unchecked(bits);
                 }
 
+                /// Call `insert` when `value` is `true` or `remove` when `value` is `false`.
+                $vis fn set(&mut self, other: Self, value: bool)
+                    ensures
+                        value ==> final(self).bits() == (old(self).bits() | other.bits()),
+                        !value ==> final(self).bits() == (old(self).bits() & !other.bits()),
+                {
+                    if value {
+                        self.insert(other);
+                    } else {
+                        self.remove(other);
+                    }
+                }
 
                 $vis closed spec fn union_spec(self, other: Self) -> Self {
                     Self::from_bits_unchecked_spec(self.bits() | other.bits())
@@ -578,6 +567,19 @@ macro_rules! bitflags {
                     returns self.symmetric_difference(other),
                 {
                     Self::from_bits_unchecked(self.bits ^ other.bits)
+                }
+
+                $vis closed spec fn complement_spec(self) -> Self {
+                    Self::from_bits_unchecked_spec(!self.bits() & Self::all_bits())
+                }
+
+                #[verifier::when_used_as_spec(complement_spec)]
+                $vis const fn complement(self) -> (r: Self)
+                    ensures
+                        r.bits() == (!self.bits() & Self::all_bits()),
+                    returns self.complement(),
+                {
+                    Self::from_bits_unchecked(!self.bits & Self::all_bits())
                 }
             }
 
@@ -685,7 +687,7 @@ macro_rules! bitflags {
                 open spec fn not_req(self) -> bool { true }
 
                 closed spec fn not_spec(self) -> Self::Output {
-                    Self::from_bits_unchecked_spec(!self.bits() & Self::all_bits())
+                    self.complement()
                 }
             }
 
@@ -696,7 +698,7 @@ macro_rules! bitflags {
                     ensures
                         r.bits() == (!self.bits() & $name::all_bits()),
                 {
-                    Self::from_bits_unchecked(!self.bits & $name::all_bits())
+                    self.complement()
                 }
             }
 
@@ -705,6 +707,34 @@ macro_rules! bitflags {
         impl ::core::fmt::Debug for $name {
             fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 f.debug_tuple(stringify!($name)).field(&self.bits).finish()
+            }
+        }
+
+        impl ::core::ops::BitOrAssign for $name {
+            #[inline]
+            fn bitor_assign(&mut self, other: Self) {
+                self.bits |= other.bits;
+            }
+        }
+
+        impl ::core::ops::BitAndAssign for $name {
+            #[inline]
+            fn bitand_assign(&mut self, other: Self) {
+                self.bits &= other.bits;
+            }
+        }
+
+        impl ::core::ops::BitXorAssign for $name {
+            #[inline]
+            fn bitxor_assign(&mut self, other: Self) {
+                self.bits ^= other.bits;
+            }
+        }
+
+        impl ::core::ops::SubAssign for $name {
+            #[inline]
+            fn sub_assign(&mut self, other: Self) {
+                self.bits &= !other.bits;
             }
         }
 
@@ -772,6 +802,13 @@ bitflags! {
     }
 }
 
+bitflags! {
+    pub struct ZeroFlags: u8 {
+        const NONE = 0b00000000;
+        const A = 0b00000001;
+    }
+}
+
 verus! {
 
 #[allow(dead_code)]
@@ -782,12 +819,12 @@ fn _bitflags_smoke_test() {
     let abc = Flags::ABC();
 
     assert(a.bits() == 0b001u32);
-    assert(a.bits() == Flags::A().bits());
     assert(b.bits() == 0b010u32);
     assert(c.bits() == 0b100u32);
     assert(abc.bits() == 0b111u32);
-    assert(a@ =~= Flags::flags_from_bits(a.bits()));
-    assert(abc@ =~= Flags::flags_from_bits(abc.bits()));
+    assert(Flags::empty().bits() == 0);
+    assert(Flags::all_bits() == 0b111u32) by (compute);
+    assert(Flags::all().bits() == 0b111u32);
 
     let abc_b = abc.bits();
     let a_b = a.bits();
@@ -804,66 +841,14 @@ fn _bitflags_smoke_test() {
         requires
             a_b == 0b001u32 && b_b == 0b010u32,
     ;
-    assert forall|flag: __ghostFlags| #[trigger] abc@.contains(flag) by {
-        assert(abc@ =~= Flags::flags_from_bits(abc.bits()));
-        match flag {
-            __ghostFlags::__ghostA => {
-                assert((abc_b & 0b001u32) == 0b001u32) by (bit_vector)
-                    requires abc_b == 0b111u32,
-                ;
-                assert((abc.bits() & 0b001u32) == 0b001u32);
-            },
-            __ghostFlags::__ghostB => {
-                assert((abc_b & 0b010u32) == 0b010u32) by (bit_vector)
-                    requires abc_b == 0b111u32,
-                ;
-                assert((abc.bits() & 0b010u32) == 0b010u32);
-            },
-            __ghostFlags::__ghostC => {
-                assert((abc_b & 0b100u32) == 0b100u32) by (bit_vector)
-                    requires abc_b == 0b111u32,
-                ;
-                assert((abc.bits() & 0b100u32) == 0b100u32);
-            },
-            __ghostFlags::__ghostABC => {
-                assert((abc_b & 0b111u32) == 0b111u32) by (bit_vector)
-                    requires abc_b == 0b111u32,
-                ;
-                assert((abc.bits() & 0b111u32) == 0b111u32);
-            },
-        }
-    }
-    assert(a@.subset_of(abc@));
-    assert(b@.subset_of(abc@));
-    assert(b@.contains(__ghostFlags::__ghostB)) by {
-        assert(b@ =~= Flags::flags_from_bits(b.bits()));
-        assert((b_b & 0b010u32) == 0b010u32) by (bit_vector)
-            requires b_b == 0b010u32,
-        ;
-        assert((b.bits() & 0b010u32) == 0b010u32);
-    }
-    assert(a@.contains(__ghostFlags::__ghostA)) by {
-        assert(a@ =~= Flags::flags_from_bits(a.bits()));
-        assert((a_b & 0b001u32) == 0b001u32) by (bit_vector)
-            requires a_b == 0b001u32,
-        ;
-        assert((a.bits() & 0b001u32) == 0b001u32);
-    }
-    assert(!a@.contains(__ghostFlags::__ghostB)) by {
-        assert(a@ =~= Flags::flags_from_bits(a.bits()));
-        assert((a_b & 0b010u32) != 0b010u32) by (bit_vector)
-            requires a_b == 0b001u32,
-        ;
-        assert((a.bits() & 0b010u32) != 0b010u32);
-    }
-    assert(!b@.subset_of(a@)) by {
-        if b@.subset_of(a@) {
-            assert(a@.contains(__ghostFlags::__ghostB));
-        }
-    }
     assert(abc.contains(a));
     assert(abc.contains(b));
     assert(!a.contains(b));
+    assert(abc.intersects(a));
+    let a_intersects_b = a.intersects(b);
+    assert(!a_intersects_b) by (bit_vector)
+        requires a_intersects_b == ((0b001u32 & 0b010u32) != 0),
+    ;
 
     let mut removed = abc;
     removed.remove(a);
@@ -874,47 +859,112 @@ fn _bitflags_smoke_test() {
             removed_b == (abc_b & !a_b),
             abc_b == 0b111u32 && a_b == 0b001u32,
     ;
-    assert(removed@ =~= Flags::flags_from_bits(removed.bits()));
+    removed.insert(a);
+    let removed_after_insert_a = removed.bits();
+    assert(removed_after_insert_a == abc_b) by (bit_vector)
+        requires
+            removed_after_insert_a == (removed_b | a_b),
+            removed_b == 0b110u32,
+            a_b == 0b001u32,
+            abc_b == 0b111u32,
+    ;
+    removed.toggle(b);
+    let removed_after_toggle_b = removed.bits();
+    assert(removed_after_toggle_b == 0b101u32) by (bit_vector)
+        requires
+            removed_after_toggle_b == (removed_after_insert_a ^ b_b),
+            removed_after_insert_a == 0b111u32,
+            b_b == 0b010u32,
+    ;
+    removed.set(c, false);
+    let removed_after_set_c_false = removed.bits();
+    assert(removed_after_set_c_false == 0b001u32) by (bit_vector)
+        requires
+            removed_after_set_c_false == (removed_after_toggle_b & !0b100u32),
+            removed_after_toggle_b == 0b101u32,
+    ;
+    removed.set(b, true);
+    let removed_after_set_b_true = removed.bits();
+    assert(removed_after_set_b_true == 0b011u32) by (bit_vector)
+        requires
+            removed_after_set_b_true == (removed_after_set_c_false | b_b),
+            removed_after_set_c_false == 0b001u32,
+            b_b == 0b010u32,
+    ;
+    removed.insert(c);
+    let removed_after_insert_c = removed.bits();
+    assert(removed_after_insert_c == abc_b) by (bit_vector)
+        requires
+            removed_after_insert_c == (removed_after_set_b_true | 0b100u32),
+            removed_after_set_b_true == 0b011u32,
+            abc_b == 0b111u32,
+    ;
+    removed = removed.intersection(Flags::from_bits_retain(0b101u32));
+    let removed_after_intersection = removed.bits();
+    assert(removed_after_intersection == 0b101u32) by (bit_vector)
+        requires
+            removed_after_intersection == (removed_after_insert_c & 0b101u32),
+            removed_after_insert_c == 0b111u32,
+    ;
+    removed.toggle(a);
+    let removed_after_toggle_a = removed.bits();
+    assert(removed_after_toggle_a == 0b100u32) by (bit_vector)
+        requires
+            removed_after_toggle_a == (removed_after_intersection ^ a_b),
+            removed_after_intersection == 0b101u32,
+            a_b == 0b001u32,
+    ;
+    removed.remove(c);
+    let removed_after_remove_c = removed.bits();
+    assert(removed_after_remove_c == 0) by (bit_vector)
+        requires
+            removed_after_remove_c == (removed_after_toggle_a & !0b100u32),
+            removed_after_toggle_a == 0b100u32,
+    ;
 
-    assert(abc.intersects(a)) by {
-        assert(abc@.contains(__ghostFlags::__ghostA));
-        assert(a@.contains(__ghostFlags::__ghostA));
-        assert(exists|flag: __ghostFlags| #[trigger] abc@.contains(flag) && a@.contains(flag));
-    }
-    assert(!a.intersects(b)) by {
-        assert forall|flag: __ghostFlags| !(#[trigger] a@.contains(flag) && b@.contains(flag)) by {
-            match flag {
-                __ghostFlags::__ghostA => {
-                    assert(b@ =~= Flags::flags_from_bits(b.bits()));
-                    assert((b_b & 0b001u32) != 0b001u32) by (bit_vector)
-                        requires b_b == 0b010u32,
-                    ;
-                    assert((b.bits() & 0b001u32) != 0b001u32);
-                    assert(!b@.contains(flag));
-                },
-                __ghostFlags::__ghostB => {
-                    assert(!a@.contains(flag));
-                },
-                __ghostFlags::__ghostC => {
-                    assert(a@ =~= Flags::flags_from_bits(a.bits()));
-                    assert((a_b & 0b100u32) != 0b100u32) by (bit_vector)
-                        requires a_b == 0b001u32,
-                    ;
-                    assert((a.bits() & 0b100u32) != 0b100u32);
-                    assert(!a@.contains(flag));
-                },
-                __ghostFlags::__ghostABC => {
-                    assert(a@ =~= Flags::flags_from_bits(a.bits()));
-                    assert((a_b & 0b111u32) != 0b111u32) by (bit_vector)
-                        requires a_b == 0b001u32,
-                    ;
-                    assert((a.bits() & 0b111u32) != 0b111u32);
-                    assert(!a@.contains(flag));
-                },
-            }
-        }
-        assert(!exists|flag: __ghostFlags| #[trigger] a@.contains(flag) && b@.contains(flag));
-    }
+    let unknown = Flags::from_bits_retain(0b1000u32);
+    assert(unknown.bits() == 0b1000u32);
+    let unknown_known = unknown.known_bits();
+    assert(unknown_known == 0) by (bit_vector)
+        requires unknown_known == (0b1000u32 & 0b111u32),
+    ;
+    let unknown_unknown = unknown.unknown_bits();
+    assert(unknown_unknown == 0b1000u32) by (bit_vector)
+        requires unknown_unknown == (0b1000u32 & !0b111u32),
+    ;
+    assert(unknown.contains_unknown_bits());
+    assert(Flags::from_bits(0b1000u32).is_none());
+    let truncated_unknown = Flags::from_bits_truncate(0b1001u32);
+    let truncated_unknown_b = truncated_unknown.bits();
+    assert(truncated_unknown_b == 0b001u32) by (bit_vector)
+        requires truncated_unknown_b == (0b1001u32 & 0b111u32),
+    ;
+    let empty = Flags::empty();
+    let empty_contains_unknown = empty.contains(unknown);
+    assert(!empty_contains_unknown) by (bit_vector)
+        requires empty_contains_unknown == ((0u32 & 0b1000u32) == 0b1000u32),
+    ;
+    let empty_contains_empty = empty.contains(empty);
+    assert(empty_contains_empty) by (bit_vector)
+        requires empty_contains_empty == ((0u32 & 0u32) == 0u32),
+    ;
+    let empty_intersects_unknown = empty.intersects(unknown);
+    assert(!empty_intersects_unknown) by (bit_vector)
+        requires empty_intersects_unknown == ((0u32 & 0b1000u32) != 0),
+    ;
+
+    let z = ZeroFlags::NONE();
+    let za = ZeroFlags::A();
+    assert(z.bits() == 0);
+    assert(z.is_empty());
+    let za_contains_z = za.contains(z);
+    assert(za_contains_z) by (bit_vector)
+        requires za_contains_z == ((0b1u8 & 0u8) == 0u8),
+    ;
+    let za_intersects_z = za.intersects(z);
+    assert(!za_intersects_z) by (bit_vector)
+        requires za_intersects_z == ((0b1u8 & 0u8) != 0u8),
+    ;
 
 }
 
