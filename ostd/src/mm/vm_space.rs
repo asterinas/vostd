@@ -1653,10 +1653,6 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
-    proof fn lemma_pte_align_divides_size() {
-        PageTableEntry::lemma_layout();
-    }
-
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 
     open spec fn tracked(_item: Self::Item) -> bool {

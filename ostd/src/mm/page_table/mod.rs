@@ -441,17 +441,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         Self::C::lemma_paging_consts_properties();
         Self::lemma_page_table_config_constant_requirements();
     }
-
-    /// `align_of::<E>()` divides `size_of::<E>()`. True for any sized Rust
-    /// type (the alignment divides the size by the layout rules), but
-    /// Verus's `size_of`/`align_of` are uninterpreted so we expose it as
-    /// a proof obligation. Used by PT-node `on_drop` to prove cursor alignment is
-    /// preserved across `read_once` iterations.
-    proof fn lemma_pte_align_divides_size()
-        ensures
-            core::mem::size_of::<Self::E>() % core::mem::align_of::<Self::E>() == 0,
-            core::mem::align_of::<Self::E>() > 0,
-    ;
 }
 
 // Implement it so that we can comfortably use low level functions
@@ -1947,6 +1936,8 @@ pub trait PageTableEntryTrait:
     proof fn lemma_page_table_entry_properties()
         ensures
             core::mem::size_of::<Self>() == core::mem::size_of::<usize>(),
+            core::mem::size_of::<Self>() % core::mem::align_of::<Self>() == 0,
+            core::mem::align_of::<Self>() > 0,
             Self::new_absent().paddr() % PAGE_SIZE == 0,
             Self::new_absent().paddr() < MAX_PADDR,
             !Self::new_absent().is_present(),
