@@ -715,7 +715,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // Locked range stays within the config's managed VA space. Established at
         // cursor construction (barrier_va == *va with is_valid_range_spec(va)) and
         // preserved by all cursor operations since they don't modify prefix/guard_level.
-        &&& self.locked_range().end <= crate::mm::page_table::vaddr_range_spec::<C>().1
+        &&& self.locked_range().end <= crate::mm::page_table::vaddr_range_spec::<C>()@.end
             + 1
         // Per-config tightening: e.g. `KernelPtConfig` overrides this to
         // `FRAME_METADATA_BASE_VADDR`, which the kvirt allocator enforces and
@@ -2807,8 +2807,8 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
         &&& forall|m: Mapping|
             #![auto]
             self.mappings.contains(m) ==> {
-                &&& vaddr_range_spec::<C>().0 <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<C>().1 + 1
+                &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
             }
         &&& self.non_overlapping()
     }
@@ -2834,8 +2834,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<C>().0 <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<C>().1 + 1
+                &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
             },
 {
     C::lemma_paging_consts_properties();
@@ -2910,12 +2910,10 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
                 usize::MAX == 0x1_0000_0000_0000_0000int - 1,
         ;
     }
-    assert(bounds.0 == base + start * cell);
-    assert(bounds.1 == base + end * cell - 1);
 
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<C>().0 <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<C>().1 + 1
+        &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
     } by {
         owner.lemma_view_mappings_contains();
         let i = choose|i: int|
@@ -3064,19 +3062,17 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
+                &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.end + 1
             },
 {
     crate::mm::page_table::lemma_vaddr_range_spec_kernel();
-    let start = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start as int;
-    let end = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end as int;
+    let start = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start as int;
+    let end = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
     let lb = crate::mm::kspace::KernelPtConfig::LEADING_BITS_spec() as int;
     assert(start == 256);
     assert(end == 512);
     assert(lb == 0xffff);
-    // bound == (256·2^39 + 0xffff·2^48, 512·2^39 + 0xffff·2^48 - 1)
-    //       == (0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF).
     assert(start * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int == 0xFFFF_8000_0000_0000int)
         by (nonlinear_arith)
         requires
@@ -3090,8 +3086,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
             lb == 0xffff,
     ;
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
+        &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.start <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.end + 1
     } by {
         owner.lemma_view_mappings_contains();
         let i = choose|i: int|

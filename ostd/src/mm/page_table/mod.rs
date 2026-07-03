@@ -649,13 +649,14 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
 /// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
 /// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
 /// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
-pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
+#[verusfmt::skip]
+pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr> {
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
     let lb = C::LEADING_BITS_spec() as int;
     let base = lb * 0x1_0000_0000_0000int;
     let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
-    let end_inclusive = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
-    (start, end_inclusive)
+    let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
+    start..=end
 }
 
 /// Gets the managed virtual addresses range for the page table.
@@ -666,10 +667,8 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
 /// exclusive end of a [`Range<Vaddr>`].
 #[verusfmt::skip]
 fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
-    ensures
-        ret@.start == vaddr_range_spec::<C>().0,
-        ret@.end == vaddr_range_spec::<C>().1,
-        ret@.exhausted == false,
+    returns 
+        vaddr_range_spec::<C>(),
 {
     let mut start = pt_va_range_start::<C>();
     let mut end = pt_va_range_end::<C>();
@@ -694,7 +693,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
 #[verifier::inline]
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
     let va_range = vaddr_range_spec::<C>();
-    (r.start == 0 && r.end == 0) || (va_range.0 <= r.start && r.end > 0 && r.end - 1 <= va_range.1)
+    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end > 0 && r.end - 1 <= va_range@.end)
 }
 
 /// A handle to a page table.
@@ -785,10 +784,8 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> (ret: bool)
 /// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
-        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>() == (
-            0_usize,
-            0x0000_7FFF_FFFF_FFFF_usize,
-        ),
+        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.start == 0,
+        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
 {
     use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
     lemma2_to64();
@@ -809,10 +806,8 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
 /// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
 pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
-        vaddr_range_spec::<KernelPtConfig>() == (
-            0xFFFF_8000_0000_0000_usize,
-            0xFFFF_FFFF_FFFF_FFFF_usize,
-        ),
+        vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
+        vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
 {
     use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
     lemma2_to64();
