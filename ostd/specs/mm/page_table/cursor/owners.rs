@@ -3,14 +3,11 @@ use vstd::prelude::*;
 use vstd::seq_lib::*;
 use vstd::set::lemma_set_contains_len;
 
-use vstd_extra::arithmetic::{
-    lemma_nat_align_down_monotone, lemma_nat_align_down_sound, lemma_nat_align_down_within_block,
-    lemma_nat_align_up_sound,
-};
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::panic::may_panic;
+use vstd_extra::prelude::*;
 use vstd_extra::seq_extra::{forall_seq, lemma_forall_seq_index};
 
 use core::marker::PhantomData;
@@ -24,14 +21,17 @@ use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge,
     page_size,
 };
-use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE, has_safe_slot};
+use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
-};
 use crate::specs::mm::page_table::owners::*;
+use crate::specs::mm::page_table::{
+    cursor::page_size_lemmas::{
+        lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
+    },
+    owners::*,
+    pte_index_bit_offset_spec,
+};
 
-use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
 use crate::specs::mm::{
     frame::{mapping::meta_addr, meta_region_owners::MetaRegionOwners},
     page_table::{AbstractVaddr, Guards, Mapping},
@@ -2840,7 +2840,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
 {
     C::lemma_paging_consts_properties();
     C::lemma_page_table_config_constant_properties();
-    crate::mm::page_table::lemma_pte_index_consts::<C>();
+    lemma_arch_specific_consts_properties::<C>();
     lemma_vaddr_range_bounds_spec_unfold::<C>();
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();

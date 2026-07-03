@@ -8,8 +8,9 @@
 use vstd::arithmetic::power2::{lemma_pow2_adds, lemma_pow2_pos, pow2};
 use vstd::prelude::*;
 
-use crate::mm::page_table::{PageTableConfig, pte_index_bit_offset_spec};
+use crate::mm::page_table::PageTableConfig;
 use crate::mm::{PagingConstsTrait, Vaddr};
+use crate::specs::mm::page_table::pte_index_bit_offset_spec;
 
 verus! {
 
@@ -88,43 +89,17 @@ pub proof fn lemma_pt_va_range_end_wrapping_sub<C: PageTableConfig>(
     ret: usize,
 )
     requires
-        idx_end == C::TOP_LEVEL_INDEX_RANGE_spec().end,
+        idx_end == C::TOP_LEVEL_INDEX_RANGE().end,
         offset == pte_index_bit_offset_spec::<C>(C::NR_LEVELS()),
         shifted == idx_end * pow2(offset as nat),
         ret == vstd::wrapping::usize_specs::wrapping_sub(shifted, 1usize),
     ensures
-        ret == (C::TOP_LEVEL_INDEX_RANGE_spec().end * pow2(
+        ret == (C::TOP_LEVEL_INDEX_RANGE().end * pow2(
             pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) - 1) % 0x1_0000_0000_0000_0000int,
 {
     lemma_pt_va_range_end_shift_facts::<C>(idx_end, offset);
     vstd::layout::unsigned_int_max_values();
-}
-
-/// Facts needed to connect `(va >> (ADDRESS_WIDTH - 1)) & 1` with the
-/// arithmetic bit-test specification.
-pub proof fn lemma_sign_bit_facts<C: PageTableConfig>(
-    va: Vaddr,
-    address_width: usize,
-    shift: usize,
-    shifted: usize,
-    bit: usize,
-)
-    requires
-        address_width == C::ADDRESS_WIDTH(),
-        shift == address_width - 1,
-        shifted == va >> shift,
-        bit == shifted & 1usize,
-    ensures
-        (bit != 0) == ((va as int / pow2((C::ADDRESS_WIDTH() - 1) as nat) as int) % 2 == 1),
-{
-    C::lemma_paging_consts_properties();
-    C::lemma_page_table_config_constant_properties();
-
-    vstd::bits::lemma_usize_shr_is_div(va, shift);
-    vstd::bits::lemma_usize_low_bits_mask_is_mod(shifted, 1);
-    vstd::bits::lemma_low_bits_mask_values();
-    vstd::arithmetic::power2::lemma2_to64();
 }
 
 /// Two-in-one: `start = idx.start * 2^off < 2^ADDRESS_WIDTH` and

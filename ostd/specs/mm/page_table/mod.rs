@@ -18,13 +18,30 @@ use vstd_extra::arithmetic::*;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
-use crate::mm::page_table::PageTableConfig;
-use crate::mm::{PagingLevel, Vaddr, page_size};
+use crate::mm::{
+    PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge, page_size,
+    page_table::PageTableConfig,
+};
 use crate::specs::arch::*;
 
 use align_ext::AlignExt;
 
 verus! {
+
+#[verifier::inline]
+pub open spec fn nr_pte_index_bits_spec<C: PagingConstsTrait>() -> usize {
+    nr_subpage_per_huge::<C>().ilog2() as usize
+}
+
+#[verifier::inline]
+pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {
+    (C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * (level - 1)) as usize
+}
+
+#[verifier::inline]
+pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
+    (C::ADDRESS_WIDTH_spec() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as usize
+}
 
 /// An abstract representation of a virtual address as a sequence of indices, representing the
 /// values of the bit-fields that index into each level of the page table.
@@ -1840,6 +1857,7 @@ impl AbstractVaddr {
             vaddr(path) == self.align_down(NR_LEVELS - path.len() + 1).compute_vaddr()
                 - self.align_down(NR_LEVELS - path.len() + 1).offset,
     {
+        lemma_arch_specific_consts_properties::<crate::mm::PagingConsts>();
         if path.len() == 0 {
             let aligned = self.align_down(5);
             self.align_down_shape(4);
