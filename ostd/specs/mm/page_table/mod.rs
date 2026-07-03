@@ -73,17 +73,8 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
         vaddr_range_spec::<UserPtConfig>()@.start == 0,
         vaddr_range_spec::<UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
 {
-    assert(<UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0_usize);
-    lemma2_to64();
-    lemma2_to64_rest();
-    lemma_usize_pow2_ilog2(12);
-    lemma_usize_pow2_ilog2(9);
-    lemma_pow2_adds(8, 39);
+    assert(<UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0);
     lemma_arch_specific_consts_properties::<PagingConsts>();
-    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-    assert(0 * pow2(39) == 0);
-    assert(256 * pow2(39) == pow2(47));
-    assert(pow2(47) - 1 == 0x0000_7FFF_FFFF_FFFF_int);
 }
 
 /// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
@@ -93,18 +84,7 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
         vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
         vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
 {
-    lemma2_to64();
-    lemma2_to64_rest();
-    lemma_usize_pow2_ilog2(12);
-    lemma_usize_pow2_ilog2(9);
-    lemma_pow2_adds(8, 39);
-    lemma_pow2_adds(9, 39);
     lemma_arch_specific_consts_properties::<PagingConsts>();
-    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-    assert(256 * pow2(39) == pow2(47));
-    assert(512 * pow2(39) == pow2(48));
-    assert(0xffff_int * 0x1_0000_0000_0000int + pow2(47) == 0xffff_8000_0000_0000int);
-    assert(0xffff_int * 0x1_0000_0000_0000int + pow2(48) - 1 == 0xffff_ffff_ffff_ffffint);
 }
 
 /// An abstract representation of a virtual address as a sequence of indices, representing the

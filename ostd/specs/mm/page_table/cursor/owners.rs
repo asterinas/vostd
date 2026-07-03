@@ -2842,8 +2842,6 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     C::lemma_paging_consts_properties();
     C::lemma_page_table_config_constant_properties();
     lemma_arch_specific_consts_properties::<C>();
-    vstd::arithmetic::power2::lemma2_to64();
-    vstd::arithmetic::power2::lemma2_to64_rest();
     vstd::arithmetic::power2::lemma_pow2_adds(
         (C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as nat,
         pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,

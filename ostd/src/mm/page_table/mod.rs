@@ -767,7 +767,6 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
         let offset = pte_index_bit_offset_spec::<C>(level);
         C::lemma_paging_consts_properties();
         lemma_arch_specific_consts_properties::<C>();
-        assert(pte_index_bit_offset_spec::<C>(level) == 12 + 9 * (level - 1));
         assert(0 <= offset < usize::BITS) by (nonlinear_arith)
             requires
                 1 <= level <= 4,
