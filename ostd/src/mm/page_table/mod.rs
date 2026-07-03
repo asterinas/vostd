@@ -656,6 +656,21 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> Range<Vaddr> {
     (start as Vaddr)..((end_inclusive + 1) as Vaddr)
 }
 
+/// Canonical bounds of the VA range managed by a page-table config,
+///
+/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE`. For
+/// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
+/// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
+/// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
+pub closed spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
+    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
+    let lb = C::LEADING_BITS_spec() as int;
+    let base = lb * 0x1_0000_0000_0000int;
+    let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
+    let end_inclusive = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
+    (start, end_inclusive)
+}
+
 /// Gets the inclusive bounds of the managed virtual-address range.
 fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
     ensures
@@ -674,45 +689,10 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
             end,
         );
     }
-    let pt_start = pt_va_range_start::<C>();
-    let va_sign_ext = C::VA_SIGN_EXT();
-    let sign_bit_set = sign_bit_of_va::<C>(pt_start);
-    if va_sign_ext && sign_bit_set {
-        proof {
-            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-            let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
-            let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
-            let p_off = pow2(off) as int;
-            let p_aw_m1 = pow2(aw_m1) as int;
-        }
+
+    if C::VA_SIGN_EXT() && sign_bit_of_va::<C>(pt_va_range_start::<C>()) {
         start = apply_sign_ext::<C>(start);
         end = apply_sign_ext::<C>(end);
-    } else {
-        proof {
-            // The if-condition was false, so either va_sign_ext is false
-            // or sign_bit_set is false. The contrapositive of the
-            // leading-bits requirement gives LEADING_BITS == 0.
-            assert(!va_sign_ext || !sign_bit_set);
-            assert(va_sign_ext == C::VA_SIGN_EXT());
-            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-            let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
-            let i_start = C::TOP_LEVEL_INDEX_RANGE().start as int;
-            let p_off = pow2(off) as int;
-            let p_aw_m1 = pow2(aw_m1) as int;
-            assert(pt_start == i_start * p_off);
-            assert(sign_bit_set == ((pt_start as int / p_aw_m1) % 2 == 1));
-            assert(sign_bit_set == ((i_start * p_off / p_aw_m1) % 2 == 1));
-        }
-    }
-    proof {
-        assert(start == (C::LEADING_BITS_spec()) * 0x1_0000_0000_0000int + (
-        C::TOP_LEVEL_INDEX_RANGE().start) * (pow2(
-            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
-        )));
-        assert(end == (C::LEADING_BITS_spec()) * 0x1_0000_0000_0000int + (
-        C::TOP_LEVEL_INDEX_RANGE().end) * (pow2(
-            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
-        )) - 1);
     }
     (start, end)
 }
@@ -844,25 +824,6 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     lemma_pow2_adds(9, 39);
     assert(256 * pow2(39) == pow2(47));
     assert(512 * pow2(39) == pow2(48));
-}
-
-/// Canonical bounds of the VA range managed by a page-table config,
-/// returned as inclusive `(start, end_inclusive)`. `end_inclusive` may
-/// equal `usize::MAX` for sign-extended kernel configs, which is why the
-/// inclusive form is used — `Range<Vaddr>` cannot represent that.
-///
-/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE_spec`. For
-/// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
-/// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
-/// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
-pub closed spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
-    let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
-    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let lb = C::LEADING_BITS_spec() as int;
-    let base = lb * 0x1_0000_0000_0000int;
-    let start = (base + (idx.start) * pow2(off)) as usize;
-    let end_inclusive = (base + (idx.end) * pow2(off) - 1) as usize;
-    (start, end_inclusive)
 }
 
 /// Reveal the body of `vaddr_range_bounds_spec` at a call site without
