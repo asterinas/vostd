@@ -13,7 +13,7 @@ pub use owners::*;
 pub use view::*;
 
 use core::ops::{Range, RangeInclusive};
-use vstd::arithmetic::power2::pow2;
+use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
 use vstd::prelude::*;
 use vstd_extra::arithmetic::*;
 use vstd_extra::ghost_tree::TreePath;
@@ -22,7 +22,7 @@ use vstd_extra::prelude::*;
 
 use crate::mm::{
     PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
-    nr_subpage_per_huge, page_size, page_table::PageTableConfig,
+    nr_subpage_per_huge, page_size, page_table::PageTableConfig, vm_space::UserPtConfig,
 };
 use crate::specs::arch::*;
 
@@ -70,10 +70,10 @@ pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> boo
 /// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
-        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.start == 0,
-        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
+        vaddr_range_spec::<UserPtConfig>()@.start == 0,
+        vaddr_range_spec::<UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
 {
-    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+    assert(<UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0_usize);
     lemma2_to64();
     lemma2_to64_rest();
     lemma_usize_pow2_ilog2(12);
@@ -84,8 +84,6 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
     assert(0 * pow2(39) == 0);
     assert(256 * pow2(39) == pow2(47));
     assert(pow2(47) - 1 == 0x0000_7FFF_FFFF_FFFF_int);
-    // UserPtConfig: LEADING_BITS = 0 via trait default.
-    assert(<crate::mm::vm_space::UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0_usize);
 }
 
 /// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
@@ -95,7 +93,6 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
         vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
         vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
 {
-    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
     lemma2_to64();
     lemma2_to64_rest();
     lemma_usize_pow2_ilog2(12);

@@ -18,8 +18,8 @@ use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge,
-    page_size, kspace::KernelPtConfig, 
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
+    nr_subpage_per_huge, page_size,
 };
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
@@ -3054,19 +3054,15 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
 /// `KernelPtConfig` cursor exposes lives in the kernel high half. Mirror of
 /// `lemma_view_in_vaddr_range_user` with `TOP_LEVEL_INDEX_RANGE == 256..512` and
 /// `LEADING_BITS == 0xffff` (canonical high-half base).
-pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
-    owner: CursorOwner<'rcu, KernelPtConfig>,
-)
+pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, KernelPtConfig>)
     requires
         owner.inv(),
     ensures
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<KernelPtConfig>()@.start
-                    <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end
-                    + 1
+                &&& vaddr_range_spec::<KernelPtConfig>()@.start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end + 1
             },
 {
     lemma_vaddr_range_spec_kernel();
@@ -3107,19 +3103,9 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         cont.path().push_tail_property_index(j as usize);
         assert(start <= p.index(0) < end) by {
             if i == NR_LEVELS - 1 {
-                // Root: `p == [j]`. A contributing child is a frame/node (not
-                // borrowed/absent, else empty `view_rec`); the cursor-inv
-                // top-level clause then forces `j ∈ [256, 512)`.
-                assert(cont.path().len() == 0);
-                assert(p.index(0) == j);
-                assert(child.0.value.is_frame() || child.0.value.is_node());
-                assert(!child.0.value.is_borrowed());
-                assert(!child.0.value.is_absent());
             } else {
                 // Non-root: `p.index(0) == cont.path().index(0) == root.idx ∈
                 // [256, 512)` (path chain + cursor-inv idx clause).
-                assert(cont.path().len() > 0);
-                assert(p.index(0) == cont.path().index(0));
                 assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
                     owner.continuations[NR_LEVELS - 1].path().push_tail_property_index(
