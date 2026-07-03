@@ -1857,6 +1857,7 @@ impl AbstractVaddr {
             vaddr(path) == self.align_down(NR_LEVELS - path.len() + 1).compute_vaddr()
                 - self.align_down(NR_LEVELS - path.len() + 1).offset,
     {
+        lemma_arch_specific_consts_properties::<crate::mm::PagingConsts>();
         if path.len() == 0 {
             let aligned = self.align_down(5);
             self.align_down_shape(4);
