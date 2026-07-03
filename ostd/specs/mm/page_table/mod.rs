@@ -12,15 +12,17 @@ pub use node::*;
 pub use owners::*;
 pub use view::*;
 
+use core::ops::{Range, RangeInclusive};
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 use vstd_extra::arithmetic::*;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
+use vstd_extra::prelude::*;
 
 use crate::mm::{
-    PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge, page_size,
-    page_table::PageTableConfig,
+    PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
+    nr_subpage_per_huge, page_size, page_table::PageTableConfig,
 };
 use crate::specs::arch::*;
 
@@ -41,6 +43,71 @@ pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLe
 #[verifier::inline]
 pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
     (C::ADDRESS_WIDTH_spec() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as usize
+}
+
+/// Canonical bounds of the VA range managed by a page-table config,
+///
+/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE`. For
+/// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
+/// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
+/// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
+#[verusfmt::skip]
+pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr> {
+    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
+    let lb = C::LEADING_BITS_spec() as int;
+    let base = lb * 0x1_0000_0000_0000int;
+    let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
+    let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
+    start..=end
+}
+
+pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> bool {
+    let va_range = vaddr_range_spec::<C>();
+    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end - 1 <= va_range@.end)
+}
+
+/// Sanity-check: for x86_64 user PT, the bounds are
+/// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
+pub(crate) proof fn lemma_vaddr_range_spec_user()
+    ensures
+        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.start == 0,
+        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
+{
+    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+    lemma2_to64();
+    lemma2_to64_rest();
+    lemma_usize_pow2_ilog2(12);
+    lemma_usize_pow2_ilog2(9);
+    lemma_pow2_adds(8, 39);
+    lemma_arch_specific_consts_properties::<PagingConsts>();
+    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
+    assert(0 * pow2(39) == 0);
+    assert(256 * pow2(39) == pow2(47));
+    assert(pow2(47) - 1 == 0x0000_7FFF_FFFF_FFFF_int);
+    // UserPtConfig: LEADING_BITS = 0 via trait default.
+    assert(<crate::mm::vm_space::UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0_usize);
+}
+
+/// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
+/// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
+pub(crate) proof fn lemma_vaddr_range_spec_kernel()
+    ensures
+        vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
+        vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
+{
+    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+    lemma2_to64();
+    lemma2_to64_rest();
+    lemma_usize_pow2_ilog2(12);
+    lemma_usize_pow2_ilog2(9);
+    lemma_pow2_adds(8, 39);
+    lemma_pow2_adds(9, 39);
+    lemma_arch_specific_consts_properties::<PagingConsts>();
+    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
+    assert(256 * pow2(39) == pow2(47));
+    assert(512 * pow2(39) == pow2(48));
+    assert(0xffff_int * 0x1_0000_0000_0000int + pow2(47) == 0xffff_8000_0000_0000int);
+    assert(0xffff_int * 0x1_0000_0000_0000int + pow2(48) - 1 == 0xffff_ffff_ffff_ffffint);
 }
 
 /// An abstract representation of a virtual address as a sequence of indices, representing the
@@ -838,6 +905,7 @@ impl AbstractVaddr {
     /// The top-level precondition (`level < NR_LEVELS || index[NR-1]+1 < NR_ENTRIES ||
     /// leading_bits+1 < 0x1_0000`) blocks `leading_bits` overflow at the canonical
     /// address-space boundary.
+    #[verifier::spinoff_prover]
     pub proof fn aligned_align_up_advances(self, level: int)
         requires
             self.inv(),

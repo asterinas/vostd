@@ -19,7 +19,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{
     MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge,
-    page_size,
+    page_size, kspace::KernelPtConfig, 
 };
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
@@ -28,8 +28,9 @@ use crate::specs::mm::page_table::{
     cursor::page_size_lemmas::{
         lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
     },
+    lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
     owners::*,
-    pte_index_bit_offset_spec,
+    pte_index_bit_offset_spec, vaddr_range_spec,
 };
 
 use crate::specs::mm::{
@@ -715,7 +716,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // Locked range stays within the config's managed VA space. Established at
         // cursor construction (barrier_va == *va with is_valid_range_spec(va)) and
         // preserved by all cursor operations since they don't modify prefix/guard_level.
-        &&& self.locked_range().end <= crate::mm::page_table::vaddr_range_spec::<C>()@.end
+        &&& self.locked_range().end <= vaddr_range_spec::<C>()@.end
             + 1
         // Per-config tightening: e.g. `KernelPtConfig` overrides this to
         // `FRAME_METADATA_BASE_VADDR`, which the kvirt allocator enforces and
@@ -3054,7 +3055,7 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
 /// `lemma_view_in_vaddr_range_user` with `TOP_LEVEL_INDEX_RANGE == 256..512` and
 /// `LEADING_BITS == 0xffff` (canonical high-half base).
 pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
-    owner: &CursorOwner<'rcu, crate::mm::kspace::KernelPtConfig>,
+    owner: CursorOwner<'rcu, KernelPtConfig>,
 )
     requires
         owner.inv(),
@@ -3062,19 +3063,16 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.start
+                &&& vaddr_range_spec::<KernelPtConfig>()@.start
                     <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.end
+                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end
                     + 1
             },
 {
-    crate::mm::page_table::lemma_vaddr_range_spec_kernel();
-    let start = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start as int;
-    let end = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
-    let lb = crate::mm::kspace::KernelPtConfig::LEADING_BITS_spec() as int;
-    assert(start == 256);
-    assert(end == 512);
-    assert(lb == 0xffff);
+    lemma_vaddr_range_spec_kernel();
+    let start = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start as int;
+    let end = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
+    let lb = KernelPtConfig::LEADING_BITS_spec() as int;
     assert(start * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int == 0xFFFF_8000_0000_0000int)
         by (nonlinear_arith)
         requires
@@ -3088,8 +3086,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
             lb == 0xffff,
     ;
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.start <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.end + 1
+        &&& vaddr_range_spec::<KernelPtConfig>()@.start <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end + 1
     } by {
         owner.lemma_view_mappings_contains();
         let i = choose|i: int|
