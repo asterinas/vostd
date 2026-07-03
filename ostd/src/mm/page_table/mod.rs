@@ -664,6 +664,7 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
 /// reaches the top of the 64-bit address space (e.g. the canonical
 /// high-half kernel range ending at `usize::MAX`), would overflow the
 /// exclusive end of a [`Range<Vaddr>`].
+#[verusfmt::skip]
 fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     ensures
         ret@.start == vaddr_range_spec::<C>().0,
