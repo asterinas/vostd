@@ -826,25 +826,24 @@ impl PageTable<UserPtConfig> {
 }*/
 
 impl PageTable<KernelPtConfig> {
-    
     /// Create a new kernel page table.
     #[verifier::external_body]
     pub(crate) fn new_kernel_page_table() -> Self {
         unimplemented!()/*        let kpt = Self::empty();
-        
+
         // Make shared the page tables mapped by the root table in the kernel space.
         {
         let preempt_guard = disable_preempt();
         let mut root_node = kpt.root.borrow().lock(&preempt_guard);
-        
+
         for i in KernelPtConfig::TOP_LEVEL_INDEX_RANGE {
             let mut root_entry = root_node.entry(i);
             let _ = root_entry.alloc_if_none(&preempt_guard).unwrap();
             }
         }
-        
+
         kpt*/
-        
+
     }
 
     /// Panic condition for [`Self::create_user_page_table`]:
@@ -1200,7 +1199,6 @@ impl PageTable<KernelPtConfig> {
 
 #[verus_verify]
 impl<C: PageTableConfig> PageTable<C> {
-    
     /// Create a new empty page table.
     ///
     /// Useful for the IOMMU page tables only.
@@ -1208,7 +1206,7 @@ impl<C: PageTableConfig> PageTable<C> {
     pub fn empty() -> Self {
         unimplemented!()
     }
-    
+
     /// Create a new empty page table together with its tracked ownership.
     #[verifier::external_body]
     #[verus_spec(r =>
@@ -1459,9 +1457,7 @@ impl<C: PageTableConfig> PageTable<C> {
     > {
         #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
         Cursor::new(self, guard, va)
-    }
-    
-    /*
+    }/*
     /// Create a new reference to the same page table.
     /// The caller must ensure that the kernel page table is not copied.
     /// This is only useful for IOMMU page tables. Think twice before using it in other cases.
