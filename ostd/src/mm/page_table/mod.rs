@@ -130,7 +130,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// configurations that place their managed range at a non-canonical
     /// fixed offset.
     ///
-    /// Combined with `TOP_LEVEL_INDEX_RANGE_spec`, this fully determines
+    /// Combined with `TOP_LEVEL_INDEX_RANGE`, this fully determines
     /// the managed VA range, computed as
     /// [`vaddr_range_bounds_spec::<Self>`]. Callers that previously used
     /// `VADDR_RANGE_spec()` should use `vaddr_range_bounds_spec::<C>()`
@@ -386,7 +386,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             (Self::C::VA_SIGN_EXT() && (((Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
                 pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) as nat,
             )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
-                &&& 48 <= Self::C::ADDRESS_WIDTH()
                 &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
                     - pow2(Self::C::ADDRESS_WIDTH() as nat)
             },
@@ -426,7 +425,6 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             (Self::C::VA_SIGN_EXT() && (((Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
                 pte_index_bit_offset::<Self::C>(Self::C::NR_LEVELS()) as nat,
             )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1)) ==> {
-                &&& 48 <= Self::C::ADDRESS_WIDTH()
                 &&& Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
                     - pow2(Self::C::ADDRESS_WIDTH() as nat)
             },
@@ -556,6 +554,25 @@ pub fn largest_pages<C: PageTableConfig>(
     )
 }
 
+#[verifier::inline]
+pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
+    (C::ADDRESS_WIDTH_spec() - pte_index_bit_offset::<C>(C::NR_LEVELS())) as usize
+}
+
+/// Gets the top-level index width, in bits, for the page table.
+#[verifier::when_used_as_spec(top_level_index_width_spec)]
+fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
+    returns
+        top_level_index_width_spec::<C>(),
+{
+    proof {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
+    }
+
+    C::ADDRESS_WIDTH() - pte_index_bit_offset::<C>(C::NR_LEVELS())
+}
+
 /// Spec for the managed virtual address range (exclusive end).
 /// For configs without VA_SIGN_EXT (e.g. UserPtConfig) or when the base range has sign bit 0.
 /// Configs with sign extension (e.g. KernelPtConfig) use
@@ -669,19 +686,6 @@ pub struct PageTable<C: PageTableConfig> {
 #[verifier::inline]
 pub open spec fn nr_pte_index_bits_spec<C: PagingConstsTrait>() -> usize {
     nr_subpage_per_huge::<C>().ilog2() as usize
-}
-
-/// Gets the top-level index width, in bits, for the page table.
-fn top_level_index_width<C: PageTableConfig>() -> (ret: usize)
-    ensures
-        ret == C::ADDRESS_WIDTH() - pte_index_bit_offset::<C>(C::NR_LEVELS()),
-{
-    proof {
-        C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_properties();
-    }
-
-    C::ADDRESS_WIDTH() - pte_index_bit_offset::<C>(C::NR_LEVELS())
 }
 
 /// Concrete positional start of the VA range: `idx_range.start * 2^offset`.
