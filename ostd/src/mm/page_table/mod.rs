@@ -686,7 +686,7 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
         start = apply_sign_ext::<C>(start);
         end = apply_sign_ext::<C>(end);
     }
-    start.. = end
+    start..=end
 }
 
 /// Spec for whether a range is within the page table's managed address space.
