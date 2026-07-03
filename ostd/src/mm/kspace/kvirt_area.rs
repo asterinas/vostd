@@ -257,7 +257,7 @@ pub proof fn lemma_kernel_range_valid(r: core::ops::Range<Vaddr>)
     ensures
         is_valid_range_spec::<KernelPtConfig>(&r),
 {
-    crate::mm::page_table::lemma_vaddr_range_bounds_spec_kernel();
+    crate::mm::page_table::lemma_vaddr_range_spec_kernel();
     assert(KERNEL_BASE_VADDR == 0xFFFF_8000_0000_0000usize) by (compute_only);
 }
 

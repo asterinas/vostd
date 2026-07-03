@@ -715,7 +715,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // Locked range stays within the config's managed VA space. Established at
         // cursor construction (barrier_va == *va with is_valid_range_spec(va)) and
         // preserved by all cursor operations since they don't modify prefix/guard_level.
-        &&& self.locked_range().end <= crate::mm::page_table::vaddr_range_bounds_spec::<C>().1
+        &&& self.locked_range().end <= crate::mm::page_table::vaddr_range_spec::<C>().1
             + 1
         // Per-config tightening: e.g. `KernelPtConfig` overrides this to
         // `FRAME_METADATA_BASE_VADDR`, which the kvirt allocator enforces and
@@ -2801,14 +2801,14 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
                 ==> m.inv()
         // Config-aware VA range: user page tables live in `[0, 2^47)`,
         // kernel page tables in `[0xffff_8000_…, usize::MAX]`, etc.
-        // `vaddr_range_bounds_spec<C>` gives inclusive `(start, end_inclusive)`
+        // `vaddr_range_spec<C>` gives inclusive `(start, end_inclusive)`
         // bounds derived from `LEADING_BITS_spec` + `TOP_LEVEL_INDEX_RANGE_spec`,
         // so `Mapping::inv` can stay config-agnostic.
         &&& forall|m: Mapping|
             #![auto]
             self.mappings.contains(m) ==> {
-                &&& vaddr_range_bounds_spec::<C>().0 <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
+                &&& vaddr_range_spec::<C>().0 <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<C>().1 + 1
             }
         &&& self.non_overlapping()
     }
@@ -2834,14 +2834,13 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_bounds_spec::<C>().0 <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
+                &&& vaddr_range_spec::<C>().0 <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<C>().1 + 1
             },
 {
     C::lemma_paging_consts_properties();
     C::lemma_page_table_config_constant_properties();
     lemma_arch_specific_consts_properties::<C>();
-    lemma_vaddr_range_bounds_spec_unfold::<C>();
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
     vstd::arithmetic::power2::lemma_pow2_adds(
@@ -2856,7 +2855,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     let lb = C::LEADING_BITS_spec() as int;
     let base = lb * 0x1_0000_0000_0000int;
     let cell = 0x80_0000_0000int;
-    let bounds = vaddr_range_bounds_spec::<C>();
+    let bounds = vaddr_range_spec::<C>();
 
     let aw = C::ADDRESS_WIDTH() as nat;
     let top_w = (C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as nat;
@@ -2915,8 +2914,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     assert(bounds.1 == base + end * cell - 1);
 
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_bounds_spec::<C>().0 <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_bounds_spec::<C>().1 + 1
+        &&& vaddr_range_spec::<C>().0 <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<C>().1 + 1
     } by {
         owner.lemma_view_mappings_contains();
         let i = choose|i: int|
@@ -3065,14 +3064,11 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().0
-                    <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_bounds_spec::<
-                    crate::mm::kspace::KernelPtConfig,
-                >().1 + 1
+                &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
             },
 {
-    crate::mm::page_table::lemma_vaddr_range_bounds_spec_kernel();
+    crate::mm::page_table::lemma_vaddr_range_spec_kernel();
     let start = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start as int;
     let end = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end as int;
     let lb = crate::mm::kspace::KernelPtConfig::LEADING_BITS_spec() as int;
@@ -3094,8 +3090,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
             lb == 0xffff,
     ;
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_bounds_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
+        &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>().0 <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>().1 + 1
     } by {
         owner.lemma_view_mappings_contains();
         let i = choose|i: int|
@@ -3167,7 +3163,7 @@ impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
         //     alignment, PA/VA size equal page_size, and PA bound.
         self.view_mapping_inv();
         // (4) Config-aware VA bound: every mapping's VA range is contained
-        //     in `vaddr_range_bounds_spec::<C>()`.
+        //     in `vaddr_range_spec::<C>()`.
         lemma_view_in_vaddr_range::<C>(&self);
     }
 }

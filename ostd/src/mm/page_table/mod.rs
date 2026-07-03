@@ -133,8 +133,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ///
     /// Combined with `TOP_LEVEL_INDEX_RANGE`, this fully determines
     /// the managed VA range, computed as
-    /// [`vaddr_range_bounds_spec::<Self>`]. Callers that previously used
-    /// `VADDR_RANGE_spec()` should use `vaddr_range_bounds_spec::<C>()`
+    /// [`vaddr_range_spec::<Self>`]. Callers that previously used
+    /// `VADDR_RANGE_spec()` should use `vaddr_range_spec::<C>()`
     /// directly — the inclusive `(start, end_inclusive)` form avoids the
     /// `end == usize::MAX + 1` overflow that plagues `Range<Vaddr>` for
     /// sign-extended kernel configurations.
@@ -159,7 +159,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
     /// VERIFICATION only: Upper bound on `locked_range().end` for cursors of this config.
     ///
-    /// May be tighter than the structural `vaddr_range_bounds_spec().1 + 1`
+    /// May be tighter than the structural `vaddr_range_spec().1 + 1`
     /// when the actual sources of cursor ranges (e.g. the kvirt allocator
     /// for `KernelPtConfig`) draw from a sub-window of the configured VA
     /// range. `KernelPtConfig` overrides this to `FRAME_METADATA_BASE_VADDR`,
@@ -643,26 +643,13 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     (va >> (C::ADDRESS_WIDTH() - 1)) & 1 != 0
 }
 
-/// Spec for the managed virtual address range (exclusive end).
-/// For configs without VA_SIGN_EXT (e.g. UserPtConfig) or when the base range has sign bit 0.
-/// Configs with sign extension (e.g. KernelPtConfig) use
-/// `vaddr_range_bounds_spec` for their canonical high-half bounds.
-#[verifier::inline]
-pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> Range<Vaddr> {
-    let idx_range = C::TOP_LEVEL_INDEX_RANGE();
-    let offset = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let start = idx_range.start * pow2(offset);
-    let end_inclusive = idx_range.end * pow2(offset) - 1;
-    (start as Vaddr)..((end_inclusive + 1) as Vaddr)
-}
-
 /// Canonical bounds of the VA range managed by a page-table config,
 ///
 /// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE`. For
 /// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
 /// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
 /// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
-pub closed spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
+pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
     let lb = C::LEADING_BITS_spec() as int;
     let base = lb * 0x1_0000_0000_0000int;
@@ -671,17 +658,22 @@ pub closed spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vadd
     (start, end_inclusive)
 }
 
-/// Gets the inclusive bounds of the managed virtual-address range.
-fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
+/// Gets the managed virtual addresses range for the page table.
+///
+/// Returns a [`RangeInclusive`] because the end address, when the range
+/// reaches the top of the 64-bit address space (e.g. the canonical
+/// high-half kernel range ending at `usize::MAX`), would overflow the
+/// exclusive end of a [`Range<Vaddr>`].
+fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     ensures
-        ret.0 == vaddr_range_bounds_spec::<C>().0,
-        ret.1 == vaddr_range_bounds_spec::<C>().1,
+        ret@.start == vaddr_range_spec::<C>().0,
+        ret@.end == vaddr_range_spec::<C>().1,
+        ret@.exhausted == false,
 {
     let mut start = pt_va_range_start::<C>();
     let mut end = pt_va_range_end::<C>();
 
     proof {
-        lemma_vaddr_range_bounds_spec_unfold::<C>();
         C::lemma_paging_consts_properties();
         C::lemma_page_table_config_constant_properties();
         crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
@@ -694,29 +686,13 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
         start = apply_sign_ext::<C>(start);
         end = apply_sign_ext::<C>(end);
     }
-    (start, end)
-}
-
-/// Gets the managed virtual addresses range for the page table.
-///
-/// Returns a [`RangeInclusive`] because the end address, when the range
-/// reaches the top of the 64-bit address space (e.g. the canonical
-/// high-half kernel range ending at `usize::MAX`), would overflow the
-/// exclusive end of a [`Range<Vaddr>`].
-fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
-    ensures
-        ret@.start == vaddr_range_bounds_spec::<C>().0,
-        ret@.end == vaddr_range_bounds_spec::<C>().1,
-        ret@.exhausted == false,
-{
-    let (start, end) = vaddr_range_bounds::<C>();
-    RangeInclusive::new(start, end)
+    start.. = end
 }
 
 /// Spec for whether a range is within the page table's managed address space.
 #[verifier::inline]
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
-    let va_range = vaddr_range_bounds_spec::<C>();
+    let va_range = vaddr_range_spec::<C>();
     (r.start == 0 && r.end == 0) || (va_range.0 <= r.start && r.end > 0 && r.end - 1 <= va_range.1)
 }
 
@@ -799,55 +775,16 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> (ret: bool)
     ensures
         ret == is_valid_range_spec::<C>(r),
 {
-    let (va_start, va_end) = vaddr_range_bounds::<C>();
-    (r.start == 0 && r.end == 0) || (va_start <= r.start && r.end > 0 && r.end - 1 <= va_end)
-}
-
-/// Sanity-check: for x86_64 kernel PT, `vaddr_range_spec` evaluates to the
-/// low-half `[2^47, 2^48)` window. The exec path (`vaddr_range`) applies
-/// sign extension on top of this and wraps at `usize::MAX + 1`, which is
-/// the "KNOWN BUG" referenced in `vm_space::unmap`. See
-/// `vaddr_range_bounds_spec` below for the overflow-free formulation.
-pub(crate) proof fn lemma_vaddr_range_spec_kernel()
-    ensures
-        vaddr_range_spec::<KernelPtConfig>() == (
-        0x0000_8000_0000_0000_usize..0x0001_0000_0000_0000_usize),
-{
-    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
-    lemma2_to64();
-    lemma2_to64_rest();
-    lemma_usize_pow2_ilog2(12);
-    lemma_arch_specific_consts_properties::<PagingConsts>();
-    lemma_usize_pow2_ilog2(9);
-    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-    lemma_pow2_adds(8, 39);
-    lemma_pow2_adds(9, 39);
-    assert(256 * pow2(39) == pow2(47));
-    assert(512 * pow2(39) == pow2(48));
-}
-
-/// Reveal the body of `vaddr_range_bounds_spec` at a call site without
-/// making the function itself open (which causes z3-context pollution in
-/// cursor invariants).
-pub proof fn lemma_vaddr_range_bounds_spec_unfold<C: PageTableConfig>()
-    ensures
-        vaddr_range_bounds_spec::<C>() == {
-            let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
-            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-            let lb = C::LEADING_BITS_spec() as int;
-            let base = lb * 0x1_0000_0000_0000int;
-            let start = (base + (idx.start) * pow2(off)) as usize;
-            let end_inclusive = (base + (idx.end) * pow2(off) - 1) as usize;
-            (start, end_inclusive)
-        },
-{
+    let va_range = vaddr_range::<C>();
+    (r.start == 0 && r.end == 0) || (*va_range.start() <= r.start && r.end > 0 && r.end - 1
+        <= *va_range.end())
 }
 
 /// Sanity-check: for x86_64 user PT, the bounds are
 /// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
-pub(crate) proof fn lemma_vaddr_range_bounds_spec_user()
+pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
-        vaddr_range_bounds_spec::<crate::mm::vm_space::UserPtConfig>() == (
+        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>() == (
             0_usize,
             0x0000_7FFF_FFFF_FFFF_usize,
         ),
@@ -869,9 +806,9 @@ pub(crate) proof fn lemma_vaddr_range_bounds_spec_user()
 
 /// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
 /// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
-pub(crate) proof fn lemma_vaddr_range_bounds_spec_kernel()
+pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
-        vaddr_range_bounds_spec::<KernelPtConfig>() == (
+        vaddr_range_spec::<KernelPtConfig>() == (
             0xFFFF_8000_0000_0000_usize,
             0xFFFF_FFFF_FFFF_FFFF_usize,
         ),
