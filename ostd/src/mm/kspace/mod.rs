@@ -55,10 +55,13 @@ use super::{
 use crate::mm::frame::DynFrame;
 use crate::mm::page_table::RCClone;
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::{
-    mapping::group_page_meta,
-    meta_owners::{MetaPerm, MetaSlotStorage},
+use crate::specs::mm::{
+    frame::{
+        mapping::group_page_meta,
+        meta_owners::{MetaPerm, MetaSlotStorage},
+        meta_region_owners::MetaRegionOwners,
+    },
+    page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
 };
 use crate::{
     arch::mm::{PageTableEntry, PagingConsts},
@@ -68,6 +71,7 @@ use crate::{
 };
 
 use vstd_extra::ownership::*;
+use vstd_extra::prelude::*;
 
 verus! {
 
@@ -172,21 +176,18 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     proof fn lemma_page_table_config_constant_requirements() {
         use crate::mm::nr_subpage_per_huge;
-        use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds, pow2};
-        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
         Self::C::lemma_paging_consts_properties();
         PageTableEntry::lemma_layout();
         lemma2_to64();
         lemma2_to64_rest();
-        assert(usize::BITS == 64) by (compute);
         vstd::layout::unsigned_int_max_values();
         lemma_usize_pow2_ilog2(12);
         lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(9, 39);
         lemma_pow2_adds(8, 39);
         assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
-        assert(nr_pte_index_bits::<PagingConsts>() == 9_usize);
+        assert(nr_pte_index_bits_spec::<PagingConsts>() == 9_usize);
         assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
         assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
         assert(256 * pow2(39) == pow2(47));

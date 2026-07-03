@@ -1,9 +1,10 @@
 use crate::mm::frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr};
-use crate::mm::page_table::nr_pte_index_bits;
 use crate::mm::{Paddr, PagingConstsTrait, Vaddr, page_size};
-use crate::specs::mm::frame::mapping::lemma_meta_to_frame_soundness;
+use crate::specs::mm::{
+    frame::mapping::lemma_meta_to_frame_soundness, page_table::nr_pte_index_bits_spec,
+};
 use vstd::arithmetic::power2::{lemma2_to64, pow2};
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
@@ -109,7 +110,7 @@ pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)
 pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>()
     ensures
         C::BASE_PAGE_SIZE().ilog2() == 12u32,
-        nr_pte_index_bits::<C>() == 9usize,
+        nr_pte_index_bits_spec::<C>() == 9usize,
         pow2(9) == NR_ENTRIES,
 {
     C::lemma_paging_consts_properties();
