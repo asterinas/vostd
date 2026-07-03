@@ -154,6 +154,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::BASE_PAGE_SIZE() == PAGE_SIZE,
             Self::NR_LEVELS() == NR_LEVELS,
             Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
+            Self::PTE_SIZE() == core::mem::size_of::<usize>(),
     ;
 
     /// The derived properties of the paging constants.
@@ -164,6 +165,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
     // Derived properties.
 
             0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            NR_ENTRIES * Self::PTE_SIZE() == PAGE_SIZE,
             // Copied from the postcondition of `lemma_paging_consts_requirements`
             // so that we only need to call this lemma in proofs.
             0 < Self::BASE_PAGE_SIZE(),
@@ -179,6 +181,7 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
             Self::BASE_PAGE_SIZE() == PAGE_SIZE,
             Self::NR_LEVELS() == NR_LEVELS,
             Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == NR_ENTRIES,
+            Self::PTE_SIZE() == core::mem::size_of::<usize>(),
     {
         Self::lemma_paging_consts_requirements();
         broadcast use group_div_basics;

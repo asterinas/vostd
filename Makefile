@@ -3,7 +3,7 @@
 VERIFICATION_TARGETS := \
 	ostd \
 
-.PHONY: all verify $(VERIFICATION_TARGETS) fmt clean verus update
+.PHONY: all verify $(VERIFICATION_TARGETS) fmt clean verus verus-upgrade
 
 $(VERIFICATION_TARGETS):
 	cargo dv verify --targets $@
@@ -16,11 +16,17 @@ verify:
 fmt:
 	cargo dv fmt
 
-doc: verify
+build:
+	cargo dv build
+
+doc: build
 	cargo dv doc --target ostd
 
-verus update:
-	cargo dv bootstrap $(if $(filter update,$@),--upgrade,)
+verus:
+	cargo dv bootstrap
+
+verus-upgrade:
+	cargo dv bootstrap --upgrade
 
 clean:
 	cargo clean

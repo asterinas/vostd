@@ -1612,8 +1612,6 @@ unsafe impl PageTableConfig for UserPtConfig {
     type C = PagingConsts;
 
     proof fn lemma_page_table_config_constant_requirements() {
-        use crate::mm::nr_subpage_per_huge;
-        use crate::mm::page_table::{nr_pte_index_bits, pte_index_bit_offset_spec};
         use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
         use vstd_extra::prelude::lemma_usize_pow2_ilog2;
 
@@ -1624,6 +1622,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         lemma_usize_pow2_ilog2(12);
         lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(9, 39);
+        PageTableEntry::lemma_layout();
+        Self::C::lemma_paging_consts_properties();
         assert(Self::LEADING_BITS_spec() == 0usize);
     }
 
@@ -1651,19 +1651,6 @@ unsafe impl PageTableConfig for UserPtConfig {
     unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
         let frame = unsafe { UFrame::from_raw(paddr) };
         MappedItem { frame, prop }
-    }
-
-    proof fn lemma_pte_size_eq_size_of() {
-        PageTableEntry::lemma_layout();
-    }
-
-    proof fn lemma_pte_walk_fills_page() {
-        Self::lemma_page_table_config_constant_properties();
-        Self::lemma_pte_size_eq_size_of();
-    }
-
-    proof fn lemma_pte_align_divides_size() {
-        PageTableEntry::lemma_layout();
     }
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
