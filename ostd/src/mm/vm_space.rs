@@ -949,9 +949,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
         proof {
             // end_va <= barrier_va.end == locked_range().end. The cursor invariant
-            // bounds locked_range().end by `vaddr_range_bounds_spec::<C>().1 + 1`,
+            // bounds locked_range().end by `vaddr_range_spec::<C>().1 + 1`,
             // and for UserPtConfig that evaluates to 2^47.
-            crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
+            crate::mm::page_table::lemma_vaddr_range_spec_user();
             assert((self.pt_cursor.0.va + len) % PAGE_SIZE as int == 0) by (compute);
         }
 
@@ -1028,7 +1028,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 crate::specs::mm::page_table::cursor::owners::lemma_view_in_vaddr_range_user(
                     cursor_owner,
                 );
-                crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
+                crate::mm::page_table::lemma_vaddr_range_spec_user();
             }
 
             // SAFETY: It is safe to un-map memory in the userspace.
@@ -1076,7 +1076,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 PageTableFrag::Mapped { va, item, .. } => {
                     let frame = item.frame;
                     proof {
-                        crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
+                        crate::mm::page_table::lemma_vaddr_range_spec_user();
                         // `wf_mapping_set(removed)` from the wf adjusted_base
                         // via subset; `va_range.end <= 2^47` for every removed
                         // mapping is a loop invariant. Together they give
@@ -1114,7 +1114,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                             old_adjusted,
                             new_removed,
                         );
-                        crate::mm::page_table::lemma_vaddr_range_bounds_spec_user();
+                        crate::mm::page_table::lemma_vaddr_range_spec_user();
                         crate::specs::mm::page_table::mapping_set_lemmas::lemma_mapping_set_cardinality_fits_usize(
                         new_removed);
                         // |new_removed| = |old_removed| + |subtree| (disjoint).

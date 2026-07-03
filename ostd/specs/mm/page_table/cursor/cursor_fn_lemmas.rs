@@ -183,14 +183,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(self.continuations[NR_LEVELS - 1].idx == self.va.index[NR_LEVELS - 1]);
             assert(self.continuations[NR_LEVELS - 1].idx == owner0.continuations[owner0.level
                 - 1].idx);
-            assert(C::TOP_LEVEL_INDEX_RANGE_spec().start <= owner0.continuations[owner0.level
-                - 1].idx < C::TOP_LEVEL_INDEX_RANGE_spec().end);
+            assert(C::TOP_LEVEL_INDEX_RANGE().start <= owner0.continuations[owner0.level - 1].idx
+                < C::TOP_LEVEL_INDEX_RANGE().end);
             assert(forall|j: int|
-                0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                    < C::TOP_LEVEL_INDEX_RANGE_spec().end) ==> (
-                #[trigger] self.continuations[NR_LEVELS - 1].children[j]) is Some ==> (
-                self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_borrowed()
-                    || self.continuations[NR_LEVELS - 1].children[j].unwrap().value.is_absent()));
+                0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE().start <= j
+                    < C::TOP_LEVEL_INDEX_RANGE().end) ==> (#[trigger] self.continuations[NR_LEVELS
+                    - 1].children[j]) is Some ==> (self.continuations[NR_LEVELS
+                    - 1].children[j].unwrap().value.is_borrowed() || self.continuations[NR_LEVELS
+                    - 1].children[j].unwrap().value.is_absent()));
         }
     }
 

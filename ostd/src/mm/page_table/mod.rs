@@ -133,8 +133,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ///
     /// Combined with `TOP_LEVEL_INDEX_RANGE`, this fully determines
     /// the managed VA range, computed as
-    /// [`vaddr_range_bounds_spec::<Self>`]. Callers that previously used
-    /// `VADDR_RANGE_spec()` should use `vaddr_range_bounds_spec::<C>()`
+    /// [`vaddr_range_spec::<Self>`]. Callers that previously used
+    /// `VADDR_RANGE_spec()` should use `vaddr_range_spec::<C>()`
     /// directly — the inclusive `(start, end_inclusive)` form avoids the
     /// `end == usize::MAX + 1` overflow that plagues `Range<Vaddr>` for
     /// sign-extended kernel configurations.
@@ -159,7 +159,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
     /// VERIFICATION only: Upper bound on `locked_range().end` for cursors of this config.
     ///
-    /// May be tighter than the structural `vaddr_range_bounds_spec().1 + 1`
+    /// May be tighter than the structural `vaddr_range_spec().1 + 1`
     /// when the actual sources of cursor ranges (e.g. the kvirt allocator
     /// for `KernelPtConfig`) draw from a sub-window of the configured VA
     /// range. `KernelPtConfig` overrides this to `FRAME_METADATA_BASE_VADDR`,
@@ -595,7 +595,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
 /// left shift followed by `wrapping_sub(1)`.
 fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
-        ret == (C::TOP_LEVEL_INDEX_RANGE_spec().end * pow2(
+        ret == (C::TOP_LEVEL_INDEX_RANGE().end * pow2(
             pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) - 1) % 0x1_0000_0000_0000_0000int,
 {
@@ -643,78 +643,20 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     (va >> (C::ADDRESS_WIDTH() - 1)) & 1 != 0
 }
 
-/// Spec for the managed virtual address range (exclusive end).
-/// For configs without VA_SIGN_EXT (e.g. UserPtConfig) or when the base range has sign bit 0.
-/// Configs with sign extension (e.g. KernelPtConfig) use
-/// `vaddr_range_bounds_spec` for their canonical high-half bounds.
-#[verifier::inline]
-pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> Range<Vaddr> {
-    let idx_range = C::TOP_LEVEL_INDEX_RANGE();
-    let offset = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let start = idx_range.start * pow2(offset);
-    let end_inclusive = idx_range.end * pow2(offset) - 1;
-    (start as Vaddr)..((end_inclusive + 1) as Vaddr)
-}
-
-/// Gets the inclusive bounds of the managed virtual-address range.
-fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
-    ensures
-        ret.0 == vaddr_range_bounds_spec::<C>().0,
-        ret.1 == vaddr_range_bounds_spec::<C>().1,
-{
-    let mut start = pt_va_range_start::<C>();
-    let mut end = pt_va_range_end::<C>();
-
-    proof {
-        lemma_vaddr_range_bounds_spec_unfold::<C>();
-        C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_properties();
-        crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
-            start,
-            end,
-        );
-    }
-    let pt_start = pt_va_range_start::<C>();
-    let va_sign_ext = C::VA_SIGN_EXT();
-    let sign_bit_set = sign_bit_of_va::<C>(pt_start);
-    if va_sign_ext && sign_bit_set {
-        proof {
-            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-            let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
-            let i_start = C::TOP_LEVEL_INDEX_RANGE_spec().start as int;
-            let p_off = pow2(off) as int;
-            let p_aw_m1 = pow2(aw_m1) as int;
-        }
-        start = apply_sign_ext::<C>(start);
-        end = apply_sign_ext::<C>(end);
-    } else {
-        proof {
-            // The if-condition was false, so either va_sign_ext is false
-            // or sign_bit_set is false. The contrapositive of the
-            // leading-bits requirement gives LEADING_BITS == 0.
-            assert(!va_sign_ext || !sign_bit_set);
-            assert(va_sign_ext == C::VA_SIGN_EXT());
-            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-            let aw_m1 = (C::ADDRESS_WIDTH() - 1) as nat;
-            let i_start = C::TOP_LEVEL_INDEX_RANGE().start as int;
-            let p_off = pow2(off) as int;
-            let p_aw_m1 = pow2(aw_m1) as int;
-            assert(pt_start == i_start * p_off);
-            assert(sign_bit_set == ((pt_start as int / p_aw_m1) % 2 == 1));
-            assert(sign_bit_set == ((i_start * p_off / p_aw_m1) % 2 == 1));
-        }
-    }
-    proof {
-        assert(start == (C::LEADING_BITS_spec()) * 0x1_0000_0000_0000int + (
-        C::TOP_LEVEL_INDEX_RANGE().start) * (pow2(
-            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
-        )));
-        assert(end == (C::LEADING_BITS_spec()) * 0x1_0000_0000_0000int + (
-        C::TOP_LEVEL_INDEX_RANGE().end) * (pow2(
-            pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
-        )) - 1);
-    }
-    (start, end)
+/// Canonical bounds of the VA range managed by a page-table config,
+///
+/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE`. For
+/// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
+/// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
+/// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
+#[verusfmt::skip]
+pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr> {
+    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
+    let lb = C::LEADING_BITS_spec() as int;
+    let base = lb * 0x1_0000_0000_0000int;
+    let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
+    let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
+    start..=end
 }
 
 /// Gets the managed virtual addresses range for the page table.
@@ -723,21 +665,36 @@ fn vaddr_range_bounds<C: PageTableConfig>() -> (ret: (Vaddr, Vaddr))
 /// reaches the top of the 64-bit address space (e.g. the canonical
 /// high-half kernel range ending at `usize::MAX`), would overflow the
 /// exclusive end of a [`Range<Vaddr>`].
+#[verusfmt::skip]
 fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
-    ensures
-        ret@.start == vaddr_range_bounds_spec::<C>().0,
-        ret@.end == vaddr_range_bounds_spec::<C>().1,
-        ret@.exhausted == false,
+    returns
+        vaddr_range_spec::<C>(),
 {
-    let (start, end) = vaddr_range_bounds::<C>();
-    RangeInclusive::new(start, end)
+    let mut start = pt_va_range_start::<C>();
+    let mut end = pt_va_range_end::<C>();
+
+    proof {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
+        crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
+            start,
+            end,
+        );
+    }
+
+    if C::VA_SIGN_EXT() && sign_bit_of_va::<C>(pt_va_range_start::<C>()) {
+        start = apply_sign_ext::<C>(start);
+        end = apply_sign_ext::<C>(end);
+    }
+    start..=end
 }
 
 /// Spec for whether a range is within the page table's managed address space.
 #[verifier::inline]
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
-    let va_range = vaddr_range_bounds_spec::<C>();
-    (r.start == 0 && r.end == 0) || (va_range.0 <= r.start && r.end > 0 && r.end - 1 <= va_range.1)
+    let va_range = vaddr_range_spec::<C>();
+    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end > 0 && r.end - 1
+        <= va_range@.end)
 }
 
 /// A handle to a page table.
@@ -819,77 +776,17 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> (ret: bool)
     ensures
         ret == is_valid_range_spec::<C>(r),
 {
-    let (va_start, va_end) = vaddr_range_bounds::<C>();
-    (r.start == 0 && r.end == 0) || (va_start <= r.start && r.end > 0 && r.end - 1 <= va_end)
-}
-
-/// Sanity-check: for x86_64 kernel PT, `vaddr_range_spec` evaluates to the
-/// low-half `[2^47, 2^48)` window. The exec path (`vaddr_range`) applies
-/// sign extension on top of this and wraps at `usize::MAX + 1`, which is
-/// the "KNOWN BUG" referenced in `vm_space::unmap`. See
-/// `vaddr_range_bounds_spec` below for the overflow-free formulation.
-pub(crate) proof fn lemma_vaddr_range_spec_kernel()
-    ensures
-        vaddr_range_spec::<KernelPtConfig>() == (
-        0x0000_8000_0000_0000_usize..0x0001_0000_0000_0000_usize),
-{
-    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
-    lemma2_to64();
-    lemma2_to64_rest();
-    lemma_usize_pow2_ilog2(12);
-    lemma_arch_specific_consts_properties::<PagingConsts>();
-    lemma_usize_pow2_ilog2(9);
-    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-    lemma_pow2_adds(8, 39);
-    lemma_pow2_adds(9, 39);
-    assert(256 * pow2(39) == pow2(47));
-    assert(512 * pow2(39) == pow2(48));
-}
-
-/// Canonical bounds of the VA range managed by a page-table config,
-/// returned as inclusive `(start, end_inclusive)`. `end_inclusive` may
-/// equal `usize::MAX` for sign-extended kernel configs, which is why the
-/// inclusive form is used — `Range<Vaddr>` cannot represent that.
-///
-/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE_spec`. For
-/// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
-/// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
-/// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
-pub closed spec fn vaddr_range_bounds_spec<C: PageTableConfig>() -> (Vaddr, Vaddr) {
-    let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
-    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let lb = C::LEADING_BITS_spec() as int;
-    let base = lb * 0x1_0000_0000_0000int;
-    let start = (base + (idx.start) * pow2(off)) as usize;
-    let end_inclusive = (base + (idx.end) * pow2(off) - 1) as usize;
-    (start, end_inclusive)
-}
-
-/// Reveal the body of `vaddr_range_bounds_spec` at a call site without
-/// making the function itself open (which causes z3-context pollution in
-/// cursor invariants).
-pub proof fn lemma_vaddr_range_bounds_spec_unfold<C: PageTableConfig>()
-    ensures
-        vaddr_range_bounds_spec::<C>() == {
-            let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
-            let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-            let lb = C::LEADING_BITS_spec() as int;
-            let base = lb * 0x1_0000_0000_0000int;
-            let start = (base + (idx.start) * pow2(off)) as usize;
-            let end_inclusive = (base + (idx.end) * pow2(off) - 1) as usize;
-            (start, end_inclusive)
-        },
-{
+    let va_range = vaddr_range::<C>();
+    (r.start == 0 && r.end == 0) || (*va_range.start() <= r.start && r.end > 0 && r.end - 1
+        <= *va_range.end())
 }
 
 /// Sanity-check: for x86_64 user PT, the bounds are
 /// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
-pub(crate) proof fn lemma_vaddr_range_bounds_spec_user()
+pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
-        vaddr_range_bounds_spec::<crate::mm::vm_space::UserPtConfig>() == (
-            0_usize,
-            0x0000_7FFF_FFFF_FFFF_usize,
-        ),
+        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.start == 0,
+        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
 {
     use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
     lemma2_to64();
@@ -908,12 +805,10 @@ pub(crate) proof fn lemma_vaddr_range_bounds_spec_user()
 
 /// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
 /// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
-pub(crate) proof fn lemma_vaddr_range_bounds_spec_kernel()
+pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
-        vaddr_range_bounds_spec::<KernelPtConfig>() == (
-            0xFFFF_8000_0000_0000_usize,
-            0xFFFF_FFFF_FFFF_FFFF_usize,
-        ),
+        vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
+        vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
 {
     use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
     lemma2_to64();
@@ -1005,8 +900,8 @@ impl PageTable<KernelPtConfig> {
     pub open spec fn create_user_pt_panic_condition(root_owner: NodeOwner<KernelPtConfig>) -> bool {
         exists|i: usize|
             #![trigger root_owner.children_perm.value()[i as int]]
-            KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i
-                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end && {
+            KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i
+                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end && {
                 let pte = root_owner.children_perm.value()[i as int];
                 ||| !pte.is_present()
                 ||| pte.is_last(root_owner.level)
@@ -1225,8 +1120,8 @@ impl PageTable<KernelPtConfig> {
                 kernel_owner.0.value.is_node(),
                 regions.inv(),
                 !Self::create_user_pt_panic_condition(kernel_owner.0.value.node()),
-                i <= KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end,
-                KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i,
+                i <= KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end,
+                KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i,
                 // Lock postcondition for the kernel root.
                 *root_owner == kernel_owner.0.value.node(),
                 root_owner.relate_guard(root_node),
@@ -1236,14 +1131,14 @@ impl PageTable<KernelPtConfig> {
                 new_node_owner.inv(),
                 new_node_owner.relate_guard(new_node),
                 regions.slots.contains_key(new_node_owner.slot_index),
-            decreases KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end - i,
+            decreases KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end - i,
         {
             proof {
                 let kern_node = kernel_owner.0.value.node();
                 assert forall|j: usize|
                     #![trigger kern_node.children_perm.value()[j as int]]
-                    KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end implies {
+                    KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= j
+                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end implies {
                     let pte = kern_node.children_perm.value()[j as int];
                     pte.is_present() && !pte.is_last(kern_node.level)
                 } by {
@@ -1293,11 +1188,11 @@ impl PageTable<KernelPtConfig> {
 
                 assert(pte.is_present() && !pte.is_last(kern_node.level)) by {
                     if !pte.is_present() || pte.is_last(kern_node.level) {
-                        assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i
-                            < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end);
+                        assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i
+                            < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end);
                         assert(exists|j: usize|
-                            KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end && {
+                            KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= j
+                                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end && {
                                 let p = #[trigger] kern_node.children_perm.value()[j as int];
                                 ||| !p.is_present()
                                 ||| p.is_last(kern_node.level)
