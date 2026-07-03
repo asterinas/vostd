@@ -279,7 +279,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // `kvirt_alloc_range_bounds` axiom; default-config callers
             // (UserPtConfig) get this for free since the default bound is
             // `usize::MAX + 1`.
-            va.end  <= C::LOCKED_END_BOUND_spec(),
+            0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
             Self::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
@@ -2182,7 +2182,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             pt_own.inv(),
             // Per-config tightening; see `Cursor::new`.
-            va.end <= C::LOCKED_END_BOUND_spec(),
+            0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
             Cursor::<C, A>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok

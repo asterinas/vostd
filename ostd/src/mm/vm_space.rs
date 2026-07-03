@@ -226,6 +226,7 @@ impl<'a> VmSpace<'a> {
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             owner.inv(),
+            va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // On the success branch, the returned cursor owner satisfies
@@ -284,6 +285,7 @@ impl<'a> VmSpace<'a> {
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             owner.inv(),
+            va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
             // See `cursor` above for the derivation.
