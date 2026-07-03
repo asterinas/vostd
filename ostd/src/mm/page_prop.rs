@@ -5,8 +5,7 @@ use vstd_extra::prelude::*;
 
 use core::fmt::Debug;
 
-use verified_bitflags::bitflags;
-//use bitflags::bitflags;
+use bitflags::bitflags;
 
 /// The property of a mapped virtual memory page.
 #[verus_verify]

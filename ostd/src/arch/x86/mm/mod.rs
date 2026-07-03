@@ -125,7 +125,7 @@ pub proof fn lemma_nr_subpage_per_huge_eq_nr_entries()
 }
 }
 
-verified_bitflags::bitflags! {
+bitflags::bitflags! {
     //#[derive(Pod)]
     //#[repr(C)]
     /// Possible flags for a page table entry.

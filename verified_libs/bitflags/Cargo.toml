@@ -1,11 +1,11 @@
 [package]
-name = "verified_bitflags"
+name = "bitflags"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
 crate-type = ["rlib"]
-name = "verified_bitflags"
+name = "bitflags"
 # for cargo
 # path = "src/.dummy.rs"
 path = "src/lib.rs"

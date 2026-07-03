@@ -35,6 +35,14 @@ checksum = "dc827186963e592360843fb5ba4b973e145841266c1357f7180c43526f2e5b61"
 
 [[package]]
 name = "bitflags"
+version = "0.1.0"
+dependencies = [
+ "paste",
+ "vstd",
+]
+
+[[package]]
+name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
@@ -272,6 +280,7 @@ dependencies = [
  "acpi",
  "align_ext",
  "bit_field",
+ "bitflags 0.1.0",
  "bitflags 1.3.2",
  "bitvec",
  "buddy_system_allocator",
@@ -291,7 +300,6 @@ dependencies = [
  "spin",
  "tdx-guest",
  "unwinding",
- "verified_bitflags",
  "volatile 0.6.1",
  "vstd",
  "vstd_extra",
@@ -560,14 +568,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51f06a05848f650946acef3bf525fe96612226b61f74ae23ffa4e98bfbb8ab3c"
 dependencies = [
  "gimli 0.31.1",
-]
-
-[[package]]
-name = "verified_bitflags"
-version = "0.1.0"
-dependencies = [
- "paste",
- "vstd",
 ]
 
 [[package]]

@@ -5,7 +5,7 @@
 use alloc::sync::Arc;
 use core::mem::size_of;
 
-use bitflags::bitflags;
+use bitflags_upstream::bitflags;
 
 use super::PciDeviceLocation;
 use crate::{
