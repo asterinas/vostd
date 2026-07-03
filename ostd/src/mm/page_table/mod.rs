@@ -659,61 +659,6 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr>
     start..=end
 }
 
-/// Gets the managed virtual addresses range for the page table.
-///
-/// Returns a [`RangeInclusive`] because the end address, when the range
-/// reaches the top of the 64-bit address space (e.g. the canonical
-/// high-half kernel range ending at `usize::MAX`), would overflow the
-/// exclusive end of a [`Range<Vaddr>`].
-#[verusfmt::skip]
-fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
-    returns
-        vaddr_range_spec::<C>(),
-{
-    let mut start = pt_va_range_start::<C>();
-    let mut end = pt_va_range_end::<C>();
-
-    proof {
-        C::lemma_paging_consts_properties();
-        C::lemma_page_table_config_constant_properties();
-        crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
-            start,
-            end,
-        );
-    }
-
-    if C::VA_SIGN_EXT() && sign_bit_of_va::<C>(pt_va_range_start::<C>()) {
-        start = apply_sign_ext::<C>(start);
-        end = apply_sign_ext::<C>(end);
-    }
-    start..=end
-}
-
-/// Spec for whether a range is within the page table's managed address space.
-#[verifier::inline]
-pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
-    let va_range = vaddr_range_spec::<C>();
-    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end > 0 && r.end - 1
-        <= va_range@.end)
-}
-
-/// A handle to a page table.
-/// A page table can track the lifetime of the mapped physical pages.
-pub struct PageTable<C: PageTableConfig> {
-    pub root: PageTableNode<C>,
-}
-
-/// The number of virtual address bits used to index a PTE in a page.
-fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
-    returns
-        nr_pte_index_bits_spec::<C>(),
-{
-    proof {
-        C::lemma_paging_consts_properties();
-    }
-    nr_subpage_per_huge::<C>().ilog2() as usize
-}
-
 /// Apply the sign-extension OR to a positional value.
 ///
 /// For any value `va` in `[0, 2^ADDRESS_WIDTH)`, the OR with
@@ -771,14 +716,67 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
     ret
 }
 
+/// Gets the managed virtual addresses range for the page table.
+///
+/// Returns a [`RangeInclusive`] because the end address, when the range
+/// reaches the top of the 64-bit address space (e.g. the canonical
+/// high-half kernel range ending at `usize::MAX`), would overflow the
+/// exclusive end of a [`Range<Vaddr>`].
+#[verusfmt::skip]
+fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
+    returns
+        vaddr_range_spec::<C>(),
+{
+    let mut start = pt_va_range_start::<C>();
+    let mut end = pt_va_range_end::<C>();
+
+    proof {
+        C::lemma_paging_consts_properties();
+        C::lemma_page_table_config_constant_properties();
+        crate::specs::mm::page_table::vaddr_range_proofs::lemma_idx_times_pow2_bound::<C>(
+            start,
+            end,
+        );
+    }
+
+    if C::VA_SIGN_EXT() && sign_bit_of_va::<C>(pt_va_range_start::<C>()) {
+        start = apply_sign_ext::<C>(start);
+        end = apply_sign_ext::<C>(end);
+    }
+    start..=end
+}
+
+pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
+    let va_range = vaddr_range_spec::<C>();
+    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end - 1 <= va_range@.end)
+}
+
 /// Checks if the given range is covered by the valid range of the page table.
-fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> (ret: bool)
-    ensures
-        ret == is_valid_range_spec::<C>(r),
+fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool
+    requires
+        r.end > 0,
+    returns
+        is_valid_range_spec::<C>(r),
 {
     let va_range = vaddr_range::<C>();
-    (r.start == 0 && r.end == 0) || (*va_range.start() <= r.start && r.end > 0 && r.end - 1
-        <= *va_range.end())
+    (r.start == 0 && r.end == 0) || (*va_range.start() <= r.start && r.end - 1 <= *va_range.end())
+}
+
+/// The number of virtual address bits used to index a PTE in a page.
+fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
+    returns
+        nr_pte_index_bits_spec::<C>(),
+{
+    proof {
+        C::lemma_paging_consts_properties();
+    }
+    nr_subpage_per_huge::<C>().ilog2() as usize
+}
+
+/// A handle to a page table.
+/// A page table can track the lifetime of the mapped physical pages.
+pub struct PageTable<C: PageTableConfig> {
+    pub root: PageTableNode<C>,
 }
 
 /// Sanity-check: for x86_64 user PT, the bounds are
@@ -1416,7 +1414,7 @@ impl<C: PageTableConfig> PageTable<C> {
         requires
             owner.inv(),
             // Per-config tightening; see `Cursor::new`.
-            va.end <= C::LOCKED_END_BOUND_spec(),
+            0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
@@ -1471,7 +1469,7 @@ impl<C: PageTableConfig> PageTable<C> {
         requires
             owner.inv(),
             // Per-config tightening; see `Cursor::new`.
-            va.end <= C::LOCKED_END_BOUND_spec(),
+            0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok

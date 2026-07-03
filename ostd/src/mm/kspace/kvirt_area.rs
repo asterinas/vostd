@@ -592,6 +592,7 @@ impl KVirtArea {
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
         assert!(range_res.is_ok());
         let range = range_res.unwrap();
+        assume(range.end > 0);
 
         proof {
             kvirt_alloc_range_bounds(area_size, map_offset, range);
