@@ -63,7 +63,6 @@
 //! Violating this invariant—e.g., running the same task on two CPUs concurrently—
 //! can have catastrophic consequences,
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
-
 use vstd::{map::Map, prelude::*, resource::Loc};
 
 use super::Task;
@@ -95,6 +94,27 @@ pub ghost enum TaskSchedState {
     Exited,
 }
 
+/// High-level model for scheduler-owned weak-memory views.
+///
+/// The scheduler proof state has two layers. `SchedulerView` is the copyable
+/// ghost snapshot used in specifications: it records scheduling state and the
+/// current weak-memory view for each live task. `SchedulerThreadViews` is the
+/// tracked owner that stores the actual linear `ThreadView` resources for
+/// tasks whose views are still owned by the scheduler.
+///
+/// When the outermost preemption-disable guard is created, the current task's
+/// `ThreadView` is checked out of `SchedulerThreadViews` and moved into a
+/// `TaskThreadView` token held by the guard. While it is checked out,
+/// `SchedulerView::task_views` remains the logical source of truth, but the
+/// ownership partition records that the view is in `checked_out_views` rather
+/// than `stored_views`. Weak-memory operations mutate the token's
+/// `ThreadView`; the scheduler view must be updated with
+/// `update_checked_out_task_view` to keep the logical snapshot synchronized.
+/// Dropping the guard checks the token back into `stored_views`.
+///
+/// In short, the resource flow is:
+/// `stored_views -> TaskThreadView -> checked_out_views update -> stored_views`.
+///
 /// Abstract proof view of the scheduler state.
 ///
 /// `runqueues` contains runnable-but-not-current tasks, `current` contains
@@ -137,17 +157,14 @@ impl SchedulerView {
 
     pub open spec fn task_in_runqueue(self, task: Loc) -> bool {
         exists|cpu: CpuId, idx: int|
-            self.runqueues.contains_key(cpu)
-                && 0 <= idx
-                && idx < self.runqueues[cpu].len()
-                && (#[trigger] self.runqueues[cpu][idx]) == task
+            self.runqueues.contains_key(cpu) && 0 <= idx && idx < self.runqueues[cpu].len() && (
+            #[trigger] self.runqueues[cpu][idx]) == task
     }
 
     pub open spec fn task_is_current(self, task: Loc) -> bool {
-        exists|cpu: CpuId|
-            #[trigger] self.current.contains_key(cpu)
-                && self.current[cpu] is Some
-                && self.current[cpu]->0 == task
+        exists|cpu: CpuId| #[trigger]
+            self.current.contains_key(cpu) && self.current[cpu] is Some && self.current[cpu]->0
+                == task
     }
 
     pub open spec fn task_is_runnable(self, task: Loc) -> bool {
@@ -160,32 +177,30 @@ impl SchedulerView {
         &&& !(self.state[task] is Exited)
     }
 
-    /// Prevent that two tasks happen to be the same task, which would be a violation of the
-    /// scheduler's safety invariant.
+    /// States the scheduler's main safety invariant for one task id.
+    ///
+    /// A task may occur at most once across all runqueues, at most once in the
+    /// `current` map, and never in both places at the same time.
     pub open spec fn no_duplicate_task(self, task: Loc) -> bool {
         &&& forall|cpu1: CpuId, cpu2: CpuId, idx1: int, idx2: int|
             #![trigger self.runqueues[cpu1][idx1], self.runqueues[cpu2][idx2]]
-            self.runqueues.contains_key(cpu1)
-                && self.runqueues.contains_key(cpu2)
-                && 0 <= idx1
-                && idx1 < self.runqueues[cpu1].len()
-                && 0 <= idx2
-                && idx2 < self.runqueues[cpu2].len()
-                && self.runqueues[cpu1][idx1] == task
-                && self.runqueues[cpu2][idx2] == task
-                ==> cpu1 == cpu2 && idx1 == idx2
+            self.runqueues.contains_key(cpu1) && self.runqueues.contains_key(cpu2) && 0 <= idx1
+                && idx1 < self.runqueues[cpu1].len() && 0 <= idx2 && idx2
+                < self.runqueues[cpu2].len() && self.runqueues[cpu1][idx1] == task
+                && self.runqueues[cpu2][idx2] == task ==> cpu1 == cpu2 && idx1 == idx2
         &&& forall|cpu1: CpuId, cpu2: CpuId|
             #![trigger self.current.contains_key(cpu1), self.current.contains_key(cpu2)]
-            self.current.contains_key(cpu1)
-                && self.current.contains_key(cpu2)
-                && self.current[cpu1] is Some
-                && self.current[cpu2] is Some
-                && self.current[cpu1]->0 == task
-                && self.current[cpu2]->0 == task
-                ==> cpu1 == cpu2
+            self.current.contains_key(cpu1) && self.current.contains_key(cpu2)
+                && self.current[cpu1] is Some && self.current[cpu2] is Some && self.current[cpu1]->0
+                == task && self.current[cpu2]->0 == task ==> cpu1 == cpu2
         &&& !(self.task_in_runqueue(task) && self.task_is_current(task))
     }
 
+    /// Moves the current task's weak-memory view out of scheduler storage.
+    ///
+    /// This is the logical transition for the outermost preemption-disable
+    /// guard. The total logical snapshot `task_views` is unchanged; only the
+    /// ownership partition changes from `stored_views` to `checked_out_views`.
     pub open spec fn checkout_task_view(self, cpu: CpuId) -> SchedulerView
         recommends
             self.current.contains_key(cpu),
@@ -201,6 +216,11 @@ impl SchedulerView {
         }
     }
 
+    /// Records a mutation to a checked-out `ThreadView`.
+    ///
+    /// Weak-memory operations mutate the linear `ThreadView` carried by the
+    /// guard. This transition keeps the logical snapshot and checked-out
+    /// partition synchronized with that updated view.
     pub open spec fn update_checked_out_task_view(self, task: Loc, view: WmView) -> SchedulerView
         recommends
             self.task_view_is_checked_out(task),
@@ -212,6 +232,10 @@ impl SchedulerView {
         }
     }
 
+    /// Writes a checked-out task view back to scheduler storage.
+    ///
+    /// The caller must provide the same view that is recorded as checked out;
+    /// this prevents check-in from overwriting the task with an unrelated view.
     pub open spec fn checkin_task_view(self, task: Loc, view: WmView) -> SchedulerView
         recommends
             self.task_view_is_checked_out(task),
@@ -227,46 +251,59 @@ impl SchedulerView {
     }
 
     pub open spec fn wf(self) -> bool {
-        &&& forall|cpu: CpuId|
-            #[trigger] self.runqueues.contains_key(cpu) ==> valid_cpu(cpu)
-        &&& forall|cpu: CpuId|
-            #[trigger] self.current.contains_key(cpu) ==> valid_cpu(cpu)
+        // CPU-indexed maps may only mention valid CPUs.
+        &&& forall|cpu: CpuId| #[trigger] self.runqueues.contains_key(cpu) ==> valid_cpu(cpu)
+        &&& forall|cpu: CpuId| #[trigger]
+            self.current.contains_key(cpu) ==> valid_cpu(
+                cpu,
+            )
+        // Runqueues contain exactly runnable tasks; current slots contain
+        // running tasks.
         &&& forall|cpu: CpuId, idx: int|
             #![trigger self.runqueues[cpu][idx]]
-            self.runqueues.contains_key(cpu)
-                && 0 <= idx
-                && idx < self.runqueues[cpu].len()
+            self.runqueues.contains_key(cpu) && 0 <= idx && idx < self.runqueues[cpu].len()
                 ==> self.state.contains_key(self.runqueues[cpu][idx])
-                    && self.state[self.runqueues[cpu][idx]] is Runnable
-        &&& forall|cpu: CpuId|
-            #[trigger] self.current.contains_key(cpu)
-                && self.current[cpu] is Some
-                ==> self.state.contains_key(self.current[cpu]->0)
-                    && self.state[self.current[cpu]->0] is Running
-        &&& forall|task: Loc|
-            #[trigger] self.state.contains_key(task) ==> self.no_duplicate_task(task)
-        &&& forall|task: Loc|
-            #[trigger] self.state.contains_key(task)
-                && !(self.state[task] is Exited)
-                ==> self.task_views.contains_key(task)
-        &&& forall|task: Loc|
-            #[trigger] self.task_views.contains_key(task) ==> self.state.contains_key(task)
-                && !(self.state[task] is Exited)
-        &&& forall|task: Loc|
-            #[trigger] self.stored_views.contains_key(task) ==> self.task_views.contains_key(task)
-                && self.stored_views[task] == self.task_views[task]
-                && !self.checked_out_views.contains_key(task)
-                && self.task_is_live(task)
-        &&& forall|task: Loc|
-            #[trigger] self.checked_out_views.contains_key(task) ==> self.task_views.contains_key(
+                && self.state[self.runqueues[cpu][idx]] is Runnable
+        &&& forall|cpu: CpuId| #[trigger]
+            self.current.contains_key(cpu) && self.current[cpu] is Some ==> self.state.contains_key(
+                self.current[cpu]->0,
+            )
+                && self.state[self.current[cpu]->0] is Running
+            // No known task may be duplicated across scheduler positions.
+        &&& forall|task: Loc| #[trigger]
+            self.state.contains_key(task) ==> self.no_duplicate_task(
                 task,
             )
+        // Live tasks have a weak-memory view, while exited tasks do not have
+        // to keep one around.
+        &&& forall|task: Loc| #[trigger]
+            self.state.contains_key(task) && !(self.state[task] is Exited)
+                ==> self.task_views.contains_key(task)
+        &&& forall|task: Loc| #[trigger]
+            self.task_views.contains_key(task) ==> self.state.contains_key(task) && !(
+            self.state[task] is Exited)
+            // `stored_views` is the part of `task_views` still owned by the
+            // scheduler resource.
+        &&& forall|task: Loc| #[trigger]
+            self.stored_views.contains_key(task) ==> self.task_views.contains_key(task)
+                && self.stored_views[task] == self.task_views[task]
+                && !self.checked_out_views.contains_key(task) && self.task_is_live(
+                task,
+            )
+            // `checked_out_views` is the part temporarily held by guards. For the
+            // preemption-disable path, only the current running task may be checked
+            // out.
+        &&& forall|task: Loc| #[trigger]
+            self.checked_out_views.contains_key(task) ==> self.task_views.contains_key(task)
                 && self.checked_out_views[task] == self.task_views[task]
-                && !self.stored_views.contains_key(task)
-                && self.task_is_live(task)
-                && self.task_is_current(task)
-        &&& forall|task: Loc|
-            #[trigger] self.task_views.contains_key(task) ==> (self.stored_views.contains_key(task)
+                && !self.stored_views.contains_key(task) && self.task_is_live(task)
+                && self.task_is_current(
+                task,
+            )
+            // Together, the stored and checked-out partitions cover all logical
+            // task views.
+        &&& forall|task: Loc| #[trigger]
+            self.task_views.contains_key(task) ==> (self.stored_views.contains_key(task)
                 || self.checked_out_views.contains_key(task))
     }
 }
@@ -307,6 +344,10 @@ impl TaskThreadView {
         self.thread_view@
     }
 
+    /// Connects the checked-out token to the scheduler view that owns it.
+    ///
+    /// The token's linear `ThreadView` must agree with both the checked-out
+    /// partition and the total logical `task_views` snapshot.
     pub closed spec fn wf(self, sched_view: SchedulerView) -> bool {
         &&& sched_view.wf()
         &&& sched_view.checked_out_views.contains_key(self.task())
@@ -315,7 +356,12 @@ impl TaskThreadView {
         &&& sched_view.task_views[self.task()] == self.view()
     }
 
-    pub proof fn borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ThreadView)
+    /// Borrows the linear `ThreadView` for weak-memory operations.
+    ///
+    /// After the borrow mutates the view, the caller must use
+    /// `update_checked_out_task_view` on the scheduler view before relying on
+    /// `TaskThreadView::wf` again.
+    pub proof fn tracked_borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ThreadView)
         ensures
             (*tv)@ == old(self).view(),
             final(self).task() == old(self).task(),
@@ -335,10 +381,7 @@ impl SchedulerThreadViews {
     }
 
     pub closed spec fn view(self) -> Map<Loc, WmView> {
-        Map::new(
-            self.views.dom(),
-            |task: Loc| self.views[task]@,
-        )
+        Map::new(self.views.dom(), |task: Loc| self.views[task]@)
     }
 
     pub closed spec fn contains(self, task: Loc) -> bool {
@@ -352,11 +395,21 @@ impl SchedulerThreadViews {
         self.views[task]@
     }
 
+    /// The tracked owner contains exactly the views still stored in scheduler
+    /// state. Checked-out views are represented by `TaskThreadView` tokens
+    /// instead, so they are intentionally absent here.
     pub closed spec fn wf(self, sched_view: SchedulerView) -> bool {
         self.view() == sched_view.stored_views
     }
 
-    pub proof fn insert_initial_thread_view(tracked &mut self, tracked token: TaskThreadView)
+    /// Inserts a task view created during task registration.
+    ///
+    /// This is separate from check-in: initial insertion creates a new stored
+    /// entry, while check-in returns an existing checked-out view.
+    pub proof fn tracked_insert_initial_thread_view(
+        tracked &mut self,
+        tracked token: TaskThreadView,
+    )
         requires
             !old(self).contains(token.task()),
         ensures
@@ -366,7 +419,11 @@ impl SchedulerThreadViews {
         self.views.tracked_insert(task, thread_view);
     }
 
-    pub proof fn take_current_thread_view(
+    /// Checks out the current CPU's task view from the tracked owner.
+    ///
+    /// The proof-side owner loses this task entry and returns the linear token
+    /// that a guard will carry until check-in.
+    pub proof fn tracked_take_current_thread_view(
         tracked &mut self,
         sched_view: SchedulerView,
         cpu: CpuId,
@@ -388,7 +445,12 @@ impl SchedulerThreadViews {
         TaskThreadView { task, thread_view }
     }
 
-    pub proof fn put_checked_out_thread_view(
+    /// Returns a checked-out task view to the tracked owner.
+    ///
+    /// The `token.wf(sched_view)` precondition ties this write-back to the
+    /// scheduler's checked-out partition, so the task id and view cannot be
+    /// swapped with another task.
+    pub proof fn tracked_put_checked_out_thread_view(
         tracked &mut self,
         sched_view: SchedulerView,
         tracked token: TaskThreadView,
@@ -467,7 +529,6 @@ enum ReschedAction {
     SwitchTo(RoArc<Task>),
 }
 
-
 /// Possible triggers of an `enqueue` action.
 #[derive(PartialEq, Copy, Clone)]
 pub enum EnqueueFlags {
@@ -491,7 +552,6 @@ pub enum UpdateFlags {
 }
 
 } // verus!
-
 /*
 // mod fifo_scheduler;
 // pub mod info;
