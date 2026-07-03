@@ -660,13 +660,13 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // The top-level index of the cursor's VA must be within the page table config's
         // managed range. This ensures cursors for UserPtConfig and KernelPtConfig operate
         // on disjoint portions of the virtual address space.
-        &&& C::TOP_LEVEL_INDEX_RANGE_spec().start <= self.va.index[NR_LEVELS
+        &&& C::TOP_LEVEL_INDEX_RANGE().start <= self.va.index[NR_LEVELS
             - 1]
         // The top index may equal TOP_LEVEL_INDEX_RANGE.end as a "one-past-end"
         // sentinel meaning the cursor has been advanced past the very last in-range
         // top-level slot. In this state the cursor is `above_locked_range`.
         &&& self.va.index[NR_LEVELS - 1]
-            <= C::TOP_LEVEL_INDEX_RANGE_spec().end
+            <= C::TOP_LEVEL_INDEX_RANGE().end
         // The cursor's VA is always at or above the start of the locked range.
         &&& self.in_locked_range()
             || self.above_locked_range()
@@ -688,13 +688,13 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             //      (`lemma_view_in_vaddr_range_user`) and kernel
             //      (`lemma_view_in_vaddr_range_kernel`) view bounds provable.
         &&& self.level <= NR_LEVELS - 1 ==> {
-            &&& C::TOP_LEVEL_INDEX_RANGE_spec().start <= self.continuations[NR_LEVELS - 1].idx
-            &&& self.continuations[NR_LEVELS - 1].idx < C::TOP_LEVEL_INDEX_RANGE_spec().end
+            &&& C::TOP_LEVEL_INDEX_RANGE().start <= self.continuations[NR_LEVELS - 1].idx
+            &&& self.continuations[NR_LEVELS - 1].idx < C::TOP_LEVEL_INDEX_RANGE().end
         }
         &&& forall|j: int|
             #![trigger self.continuations[NR_LEVELS - 1].children[j]]
-            0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                < C::TOP_LEVEL_INDEX_RANGE_spec().end) ==> self.continuations[NR_LEVELS
+            0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE().start <= j
+                < C::TOP_LEVEL_INDEX_RANGE().end) ==> self.continuations[NR_LEVELS
                 - 1].children[j] is Some ==> (self.continuations[NR_LEVELS
                 - 1].children[j].unwrap().value.is_borrowed() || self.continuations[NR_LEVELS
                 - 1].children[j].unwrap().value.is_absent())
@@ -707,7 +707,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             // This is established at construction (when prefix == va, which itself starts
             // strictly in-range) and preserved by all cursor operations (none touch prefix).
         &&& self.prefix.index[NR_LEVELS - 1]
-            < C::TOP_LEVEL_INDEX_RANGE_spec().end
+            < C::TOP_LEVEL_INDEX_RANGE().end
         // Top-of-address-space sentinel reservation: none of our `PtConfig`s actually use
         // the very last index. The first half of the address space
         &&& self.prefix.index[NR_LEVELS - 1] + 1
@@ -992,7 +992,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).in_locked_range(),
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
             old(self).level == NR_LEVELS ==> (old(self).continuations[old(self).level - 1].idx + 1)
-                <= C::TOP_LEVEL_INDEX_RANGE_spec().end,
+                <= C::TOP_LEVEL_INDEX_RANGE().end,
         ensures
             final(self).inv(),
             *final(self) == old(self).inc_index(),
@@ -1709,7 +1709,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             !self.popped_too_high,
         ensures
-            self.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end,
+            self.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE().end,
     {
         self.in_locked_range_level_le_guard_level();
         if self.guard_level == NR_LEVELS {
@@ -1773,7 +1773,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         self.in_locked_range_top_index_lt_top_end();
         self.in_locked_range_guard_index_eq_prefix();
-        let top_end = C::TOP_LEVEL_INDEX_RANGE_spec().end as int;
+        let top_end = C::TOP_LEVEL_INDEX_RANGE().end as int;
         if top_end >= NR_ENTRIES {
             assert(self.continuations[self.level - 1].idx + 1 < NR_ENTRIES);
         }
@@ -2802,7 +2802,7 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
         // Config-aware VA range: user page tables live in `[0, 2^47)`,
         // kernel page tables in `[0xffff_8000_…, usize::MAX]`, etc.
         // `vaddr_range_spec<C>` gives inclusive `(start, end_inclusive)`
-        // bounds derived from `LEADING_BITS_spec` + `TOP_LEVEL_INDEX_RANGE_spec`,
+        // bounds derived from `LEADING_BITS_spec` + `TOP_LEVEL_INDEX_RANGE`,
         // so `Mapping::inv` can stay config-agnostic.
         &&& forall|m: Mapping|
             #![auto]
@@ -2849,7 +2849,7 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     );
     vstd::layout::unsigned_int_max_values();
 
-    let idx = C::TOP_LEVEL_INDEX_RANGE_spec();
+    let idx = C::TOP_LEVEL_INDEX_RANGE();
     let start = idx.start as int;
     let end = idx.end as int;
     let lb = C::LEADING_BITS_spec() as int;
@@ -2981,7 +2981,7 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
                 &&& m.va_range.end <= 0x8000_0000_0000int
             },
 {
-    let end = crate::mm::vm_space::UserPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end as int;
+    let end = crate::mm::vm_space::UserPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
     assert(end == 256);
     assert(end * 0x80_0000_0000int == 0x8000_0000_0000int) by (nonlinear_arith)
         requires
@@ -3062,8 +3062,10 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.end + 1
+                &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.start
+                    <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.end
+                    + 1
             },
 {
     crate::mm::page_table::lemma_vaddr_range_spec_kernel();

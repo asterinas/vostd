@@ -595,7 +595,7 @@ fn pt_va_range_start<C: PageTableConfig>() -> (ret: Vaddr)
 /// left shift followed by `wrapping_sub(1)`.
 fn pt_va_range_end<C: PageTableConfig>() -> (ret: Vaddr)
     ensures
-        ret == (C::TOP_LEVEL_INDEX_RANGE_spec().end * pow2(
+        ret == (C::TOP_LEVEL_INDEX_RANGE().end * pow2(
             pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
         ) - 1) % 0x1_0000_0000_0000_0000int,
 {
@@ -667,7 +667,7 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr>
 /// exclusive end of a [`Range<Vaddr>`].
 #[verusfmt::skip]
 fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
-    returns 
+    returns
         vaddr_range_spec::<C>(),
 {
     let mut start = pt_va_range_start::<C>();
@@ -693,7 +693,8 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
 #[verifier::inline]
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
     let va_range = vaddr_range_spec::<C>();
-    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end > 0 && r.end - 1 <= va_range@.end)
+    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end > 0 && r.end - 1
+        <= va_range@.end)
 }
 
 /// A handle to a page table.
@@ -899,8 +900,8 @@ impl PageTable<KernelPtConfig> {
     pub open spec fn create_user_pt_panic_condition(root_owner: NodeOwner<KernelPtConfig>) -> bool {
         exists|i: usize|
             #![trigger root_owner.children_perm.value()[i as int]]
-            KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i
-                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end && {
+            KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i
+                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end && {
                 let pte = root_owner.children_perm.value()[i as int];
                 ||| !pte.is_present()
                 ||| pte.is_last(root_owner.level)
@@ -1119,8 +1120,8 @@ impl PageTable<KernelPtConfig> {
                 kernel_owner.0.value.is_node(),
                 regions.inv(),
                 !Self::create_user_pt_panic_condition(kernel_owner.0.value.node()),
-                i <= KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end,
-                KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i,
+                i <= KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end,
+                KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i,
                 // Lock postcondition for the kernel root.
                 *root_owner == kernel_owner.0.value.node(),
                 root_owner.relate_guard(root_node),
@@ -1130,14 +1131,14 @@ impl PageTable<KernelPtConfig> {
                 new_node_owner.inv(),
                 new_node_owner.relate_guard(new_node),
                 regions.slots.contains_key(new_node_owner.slot_index),
-            decreases KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end - i,
+            decreases KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end - i,
         {
             proof {
                 let kern_node = kernel_owner.0.value.node();
                 assert forall|j: usize|
                     #![trigger kern_node.children_perm.value()[j as int]]
-                    KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end implies {
+                    KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= j
+                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end implies {
                     let pte = kern_node.children_perm.value()[j as int];
                     pte.is_present() && !pte.is_last(kern_node.level)
                 } by {
@@ -1187,11 +1188,11 @@ impl PageTable<KernelPtConfig> {
 
                 assert(pte.is_present() && !pte.is_last(kern_node.level)) by {
                     if !pte.is_present() || pte.is_last(kern_node.level) {
-                        assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i
-                            < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end);
+                        assert(KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= i
+                            < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end);
                         assert(exists|j: usize|
-                            KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end && {
+                            KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start <= j
+                                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end && {
                                 let p = #[trigger] kern_node.children_perm.value()[j as int];
                                 ||| !p.is_present()
                                 ||| p.is_last(kern_node.level)
