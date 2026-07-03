@@ -281,7 +281,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // `usize::MAX + 1`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Self::cursor_new_success_conditions(va) ==> {
+            Self::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -293,7 +293,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& r.unwrap().1@.as_page_table_owner() == pt_own
                 &&& r.unwrap().1@.continuations[3].path() == pt_own.0.value.path
             },
-            !Self::cursor_new_success_conditions(va) ==> r is Err,
+            !Self::cursor_new_success_conditions(*va) ==> r is Err,
             // Cursor::new inherits lock_range's weakened preservation: only
             // slots that were non-UNUSED before the call keep their
             // paths_in_pt (new PT allocations come from UNUSED slots).
@@ -2184,7 +2184,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Cursor::<C, A>::cursor_new_success_conditions(va) ==> {
+            Cursor::<C, A>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -2194,7 +2194,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
             },
-            !Cursor::<C, A>::cursor_new_success_conditions(va) ==> r is Err,
+            !Cursor::<C, A>::cursor_new_success_conditions(*va) ==> r is Err,
             // cursor_mut only acquires locks on page-table node slots; it does not
             // set paths_in_pt for data-frame slots. Any frame that was item_not_mapped
             // before the call remains item_not_mapped after.

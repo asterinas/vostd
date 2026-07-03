@@ -18,8 +18,8 @@ use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, nr_subpage_per_huge,
-    page_size,
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
+    nr_subpage_per_huge, page_size,
 };
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
@@ -28,8 +28,9 @@ use crate::specs::mm::page_table::{
     cursor::page_size_lemmas::{
         lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
     },
+    lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
     owners::*,
-    pte_index_bit_offset_spec,
+    pte_index_bit_offset_spec, vaddr_range_spec,
 };
 
 use crate::specs::mm::{
@@ -715,7 +716,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // Locked range stays within the config's managed VA space. Established at
         // cursor construction (barrier_va == *va with is_valid_range_spec(va)) and
         // preserved by all cursor operations since they don't modify prefix/guard_level.
-        &&& self.locked_range().end <= crate::mm::page_table::vaddr_range_spec::<C>()@.end
+        &&& self.locked_range().end <= vaddr_range_spec::<C>()@.end
             + 1
         // Per-config tightening: e.g. `KernelPtConfig` overrides this to
         // `FRAME_METADATA_BASE_VADDR`, which the kvirt allocator enforces and
@@ -2841,8 +2842,6 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     C::lemma_paging_consts_properties();
     C::lemma_page_table_config_constant_properties();
     lemma_arch_specific_consts_properties::<C>();
-    vstd::arithmetic::power2::lemma2_to64();
-    vstd::arithmetic::power2::lemma2_to64_rest();
     vstd::arithmetic::power2::lemma_pow2_adds(
         (C::ADDRESS_WIDTH() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as nat,
         pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat,
@@ -3053,28 +3052,21 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
 /// `KernelPtConfig` cursor exposes lives in the kernel high half. Mirror of
 /// `lemma_view_in_vaddr_range_user` with `TOP_LEVEL_INDEX_RANGE == 256..512` and
 /// `LEADING_BITS == 0xffff` (canonical high-half base).
-pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
-    owner: &CursorOwner<'rcu, crate::mm::kspace::KernelPtConfig>,
-)
+pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, KernelPtConfig>)
     requires
         owner.inv(),
     ensures
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.start
-                    <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.end
-                    + 1
+                &&& vaddr_range_spec::<KernelPtConfig>()@.start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end + 1
             },
 {
-    crate::mm::page_table::lemma_vaddr_range_spec_kernel();
-    let start = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start as int;
-    let end = crate::mm::kspace::KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
-    let lb = crate::mm::kspace::KernelPtConfig::LEADING_BITS_spec() as int;
-    assert(start == 256);
-    assert(end == 512);
-    assert(lb == 0xffff);
+    lemma_vaddr_range_spec_kernel();
+    let start = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start as int;
+    let end = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
+    let lb = KernelPtConfig::LEADING_BITS_spec() as int;
     assert(start * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int == 0xFFFF_8000_0000_0000int)
         by (nonlinear_arith)
         requires
@@ -3088,8 +3080,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
             lb == 0xffff,
     ;
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.start <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<crate::mm::kspace::KernelPtConfig>()@.end + 1
+        &&& vaddr_range_spec::<KernelPtConfig>()@.start <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end + 1
     } by {
         owner.lemma_view_mappings_contains();
         let i = choose|i: int|
@@ -3109,19 +3101,9 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(
         cont.path().push_tail_property_index(j as usize);
         assert(start <= p.index(0) < end) by {
             if i == NR_LEVELS - 1 {
-                // Root: `p == [j]`. A contributing child is a frame/node (not
-                // borrowed/absent, else empty `view_rec`); the cursor-inv
-                // top-level clause then forces `j ∈ [256, 512)`.
-                assert(cont.path().len() == 0);
-                assert(p.index(0) == j);
-                assert(child.0.value.is_frame() || child.0.value.is_node());
-                assert(!child.0.value.is_borrowed());
-                assert(!child.0.value.is_absent());
             } else {
                 // Non-root: `p.index(0) == cont.path().index(0) == root.idx ∈
                 // [256, 512)` (path chain + cursor-inv idx clause).
-                assert(cont.path().len() > 0);
-                assert(p.index(0) == cont.path().index(0));
                 assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
                     owner.continuations[NR_LEVELS - 1].path().push_tail_property_index(

@@ -15,7 +15,10 @@ use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::specs::mm::{
     frame::{mapping::frame_to_index, meta_owners::MetaPerm, meta_region_owners::MetaRegionOwners},
-    page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec, top_level_index_width_spec},
+    page_table::{
+        is_valid_range_spec, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
+        top_level_index_width_spec, vaddr_range_spec,
+    },
 };
 
 use core::{
@@ -643,22 +646,6 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> (ret: bool)
     (va >> (C::ADDRESS_WIDTH() - 1)) & 1 != 0
 }
 
-/// Canonical bounds of the VA range managed by a page-table config,
-///
-/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE`. For
-/// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
-/// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
-/// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
-#[verusfmt::skip]
-pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr> {
-    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
-    let lb = C::LEADING_BITS_spec() as int;
-    let base = lb * 0x1_0000_0000_0000int;
-    let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
-    let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
-    start..=end
-}
-
 /// Apply the sign-extension OR to a positional value.
 ///
 /// For any value `va` in `[0, 2^ADDRESS_WIDTH)`, the OR with
@@ -746,22 +733,18 @@ fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
     start..=end
 }
 
-pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
-    let va_range = vaddr_range_spec::<C>();
-    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end - 1 <= va_range@.end)
-}
-
 /// Checks if the given range is covered by the valid range of the page table.
 fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool
     requires
         r.end > 0,
     returns
-        is_valid_range_spec::<C>(r),
+        is_valid_range_spec::<C>(*r),
 {
     let va_range = vaddr_range::<C>();
     (r.start == 0 && r.end == 0) || (*va_range.start() <= r.start && r.end - 1 <= *va_range.end())
 }
 
+// Here are some const values that are determined by the paging constants.
 /// The number of virtual address bits used to index a PTE in a page.
 fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
     returns
@@ -773,56 +756,6 @@ fn nr_pte_index_bits<C: PagingConstsTrait>() -> usize
     nr_subpage_per_huge::<C>().ilog2() as usize
 }
 
-/// A handle to a page table.
-/// A page table can track the lifetime of the mapped physical pages.
-pub struct PageTable<C: PageTableConfig> {
-    pub root: PageTableNode<C>,
-}
-
-/// Sanity-check: for x86_64 user PT, the bounds are
-/// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
-pub(crate) proof fn lemma_vaddr_range_spec_user()
-    ensures
-        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.start == 0,
-        vaddr_range_spec::<crate::mm::vm_space::UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
-{
-    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
-    lemma2_to64();
-    lemma2_to64_rest();
-    lemma_usize_pow2_ilog2(12);
-    lemma_usize_pow2_ilog2(9);
-    lemma_pow2_adds(8, 39);
-    lemma_arch_specific_consts_properties::<PagingConsts>();
-    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-    assert(0 * pow2(39) == 0);
-    assert(256 * pow2(39) == pow2(47));
-    assert(pow2(47) - 1 == 0x0000_7FFF_FFFF_FFFF_int);
-    // UserPtConfig: LEADING_BITS = 0 via trait default.
-    assert(<crate::mm::vm_space::UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0_usize);
-}
-
-/// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
-/// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
-pub(crate) proof fn lemma_vaddr_range_spec_kernel()
-    ensures
-        vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
-        vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
-{
-    use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
-    lemma2_to64();
-    lemma2_to64_rest();
-    lemma_usize_pow2_ilog2(12);
-    lemma_usize_pow2_ilog2(9);
-    lemma_pow2_adds(8, 39);
-    lemma_pow2_adds(9, 39);
-    lemma_arch_specific_consts_properties::<PagingConsts>();
-    assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-    assert(256 * pow2(39) == pow2(47));
-    assert(512 * pow2(39) == pow2(48));
-    assert(0xffff_int * 0x1_0000_0000_0000int + pow2(47) == 0xffff_8000_0000_0000int);
-    assert(0xffff_int * 0x1_0000_0000_0000int + pow2(48) - 1 == 0xffff_ffff_ffff_ffffint);
-}
-
 /// The index of a VA's PTE in a page table node at the given level.
 fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
@@ -830,31 +763,25 @@ fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize
     ensures
         res == AbstractVaddr::from_vaddr(va).index[level - 1],
 {
-    let offset = pte_index_bit_offset::<C>(level);
     proof {
+        let offset = pte_index_bit_offset_spec::<C>(level);
         C::lemma_paging_consts_properties();
         lemma_arch_specific_consts_properties::<C>();
-        assert(offset == 12 + 9 * (level - 1));
         assert(0 <= offset < usize::BITS) by (nonlinear_arith)
             requires
-                1 <= level <= NR_LEVELS,
-                NR_LEVELS == 4,
-                usize::BITS == 64,
+                1 <= level <= 4,
                 offset == 12 + 9 * (level - 1),
         ;
-    }
-
-    let shifted = va >> offset;
-    let nr_subpages = nr_subpage_per_huge::<C>();
-    let mask = nr_subpages - 1;
-    proof {
         lemma2_to64();
         lemma2_to64_rest();
-        vstd::bits::lemma_usize_shr_is_div(va, offset);
+        vstd::bits::lemma_usize_shr_is_div(va, pte_index_bit_offset_spec::<C>(level));
         vstd::bits::lemma_low_bits_mask_values();
-        vstd::bits::lemma_usize_low_bits_mask_is_mod(shifted, 9);
+        vstd::bits::lemma_usize_low_bits_mask_is_mod(
+            va >> pte_index_bit_offset_spec::<C>(level),
+            9,
+        );
     }
-    shifted & mask
+    (va >> pte_index_bit_offset::<C>(level)) & (nr_subpage_per_huge::<C>() - 1)
 }
 
 /// The bit offset of the entry offset part in a virtual address.
@@ -880,6 +807,12 @@ fn pte_index_bit_offset<C: PagingConstsTrait>(level: PagingLevel) -> usize
     C::BASE_PAGE_SIZE().ilog2() as usize + nr_pte_index_bits::<C>() * (level as usize - 1)
 }
 
+/// A handle to a page table.
+/// A page table can track the lifetime of the mapped physical pages.
+pub struct PageTable<C: PageTableConfig> {
+    pub root: PageTableNode<C>,
+}
+
 /*
 impl PageTable<UserPtConfig> {
     pub fn activate(&self) {
@@ -892,6 +825,26 @@ impl PageTable<UserPtConfig> {
 }*/
 
 impl PageTable<KernelPtConfig> {
+    /// Create a new kernel page table.
+    #[verifier::external_body]
+    pub(crate) fn new_kernel_page_table() -> Self {
+        unimplemented!()/*        let kpt = Self::empty();
+
+        // Make shared the page tables mapped by the root table in the kernel space.
+        {
+        let preempt_guard = disable_preempt();
+        let mut root_node = kpt.root.borrow().lock(&preempt_guard);
+
+        for i in KernelPtConfig::TOP_LEVEL_INDEX_RANGE {
+            let mut root_entry = root_node.entry(i);
+            let _ = root_entry.alloc_if_none(&preempt_guard).unwrap();
+            }
+        }
+
+        kpt*/
+
+    }
+
     /// Panic condition for [`Self::create_user_page_table`]:
     /// Some kernel root entry at index `i` in `TOP_LEVEL_INDEX_RANGE` is
     /// not a page table node (i.e., is absent or maps a huge frame).
@@ -904,26 +857,6 @@ impl PageTable<KernelPtConfig> {
                 ||| !pte.is_present()
                 ||| pte.is_last(root_owner.level)
             }
-    }
-
-    /// Create a new kernel page table.
-    #[verifier::external_body]
-    pub(crate) fn new_kernel_page_table() -> Self {
-        unimplemented!()/*        let kpt = Self::empty();
-
-        // Make shared the page tables mapped by the root table in the kernel space.
-        {
-            let preempt_guard = disable_preempt();
-            let mut root_node = kpt.root.borrow().lock(&preempt_guard);
-
-            for i in KernelPtConfig::TOP_LEVEL_INDEX_RANGE {
-                let mut root_entry = root_node.entry(i);
-                let _ = root_entry.alloc_if_none(&preempt_guard).unwrap();
-            }
-        }
-
-        kpt*/
-
     }
 
     /// Create a new user page table.
@@ -1265,8 +1198,6 @@ impl PageTable<KernelPtConfig> {
 
 #[verus_verify]
 impl<C: PageTableConfig> PageTable<C> {
-    pub uninterp spec fn root_paddr_spec(&self) -> Paddr;
-
     /// Create a new empty page table.
     ///
     /// Useful for the IOMMU page tables only.
@@ -1375,6 +1306,8 @@ impl<C: PageTableConfig> PageTable<C> {
 
     }
 
+    pub uninterp spec fn root_paddr_spec(&self) -> Paddr;
+
     /// The physical address of the root page table.
     ///
     /// Obtaining the physical address of the root page table is safe, however, using it or
@@ -1416,7 +1349,7 @@ impl<C: PageTableConfig> PageTable<C> {
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
+            Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -1426,7 +1359,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
             },
-            !Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Err,
+            !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
             forall |item: C::Item| #![trigger CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions))]
                 CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions)) ==>
                 CursorMut::<'rcu, C, G>::item_not_mapped(item, *final(regions)),
@@ -1471,7 +1404,7 @@ impl<C: PageTableConfig> PageTable<C> {
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
+            Cursor::<C, G>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -1482,7 +1415,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().1@.as_page_table_owner() == owner
                 &&& r.unwrap().1@.continuations[3].path() == owner.0.value.path
             },
-            !Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Err,
+            !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
             forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
