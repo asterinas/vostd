@@ -1089,6 +1089,9 @@ impl ThreadView {
     /// coherence the thread has already observed) and publishes nothing useful
     /// through release stores, so executable code should thread one token per
     /// logical operation or critical section, and eventually one per task.
+    ///
+    /// TODO: This API should not be exposed as a public because the only way
+    /// to create this is via critical section markers such as `disable_preempt`.
     pub proof fn new() -> (tracked res: Self)
         ensures
             res@ == WmView::empty(),

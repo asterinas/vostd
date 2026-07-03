@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
-use crate::{sync::GuardTransfer /*, task::atomic_mode::InAtomicMode*/};
+use crate::{
+    specs::sync::weak_memory::ThreadView,
+    sync::GuardTransfer, /*, task::atomic_mode::InAtomicMode*/
+};
 
 /// A guard for disable preempt.
 #[verus_verify]
@@ -11,6 +14,14 @@ use crate::{sync::GuardTransfer /*, task::atomic_mode::InAtomicMode*/};
 pub struct DisabledPreemptGuard {
     // This private field prevents user from constructing values of this type directly.
     _private: (),
+
+    // Weak-memory lower-bound view carried by this guard.
+    //
+    // Short-term: minted when preemption is disabled.
+    // Long-term: borrowed/moved from task-local state instead (but how?).
+    //
+    // This should be "provided" by the "current" task.
+    wm_view: Tracked<ThreadView>,
 }
 
 /* impl !Send for DisabledPreemptGuard {}

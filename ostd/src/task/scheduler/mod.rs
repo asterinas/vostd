@@ -63,6 +63,436 @@
 //! Violating this invariant—e.g., running the same task on two CPUs concurrently—
 //! can have catastrophic consequences,
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
+
+use vstd::{map::Map, prelude::*, resource::Loc};
+
+use super::Task;
+use crate::{
+    specs::mm::cpu::CpuId,
+    specs::sync::weak_memory::{ThreadView, WmView},
+    sync::{OnceImpl, RoArc, TrivialPred},
+};
+
+verus! {
+
+/// A task-like object that can be identified in scheduler ghost state.
+pub trait Schedulable {
+    spec fn sched_id(&self) -> Loc;
+}
+
+impl Schedulable for Task {
+    open spec fn sched_id(&self) -> Loc {
+        self.id()
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub ghost enum TaskSchedState {
+    New,
+    Runnable,
+    Blocked,
+    Running,
+    Exited,
+}
+
+/// Abstract proof view of the scheduler state.
+///
+/// `runqueues` contains runnable-but-not-current tasks, `current` contains
+/// the task currently running on each CPU, and `state` records the scheduler
+/// state for every known task. `task_views` is the logical per-task
+/// weak-memory view. `stored_views` records views still owned by the scheduler
+/// resource; `checked_out_views` records views temporarily held by guards.
+pub ghost struct SchedulerView {
+    pub runqueues: Map<CpuId, Seq<Loc>>,
+    pub current: Map<CpuId, Option<Loc>>,
+    pub state: Map<Loc, TaskSchedState>,
+    pub task_views: Map<Loc, WmView>,
+    pub stored_views: Map<Loc, WmView>,
+    pub checked_out_views: Map<Loc, WmView>,
+}
+
+impl SchedulerView {
+    pub open spec fn task_is_known(self, task: Loc) -> bool {
+        self.state.contains_key(task)
+    }
+
+    pub open spec fn task_has_thread_view(self, task: Loc) -> bool {
+        self.task_views.contains_key(task)
+    }
+
+    pub open spec fn task_thread_view(self, task: Loc) -> WmView
+        recommends
+            self.task_has_thread_view(task),
+    {
+        self.task_views[task]
+    }
+
+    pub open spec fn task_view_is_stored(self, task: Loc) -> bool {
+        self.stored_views.contains_key(task)
+    }
+
+    pub open spec fn task_view_is_checked_out(self, task: Loc) -> bool {
+        self.checked_out_views.contains_key(task)
+    }
+
+    pub open spec fn task_in_runqueue(self, task: Loc) -> bool {
+        exists|cpu: CpuId, idx: int|
+            self.runqueues.contains_key(cpu)
+                && 0 <= idx
+                && idx < self.runqueues[cpu].len()
+                && (#[trigger] self.runqueues[cpu][idx]) == task
+    }
+
+    pub open spec fn task_is_current(self, task: Loc) -> bool {
+        exists|cpu: CpuId|
+            #[trigger] self.current.contains_key(cpu)
+                && self.current[cpu] is Some
+                && self.current[cpu]->0 == task
+    }
+
+    pub open spec fn task_is_runnable(self, task: Loc) -> bool {
+        &&& self.state.contains_key(task)
+        &&& (self.state[task] is Runnable || self.state[task] is Running)
+    }
+
+    pub open spec fn task_is_live(self, task: Loc) -> bool {
+        &&& self.state.contains_key(task)
+        &&& !(self.state[task] is Exited)
+    }
+
+    /// Prevent that two tasks happen to be the same task, which would be a violation of the
+    /// scheduler's safety invariant.
+    pub open spec fn no_duplicate_task(self, task: Loc) -> bool {
+        &&& forall|cpu1: CpuId, cpu2: CpuId, idx1: int, idx2: int|
+            #![trigger self.runqueues[cpu1][idx1], self.runqueues[cpu2][idx2]]
+            self.runqueues.contains_key(cpu1)
+                && self.runqueues.contains_key(cpu2)
+                && 0 <= idx1
+                && idx1 < self.runqueues[cpu1].len()
+                && 0 <= idx2
+                && idx2 < self.runqueues[cpu2].len()
+                && self.runqueues[cpu1][idx1] == task
+                && self.runqueues[cpu2][idx2] == task
+                ==> cpu1 == cpu2 && idx1 == idx2
+        &&& forall|cpu1: CpuId, cpu2: CpuId|
+            #![trigger self.current.contains_key(cpu1), self.current.contains_key(cpu2)]
+            self.current.contains_key(cpu1)
+                && self.current.contains_key(cpu2)
+                && self.current[cpu1] is Some
+                && self.current[cpu2] is Some
+                && self.current[cpu1]->0 == task
+                && self.current[cpu2]->0 == task
+                ==> cpu1 == cpu2
+        &&& !(self.task_in_runqueue(task) && self.task_is_current(task))
+    }
+
+    pub open spec fn checkout_task_view(self, cpu: CpuId) -> SchedulerView
+        recommends
+            self.current.contains_key(cpu),
+            self.current[cpu] is Some,
+            self.task_view_is_stored(self.current[cpu]->0),
+            !self.task_view_is_checked_out(self.current[cpu]->0),
+    {
+        let task = self.current[cpu]->0;
+        SchedulerView {
+            stored_views: self.stored_views.remove(task),
+            checked_out_views: self.checked_out_views.insert(task, self.stored_views[task]),
+            ..self
+        }
+    }
+
+    pub open spec fn update_checked_out_task_view(self, task: Loc, view: WmView) -> SchedulerView
+        recommends
+            self.task_view_is_checked_out(task),
+    {
+        SchedulerView {
+            task_views: self.task_views.insert(task, view),
+            checked_out_views: self.checked_out_views.insert(task, view),
+            ..self
+        }
+    }
+
+    pub open spec fn checkin_task_view(self, task: Loc, view: WmView) -> SchedulerView
+        recommends
+            self.task_view_is_checked_out(task),
+            !self.task_view_is_stored(task),
+            self.checked_out_views[task] == view,
+    {
+        SchedulerView {
+            task_views: self.task_views.insert(task, view),
+            stored_views: self.stored_views.insert(task, view),
+            checked_out_views: self.checked_out_views.remove(task),
+            ..self
+        }
+    }
+
+    pub open spec fn wf(self) -> bool {
+        &&& forall|cpu: CpuId|
+            #[trigger] self.runqueues.contains_key(cpu) ==> valid_cpu(cpu)
+        &&& forall|cpu: CpuId|
+            #[trigger] self.current.contains_key(cpu) ==> valid_cpu(cpu)
+        &&& forall|cpu: CpuId, idx: int|
+            #![trigger self.runqueues[cpu][idx]]
+            self.runqueues.contains_key(cpu)
+                && 0 <= idx
+                && idx < self.runqueues[cpu].len()
+                ==> self.state.contains_key(self.runqueues[cpu][idx])
+                    && self.state[self.runqueues[cpu][idx]] is Runnable
+        &&& forall|cpu: CpuId|
+            #[trigger] self.current.contains_key(cpu)
+                && self.current[cpu] is Some
+                ==> self.state.contains_key(self.current[cpu]->0)
+                    && self.state[self.current[cpu]->0] is Running
+        &&& forall|task: Loc|
+            #[trigger] self.state.contains_key(task) ==> self.no_duplicate_task(task)
+        &&& forall|task: Loc|
+            #[trigger] self.state.contains_key(task)
+                && !(self.state[task] is Exited)
+                ==> self.task_views.contains_key(task)
+        &&& forall|task: Loc|
+            #[trigger] self.task_views.contains_key(task) ==> self.state.contains_key(task)
+                && !(self.state[task] is Exited)
+        &&& forall|task: Loc|
+            #[trigger] self.stored_views.contains_key(task) ==> self.task_views.contains_key(task)
+                && self.stored_views[task] == self.task_views[task]
+                && !self.checked_out_views.contains_key(task)
+                && self.task_is_live(task)
+        &&& forall|task: Loc|
+            #[trigger] self.checked_out_views.contains_key(task) ==> self.task_views.contains_key(
+                task,
+            )
+                && self.checked_out_views[task] == self.task_views[task]
+                && !self.stored_views.contains_key(task)
+                && self.task_is_live(task)
+                && self.task_is_current(task)
+        &&& forall|task: Loc|
+            #[trigger] self.task_views.contains_key(task) ==> (self.stored_views.contains_key(task)
+                || self.checked_out_views.contains_key(task))
+    }
+}
+
+/// Tracked owner of per-task weak-memory views.
+///
+/// This is the resource that should eventually back `disable_preempt()`:
+/// a guard borrows or moves out the current task's `ThreadView`, atomic
+/// operations update it, and guard drop writes it back to the same task entry.
+pub tracked struct SchedulerThreadViews {
+    tracked views: Map<Loc, ThreadView>,
+}
+
+/// A checked-out per-task `ThreadView`.
+///
+/// The `task` field records where the linear `ThreadView` must be written
+/// back. This prevents proofs from taking one task's view and re-inserting it
+/// under another task id.
+pub tracked struct TaskThreadView {
+    ghost task: Loc,
+    tracked thread_view: ThreadView,
+}
+
+impl TaskThreadView {
+    pub proof fn new(task: Loc, tracked thread_view: ThreadView) -> (tracked res: Self)
+        ensures
+            res.task() == task,
+            res.view() == thread_view@,
+    {
+        TaskThreadView { task, thread_view }
+    }
+
+    pub closed spec fn task(self) -> Loc {
+        self.task
+    }
+
+    pub closed spec fn view(self) -> WmView {
+        self.thread_view@
+    }
+
+    pub closed spec fn wf(self, sched_view: SchedulerView) -> bool {
+        &&& sched_view.wf()
+        &&& sched_view.checked_out_views.contains_key(self.task())
+        &&& sched_view.checked_out_views[self.task()] == self.view()
+        &&& sched_view.task_views.contains_key(self.task())
+        &&& sched_view.task_views[self.task()] == self.view()
+    }
+
+    pub proof fn borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ThreadView)
+        ensures
+            (*tv)@ == old(self).view(),
+            final(self).task() == old(self).task(),
+            final(self).view() == (*final(tv))@,
+    {
+        &mut self.thread_view
+    }
+}
+
+impl SchedulerThreadViews {
+    pub proof fn empty() -> (tracked res: Self)
+        ensures
+            res.view() == Map::<Loc, WmView>::empty(),
+    {
+        let tracked views = Map::<Loc, ThreadView>::tracked_empty();
+        SchedulerThreadViews { views }
+    }
+
+    pub closed spec fn view(self) -> Map<Loc, WmView> {
+        Map::new(
+            self.views.dom(),
+            |task: Loc| self.views[task]@,
+        )
+    }
+
+    pub closed spec fn contains(self, task: Loc) -> bool {
+        self.views.contains_key(task)
+    }
+
+    pub closed spec fn thread_view(self, task: Loc) -> WmView
+        recommends
+            self.contains(task),
+    {
+        self.views[task]@
+    }
+
+    pub closed spec fn wf(self, sched_view: SchedulerView) -> bool {
+        self.view() == sched_view.stored_views
+    }
+
+    pub proof fn insert_initial_thread_view(tracked &mut self, tracked token: TaskThreadView)
+        requires
+            !old(self).contains(token.task()),
+        ensures
+            final(self).view() == old(self).view().insert(token.task(), token.view()),
+    {
+        let tracked TaskThreadView { task, thread_view } = token;
+        self.views.tracked_insert(task, thread_view);
+    }
+
+    pub proof fn take_current_thread_view(
+        tracked &mut self,
+        sched_view: SchedulerView,
+        cpu: CpuId,
+    ) -> (tracked token: TaskThreadView)
+        requires
+            old(self).wf(sched_view),
+            sched_view.wf(),
+            sched_view.current.contains_key(cpu),
+            sched_view.current[cpu] is Some,
+            sched_view.task_view_is_stored(sched_view.current[cpu]->0),
+            old(self).contains(sched_view.current[cpu]->0),
+        ensures
+            token.task() == sched_view.current[cpu]->0,
+            token.view() == old(self).thread_view(sched_view.current[cpu]->0),
+            final(self).view() == old(self).view().remove(sched_view.current[cpu]->0),
+    {
+        let task = sched_view.current[cpu]->0;
+        let tracked thread_view = self.views.tracked_remove(task);
+        TaskThreadView { task, thread_view }
+    }
+
+    pub proof fn put_checked_out_thread_view(
+        tracked &mut self,
+        sched_view: SchedulerView,
+        tracked token: TaskThreadView,
+    )
+        requires
+            token.wf(sched_view),
+            !old(self).contains(token.task()),
+        ensures
+            final(self).view() == old(self).view().insert(token.task(), token.view()),
+    {
+        let tracked TaskThreadView { task, thread_view } = token;
+        self.views.tracked_insert(task, thread_view);
+    }
+}
+
+/// Logical identity of a runnable task handle.
+///
+/// `RoArc` does not yet expose a proof-level view of its pointee. Keep this
+/// abstract at the scheduler boundary and connect it to `RoArc`'s internals
+/// later when the task registry is introduced.
+pub uninterp spec fn runnable_id<T: Schedulable>(runnable: &RoArc<T>) -> Loc;
+
+pub open spec fn valid_cpu(_cpu: CpuId) -> bool {
+    true
+}
+
+pub open spec fn can_enqueue(view: SchedulerView, task: Loc, flags: EnqueueFlags) -> bool {
+    match flags {
+        EnqueueFlags::Spawn => !view.state.contains_key(task) || view.state[task] is New,
+        EnqueueFlags::Wake => view.state.contains_key(task) && !(view.state[task] is Exited),
+    }
+}
+
+/// An SMP-aware task scheduler.
+pub trait Scheduler<T: Schedulable = Task>: Sync + Send {
+    spec fn view(&self) -> SchedulerView;
+
+    spec fn wf(&self) -> bool;
+
+    /// Enqueues a runnable task.
+    ///
+    /// The scheduler implementer can perform load-balancing or some time accounting work here.
+    ///
+    /// The newly-enqueued task may have a higher priority than the currently running one on a CPU
+    /// and thus should preempt the latter.
+    /// In this case, this method returns the ID of that CPU.
+    fn enqueue(&self, runnable: RoArc<T>, flags: EnqueueFlags) -> (r: Option<CpuId>)
+        requires
+            self.wf(),
+            self.view().wf(),
+            can_enqueue(self.view(), runnable_id(&runnable), flags),
+        ensures
+            self.wf(),
+            self.view().wf(),
+            self.view().task_is_runnable(runnable_id(&runnable)),
+            self.view().no_duplicate_task(runnable_id(&runnable)),
+            r matches Some(cpu) ==> valid_cpu(cpu),
+    ;
+}
+
+exec static SCHEDULER: OnceImpl<&'static dyn Scheduler<Task>, TrivialPred>
+    ensures
+        SCHEDULER.wf(),
+        SCHEDULER.inv() == TrivialPred,
+{
+    OnceImpl::new(Ghost(TrivialPred))
+}
+
+/// Possible actions of a rescheduling.
+enum ReschedAction {
+    /// Keep running current task and do nothing.
+    DoNothing,
+    /// Loop until finding a task to swap out the current.
+    Retry,
+    /// Switch to target task.
+    SwitchTo(RoArc<Task>),
+}
+
+
+/// Possible triggers of an `enqueue` action.
+#[derive(PartialEq, Copy, Clone)]
+pub enum EnqueueFlags {
+    /// Spawn a new task.
+    Spawn,
+    /// Wake a sleeping task.
+    Wake,
+}
+
+/// Possible triggers of an `update_current` action.
+#[derive(PartialEq, Copy, Clone)]
+pub enum UpdateFlags {
+    /// Timer interrupt.
+    Tick,
+    /// Task waiting.
+    Wait,
+    /// Task yielding.
+    Yield,
+    /// Task exiting.
+    Exit,
+}
+
+} // verus!
+
+/*
 // mod fifo_scheduler;
 // pub mod info;
 use alloc::sync::Arc;
@@ -95,18 +525,9 @@ pub fn inject_scheduler(scheduler: &'static dyn Scheduler<Task>) {
     }); */
 }
 
-static SCHEDULER: Once<&'static dyn Scheduler<Task>> = Once::new();
 
 /// A SMP-aware task scheduler.
 pub trait Scheduler<T = Task>: Sync + Send {
-    /// Enqueues a runnable task.
-    ///
-    /// The scheduler implementer can perform load-balancing or some time accounting work here.
-    ///
-    /// The newly-enqueued task may have a higher priority than the currently running one on a CPU
-    /// and thus should preempt the latter.
-    /// In this case, this method returns the ID of that CPU.
-    fn enqueue(&self, runnable: Arc<T>, flags: EnqueueFlags) -> Option<CpuId>;
 
     /// Gets an immutable access to the local runqueue of the current CPU.
     fn local_rq_with(&self, f: &mut dyn FnMut(&dyn LocalRunQueue<T>));
@@ -357,28 +778,6 @@ pub trait LocalRunQueue<T = Task> {
     fn dequeue_current(&mut self) -> Option<Arc<T>>;
 }
 
-/// Possible triggers of an `enqueue` action.
-#[derive(PartialEq, Copy, Clone)]
-pub enum EnqueueFlags {
-    /// Spawn a new task.
-    Spawn,
-    /// Wake a sleeping task.
-    Wake,
-}
-
-/// Possible triggers of an `update_current` action.
-#[derive(PartialEq, Copy, Clone)]
-pub enum UpdateFlags {
-    /// Timer interrupt.
-    Tick,
-    /// Task waiting.
-    Wait,
-    /// Task yielding.
-    Yield,
-    /// Task exiting.
-    Exit,
-}
-
 /// Preempts the current task.
 #[track_caller]
 pub(crate) fn might_preempt() {
@@ -579,12 +978,5 @@ where
     // processor::switch_to_task(next_task);
 }
 
-/// Possible actions of a rescheduling.
-enum ReschedAction {
-    /// Keep running current task and do nothing.
-    DoNothing,
-    /// Loop until finding a task to swap out the current.
-    Retry,
-    /// Switch to target task.
-    SwitchTo(Arc<Task>),
-}
+
+*/
