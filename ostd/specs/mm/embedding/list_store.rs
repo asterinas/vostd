@@ -458,7 +458,7 @@ pub axiom fn push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         final(owner).inv(),
         final(owner).relate_region(*final(regions)),
         old(owner).list.len() > 0 ==> final(owner).list == old(owner).list.insert(
-            old(owner).list.len() as int - 1,
+            old(owner).list.len() - 1,
             final(frame_own).meta_own,
         ),
         old(owner).list.len() == 0 ==> final(owner).list == old(owner).list.insert(

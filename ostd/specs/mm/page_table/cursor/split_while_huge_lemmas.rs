@@ -45,7 +45,7 @@ impl<C: PageTableConfig> CursorView<C> {
         assert(m.inv());
         assert(m.va_range.start + ps == m.va_range.end);
 
-        let diff: int = cur_va as int - m.va_range.start as int;
+        let diff: int = cur_va - m.va_range.start;
         let ki: int = diff / new_size as int;
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(diff, new_size as int);
         vstd::arithmetic::div_mod::lemma_mod_division_less_than_divisor(diff, new_size as int);
@@ -64,18 +64,17 @@ impl<C: PageTableConfig> CursorView<C> {
 
         let sub = Self::split_index(m, new_size, ki as usize);
 
-        assert(ki * (new_size as int) >= 0) by {
+        assert(ki * new_size >= 0) by {
             vstd::arithmetic::mul::lemma_mul_nonnegative(ki, new_size as int);
         };
-        assert((ki + 1) * (new_size as int) <= ps as int) by {
+        assert((ki + 1) * new_size <= ps) by {
             vstd::arithmetic::mul::lemma_mul_inequality(
                 ki + 1,
                 ps as int / new_size as int,
                 new_size as int,
             );
         };
-        assert(m.va_range.start as int + (ki + 1) * (new_size as int) <= (m.va_range.end as int))
-            by {
+        assert(m.va_range.start + (ki + 1) * new_size <= m.va_range.end) by {
             vstd::arithmetic::mul::lemma_mul_is_commutative(ki + 1, new_size as int);
             vstd::arithmetic::mul::lemma_mul_is_commutative(
                 ps as int / new_size as int,
@@ -83,10 +82,10 @@ impl<C: PageTableConfig> CursorView<C> {
             );
         };
 
-        assert(ki as usize as int == ki);
+        assert(ki as usize == ki);
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(new_size as int, ki, 1 as int);
-        assert((cur_va as int) >= (m.va_range.start as int) + ki * (new_size as int));
-        assert((cur_va as int) < (m.va_range.start as int) + (ki + 1) * (new_size as int));
+        assert(cur_va >= m.va_range.start + ki * new_size);
+        assert(cur_va < m.va_range.start + (ki + 1) * new_size);
         assert(sub.va_range.start <= cur_va);
 
         let new_self = v.split_if_mapped_huge_spec(new_size);
@@ -198,7 +197,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
         // --- Helper: ps == count * ns (no remainder) ---
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
-        assert(ps as int == count * ns);
+        assert(ps == count * ns);
 
         assert(m.va_range.start % new_size as int == 0) by {
             vstd::arithmetic::mul::lemma_mul_is_commutative(count, ns);
@@ -883,21 +882,21 @@ impl<C: PageTableConfig> CursorView<C> {
                 0 <= k < count && #[trigger] Self::split_index(qm, new_size, k as usize) == e;
 
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
-            assert(ps as int == count * ns);
+            assert(ps == count * ns);
 
             vstd::arithmetic::mul::lemma_mul_nonnegative(k, ns);
             vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
 
-            assert(k as usize as int == k);
+            assert(k as usize == k);
             let ku = k as usize;
             assert(e == Self::split_index(qm, new_size, ku));
             vstd::arithmetic::mul::lemma_mul_is_distributive_add(ns, k, 1int);
 
-            assert(e.va_range.start as int == qm.va_range.start as int + k * ns);
+            assert(e.va_range.start == qm.va_range.start + k * ns);
             assert(e.va_range.start >= qm.va_range.start);
-            assert(e.va_range.end as int == qm.va_range.start as int + (k + 1) * ns);
+            assert(e.va_range.end == qm.va_range.start + (k + 1) * ns);
             assert(e.va_range.end <= qm.va_range.end);
-            assert(e.pa_range.start as int == qm.pa_range.start as int + k * ns);
+            assert(e.pa_range.start == qm.pa_range.start + k * ns);
             assert(e.va_range.start - qm.va_range.start == k * ns);
             assert(e.pa_range.start == (qm.pa_range.start + (e.va_range.start
                 - qm.va_range.start)) as Paddr);
@@ -984,15 +983,15 @@ impl<C: PageTableConfig> CursorView<C> {
                         // pa-side chain in int arithmetic.
                         assert(qm.pa_range.start + qm.page_size == qm.pa_range.end);
                         assert(qm.pa_range.end <= MAX_PADDR);
-                        assert(p.pa_range.start as int == qm.pa_range.start as int + (
-                        p.va_range.start - qm.va_range.start));
-                        assert(m.pa_range.start as int == p.pa_range.start as int + (
-                        m.va_range.start - p.va_range.start));
-                        assert(m.pa_range.start as int == qm.pa_range.start as int + (
-                        m.va_range.start - qm.va_range.start));
+                        assert(p.pa_range.start == qm.pa_range.start + (p.va_range.start
+                            - qm.va_range.start));
+                        assert(m.pa_range.start == p.pa_range.start + (m.va_range.start
+                            - p.va_range.start));
+                        assert(m.pa_range.start == qm.pa_range.start + (m.va_range.start
+                            - qm.va_range.start));
                         // No-overflow: sum <= qm.pa_range.end <= MAX_PADDR <= usize::MAX.
-                        assert(qm.pa_range.start as int + (m.va_range.start - qm.va_range.start)
-                            <= qm.pa_range.end as int);
+                        assert(qm.pa_range.start + (m.va_range.start - qm.va_range.start)
+                            <= qm.pa_range.end);
                         assert(m.pa_range.start == (qm.pa_range.start + (m.va_range.start
                             - qm.va_range.start)) as Paddr);
                         assert(m.property == qm.property);
@@ -1129,7 +1128,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     new_size as int,
                 );
                 vstd::arithmetic::mul::lemma_mul_inequality(
-                    (k + 1) as int,
+                    k + 1,
                     m.page_size as int / new_size as int,
                     new_size as int,
                 );

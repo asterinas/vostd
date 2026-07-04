@@ -111,35 +111,33 @@ impl<'a> Inv for VmSpaceOwner {
                 // Readers and writers are valid.
                 &&& forall|i: int|
                     #![trigger self.readers[i]]
-                    0 <= i < self.readers.len() as int ==> {
+                    0 <= i < self.readers.len() ==> {
                         &&& self.readers[i].inv()
                     }
                 &&& forall|i: int|
                     #![trigger self.writers[i]]
-                    0 <= i < self.writers.len() as int ==> {
+                    0 <= i < self.writers.len() ==> {
                         &&& self.writers[i].inv()
                     }
                     // --- Memory Range Overlap Checks ---
                     // Readers do not overlap with other readers, and writers do not overlap with other writers.
                 &&& forall|i, j: int|
                     #![trigger self.readers[i], self.writers[j]]
-                    0 <= i < self.readers.len() as int && 0 <= j < self.writers.len() as int ==> {
+                    0 <= i < self.readers.len() && 0 <= j < self.writers.len() ==> {
                         let r = self.readers[i];
                         let w = self.writers[j];
                         r.disjoint(w)
                     }
                 &&& !self.shared_reader ==> forall|i, j: int|
                     #![trigger self.readers[i], self.readers[j]]
-                    0 <= i < self.readers.len() as int && 0 <= j < self.readers.len() as int && i
-                        != j ==> {
+                    0 <= i < self.readers.len() && 0 <= j < self.readers.len() && i != j ==> {
                         let r1 = self.readers[i];
                         let r2 = self.readers[j];
                         r1.disjoint(r2)
                     }
                 &&& forall|i, j: int|
                     #![trigger self.writers[i], self.writers[j]]
-                    0 <= i < self.writers.len() as int && 0 <= j < self.writers.len() as int && i
-                        != j ==> {
+                    0 <= i < self.writers.len() && 0 <= j < self.writers.len() && i != j ==> {
                         let w1 = self.writers[i];
                         let w2 = self.writers[j];
                         w1.disjoint(w2)
@@ -205,7 +203,7 @@ impl<'a> VmSpaceOwner {
             // =====================
             &&& forall|i: int|
                 #![trigger self.writers[i]]
-                0 <= i < self.writers.len() as int ==> {
+                0 <= i < self.writers.len() ==> {
                     let writer = self.writers[i];
 
                     &&& writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv)) && {
@@ -238,7 +236,7 @@ impl<'a> VmSpaceOwner {
                 // =====================
             &&& forall|i: int|
                 #![trigger self.readers[i]]
-                0 <= i < self.readers.len() as int ==> {
+                0 <= i < self.readers.len() ==> {
                     let reader = self.readers[i];
 
                     &&& reader.mem_view matches Some(VmIoMemView::ReadView(reader_mv)) && {
@@ -470,7 +468,7 @@ impl<'a> VmSpaceOwner {
             old(self).inv(),
             old(self).active,
             old(self).mem_view is Some,
-            0 <= idx < old(self).readers.len() as int,
+            0 <= idx < old(self).readers.len(),
         ensures
             final(self).inv(),
             final(self).active == old(self).active,
@@ -497,7 +495,7 @@ impl<'a> VmSpaceOwner {
             old(self).active,
             old(self).mem_view is Some,
             old(self).mv_range is Some,
-            0 <= idx < old(self).writers.len() as int,
+            0 <= idx < old(self).writers.len(),
         ensures
             final(self).inv(),
             final(self).active == old(self).active,
@@ -549,9 +547,7 @@ impl<'a> VmSpaceOwner {
                 }
             }
 
-            assert forall|i: int|
-                #![trigger self.writers[i]]
-                0 <= i < self.writers.len() as int implies {
+            assert forall|i: int| #![trigger self.writers[i]] 0 <= i < self.writers.len() implies {
                 let other_writer = self.writers[i];
 
                 &&& other_writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv))
@@ -566,11 +562,10 @@ impl<'a> VmSpaceOwner {
                 };
 
                 assert(exists|i: int|
-                    0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
+                    0 <= i < old(self).writers.len() ==> #[trigger] old(self).writers[i]
                         == other_writer);
                 assert(exists|i: int|
-                    0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
-                        == writer);
+                    0 <= i < old(self).writers.len() ==> #[trigger] old(self).writers[i] == writer);
                 assert(mv.mappings.disjoint(writer_mv.mappings));
             }
         }
@@ -649,10 +644,10 @@ impl<'a> VmSpaceOwner {
             },
             forall|i: int|
                 #![trigger old(self).writers[i]]
-                0 <= i < old(self).writers.len() as int ==> old(self).writers[i].disjoint(owner),
+                0 <= i < old(self).writers.len() ==> old(self).writers[i].disjoint(owner),
             forall|i: int|
                 #![trigger old(self).readers[i]]
-                0 <= i < old(self).readers.len() as int ==> old(self).readers[i].disjoint(owner),
+                0 <= i < old(self).readers.len() ==> old(self).readers[i].disjoint(owner),
         ensures
             final(self).inv(),
             final(self).active == old(self).active,

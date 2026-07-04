@@ -375,6 +375,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     == #[trigger] final(regions).slots[k],
             Self::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
     )]
+    #[verifier::spinoff_prover]
     pub(in crate::mm) fn replace(&mut self, new_child: Child<C>) -> Child<C> {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
         // For restoring `count_consistent` (the `nr_children == count_present`
@@ -609,6 +610,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i) && i != final(owner).value.node().meta_addr_self() ==> final(guards).unlocked(i),
     )]
+    #[verifier::spinoff_prover]
     pub(in crate::mm) fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
         PageTableGuard<'rcu, C>,
     > {
@@ -825,7 +827,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// - **Safety Invariants**: The node allocated in place of the split page satisfies the safety invariants.
     /// - **Safety**: All other nodes have their invariants preserved.
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(80)]
+    #[verifier::rlimit(infinity)]
     #[verus_spec(res =>
         with Tracked(owner) : Tracked<&mut OwnerSubtree<C>>,
              Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
@@ -925,7 +927,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // `inv_children_rel` for the unchanged children when restoring the
             // parent NodeOwner into the cursor's continuation.
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
-                forall|j: int| 0 <= j < NR_ENTRIES && j != old(self).idx as int ==>
+                forall|j: int| 0 <= j < NR_ENTRIES && j != old(self).idx ==>
                     #[trigger] final(parent_owner).children_perm.value()[j]
                         == old(parent_owner).children_perm.value()[j],
     )]
@@ -1138,8 +1140,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     == set![new_owner_path],
         {
             proof {
-                C::lemma_page_table_config_constant_requirements();
-                C::lemma_paging_consts_requirements();
+                C::lemma_page_table_config_constant_properties();
+                C::lemma_paging_consts_properties();
                 // Prove required facts while we still have new_owner.value.node available.
                 let ghost the_node = new_owner.value.node();
 
@@ -1192,14 +1194,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel)
                             / PAGE_SIZE;
-                        let big_j_int: int = i as int * sub_pages_per_subframe as int
-                            + j_prime as int;
+                        let big_j_int: int = i * sub_pages_per_subframe + j_prime;
                         vstd::arithmetic::mul::lemma_mul_nonnegative(
                             i as int,
                             sub_pages_per_subframe as int,
                         );
                         vstd::arithmetic::mul::lemma_mul_inequality(
-                            (i + 1) as int,
+                            i + 1,
                             NR_ENTRIES as int,
                             sub_pages_per_subframe as int,
                         );
@@ -1214,13 +1215,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             PAGE_SIZE as int,
                         );
                         vstd::arithmetic::div_mod::lemma_div_by_multiple(
-                            NR_ENTRIES as int * sub_pages_per_subframe as int,
+                            NR_ENTRIES * sub_pages_per_subframe,
                             PAGE_SIZE as int,
                         );
                         let big_j: usize = big_j_int as usize;
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
                             PAGE_SIZE as int,
-                            i as int * sub_pages_per_subframe as int,
+                            i * sub_pages_per_subframe,
                             j_prime as int,
                         );
                         vstd::arithmetic::mul::lemma_mul_is_associative(
@@ -1248,7 +1249,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // metaregion_sound frame arm shape.
                 if i == 0 {
                     // small_pa == pa + 0 * page_size(level-1) == pa.
-                    assert(i as int * page_size((level - 1) as PagingLevel) as int == 0) by {
+                    assert(i * page_size((level - 1) as PagingLevel) == 0) by {
                         vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
                             page_size((level - 1) as PagingLevel) as int,
                         );
@@ -1437,7 +1438,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).frame().is_tracked == old(owner).frame().is_tracked,
             final(owner).path == old(owner).path,
             final(owner).parent_level == old(owner).parent_level,
-            forall|j: int| 0 <= j < NR_ENTRIES && j != idx as int ==>
+            forall|j: int| 0 <= j < NR_ENTRIES && j != idx ==>
                 #[trigger] final(parent_owner).children_perm.value()[j]
                     == old(parent_owner).children_perm.value()[j],
             // Only a present PTE's `prop` changed, so the present-count — and
@@ -1552,7 +1553,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(parent_owner).level == old(parent_owner).level,
             final(parent_owner).relate_guard(*final(self)),
             final(parent_owner).metaregion_sound_node(*final(regions)),
-            forall|j: int| 0 <= j < NR_ENTRIES && j != idx as int ==>
+            forall|j: int| 0 <= j < NR_ENTRIES && j != idx ==>
                 #[trigger] final(parent_owner).children_perm.value()[j]
                     == old(parent_owner).children_perm.value()[j],
             forall|slot: usize|
@@ -1592,6 +1593,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Entry::<C>::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
             *final(self) == *old(self),
     )]
+    #[verifier::spinoff_prover]
     pub(in crate::mm) fn replace_child(&mut self, idx: usize, new_child: Child<C>) -> Child<C> {
         #[cfg(feature = "allow_panic")]
         {
@@ -1777,7 +1779,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(parent_owner).level == old(parent_owner).level,
             final(parent_owner).relate_guard(*final(self)),
             final(parent_owner).metaregion_sound_node(*final(regions)),
-            forall|j: int| 0 <= j < NR_ENTRIES && j != idx as int ==>
+            forall|j: int| 0 <= j < NR_ENTRIES && j != idx ==>
                 #[trigger] final(parent_owner).children_perm.value()[j]
                     == old(parent_owner).children_perm.value()[j],
             *final(self) == *old(self),
@@ -1980,7 +1982,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 *final(regions),
             ),
             forall|i: int|
-                0 <= i < NR_ENTRIES && i != idx as int ==> #[trigger] old(parent_owner).children_perm.value()[i]
+                0 <= i < NR_ENTRIES && i != idx ==> #[trigger] old(parent_owner).children_perm.value()[i]
                     == final(parent_owner).children_perm.value()[i],
             final(parent_owner).slot_index == old(parent_owner).slot_index,
             final(parent_owner).level == old(parent_owner).level,

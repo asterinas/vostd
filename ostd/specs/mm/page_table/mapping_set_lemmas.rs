@@ -93,7 +93,7 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
     requires
         wf_mapping_set(s),
         forall|m: Mapping| #[trigger]
-            s.contains(m) ==> 0 <= m.va_range.start && m.va_range.end <= bound as int,
+            s.contains(m) ==> 0 <= m.va_range.start && m.va_range.end <= bound,
     ensures
         s.len() <= bound / PAGE_SIZE,
 {
@@ -117,21 +117,21 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
 /// Corollary: the cardinality fits in usize.
 ///
 /// The bound `0x0000_8000_0000_0000` (= 2^47) is the new upper end derived
-/// from `vaddr_range_bounds_spec::<UserPtConfig>` — one page looser than
+/// from `vaddr_range_spec::<UserPtConfig>` — one page looser than
 /// the old `MAX_USERSPACE_VADDR`, but still gives a comfortable
 /// `2^35 < usize::MAX`.
 pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)
     requires
         wf_mapping_set(s),
         forall|m: Mapping| #[trigger]
-            s.contains(m) ==> m.va_range.end <= 0x0000_8000_0000_0000_usize as int,
+            s.contains(m) ==> m.va_range.end <= 0x0000_8000_0000_0000_usize,
     ensures
         s.len() < usize::MAX,
 {
     // `0 <= m.va_range.start` follows from `wf_mapping_set(s)` ⇒ `m.inv()`,
     // which has `0 <= m.va_range.start`.
     assert forall|m: Mapping| #[trigger] s.contains(m) implies 0 <= m.va_range.start
-        && m.va_range.end <= 0x0000_8000_0000_0000_usize as int by {
+        && m.va_range.end <= 0x0000_8000_0000_0000_usize by {
         assert(m.inv());
     };
     lemma_mapping_set_cardinality_bound(s, 0x0000_8000_0000_0000_usize);

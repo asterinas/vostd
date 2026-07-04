@@ -205,7 +205,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     // ─── Proofs: VA range / view ─────────────────────────────────────────
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(100)]
     pub proof fn cur_va_range_reflects_view(self)
         requires
             self.inv(),
@@ -231,10 +230,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         let ps = page_size(self.level as PagingLevel);
         let m = Mapping {
-            va_range: Range {
-                start: vaddr_of::<C>(path) as int,
-                end: vaddr_of::<C>(path) as int + ps as int,
-            },
+            va_range: Range { start: vaddr_of::<C>(path) as int, end: vaddr_of::<C>(path) + ps },
             pa_range: Range { start: frame.mapped_pa, end: (frame.mapped_pa + ps) as Paddr },
             page_size: ps,
             property: frame.prop,
@@ -287,7 +283,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             );
             let q_cur = cur_va as int / ps as int;
             let q_path = vaddr_of::<C>(path) as int / ps as int;
-            assert(q_path * ps as int == vaddr_of::<C>(path) as int);
+            assert(q_path * ps == vaddr_of::<C>(path));
             vstd::arithmetic::mul::lemma_mul_inequality(q_path, q_cur, ps as int);
             if q_path < q_cur {
                 vstd::arithmetic::mul::lemma_mul_inequality(q_path + 1, q_cur, ps as int);
@@ -305,8 +301,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.in_locked_range_level_le_guard_level();
         self.va_plus_page_size_no_overflow(self.level as PagingLevel);
         self.va.align_up_advances_general(self.level as int);
-        assert(self.va.align_up(self.level as int).to_vaddr() as nat == (vaddr_of::<C>(path)
-            + ps) as nat);
+        assert(self.va.align_up(self.level as int).to_vaddr() == vaddr_of::<C>(path) + ps);
 
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(cur_va, ps_nat) as Vaddr);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip((vaddr_of::<C>(path) + ps) as Vaddr);
@@ -322,12 +317,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.in_locked_range(),
         ensures
-            vaddr(self.cur_subtree().value.path) as int + self.va.leading_bits
-                * 0x1_0000_0000_0000int <= self.cur_va() as int,
-            (self.cur_va() as int) < vaddr(self.cur_subtree().value.path) as int
-                + self.va.leading_bits * 0x1_0000_0000_0000int + page_size(
-                self.level as PagingLevel,
-            ) as int,
+            vaddr(self.cur_subtree().value.path) + self.va.leading_bits * 0x1_0000_0000_0000int
+                <= self.cur_va(),
+            self.cur_va() < vaddr(self.cur_subtree().value.path) + self.va.leading_bits
+                * 0x1_0000_0000_0000int + page_size(self.level as PagingLevel),
     {
         let L = self.level as int;
         let cont = self.continuations[L - 1];
