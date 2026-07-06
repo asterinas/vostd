@@ -425,10 +425,12 @@ pub open spec fn fresh_vm_io_id<'a>(m: Map<VmIoId, VmIoEntry>) -> VmIoId {
 
 /// Witnesses that [`fresh_vm_io_id`] returns an id not in the map's
 /// domain. (Internal helper, not a `_embedded` axiom.)
-pub axiom fn axiom_fresh_vm_io_id_not_in_dom<'a>(m: Map<VmIoId, VmIoEntry>)
+pub proof fn lemma_fresh_vm_io_id_not_in_dom<'a>(m: Map<VmIoId, VmIoEntry>)
     ensures
         !m.dom().contains(fresh_vm_io_id(m)),
-;
+{
+    lemma_finite_int_set_has_unused(m.dom());
+}
 
 /// Tracked constructor for [`VmIoEntry`].
 pub axiom fn axiom_vm_io_entry_new<'a>(
@@ -692,7 +694,7 @@ proof fn new_vm_io_step<'a, 'rcu>(
         match res {
             Option::Some(owner) => {
                 let ghost id = fresh_vm_io_id(s.vm_ios);
-                axiom_fresh_vm_io_id_not_in_dom(s.vm_ios);
+                lemma_fresh_vm_io_id_not_in_dom(s.vm_ios);
                 let tracked entry = axiom_vm_io_entry_new(vs, kind, owner);
                 s.vm_ios.tracked_insert(id, entry);
                 assert(final(s).inv()) by {
