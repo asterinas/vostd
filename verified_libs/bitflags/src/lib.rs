@@ -94,6 +94,29 @@ macro_rules! __bitflags_cfg_guarded_stmt {
     };
 }
 
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __bitflags_flag {
+    (
+        {
+            name: _,
+            named: { $($named:tt)* },
+            unnamed: { $($unnamed:tt)* },
+        }
+    ) => {
+        $($unnamed)*
+    };
+    (
+        {
+            name: $Flag:ident,
+            named: { $($named:tt)* },
+            unnamed: { $($unnamed:tt)* },
+        }
+    ) => {
+        $($named)*
+    };
+}
+
 /// A macro wrapper for quickly defining bitflags with verified
 /// properties in Verus. It only supports literal values for the bits.
 ///
@@ -147,6 +170,19 @@ macro_rules! bitflags {
             }
 
             impl ::core::marker::Copy for $name {}
+
+            impl ::core::default::Default for $name {
+                #[inline]
+                fn default() -> (r: Self)
+                    ensures
+                        r.bits() == 0,
+                        r.flags_spec() == Self::flags_from_bits(0),
+                    returns
+                        Self::empty(),
+                {
+                    Self::empty()
+                }
+            }
 
             impl ::vstd::view::View for $name {
                 type V = ::vstd::set::Set<[< __ghost $name >]>;
@@ -443,6 +479,41 @@ macro_rules! bitflags {
                     Self::from_bits_unchecked(bits)
                 }
 
+                /// Get a flags value with the bits of a flag with the given name set.
+                ///
+                /// This method will return `None` if `name` is empty or doesn't
+                /// correspond to any named flag.
+                $vis fn from_name(name: &str) -> (r: Option<Self>)
+                    ensures
+                        r matches Some(flags_value) ==> {
+                            &&& flags_value.flags_spec()
+                                == Self::flags_from_bits(flags_value.bits())
+                        },
+                {
+                    if name.is_empty() {
+                        return ::core::option::Option::None;
+                    }
+                    $(
+                        $crate::__bitflags_flag!({
+                            name: $Flag,
+                            named: {
+                                $crate::__bitflags_cfg_guarded_stmt!(
+                                    ($(#[$inner $($args)*])*)
+                                    {
+                                        if name == ::core::stringify!($Flag) {
+                                            return ::core::option::Option::Some(
+                                                Self::$Flag()
+                                            );
+                                        }
+                                    }
+                                );
+                            },
+                            unnamed: {},
+                        });
+                    )*
+                    ::core::option::Option::None
+                }
+
                 #[verifier::when_used_as_spec(from_bits_truncate_spec)]
                 $vis const fn from_bits_truncate(bits: $T) -> (r: Self)
                     ensures
@@ -472,8 +543,9 @@ macro_rules! bitflags {
                     returns
                         Self::from_bits(bits),
                 {
-                    if (bits & Self::all().bits()) == bits {
-                        Some(Self::from_bits_unchecked(bits))
+                    let truncated = Self::from_bits_truncate(bits).bits();
+                    if truncated == bits {
+                        Some(Self::from_bits_retain(bits))
                     } else {
                         None
                     }
@@ -490,8 +562,7 @@ macro_rules! bitflags {
                             old(self).bits() | other.bits(),
                         ),
                 {
-                    let bits = self.bits | other.bits;
-                    *self = Self::from_bits_unchecked(bits);
+                    *self = Self::from_bits_retain(self.bits()).union(other);
                 }
 
                 $vis fn remove(&mut self, other: Self)
@@ -502,8 +573,7 @@ macro_rules! bitflags {
                             old(self).bits() & !other.bits(),
                         ),
                 {
-                    let bits = self.bits & !other.bits;
-                    *self = Self::from_bits_unchecked(bits);
+                    *self = Self::from_bits_retain(self.bits()).difference(other);
                 }
 
                 /// The bitwise exclusive-or (`^`) of the bits in `self` and `other`.
@@ -514,8 +584,7 @@ macro_rules! bitflags {
                             old(self).bits() ^ other.bits(),
                         ),
                 {
-                    let bits = self.bits ^ other.bits;
-                    *self = Self::from_bits_unchecked(bits);
+                    *self = Self::from_bits_retain(self.bits()).symmetric_difference(other);
                 }
 
                 /// Call `insert` when `value` is `true` or `remove` when `value` is `false`.
@@ -529,6 +598,26 @@ macro_rules! bitflags {
                     } else {
                         self.remove(other);
                     }
+                }
+
+                /// Remove any unknown bits from the flags.
+                $vis fn truncate(&mut self)
+                    ensures
+                        final(self).bits() == (old(self).bits() & Self::all().bits()),
+                        final(self).flags_spec() == Self::flags_from_bits(
+                            old(self).bits() & Self::all().bits(),
+                        ),
+                {
+                    *self = Self::from_bits_truncate(self.bits());
+                }
+
+                /// Unsets all bits in the flags.
+                $vis fn clear(&mut self)
+                    ensures
+                        final(self).bits() == 0,
+                        final(self).flags_spec() == Self::flags_from_bits(0),
+                {
+                    *self = Self::empty();
                 }
 
                 $vis closed spec fn union_spec(self, other: Self) -> Self {
@@ -632,7 +721,7 @@ macro_rules! bitflags {
                     ensures
                         r.bits() == (self.bits() | other.bits()),
                 {
-                    Self::from_bits_unchecked(self.bits | other.bits)
+                    self.union(other)
                 }
             }
 
@@ -652,7 +741,7 @@ macro_rules! bitflags {
                     ensures
                         r.bits() == (self.bits() & other.bits()),
                 {
-                    Self::from_bits_unchecked(self.bits & other.bits)
+                    self.intersection(other)
                 }
             }
 
@@ -672,7 +761,7 @@ macro_rules! bitflags {
                     ensures
                         r.bits() == (self.bits() ^ other.bits()),
                 {
-                    Self::from_bits_unchecked(self.bits ^ other.bits)
+                    self.symmetric_difference(other)
                 }
             }
 
@@ -727,28 +816,28 @@ macro_rules! bitflags {
         impl ::core::ops::BitOrAssign for $name {
             #[inline]
             fn bitor_assign(&mut self, other: Self) {
-                self.bits |= other.bits;
+                self.insert(other);
             }
         }
 
         impl ::core::ops::BitAndAssign for $name {
             #[inline]
             fn bitand_assign(&mut self, other: Self) {
-                self.bits &= other.bits;
+                *self = Self::from_bits_retain(self.bits()).intersection(other);
             }
         }
 
         impl ::core::ops::BitXorAssign for $name {
             #[inline]
             fn bitxor_assign(&mut self, other: Self) {
-                self.bits ^= other.bits;
+                self.toggle(other);
             }
         }
 
         impl ::core::ops::SubAssign for $name {
             #[inline]
             fn sub_assign(&mut self, other: Self) {
-                self.bits &= !other.bits;
+                self.remove(other);
             }
         }
 
