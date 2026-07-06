@@ -25,7 +25,7 @@ impl PagingConstsTrait for PagingConsts {
     const PTE_SIZE: usize = core::mem::size_of::<PageTableEntry>();
 }
 
-bitflags::bitflags! {
+bitflags_upstream::bitflags! {
     #[derive(Pod)]
     #[repr(C)]
     /// Possible flags for a page table entry.

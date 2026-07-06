@@ -7,8 +7,8 @@ use crate::specs::arch::{NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::is_mmio_paddr;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
+use crate::specs::mm::page_table::{cursor::owners::*, is_valid_range_spec};
 use crate::specs::task::InAtomicMode;
 
 use core::ops::Range;
@@ -17,11 +17,11 @@ verus! {
 
 // ─── Cursor specs ─────────────────────────────────────────────────────────────
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
-    pub open spec fn cursor_new_success_conditions(va: &Range<Vaddr>) -> bool {
+    pub open spec fn cursor_new_success_conditions(va: Range<Vaddr>) -> bool {
         &&& va.start < va.end
         &&& va.start % C::BASE_PAGE_SIZE() == 0
         &&& va.end % C::BASE_PAGE_SIZE() == 0
-        &&& crate::mm::page_table::is_valid_range_spec::<C>(va)
+        &&& is_valid_range_spec::<C>(va)
     }
 
     pub open spec fn invariants(

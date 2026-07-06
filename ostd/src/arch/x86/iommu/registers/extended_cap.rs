@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use core::fmt::Debug;
 
-use bitflags::bitflags;
+use bitflags_upstream::bitflags;
 
 pub struct ExtendedCapability(u64);
 

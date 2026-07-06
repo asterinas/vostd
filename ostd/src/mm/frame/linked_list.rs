@@ -301,7 +301,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(owner).relate_region(*final(regions)),
             final(regions).inv(),
             old(owner).list.len() > 0 ==> final(owner).list == old(owner).list.insert(
-                old(owner).list.len() as int - 1, final(frame_own).meta_own),
+                old(owner).list.len() - 1, final(frame_own).meta_own),
             old(owner).list.len() == 0 ==> final(owner).list == old(owner).list.insert(
                 0, final(frame_own).meta_own),
             // Id preserved when already minted; a fresh (empty) list adopts a
@@ -948,7 +948,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             let tracked prev_perm = regions.borrow_mut_typed_perm::<Link<M>>(
                 frame_to_index(meta_to_frame(prev.addr())),
             );
-            update_field!(prev => next <- next_ptr, Meta(prev_perm));
+            prev.borrow_mut(Tracked(prev_perm)).metadata.next = next_ptr;
 
             proof {
                 assert(regions.inv());
@@ -990,7 +990,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             let tracked next_perm = regions.borrow_mut_typed_perm::<Link<M>>(
                 frame_to_index(meta_to_frame(next.addr())),
             );
-            update_field!(next => prev <- prev_ptr, Meta(next_perm));
+            next.borrow_mut(Tracked(next_perm)).metadata.prev = prev_ptr;
 
             proof {
                 assert(regions.inv());
@@ -1021,10 +1021,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         }
 
         let tracked frame_perm = regions.borrow_mut_typed_perm::<Link<M>>(idx);
-        update_field!(current_md => next <- None, Meta(frame_perm));
+        current_md.borrow_mut(Tracked(frame_perm)).metadata.next = None;
 
         let tracked frame_perm = regions.borrow_mut_typed_perm::<Link<M>>(idx);
-        update_field!(current_md => prev <- None, Meta(frame_perm));
+        current_md.borrow_mut(Tracked(frame_perm)).metadata.prev = None;
 
         let tracked frame_outer = regions.slots.tracked_remove(idx);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
@@ -1188,18 +1188,18 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
                     frame_to_index(meta_to_frame(prev.addr())),
                 );
-                update_field!(prev => next <- Some(frame_ptr_as_link), Meta(perm));
+                prev.borrow_mut(Tracked(perm)).metadata.next = Some(frame_ptr_as_link);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
-                update_field!(frame_ptr => prev <- Some(prev_link), Meta(perm));
+                frame_ptr.borrow_mut(Tracked(perm)).metadata.prev = Some(prev_link);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
-                update_field!(frame_ptr => next <- Some(current), Meta(perm));
+                frame_ptr.borrow_mut(Tracked(perm)).metadata.next = Some(current);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
                     frame_to_index(meta_to_frame(current.addr())),
                 );
-                update_field!(current_md => prev <- Some(frame_ptr_as_link), Meta(perm));
+                current_md.borrow_mut(Tracked(perm)).metadata.prev = Some(frame_ptr_as_link);
 
                 proof {
                     let fpn_local = vstd_extra::cast_ptr::PointsTo::<
@@ -1220,12 +1220,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
             } else {
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
-                update_field!(frame_ptr => next <- Some(current), Meta(perm));
+                frame_ptr.borrow_mut(Tracked(perm)).metadata.next = Some(current);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
                     frame_to_index(meta_to_frame(current.addr())),
                 );
-                update_field!(current_md => prev <- Some(frame_ptr_as_link), Meta(perm));
+                current_md.borrow_mut(Tracked(perm)).metadata.prev = Some(frame_ptr_as_link);
 
                 self.list.front = Some(frame_ptr_as_link);
             }
@@ -1236,10 +1236,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
                     frame_to_index(meta_to_frame(back.addr())),
                 );
-                update_field!(back_md => next <- Some(frame_ptr_as_link), Meta(perm));
+                back_md.borrow_mut(Tracked(perm)).metadata.next = Some(frame_ptr_as_link);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
-                update_field!(frame_ptr => prev <- Some(back), Meta(perm));
+                frame_ptr.borrow_mut(Tracked(perm)).metadata.prev = Some(back);
 
                 self.list.back = Some(frame_ptr_as_link);
             } else {
@@ -1512,7 +1512,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         proof {
             if n > 0 {
                 cursor_own.list_own.relate_region_at_facts(*regions, 0);
-                cursor_own.list_own.relate_region_at_facts(*regions, n as int - 1);
+                cursor_own.list_own.relate_region_at_facts(*regions, n - 1);
             }
         }
 

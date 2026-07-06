@@ -64,6 +64,24 @@ use crate::{
 
 verus! {
 
+proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usize)
+    requires
+        align > 0,
+        start % align == 0,
+        len % align == 0,
+    ensures
+        (start + i * len) % align as int == 0,
+{
+    let a = align as int;
+    let q_start = start as int / a;
+    let q_len = len as int / a;
+    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, a);
+    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
+    assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a) by (nonlinear_arith);
+    assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
+    vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i as int * q_len, a);
+}
+
 /// Verus spec stub for [`<*mut T>::is_aligned`]: returns whether the pointer's address is a
 /// multiple of `align_of::<T>()`.
 pub assume_specification<T>[ <*mut T>::is_aligned ](_0: *mut T) -> (res: bool)
@@ -358,7 +376,7 @@ impl<'a> VmWriter<'a, Infallible> {
     /// for `T`, or the available space isn't a multiple of `size_of::<T>()`.
     pub open spec fn fill_panic_condition<T>(self) -> bool {
         ||| self.cursor.vaddr as int % core::mem::align_of::<T>() as int != 0
-        ||| (self.end.vaddr - self.cursor.vaddr) as int % core::mem::size_of::<T>() as int != 0
+        ||| (self.end.vaddr - self.cursor.vaddr) % core::mem::size_of::<T>() as int != 0
     }
 
     /// Fills the available space by repeatedly writing the same `Pod` value.
@@ -396,7 +414,7 @@ impl<'a> VmWriter<'a, Infallible> {
             reader_owner@.has_read_view(),
             reader_owner@.is_kernel == old(writer_owner).is_kernel,
             // Return value: exactly `avail / size_of::<T>()` elements written.
-            r as int * core::mem::size_of::<T>() == old(self).avail_spec(),
+            r * core::mem::size_of::<T>() == old(self).avail_spec(),
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.cast::<T>();
@@ -477,29 +495,7 @@ impl<'a> VmWriter<'a, Infallible> {
             cursor_i = cursor_i.wrapping_add(len);
             i = i + 1;
             proof {
-                // cursor_i.vaddr == cursor_i_pre.vaddr + len == start + i*len
-                assert(cursor_i_pre.vaddr + len == start + i * len) by (nonlinear_arith)
-                    requires
-                        cursor_i_pre.vaddr == start + (i - 1) * len,
-                        len > 0,
-                ;
-                // upper bound: i <= written_num ==> i*len <= avail
-                assert(i * len <= written_num * len) by (nonlinear_arith)
-                    requires
-                        i <= written_num,
-                        len > 0,
-                ;
-                // alignment: cursor_i.vaddr == start + i*len, both summands divisible by align.
-                let alignT = core::mem::align_of::<T>() as int;
-                // Bridge usize invariants to int.
-                // (i*len) % alignT == ((i % alignT) * (len % alignT)) % alignT == 0.
-                ::vstd::arithmetic::div_mod::lemma_mul_mod_noop(i as int, len as int, alignT);
-                // ((start + i*len)) % alignT == ((start % alignT) + ((i*len) % alignT)) % alignT == 0.
-                ::vstd::arithmetic::div_mod::lemma_add_mod_noop(
-                    start as int,
-                    i as int * len as int,
-                    alignT,
-                );
+                lemma_add_aligned_stride(start, i, len, core::mem::align_of::<T>());
             }
         }
 
@@ -646,10 +642,7 @@ impl<'a> VmWriter<'a, Infallible> {
                 #![trigger mem_dst.addr_transl(i)]
                 self.cursor.vaddr <= i < self.cursor.vaddr + core::mem::size_of::<T>() implies {
                 mem_dst.addr_transl(i) is Some
-            } by {
-                assert(owner.range.start == self.cursor.vaddr);
-                assert(owner.range.end == self.end.vaddr);
-            }
+            } by {}
         }
         #[allow(unused_unsafe)]
         unsafe { self.cursor.write_volatile::<T>(Tracked(&mut mem_dst), *new_val) };
@@ -661,10 +654,7 @@ impl<'a> VmWriter<'a, Infallible> {
 
             assert forall|va| owner.range.start <= va < owner.range.end implies mem_dst.addr_transl(
                 va,
-            ) is Some by {
-                assert(mem_dst.mappings == mem_dst_pre.mappings);
-                assert(mem_dst.addr_transl(va) == mem_dst_pre.addr_transl(va));
-            }
+            ) is Some by {}
 
             owner.advance(len);
         }
@@ -851,10 +841,7 @@ impl<'a> VmReader<'a, Infallible> {
                     &&& mv_r.memory[mv_r.addr_transl(i).unwrap().0].contents[mv_r.addr_transl(
                         i,
                     ).unwrap().1 as int] is Init
-                } by {
-                    assert(owner_r.range.start == self.cursor.vaddr);
-                    assert(owner_r.range.end == self.end.vaddr);
-                }
+                } by {}
             }
             // SAFETY: The source and destination are subsets of memory ranges specified by the
             // reader and writer, so they are valid for reading and writing.
@@ -874,7 +861,6 @@ impl<'a> VmReader<'a, Infallible> {
                     owner_w.range.start <= va < owner_w.range.end implies mv_w.addr_transl(
                     va,
                 ) is Some by {
-                    assert(mv_w.mappings == mv_w_pre.mappings);
                     assert(mv_w.addr_transl(va) == mv_w_pre.addr_transl(va));
                 }
 
@@ -1465,8 +1451,8 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     >)
         requires
             !Self::obeys_vmio_write_requires(),
-            offset as int + align as int <= usize::MAX as int,
-            core::mem::size_of::<T>() as int + align as int <= usize::MAX as int,
+            offset + align <= usize::MAX,
+            core::mem::size_of::<T>() + align <= usize::MAX,
             iter.obeys_prophetic_iter_laws(),
             iter.decrease() is Some,
             // `align_up` (called for `align > 1`) diverges unless `align`

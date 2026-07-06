@@ -117,7 +117,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     /// matching `meta_own`. A `UniqueFrame` is the sole live reference to its
     /// slot, so the slot sits at `REF_COUNT_UNIQUE` — the unique-frame analog
     /// of the segment's `0 < ref_count <= REF_COUNT_MAX` regime in
-    /// [`SegmentOwner::relate_regions`]. Being live, it also owes a pending-Drop
+    /// [`Segment::relate_regions`]. Being live, it also owes a pending-Drop
     /// obligation in `frame_obligations` (minted at `from_unused`/`from_raw`,
     /// consumed by `drop`/`into_raw`).
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {

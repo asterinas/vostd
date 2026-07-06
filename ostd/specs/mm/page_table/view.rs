@@ -68,7 +68,7 @@ impl Mapping {
             64,
         )
         // Per-config VA range bounds are enforced by `CursorView<C>::inv`
-        // via `vaddr_range_bounds_spec<C>`, not here — a single
+        // via `vaddr_range_spec<C>`, not here — a single
         // config-agnostic `Mapping::inv` cannot express them.
 
     }

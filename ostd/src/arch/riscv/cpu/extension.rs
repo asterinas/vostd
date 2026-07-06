@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! RISC-V ISA extensions.
-use bitflags::bitflags;
+use bitflags_upstream::bitflags;
 use spin::Once;
 
 use crate::arch::boot::DEVICE_TREE;
