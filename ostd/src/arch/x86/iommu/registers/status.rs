@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-use bitflags::bitflags;
+use bitflags_upstream::bitflags;
 
 bitflags! {
     /// Global Status of the IOMMU. All fields is read-only. Some description of the fields
