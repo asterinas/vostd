@@ -6,9 +6,9 @@ use vstd_extra::ownership::*;
 
 use core::ops::Range;
 
-use crate::mm::frame::{AnyFrameMeta, MetaSlot, Segment, meta::META_SLOT_SIZE};
+use crate::mm::frame::{AnyFrameMeta, Segment};
 use crate::mm::{Paddr, Vaddr, paddr_to_vaddr};
-use crate::specs::arch::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::PAGE_SIZE;
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::virt_mem::MemView;
@@ -17,10 +17,9 @@ verus! {
 
 impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     /// The tracked state for `ManuallyDrop` purposes is the global
-    /// [`MetaRegionOwners`]. The [`SegmentOwner<M>`] is threaded in
-    /// separately via `verus_spec`, and the *real* per-segment obligation
-    /// (with the segment-range ledger entry) is held on `SegmentOwner`
-    /// itself — not via this `TrackDrop` impl. That keeps
+    /// [`MetaRegionOwners`]. The real per-segment obligation is represented
+    /// by one entry per frame in `MetaRegionOwners::frame_obligations`, not
+    /// by this `TrackDrop` impl. That keeps
     /// `ManuallyDrop::new(self, Tracked(regions))` callable in places like
     /// `Segment::split` / `Segment::into_raw` where the segment is
     /// "temporarily forgotten" without an actual ledger event.
@@ -86,78 +85,33 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         tracked s: &mut Self::State,
         tracked obl: DropObligation<Self::Key>,
     ) {
-        // No-op: the token is ledger-less identity. The real segment-range
-        // ledger lives on `SegmentOwner` and is redeemed by
-        // `Segment::drop` directly, not via this hook.
+        // No-op: the token is ledger-less identity. Segment drop accounting is
+        // handled by `Segment::drop` against `frame_obligations` directly.
     }
 }
 
-/// A [`SegmentOwner<M>`] holds the permission tokens for all frames in the
-/// [`Segment<M>`] for verification purposes.
-///
-/// The `range` field tracks which physical-address range this owner corresponds
-/// to. It is a ghost-only field used by [`Self::inv`] to express the structural
-/// connection between `perms` and the segment's frames.
 /// Number of frames in a page-aligned physical range.
 #[verifier::inline]
 pub open spec fn seg_nframes(range: Range<Paddr>) -> int {
     (range.end - range.start) / PAGE_SIZE as int
 }
 
-// FIXME: is this necessary?
-pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
-    /// The physical-address range of the segment that this owner corresponds to.
-    ///
-    /// Design B (Arc-style): the owner no longer holds the per-frame slot
-    /// permissions. Each frame's `simple_pptr::PointsTo<MetaSlot>` stays
-    /// canonical in `regions.slots[idx]` and is *borrowed* on drop/next;
-    /// the segment merely contributes one (forgotten) reference per frame.
-    ///
-    /// Per-frame linear-drop: the owner carries *no* obligation token. The
-    /// segment's "must drop" guarantee is enforced entirely by the per-frame
-    /// `regions.frame_obligations` multiset (one count per segment frame, see
-    /// [`SegmentOwner::relate_regions`]) combined with the boundary
-    /// `clean_inv()` check — silently dropping a `SegmentOwner` leaves those
-    /// counts outstanding and breaks `clean_inv()`. Redeem-time tokens are
-    /// fabricated on demand via `DropObligation::tracked_mint`, so no token
-    /// needs to travel with the owner.
-    pub ghost range: Range<Paddr>,
-    pub _marker: core::marker::PhantomData<M>,
-}
-
-impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
-    /// The invariant of a [`SegmentOwner`]:
-    ///
-    /// - the tracked `range` is page-aligned and within bounds;
-    /// - the number of permissions matches the number of frames in the range;
-    /// - each permission's address corresponds to the meta slot of its frame
-    ///   (so consecutive permissions are spaced by `META_SLOT_SIZE`);
-    /// - each permission is initialized and individually well-formed.
-    /// - the bundled obligation token is keyed to this owner's `range`.
-    open spec fn inv(self) -> bool {
-        &&& self.range.start % PAGE_SIZE == 0
-        &&& self.range.end % PAGE_SIZE == 0
-        &&& self.range.start <= self.range.end <= MAX_PADDR
-    }
-}
-
-impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
-    /// The cross-object relation between a [`SegmentOwner`] and the global
+impl<M: AnyFrameMeta + ?Sized> Segment<M> {
+    /// The cross-object relation between a [`Segment`] and the global
     /// [`MetaRegionOwners`].
     ///
     /// For every frame `i` in the segment, this asserts:
-    /// - the slot owner is present in `regions` and the perm matches it,
+    /// - the slot owner and canonical slot permission are present in `regions`,
     /// - the slot's `slot_vaddr` is consistent with its index,
     /// - the slot has a live, non-`UNUSED` reference count,
-    /// - `raw_count == 1` (the segment holds one forgotten reference per frame),
-    /// - the slot's perm is *not* in `regions.slots` (it lives in `self.perms`),
+    /// - the slot has a pending `frame_obligations` entry for this segment,
+    /// - the slot is a data-frame slot with no page-table paths,
     /// - distinct frames in the segment map to distinct slot indices.
     ///
-    /// This is an invariant preserved by every operation that transforms a
-    /// `SegmentOwner` together with `MetaRegionOwners` — analogous to
-    /// [`crate::specs::mm::frame::unique::UniqueFrameOwner::global_inv`] but
-    /// spanning all frames in a segment.
-    pub open spec fn relate_regions(self, regions: MetaRegionOwners) -> bool {
+    /// This is an invariant preserved by operations that transform a
+    /// `Segment` together with `MetaRegionOwners`. The segment's own `range`
+    /// is the only identity source; there is no separate segment owner token.
+    pub open spec fn relate_regions(&self, regions: MetaRegionOwners) -> bool {
         &&& forall|i: int|
             #![trigger frame_to_index((self.range.start + i * PAGE_SIZE) as usize)]
             0 <= i < seg_nframes(self.range) ==> {
@@ -190,10 +144,8 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     }
 
     /// Manually instantiates the [`relate_regions`] forall at a specific index.
-    /// Use this to extract per-frame facts (slot_owner present, slot perm in
-    /// `regions.slots`, raw_count == 1, ref_count > 0, etc.) without fighting
-    /// trigger inference.
-    pub proof fn relate_regions_at(self, regions: MetaRegionOwners, i: int)
+    /// Use this to extract per-frame facts without fighting trigger inference.
+    pub proof fn relate_regions_at(&self, regions: MetaRegionOwners, i: int)
         requires
             self.relate_regions(regions),
             0 <= i < seg_nframes(self.range),
@@ -221,7 +173,7 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     /// Manually instantiates the [`relate_regions`] distinctness forall at a
     /// specific index pair: distinct in-range frames map to distinct slot
     /// indices. Reusable lever for `from_unused`/`split`/`slice` proofs.
-    pub proof fn relate_regions_distinct(self, regions: MetaRegionOwners, i: int, j: int)
+    pub proof fn relate_regions_distinct(&self, regions: MetaRegionOwners, i: int, j: int)
         requires
             self.relate_regions(regions),
             0 <= i < j < seg_nframes(self.range),
@@ -234,41 +186,18 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
         let _ = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
         let _ = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
     }
-}
 
-impl<M: AnyFrameMeta + ?Sized> Segment<M> {
-    /// The well-formedness relation between a [`Segment`] and its owner:
-    ///
-    /// - the segment's range matches the range tracked by the owner;
-    /// - the number of permissions in the owner matches the number of frames in the segment;
-    /// - the physical address of each permission matches the corresponding frame in the segment.
-    ///
-    /// This is *only* the cross-object relation; callers are expected to also
-    /// state `self.inv()` (and where relevant `owner.inv()`) alongside. With
-    /// `owner.inv()` the perm-address and length conjuncts are consequences of
-    /// `self.range == owner.range`, but they are kept here for trigger
-    /// availability at sites that don't invoke `owner.inv()`.
-    ///
-    /// Interested readers are encouraged to see [`frame_to_index`] and [`meta_addr`] for how
-    /// we convert between physical addresses and meta region indices.
-    pub open spec fn wf(&self, owner: &SegmentOwner<M>) -> bool {
-        &&& self.range == owner.range
-    }
-
-    /// The bundled invariant for [`Segment`] operations that thread an `owner`
-    /// and the global `regions`: the segment's own invariant, its
-    /// well-formedness against the owner, the owner's invariant, the region
-    /// invariant, and the cross-object relation tying the owner to `regions`.
+    /// The bundled invariant for [`Segment`] operations that thread the global
+    /// `regions`: the segment's own invariant, the region invariant, and the
+    /// cross-object relation tying this segment's range to `regions`.
     ///
     /// Mirrors the `invariants` bundles used throughout the page-table / cursor
-    /// code — it collapses the five clauses repeated verbatim across `split`,
-    /// `slice`, `into_raw`, `next`, and `drop` into one predicate.
-    pub open spec fn invariants(&self, owner: &SegmentOwner<M>, regions: MetaRegionOwners) -> bool {
+    /// code — it collapses the clauses repeated across `split`, `slice`,
+    /// `into_raw`, `next`, and `drop` into one predicate.
+    pub open spec fn invariants(&self, regions: MetaRegionOwners) -> bool {
         &&& self.inv()
-        &&& self.wf(owner)
-        &&& owner.inv()
         &&& regions.inv()
-        &&& owner.relate_regions(regions)
+        &&& self.relate_regions(regions)
     }
 
     /// Whether a [`MemView`] covers the segment through the kernel direct mapping.
@@ -434,7 +363,7 @@ pub proof fn tracked_mint_seg_obligations(
 ///
 /// Unlike minting, redeeming requires the frame indices be *distinct*
 /// (redeeming one frame must not drop another's count below 1) and each count
-/// be `>= 1` up front — both supplied by [`SegmentOwner::relate_regions`].
+/// be `>= 1` up front — both supplied by [`Segment::relate_regions`].
 /// Leaves `slots`, `slot_owners`, and the (vestigial) range `obligations`
 /// ledger untouched.
 pub proof fn tracked_redeem_seg_obligations(

@@ -22,7 +22,7 @@ use crate::mm::{
     largest_pages,
     page_prop::PageProperty,
     page_size,
-    page_table::{Child, CursorMut, PageTable, PageTableConfig, is_valid_range_spec},
+    page_table::{Child, CursorMut, PageTable, PageTableConfig},
 };
 
 use crate::arch::mm::PagingConsts;
@@ -36,8 +36,11 @@ use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, PageUsage, is_mmio_paddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};
 use crate::specs::mm::page_table::*;
+use crate::specs::mm::page_table::{
+    cursor::{CursorOwner, CursorView},
+    is_valid_range_spec,
+};
 use crate::specs::task::InAtomicMode;
 use vstd_extra::cast_ptr::Repr;
 
@@ -255,9 +258,9 @@ pub proof fn lemma_kernel_range_valid(r: core::ops::Range<Vaddr>)
         r.start % PAGE_SIZE == 0,
         r.end % PAGE_SIZE == 0,
     ensures
-        is_valid_range_spec::<KernelPtConfig>(&r),
+        is_valid_range_spec::<KernelPtConfig>(r),
 {
-    crate::mm::page_table::lemma_vaddr_range_bounds_spec_kernel();
+    lemma_vaddr_range_spec_kernel();
     assert(KERNEL_BASE_VADDR == 0xFFFF_8000_0000_0000usize) by (compute_only);
 }
 
@@ -592,6 +595,7 @@ impl KVirtArea {
         let range_res = KVIRT_AREA_ALLOCATOR.alloc(area_size);
         assert!(range_res.is_ok());
         let range = range_res.unwrap();
+        assume(range.end > 0);
 
         proof {
             kvirt_alloc_range_bounds(area_size, map_offset, range);

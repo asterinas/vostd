@@ -1,8 +1,12 @@
 use crate::mm::frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame};
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr};
-use crate::mm::{Paddr, Vaddr, page_size};
-use crate::specs::mm::frame::mapping::lemma_meta_to_frame_soundness;
+use crate::mm::{Paddr, PagingConstsTrait, Vaddr, page_size};
+use crate::specs::mm::{
+    frame::mapping::lemma_meta_to_frame_soundness,
+    page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
+};
+use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
@@ -100,6 +104,31 @@ pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)
     assert(va % PAGE_SIZE == 0) by {
         lemma_mod_0_add(pa as int, LINEAR_MAPPING_BASE_VADDR as int, PAGE_SIZE as int);
     };
+}
+
+// Here are some architecture-specific const value properties.
+// Any use of this lemma in architecture-independent code should be removed.
+pub(crate) proof fn lemma_arch_specific_consts_properties<C: PagingConstsTrait>()
+    ensures
+        C::BASE_PAGE_SIZE().ilog2() == 12u32,
+        nr_pte_index_bits_spec::<C>() == 9usize,
+        pow2(9) == NR_ENTRIES,
+        pte_index_bit_offset_spec::<C>(4) == 39,
+        0 * pow2(39) == 0,
+        256 * pow2(39) == pow2(47),
+        512 * pow2(39) == pow2(48),
+        pow2(47) - 1 == 0x0000_7FFF_FFFF_FFFF,
+        0xffff_int * 0x1_0000_0000_0000int + pow2(47) == 0xffff_8000_0000_0000int,
+        0xffff_int * 0x1_0000_0000_0000int + pow2(48) - 1 == 0xffff_ffff_ffff_ffffint,
+{
+    C::lemma_paging_consts_properties();
+    lemma2_to64();
+    lemma2_to64_rest();
+    lemma_usize_pow2_ilog2(12);
+    lemma_usize_pow2_ilog2(9);
+    lemma_usize_pow2_ilog2(12);
+    lemma_usize_pow2_ilog2(9);
+    lemma_pow2_adds(8, 39);
 }
 
 } // verus!

@@ -12,19 +12,80 @@ pub use node::*;
 pub use owners::*;
 pub use view::*;
 
-use vstd::arithmetic::power2::pow2;
+use core::ops::{Range, RangeInclusive};
+use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
 use vstd::prelude::*;
 use vstd_extra::arithmetic::*;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
+use vstd_extra::prelude::*;
 
-use crate::mm::page_table::PageTableConfig;
-use crate::mm::{PagingLevel, Vaddr, page_size};
+use crate::mm::{
+    PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
+    nr_subpage_per_huge, page_size, page_table::PageTableConfig, vm_space::UserPtConfig,
+};
 use crate::specs::arch::*;
 
 use align_ext::AlignExt;
 
 verus! {
+
+#[verifier::inline]
+pub open spec fn nr_pte_index_bits_spec<C: PagingConstsTrait>() -> usize {
+    nr_subpage_per_huge::<C>().ilog2() as usize
+}
+
+#[verifier::inline]
+pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize {
+    (C::BASE_PAGE_SIZE().ilog2() + nr_pte_index_bits_spec::<C>() * (level - 1)) as usize
+}
+
+#[verifier::inline]
+pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
+    (C::ADDRESS_WIDTH_spec() - pte_index_bit_offset_spec::<C>(C::NR_LEVELS())) as usize
+}
+
+/// Canonical bounds of the VA range managed by a page-table config,
+///
+/// Derived from `LEADING_BITS_spec` and `TOP_LEVEL_INDEX_RANGE`. For
+/// `UserPtConfig` `(LEADING_BITS=0, idx=0..256)` this is `(0, 2^47 - 1)`;
+/// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
+/// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
+#[verusfmt::skip]
+pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr> {
+    let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
+    let lb = C::LEADING_BITS_spec() as int;
+    let base = lb * 0x1_0000_0000_0000int;
+    let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
+    let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
+    start..=end
+}
+
+pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> bool {
+    let va_range = vaddr_range_spec::<C>();
+    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end - 1 <= va_range@.end)
+}
+
+/// Sanity-check: for x86_64 user PT, the bounds are
+/// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
+pub(crate) proof fn lemma_vaddr_range_spec_user()
+    ensures
+        vaddr_range_spec::<UserPtConfig>()@.start == 0,
+        vaddr_range_spec::<UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
+{
+    assert(<UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0);
+    lemma_arch_specific_consts_properties::<PagingConsts>();
+}
+
+/// Sanity-check: for x86_64 kernel PT, the bounds are the canonical
+/// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
+pub(crate) proof fn lemma_vaddr_range_spec_kernel()
+    ensures
+        vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
+        vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
+{
+    lemma_arch_specific_consts_properties::<PagingConsts>();
+}
 
 /// An abstract representation of a virtual address as a sequence of indices, representing the
 /// values of the bit-fields that index into each level of the page table.
@@ -821,6 +882,7 @@ impl AbstractVaddr {
     /// The top-level precondition (`level < NR_LEVELS || index[NR-1]+1 < NR_ENTRIES ||
     /// leading_bits+1 < 0x1_0000`) blocks `leading_bits` overflow at the canonical
     /// address-space boundary.
+    #[verifier::spinoff_prover]
     pub proof fn aligned_align_up_advances(self, level: int)
         requires
             self.inv(),
@@ -1840,6 +1902,7 @@ impl AbstractVaddr {
             vaddr(path) == self.align_down(NR_LEVELS - path.len() + 1).compute_vaddr()
                 - self.align_down(NR_LEVELS - path.len() + 1).offset,
     {
+        lemma_arch_specific_consts_properties::<crate::mm::PagingConsts>();
         if path.len() == 0 {
             let aligned = self.align_down(5);
             self.align_down_shape(4);
