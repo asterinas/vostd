@@ -11,7 +11,6 @@ use vstd::simple_pptr::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
 use vstd_extra::ownership::*;
-use vstd_extra::trans_macros::*;
 
 use crate::mm::frame::meta::{
     META_SLOT_SIZE, REF_COUNT_UNIQUE,
@@ -665,7 +664,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
                 let tracked meta_perm = regions.borrow_typed_perm::<Link<M>>(idx);
 
-                borrow_field!(current_md => next, Meta(meta_perm))
+                current_md.borrow(Tracked(meta_perm)).metadata.next
             },
             None => self.list.front,
         };
@@ -721,7 +720,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
                 let tracked meta_perm = regions.borrow_typed_perm::<Link<M>>(idx);
 
-                borrow_field!(current_md => prev, Meta(meta_perm))
+                current_md.borrow(Tracked(meta_perm)).metadata.prev
             },
             None => self.list.back,
         };
@@ -930,8 +929,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof {
             assert(*tp == owner0.list_own.meta_perm_of(regions0, owner0.index));
         }
-        let next_ptr = borrow_field!(current_md => next, Meta(tp));
-        let prev_ptr = borrow_field!(current_md => prev, Meta(tp));
+        let next_ptr = current_md.borrow(Tracked(tp)).metadata.next;
+        let prev_ptr = current_md.borrow(Tracked(tp)).metadata.prev;
 
         if let Some(prev_link) = prev_ptr {
             let prev = MetadataAsLink::cast_to_metadata(prev_link);
@@ -948,7 +947,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             let tracked prev_perm = regions.borrow_mut_typed_perm::<Link<M>>(
                 frame_to_index(meta_to_frame(prev.addr())),
             );
-            update_field!(prev => next <- next_ptr, Meta(prev_perm));
+            prev.borrow_mut(Tracked(prev_perm)).metadata.next = next_ptr;
 
             proof {
                 assert(regions.inv());
@@ -990,7 +989,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             let tracked next_perm = regions.borrow_mut_typed_perm::<Link<M>>(
                 frame_to_index(meta_to_frame(next.addr())),
             );
-            update_field!(next => prev <- prev_ptr, Meta(next_perm));
+            next.borrow_mut(Tracked(next_perm)).metadata.prev = prev_ptr;
 
             proof {
                 assert(regions.inv());
@@ -1021,10 +1020,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         }
 
         let tracked frame_perm = regions.borrow_mut_typed_perm::<Link<M>>(idx);
-        update_field!(current_md => next <- None, Meta(frame_perm));
+        current_md.borrow_mut(Tracked(frame_perm)).metadata.next = None;
 
         let tracked frame_perm = regions.borrow_mut_typed_perm::<Link<M>>(idx);
-        update_field!(current_md => prev <- None, Meta(frame_perm));
+        current_md.borrow_mut(Tracked(frame_perm)).metadata.prev = None;
 
         let tracked frame_outer = regions.slots.tracked_remove(idx);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
@@ -1180,7 +1179,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             let tracked tp = regions.borrow_typed_perm::<Link<M>>(
                 frame_to_index(meta_to_frame(current.addr())),
             );
-            opt_prev_link = borrow_field!(current_md => prev, Meta(tp));
+            opt_prev_link = current_md.borrow(Tracked(tp)).metadata.prev;
 
             if let Some(prev_link) = opt_prev_link {
                 let prev = MetadataAsLink::cast_to_metadata(prev_link);
@@ -1188,18 +1187,18 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
                     frame_to_index(meta_to_frame(prev.addr())),
                 );
-                update_field!(prev => next <- Some(frame_ptr_as_link), Meta(perm));
+                prev.borrow_mut(Tracked(perm)).metadata.next = Some(frame_ptr_as_link);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
-                update_field!(frame_ptr => prev <- Some(prev_link), Meta(perm));
+                frame_ptr.borrow_mut(Tracked(perm)).metadata.prev = Some(prev_link);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
-                update_field!(frame_ptr => next <- Some(current), Meta(perm));
+                frame_ptr.borrow_mut(Tracked(perm)).metadata.next = Some(current);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
                     frame_to_index(meta_to_frame(current.addr())),
                 );
-                update_field!(current_md => prev <- Some(frame_ptr_as_link), Meta(perm));
+                current_md.borrow_mut(Tracked(perm)).metadata.prev = Some(frame_ptr_as_link);
 
                 proof {
                     let fpn_local = vstd_extra::cast_ptr::PointsTo::<
@@ -1220,12 +1219,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
             } else {
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
-                update_field!(frame_ptr => next <- Some(current), Meta(perm));
+                frame_ptr.borrow_mut(Tracked(perm)).metadata.next = Some(current);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
                     frame_to_index(meta_to_frame(current.addr())),
                 );
-                update_field!(current_md => prev <- Some(frame_ptr_as_link), Meta(perm));
+                current_md.borrow_mut(Tracked(perm)).metadata.prev = Some(frame_ptr_as_link);
 
                 self.list.front = Some(frame_ptr_as_link);
             }
@@ -1236,10 +1235,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(
                     frame_to_index(meta_to_frame(back.addr())),
                 );
-                update_field!(back_md => next <- Some(frame_ptr_as_link), Meta(perm));
+                back_md.borrow_mut(Tracked(perm)).metadata.next = Some(frame_ptr_as_link);
 
                 let tracked perm = regions.borrow_mut_typed_perm::<Link<M>>(frame_idx_g);
-                update_field!(frame_ptr => prev <- Some(back), Meta(perm));
+                frame_ptr.borrow_mut(Tracked(perm)).metadata.prev = Some(back);
 
                 self.list.back = Some(frame_ptr_as_link);
             } else {
