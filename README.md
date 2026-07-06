@@ -52,7 +52,7 @@ Verus should be automatically cloned and built in the `tools` directory. If down
 >
 > We use [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the upstream repository. You may choose to install the [upstream Verus source](https://github.com/verus-lang/verus) via `cargo dv bootstrap --upstream-verus`, however, we cannot guarantee that it will always verify successfully with our project. That said, our CI continuously tests against upstream, and we typically resolve any breaking changes within about a week.
 >
-> If you have already installed Verus elsewhere and just want to reproduce the verification result, a quick alternative is to set `VERUS_PATH` to the directory containing the Verus binary, `CARGO_VERUS_PATH`  to the directory containing the `cargo-verus` binary, and `VERUS_Z3_PATH` to the Z3 binary, or simply add them to your `PATH`. Then run `cargo verus verify`.
+> If you have already installed Verus elsewhere and just want to reproduce the verification result, a quick alternative is to set `CARGO_VERUS_PATH` to the directory containing the `cargo-verus` binary, or add it to your `PATH`. Then run `cargo verus verify`.
 
 ### Build Verification Targets
 
