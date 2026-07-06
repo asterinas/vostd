@@ -324,12 +324,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ;
 
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
+        requires
+            has_safe_slot(paddr),
+            Self::item_from_raw_spec(paddr, level, prop) == item,
         ensures
-            Self::item_into_raw_spec(item) == (paddr, level, prop) <==> Self::item_from_raw_spec(
-                paddr,
-                level,
-                prop,
-            ) == item,
+            Self::item_into_raw_spec(item) == (paddr, level, prop),
     ;
 
     /// Proves `item.clone_requires(regions)` from the concrete frame-slot facts

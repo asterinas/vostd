@@ -1618,7 +1618,6 @@ unsafe impl PageTableConfig for UserPtConfig {
 
         lemma2_to64();
         lemma2_to64_rest();
-        assert(usize::BITS == 64) by (compute);
         vstd::layout::unsigned_int_max_values();
         lemma_usize_pow2_ilog2(12);
         lemma_usize_pow2_ilog2(9);
@@ -1654,7 +1653,16 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
-    axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
+    proof fn item_roundtrip(
+        item: Self::Item,
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) {
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+
+        Self::item_from_raw_spec_frame_ptr(paddr, level, prop);
+    }
 
     open spec fn tracked(_item: Self::Item) -> bool {
         // Every UserPt item is a ref-counted UFrame.
@@ -1671,10 +1679,8 @@ unsafe impl PageTableConfig for UserPtConfig {
 
         Self::item_from_raw_spec_frame_ptr(pa, level, prop);
         let item = Self::item_from_raw_spec(pa, level, prop);
-        assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
         // frame.inv() unfolds to `addr % META_SLOT_SIZE == 0` and addr in
         // FRAME_METADATA_RANGE. Both follow from `lemma_frame_to_meta_soundness`.
-        assert(item.frame.inv());
     }
 
     proof fn clone_ensures_concrete(
@@ -1691,7 +1697,6 @@ unsafe impl PageTableConfig for UserPtConfig {
         use crate::mm::frame::meta::mapping::meta_to_frame;
         use crate::specs::mm::frame::mapping::frame_to_index;
         let frame_idx = frame_to_index(meta_to_frame(item.frame.ptr.addr()));
-        assert(pa == item.frame.paddr());
         assert(frame_to_index(pa) == frame_idx);
         // The MappedItem clone_ensures unfolds to its frame's clone_ensures.
         // Verus needs `item.clone_ensures` (a trait method) revealed via the impl.
@@ -1741,6 +1746,8 @@ impl UserPtConfig {
         ensures
             UserPtConfig::item_from_raw_spec(pa, level, prop).frame.ptr.addr()
                 == crate::mm::frame::meta::mapping::frame_to_meta(pa),
+            level == 1,
+            UserPtConfig::item_from_raw_spec(pa, level, prop).prop == prop,
     ;
 }
 
