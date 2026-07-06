@@ -584,16 +584,17 @@ macro_rules! bitflags {
                 }
 
                 $vis closed spec fn complement_spec(self) -> Self {
-                    Self::from_bits_unchecked_spec(!self.bits() & Self::all().bits())
+                    Self::from_bits_truncate_spec(!self.bits())
                 }
 
                 #[verifier::when_used_as_spec(complement_spec)]
                 $vis const fn complement(self) -> (r: Self)
                     ensures
                         r.bits() == (!self.bits() & Self::all().bits()),
+                        r.flags_spec() == Self::flags_from_bits(!self.bits() & Self::all().bits()),
                     returns self.complement(),
                 {
-                    Self::from_bits_unchecked(!self.bits & Self::all().bits())
+                    Self::from_bits_truncate(!self.bits)
                 }
             }
 
