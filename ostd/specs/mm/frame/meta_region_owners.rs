@@ -107,6 +107,11 @@ impl InvView for MetaRegionOwners {
 }
 
 impl MetaRegionOwners {
+    pub open spec fn insert_slot_owner(self, paddr: Paddr, owner: MetaSlotOwner) -> Self {
+        let index = frame_to_index(paddr);
+        Self { slot_owners: self.slot_owners.insert(index, owner), ..self }
+    }
+
     pub open spec fn ref_count(self, i: usize) -> (res: u64)
         recommends
             self.inv(),
@@ -231,21 +236,6 @@ impl MetaRegionOwners {
             self.slot_owners.contains_key(frame_to_index(paddr) as usize),
     {
     }
-
-    /// Move a slot pointer permission *into* `slots[index]` from caller-supplied storage.
-    /// Used by `Frame::from_raw` after the migration to typed slot perms — the perm being
-    /// returned to `regions.slots` has no `inner_perms` baggage; the inner-perms live in
-    /// `slot_owners[index].inner_perms`.
-    pub axiom fn sync_slot_perm(
-        tracked &mut self,
-        index: usize,
-        perm: &simple_pptr::PointsTo<MetaSlot>,
-    )
-        ensures
-            final(self).slots == old(self).slots.insert(index, *perm),
-            final(self).slot_owners == old(self).slot_owners,
-            final(self).frame_obligations == old(self).frame_obligations,
-    ;
 
     // ----------------------------------------------------------------------
     // Per-frame linear-drop ledger machinery.
