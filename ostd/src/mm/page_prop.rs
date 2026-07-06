@@ -151,42 +151,6 @@ bitflags! {
 
 verus! {
 
-impl PageFlags {
-    pub proof fn lemma_from_bits_bits(bits: u8)
-        requires
-            bits & Self::all().bits() == bits,
-        ensures
-            Self::from_bits(bits)->0.bits() == bits,
-    {
-    }
-
-    pub proof fn lemma_eq_from_bits(left: Self, right: Self)
-        requires
-            left.bits() == right.bits(),
-        ensures
-            left == right,
-    {
-    }
-}
-
-impl PrivilegedPageFlags {
-    pub proof fn lemma_from_bits_bits(bits: u8)
-        requires
-            bits & Self::all().bits() == bits,
-        ensures
-            Self::from_bits(bits)->0.bits() == bits,
-    {
-    }
-
-    pub proof fn lemma_eq_from_bits(left: Self, right: Self)
-        requires
-            left.bits() == right.bits(),
-        ensures
-            left == right,
-    {
-    }
-}
-
 impl Inv for PageProperty {
     open spec fn inv(self) -> bool {
         &&& self.flags.bits() & PageFlags::all().bits() == self.flags.bits()

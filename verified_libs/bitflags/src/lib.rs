@@ -327,6 +327,22 @@ macro_rules! bitflags {
                     Self::lemma_all_constant();
                 }
 
+                $vis proof fn lemma_from_bits_bits(bits: $T)
+                    requires
+                        bits & Self::all().bits() == bits,
+                    ensures
+                        Self::from_bits(bits)->0.bits() == bits,
+                {
+                }
+
+                $vis proof fn lemma_eq_from_bits(left: Self, right: Self)
+                    requires
+                        left.bits() == right.bits(),
+                    ensures
+                        left == right,
+                {
+                }
+
                 /// The raw bits stored inside this flags value.
                 $vis closed spec fn bits_spec(&self) -> $T { self.bits }
 
