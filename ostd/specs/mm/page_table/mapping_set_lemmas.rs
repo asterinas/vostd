@@ -117,7 +117,7 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>, bound: usize)
 /// Corollary: the cardinality fits in usize.
 ///
 /// The bound `0x0000_8000_0000_0000` (= 2^47) is the new upper end derived
-/// from `vaddr_range_bounds_spec::<UserPtConfig>` — one page looser than
+/// from `vaddr_range_spec::<UserPtConfig>` — one page looser than
 /// the old `MAX_USERSPACE_VADDR`, but still gives a comfortable
 /// `2^35 < usize::MAX`.
 pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)

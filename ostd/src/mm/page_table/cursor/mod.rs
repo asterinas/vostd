@@ -279,9 +279,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // `kvirt_alloc_range_bounds` axiom; default-config callers
             // (UserPtConfig) get this for free since the default bound is
             // `usize::MAX + 1`.
-            va.end  <= C::LOCKED_END_BOUND_spec(),
+            0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Self::cursor_new_success_conditions(va) ==> {
+            Self::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -293,7 +293,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& r.unwrap().1@.as_page_table_owner() == pt_own
                 &&& r.unwrap().1@.continuations[3].path() == pt_own.0.value.path
             },
-            !Self::cursor_new_success_conditions(va) ==> r is Err,
+            !Self::cursor_new_success_conditions(*va) ==> r is Err,
             // Cursor::new inherits lock_range's weakened preservation: only
             // slots that were non-UNUSED before the call keep their
             // paths_in_pt (new PT allocations come from UNUSED slots).
@@ -1749,9 +1749,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // locked_range.end and hence idx[NR_LEVELS-1] < top_end (strict).
             if owner.level == NR_LEVELS {
                 owner0.in_locked_range_top_index_lt_top_end();
-                assert(owner0.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
+                assert(owner0.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE().end);
                 assert(owner.continuations[owner.level - 1].idx + 1
-                    <= C::TOP_LEVEL_INDEX_RANGE_spec().end);
+                    <= C::TOP_LEVEL_INDEX_RANGE().end);
             }
             owner.do_inc_index();
             owner.zero_preserves_all_but_va();
@@ -2182,9 +2182,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             pt_own.inv(),
             // Per-config tightening; see `Cursor::new`.
-            va.end <= C::LOCKED_END_BOUND_spec(),
+            0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
-            Cursor::<C, A>::cursor_new_success_conditions(va) ==> {
+            Cursor::<C, A>::cursor_new_success_conditions(*va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.0.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.in_locked_range()
@@ -2194,7 +2194,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& r.unwrap().0.0.va == va.start
                 &&& r.unwrap().0.0.barrier_va == *va
             },
-            !Cursor::<C, A>::cursor_new_success_conditions(va) ==> r is Err,
+            !Cursor::<C, A>::cursor_new_success_conditions(*va) ==> r is Err,
             // cursor_mut only acquires locks on page-table node slots; it does not
             // set paths_in_pt for data-frame slots. Any frame that was item_not_mapped
             // before the call remains item_not_mapped after.

@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
 
-use bitflags::bitflags;
+use bitflags_upstream::bitflags;
 use cfg_if::cfg_if;
 use log::debug;
 use ostd_pod::Pod;

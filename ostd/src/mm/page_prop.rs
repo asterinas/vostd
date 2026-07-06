@@ -5,8 +5,7 @@ use vstd_extra::prelude::*;
 
 use core::fmt::Debug;
 
-use verified_bitflags::bitflags;
-//use bitflags::bitflags;
+use bitflags::bitflags;
 
 /// The property of a mapped virtual memory page.
 #[verus_verify]
@@ -152,46 +151,10 @@ bitflags! {
 
 verus! {
 
-impl PageFlags {
-    pub proof fn lemma_from_bits_bits(bits: u8)
-        requires
-            bits & Self::all_bits() == bits,
-        ensures
-            Self::from_bits(bits)->0.bits() == bits,
-    {
-    }
-
-    pub proof fn lemma_eq_from_bits(left: Self, right: Self)
-        requires
-            left.bits() == right.bits(),
-        ensures
-            left == right,
-    {
-    }
-}
-
-impl PrivilegedPageFlags {
-    pub proof fn lemma_from_bits_bits(bits: u8)
-        requires
-            bits & Self::all_bits() == bits,
-        ensures
-            Self::from_bits(bits)->0.bits() == bits,
-    {
-    }
-
-    pub proof fn lemma_eq_from_bits(left: Self, right: Self)
-        requires
-            left.bits() == right.bits(),
-        ensures
-            left == right,
-    {
-    }
-}
-
 impl Inv for PageProperty {
     open spec fn inv(self) -> bool {
-        &&& self.flags.bits() & PageFlags::all_bits() == self.flags.bits()
-        &&& self.priv_flags.bits() & PrivilegedPageFlags::all_bits() == self.priv_flags.bits()
+        &&& self.flags.bits() & PageFlags::all().bits() == self.flags.bits()
+        &&& self.priv_flags.bits() & PrivilegedPageFlags::all().bits() == self.priv_flags.bits()
     }
 }
 

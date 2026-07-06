@@ -3,7 +3,7 @@
 use super::device::serial::SerialPort;
 use crate::io::reserve_io_port_range;
 
-bitflags::bitflags! {
+bitflags_upstream::bitflags! {
   struct LineSts: u8 {
     const INPUT_FULL = 1;
     const OUTPUT_EMPTY = 1 << 5;

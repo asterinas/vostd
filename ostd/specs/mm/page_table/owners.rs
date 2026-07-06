@@ -809,11 +809,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// For a top-level (root) page table, entries at indices outside of
-    /// `C::TOP_LEVEL_INDEX_RANGE_spec()` are absent. This ensures that
+    /// `C::TOP_LEVEL_INDEX_RANGE()` are absent. This ensures that
     /// UserPtConfig and KernelPtConfig page tables manage disjoint portions
     /// of the virtual address space.
     pub open spec fn top_level_indices_absent(self) -> bool {
-        let range = C::TOP_LEVEL_INDEX_RANGE_spec();
+        let range = C::TOP_LEVEL_INDEX_RANGE();
         self.0.value.is_node() ==> forall|i: int|
             #![trigger self.0.children[i]]
             0 <= i < NR_ENTRIES && !(range.start <= i < range.end) ==> self.0.children[i] is Some
