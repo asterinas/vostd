@@ -4,7 +4,7 @@ use spin::Once;
 
 use crate::arch::{boot::DEVICE_TREE, mm::paddr_to_daddr};
 
-bitflags::bitflags! {
+bitflags_upstream::bitflags! {
     struct LineStatusRegisterFlags: u8 {
         const DR    = 1 << 0;
         const OE    = 1 << 1;
