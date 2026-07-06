@@ -77,21 +77,8 @@ proof fn lemma_add_aligned_stride(start: usize, i: usize, len: usize, align: usi
     let q_len = len as int / a;
     vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, a);
     vstd::arithmetic::div_mod::lemma_fundamental_div_mod(len as int, a);
-    assert(start as int % a == 0);
-    assert(len as int % a == 0);
-    assert(start == q_start * a);
-    assert(len == q_len * a);
     assert((q_start + i * q_len) * a == q_start * a + (i * q_len) * a) by (nonlinear_arith);
     assert((i * q_len) * a == i * (q_len * a)) by (nonlinear_arith);
-    assert(i * (q_len * a) == i * len) by (nonlinear_arith)
-        requires
-            len == q_len * a,
-    ;
-    assert(q_start * a + i * len == start + i * len) by (nonlinear_arith)
-        requires
-            start == q_start * a,
-    ;
-    assert(start + i * len == (q_start + i * q_len) * a);
     vstd::arithmetic::div_mod::lemma_mod_multiples_basic(q_start + i as int * q_len, a);
 }
 
@@ -508,22 +495,7 @@ impl<'a> VmWriter<'a, Infallible> {
             cursor_i = cursor_i.wrapping_add(len);
             i = i + 1;
             proof {
-                // cursor_i.vaddr == cursor_i_pre.vaddr + len == start + i*len
-                assert(cursor_i_pre.vaddr + len == start + i * len) by (nonlinear_arith)
-                    requires
-                        cursor_i_pre.vaddr == start + (i - 1) * len,
-                        len > 0,
-                ;
-                // upper bound: i <= written_num ==> i*len <= avail
-                assert(i * len <= written_num * len) by (nonlinear_arith)
-                    requires
-                        i <= written_num,
-                        len > 0,
-                ;
-                // alignment: cursor_i.vaddr == start + i*len, both summands divisible by align.
-                assert(cursor_i.vaddr == start + i * len);
                 lemma_add_aligned_stride(start, i, len, core::mem::align_of::<T>());
-                assert(cursor_i.vaddr % core::mem::align_of::<T>() == 0);
             }
         }
 
@@ -670,10 +642,7 @@ impl<'a> VmWriter<'a, Infallible> {
                 #![trigger mem_dst.addr_transl(i)]
                 self.cursor.vaddr <= i < self.cursor.vaddr + core::mem::size_of::<T>() implies {
                 mem_dst.addr_transl(i) is Some
-            } by {
-                assert(owner.range.start == self.cursor.vaddr);
-                assert(owner.range.end == self.end.vaddr);
-            }
+            } by {}
         }
         #[allow(unused_unsafe)]
         unsafe { self.cursor.write_volatile::<T>(Tracked(&mut mem_dst), *new_val) };
@@ -685,10 +654,7 @@ impl<'a> VmWriter<'a, Infallible> {
 
             assert forall|va| owner.range.start <= va < owner.range.end implies mem_dst.addr_transl(
                 va,
-            ) is Some by {
-                assert(mem_dst.mappings == mem_dst_pre.mappings);
-                assert(mem_dst.addr_transl(va) == mem_dst_pre.addr_transl(va));
-            }
+            ) is Some by {}
 
             owner.advance(len);
         }
@@ -875,10 +841,7 @@ impl<'a> VmReader<'a, Infallible> {
                     &&& mv_r.memory[mv_r.addr_transl(i).unwrap().0].contents[mv_r.addr_transl(
                         i,
                     ).unwrap().1 as int] is Init
-                } by {
-                    assert(owner_r.range.start == self.cursor.vaddr);
-                    assert(owner_r.range.end == self.end.vaddr);
-                }
+                } by {}
             }
             // SAFETY: The source and destination are subsets of memory ranges specified by the
             // reader and writer, so they are valid for reading and writing.
@@ -898,7 +861,6 @@ impl<'a> VmReader<'a, Infallible> {
                     owner_w.range.start <= va < owner_w.range.end implies mv_w.addr_transl(
                     va,
                 ) is Some by {
-                    assert(mv_w.mappings == mv_w_pre.mappings);
                     assert(mv_w.addr_transl(va) == mv_w_pre.addr_transl(va));
                 }
 
