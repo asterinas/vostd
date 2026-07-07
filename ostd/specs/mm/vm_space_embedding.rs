@@ -402,12 +402,7 @@ pub proof fn lemma_fresh_cursor_id_not_in_dom<'rcu>(m: Map<CursorId, CursorEntry
 }
 
 /// Tracked constructor for [`CursorEntry`].
-///
-/// Verus does not let a `proof fn` construct a tracked struct via a
-/// struct-literal when ghost-mode and tracked-mode fields are mixed; the
-/// idiomatic workaround is a constructor axiom (cf.
-/// [`CursorContinuation::tracked_new`]).
-pub axiom fn axiom_cursor_entry_new<'rcu>(
+pub proof fn lemma_cursor_entry_new<'rcu>(
     vm_space: VmSpaceId,
     kind: CursorKind,
     tracked owner: CursorOwner<'rcu, UserPtConfig>,
@@ -416,7 +411,9 @@ pub axiom fn axiom_cursor_entry_new<'rcu>(
         res.vm_space == vm_space,
         res.kind == kind,
         res.owner == owner,
-;
+{
+    CursorEntry { vm_space, kind, owner }
+}
 
 /// Picks a [`VmIoId`] not currently in `m.dom()`.
 pub open spec fn fresh_vm_io_id<'a>(m: Map<VmIoId, VmIoEntry>) -> VmIoId {
@@ -433,7 +430,7 @@ pub proof fn lemma_fresh_vm_io_id_not_in_dom<'a>(m: Map<VmIoId, VmIoEntry>)
 }
 
 /// Tracked constructor for [`VmIoEntry`].
-pub axiom fn axiom_vm_io_entry_new<'a>(
+pub proof fn lemma_vm_io_entry_new<'a>(
     vm_space: VmSpaceId,
     kind: VmIoKind,
     tracked owner: VmIoOwner,
@@ -442,7 +439,9 @@ pub axiom fn axiom_vm_io_entry_new<'a>(
         res.vm_space == vm_space,
         res.kind == kind,
         res.owner == owner,
-;
+{
+    VmIoEntry { vm_space, kind, owner }
+}
 
 proof fn new_vm_space_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>)
     requires
@@ -494,7 +493,7 @@ proof fn open_cursor_step<'a, 'rcu>(
             Option::Some(owner) => {
                 let ghost id = fresh_cursor_id(s.cursors);
                 lemma_fresh_cursor_id_not_in_dom(s.cursors);
-                let tracked entry = axiom_cursor_entry_new(vs, kind, owner);
+                let tracked entry = lemma_cursor_entry_new(vs, kind, owner);
                 s.cursors.tracked_insert(id, entry);
                 assert(final(s).inv()) by {
                     assert forall|j: CursorId| #[trigger]
@@ -530,20 +529,6 @@ proof fn drop_cursor_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
     if s.cursors.dom().contains(c) {
         let _ = s.cursors.tracked_remove(c);
     }
-    assert(final(s).inv()) by {
-        assert forall|j: CursorId| #[trigger]
-            final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
-            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
-            assert(old(s).cursors.dom().contains(j));
-            assert(final(s).cursors[j] == old(s).cursors[j]);
-        };
-        assert forall|j: VmIoId| #[trigger]
-            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
-            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
-            assert(old(s).vm_ios.dom().contains(j));
-            assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
-        };
-    };
 }
 
 proof fn cursor_method_step<'a, 'rcu>(
@@ -609,28 +594,6 @@ proof fn cursor_mut_regions_step<'a, 'rcu>(
         }
         s.cursors.tracked_insert(c, entry);
     }
-    assert(final(s).inv()) by {
-        // vm_spaces unchanged.
-        assert forall|j: VmSpaceId| #[trigger]
-            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
-            assert(old(s).vm_spaces.dom().contains(j));
-            assert(final(s).vm_spaces[j] == old(s).vm_spaces[j]);
-        };
-        assert forall|j: CursorId| #[trigger]
-            final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
-            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
-            assert(old(s).cursors.dom().contains(j));
-            if j != c {
-                assert(final(s).cursors[j] == old(s).cursors[j]);
-            }
-        };
-        assert forall|j: VmIoId| #[trigger]
-            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
-            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
-            assert(old(s).vm_ios.dom().contains(j));
-            assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
-        };
-    };
 }
 
 proof fn map_step<'a, 'rcu>(
@@ -695,32 +658,9 @@ proof fn new_vm_io_step<'a, 'rcu>(
             Option::Some(owner) => {
                 let ghost id = fresh_vm_io_id(s.vm_ios);
                 lemma_fresh_vm_io_id_not_in_dom(s.vm_ios);
-                let tracked entry = axiom_vm_io_entry_new(vs, kind, owner);
+                let tracked entry = lemma_vm_io_entry_new(vs, kind, owner);
                 s.vm_ios.tracked_insert(id, entry);
-                assert(final(s).inv()) by {
-                    assert forall|j: VmSpaceId| #[trigger]
-                        final(s).vm_spaces.dom().contains(
-                            j,
-                        ) implies final(s).vm_spaces[j].inv() by {
-                        assert(old(s).vm_spaces.dom().contains(j));
-                        assert(final(s).vm_spaces[j] == old(s).vm_spaces[j]);
-                    };
-                    assert forall|j: CursorId| #[trigger]
-                        final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
-                        && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
-                        assert(old(s).cursors.dom().contains(j));
-                        assert(final(s).cursors[j] == old(s).cursors[j]);
-                    };
-                    assert forall|j: VmIoId| #[trigger]
-                        final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
-                        && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
-                        if j == id {
-                            assert(final(s).vm_ios[j] == entry);
-                        } else {
-                            assert(old(s).vm_ios.dom().contains(j));
-                        }
-                    };
-                };
+
             },
             Option::None => {
                 // Failure case: store unchanged.
@@ -763,25 +703,6 @@ proof fn drop_vm_io_step<'a, 'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId)
     if s.vm_ios.dom().contains(vio) {
         let _ = s.vm_ios.tracked_remove(vio);
     }
-    assert(final(s).inv()) by {
-        assert forall|j: VmSpaceId| #[trigger]
-            final(s).vm_spaces.dom().contains(j) implies final(s).vm_spaces[j].inv() by {
-            assert(old(s).vm_spaces.dom().contains(j));
-            assert(final(s).vm_spaces[j] == old(s).vm_spaces[j]);
-        };
-        assert forall|j: CursorId| #[trigger]
-            final(s).cursors.dom().contains(j) implies final(s).cursors[j].owner.inv()
-            && final(s).vm_spaces.dom().contains(final(s).cursors[j].vm_space) by {
-            assert(old(s).cursors.dom().contains(j));
-            assert(final(s).cursors[j] == old(s).cursors[j]);
-        };
-        assert forall|j: VmIoId| #[trigger]
-            final(s).vm_ios.dom().contains(j) implies final(s).vm_ios[j].owner.inv()
-            && final(s).vm_spaces.dom().contains(final(s).vm_ios[j].vm_space) by {
-            assert(old(s).vm_ios.dom().contains(j));
-            assert(final(s).vm_ios[j] == old(s).vm_ios[j]);
-        };
-    };
 }
 
 } // verus!
