@@ -203,7 +203,6 @@ pub open spec fn page_size_spec(level: PagingLevel) -> usize {
 // pub const PAGE_SIZE: usize = page_size::<PagingConsts>(1);
 /// The page size at a given level.
 #[verifier::when_used_as_spec(page_size_spec)]
-#[verifier::external_body]
 pub fn page_size(level: PagingLevel) -> (ret: usize)
     requires
         1 <= level <= NR_LEVELS + 1,
@@ -212,7 +211,32 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
         is_pow2(ret as int),
         ret >= PAGE_SIZE,
 {
-    PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
+    let index_bits = nr_subpage_per_huge::<PagingConsts>().ilog2() as usize;
+    proof {
+        PagingConsts::lemma_paging_consts_properties();
+        crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
+        vstd::layout::unsigned_int_max_values();
+        vstd::arithmetic::power2::lemma2_to64();
+        vstd::arithmetic::power2::lemma2_to64_rest();
+        vstd_extra::external::ilog2::lemma_usize_pow2_ilog2(9);
+    }
+    let level_index = level as usize - 1;
+    let shift = index_bits * level_index;
+    proof {
+        let ghost shift_nat = shift as nat;
+        let ghost page_shift = 12nat + shift_nat;
+
+        vstd::arithmetic::power2::lemma_pow2_adds(12, shift_nat);
+        if page_shift < 48nat {
+            vstd::arithmetic::power2::lemma_pow2_strictly_increases(page_shift, 48nat);
+        }
+        vstd::bits::lemma_usize_shl_is_mul(PAGE_SIZE, shift);
+    }
+    let ret = PAGE_SIZE << shift;
+    proof {
+        vstd_extra::external::ilog2::lemma_usize_pow2_shl_is_pow2(PAGE_SIZE, shift);
+    }
+    ret
 }
 
 #[verifier::inline]
