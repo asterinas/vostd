@@ -439,10 +439,18 @@ impl SchedulerThreadViews {
             token.task() == sched_view.current[cpu]->0,
             token.view() == old(self).thread_view(sched_view.current[cpu]->0),
             final(self).view() == old(self).view().remove(sched_view.current[cpu]->0),
+            final(self).view() == sched_view.checkout_task_view(cpu).stored_views,
+            final(self).wf(sched_view.checkout_task_view(cpu)),
+            token.wf(sched_view.checkout_task_view(cpu)),
     {
         let task = sched_view.current[cpu]->0;
         let tracked thread_view = self.views.tracked_remove(task);
-        TaskThreadView { task, thread_view }
+        let tracked token = TaskThreadView { task, thread_view };
+        let next = sched_view.checkout_task_view(cpu);
+        assert(final(self).view() == next.stored_views);
+        assert(final(self).wf(next));
+        assert(token.wf(next));
+        token
     }
 
     /// Returns a checked-out task view to the tracked owner.
@@ -456,13 +464,23 @@ impl SchedulerThreadViews {
         tracked token: TaskThreadView,
     )
         requires
+            old(self).wf(sched_view),
             token.wf(sched_view),
             !old(self).contains(token.task()),
         ensures
             final(self).view() == old(self).view().insert(token.task(), token.view()),
+            final(self).view() == sched_view.checkin_task_view(
+                token.task(),
+                token.view(),
+            ).stored_views,
+            final(self).wf(sched_view.checkin_task_view(token.task(), token.view())),
     {
+        let ghost view = token.view();
         let tracked TaskThreadView { task, thread_view } = token;
         self.views.tracked_insert(task, thread_view);
+        let next = sched_view.checkin_task_view(task, view);
+        assert(final(self).view() == next.stored_views);
+        assert(final(self).wf(next));
     }
 }
 

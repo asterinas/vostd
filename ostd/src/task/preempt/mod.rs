@@ -2,7 +2,9 @@
 // pub(super) mod cpu_local;
 mod guard;
 
-pub use self::guard::{DisabledPreemptGuard, disable_preempt};
+pub use self::guard::{
+    DisabledPreemptGuard, PreemptSessionToken, PreemptThreadViewSession, disable_preempt,
+};
 /*
 /// Halts the CPU until interrupts if no preemption is required.
 ///
