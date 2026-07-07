@@ -11,7 +11,6 @@ use vstd::simple_pptr::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::{Drop, DropObligation, TrackDrop};
 use vstd_extra::ownership::*;
-use vstd_extra::trans_macros::*;
 
 use crate::mm::frame::meta::{
     META_SLOT_SIZE, REF_COUNT_UNIQUE,
@@ -665,7 +664,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
                 let tracked meta_perm = regions.borrow_typed_perm::<Link<M>>(idx);
 
-                borrow_field!(current_md => next, Meta(meta_perm))
+                current_md.borrow(Tracked(meta_perm)).metadata.next
             },
             None => self.list.front,
         };
@@ -721,7 +720,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
                 let tracked meta_perm = regions.borrow_typed_perm::<Link<M>>(idx);
 
-                borrow_field!(current_md => prev, Meta(meta_perm))
+                current_md.borrow(Tracked(meta_perm)).metadata.prev
             },
             None => self.list.back,
         };
@@ -930,8 +929,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof {
             assert(*tp == owner0.list_own.meta_perm_of(regions0, owner0.index));
         }
-        let next_ptr = borrow_field!(current_md => next, Meta(tp));
-        let prev_ptr = borrow_field!(current_md => prev, Meta(tp));
+        let next_ptr = current_md.borrow(Tracked(tp)).metadata.next;
+        let prev_ptr = current_md.borrow(Tracked(tp)).metadata.prev;
 
         if let Some(prev_link) = prev_ptr {
             let prev = MetadataAsLink::cast_to_metadata(prev_link);
@@ -1180,7 +1179,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             let tracked tp = regions.borrow_typed_perm::<Link<M>>(
                 frame_to_index(meta_to_frame(current.addr())),
             );
-            opt_prev_link = borrow_field!(current_md => prev, Meta(tp));
+            opt_prev_link = current_md.borrow(Tracked(tp)).metadata.prev;
 
             if let Some(prev_link) = opt_prev_link {
                 let prev = MetadataAsLink::cast_to_metadata(prev_link);
