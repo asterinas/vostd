@@ -231,7 +231,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
 /// `LinkedListOwner` claims no permissions (cf.
 /// [`LinkedListOwner::tracked_destroy_empty`]), and carries
 /// `list_id == 0` — the real id is minted lazily on first push.
-pub proof fn lemma_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -> (tracked res:
+pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -> (tracked res:
     LinkedListOwner<M>)
     ensures
         res.list =~= Seq::<LinkOwner>::empty(),
@@ -892,7 +892,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost old_self = *self;
         let ghost id = fresh_list_id(self.lists, self.cursors);
         lemma_fresh_list_id_not_in_dom(self.lists, self.cursors);
-        let tracked empty = lemma_empty_list_owner::<M>();
+        let tracked empty = tracked_empty_list_owner::<M>();
         self.lists.tracked_insert(id, empty);
         assert(self.lists[id].list.len() == 0);
         // The new list is empty: `inv()` (`len > 0 ==> ...` vacuous,
