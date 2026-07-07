@@ -402,7 +402,7 @@ pub proof fn lemma_fresh_cursor_id_not_in_dom<'rcu>(m: Map<CursorId, CursorEntry
 }
 
 /// Tracked constructor for [`CursorEntry`].
-pub proof fn lemma_cursor_entry_new<'rcu>(
+pub proof fn tracked_cursor_entry_new<'rcu>(
     vm_space: VmSpaceId,
     kind: CursorKind,
     tracked owner: CursorOwner<'rcu, UserPtConfig>,
@@ -430,7 +430,7 @@ pub proof fn lemma_fresh_vm_io_id_not_in_dom<'a>(m: Map<VmIoId, VmIoEntry>)
 }
 
 /// Tracked constructor for [`VmIoEntry`].
-pub proof fn lemma_vm_io_entry_new<'a>(
+pub proof fn tracked_vm_io_entry_new<'a>(
     vm_space: VmSpaceId,
     kind: VmIoKind,
     tracked owner: VmIoOwner,
@@ -493,7 +493,7 @@ proof fn open_cursor_step<'a, 'rcu>(
             Option::Some(owner) => {
                 let ghost id = fresh_cursor_id(s.cursors);
                 lemma_fresh_cursor_id_not_in_dom(s.cursors);
-                let tracked entry = lemma_cursor_entry_new(vs, kind, owner);
+                let tracked entry = tracked_cursor_entry_new(vs, kind, owner);
                 s.cursors.tracked_insert(id, entry);
                 assert(final(s).inv()) by {
                     assert forall|j: CursorId| #[trigger]
@@ -658,7 +658,7 @@ proof fn new_vm_io_step<'a, 'rcu>(
             Option::Some(owner) => {
                 let ghost id = fresh_vm_io_id(s.vm_ios);
                 lemma_fresh_vm_io_id_not_in_dom(s.vm_ios);
-                let tracked entry = lemma_vm_io_entry_new(vs, kind, owner);
+                let tracked entry = tracked_vm_io_entry_new(vs, kind, owner);
                 s.vm_ios.tracked_insert(id, entry);
 
             },
