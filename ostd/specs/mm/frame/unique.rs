@@ -12,10 +12,10 @@ use crate::mm::frame::{
     *,
 };
 use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::MAX_NR_PAGES;
 use crate::specs::mm::Paddr;
 use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
-use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
 
@@ -117,7 +117,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     /// matching `meta_own`. A `UniqueFrame` is the sole live reference to its
     /// slot, so the slot sits at `REF_COUNT_UNIQUE` — the unique-frame analog
     /// of the segment's `0 < ref_count <= REF_COUNT_MAX` regime in
-    /// [`SegmentOwner::relate_regions`]. Being live, it also owes a pending-Drop
+    /// [`Segment::relate_regions`]. Being live, it also owes a pending-Drop
     /// obligation in `frame_obligations` (minted at `from_unused`/`from_raw`,
     /// consumed by `drop`/`into_raw`).
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {

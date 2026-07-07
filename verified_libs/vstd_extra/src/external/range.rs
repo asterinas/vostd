@@ -1,4 +1,4 @@
-use core::ops::Range;
+use core::ops::{Range, RangeInclusive};
 use vstd::prelude::*;
 
 verus! {
@@ -44,5 +44,15 @@ pub fn range_usize_is_empty(r: &Range<usize>) -> (ret: bool)
 {
     !(r.start < r.end)
 }
+
+pub assume_specification<Idx>[ RangeInclusive::start ](r: &RangeInclusive<Idx>) -> (ret: &Idx)
+    ensures
+        *ret == r@.start,
+;
+
+pub assume_specification<Idx>[ RangeInclusive::end ](r: &RangeInclusive<Idx>) -> (ret: &Idx)
+    ensures
+        *ret == r@.end,
+;
 
 } // verus!

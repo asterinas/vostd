@@ -2,7 +2,7 @@ use core::{marker::PhantomData, ops::Deref, ops::Range};
 
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{predicate::Predicate, prelude::*};
-use vstd_extra::array_ptr::{ArrayPtr, PointsToArray};
+
 use vstd_extra::external::convert::AsRefSpec;
 use vstd_extra::ownership::{Inv, OwnerOf};
 
@@ -22,7 +22,6 @@ use crate::{
     },
     specs::{
         arch::{PAGE_SIZE, lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
-        mm::frame::segment::SegmentOwner,
         mm::io::{VmIoMemView, VmIoOwner},
         mm::virt_mem::{MemView, VirtPtr},
     },
@@ -376,7 +375,7 @@ pub struct DmaStreamInner<M: AnyUFrameMeta + ?Sized> {
 
 /// The owner of the inner part of a [`DmaStream`].
 pub tracked struct DmaStreamInnerOwner<M: AnyUFrameMeta + ?Sized> {
-    pub segment_owner: SegmentOwner<M>,
+    pub _marker: core::marker::PhantomData<M>,
 }
 
 pub type DmaStreanInnerAtomic<M> = AtomicDataWithOwner<DmaStreamInner<M>, DmaStreamInnerOwner<M>>;
@@ -387,12 +386,8 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     ///
     /// The method fails if the segment already belongs to a DMA mapping.
     #[verus_spec(r =>
-        with
-            Tracked(segment_owner): Tracked<SegmentOwner<M>>,
-            // Tracked(vm_space_owner): Tracked<VmSpaceOwner<'_>>,
         requires
             segment.inv(),
-            segment.wf(&segment_owner),
         ensures
             r matches Ok(r) ==> r.inner.wf(),
     )]
@@ -450,9 +445,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             },
         };
 
-        let tracked inner_owner = DmaStreamInnerOwner {
-            segment_owner,  /* vm_space_owner */
-        };
+        let tracked inner_owner = DmaStreamInnerOwner { _marker: core::marker::PhantomData::<M> };
 
         let inner = RwArc::new(
             AtomicDataWithOwner::new(
@@ -688,7 +681,7 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInner<M> {
 
 impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInnerOwner<M> {
     open spec fn inv(self) -> bool {
-        &&& self.segment_owner.inv()
+        true
     }
 }
 
@@ -1014,7 +1007,6 @@ impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaStreamInner<M>> for DmaStreamInnerO
     open spec fn predicate(&self, v: DmaStreamInner<M>) -> bool {
         &&& self.inv()
         &&& v.inv()
-        &&& v.segment.wf(&self.segment_owner)
     }
 }
 

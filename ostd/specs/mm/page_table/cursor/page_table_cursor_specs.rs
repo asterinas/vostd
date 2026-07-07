@@ -3,13 +3,12 @@ use vstd::prelude::*;
 use vstd::set_lib::*;
 
 use vstd_extra::ownership::*;
-use vstd_extra::prelude::TreePath;
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::NR_ENTRIES;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
 use vstd_extra::arithmetic::*;
@@ -31,7 +30,7 @@ impl<C: PageTableConfig> CursorView<C> {
         let (paddr, level, prop) = C::item_into_raw_spec(item);
         let size = page_size(level);
         Mapping {
-            va_range: va as int..va as int + size as int,
+            va_range: va as int..va + size,
             pa_range: paddr..(paddr + size) as Paddr,
             page_size: size,
             property: prop,
@@ -67,7 +66,7 @@ impl<C: PageTableConfig> CursorView<C> {
     /// a mapping of that size; when absent, returns the aligned range that would be mapped.
     pub open spec fn cur_slot_range(self, size: usize) -> Range<int> {
         let start = nat_align_down(self.cur_va as nat, size as nat) as int;
-        start..start + size as int
+        start..start + size
     }
 
     /// This predicate specifies the behavior of the `query` method. It states that the current item
@@ -97,7 +96,7 @@ impl<C: PageTableConfig> CursorView<C> {
         split_huge: bool,
     ) -> (Self, Option<Mapping>) {
         let mappings_in_range = self.mappings.filter(
-            |m: Mapping| self.cur_va as int <= m.va_range.start < self.cur_va as int + len as int,
+            |m: Mapping| self.cur_va <= m.va_range.start < self.cur_va + len,
         );
 
         if mappings_in_range.len() > 0 {
@@ -141,8 +140,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
     pub open spec fn split_index(m: Mapping, new_size: usize, n: usize) -> Mapping {
         Mapping {
-            va_range: m.va_range.start + n as int * new_size as int..m.va_range.start + (n
-                + 1) as int * new_size as int,
+            va_range: m.va_range.start + n * new_size..m.va_range.start + (n + 1) * new_size,
             pa_range: (m.pa_range.start + n * new_size) as usize..(m.pa_range.start + (n + 1)
                 * new_size) as usize,
             page_size: new_size,

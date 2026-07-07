@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-use bitflags::bitflags;
+use bitflags_upstream::bitflags;
 
 bitflags! {
     /// Global Command to enable functions in IOMMU. All field is write-only.

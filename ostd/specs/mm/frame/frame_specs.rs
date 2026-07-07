@@ -12,7 +12,7 @@ use crate::mm::frame::*;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage};
+
 use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
 
 use core::marker::PhantomData;

@@ -1,5 +1,5 @@
 use vstd::atomic::*;
-use vstd::cell;
+
 use vstd::prelude::*;
 use vstd::seq_lib::*;
 use vstd::set_lib::*;
@@ -538,7 +538,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// neighbor of `k` maps to `p ± 1` except across the cut (new position `n-1`
     /// reaches old `n+1`, new position `n` reaches old `n-1`), which is exactly
     /// where the body rewired the link pointers.
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
     pub proof fn pop_preserves_relate_region(
         old: LinkedListOwner<M>,
@@ -683,8 +682,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// (or `None` at the ends), and old `n-1`'s `next` / old `n`'s `prev` are
     /// rewired to point at the inserted link. Mirror of
     /// [`pop_preserves_relate_region`].
-    #[verifier::rlimit(8000)]
     #[verifier::spinoff_prover]
+    #[verifier::rlimit(60)]
     pub proof fn insert_preserves_relate_region(
         old: LinkedListOwner<M>,
         r0: MetaRegionOwners,
@@ -1182,7 +1181,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
-                list_own.list.len() as int - 1
+                list_own.list.len() - 1
             } else {
                 0
             },
@@ -1197,7 +1196,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> {
             list_own: list_own,
             index: if list_own.list.len() > 0 {
-                list_own.list.len() as int - 1
+                list_own.list.len() - 1
             } else {
                 0
             },

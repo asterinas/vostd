@@ -30,8 +30,7 @@ pub open spec fn PHYSICAL_BASE_ADDRESS_SPEC() -> usize {
 }
 
 pub open spec fn pa_is_valid_kernel_address(pa: int) -> bool {
-    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE
-        * MAX_NR_PAGES as int
+    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE * MAX_NR_PAGES
 }
 
 pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {
@@ -62,7 +61,7 @@ impl<C: PageTableConfig> Inv for LeafPageTableEntryView<C> {
 
 impl<C: PageTableConfig> LeafPageTableEntryView<C> {
     pub open spec fn va_end(self) -> Vaddr {
-        (self.map_va + page_size(self.level) as int) as Vaddr
+        (self.map_va + page_size(self.level)) as Vaddr
     }
 }
 

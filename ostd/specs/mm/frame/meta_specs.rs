@@ -1,6 +1,6 @@
 use vstd::atomic::*;
 use vstd::atomic::*;
-use vstd::cell;
+
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
 
@@ -18,7 +18,7 @@ use crate::mm::frame::*;
 use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::{
     mapping::{frame_to_index, index_to_frame, lemma_paddr_to_meta_biinjective, meta_addr},
     meta_owners::MetadataInnerPerms,
@@ -30,16 +30,16 @@ verus! {
 
 global layout MetaSlot is size == 64, align == 8;
 
-pub proof fn lemma_meta_slot_size()
-    ensures
-        core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
-        vstd::layout::size_of::<MetaSlot>() == META_SLOT_SIZE,
-{
-    broadcast use VERUS_layout_of_MetaSlot;
-
-}
-
 impl MetaSlot {
+    pub proof fn lemma_layout()
+        ensures
+            core::mem::size_of::<MetaSlot>() == META_SLOT_SIZE,
+            vstd::layout::size_of::<MetaSlot>() == META_SLOT_SIZE,
+    {
+        broadcast use VERUS_layout_of_MetaSlot;
+
+    }
+
     /// A helper function that casts a `MetaSlot` pointer to a `Metadata` pointer of type `M`.
     #[verus_spec(res =>
         with
@@ -284,26 +284,8 @@ pub broadcast proof fn lemma_meta_addr_to_index(i: usize)
     ensures
         #[trigger] frame_to_index(meta_to_frame(meta_addr(i))) == i,
 {
-    assert(MAX_NR_PAGES == 0x80000 && PAGE_SIZE == 4096 && MAX_PADDR == 0x8000_0000
-        && META_SLOT_SIZE == 64) by (compute_only);
-
     let p = index_to_frame(i);
-    assert(i * PAGE_SIZE < MAX_PADDR) by (nonlinear_arith)
-        requires
-            i < 0x80000,
-            PAGE_SIZE == 4096,
-            MAX_PADDR == 0x8000_0000,
-    ;
-    assert(p % PAGE_SIZE == 0) by (nonlinear_arith)
-        requires
-            p == i * PAGE_SIZE,
-            PAGE_SIZE == 4096,
-    ;
-    assert(p / PAGE_SIZE == i) by (nonlinear_arith)
-        requires
-            p == i * PAGE_SIZE,
-            PAGE_SIZE == 4096,
-    ;
+
     // `meta_addr(i)` is exactly the metadata address of physical page `p`.
     // Existing biinjectivity closes `meta_to_frame(frame_to_meta(p)) == p`.
     lemma_paddr_to_meta_biinjective(p);

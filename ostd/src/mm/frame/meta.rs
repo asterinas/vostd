@@ -28,7 +28,7 @@ pub(crate) mod mapping {
     use vstd::prelude::*;
 
     pub open spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr {
-        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE as int) as usize
+        (FRAME_METADATA_RANGE.start + (paddr / PAGE_SIZE) * META_SLOT_SIZE) as usize
     }
 
     pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr {
@@ -48,9 +48,7 @@ pub(crate) mod mapping {
         no_unwind
     {
         proof {
-            assert(size_of::<MetaSlot>() == META_SLOT_SIZE) by {
-                crate::specs::mm::frame::meta_specs::lemma_meta_slot_size();
-            };
+            MetaSlot::lemma_layout();
         }
         let base = FRAME_METADATA_RANGE.start;
         let offset = paddr / PAGE_SIZE;
@@ -69,7 +67,7 @@ pub(crate) mod mapping {
             meta_to_frame(vaddr),
     {
         proof {
-            crate::specs::mm::frame::meta_specs::lemma_meta_slot_size();
+            MetaSlot::lemma_layout();
         }
         let base = FRAME_METADATA_RANGE.start;
         let offset = (vaddr - base) / size_of::<MetaSlot>();
