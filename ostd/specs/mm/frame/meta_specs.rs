@@ -72,11 +72,7 @@ impl MetaSlot {
         &&& perms.vtable_ptr.is_init()
     }
 
-    /// The `slot_owners`/`obligations` transition of claiming an unused slot,
-    /// *agnostic to where the extracted slot perm ends up*. Says nothing about
-    /// `regions.slots` — callers pin the permission location separately with
-    /// [`slot_perm_extracted_spec`] (perm handed out, slot removed) or
-    /// [`slot_perm_reparked_spec`] (perm re-parked, domain preserved).
+    /// The `slot_owners`/`obligations` transition of claiming an unused slot.
     pub open spec fn get_from_unused_spec(
         paddr: Paddr,
         as_unique: bool,
@@ -89,21 +85,15 @@ impl MetaSlot {
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
+        let pre_owner = pre.slot_owners[idx];
+        let post_owner = post.slot_owners[idx];
         {
-            &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
-            &&& MetaSlot::get_from_unused_inner_perms_spec(
-                as_unique,
-                post.slot_owners[idx].inner_perms,
-            )
-            &&& post.slot_owners[idx].usage == PageUsage::Frame
-            &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
-            &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
-            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
-            &&& pre.slot_owners[idx].inner_perms.ref_count.value()
-                == REF_COUNT_UNUSED
-            // Linear-drop pilot: claiming an unused slot doesn't mint or
-            // redeem segment obligations.
-
+            &&& pre_owner.inner_perms.ref_count.value() == REF_COUNT_UNUSED
+            &&& MetaSlot::get_from_unused_inner_perms_spec(as_unique, post_owner.inner_perms)
+            &&& post_owner.usage == PageUsage::Frame
+            &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
+            &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
+            &&& post =~= pre.insert_slot_owner(paddr, post_owner)
         }
     }
 
@@ -134,17 +124,6 @@ impl MetaSlot {
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
             &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
         }
-    }
-
-    /// Permission-location clause: the slot perm was *extracted* (handed back to
-    /// the caller via an out-param), so `regions.slots` loses it. Pairs with
-    /// [`get_from_unused_spec`] to describe [`crate::mm::frame::MetaSlot::get_from_unused`].
-    pub open spec fn slot_perm_extracted_spec(
-        paddr: Paddr,
-        pre: MetaRegionOwners,
-        post: MetaRegionOwners,
-    ) -> bool {
-        post.slots =~= pre.slots.remove(frame_to_index(paddr))
     }
 
     /// Permission-location clause: the extracted slot perm was *re-parked* into
