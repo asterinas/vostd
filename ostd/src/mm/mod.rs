@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Virtual memory (VM).
 use crate::specs::arch::*;
-use vstd::arithmetic::div_mod::{group_div_basics, lemma_div_non_zero};
+use vstd::arithmetic::div_mod::group_div_basics;
 use vstd::arithmetic::power2::*;
 use vstd::prelude::*;
 
@@ -187,9 +187,6 @@ pub trait PagingConstsTrait: Clone + Debug + Send + Sync + 'static {
         Self::lemma_paging_consts_requirements();
         broadcast use group_div_basics;
 
-        assert(Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() > 0) by {
-            lemma_div_non_zero(Self::BASE_PAGE_SIZE() as int, Self::PTE_SIZE() as int);
-        };
     }
 }
 
@@ -211,18 +208,16 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
         is_pow2(ret as int),
         ret >= PAGE_SIZE,
 {
-    let index_bits = nr_subpage_per_huge::<PagingConsts>().ilog2() as usize;
     proof {
+        let index_bits: usize = nr_subpage_per_huge::<PagingConsts>().ilog2() as usize;
         PagingConsts::lemma_paging_consts_properties();
         crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
         vstd::layout::unsigned_int_max_values();
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         vstd_extra::external::ilog2::lemma_usize_pow2_ilog2(9);
-    }
-    let level_index = level as usize - 1;
-    let shift = index_bits * level_index;
-    proof {
+        let level_index: usize = (level - 1) as usize;
+        let shift: usize = (index_bits * level_index) as usize;
         let ghost shift_nat = shift as nat;
         let ghost page_shift = 12nat + shift_nat;
 
@@ -231,12 +226,9 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
             vstd::arithmetic::power2::lemma_pow2_strictly_increases(page_shift, 48nat);
         }
         vstd::bits::lemma_usize_shl_is_mul(PAGE_SIZE, shift);
-    }
-    let ret = PAGE_SIZE << shift;
-    proof {
         vstd_extra::external::ilog2::lemma_usize_pow2_shl_is_pow2(PAGE_SIZE, shift);
     }
-    ret
+    PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
 }
 
 #[verifier::inline]
