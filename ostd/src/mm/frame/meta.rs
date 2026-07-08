@@ -374,51 +374,39 @@ impl MetaSlot {
     /// ## Safety
     /// - This function returns an error if `paddr` does not correspond to a valid slot or the slot is in use.
     /// - Accesses to the slot itself are gated by atomic checks, avoiding data races.
-    // FIXME: No need to give out the slot permission under the current `&mut MetaRegionOwners` design.
     #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
         ensures
-            // Helper: on success, `regions.slots` loses the extracted slot
-            // (caller is responsible for re-parking it via `sync_slot_perm`
-            // to restore `regions.inv()`). On Err, regions is left intact
-            // and the inv is preserved.
             res is Err ==> *final(regions) == *old(regions),
-            res matches Ok((res, perm)) ==> {
-                &&& Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@)
-                &&& perm@.value().wf(final(regions).slot_owners[frame_to_index(paddr)])
-                // The returned perm is exactly the slot perm that was extracted
-                // from `regions.slots`. Lets callers re-park via `sync_slot_perm`
-                // and recover `final.slots == old.slots`.
-                &&& perm@ == old(regions).slots[frame_to_index(paddr)]
+            res matches Ok(res) ==> {
+                &&& res.addr() == frame_to_meta(paddr)
+                &&& final(regions).inv()
                 &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
-                // The extracted slot perm is handed back via the out-param, so it
-                // leaves `regions.slots` (caller re-parks it via `sync_slot_perm`).
-                &&& Self::slot_perm_extracted_spec(paddr, *old(regions), *final(regions))
             },
             !has_safe_slot(paddr) ==> res is Err,
-            // Linear-drop pilot: claiming an unused slot doesn't mint or
-            // redeem segment or frame obligations on any path.
-            final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
-    ) -> Result<(PPtr<Self>, Tracked<PointsTo<MetaSlot>>), GetFrameError> {
+    ) -> Result<PPtr<Self>, GetFrameError> {
         let slot = get_slot(paddr)?;
 
         proof {
             regions.inv_implies_correct_addr(paddr);
         }
-
-        let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-        let tracked mut slot_perm = regions.slots.tracked_remove(frame_to_index(paddr));
+        let ghost idx = frame_to_index(paddr);
+        let tracked slot_perm = regions.slots.tracked_borrow(idx);
+        let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
+        proof {
+            axiom_mmio_usage_iff_mmio_paddr(*slot_own);
+        }
 
         // `Acquire` pairs with the `Release` in `drop_last_in_place` and ensures the metadata
         // initialization won't be reordered before this memory compare-and-exchange.
-        let last_ref_cnt = slot.borrow(Tracked(&slot_perm)).ref_count.compare_exchange(
+        let last_ref_cnt = slot.borrow(Tracked(slot_perm)).ref_count.compare_exchange(
             Tracked(&mut slot_own.inner_perms.ref_count),
             REF_COUNT_UNUSED,
             0,
@@ -433,9 +421,6 @@ impl MetaSlot {
 
         if let Err(err) = last_ref_cnt {
             proof {
-                let idx = frame_to_index(paddr);
-                regions.slot_owners.tracked_insert(idx, slot_own);
-                regions.slots.tracked_insert(idx, slot_perm);
                 // CAS failure leaves `ref_count` unchanged (value + id), so the
                 // re-parked slot is exactly the original — region state intact.
                 vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
@@ -455,12 +440,16 @@ impl MetaSlot {
         };
 
         if as_unique_ptr {
-            slot.borrow(Tracked(&slot_perm)).ref_count.store(
+            // No one can create a `Frame` instance directly from the page
+            // address, so `Relaxed` is fine here.
+            slot.borrow(Tracked(slot_perm)).ref_count.store(
                 Tracked(&mut slot_own.inner_perms.ref_count),
                 REF_COUNT_UNIQUE,
             );
         } else {
-            slot.borrow(Tracked(&slot_perm)).ref_count.store(
+            // `Release` is used to ensure that the metadata initialization
+            // won't be reordered after this memory store.
+            slot.borrow(Tracked(slot_perm)).ref_count.store(
                 Tracked(&mut slot_own.inner_perms.ref_count),
                 1,
             );
@@ -468,10 +457,10 @@ impl MetaSlot {
 
         proof {
             slot_own.usage = PageUsage::Frame;
-            regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
+            axiom_mmio_usage_iff_mmio_paddr(*slot_own);
         }
 
-        Ok((slot, Tracked(slot_perm)))
+        Ok(slot)
     }
 
     /// Gets another owning pointer to the metadata slot from the given page.

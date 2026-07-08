@@ -220,9 +220,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             final(regions).inv(),
             r matches Ok(res) ==> {
                 &&& res.ptr.addr() == frame_to_meta(paddr)
-                &&& MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions))
-                &&& MetaSlot::slot_perm_reparked_spec(paddr, *old(regions), *final(regions))
-                &&& MetaSlot::live_frame_obligations_ok_spec(paddr, *old(regions), *final(regions))
+                &&& Self::from_unused_spec(paddr, *old(regions), *final(regions))
             },
             !has_safe_slot(paddr) ==> r is Err,
             r is Err ==> *final(regions) == *old(regions)
@@ -233,14 +231,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         if let Err(err) = from_unused {
             Err(err)
         } else {
-            let (ptr, Tracked(perm)) = from_unused.unwrap();
+            let ptr = from_unused.unwrap();
             proof {
                 let ghost idx = frame_to_index(paddr);
                 assert(frame_to_index(paddr) < max_meta_slots());
                 assert(regions.slot_owners.contains_key(idx));
-                regions.sync_slot_perm(idx, &perm);
                 // Mint the pending-Drop obligation for the new live value.
                 let tracked _ = regions.tracked_mint_frame_obligation(idx);
+                assert(Self::from_unused_spec(paddr, *old(regions), *regions));
             }
             Ok(Self { ptr, _marker: PhantomData })
         }
