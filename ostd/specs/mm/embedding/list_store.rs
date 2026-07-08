@@ -231,12 +231,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
 /// `LinkedListOwner` claims no permissions (cf.
 /// [`LinkedListOwner::tracked_destroy_empty`]), and carries
 /// `list_id == 0` — the real id is minted lazily on first push.
-pub axiom fn axiom_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -> (tracked res:
+pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -> (tracked res:
     LinkedListOwner<M>)
     ensures
         res.list =~= Seq::<LinkOwner>::empty(),
         res.list_id == 0,
-;
+{
+    let tracked list = Seq::<LinkOwner>::tracked_empty();
+    let tracked res = LinkedListOwner::<M> { list, list_id: 0, _marker: core::marker::PhantomData };
+    res
+}
 
 /// Fresh-id helper for the list id space. The id must avoid both held
 /// lists *and* checked-out cursors (a cursored list's home id is absent
@@ -277,7 +281,7 @@ pub proof fn lemma_fresh_list_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmall
 ///     below) and the old front's (`in_list == new id`); both are
 ///     disjoint from `l`'s slots (which carry `in_list == l.list_id`),
 ///     so by the slot-preservation frame `l` is untouched.
-pub axiom fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
     tracked frame_own: &mut UniqueFrameOwner<Link<M>>,
@@ -340,7 +344,9 @@ pub axiom fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
                 frame_own,
             ).slot_index ==> fo.global_inv(*final(regions)) && fo.frame_link_inv(*final(regions))
                 && final(regions).slot_owners[fo.slot_index].inner_perms.in_list.value() == 0,
-;
+{
+    insert_before_at_embedded(regions, owner, frame_own, 0, used_ids);
+}
 
 /// Fresh-id helper for the loose-frame id space.
 pub open spec fn fresh_loose_id<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
@@ -886,7 +892,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         let ghost old_self = *self;
         let ghost id = fresh_list_id(self.lists, self.cursors);
         lemma_fresh_list_id_not_in_dom(self.lists, self.cursors);
-        let tracked empty = axiom_empty_list_owner::<M>();
+        let tracked empty = tracked_empty_list_owner::<M>();
         self.lists.tracked_insert(id, empty);
         assert(self.lists[id].list.len() == 0);
         // The new list is empty: `inv()` (`len > 0 ==> ...` vacuous,

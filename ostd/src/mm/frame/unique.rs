@@ -88,12 +88,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             proof_with!(|= Tracked(None));
             Err(err)
         } else {
-            let (ptr, Tracked(slot_perm)) = from_unused.unwrap();
-            let ghost idx = frame_to_index(paddr);
+            let ptr = from_unused.unwrap();
 
             proof_decl! {
-                regions.slots.tracked_insert(idx, slot_perm);
                 let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(regions, paddr);
+                let ghost idx = frame_to_index(paddr);
             }
             proof {
                 // The freshly-created live value owes a Drop: mint it.
