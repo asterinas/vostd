@@ -5,7 +5,7 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::{
-    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+    META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
     mapping::{frame_to_meta, meta_to_frame},
 };
 use crate::mm::frame::*;
@@ -13,7 +13,9 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::*;
 
-use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
+use crate::specs::mm::frame::{
+    mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+};
 
 use core::marker::PhantomData;
 
@@ -115,6 +117,29 @@ impl<M: ?Sized> Frame<M> {
 
     pub open spec fn index(self) -> usize {
         frame_to_index(self.paddr())
+    }
+
+    pub open spec fn from_unused_spec(
+        paddr: Paddr,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+    ) -> bool
+        recommends
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+            pre.inv(),
+    {
+        let idx = frame_to_index(paddr);
+        let pre_owner = pre.slot_owners[idx];
+        let post_owner = post.slot_owners[idx];
+        {
+            &&& pre_owner.inner_perms.ref_count.value() == REF_COUNT_UNUSED
+            &&& MetaSlot::get_from_unused_inner_perms_spec(false, post_owner.inner_perms)
+            &&& post_owner.usage == PageUsage::Frame
+            &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
+            &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
+            &&& post =~= pre.insert_slot_owner(paddr, post_owner).mint_frame_obligation(idx)
+        }
     }
 }
 

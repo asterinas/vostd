@@ -39,39 +39,44 @@ use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 
 use vstd::atomic::PAtomicU8;
-
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::{Drop as VerifiedDrop, TrackDrop};
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::allocator::FrameAllocOptions;
-use crate::mm::frame::meta::{
-    META_SLOT_SIZE,
-    mapping::{frame_to_meta, meta_to_frame},
+use crate::mm::frame::{
+    allocator::FrameAllocOptions,
+    meta::{
+        META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
 };
-use crate::mm::frame::meta::{MetaSlot, REF_COUNT_MAX, REF_COUNT_UNUSED};
-use crate::mm::frame::{AnyFrameMeta, Frame};
-use crate::mm::kspace::VMALLOC_BASE_VADDR;
+
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, Vaddr, kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr};
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata};
-use crate::specs::mm::frame::{
-    mapping::{frame_to_index, lemma_frame_to_index_injective},
-    meta_region_owners::MetaRegionOwners,
+use crate::mm::{Paddr, Vaddr};
+use crate::specs::mm::{
+    frame::{
+        mapping::{frame_to_index, lemma_frame_to_index_injective},
+        meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata},
+        meta_region_owners::MetaRegionOwners,
+    },
+    page_table::node::owners::*,
 };
-use crate::specs::mm::page_table::node::owners::*;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
 
-use super::nr_subpage_per_huge;
+use super::{PageTableConfig, PageTableEntryTrait, nr_subpage_per_huge};
 
 use crate::{
     mm::{
-        page_table::{load_pte, store_pte},
+        PagingConstsTrait,
+        PagingLevel,
         //        FrameAllocOptions, Infallible,
         //        VmReader,
+        frame::{Frame, FrameRef, meta::AnyFrameMeta},
+        paddr_to_vaddr,
+        page_table::{load_pte, store_pte},
     },
     specs::task::InAtomicMode,
 };
