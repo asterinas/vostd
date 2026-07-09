@@ -1653,20 +1653,6 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
-    proof fn item_roundtrip(
-        item: Self::Item,
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) {
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
-
-        if Self::item_into_raw_spec(item) == (paddr, level, prop) {
-            Self::item_from_raw_spec_frame_ptr(paddr, level, prop);
-            assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(paddr));
-        }
-    }
-
     proof fn item_from_raw_roundtrip(paddr: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 

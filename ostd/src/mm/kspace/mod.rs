@@ -263,41 +263,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    proof fn item_roundtrip(
-        item: Self::Item,
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) {
-        broadcast use group_page_meta;
-
-        if Self::item_into_raw_spec(item) == (paddr, level, prop) {
-            if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
-                Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
-                match item {
-                    MappedItem::Tracked(frame, prop_actual) => {
-                        Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                        Self::item_into_raw_spec_tracked_level(item);
-                        Self::item_into_raw_spec_tracked_prop(frame, prop_actual);
-                    },
-                    MappedItem::Untracked(_, _, _) => {
-                        assert(false);
-                    },
-                }
-            } else {
-                Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
-                match item {
-                    MappedItem::Tracked(_, _) => {
-                        assert(false);
-                    },
-                    MappedItem::Untracked(pa, level_actual, prop_actual) => {
-                        Self::item_into_raw_spec_untracked(pa, level_actual, prop_actual);
-                    },
-                }
-            }
-        }
-    }
-
     proof fn item_from_raw_roundtrip(paddr: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use group_page_meta;
 
