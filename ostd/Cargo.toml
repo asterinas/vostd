@@ -87,8 +87,3 @@ workspace = true
 
 [package.metadata.verus]
 verify = true
-
-[lib]
-crate-type = ["rlib"]
-name = "ostd"
-path = "src/lib.rs"

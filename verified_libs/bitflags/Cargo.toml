@@ -3,11 +3,6 @@ name = "bitflags"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-crate-type = ["rlib"]
-name = "bitflags"
-path = "src/lib.rs"
-
 [package.metadata.verus]
 verify = true
 
