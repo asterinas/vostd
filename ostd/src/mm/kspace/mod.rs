@@ -271,12 +271,44 @@ unsafe impl PageTableConfig for KernelPtConfig {
     ) {
         broadcast use group_page_meta;
 
+        if Self::item_into_raw_spec(item) == (paddr, level, prop) {
+            if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
+                Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
+                match item {
+                    MappedItem::Tracked(frame, prop_actual) => {
+                        Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
+                        Self::item_into_raw_spec_tracked_level(item);
+                        Self::item_into_raw_spec_tracked_prop(frame, prop_actual);
+                    },
+                    MappedItem::Untracked(_, _, _) => {
+                        assert(false);
+                    },
+                }
+            } else {
+                Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
+                match item {
+                    MappedItem::Tracked(_, _) => {
+                        assert(false);
+                    },
+                    MappedItem::Untracked(pa, level_actual, prop_actual) => {
+                        Self::item_into_raw_spec_untracked(pa, level_actual, prop_actual);
+                    },
+                }
+            }
+        }
+    }
+
+    proof fn item_from_raw_roundtrip(paddr: Paddr, level: PagingLevel, prop: PageProperty) {
+        broadcast use group_page_meta;
+
         if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
             Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
-            match item {
+            match Self::item_from_raw_spec(paddr, level, prop) {
                 MappedItem::Tracked(frame, prop_actual) => {
                     Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                    Self::item_into_raw_spec_tracked_level(item);
+                    Self::item_into_raw_spec_tracked_level(
+                        Self::item_from_raw_spec(paddr, level, prop),
+                    );
                     Self::item_into_raw_spec_tracked_prop(frame, prop_actual);
                 },
                 MappedItem::Untracked(_, _, _) => {
@@ -285,7 +317,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
             }
         } else {
             Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
-            match item {
+            match Self::item_from_raw_spec(paddr, level, prop) {
                 MappedItem::Tracked(_, _) => {
                     assert(false);
                 },
@@ -396,7 +428,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 use crate::mm::frame::meta::mapping::meta_to_frame;
                 use crate::specs::mm::frame::mapping::frame_to_index;
                 Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                Self::item_roundtrip(item, pa, level, prop);
+                Self::item_from_raw_roundtrip(pa, level, prop);
                 assert(meta_to_frame(frame.ptr.addr()) == pa);
                 assert(frame_to_index(meta_to_frame(frame.ptr.addr())) == frame_to_index(pa));
                 // `Self::item_well_formed(item)` unfolds to `frame.inv()` for the

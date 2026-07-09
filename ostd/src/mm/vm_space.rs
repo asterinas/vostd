@@ -1661,6 +1661,15 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
+        if Self::item_into_raw_spec(item) == (paddr, level, prop) {
+            Self::item_from_raw_spec_frame_ptr(paddr, level, prop);
+            assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(paddr));
+        }
+    }
+
+    proof fn item_from_raw_roundtrip(paddr: Paddr, level: PagingLevel, prop: PageProperty) {
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+
         Self::item_from_raw_spec_frame_ptr(paddr, level, prop);
     }
 
@@ -1726,7 +1735,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         //       from `pa == item.frame.paddr()` (UserPtConfig::item_into_raw_spec).
         use crate::mm::frame::meta::mapping::meta_to_frame;
         use crate::specs::mm::frame::mapping::frame_to_index;
-        Self::item_roundtrip(item, pa, level, prop);
+        Self::item_from_raw_roundtrip(pa, level, prop);
         assert(item.frame.paddr() == pa);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
         assert(frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa));
