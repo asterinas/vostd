@@ -7,15 +7,21 @@ description = "A marker trait for plain old data (POD)"
 readme = "README.md"
 repository = "https://github.com/asterinas/pod"
 
-[lib]
-crate-type = ["rlib"]
-name = "ostd_pod"
-path = "src/lib.rs"# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 # ostd-pod-derive = { path = "derive", optional = true, version = "0.1.1" }
 vstd = { workspace = true }
 vstd_extra = { path = "../vstd_extra" }
 
+[features]
+# default = ["derive"]
+# derive = ["ostd-pod-derive"]
+
 [package.metadata.verus]
 verify = true
+
+[lib]
+crate-type = ["rlib"]
+name = "ostd_pod"
+path = "src/lib.rs"

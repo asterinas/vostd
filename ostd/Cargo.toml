@@ -38,7 +38,6 @@ num-traits = { version = "0.2", default-features = false }
 ostd-pod = { path = "../verified_libs/ostd-pod" }
 spin = "0.9.4"
 smallvec = "1.13.2"
-# unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
 volatile = "0.6.1"
 bitvec = { version = "1.0", default-features = false, features = ["alloc"] }
 
@@ -70,20 +69,26 @@ unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu
 riscv = { version = "0.11.1", features = ["s-mode"] }
 sbi-rt = "0.0.3"
 fdt = { version = "0.1.5", features = ["pretty-printing"] }
+unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
+
+[target.loongarch64-unknown-none-softfloat.dependencies]
+loongArch64 = "0.2.5"
+fdt = { version = "0.1.5", features = ["pretty-printing"] }
+
+[features]
+# default = ["cvm_guest"]
+default = []
+# The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
+cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
+coverage = ["minicov"]
+
+[lints]
+workspace = true
+
+[package.metadata.verus]
+verify = true
 
 [lib]
 crate-type = ["rlib"]
 name = "ostd"
 path = "src/lib.rs"
-
-[features]
-# default = ["cvm_guest"]
-default = ["alloc"]
-alloc = []
-allow_panic = []
-# The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
-cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
-coverage = ["minicov"]
-
-[package.metadata.verus]
-verify = true
