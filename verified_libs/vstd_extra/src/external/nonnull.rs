@@ -1,9 +1,9 @@
-use super::nonzero::NonZeroUsize;
 use core::marker::PointeeSized;
+use core::num::NonZeroUsize;
 use core::ptr::NonNull;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
-use vstd::std_specs::cmp::*;
+use vstd::std_specs::{cmp::*, nonzero::*};
 
 verus! {
 
@@ -53,7 +53,7 @@ impl<T: PointeeSized> NonNullAdditionalFns<T> for NonNull<T> {
     axiom fn lemma_addr_is_nonnull(self);
 
     open spec fn addr_spec(self) -> NonZeroUsize {
-        NonZeroUsize::nonzero_usize_from_usize(self.view_ptr_mut()@.addr)
+        nonzero_from_primitive(self.view_ptr_mut()@.addr)
     }
 
     axiom fn lemma_addr_view_eq_view_ptr_mut(self);

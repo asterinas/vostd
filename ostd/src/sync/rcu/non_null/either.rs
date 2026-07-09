@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
 use core::{marker::PhantomData, ptr::NonNull};
 
+use core::num::NonZeroUsize;
 use vstd::raw_ptr::group_raw_ptr_axioms;
-use vstd::{bits, prelude::*};
-use vstd_extra::{external::nonzero::*, prelude::*, sum::Sum};
+use vstd::{
+    bits,
+    prelude::*,
+    std_specs::{nonzero::*, ops::BitOrSpec},
+};
+use vstd_extra::{prelude::*, sum::Sum};
 
 use super::{NonNullPtr, NonNullPtrRef};
 use crate::util::Either;
 
 verus! {
 
-broadcast use {group_nonull_axioms, group_raw_ptr_axioms, group_nonzero_axioms};
+broadcast use {group_nonull_axioms, group_nonzero_axioms, group_raw_ptr_axioms};
 // If both `L` and `R` have at least one alignment bit (i.e., their alignments are at least 2), we
 // can use the alignment bit to indicate whether a pointer is `L` or `R`, so it's possible to
 // implement `NonNullPtr` for `Either<L, R>`.
@@ -84,7 +89,17 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
                     |addr: NonZeroUsize| -> (ret: NonZeroUsize)
                         ensures
                             ret@ == addr@ | (1usize << Self::ALIGN_BITS),
-                        { addr | 1usize << Self::ALIGN_BITS },
+                        {
+                            proof {
+                                let tag = 1usize << Self::ALIGN_BITS;
+                                let a = addr@;
+                                assert(a | tag != 0) by (bit_vector)
+                                    requires
+                                        a != 0,
+                                ;
+                            }
+                            addr | 1usize << Self::ALIGN_BITS
+                        },
                 );
                 proof! {
                     let addr = right.addr_spec()@;
@@ -383,7 +398,17 @@ unsafe impl<'a, L: NonNullPtrRef<'a>, R: NonNullPtrRef<'a>> NonNullPtrRef<'a> fo
                     |addr: NonZeroUsize| -> (ret: NonZeroUsize)
                         ensures
                             ret@ == addr@ | (1usize << Self::ALIGN_BITS),
-                        { addr | 1usize << Self::ALIGN_BITS },
+                        {
+                            proof {
+                                let tag = 1usize << Self::ALIGN_BITS;
+                                let a = addr@;
+                                assert(a | tag != 0) by (bit_vector)
+                                    requires
+                                        a != 0,
+                                ;
+                            }
+                            addr | 1usize << Self::ALIGN_BITS
+                        },
                 );
                 proof! {
                     let ghost ptr_addr = ptr.view_ptr_mut().addr();
@@ -462,12 +487,13 @@ verus! {
         ret.1.view_ptr_mut() == ptr.view_ptr_mut().with_addr((ptr.view_ptr_mut().addr() & !bits) as usize),
 )]
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
-    // use core::num::NonZeroUsize;
-    use vstd_extra::external::nonzero::NonZeroUsize;
+    use core::num::NonZeroUsize;
 
     let removed_bits = ptr.addr_v().get() & bits;
     let result_ptr = ptr.map_addr_v(
         |addr| -> (ret: NonZeroUsize)
+            requires
+                addr@ & !bits != 0,
             ensures
                 ret@ == addr@ & !bits,
             {
