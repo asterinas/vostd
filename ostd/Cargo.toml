@@ -8,25 +8,6 @@ readme = "README.md"
 repository = "https://github.com/asterinas/asterinas"
 documentation = "https://asterinas.github.io/api-docs"
 
-[lib]
-crate-type = ["rlib"]
-name = "ostd"
-# for cargo
-# path = "src/.dummy.rs"
-path = "src/lib.rs"
-
-[features]
-verus = []
-verify = ["verus"]
-alloc = []
-allow_panic = []
-default = ["verify", "alloc"]
-
-[package.metadata.verus]
-path = "src/lib.rs"
-verify = true
-# check_lifetime = false
-
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 # Settings for publishing docs in docs.rs
@@ -89,3 +70,20 @@ unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu
 riscv = { version = "0.11.1", features = ["s-mode"] }
 sbi-rt = "0.0.3"
 fdt = { version = "0.1.5", features = ["pretty-printing"] }
+
+[lib]
+crate-type = ["rlib"]
+name = "ostd"
+path = "src/lib.rs"
+
+[features]
+# default = ["cvm_guest"]
+default = ["alloc"]
+alloc = []
+allow_panic = []
+# The guest OS support for Confidential VMs (CVMs), e.g., Intel TDX
+cvm_guest = ["dep:tdx-guest", "dep:iced-x86"]
+coverage = ["minicov"]
+
+[package.metadata.verus]
+verify = true
