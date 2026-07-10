@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "verified_libs/bitflags",
     "verified_libs/vstd_extra",
@@ -17,16 +18,35 @@ exclude = [
     "tests",
     "osdk",
 ]
-resolver = "2"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+
+# Cargo only looks at the profile settings 
+# in the Cargo.toml manifest at the root of the workspace
+
+[profile.dev]
+panic = "unwind"
 
 [profile.release]
-overflow-checks = true
-lto = "fat"
-codegen-units = 1
+lto = "thin"
+panic = "unwind"
 
-[profile.release.build-override]
-opt-level = 3
-incremental = false
+# Release profile configuration with Link Time Optimization (LTO) enabled.
+#
+# This profile is optimized for maximum runtime performance, 
+# (achieving a 2% reduction in latency for the getpid system call).
+# However, enabling LTO significantly increases compilation times,
+# approximately doubling them compared to when LTO is not enabled.
+[profile.release-lto]
+inherits = "release"
+lto = true
+# lto can only be enabled when panic strategy is abort
+panic = "abort"
+# set codegen-units as the smallest number
 codegen-units = 1
 
 [workspace.dependencies]
