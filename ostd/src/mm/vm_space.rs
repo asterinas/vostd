@@ -1653,10 +1653,18 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
-    proof fn item_into_raw_roundtrip(paddr: Paddr, level: PagingLevel, prop: PageProperty) {
+    proof fn item_from_raw_roundtrip(
+        item: Self::Item,
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         Self::item_from_raw_spec_frame_ptr(paddr, level, prop);
+
+        assert(Self::item_well_formed(item));
+        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
     }
 
     open spec fn tracked(_item: Self::Item) -> bool {
@@ -1674,6 +1682,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 
         Self::item_from_raw_spec_frame_ptr(pa, level, prop);
         let item = Self::item_from_raw_spec(pa, level, prop);
+        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
         // frame.inv() unfolds to `addr % META_SLOT_SIZE == 0` and addr in
         // FRAME_METADATA_RANGE. Both follow from `lemma_frame_to_meta_soundness`.
     }
@@ -1721,8 +1730,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         //       from `pa == item.frame.paddr()` (UserPtConfig::item_into_raw_spec).
         use crate::mm::frame::meta::mapping::meta_to_frame;
         use crate::specs::mm::frame::mapping::frame_to_index;
-        Self::item_into_raw_roundtrip(pa, level, prop);
         Self::item_from_raw_well_formed(pa, level, prop);
+        Self::item_from_raw_roundtrip(item, pa, level, prop);
         assert(item.frame.paddr() == pa);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
         assert(frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa));
