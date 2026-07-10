@@ -323,9 +323,26 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             !Self::tracked(item) ==> new_regions.frame_obligations == old_regions.frame_obligations,
     ;
 
+    /// If the provided raw form matches an item consumed by `item_into_raw`,
+    /// then `item_from_raw` restores that item.
+    proof fn item_from_raw_roundtrip(
+        item: Self::Item,
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    )
+        requires
+            has_safe_slot(paddr),
+            Self::item_well_formed(item),
+            Self::item_into_raw_spec(item) == (paddr, level, prop),
+            Self::tracked(Self::item_from_raw_spec(paddr, level, prop)) == Self::tracked(item),
+        ensures
+            Self::item_from_raw_spec(paddr, level, prop) == item,
+    ;
+
     /// The item reconstructed from a page-table entry is canonical for that
     /// entry's raw form.
-    proof fn item_from_raw_roundtrip(paddr: Paddr, level: PagingLevel, prop: PageProperty)
+    proof fn item_into_raw_roundtrip(paddr: Paddr, level: PagingLevel, prop: PageProperty)
         requires
             has_safe_slot(paddr),
         ensures
