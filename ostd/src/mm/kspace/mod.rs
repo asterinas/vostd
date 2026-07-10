@@ -263,45 +263,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    proof fn item_from_raw_roundtrip(
-        item: Self::Item,
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) {
-        broadcast use group_page_meta;
-
-        match item {
-            MappedItem::Tracked(frame, prop_actual) => {
-                assert(Self::item_well_formed(MappedItem::Tracked(frame, prop_actual)));
-                Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                Self::item_into_raw_spec_tracked_level(item);
-                Self::item_into_raw_spec_tracked_prop(frame, prop_actual);
-                if !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
-                    Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
-
-                    assert(false);
-                }
-                Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
-                match Self::item_from_raw_spec(paddr, level, prop) {
-                    MappedItem::Tracked(frame_from_raw, prop_from_raw) => {},
-                    MappedItem::Untracked(_, _, _) => {
-                        assert(false);
-                    },
-                }
-            },
-            MappedItem::Untracked(pa, level_actual, prop_actual) => {
-                Self::item_into_raw_spec_untracked(pa, level_actual, prop_actual);
-                if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
-                    Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
-                    assert(Self::tracked(Self::item_from_raw_spec(paddr, level, prop)));
-                    assert(false);
-                }
-                Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
-            },
-        }
-    }
-
     proof fn item_into_raw_roundtrip(paddr: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use group_page_meta;
 
@@ -427,7 +388,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 use crate::specs::mm::frame::mapping::frame_to_index;
                 Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
                 Self::item_into_raw_roundtrip(pa, level, prop);
-                Self::item_from_raw_roundtrip(item, pa, level, prop);
 
                 // `Self::item_well_formed(item)` unfolds to `frame.inv()` for the
                 // Tracked variant.
