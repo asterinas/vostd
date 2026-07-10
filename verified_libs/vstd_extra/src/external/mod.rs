@@ -7,7 +7,6 @@ pub mod deref;
 pub mod ilog2;
 pub mod int_specs;
 pub mod nonnull;
-pub mod nonzero;
 pub mod ptr;
 pub mod range;
 pub mod slice;
