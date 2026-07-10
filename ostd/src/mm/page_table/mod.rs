@@ -267,6 +267,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             has_safe_slot(pa),
         ensures
             Self::item_well_formed(Self::item_from_raw_spec(pa, level, prop)),
+            Self::item_into_raw_spec(Self::item_from_raw_spec(pa, level, prop)) == (
+                pa,
+                level,
+                prop,
+            ),
     ;
 
     /// Proves that `clone_ensures` for `Self::Item` implies concrete per-field
@@ -323,13 +328,21 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             !Self::tracked(item) ==> new_regions.frame_obligations == old_regions.frame_obligations,
     ;
 
-    proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
+    /// If the provided raw form matches an item consumed by `item_into_raw`,
+    /// then `item_from_raw` restores that item.
+    proof fn item_from_raw_roundtrip(
+        item: Self::Item,
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    )
+        requires
+            has_safe_slot(paddr),
+            Self::item_well_formed(item),
+            Self::item_into_raw_spec(item) == (paddr, level, prop),
+            Self::tracked(Self::item_from_raw_spec(paddr, level, prop)) == Self::tracked(item),
         ensures
-            Self::item_into_raw_spec(item) == (paddr, level, prop) <==> Self::item_from_raw_spec(
-                paddr,
-                level,
-                prop,
-            ) == item,
+            Self::item_from_raw_spec(paddr, level, prop) == item,
     ;
 
     /// Proves `item.clone_requires(regions)` from the concrete frame-slot facts

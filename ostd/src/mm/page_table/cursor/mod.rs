@@ -624,7 +624,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     ;
 
                     proof {
-                        C::item_roundtrip(item, pa, level, prop);
+                        C::item_from_raw_well_formed(pa, level, prop);
+                        C::item_from_raw_roundtrip(item, pa, level, prop);
                     }
 
                     assert(pa == owner.cur_entry_owner().frame().mapped_pa);
@@ -4286,7 +4287,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // `protect_next` method uphold this invariant.
                 let item = unsafe { C::item_from_raw(pa, level, prop) };
                 proof {
-                    C::item_roundtrip(item, pa, level, prop);
+                    C::item_from_raw_well_formed(pa, level, prop);
+                    C::item_from_raw_roundtrip(item, pa, level, prop);
                 }
                 Some(PageTableFrag::Mapped { va, item })
             },
