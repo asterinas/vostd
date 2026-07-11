@@ -17,6 +17,7 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::*;
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
+use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::entry_view::*;
 use crate::specs::mm::page_table::*;
@@ -34,10 +35,10 @@ verus! {
 /// - `is_tracked` refers to whether the frame is ref-counted (when `true`) or
 ///   raw MMIO (when `false`).
 pub tracked struct FrameEntryOwner {
-    pub mapped_pa: usize,
-    pub size: usize,
-    pub prop: PageProperty,
-    pub is_tracked: bool,
+    pub ghost mapped_pa: usize,
+    pub ghost size: usize,
+    pub ghost prop: PageProperty,
+    pub ghost is_tracked: bool,
 }
 
 pub tracked enum EntryOwnerKind<C: PageTableConfig> {
@@ -253,7 +254,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub axiom fn tracked_new_frame(
+    pub proof fn tracked_new_frame(
         paddr: Paddr,
         path: TreePath<NR_ENTRIES>,
         parent_level: PagingLevel,
@@ -262,7 +263,20 @@ impl<C: PageTableConfig> EntryOwner<C> {
     ) -> tracked Self
         returns
             Self::new_frame(paddr, path, parent_level, prop, is_tracked),
-    ;
+    {
+        Self {
+            kind: EntryOwnerKind::Frame(
+                FrameEntryOwner {
+                    mapped_pa: paddr,
+                    size: page_size(parent_level),
+                    prop,
+                    is_tracked,
+                },
+            ),
+            path,
+            parent_level,
+        }
+    }
 
     /// Structural connection between a frame entry's recorded `is_tracked` flag and
     /// the trackedness of the item that would be reconstructed by `item_from_raw_spec`.
@@ -599,9 +613,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slots.contains_key(idx)
             &&& regions.slots[idx].addr() == meta_addr(idx)
             &&& regions.slots[idx].is_init()
-            &&& regions.slots[idx].value().wf(
-                regions.slot_owners[idx],
-            )
+            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
+            &&& regions.slot_owners[idx].usage
+                != PageUsage::PageTable
             // Tracked vs MMIO discriminator is the slot's `usage`. MMIO slots
             // stay in the free pool with `rc == UNUSED`; tracked slots have
             // `rc > 0`. The slot's `usage == MMIO` is pinned by the paddr's
@@ -623,12 +637,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    /// PointsTo uniqueness: if meta slot `free_idx` is in the free pool (`regions.slots`),
-    /// no active page table NODE entry can own a PointsTo at the same slot address.
-    /// Justified by Verus's linear ownership of `PointsTo<MetaSlot>`:
-    /// the node's PointsTo is either in `regions.slots` OR held by the node, never both.
-    /// (Frames no longer own their PointsTo — they read from `regions.slots` directly.)
-    pub axiom fn active_entry_not_in_free_pool(
+    /// An active page-table node cannot occupy a metadata slot whose refcount is
+    /// still `REF_COUNT_UNUSED`.
+    pub proof fn active_entry_not_in_free_pool(
         entry: Self,
         regions: MetaRegionOwners,
         free_idx: usize,
@@ -639,9 +650,16 @@ impl<C: PageTableConfig> EntryOwner<C> {
             entry.is_node(),
             entry.metaregion_sound(regions),
             regions.slots.contains_key(free_idx),
+            regions.slot_owners[free_idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED,
         ensures
             frame_to_index(entry.meta_slot_paddr()->0) != free_idx,
-    ;
+    {
+        let idx = frame_to_index(entry.meta_slot_paddr().unwrap());
+        assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
+        if idx == free_idx {
+            assert(false);
+        }
+    }
 
     pub open spec fn meta_slot_paddr(self) -> Option<Paddr> {
         if self.is_node() {

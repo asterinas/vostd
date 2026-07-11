@@ -660,7 +660,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let pte = C::E::new_pt_spec(
                     meta_to_frame(new_node_owner.value.node().meta_addr_self()),
                 );
-                old(parent_owner).set_children_perm_axiom(self.idx, pte);
                 C::E::lemma_page_table_entry_properties();
             }
 
@@ -1826,7 +1825,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             let pte = C::E::new_pt_spec(
                 meta_to_frame(new_node_owner.value.node().meta_addr_self()),
             );
-            old(parent_owner).set_children_perm_axiom(idx, pte);
             C::E::lemma_page_table_entry_properties();
         }
 

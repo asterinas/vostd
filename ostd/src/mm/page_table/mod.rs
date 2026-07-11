@@ -473,8 +473,14 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::NR_LEVELS_spec()
     }
 
-    fn NR_LEVELS() -> PagingLevel {
-        C::C::NR_LEVELS()
+    fn NR_LEVELS() -> (res: PagingLevel) {
+        let res = C::C::NR_LEVELS();
+        proof {
+            assert(Self::NR_LEVELS_spec() == C::C::NR_LEVELS_spec());
+            assert(res == C::C::NR_LEVELS_spec());
+            assert(res == Self::NR_LEVELS_spec());
+        }
+        res
     }
 
     open spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel {

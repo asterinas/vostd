@@ -794,6 +794,93 @@ impl AbstractVaddr {
         }
     }
 
+    /// Two virtual addresses in the same page_size(level+1) aligned block
+    /// also have the same leading bits. Cursor jumps use this for the
+    /// canonical-half component that is not covered by page-table indices.
+    pub proof fn same_node_leading_bits_match(
+        va1: Vaddr,
+        va2: Vaddr,
+        node_start: Vaddr,
+        level: PagingLevel,
+    )
+        requires
+            1 <= level,
+            level <= NR_LEVELS,
+            node_start <= va1,
+            va1 - node_start < page_size((level + 1) as PagingLevel),
+            node_start <= va2,
+            va2 - node_start < page_size((level + 1) as PagingLevel),
+            node_start as nat % page_size((level + 1) as PagingLevel) as nat == 0,
+        ensures
+            Self::from_vaddr(va1).leading_bits == Self::from_vaddr(va2).leading_bits,
+    {
+        lemma_page_size_spec_values();
+        let ns = node_start;
+        if level == 1 {
+            assert(va1 / 0x1_0000_0000_0000usize == va2 / 0x1_0000_0000_0000usize) by (bit_vector)
+                requires
+                    va1 >= ns,
+                    va1 - ns < 0x20_0000usize,
+                    va2 >= ns,
+                    va2 - ns < 0x20_0000usize,
+                    ns % 0x20_0000usize == 0usize,
+            ;
+        } else if level == 2 {
+            assert(va1 / 0x1_0000_0000_0000usize == va2 / 0x1_0000_0000_0000usize) by (bit_vector)
+                requires
+                    va1 >= ns,
+                    va1 - ns < 0x4000_0000usize,
+                    va2 >= ns,
+                    va2 - ns < 0x4000_0000usize,
+                    ns % 0x4000_0000usize == 0usize,
+            ;
+        } else if level == 3 {
+            assert(va1 / 0x1_0000_0000_0000usize == va2 / 0x1_0000_0000_0000usize) by (bit_vector)
+                requires
+                    va1 >= ns,
+                    va1 - ns < 0x80_0000_0000usize,
+                    va2 >= ns,
+                    va2 - ns < 0x80_0000_0000usize,
+                    ns % 0x80_0000_0000usize == 0usize,
+            ;
+        } else {
+            assert(level == 4);
+            assert(va1 / 0x1_0000_0000_0000usize == va2 / 0x1_0000_0000_0000usize) by (bit_vector)
+                requires
+                    va1 >= ns,
+                    va1 - ns < 0x1_0000_0000_0000usize,
+                    va2 >= ns,
+                    va2 - ns < 0x1_0000_0000_0000usize,
+                    ns % 0x1_0000_0000_0000usize == 0usize,
+            ;
+        }
+    }
+
+    pub proof fn same_page_aligned_vaddrs_equal(va1: Vaddr, va2: Vaddr, page_start: Vaddr)
+        requires
+            page_start <= va1,
+            va1 - page_start < PAGE_SIZE,
+            page_start <= va2,
+            va2 - page_start < PAGE_SIZE,
+            va1 % PAGE_SIZE == 0,
+            va2 % PAGE_SIZE == 0,
+            page_start % PAGE_SIZE == 0,
+        ensures
+            va1 == va2,
+    {
+        assert(va1 == va2) by (bit_vector)
+            requires
+                page_start <= va1,
+                va1 - page_start < 4096usize,
+                page_start <= va2,
+                va2 - page_start < 4096usize,
+                va1 % 4096usize == 0usize,
+                va2 % 4096usize == 0usize,
+                page_start % 4096usize == 0usize,
+                PAGE_SIZE == 4096usize,
+        ;
+    }
+
     pub open spec fn align_up(self, level: int) -> Self {
         let lower_aligned = self.align_down(level);
         lower_aligned.next_index(level)

@@ -5,7 +5,7 @@ use crate::mm::page_table::*;
 use crate::mm::{PagingConstsTrait, Vaddr};
 use crate::specs::arch::{NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::is_mmio_paddr;
+use crate::specs::mm::frame::meta_owners::{PageUsage, is_mmio_paddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::page_table::{cursor::owners::*, is_valid_range_spec};
@@ -160,6 +160,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let (pa, level, prop) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
         &&& regions.slots.contains_key(idx)
+        &&& regions.slot_owners[idx].usage != PageUsage::PageTable
         &&& regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED
         // Tracked items hold a refcount; untracked (MMIO) don't.

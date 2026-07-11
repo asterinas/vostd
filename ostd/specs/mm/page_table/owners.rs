@@ -122,6 +122,7 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
         assert(rec_vaddr(path, 0) == 0);
     } else if path.len() == 1 {
         let i0 = path.index(0);
+        assert(i0 < 512);
         assert(rec_vaddr(path, 1) == 0);
         assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
         assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
@@ -132,6 +133,8 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     } else if path.len() == 2 {
         let i0 = path.index(0);
         let i1 = path.index(1);
+        assert(i0 < 512);
+        assert(i1 < 512);
         assert(rec_vaddr(path, 2) == 0);
         assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
         assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
@@ -150,6 +153,9 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
         let i0 = path.index(0);
         let i1 = path.index(1);
         let i2 = path.index(2);
+        assert(i0 < 512);
+        assert(i1 < 512);
+        assert(i2 < 512);
         assert(rec_vaddr(path, 3) == 0);
         assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
         assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(
@@ -176,6 +182,10 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
         let i1 = path.index(1);
         let i2 = path.index(2);
         let i3 = path.index(3);
+        assert(i0 < 512);
+        assert(i1 < 512);
+        assert(i2 < 512);
+        assert(i3 < 512);
         assert(rec_vaddr(path, 4) == 0);
         assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3) as usize);
         assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(
@@ -223,6 +233,7 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
     let i0 = path.index(0);
+    assert(i0 < 512);
     if path.len() == 1 {
         assert(rec_vaddr(path, 1) == 0);
         assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
@@ -232,6 +243,7 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
             by (nonlinear_arith);
     } else if path.len() == 2 {
         let i1 = path.index(1);
+        assert(i1 < 512);
         assert(rec_vaddr(path, 2) == 0);
         assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
         assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
@@ -251,6 +263,8 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
     } else if path.len() == 3 {
         let i1 = path.index(1);
         let i2 = path.index(2);
+        assert(i1 < 512);
+        assert(i2 < 512);
         assert(rec_vaddr(path, 3) == 0);
         assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
         assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(
@@ -278,6 +292,9 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
         let i1 = path.index(1);
         let i2 = path.index(2);
         let i3 = path.index(3);
+        assert(i1 < 512);
+        assert(i2 < 512);
+        assert(i3 < 512);
         assert(rec_vaddr(path, 4) == 0);
         assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3) as usize);
         assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(

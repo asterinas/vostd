@@ -43,7 +43,7 @@ verus! {
 
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub entry_own: EntryOwner<C>,
-    pub idx: usize,
+    pub ghost idx: usize,
     pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
     pub path: TreePath<NR_ENTRIES>,
@@ -536,63 +536,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.inv(),
     {
-        let cont_idx = self.idx as int;
-        let new_parent = self.entry_own.node();
-        let new_child = self.children[cont_idx].unwrap();
-
-        // (1) inv_children: every Some child is inv.
-        assert(self.inv_children()) by {
-            let pred = |child: Option<OwnerSubtree<C>>| child is Some ==> child.unwrap().inv();
-            assert forall|i: int| 0 <= i < self.children.len() implies #[trigger] pred(
-                self.children[i],
-            ) by {
-                if i != cont_idx {
-                    if self.children[i] is Some {
-                        assert(self.children[i] == cont_old.children[i]);
-                        cont_old.inv_children_unroll(i);
-                    }
-                }
-            };
-            assert(self.children.all(pred));
-        };
-
-        // (2) inv_children_rel: each Some child satisfies the structural
-        // predicate against entry_own.node = new_parent.
-        assert(self.inv_children_rel()) by {
-            let pred = self.inv_children_rel_pred();
-            assert forall|i: int| 0 <= i < self.children.len() implies #[trigger] pred(
-                i,
-                self.children[i],
-            ) by {
-                if i != cont_idx {
-                    if self.children[i] is Some {
-                        cont_old.inv_children_rel_unroll(i);
-                        assert(self.children[i] == cont_old.children[i]);
-                    }
-                }
-            };
-        };
-
-        // (3) pt_inv_children: each Some child has PageTableOwner(child).pt_inv().
-        // For j != idx, transferred from cont_old's pt_inv_children. For
-        // j == idx, supplied by the caller as a precondition since `pt_inv`
-        // is operation-specific.
-        assert(self.pt_inv_children()) by {
-            let pred = Self::pt_inv_children_pred();
-            assert forall|i: int| 0 <= i < self.children.len() implies #[trigger] pred(
-                i,
-                self.children[i],
-            ) by {
-                if i == cont_idx {
-                    assert(PageTableOwner(self.children[cont_idx].unwrap()).pt_inv());
-                } else {
-                    if self.children[i] is Some {
-                        cont_old.pt_inv_children_unroll(i);
-                        assert(self.children[i] == cont_old.children[i]);
-                    }
-                }
-            };
-        };
     }
 
     pub proof fn new_child(
@@ -645,7 +588,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
     pub level: PagingLevel,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
-    pub va: AbstractVaddr,
+    pub ghost va: AbstractVaddr,
     pub guard_level: PagingLevel,
     pub prefix: AbstractVaddr,
     pub popped_too_high: bool,
@@ -707,6 +650,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             // The prefix's top-level index is within the configured page-table range.
             // This is established at construction (when prefix == va, which itself starts
             // strictly in-range) and preserved by all cursor operations (none touch prefix).
+        &&& self.prefix.index[NR_LEVELS - 1] >= C::TOP_LEVEL_INDEX_RANGE().start
         &&& self.prefix.index[NR_LEVELS - 1]
             < C::TOP_LEVEL_INDEX_RANGE().end
         // Top-of-address-space sentinel reservation: none of our `PtConfig`s actually use
@@ -730,8 +674,11 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             == self.prefix.leading_bits
         // Established at construction (new initializes both va and
         // prefix with LEADING_BITS_spec()) and preserved by cursor ops.
-        &&& self.prefix.leading_bits
-            == C::LEADING_BITS_spec()
+        &&& self.prefix.leading_bits == C::LEADING_BITS_spec()
+        &&& self.level <= self.guard_level ==> forall|i: int|
+            #![auto]
+            self.guard_level <= i < NR_LEVELS ==> self.continuations[i].idx
+                == self.prefix.index[i]
         // The cursor's VA shares upper indices with the prefix when the
         // cursor hasn't popped above guard_level AND is either in_locked_range
         // OR strictly below guard_level. The wrap branch of
@@ -906,14 +853,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let current_addr = self.cur_entry_owner().node().meta_addr_self();
         let f = Self::node_unlocked_except(guards0, current_addr);
         let g = Self::node_unlocked(guards1);
-        assert(OwnerSubtree::implies(f, g));
+
         self.map_children_implies(f, g);
     }
 
     /// After dropping the guard for the popped level, `nodes_locked` is preserved
     /// for the new (higher-level) owner, because the dropped guard's address is not
     /// among those checked by `nodes_locked` (which covers levels >= self.level - 1).
-    pub axiom fn never_drop_restores_nodes_locked(
+    pub proof fn never_drop_restores_nodes_locked(
         self,
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
@@ -937,7 +884,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     != guard.inner.inner@.ptr.addr(),
         ensures
             self.nodes_locked(guards1),
-    ;
+    {
+        let dropped_addr = guard.inner.inner@.ptr.addr();
+        assert(guards1.guards == guards0.guards.remove(dropped_addr));
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < self.guard_level implies {
+            self.continuations[i].node_locked(guards1)
+        } by {
+            let cont_addr = self.continuations[i].guard.inner.inner@.ptr.addr();
+            assert(self.level - 1 <= i < NR_LEVELS);
+            assert(cont_addr != dropped_addr);
+            assert(self.continuations[i].node_locked(guards0));
+            assert(guards0.guards.contains(cont_addr));
+            assert(guards1.guards.contains(cont_addr));
+        };
+    }
 
     /// After a `protect` operation that only modifies `frame.prop` of the current entry,
     /// `CursorOwner::inv()` and `metaregion_sound` are preserved.
@@ -1002,7 +964,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.popped_too_high = false;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         cont.do_inc_index();
-        self.va.index.tracked_insert(self.level - 1, cont.idx as int);
+        self.va = AbstractVaddr {
+            index: self.va.index.insert(self.level - 1, cont.idx as int),
+            ..self.va
+        };
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
         assert(self.va.index.dom() == Set::<int>::range(0, NR_LEVELS as int));

@@ -21,6 +21,7 @@ use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::page_size;
 use crate::mm::page_table::*;
 use crate::specs::arch::*;
+use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
@@ -97,12 +98,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Discharge `no_node_at_idx(changed_idx)` from the observation that
-    /// `changed_idx` is the index of a slot currently sitting in the free
-    /// pool (`regions.slots.contains_key(changed_idx)`). The argument uses
-    /// `EntryOwner::active_entry_not_in_free_pool`: an active node's
-    /// metadata slot is never simultaneously in the free pool, so any node
-    /// in the cursor tree must have a different slot index than
-    /// `changed_idx`.
+    /// `changed_idx` is not a page-table slot. Active node entries always
+    /// occupy metadata slots whose usage is `PageTable`, so any node in the
+    /// cursor tree must have a different slot index than `changed_idx`.
     ///
     /// Callers doing a `paths_in_pt.insert` at a frame's data-slot
     /// (e.g., `map` and the huge-page split) use this helper to
@@ -114,6 +112,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions.inv(),
             self.metaregion_sound(regions),
             regions.slots.contains_key(changed_idx),
+            regions.slot_owners[changed_idx].usage != PageUsage::PageTable,
         ensures
             self.no_node_at_idx(changed_idx),
     {
@@ -127,7 +126,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                 entry.inv() && msp(entry, path) implies #[trigger] target(entry, path) by {
                 if entry.is_node() && entry.meta_slot_paddr() is Some {
-                    EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions, changed_idx);
+                    let idx = frame_to_index(entry.meta_slot_paddr().unwrap());
+                    assert(regions.slot_owners[idx].usage == PageUsage::PageTable);
+                    if idx == changed_idx {
+                        assert(false);
+                    }
                 }
             };
         };
@@ -143,7 +146,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } by {
             let entry = self.continuations[i].entry_own;
             if entry.is_node() && entry.meta_slot_paddr() is Some {
-                EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions, changed_idx);
+                let idx = frame_to_index(entry.meta_slot_paddr().unwrap());
+                assert(regions.slot_owners[idx].usage == PageUsage::PageTable);
+                if idx == changed_idx {
+                    assert(false);
+                }
             }
         };
     }
@@ -589,6 +596,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.inv(),
             regions0.slot_owners.contains_key(removed_idx),
             regions0.slots.contains_key(removed_idx),
+            regions0.slot_owners[removed_idx].usage != PageUsage::PageTable,
             self@.mappings == owner_before_replace@.mappings - PageTableOwner(
                 owner_before_replace.cur_subtree(),
             )@.mappings,
@@ -609,6 +617,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.metaregion_sound(regions1),
     {
+        assert(regions0.slot_owners[removed_idx].usage != PageUsage::PageTable);
         self.no_node_at_idx_from_slot_key(regions0, removed_idx);
 
         owner_before_replace.cur_subtree_eq_filtered_mappings_path();

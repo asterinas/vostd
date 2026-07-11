@@ -43,7 +43,7 @@ use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
-use super::{axiom_segment_entry_new, SegmentEntry};
+use super::{lemma_segment_entry_new, SegmentEntry};
 
 verus! {
 
@@ -327,7 +327,7 @@ pub(super) proof fn from_unused_step(
 {
     let ghost outcome = segment_from_unused_embedded(regions, range);
     match outcome {
-        Option::Some(()) => Option::Some(axiom_segment_entry_new(range)),
+        Option::Some(()) => Option::Some(lemma_segment_entry_new(range)),
         Option::None => Option::None,
     }
 }
