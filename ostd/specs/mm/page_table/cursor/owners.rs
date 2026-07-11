@@ -586,12 +586,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 }
 
 pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
-    pub level: PagingLevel,
+    pub ghost level: PagingLevel,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
     pub ghost va: AbstractVaddr,
-    pub guard_level: PagingLevel,
-    pub prefix: AbstractVaddr,
-    pub popped_too_high: bool,
+    pub ghost guard_level: PagingLevel,
+    pub ghost prefix: AbstractVaddr,
+    pub ghost popped_too_high: bool,
 }
 
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {

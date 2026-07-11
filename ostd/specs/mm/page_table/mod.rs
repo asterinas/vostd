@@ -98,7 +98,7 @@ pub(crate) proof fn lemma_vaddr_range_spec_kernel()
 ///   carries into `leading_bits` on overflow at `NR_LEVELS`, so `align_up`
 ///   preserves `inv()` for any cursor state that stays inside the 64-bit
 ///   address space.
-pub struct AbstractVaddr {
+pub ghost struct AbstractVaddr {
     pub offset: int,
     pub index: Map<int, int>,
     pub leading_bits: int,
