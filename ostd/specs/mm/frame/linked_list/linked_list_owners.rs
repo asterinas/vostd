@@ -347,14 +347,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     {
         let idxs = Seq::new(self.list.len(), |i: int| self.slot_index_at(i) as int);
 
-        assert(idxs.no_duplicates()) by {
-            assert forall|i: int, j: int|
-                0 <= i < idxs.len() && 0 <= j < idxs.len() && i != j implies idxs[i] != idxs[j] by {
-                let a = self.slot_index_at(i);
-                let b = self.slot_index_at(j);
-                // `relate_region`'s injectivity gives `a != b`.
-            }
-        }
         idxs.unique_seq_to_set();
 
         let bound = set_int_range(0, max_meta_slots());

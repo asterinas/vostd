@@ -408,9 +408,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             owner.match_pte(pte, parent_level),
     {
         C::E::lemma_page_table_entry_properties();
-        if parent_level > 1 {
-            assert(!pte.is_last(parent_level));
-        }
     }
 
     pub proof fn last_pte_implies_frame_match(self, pte: C::E, parent_level: PagingLevel)
@@ -448,45 +445,22 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         let pa = self.frame().mapped_pa;
         let child_pa = (pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr;
-        assert(self.parent_level == 2 || self.parent_level == 3);
-        assert(NR_ENTRIES == 512) by {
-            crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
-        };
-        assert(crate::mm::nr_subpage_per_huge::<PagingConsts>() == 512usize) by {
-            crate::arch::mm::lemma_nr_subpage_per_huge_eq_nr_entries();
-        };
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
-        assert(512usize.ilog2() == 9);
         vstd::arithmetic::power2::lemma2_to64();
         if self.parent_level == 2 {
-            assert(page_size(2) == (PAGE_SIZE * pow2((512usize.ilog2() * 1usize) as nat)) as usize);
-            assert(page_size(2) == 2097152);
-            assert(pa % page_size(2) == 0);
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(1, 2);
-            assert(child_pa % page_size(1) == 0);
             assert(child_pa + page_size(1) <= MAX_PADDR) by {
                 assert(idx * 4096 + 4096 <= 2097152);
-                assert(child_pa + page_size(1) <= pa + page_size(2));
             };
         } else {
-            assert(self.parent_level == 3);
-            assert(page_size(3) == (PAGE_SIZE * pow2((512usize.ilog2() * 2usize) as nat)) as usize);
-            assert(page_size(3) == 1073741824);
-            assert(pa % page_size(3) == 0);
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size(pa, 2);
-            assert(child_pa == pa + idx * page_size(2));
             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(idx as int, page_size(2) as int);
             vstd::arithmetic::div_mod::lemma_add_mod_noop(
                 pa as int,
                 (idx * page_size(2)) as int,
                 page_size(2) as int,
             );
-            assert(child_pa % page_size(2) == 0);
-            assert(child_pa + page_size(2) <= MAX_PADDR) by {
-                assert(idx * 2097152 + 2097152 <= 1073741824);
-                assert(child_pa + page_size(2) <= pa + page_size(3));
-            };
         }
     }
 
@@ -529,20 +503,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
             } by {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                 // From frame_sub_pages_valid(r0): slot existence is unconditional.
-                assert(r0.slots.contains_key(sub_idx));
                 // sub_idx != self_idx by arithmetic: pa is PAGE_SIZE-aligned, so
                 // self_idx = pa / PAGE_SIZE, and sub_idx = (pa + j*PAGE_SIZE) / PAGE_SIZE
                 //         = pa/PAGE_SIZE + j = self_idx + j > self_idx (since j >= 1).
                 let pa_plus_int: int = pa + j * PAGE_SIZE;
                 crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                 self.parent_level);
-                assert(j * PAGE_SIZE < nr_pages * PAGE_SIZE) by {
-                    vstd::arithmetic::mul::lemma_mul_strict_inequality(
-                        j as int,
-                        nr_pages as int,
-                        PAGE_SIZE as int,
-                    );
-                };
                 crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
                     self.parent_level,
                 );
@@ -551,10 +517,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     pa as int,
                     PAGE_SIZE as int,
                 );
-                assert(self_idx == pa as int / PAGE_SIZE as int);
-                assert(sub_idx != self_idx);
-                assert(r0.slot_owners.contains_key(sub_idx));
-                assert(r0.slot_owners[sub_idx] == r1.slot_owners[sub_idx]);
                 // Slot equality at sub_idx carries usage and rc forward.
             }
         }
@@ -639,7 +601,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     /// An active page-table node cannot occupy a metadata slot whose refcount is
     /// still `REF_COUNT_UNUSED`.
-    pub proof fn active_entry_not_in_free_pool(
+    pub proof fn lemma_active_entry_not_in_free_pool(
         entry: Self,
         regions: MetaRegionOwners,
         free_idx: usize,
@@ -655,7 +617,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             frame_to_index(entry.meta_slot_paddr()->0) != free_idx,
     {
         let idx = frame_to_index(entry.meta_slot_paddr().unwrap());
-        assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
         if idx == free_idx {
             assert(false);
         }
@@ -689,11 +650,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             self.metaregion_sound(r1),
     {
-        if self.is_node() {
-            let slot_idx = self.node().slot_index;
-            assert(r0.slots.contains_key(slot_idx));
-            assert(self.node().meta_perm_of(r1) == self.node().meta_perm_of(r0));
-        }
     }
 
     /// If `metaregion_sound(r0)` holds and `r1` differs from `r0` only at one slot index
@@ -737,14 +693,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         ensures
             self.metaregion_sound(r1),
     {
-        if self.is_node() {
-            let slot_idx = self.node().slot_index;
-            let outer_idx = frame_to_index(self.meta_slot_paddr().unwrap());
-            assert(r0.slots.contains_key(slot_idx));
-            assert(slot_idx != changed_idx);
-            assert(r1.slot_owners[slot_idx] == r0.slot_owners[slot_idx]);
-            assert(self.node().meta_perm_of(r1) == self.node().meta_perm_of(r0));
-        }
     }
 
     /// `metaregion_sound` is preserved when only `paths_in_pt` changes at a slot,
@@ -798,11 +746,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // Bridge `rc > 0` from r0 to r1: at `eidx == changed_idx` inner_perms
             // are identical; elsewhere the entire slot_owner is identical.
             if self.is_frame() {
-                if eidx == changed_idx {
-                    assert(r1.slot_owners[eidx].inner_perms == r0.slot_owners[eidx].inner_perms);
-                } else {
-                    assert(r1.slot_owners[eidx] == r0.slot_owners[eidx]);
-                }
                 // Sub-page validity for huge frames: slot existence (unconditional)
                 // plus `rc` bookkeeping when tracked.
                 if self.parent_level > 1 {
@@ -824,14 +767,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     } by {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         // From self.metaregion_sound(r0)'s frame arm (frame_sub_pages_valid(r0)).
-                        assert(r0.slots.contains_key(sub_idx));
-                        if sub_idx == changed_idx {
-                            assert(r1.slot_owners[sub_idx].inner_perms
-                                == r0.slot_owners[sub_idx].inner_perms);
-                            assert(r1.slot_owners[sub_idx].usage == r0.slot_owners[sub_idx].usage);
-                        } else {
-                            assert(r1.slot_owners[sub_idx] == r0.slot_owners[sub_idx]);
-                        }
                     }
                 }
             }
@@ -908,17 +843,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 }
             } by {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                assert(r0.slots.contains_key(sub_idx));
                 let pa_plus_int: int = pa + j * PAGE_SIZE;
                 crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                 self.parent_level);
-                assert(j * PAGE_SIZE < nr_pages * PAGE_SIZE) by {
-                    vstd::arithmetic::mul::lemma_mul_strict_inequality(
-                        j as int,
-                        nr_pages as int,
-                        PAGE_SIZE as int,
-                    );
-                };
                 crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_div_mul_eq(
                     self.parent_level,
                 );
@@ -928,10 +855,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     pa as int,
                     PAGE_SIZE as int,
                 );
-                assert(self_idx == pa as int / PAGE_SIZE as int);
-                assert(sub_idx != self_idx);
-                assert(r0.slot_owners.contains_key(sub_idx));
-                assert(r0.slot_owners[sub_idx] == r1.slot_owners[sub_idx]);
             }
         }
     }
@@ -958,10 +881,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         let other_idx = frame_to_index(meta_to_frame(other_addr));
 
         if slot_vaddr == other_addr {
-            assert(regions.slot_owners[self_idx].paths_in_pt == set![self.path]);
-            assert(regions.slot_owners[other_idx].paths_in_pt == set![other.path]);
             assert(set![self.path].contains(other.path));
-            assert(self.path == other.path);
             assert(false);  // Contradiction
         }
     }
@@ -985,10 +905,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
         let other_idx = frame_to_index(other.meta_slot_paddr().unwrap());
         if self_idx == other_idx {
-            assert(regions.slot_owners[self_idx].paths_in_pt == set![self.path]);
-            assert(regions.slot_owners[other_idx].paths_in_pt == set![other.path]);
             assert(set![self.path].contains(other.path));
-            assert(self.path == other.path);
             assert(false);
         }
     }

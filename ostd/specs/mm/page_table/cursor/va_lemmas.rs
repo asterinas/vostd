@@ -368,7 +368,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.vaddr_range_from_path(L - 1);
     }
 
-    pub proof fn locked_range_vaddr_prefix_match(self, new_va: AbstractVaddr)
+    pub proof fn lemma_locked_range_vaddr_prefix_match(self, new_va: AbstractVaddr)
         requires
             self.inv(),
             new_va.inv(),
@@ -448,7 +448,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert(self.continuations == old_self.continuations.insert(old_self.level - 1, cont));
 
-        old_self.locked_range_vaddr_prefix_match(new_va);
+        old_self.lemma_locked_range_vaddr_prefix_match(new_va);
 
         if old_self.level < old_self.guard_level {
             old_self.prefix_in_locked_range();

@@ -1830,7 +1830,7 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
             s.regions.inv_implies_correct_addr(paddr);
             let ghost id = fresh_frame_id(s.frames);
             lemma_fresh_frame_id_not_in_dom(s.frames);
-            let tracked frame_entry = lemma_frame_entry_new(paddr);
+            let tracked frame_entry = tracked_frame_entry_new(paddr);
             s.insert_frame(id, frame_entry);
             // Pre target_idx: usage == Frame (axiom), so by pre clause 3
             // either H_pre > 0 or paths_pre > 0; clause 4 gives
@@ -3398,10 +3398,10 @@ proof fn step_segment_split<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId,
     // Now extract and insert.
     let tracked _orig = s.extract_segment(sid);
     assert(!s.segments.dom().contains(id_left));
-    let tracked entry_l = lemma_segment_entry_new(range.start..mid);
+    let tracked entry_l = tracked_segment_entry_new(range.start..mid);
     s.insert_segment(id_left, entry_l);
     assert(!s.segments.dom().contains(id_right));
-    let tracked entry_r = lemma_segment_entry_new(mid..range.end);
+    let tracked entry_r = tracked_segment_entry_new(mid..range.end);
     s.insert_segment(id_right, entry_r);
     // Re-establish structural_inv + accounting_inv. Regions is
     // unchanged; the partition lemma gives per-paddr cover_count
@@ -3601,13 +3601,13 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     // Register the new FrameEntry FIRST (s.inv() still holds).
     let ghost fid = fresh_frame_id(s.frames);
     lemma_fresh_frame_id_not_in_dom(s.frames);
-    let tracked frame_entry = lemma_frame_entry_new(paddr);
+    let tracked frame_entry = tracked_frame_entry_new(paddr);
     s.insert_frame(fid, frame_entry);
     // Now segment manipulation.
     let tracked _old_entry = s.extract_segment(sid);
     segment::segment_next_embedded(&mut s.regions, paddr);
     if !will_become_empty {
-        let tracked new_entry = lemma_segment_entry_new(new_range_start..new_range_end);
+        let tracked new_entry = tracked_segment_entry_new(new_range_start..new_range_end);
         s.insert_segment(sid, new_entry);
         assert(new_entry == new_entry_ghost);
         assert(s.segments == old_segments.remove(sid).insert(sid, new_entry_ghost));
@@ -3862,7 +3862,7 @@ proof fn step_segment_clone_range<'rcu>(
     let ghost sid2 = fresh_segment_id(s.segments);
     lemma_fresh_segment_id_not_in_dom(s.segments);
     assert(sid2 != sid);
-    let tracked new_entry = lemma_segment_entry_new(sub_range);
+    let tracked new_entry = tracked_segment_entry_new(sub_range);
     s.insert_segment(sid2, new_entry);
     assert(new_entry =~= new_entry_ghost);
     assert(s.segments =~= old_segments.insert(sid2, new_entry_ghost));
@@ -4541,7 +4541,7 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     // Register the fresh shared FrameEntry.
     let ghost fid = fresh_frame_id(s.frames);
     lemma_fresh_frame_id_not_in_dom(s.frames);
-    let tracked fe = lemma_frame_entry_new(paddr);
+    let tracked fe = tracked_frame_entry_new(paddr);
     s.insert_frame(fid, fe);
     assert(s.frames =~= old_frames.insert(fid, FrameEntry { paddr }));
     assert(s.unique_frames =~= old_unique.remove(uid));
@@ -5394,7 +5394,7 @@ pub axiom fn axiom_vm_io_entry_new<'a>(
 ;
 
 /// Tracked constructor for [`FrameEntry`].
-pub proof fn lemma_frame_entry_new(paddr: Paddr) -> tracked FrameEntry
+pub proof fn tracked_frame_entry_new(paddr: Paddr) -> tracked FrameEntry
     returns
         (FrameEntry { paddr }),
 {
@@ -5403,7 +5403,7 @@ pub proof fn lemma_frame_entry_new(paddr: Paddr) -> tracked FrameEntry
 }
 
 /// Tracked constructor for [`SegmentEntry`].
-pub proof fn lemma_segment_entry_new(range: Range<Paddr>) -> tracked SegmentEntry
+pub proof fn tracked_segment_entry_new(range: Range<Paddr>) -> tracked SegmentEntry
     returns
         (SegmentEntry { range }),
 {

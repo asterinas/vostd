@@ -119,73 +119,29 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
     if path.len() == 0 {
-        assert(rec_vaddr(path, 0) == 0);
     } else if path.len() == 1 {
         let i0 = path.index(0);
-        assert(i0 < 512);
         assert(rec_vaddr(path, 1) == 0);
-        assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
-        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
-        assert(0x80_0000_0000usize * i0 < 0x1_0000_0000_0000int) by (nonlinear_arith)
-            requires
-                i0 < 512,
-        ;
     } else if path.len() == 2 {
         let i0 = path.index(0);
         let i1 = path.index(1);
-        assert(i0 < 512);
-        assert(i1 < 512);
         assert(rec_vaddr(path, 2) == 0);
         assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
-        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
-            1,
-            i1,
-        )) as usize);
-        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
-        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 < 0x1_0000_0000_0000int)
-            by (nonlinear_arith)
-            requires
-                i0 < 512,
-                i1 < 512,
-        ;
     } else if path.len() == 3 {
         let i0 = path.index(0);
         let i1 = path.index(1);
         let i2 = path.index(2);
-        assert(i0 < 512);
-        assert(i1 < 512);
-        assert(i2 < 512);
         assert(rec_vaddr(path, 3) == 0);
         assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
         assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(
             2,
             i2,
         )) as usize);
-        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
-            1,
-            i1,
-        ) + vaddr_make::<NR_LEVELS>(2, i2)) as usize);
-        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
-        assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2
-            < 0x1_0000_0000_0000int) by (nonlinear_arith)
-            requires
-                i0 < 512,
-                i1 < 512,
-                i2 < 512,
-        ;
     } else {
-        assert(path.len() == 4);
         let i0 = path.index(0);
         let i1 = path.index(1);
         let i2 = path.index(2);
         let i3 = path.index(3);
-        assert(i0 < 512);
-        assert(i1 < 512);
-        assert(i2 < 512);
-        assert(i3 < 512);
         assert(rec_vaddr(path, 4) == 0);
         assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3) as usize);
         assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(
@@ -200,8 +156,6 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
             1,
             i1,
         ) + vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
-        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
         assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
         assert(vaddr_make::<NR_LEVELS>(3, i3) == 0x1000usize * i3) by (compute);
         assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2 + 0x1000usize
@@ -233,68 +187,25 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
     let i0 = path.index(0);
-    assert(i0 < 512);
     if path.len() == 1 {
         assert(rec_vaddr(path, 1) == 0);
-        assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
-        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
-        assert(page_size(4) == 0x80_0000_0000usize);
-        assert((0x80_0000_0000int * i0) + 0x80_0000_0000int == (i0 + 1) * 0x80_0000_0000int)
-            by (nonlinear_arith);
     } else if path.len() == 2 {
         let i1 = path.index(1);
-        assert(i1 < 512);
         assert(rec_vaddr(path, 2) == 0);
         assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1) as usize);
-        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
-            1,
-            i1,
-        )) as usize);
-        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
-        assert(page_size(3) == 0x4000_0000usize);
-        assert(0x80_0000_0000int * i0 <= 0x80_0000_0000int * i0 + 0x4000_0000int * i1)
-            by (nonlinear_arith);
-        assert(0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x4000_0000int <= (i0 + 1)
-            * 0x80_0000_0000int) by (nonlinear_arith)
-            requires
-                i1 < 512,
-        ;
     } else if path.len() == 3 {
         let i1 = path.index(1);
         let i2 = path.index(2);
-        assert(i1 < 512);
-        assert(i2 < 512);
         assert(rec_vaddr(path, 3) == 0);
         assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2) as usize);
         assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + vaddr_make::<NR_LEVELS>(
             2,
             i2,
         )) as usize);
-        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
-            1,
-            i1,
-        ) + vaddr_make::<NR_LEVELS>(2, i2)) as usize);
-        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
-        assert(page_size(2) == 0x20_0000usize);
-        assert(0x80_0000_0000int * i0 <= 0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int
-            * i2) by (nonlinear_arith);
-        assert(0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int * i2 + 0x20_0000int <= (
-        i0 + 1) * 0x80_0000_0000int) by (nonlinear_arith)
-            requires
-                i1 < 512,
-                i2 < 512,
-        ;
     } else {
-        assert(path.len() == 4);
         let i1 = path.index(1);
         let i2 = path.index(2);
         let i3 = path.index(3);
-        assert(i1 < 512);
-        assert(i2 < 512);
-        assert(i3 < 512);
         assert(rec_vaddr(path, 4) == 0);
         assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3) as usize);
         assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(
@@ -305,17 +216,6 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
             2,
             i2,
         ) + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
-        assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
-            1,
-            i1,
-        ) + vaddr_make::<NR_LEVELS>(2, i2) + vaddr_make::<NR_LEVELS>(3, i3)) as usize);
-        assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
-        assert(vaddr_make::<NR_LEVELS>(3, i3) == 0x1000usize * i3) by (compute);
-        assert(page_size(1) == 0x1000usize);
-        assert(0x80_0000_0000int * i0 <= 0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int
-            * i2 + 0x1000int * i3) by (nonlinear_arith);
         assert(0x80_0000_0000int * i0 + 0x4000_0000int * i1 + 0x20_0000int * i2 + 0x1000int * i3
             + 0x1000int <= (i0 + 1) * 0x80_0000_0000int) by (nonlinear_arith)
             requires
@@ -338,20 +238,6 @@ pub proof fn lemma_vaddr_of_eq_int<C: PageTableConfig>(path: TreePath<NR_ENTRIES
 {
     C::lemma_page_table_config_constant_properties();
     lemma_vaddr_strict_bound(path);
-    let lb = C::LEADING_BITS_spec() as int;
-    let v = vaddr(path) as int;
-    // `0 <= v + lb * 2^48 < 2^64`: sum fits in usize, cast is lossless.
-    assert(lb * 0x1_0000_0000_0000int <= 0xffff_int * 0x1_0000_0000_0000int) by (nonlinear_arith)
-        requires
-            lb < 0x1_0000int,
-            lb >= 0,
-    ;
-    assert(v + lb * 0x1_0000_0000_0000int < 0x1_0000_0000_0000_0000int) by (nonlinear_arith)
-        requires
-            v < 0x1_0000_0000_0000int,
-            lb < 0x1_0000int,
-            lb >= 0,
-    ;
 }
 
 /// page_size is monotonically increasing in its argument.
@@ -370,13 +256,10 @@ pub proof fn page_size_monotonic(a: PagingLevel, b: PagingLevel)
         lemma_page_size_ge_page_size(b);
 
         lemma_page_size_divides(a, b);
-        assert(ps_b % ps_a == 0);
 
         assert(ps_a <= ps_b) by {
             if ps_b < ps_a {
                 vstd::arithmetic::div_mod::lemma_small_mod(ps_b as nat, ps_a as nat);
-                assert(ps_b % ps_a == ps_b);
-                assert(ps_b % ps_a == 0);
                 assert(false);
             }
         }
@@ -659,10 +542,6 @@ pub proof fn fresh_node_tree_predicate_map<C: PageTableConfig>(
         // Each child has all-`None` grandchildren, so its `tree_predicate_map`
         // unfolds to `f` at the child (the grandchild forall is vacuous).
         node.child_some_properties(i as usize);
-        let child = node.children[i]->0;
-        assert(child.children.len() == NR_ENTRIES);
-        assert(forall|j: int|
-            0 <= j < child.children.len() ==> #[trigger] child.children[j] is None);
     };
 }
 
@@ -752,10 +631,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             self.0.children[i] is None,
     {
-        let depth = (INC_LEVELS - self.0.level) as nat;
-        if depth == 0 {
-            assert(self.0.level >= INC_LEVELS);
-        }
     }
 
     /// `pt_inv_at_depth(depth)` for a non-node subtree whose grandchildren are
@@ -811,14 +686,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             && PageTableOwner(owner.children[i].unwrap()).pt_inv_at_depth((depth - 1) as nat) by {
             let child = owner.children[i].unwrap();
             // pt_edge_at follows from the per-edge facts in the precondition.
-            assert(Self::pt_edge_at(owner, i));
             // owner.inv() ⇒ child.inv() (Node::inv recurses since
             // INC_LEVELS - owner.level > 1) ⇒ child.value.inv() ⇒ inv_base
             // ⇒ (node is Some ⇒ !absent), so is_absent ⇒ !is_node.
             assert(child.inv());
-            assert(child.value.inv());
-            assert(child.value.inv_base());
-            assert(!child.value.is_node());
             // Each child is non-node with all grandchildren None — the
             // non-node branch of pt_inv_at_depth fires.
             PageTableOwner(child).non_node_pt_inv_at_depth((depth - 1) as nat);
@@ -899,7 +770,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         let mapped = self.view_rec_node_children(path);
         assert(self.0.value.kind is Node);
         assert(!self.0.value.is_frame());
-        assert(mapped[i].contains(m));
         mapped.to_set_ensures();
         assert(mapped.to_set().contains(mapped[i]));
         mapped.to_set().lemma_flatten_contains(m);
@@ -928,7 +798,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 self.0.children[i]->0,
             ).view_rec(path.push_tail(i as usize)).contains(m) by {
             let mapped = self.view_rec_node_children(path);
-            assert(self.0.value.kind is Node);
             assert(!self.0.value.is_frame());
             mapped.to_set().lemma_flatten_contains(m);
             let elem_s = choose|elem_s: Set<Mapping>| #[trigger]
@@ -941,7 +810,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     path.push_tail(i as usize),
                 ));
             } else {
-                assert(mapped[i] == Set::<Mapping>::empty());
                 assert(false);
             }
         }
@@ -992,10 +860,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             Self::lemma_vaddr_path_alignment_and_bound(path);
         }
         if path.len() == 0 {
-            assert(rec_vaddr(path, 0) == 0);
             assert(pt.len() == 1);
             assert(rec_vaddr(pt, 1) == 0);
-            assert(rec_vaddr(pt, 0) == (vaddr_make::<NR_LEVELS>(0, i) + 0) as usize);
             assert(vaddr_make::<NR_LEVELS>(0, i) == 0x80_0000_0000usize * i) by (compute);
             assert(page_size(4) == 0x80_0000_0000usize);
             assert(0x80_0000_0000usize * (i + 1) <= usize::MAX) by (nonlinear_arith)
@@ -1006,14 +872,12 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let i0 = path.index(0);
             assert(rec_vaddr(path, 1) == 0);
             assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0) as usize);
-            assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
             assert(rec_vaddr(path, 0) == 0x80_0000_0000usize * i0);
             assert(pt.len() == 2);
             assert(pt.index(0) == i0);
             assert(pt.index(1) == i);
             assert(rec_vaddr(pt, 2) == 0);
             assert(rec_vaddr(pt, 1) == vaddr_make::<NR_LEVELS>(1, i) as usize);
-            assert(vaddr_make::<NR_LEVELS>(1, i) == 0x4000_0000usize * i) by (compute);
             assert(rec_vaddr(pt, 0) == (0x80_0000_0000usize * i0) + 0x4000_0000usize * i);
             assert(page_size(3) == 0x4000_0000usize);
             assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * (i + 1) <= usize::MAX)
@@ -1031,11 +895,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 1,
                 i1,
             )) as usize);
-            assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
             assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
             assert(pt.len() == 3);
-            assert(pt.index(0) == i0);
-            assert(pt.index(1) == i1);
             assert(pt.index(2) == i);
             assert(rec_vaddr(pt, 3) == 0);
             assert(rec_vaddr(pt, 2) == vaddr_make::<NR_LEVELS>(2, i) as usize);
@@ -1043,10 +904,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 2,
                 i,
             )) as usize);
-            assert(rec_vaddr(pt, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + vaddr_make::<NR_LEVELS>(
-                1,
-                i1,
-            ) + vaddr_make::<NR_LEVELS>(2, i)) as usize);
             assert(vaddr_make::<NR_LEVELS>(2, i) == 0x20_0000usize * i) by (compute);
             assert(page_size(2) == 0x20_0000usize);
             assert(0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * (i + 1)
@@ -1071,7 +928,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 1,
                 i1,
             ) + vaddr_make::<NR_LEVELS>(2, i2)) as usize);
-            assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
             assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
             assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
             assert(pt.len() == 4);

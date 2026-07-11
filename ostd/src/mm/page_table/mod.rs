@@ -473,14 +473,11 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::NR_LEVELS_spec()
     }
 
-    fn NR_LEVELS() -> (res: PagingLevel) {
-        let res = C::C::NR_LEVELS();
+    fn NR_LEVELS() -> PagingLevel {
         proof {
             assert(Self::NR_LEVELS_spec() == C::C::NR_LEVELS_spec());
-            assert(res == C::C::NR_LEVELS_spec());
-            assert(res == Self::NR_LEVELS_spec());
         }
-        res
+        C::C::NR_LEVELS()
     }
 
     open spec fn HIGHEST_TRANSLATION_LEVEL_spec() -> PagingLevel {
@@ -929,7 +926,11 @@ impl PageTable<KernelPtConfig> {
             let new_idx = new_idx_g;
             crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
                 KernelPtConfig,
-            >::active_entry_not_in_free_pool(kernel_owner.0.value, regions_before_alloc, new_idx);
+            >::lemma_active_entry_not_in_free_pool(
+                kernel_owner.0.value,
+                regions_before_alloc,
+                new_idx,
+            );
             assert(kern_idx != new_idx);
             assert(regions.slot_owners[kern_idx] == regions_before_alloc.slot_owners[kern_idx]);
             assert(kernel_owner.metaregion_sound(*regions));
@@ -980,7 +981,7 @@ impl PageTable<KernelPtConfig> {
                 if k == kern_idx {
                     crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
                         KernelPtConfig,
-                    >::active_entry_not_in_free_pool(
+                    >::lemma_active_entry_not_in_free_pool(
                         kernel_owner.0.value,
                         regions_before_self_borrow,
                         k,
@@ -997,7 +998,7 @@ impl PageTable<KernelPtConfig> {
             assert(kern_idx != new_idx) by {
                 crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
                     KernelPtConfig,
-                >::active_entry_not_in_free_pool(
+                >::lemma_active_entry_not_in_free_pool(
                     kernel_owner.0.value,
                     regions_before_alloc,
                     new_idx,

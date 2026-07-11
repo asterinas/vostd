@@ -797,7 +797,7 @@ impl AbstractVaddr {
     /// Two virtual addresses in the same page_size(level+1) aligned block
     /// also have the same leading bits. Cursor jumps use this for the
     /// canonical-half component that is not covered by page-table indices.
-    pub proof fn same_node_leading_bits_match(
+    pub proof fn lemma_same_node_leading_bits_match(
         va1: Vaddr,
         va2: Vaddr,
         node_start: Vaddr,

@@ -1578,7 +1578,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     }
                     assert(node_start <= old_va);
                     assert(old_va - node_start < node_size);
-                    AbstractVaddr::same_node_leading_bits_match(va, old_va, node_start, self.level);
+                    AbstractVaddr::lemma_same_node_leading_bits_match(
+                        va,
+                        old_va,
+                        node_start,
+                        self.level,
+                    );
                     AbstractVaddr::from_vaddr_to_vaddr_roundtrip(va);
                     assert(owner.va.reflect(old_va));
                     assert(new_va.leading_bits == owner.va.leading_bits);
@@ -3629,10 +3634,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 ));
                 assert(regions_before_replace.slot_owners[removed_idx].usage
                     != PageUsage::PageTable);
-                assert(regions_after_replace.slot_owners[removed_idx]
-                    == regions_before_replace.slot_owners[removed_idx]);
-                assert(regions_pre_remove.slot_owners[removed_idx]
-                    == regions_after_replace.slot_owners[removed_idx]);
                 let tracked mut so_rm = regions.slot_owners.tracked_remove(removed_idx);
                 so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
                 regions.slot_owners.tracked_insert(removed_idx, so_rm);
