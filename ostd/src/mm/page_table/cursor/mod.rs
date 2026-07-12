@@ -48,7 +48,7 @@ use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
 use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
 use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, is_mmio_paddr};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage, is_mmio_paddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
 
@@ -1576,7 +1576,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     if self.level < NR_LEVELS as PagingLevel {
                         AbstractVaddr::same_node_indices_match(va, old_va, node_start, self.level);
                     }
+                    assert(node_start <= old_va);
+                    assert(old_va - node_start < node_size);
+                    AbstractVaddr::lemma_same_node_leading_bits_match(
+                        va,
+                        old_va,
+                        node_start,
+                        self.level,
+                    );
                     AbstractVaddr::from_vaddr_to_vaddr_roundtrip(va);
+                    assert(owner.va.reflect(old_va));
+                    assert(new_va.leading_bits == owner.va.leading_bits);
+                    assert(new_va.leading_bits == owner.prefix.leading_bits);
 
                     owner.tracked_set_va_in_node(new_va);
                 }
@@ -3149,6 +3160,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(regions_before_new_child.slots.contains_key(pa_idx_install)) by {
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
             };
+            assert(regions_before_new_child.slot_owners[pa_idx_install].usage
+                != PageUsage::PageTable) by {
+                assert(Self::item_slot_in_regions(item, regions_before_new_child));
+            };
             owner1.no_node_at_idx_from_slot_key(regions_before_new_child, pa_idx_install);
             owner1.metaregion_preserved_under_path_insert(
                 regions_before_new_child,
@@ -3500,6 +3515,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
 
         let ghost owner_before_replace = *owner;
+        let ghost regions_before_replace = *regions;
         let ghost va_after_find = self.0.va;
         let ghost level_after_find = self.0.level;
 
@@ -3514,6 +3530,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
         #[verus_spec(with Tracked(owner), Tracked(subtree), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::None);
+        let ghost regions_after_replace = *regions;
 
         proof {
             owner.move_forward_increases_va();
@@ -3607,6 +3624,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let ghost removed_idx = frame_to_index(cur_st.value.frame().mapped_pa);
                 let ghost removed_path = cur_st.value.path;
                 let ghost regions_pre_remove = *regions;
+                assert(owner_before_replace.cur_entry_owner().is_frame());
+                assert(owner_before_replace.cur_entry_owner().frame().mapped_pa
+                    == cur_st.value.frame().mapped_pa);
+                assert(owner_before_replace.metaregion_sound(regions_before_replace));
+                assert(owner_before_replace.path_metaregion_sound(regions_before_replace));
+                assert(owner_before_replace.cur_entry_owner().metaregion_sound(
+                    regions_before_replace,
+                ));
+                assert(regions_before_replace.slot_owners[removed_idx].usage
+                    != PageUsage::PageTable);
                 let tracked mut so_rm = regions.slot_owners.tracked_remove(removed_idx);
                 so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
                 regions.slot_owners.tracked_insert(removed_idx, so_rm);
@@ -3617,6 +3644,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(owner_final.metaregion_sound(regions_pre_remove));
                 assert(regions_pre_remove.slot_owners.contains_key(removed_idx));
                 assert(regions_pre_remove.slots.contains_key(removed_idx));
+                assert(regions_pre_remove.slot_owners[removed_idx].usage != PageUsage::PageTable);
                 let ghost obr_subtree = PageTableOwner(
                     owner_before_replace.cur_subtree(),
                 )@.mappings;
@@ -3926,6 +3954,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // When `res is None` (⇔ pre-replace cur_entry was absent), `Entry::replace`
             // fully preserves `regions.slots`.
             res is None ==> final(regions).slots == old(regions).slots,
+            res is Some && res->0 is Mapped && new_owner.value.is_absent() ==> forall|idx: usize|
+                #![trigger final(regions).slot_owners[idx]]
+                final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
     )]
     #[verifier::spinoff_prover]
     #[verifier::rlimit(infinity)]
@@ -4198,8 +4229,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
 
             assert(owner.path_metaregion_sound(*regions)) by {
-                // Hoist loop-invariant setup: establish old child's metaregion_sound
-                // and path length when the old child is a node.
                 if old_child_pre_replace.is_node() {
                     owner0.inv_continuation(owner0.level - 1);
                     cont0.inv_children_unroll(cont0.idx as int);

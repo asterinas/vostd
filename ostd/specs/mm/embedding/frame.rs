@@ -41,7 +41,7 @@ use crate::specs::mm::frame::meta_owners::PageUsage;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
-use super::{FrameEntry, axiom_frame_entry_new};
+use super::{FrameEntry, tracked_frame_entry_new};
 
 verus! {
 
@@ -292,7 +292,7 @@ pub(super) proof fn from_unused_step(
 {
     let tracked outcome = frame_from_unused_embedded(regions, paddr);
     match outcome {
-        Option::Some(()) => Option::Some(axiom_frame_entry_new(paddr)),
+        Option::Some(()) => Option::Some(tracked_frame_entry_new(paddr)),
         Option::None => Option::None,
     }
 }
@@ -333,7 +333,7 @@ pub(super) proof fn from_in_use_step(
 {
     let tracked outcome = frame_from_in_use_embedded(regions, paddr);
     match outcome {
-        Option::Some(()) => Option::Some(axiom_frame_entry_new(paddr)),
+        Option::Some(()) => Option::Some(tracked_frame_entry_new(paddr)),
         Option::None => Option::None,
     }
 }

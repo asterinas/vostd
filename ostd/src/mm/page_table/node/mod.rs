@@ -525,7 +525,15 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 ==> i != frame_to_index(meta_to_frame(owner@.value.node().meta_addr_self())),
             owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node().meta_addr_self())), level as PagingLevel),
-            *final(parent_owner) == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node().meta_addr_self()))),
+            final(parent_owner).meta_own == old(parent_owner).meta_own,
+            final(parent_owner).slot_index == old(parent_owner).slot_index,
+            final(parent_owner).level == old(parent_owner).level,
+            final(parent_owner).tree_level == old(parent_owner).tree_level,
+            final(parent_owner).children_perm.addr() == old(parent_owner).children_perm.addr(),
+            final(parent_owner).children_perm.value() == old(parent_owner).children_perm.value().update(
+                idx as int,
+                C::E::new_pt_spec(meta_to_frame(owner@.value.node().meta_addr_self())),
+            ),
             final(regions).slots.contains_key(owner@.value.node().slot_index),
             owner@.value.node().metaregion_sound_node(*final(regions)),
     )]
