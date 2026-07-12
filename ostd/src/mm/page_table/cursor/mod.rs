@@ -934,7 +934,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     > {
         assert_eq!(len % PAGE_SIZE, 0);
 
-        //*** KNOWN BUG: `self.va + len` could overflow. For now assume that it doesn't. ***
+        // [KNOWN] BUG FOUND BY FV: `self.va + len` could overflow. For now assume that it doesn't. https://github.com/asterinas/asterinas/issues/3159
         assume(self.va + len <= usize::MAX);
         let end = self.va + len;
 

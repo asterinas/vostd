@@ -1027,6 +1027,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         }
     }
 
+    // [FIXED] BUG FOUND BY FV: deadlock. https://github.com/asterinas/asterinas/pull/3007
     /// Attempts to upgrade this upread guard to a write guard atomically.
     ///
     /// This function will never spin-wait and will return immediately.

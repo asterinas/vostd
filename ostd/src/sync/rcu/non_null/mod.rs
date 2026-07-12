@@ -14,6 +14,7 @@ verus! {
 
 broadcast use {group_nonull_axioms, group_raw_ptr_axioms};
 
+// [FIXED] BUG FOUND BY FV: UB for Weak. https://github.com/asterinas/asterinas/issues/2801
 /// A trait that abstracts non-null pointers.
 ///
 /// All common smart pointer types such as `Box<T>`,  `Arc<T>`, and `Weak<T>`

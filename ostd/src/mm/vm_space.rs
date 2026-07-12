@@ -558,10 +558,15 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         self.0.find_next(len)
     }
 
-    /// Jump to the virtual address.
+    // [FIXED] BUG FOUND BY FV: missing panic documentation. https://github.com/asterinas/asterinas/pull/3007
+    /// Jumps to the virtual address.
     ///
-    /// This function will move the cursor to the given virtual address.
-    /// If the target address is not in the locked range, it will return an error.
+    /// If the target address is out of the range, this method will return `Err`.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the address has bad alignment.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: The page table cursor safety invariants
@@ -574,8 +579,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// the result will be `Ok` and the cursor's virtual address will be set to `va`.
     /// - **Correctness**: If the target `va` is outside the locked range, the result is `Err`.
     /// - **Correctness**: If the metadata region was well-formed before the call, it will be well-formed after.
-    /// ## Panics
-    /// This method panics if the target address is not aligned to the page size.
     /// ## Safety
     /// This function preserves all memory invariants.
     /// Because it throws an error rather than move the cursor to an invalid address,
@@ -725,10 +728,15 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         self.pt_cursor.find_next(len)
     }
 
+    // [FIXED] BUG FOUND BY FV: missing panic documentation. https://github.com/asterinas/asterinas/pull/3007
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
     ///
+    /// # Panics
+    ///
+    /// This method panics if the address has bad alignment.
+    /// 
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: The page table cursor safety invariants
@@ -931,7 +939,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
         assert_eq!(len % PAGE_SIZE, 0);
 
-        //*** KNOWN BUG: `self.virt_addr() + len` could overflow. For now, assume that it doesn't. ***
+        // [KNOWN] BUG FOUND BY FV: `self.va + len` could overflow. For now assume that it doesn't. https://github.com/asterinas/asterinas/issues/3159
         assume(self.pt_cursor.0.va + len <= usize::MAX);
 
         assert!(self.virt_addr() + len <= self.pt_cursor.0.barrier_va.end);
