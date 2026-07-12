@@ -638,9 +638,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner.cur_entry_owner().metaregion_sound(*regions));
                         assert(regions.slot_owners.contains_key(idx));
                         assert(owner.cur_entry_owner().inv_base());
-                        EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                            owner.cur_entry_owner(),
-                        );
                         if C::tracked(item)
                             && regions.slot_owners[idx].inner_perms.ref_count.value()
                             >= REF_COUNT_MAX {
@@ -670,9 +667,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner.cur_entry_owner().metaregion_sound(old_regions));
                         assert(old_regions.slot_owners.contains_key(idx));
                         if C::tracked(item) {
-                            EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                                owner.cur_entry_owner(),
-                            );
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
                             );
@@ -711,9 +705,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(old(regions).slot_owners[idx].inner_perms.ref_count.value()
                                 < REF_COUNT_MAX);
                         } else {
-                            EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                                owner.cur_entry_owner(),
-                            );
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
                             );
@@ -3116,7 +3107,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(
             pa,
             prop,
-            is_tracked,
             regions,
         );
 
@@ -3130,7 +3120,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont.path().push_tail(cont.idx as usize),
                 cont.level(),
                 prop,
-                is_tracked,
             ));
             assert(new_owner.value.is_frame());
             assert(new_owner.value.frame().mapped_pa == pa);
@@ -3784,9 +3773,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             forall |p: PageProperty| op.requires((p,)),
-            // POTENTIALLY UNSOUND PATCH: see `Entry::protect` for rationale.
-            // `op` must preserve `C::tracked` of the reconstructed item so that
-            // `axiom_frame_is_tracked_matches_item` remains consistent across the
+            // `op` must preserve `C::tracked` of the reconstructed item across the
             // prop change. Quantified over `(pa, level)` because `find_next_impl`
             // may descend to any frame in the range. For UserPtConfig
             // (`tracked == true` always) this is trivial; for KernelPtConfig it

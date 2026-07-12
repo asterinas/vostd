@@ -542,7 +542,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         tracked &self,
         paddr: Paddr,
         prop: PageProperty,
-        is_tracked: bool,
         tracked regions: &mut MetaRegionOwners,
     ) -> (tracked res: OwnerSubtree<C>)
         requires
@@ -563,7 +562,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.path().push_tail(self.idx as usize),
                 self.level(),
                 prop,
-                is_tracked,
             ),
             res.inv(),
             res.level == self.tree_level + 1,
@@ -574,7 +572,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.path().push_tail(self.idx as usize),
             self.level(),
             prop,
-            is_tracked,
         );
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
     }
@@ -1129,7 +1126,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             C::item_from_raw_spec(pa, level, prop) == item,
             has_safe_slot(pa),
             // The recorded entry trackedness matches the item being cloned.
-            C::tracked(item) == self.cur_entry_owner().frame().is_tracked,
+            C::tracked(item) == self.cur_entry_owner().frame_is_tracked(),
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
             C::tracked(item) ==> (regions.slot_owners[frame_to_index(
                 pa,
@@ -2378,7 +2375,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.present(),
             self@.query(
                 self.cur_entry_owner().frame().mapped_pa,
-                self.cur_entry_owner().frame().size,
+                page_size(self.cur_entry_owner().parent_level),
                 self.cur_entry_owner().frame().prop,
             ),
     {

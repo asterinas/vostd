@@ -707,7 +707,6 @@ impl KVirtArea {
             // Capture the original-owner facts now (Verus can lose them across the
             // cursor.map call, which churns enormous proof context).
             let ghost orig_mapped_pa = pre_remove_owners[cur_mapped_pa].frame().mapped_pa;
-            let ghost orig_size = pre_remove_owners[cur_mapped_pa].frame().size;
             let ghost orig_prop = pre_remove_owners[cur_mapped_pa].frame().prop;
             proof {
                 KernelPtConfig::item_into_raw_spec_tracked_level(MappedItem::Tracked(frame, prop));
@@ -838,8 +837,7 @@ impl KVirtArea {
                     cur_mapped_pa,
                     cur_path,
                     cur_parent_level,
-                    prop,  /* is_tracked */
-                    true,
+                    prop,
                 );
                 entry_owners.tracked_insert(cur_mapped_pa, fresh);
             }
