@@ -229,7 +229,7 @@ pub axiom fn segment_drop_embedded(
 /// **Preconditions** mirror exec `next`: the segment has at least one
 /// frame in its range; the popped frame's slot is currently
 /// forgotten (`raw_count >= 1`) with a live SHARED `rc`.
-pub axiom fn segment_next_embedded(
+pub proof fn segment_next_embedded(
     tracked regions: &mut MetaRegionOwners,
     paddr: Paddr,
 )
@@ -267,7 +267,8 @@ pub axiom fn segment_next_embedded(
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
-;
+{
+}
 
 // =============================================================================
 // step proofs
