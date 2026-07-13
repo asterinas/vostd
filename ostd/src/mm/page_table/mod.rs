@@ -197,23 +197,29 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// [`item_into_raw`]: PageTableConfig::item_into_raw
     type Item: RCClone;
 
+    spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+
     /// Consumes the item and returns the physical address, the paging level,
     /// and the page property.
     ///
     /// The ownership of the item will be consumed, i.e., the item will be
     /// forgotten after this function is called.
-    spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
-
     #[verifier::when_used_as_spec(item_into_raw_spec)]
-    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
+    fn item_into_raw(item: Self::Item) -> ((paddr, level, prop): (Paddr, PagingLevel, PageProperty))
+        requires
+            Self::item_well_formed(item),
         ensures
-            1 <= res.1 <= NR_LEVELS,
-            res == Self::item_into_raw_spec(item),
-            res.0 % PAGE_SIZE == 0,
-            res.0 < MAX_PADDR,
-            res.0 % page_size(res.1) == 0,
-            res.0 + page_size(res.1) <= MAX_PADDR,
+            1 <= level <= NR_LEVELS,
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+            paddr % page_size(level) == 0,
+            paddr + page_size(level) <= MAX_PADDR,
+            Self::raw_item_well_formed(paddr, level , prop),
+        returns
+            Self::item_into_raw_spec(item),
     ;
+
+    spec fn item_from_raw_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
 
     /// Restores the item from the physical address and the paging level.
     ///
@@ -239,10 +245,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// A concrete trait implementation may require the caller to ensure that
     ///  - the [`super::PageFlags::AVAIL1`] flag is the same as that returned
     ///    from [`PageTableConfig::item_into_raw`].
-    spec fn item_from_raw_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
-
     #[verifier::when_used_as_spec(item_from_raw_spec)]
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res:Self::Item)
+        requires
+            Self::raw_item_well_formed(paddr, level, prop),
+        ensures
+            Self::item_well_formed(item),
         returns
             Self::item_from_raw_spec(paddr, level, prop),
     ;
@@ -253,25 +261,88 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     spec fn tracked(item: Self::Item) -> bool;
 
     /// Per-config predicate that captures the structural well-formedness an item
-    /// reconstructed via `item_from_raw_spec` must satisfy. Typically: the
-    /// `Frame::inv()` of the tracked-frame component (if any).
-    ///
-    /// `KernelPtConfig` defines this as `match item { Tracked(f, _) => f.inv(),
-    /// Untracked => true }`. `UserPtConfig` defines it as `item.frame.inv()`.
+    /// reconstructed via [`PageTableConfig::item_from_raw`] must satisfy. This may include both
+    /// ownership invariants and restrictions on raw-only property bits.
     spec fn item_well_formed(item: Self::Item) -> bool;
 
-    /// The item produced by `item_from_raw_spec` is structurally
-    /// well-formed (see `item_well_formed`).
-    proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty)
+    /// Per-config predicate that captures the well-formedness of raw properties
+    /// produced via [`PageTableConfig::item_into_raw`] must satisfy.
+    spec fn raw_item_well_formed(
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) -> bool;
+
+    /// Changing properties without changing trackedness preserves a canonical raw item.
+    proof fn lemma_raw_item_well_formed_preserved(
+        pa: Paddr,
+        level: PagingLevel,
+        old_prop: PageProperty,
+        new_prop: PageProperty,
+    )
+        requires
+            Self::raw_item_well_formed(pa, level, old_prop),
+            Self::tracked(Self::item_from_raw_spec(pa, level, new_prop))
+                == Self::tracked(Self::item_from_raw_spec(pa, level, old_prop)),
+        ensures
+            Self::raw_item_well_formed(pa, level, new_prop),
+    ;
+
+    /// Splitting a canonical huge-page raw item yields canonical child raw items.
+    proof fn lemma_raw_item_well_formed_split(
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        child_pa: Paddr,
+        child_idx: usize,
+    )
+        requires
+            Self::raw_item_well_formed(pa, level, prop),
+            level > 1,
+            child_idx < NR_ENTRIES,
+            child_pa == pa + child_idx * page_size(
+                (level - 1) as PagingLevel,
+            ),
+        ensures
+            Self::raw_item_well_formed(child_pa, (level - 1) as PagingLevel, prop),
+    ;
+
+    /// The item produced by [`PageTableConfig::item_from_raw`] is well-formed.
+    proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
             has_safe_slot(pa),
+            Self::raw_item_well_formed(pa, level, prop),
         ensures
-            Self::item_well_formed(Self::item_from_raw_spec(pa, level, prop)),
-            Self::item_into_raw_spec(Self::item_from_raw_spec(pa, level, prop)) == (
-                pa,
-                level,
-                prop,
-            ),
+            Self::item_well_formed(Self::item_from_raw(pa, level, prop)),
+    ;
+
+    /// Re-encoding a canonical raw item preserves the complete raw representation.
+    proof fn lemma_item_into_raw_roundtrip(
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    )
+        requires
+            has_safe_slot(pa),
+            Self::raw_item_well_formed(pa, level, prop),
+        ensures
+            Self::item_into_raw(Self::item_from_raw(pa, level, prop))
+                == (pa, level, prop),
+    ;
+
+    /// Decoding the raw representation produced from a well-formed item restores that item.
+    proof fn lemma_item_from_raw_roundtrip(
+        item: Self::Item,
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    )
+        requires
+            has_safe_slot(pa),
+            Self::item_well_formed(item),
+            Self::item_into_raw(item) == (pa, level, prop),
+        ensures
+            Self::item_from_raw(pa, level, prop) == item,
     ;
 
     /// Proves that `clone_ensures` for `Self::Item` implies concrete per-field
@@ -280,7 +351,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// Proves that after `clone`, the slot at `frame_to_index(pa)` has the expected
     /// per-field properties. Implementors unfold their `MappedItem::clone_ensures` to
     /// `Frame::clone_ensures` and connect `pa` to the frame's internal pointer address.
-    proof fn clone_ensures_concrete(
+    proof fn lemma_clone_ensures_concrete(
         item: Self::Item,
         pa: Paddr,
         old_regions: MetaRegionOwners,
@@ -328,29 +399,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             !Self::tracked(item) ==> new_regions.frame_obligations == old_regions.frame_obligations,
     ;
 
-    /// If the provided raw form matches an item consumed by `item_into_raw`,
-    /// then `item_from_raw` restores that item.
-    proof fn item_from_raw_roundtrip(
-        item: Self::Item,
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    )
-        requires
-            has_safe_slot(paddr),
-            Self::item_well_formed(item),
-            Self::item_into_raw_spec(item) == (paddr, level, prop),
-            Self::tracked(Self::item_from_raw_spec(paddr, level, prop)) == Self::tracked(item),
-        ensures
-            Self::item_from_raw_spec(paddr, level, prop) == item,
-    ;
-
     /// Proves `item.clone_requires(regions)` from the concrete frame-slot facts
     /// delivered by `metaregion_sound` plus the non-saturation bound propagated
     /// from `Cursor::query`. Implementors unfold their `MappedItem::clone_requires`
     /// to `Frame::clone_requires` and connect `pa` to the frame's internal pointer
     /// address.
-    proof fn clone_requires_concrete(
+    proof fn lemma_clone_requires_concrete(
         item: Self::Item,
         pa: Paddr,
         level: PagingLevel,
@@ -360,6 +414,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         requires
             regions.inv(),
             Self::item_from_raw_spec(pa, level, prop) == item,
+            Self::raw_item_well_formed(pa, level, prop),
             has_safe_slot(pa),
             regions.slots.contains_key(frame_to_index(pa)),
             regions.slot_owners.contains_key(frame_to_index(pa)),

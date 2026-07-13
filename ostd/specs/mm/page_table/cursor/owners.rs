@@ -552,6 +552,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             paddr < MAX_PADDR,
             paddr % page_size(self.level()) == 0,
             paddr + page_size(self.level()) <= MAX_PADDR,
+            C::raw_item_well_formed(paddr, self.level(), prop),
             self.path().push_tail(self.idx as usize).inv(),
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
@@ -1125,6 +1126,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pa == self.cur_entry_owner().frame().mapped_pa,
             C::item_from_raw_spec(pa, level, prop) == item,
             has_safe_slot(pa),
+            C::raw_item_well_formed(pa, level, prop),
             // The recorded entry trackedness matches the item being cloned.
             C::tracked(item) == self.cur_entry_owner().frame_is_tracked(),
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
@@ -1154,9 +1156,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(regions.slot_owners[idx].inner_perms.ref_count.value() > 0);
             assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
         }
-        // Now all preconditions of `C::clone_requires_concrete` are in scope.
+        // Now all preconditions of `C::lemma_clone_requires_concrete` are in scope.
 
-        C::clone_requires_concrete(item, pa, level, prop, regions);
+        C::lemma_clone_requires_concrete(item, pa, level, prop, regions);
     }
 
     /// Incrementing the ref count of the current frame preserves `regions.inv()` and

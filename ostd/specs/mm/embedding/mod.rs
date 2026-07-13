@@ -63,7 +63,7 @@
 //!      consolidating the static "this Frame is valid against
 //!      this state" conjuncts.
 //!    - `clone_requires` not refactored: would cascade into
-//!      `PageTableConfig::clone_requires_concrete` (a trait method
+//!      `PageTableConfig::lemma_clone_requires_concrete` (a trait method
 //!      with multiple implementors); left explicit to keep the
 //!      change local.
 //!    - **Preservation of `wf_with_region` (FUTURE).** `Frame::wf_with_region`'s

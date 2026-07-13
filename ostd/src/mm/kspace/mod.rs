@@ -32,7 +32,7 @@
 //!
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
-use core::ops::Range;
+use core::{marker::PhantomData, ops::Range};
 use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
@@ -215,14 +215,23 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     type Item = MappedItem;
 
-    uninterp spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+    open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+        match item {
+            MappedItem::Tracked(frame, prop) => (
+                crate::mm::frame::meta::mapping::meta_to_frame(frame.ptr.addr()),
+                1,
+                Self::encode_tracked_prop(prop),
+            ),
+            MappedItem::Untracked(pa, level, prop) => (
+                pa,
+                level,
+                Self::decode_tracked_prop(prop),
+            ),
+        }
+    }
 
-    //    #[verifier::when_used_as_spec(item_into_raw_spec)]
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
-        ensures
-            1 <= res.1 <= crate::specs::arch::NR_LEVELS,
-            res == Self::item_into_raw_spec(item),
     {
         match item {
             MappedItem::Tracked(frame, mut prop) => {
@@ -240,30 +249,51 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    uninterp spec fn item_from_raw_spec(
+    open spec fn item_from_raw_spec(
         paddr: Paddr,
         level: PagingLevel,
         prop: PageProperty,
-    ) -> Self::Item;
-
-    //#[verifier::when_used_as_spec(item_from_raw_spec)]
-    #[verifier::external_body]
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res:
-        Self::Item)
-        ensures
-            res == Self::item_from_raw_spec(paddr, level, prop),
-    {
+    ) -> Self::Item {
         if prop.flags.contains(PageFlags::AVAIL1()) {
-            debug_assert_eq!(level, 1);
-            // SAFETY: The caller ensures safety.
-            let frame = unsafe { Frame::<MetaSlotStorage>::from_raw(paddr) };
-            MappedItem::Tracked(frame, prop)
+            MappedItem::Tracked(
+                Frame::<MetaSlotStorage> {
+                    ptr: vstd::simple_pptr::PPtr(mapping::frame_to_meta(paddr), PhantomData),
+                    _marker: PhantomData,
+                },
+                Self::decode_tracked_prop(prop),
+            )
         } else {
             MappedItem::Untracked(paddr, level, prop)
         }
     }
 
-    proof fn item_from_raw_roundtrip(
+    #[verifier::external_body]
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item
+    {
+        if prop.flags.contains(PageFlags::AVAIL1()) {
+            debug_assert_eq!(level, 1);
+            // [KNOWN] BUG FOUND BY FV: forgotting to clean `AVAIL1`. https://github.com/asterinas/vostd/issues/625
+            let mut item_prop = prop;
+            item_prop.flags = item_prop.flags - PageFlags::AVAIL1();
+            // SAFETY: The caller ensures safety.
+            let frame = unsafe { Frame::<MetaSlotStorage>::from_raw(paddr) };
+            MappedItem::Tracked(frame, item_prop)
+        } else {
+            MappedItem::Untracked(paddr, level, prop)
+        }
+    }
+
+    proof fn lemma_item_into_raw_roundtrip(
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) {
+        broadcast use group_page_meta;
+
+        Self::lemma_tracked_prop_encoding(prop);
+    }
+
+    proof fn lemma_item_from_raw_roundtrip(
         item: Self::Item,
         paddr: Paddr,
         level: PagingLevel,
@@ -273,31 +303,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
         match item {
             MappedItem::Tracked(frame, prop_actual) => {
-                assert(Self::item_well_formed(MappedItem::Tracked(frame, prop_actual)));
-                Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                Self::item_into_raw_spec_tracked_level(item);
-                Self::item_into_raw_spec_tracked_prop(frame, prop_actual);
-                if !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
-                    Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
-
-                    assert(false);
-                }
-                Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
-                match Self::item_from_raw_spec(paddr, level, prop) {
-                    MappedItem::Tracked(frame_from_raw, prop_from_raw) => {},
-                    MappedItem::Untracked(_, _, _) => {
-                        assert(false);
-                    },
-                }
+                Self::lemma_tracked_prop_encoding(prop_actual);
             },
-            MappedItem::Untracked(pa, level_actual, prop_actual) => {
-                Self::item_into_raw_spec_untracked(pa, level_actual, prop_actual);
-                if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
-                    Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
-                    assert(Self::tracked(Self::item_from_raw_spec(paddr, level, prop)));
-                    assert(false);
-                }
-                Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
+            MappedItem::Untracked(_, _, prop_actual) => {
+                Self::lemma_tracked_prop_encoding(prop_actual);
             },
         }
     }
@@ -310,86 +319,55 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     open spec fn item_well_formed(item: Self::Item) -> bool {
         match item {
-            MappedItem::Tracked(frame, _) => frame.inv(),
-            MappedItem::Untracked(_, _, _) => true,
+            MappedItem::Tracked(frame, prop) => {
+                &&& frame.inv()
+                &&& !prop.flags.contains(PageFlags::AVAIL1())
+            },
+            MappedItem::Untracked(_, _, prop) => !prop.flags.contains(PageFlags::AVAIL1()),
         }
     }
 
-    proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
+    open spec fn raw_item_well_formed(
+        _pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) -> bool {
+        prop.flags.contains(PageFlags::AVAIL1()) ==> level == 1
+    }
+
+    proof fn lemma_raw_item_well_formed_preserved(
+        pa: Paddr,
+        level: PagingLevel,
+        old_prop: PageProperty,
+        new_prop: PageProperty,
+    ) {
+    }
+
+    proof fn lemma_raw_item_well_formed_split(
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        child_pa: Paddr,
+        child_idx: usize,
+    ) {
+    }
+
+    proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use group_page_meta;
 
-        let item = Self::item_from_raw_spec(pa, level, prop);
-        if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
-            // Tracked branch: derive `frame.inv()` from
-            //   - `item_from_raw_spec_tracked_ptr`: frame.ptr.addr() == frame_to_meta(pa).
-            //   - `lemma_frame_to_meta_soundness` (broadcast): frame_to_meta(pa) is
-            //     META_SLOT_SIZE-aligned and within FRAME_METADATA_RANGE.
-            Self::item_from_raw_spec_tracked_ptr(pa, level, prop);
-            // Now item is `MappedItem::Tracked(frame, _)` with the address fact.
-            match item {
-                MappedItem::Tracked(frame, prop_actual) => {
-                    // frame.inv() unfolds to (alignment + range), both from the lemma.
-                    Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                    Self::item_into_raw_spec_tracked_level(item);
-                    Self::item_into_raw_spec_tracked_prop(frame, prop_actual);
-                },
-                MappedItem::Untracked(_, _, _) => {
-                    // Excluded by item_from_raw_spec_tracked_ptr.
-                    assert(false);
-                },
-            }
-        } else {
-            // Untracked branch: item_well_formed is `true`.
-            Self::item_from_raw_spec_untracked_variant(pa, level, prop);
-            match item {
-                MappedItem::Tracked(_, _) => {
-                    assert(false);
-                },
-                MappedItem::Untracked(pa_actual, level_actual, prop_actual) => {
-                    Self::item_into_raw_spec_untracked(pa_actual, level_actual, prop_actual);
-                },
-            }
-        }
+        Self::lemma_tracked_prop_encoding(prop);
     }
 
-    proof fn clone_ensures_concrete(
+    proof fn lemma_clone_ensures_concrete(
         item: Self::Item,
         pa: Paddr,
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
         res: Self::Item,
     ) {
-        // `MappedItem::clone_ensures` case-analyzes:
-        //   - Tracked: `frame.clone_ensures(old, new, res_frame)` — gives per-field facts at
-        //     `frame_to_index(meta_to_frame(frame.ptr.addr()))`. Bridge to `frame_to_index(pa)`.
-        //   - Untracked: `old == new`. Then trait's `rc + 1` ensures becomes contradictory.
-        //     This case is ASSUMED unreachable (clone_item only runs on Tracked items in
-        //     the verified call chain).
-        // Force the trait method's open-spec body to unfold by asserting the UFCS form.
-        assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
-        match (item, res) {
-            (MappedItem::Tracked(frame, prop_actual), MappedItem::Tracked(res_frame, _)) => {
-                use crate::mm::frame::meta::mapping::meta_to_frame;
-                use crate::specs::mm::frame::mapping::frame_to_index;
-                Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
-
-                // Canonical: the cloned frame minted one obligation at its slot.
-
-            },
-            (MappedItem::Untracked(_, _, _), _) => {
-                // clone_ensures for Untracked is `old == new`; the trait's
-                // `!tracked ==> slot unchanged` ensures follows directly, and
-                // the per-frame ledger is preserved (net-zero clone).
-            },
-            _ => {
-                // res == item by precondition; if item is Tracked, res is Tracked too.
-                // The mismatched-tag arm is unreachable.
-            },
-        }
     }
 
-    proof fn clone_requires_concrete(
+    proof fn lemma_clone_requires_concrete(
         item: Self::Item,
         pa: Paddr,
         level: PagingLevel,
@@ -401,120 +379,40 @@ unsafe impl PageTableConfig for KernelPtConfig {
         //     slot facts at `frame_to_index(meta_to_frame(frame.ptr.addr()))`.
         //   - Untracked: `regions.inv()`. Trivially satisfied from precondition.
         // Discharge `frame.inv()` via the trait-level structural well-formedness method.
-        Self::item_from_raw_well_formed(pa, level, prop);
-        match item {
-            MappedItem::Tracked(frame, prop_actual) => {
-                use crate::mm::frame::meta::mapping::meta_to_frame;
-                use crate::specs::mm::frame::mapping::frame_to_index;
-                Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                Self::item_from_raw_roundtrip(item, pa, level, prop);
-
-                // `Self::item_well_formed(item)` unfolds to `frame.inv()` for the
-                // Tracked variant.
-
-            },
-            MappedItem::Untracked(_, _, _) => {
-                // clone_requires for Untracked is just `regions.inv()` which we have.
-            },
-        }
+        Self::lemma_item_from_raw_well_formed(pa, level, prop);
     }
 }
 
 impl KernelPtConfig {
-    /// The spec agrees with the exec, which ensures 1 <= level <= NR_LEVELS.
-    pub proof fn item_into_raw_spec_level_bounds(item: MappedItem)
-        requires
-            item matches MappedItem::Untracked(_, level, _) ==> 1 <= level <= NR_LEVELS,
-        ensures
-            1 <= KernelPtConfig::item_into_raw_spec(item).1 <= crate::specs::arch::NR_LEVELS,
-    {
-        match item {
-            MappedItem::Tracked(_, _) => {
-                Self::item_into_raw_spec_tracked_level(item);
-                // item_into_raw_spec(item).1 == 1; 1 <= 1 <= NR_LEVELS always.
-
-            },
-            MappedItem::Untracked(pa, level, prop) => {
-                Self::item_into_raw_spec_untracked(pa, level, prop);
-                // item_into_raw_spec(item).1 == level, bounded by precondition.
-            },
-        }
+    /// Adds the raw PTE bit used to identify a ref-counted mapping.
+    pub open spec fn encode_tracked_prop(prop: PageProperty) -> PageProperty {
+        PageProperty { flags: prop.flags.union(PageFlags::AVAIL1()), ..prop }
     }
 
-    /// Tracked frames use 4K pages (level 1). Used to prove alignment in map_frames.
-    pub axiom fn item_into_raw_spec_tracked_level(item: MappedItem)
-        requires
-            matches!(item, MappedItem::Tracked(_, _)),
-        ensures
-            KernelPtConfig::item_into_raw_spec(item).1 == 1,
-    ;
-
-    /// For untracked items, `item_into_raw_spec` preserves PA, level, and prop.
-    /// This is correct when the AVAIL1 bit is not set in `prop`, which is assumed
-    /// for untracked MMIO frames (enforced by the debug_assert in the exec).
-    pub axiom fn item_into_raw_spec_untracked(pa: Paddr, level: PagingLevel, prop: PageProperty)
-        ensures
-            KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).0 == pa,
-            KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).1 == level,
-            KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).2 == prop,
-    ;
-
-    /// For tracked items, the physical address from item_into_raw_spec equals
-    /// the frame's metadata-derived physical address.
-    pub axiom fn item_into_raw_spec_tracked_pa(frame: DynFrame, prop: PageProperty)
-        ensures
-            KernelPtConfig::item_into_raw_spec(MappedItem::Tracked(frame, prop)).0
-                == crate::mm::frame::meta::mapping::meta_to_frame(frame.ptr.addr()),
-    ;
-
-    /// For tracked items, item_into_raw_spec returns the same `prop` that was passed in.
-    pub axiom fn item_into_raw_spec_tracked_prop(frame: DynFrame, prop: PageProperty)
-        ensures
-            KernelPtConfig::item_into_raw_spec(MappedItem::Tracked(frame, prop)).2 == prop,
-    ;
-
-    /// Structural shape of `item_from_raw_spec` for the Tracked branch: the reconstructed
-    /// frame's pointer is `frame_to_meta(pa)`. This mirrors the exec body of `item_from_raw`,
-    /// which calls `Frame::from_raw(pa)` whose ensures gives `r.ptr.addr() == frame_to_meta(pa)`.
-    /// Once we have this address shape, `Frame::inv()` follows from `lemma_frame_to_meta_soundness`.
-    pub axiom fn item_from_raw_spec_tracked_ptr(pa: Paddr, level: PagingLevel, prop: PageProperty)
-        requires
-            has_safe_slot(pa),
-            prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
-        ensures
-            match KernelPtConfig::item_from_raw_spec(pa, level, prop) {
-                MappedItem::Tracked(frame, prop_actual) => {
-                    &&& frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa)
-                    &&& level == 1
-                    &&& prop_actual == prop
-                },
-                MappedItem::Untracked(_, _, _) => false,
-            },
-    ;
-
-    /// For untracked items, `item_from_raw_spec` returns the Untracked variant.
-    /// Mirrors the exec body's branch on `prop.flags.contains(AVAIL1)`.
-    pub axiom fn item_from_raw_spec_untracked_variant(
-        pa: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    )
-        requires
-            !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
-        ensures
-            KernelPtConfig::item_from_raw_spec(pa, level, prop) == MappedItem::Untracked(
-                pa,
-                level,
-                prop,
-            ),
-    ;
-
-    /// For KernelPtConfig (x86_64): HIGHEST_TRANSLATION_LEVEL = 2 < NR_LEVELS = 4.
-    pub proof fn lemma_kernel_htl_lt_nr_levels()
-        ensures
-            KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() < NR_LEVELS,
-    {
+    /// Removes the raw PTE trackedness bit from a caller-visible property.
+    pub open spec fn decode_tracked_prop(prop: PageProperty) -> PageProperty {
+        PageProperty { flags: prop.flags.difference(PageFlags::AVAIL1()), ..prop }
     }
+
+    /// Algebraic facts for the raw trackedness tag.
+    pub proof fn lemma_tracked_prop_encoding(prop: PageProperty)
+        ensures
+            KernelPtConfig::encode_tracked_prop(prop).flags.contains(PageFlags::AVAIL1()),
+            !KernelPtConfig::decode_tracked_prop(prop).flags.contains(PageFlags::AVAIL1()),
+            !prop.flags.contains(PageFlags::AVAIL1()) ==>
+                KernelPtConfig::decode_tracked_prop(prop) == prop,
+            !prop.flags.contains(PageFlags::AVAIL1()) ==>
+                KernelPtConfig::decode_tracked_prop(
+                    KernelPtConfig::encode_tracked_prop(prop),
+                ) == prop,
+            prop.flags.contains(PageFlags::AVAIL1()) ==>
+                KernelPtConfig::encode_tracked_prop(
+                    KernelPtConfig::decode_tracked_prop(prop),
+                ) == prop,
+    {
+        PageFlags::lemma_avail1_tag_encoding(prop.flags);
+    }
+
 }
 
 /*

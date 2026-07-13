@@ -256,7 +256,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     pub fn clone_item(item: &C::Item) -> C::Item {
         let res = item.clone(Tracked(regions));
         proof {
-            C::clone_ensures_concrete(*item, pa, *old(regions), *regions, res);
+            C::lemma_clone_ensures_concrete(*item, pa, *old(regions), *regions, res);
         }
         res
     }
@@ -624,8 +624,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     ;
 
                     proof {
-                        C::item_from_raw_well_formed(pa, level, prop);
-                        C::item_from_raw_roundtrip(item, pa, level, prop);
+                        C::lemma_item_from_raw_well_formed(pa, level, prop);
+                        C::lemma_item_into_raw_roundtrip(pa, level, prop);
                     }
 
                     assert(pa == owner.cur_entry_owner().frame().mapped_pa);
@@ -653,6 +653,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(old(self).query_panic_condition(*old(owner), *old(regions)));
                             assert(may_panic());
                         }
+                        assert(C::raw_item_well_formed(pa, level, prop));
                         owner.cur_frame_clone_requires(item, pa, level, prop, *regions);
                     }
 
@@ -4303,8 +4304,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // `protect_next` method uphold this invariant.
                 let item = unsafe { C::item_from_raw(pa, level, prop) };
                 proof {
-                    C::item_from_raw_well_formed(pa, level, prop);
-                    C::item_from_raw_roundtrip(item, pa, level, prop);
+                    C::lemma_item_from_raw_well_formed(pa, level, prop);
+                    C::lemma_item_into_raw_roundtrip(pa, level, prop);
                 }
                 Some(PageTableFrag::Mapped { va, item })
             },

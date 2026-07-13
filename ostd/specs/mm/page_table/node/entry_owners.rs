@@ -852,6 +852,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.frame().mapped_pa < MAX_PADDR
             &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
+            &&& C::raw_item_well_formed(
+                self.frame().mapped_pa,
+                self.parent_level,
+                self.frame().prop,
+            )
         }
         &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()
