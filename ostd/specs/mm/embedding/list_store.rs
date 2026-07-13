@@ -364,8 +364,9 @@ pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmal
     lemma_finite_int_set_has_unused(m.dom());
 }
 
-/// Trusted reflection of the (now properly `&mut owner`-threaded and
-/// fully verified) [`crate::mm::frame::LinkedList::pop_front`]. Pops the
+/// Checked front specialization of [`take_at_embedded`], reflecting the
+/// (now properly `&mut owner`-threaded and fully verified)
+/// [`crate::mm::frame::LinkedList::pop_front`]. Pops the
 /// front link off `owner`, restoring it to a loose
 /// `UniqueFrame<Link<M>>` (its drop-obligation re-minted by `from_raw`,
 /// `in_list` reset to 0, `prev`/`next` cleared). The list shrinks by one
@@ -378,7 +379,7 @@ pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmal
 /// every loose slot (it was a list link, `in_list == list_id != 0`),
 /// which keeps loose-slot disjointness when the popped frame joins
 /// `loose`.
-pub axiom fn pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
 ) -> (tracked frame_own: UniqueFrameOwner<Link<M>>)
@@ -440,12 +441,16 @@ pub axiom fn pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             ) && fo.frame_link_inv(*final(regions))
                 && final(regions).slot_owners[fo.slot_index].inner_perms.in_list.value() == 0
                 && fo.slot_index != old(owner).slot_index_at(0),
-;
+{
+    let tracked frame_own = take_at_embedded(regions, owner, 0);
+    frame_own
+}
 
-/// Trusted reflection of the (verified) [`crate::mm::frame::LinkedList::push_back`].
-/// Identical to [`push_front_embedded`] except the frame is spliced in
-/// at the *tail* (touching the back neighbours instead of the front).
-pub axiom fn push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+/// Checked back specialization of [`insert_before_at_embedded`], reflecting the
+/// (verified) [`crate::mm::frame::LinkedList::push_back`]. Identical to
+/// [`push_front_embedded`] except the frame is spliced in at the *tail*
+/// (touching the back neighbours instead of the front).
+pub proof fn push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
     tracked frame_own: &mut UniqueFrameOwner<Link<M>>,
@@ -513,12 +518,20 @@ pub axiom fn push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
                 frame_own,
             ).slot_index ==> fo.global_inv(*final(regions)) && fo.frame_link_inv(*final(regions))
                 && final(regions).slot_owners[fo.slot_index].inner_perms.in_list.value() == 0,
-;
+{
+    let ghost n = if owner.list.len() > 0 {
+        owner.list.len() - 1
+    } else {
+        0
+    };
+    insert_before_at_embedded(regions, owner, frame_own, n, used_ids);
+}
 
-/// Trusted reflection of the (verified) [`crate::mm::frame::LinkedList::pop_back`].
-/// Identical to [`pop_front_embedded`] except the *last* link is popped
-/// (touching the back neighbour at `slot_index_at(len - 2)`).
-pub axiom fn pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+/// Checked back specialization of [`take_at_embedded`], reflecting the
+/// (verified) [`crate::mm::frame::LinkedList::pop_back`]. Identical to
+/// [`pop_front_embedded`] except the *last* link is popped (touching the
+/// back neighbour at `slot_index_at(len - 2)`).
+pub proof fn pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
 ) -> (tracked frame_own: UniqueFrameOwner<Link<M>>)
@@ -573,7 +586,11 @@ pub axiom fn pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             ) && fo.frame_link_inv(*final(regions))
                 && final(regions).slot_owners[fo.slot_index].inner_perms.in_list.value() == 0
                 && fo.slot_index != old(owner).slot_index_at(old(owner).list.len() - 1),
-;
+{
+    let ghost n = owner.list.len() - 1;
+    let tracked frame_own = take_at_embedded(regions, owner, n);
+    frame_own
+}
 
 /// Trusted reflection of [`crate::mm::frame::CursorMut::insert_before`]
 /// applied to a cursor at an arbitrary index `n` over `owner`. The
