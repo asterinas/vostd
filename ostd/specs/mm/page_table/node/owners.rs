@@ -301,26 +301,6 @@ impl<C: PageTableConfig> NodeOwner<C> {
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
-    // TODO: this is a bizzare structure; `set_children_perm` needs to actually be
-    // defined to satisfy the axiom, which can then be deleted.
-    pub uninterp spec fn set_children_perm(self, idx: usize, pte: C::E) -> Self;
-
-    #[verifier::external_body]
-    pub axiom fn set_children_perm_axiom(self, idx: usize, pte: C::E)
-        requires
-            self.inv(),
-            idx < NR_ENTRIES,
-        ensures
-            self.set_children_perm(idx, pte).inv(),
-            self.set_children_perm(idx, pte).meta_own == self.meta_own,
-            self.set_children_perm(idx, pte).slot_index == self.slot_index,
-            self.set_children_perm(idx, pte).level == self.level,
-            self.set_children_perm(idx, pte).tree_level == self.tree_level,
-            self.set_children_perm(idx, pte).children_perm.addr() == self.children_perm.addr(),
-            self.set_children_perm(idx, pte).children_perm.value()
-                == self.children_perm.value().update(idx as int, pte),
-    ;
-
     /// If a slot in `children_perm` holds a non-present PTE, then
     /// `nr_children < NR_ENTRIES`. Proven (no longer axiomatized) from the
     /// `count_consistent` invariant: `nr_children` counts present PTEs, and an

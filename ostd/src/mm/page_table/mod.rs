@@ -267,6 +267,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             has_safe_slot(pa),
         ensures
             Self::item_well_formed(Self::item_from_raw_spec(pa, level, prop)),
+            Self::item_into_raw_spec(Self::item_from_raw_spec(pa, level, prop)) == (
+                pa,
+                level,
+                prop,
+            ),
     ;
 
     /// Proves that `clone_ensures` for `Self::Item` implies concrete per-field
@@ -323,13 +328,21 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             !Self::tracked(item) ==> new_regions.frame_obligations == old_regions.frame_obligations,
     ;
 
-    proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
+    /// If the provided raw form matches an item consumed by `item_into_raw`,
+    /// then `item_from_raw` restores that item.
+    proof fn item_from_raw_roundtrip(
+        item: Self::Item,
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    )
+        requires
+            has_safe_slot(paddr),
+            Self::item_well_formed(item),
+            Self::item_into_raw_spec(item) == (paddr, level, prop),
+            Self::tracked(Self::item_from_raw_spec(paddr, level, prop)) == Self::tracked(item),
         ensures
-            Self::item_into_raw_spec(item) == (paddr, level, prop) <==> Self::item_from_raw_spec(
-                paddr,
-                level,
-                prop,
-            ) == item,
+            Self::item_from_raw_spec(paddr, level, prop) == item,
     ;
 
     /// Proves `item.clone_requires(regions)` from the concrete frame-slot facts
@@ -461,6 +474,9 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
     }
 
     fn NR_LEVELS() -> PagingLevel {
+        proof {
+            assert(Self::NR_LEVELS_spec() == C::C::NR_LEVELS_spec());
+        }
         C::C::NR_LEVELS()
     }
 
@@ -910,7 +926,11 @@ impl PageTable<KernelPtConfig> {
             let new_idx = new_idx_g;
             crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
                 KernelPtConfig,
-            >::active_entry_not_in_free_pool(kernel_owner.0.value, regions_before_alloc, new_idx);
+            >::lemma_active_entry_not_in_free_pool(
+                kernel_owner.0.value,
+                regions_before_alloc,
+                new_idx,
+            );
             assert(kern_idx != new_idx);
             assert(regions.slot_owners[kern_idx] == regions_before_alloc.slot_owners[kern_idx]);
             assert(kernel_owner.metaregion_sound(*regions));
@@ -961,7 +981,7 @@ impl PageTable<KernelPtConfig> {
                 if k == kern_idx {
                     crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
                         KernelPtConfig,
-                    >::active_entry_not_in_free_pool(
+                    >::lemma_active_entry_not_in_free_pool(
                         kernel_owner.0.value,
                         regions_before_self_borrow,
                         k,
@@ -978,7 +998,7 @@ impl PageTable<KernelPtConfig> {
             assert(kern_idx != new_idx) by {
                 crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
                     KernelPtConfig,
-                >::active_entry_not_in_free_pool(
+                >::lemma_active_entry_not_in_free_pool(
                     kernel_owner.0.value,
                     regions_before_alloc,
                     new_idx,

@@ -186,25 +186,9 @@ unsafe impl PageTableConfig for KernelPtConfig {
         lemma_usize_pow2_ilog2(9);
         lemma_pow2_adds(9, 39);
         lemma_pow2_adds(8, 39);
-        assert(nr_subpage_per_huge::<PagingConsts>() == 512_usize);
-        assert(nr_pte_index_bits_spec::<PagingConsts>() == 9_usize);
-        assert(PagingConsts::BASE_PAGE_SIZE().ilog2() == 12u32);
-        assert(pte_index_bit_offset_spec::<PagingConsts>(4) == 39);
-        assert(256 * pow2(39) == pow2(47));
+
         assert((256 * pow2(39) as int) / (pow2(47) as int) == 1);
-        assert(pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) == 39);
-        assert(Self::TOP_LEVEL_INDEX_RANGE().start * (pow2(
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-        )) == pow2(47));
-        assert(((Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-        )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) == 1);
-        assert(((Self::TOP_LEVEL_INDEX_RANGE().start * pow2(
-            pte_index_bit_offset_spec::<Self::C>(Self::C::NR_LEVELS()) as nat,
-        )) / (pow2((Self::C::ADDRESS_WIDTH() - 1) as nat) as int)) % 2 == 1);
         lemma_pow2_adds(16, 48);
-        assert(Self::LEADING_BITS_spec() * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int
-            - pow2(Self::C::ADDRESS_WIDTH() as nat));
     }
 
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>) {
@@ -279,7 +263,44 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
+    proof fn item_from_raw_roundtrip(
+        item: Self::Item,
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) {
+        broadcast use group_page_meta;
+
+        match item {
+            MappedItem::Tracked(frame, prop_actual) => {
+                assert(Self::item_well_formed(MappedItem::Tracked(frame, prop_actual)));
+                Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
+                Self::item_into_raw_spec_tracked_level(item);
+                Self::item_into_raw_spec_tracked_prop(frame, prop_actual);
+                if !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
+                    Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
+
+                    assert(false);
+                }
+                Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
+                match Self::item_from_raw_spec(paddr, level, prop) {
+                    MappedItem::Tracked(frame_from_raw, prop_from_raw) => {},
+                    MappedItem::Untracked(_, _, _) => {
+                        assert(false);
+                    },
+                }
+            },
+            MappedItem::Untracked(pa, level_actual, prop_actual) => {
+                Self::item_into_raw_spec_untracked(pa, level_actual, prop_actual);
+                if prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()) {
+                    Self::item_from_raw_spec_tracked_ptr(paddr, level, prop);
+                    assert(Self::tracked(Self::item_from_raw_spec(paddr, level, prop)));
+                    assert(false);
+                }
+                Self::item_from_raw_spec_untracked_variant(paddr, level, prop);
+            },
+        }
+    }
 
     open spec fn tracked(item: Self::Item) -> bool {
         // Tracked items hold a reference; clone bumps rc. Untracked items
@@ -306,10 +327,11 @@ unsafe impl PageTableConfig for KernelPtConfig {
             Self::item_from_raw_spec_tracked_ptr(pa, level, prop);
             // Now item is `MappedItem::Tracked(frame, _)` with the address fact.
             match item {
-                MappedItem::Tracked(frame, _) => {
-                    assert(frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
+                MappedItem::Tracked(frame, prop_actual) => {
                     // frame.inv() unfolds to (alignment + range), both from the lemma.
-                    assert(frame.inv());
+                    Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
+                    Self::item_into_raw_spec_tracked_level(item);
+                    Self::item_into_raw_spec_tracked_prop(frame, prop_actual);
                 },
                 MappedItem::Untracked(_, _, _) => {
                     // Excluded by item_from_raw_spec_tracked_ptr.
@@ -319,6 +341,14 @@ unsafe impl PageTableConfig for KernelPtConfig {
         } else {
             // Untracked branch: item_well_formed is `true`.
             Self::item_from_raw_spec_untracked_variant(pa, level, prop);
+            match item {
+                MappedItem::Tracked(_, _) => {
+                    assert(false);
+                },
+                MappedItem::Untracked(pa_actual, level_actual, prop_actual) => {
+                    Self::item_into_raw_spec_untracked(pa_actual, level_actual, prop_actual);
+                },
+            }
         }
     }
 
@@ -343,24 +373,18 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 use crate::specs::mm::frame::mapping::frame_to_index;
                 Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
                 let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
-                assert(pa == meta_to_frame(frame.ptr.addr()));
-                assert(frame_to_index(pa) == frame_idx);
-                assert(frame.clone_ensures(old_regions, new_regions, res_frame));
+
                 // Canonical: the cloned frame minted one obligation at its slot.
-                assert(new_regions.frame_obligations == old_regions.frame_obligations.insert(
-                    frame_idx,
-                ));
+
             },
             (MappedItem::Untracked(_, _, _), _) => {
                 // clone_ensures for Untracked is `old == new`; the trait's
                 // `!tracked ==> slot unchanged` ensures follows directly, and
                 // the per-frame ledger is preserved (net-zero clone).
-                assert(old_regions == new_regions);
             },
             _ => {
                 // res == item by precondition; if item is Tracked, res is Tracked too.
                 // The mismatched-tag arm is unreachable.
-                assert(res == item);
             },
         }
     }
@@ -383,12 +407,11 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 use crate::mm::frame::meta::mapping::meta_to_frame;
                 use crate::specs::mm::frame::mapping::frame_to_index;
                 Self::item_into_raw_spec_tracked_pa(frame, prop_actual);
-                Self::item_roundtrip(item, pa, level, prop);
-                assert(meta_to_frame(frame.ptr.addr()) == pa);
-                assert(frame_to_index(meta_to_frame(frame.ptr.addr())) == frame_to_index(pa));
+                Self::item_from_raw_roundtrip(item, pa, level, prop);
+
                 // `Self::item_well_formed(item)` unfolds to `frame.inv()` for the
                 // Tracked variant.
-                assert(frame.inv());
+
             },
             MappedItem::Untracked(_, _, _) => {
                 // clone_requires for Untracked is just `regions.inv()` which we have.
@@ -409,7 +432,7 @@ impl KernelPtConfig {
             MappedItem::Tracked(_, _) => {
                 Self::item_into_raw_spec_tracked_level(item);
                 // item_into_raw_spec(item).1 == 1; 1 <= 1 <= NR_LEVELS always.
-                assert(1 <= NR_LEVELS);
+
             },
             MappedItem::Untracked(pa, level, prop) => {
                 Self::item_into_raw_spec_untracked(pa, level, prop);
@@ -460,8 +483,11 @@ impl KernelPtConfig {
             prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
         ensures
             match KernelPtConfig::item_from_raw_spec(pa, level, prop) {
-                MappedItem::Tracked(frame, _) => frame.ptr.addr()
-                    == crate::mm::frame::meta::mapping::frame_to_meta(pa),
+                MappedItem::Tracked(frame, prop_actual) => {
+                    &&& frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa)
+                    &&& level == 1
+                    &&& prop_actual == prop
+                },
                 MappedItem::Untracked(_, _, _) => false,
             },
     ;
@@ -476,8 +502,11 @@ impl KernelPtConfig {
         requires
             !prop.flags.contains(crate::mm::page_prop::PageFlags::AVAIL1()),
         ensures
-            matches!(KernelPtConfig::item_from_raw_spec(pa, level, prop),
-                MappedItem::Untracked(_, _, _)),
+            KernelPtConfig::item_from_raw_spec(pa, level, prop) == MappedItem::Untracked(
+                pa,
+                level,
+                prop,
+            ),
     ;
 
     /// For KernelPtConfig (x86_64): HIGHEST_TRANSLATION_LEVEL = 2 < NR_LEVELS = 4.
@@ -485,8 +514,6 @@ impl KernelPtConfig {
         ensures
             KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() < NR_LEVELS,
     {
-        assert(KernelPtConfig::HIGHEST_TRANSLATION_LEVEL() == 2);
-        assert(NR_LEVELS == 4usize);
     }
 }
 

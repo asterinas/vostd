@@ -347,14 +347,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     {
         let idxs = Seq::new(self.list.len(), |i: int| self.slot_index_at(i) as int);
 
-        assert(idxs.no_duplicates()) by {
-            assert forall|i: int, j: int|
-                0 <= i < idxs.len() && 0 <= j < idxs.len() && i != j implies idxs[i] != idxs[j] by {
-                let a = self.slot_index_at(i);
-                let b = self.slot_index_at(j);
-                // `relate_region`'s injectivity gives `a != b`.
-            }
-        }
         idxs.unique_seq_to_set();
 
         let bound = set_int_range(0, max_meta_slots());
@@ -996,7 +988,7 @@ impl Inv for CursorModel {
 
 pub tracked struct CursorOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
     pub list_own: LinkedListOwner<M>,
-    pub index: int,
+    pub ghost index: int,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for CursorOwner<M> {
@@ -1164,18 +1156,24 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         CursorOwner::<M> { list_own: list_own, index: index }
     }
 
-    pub axiom fn tracked_cursor_mut_at_owner(
-        list_own: LinkedListOwner<M>,
+    pub proof fn tracked_cursor_mut_at_owner(
+        tracked list_own: LinkedListOwner<M>,
         index: int,
-    ) -> (tracked res: Self)
-        ensures
-            res == Self::cursor_mut_at_owner(list_own, index),
-    ;
+    ) -> tracked Self
+        returns
+            Self::cursor_mut_at_owner(list_own, index),
+    {
+        let tracked res = CursorOwner::<M> { list_own, index };
+        res
+    }
 
-    pub axiom fn tracked_front_owner(list_own: LinkedListOwner<M>) -> (tracked res: Self)
-        ensures
-            res == Self::front_owner(list_own),
-    ;
+    pub proof fn tracked_front_owner(tracked list_own: LinkedListOwner<M>) -> tracked Self
+        returns
+            Self::front_owner(list_own),
+    {
+        let tracked res = CursorOwner::<M> { list_own, index: 0 };
+        res
+    }
 
     pub open spec fn back_owner(list_own: LinkedListOwner<M>) -> Self {
         CursorOwner::<M> {
@@ -1279,9 +1277,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
     proof fn to_from_repr(r: MetaSlot, perm: MetadataInnerPerms) {
         let md = <Metadata<Link<M>> as Repr<MetaSlot>>::from_repr_spec(r, perm);
         <Metadata<Link<M>> as Repr<MetaSlot>>::to_from_repr(r, perm);
-        assert(<Metadata<Link<M>> as FromSpec<MetadataAsLink<M>>>::from_spec(
-            <MetadataAsLink<M> as FromSpec<Metadata<Link<M>>>>::from_spec(md),
-        ) == md);
+
     }
 
     proof fn to_repr_wf(self, perm: MetadataInnerPerms) {

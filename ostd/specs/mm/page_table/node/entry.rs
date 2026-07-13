@@ -125,7 +125,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         assert forall|entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             entry.inv() && f(entry, path) implies #[trigger] g(entry, path) by {
             if entry.meta_slot_paddr() is Some && entry.is_node() {
-                EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions0, new_idx);
+                EntryOwner::<C>::lemma_active_entry_not_in_free_pool(entry, regions0, new_idx);
             }
             // Frame entries colliding at new_idx are ruled out: either the
             // slot's `usage != MMIO` (then `metaregion_sound` requires
