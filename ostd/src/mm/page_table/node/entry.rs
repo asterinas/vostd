@@ -1155,7 +1155,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // Prove required facts while we still have new_owner.value.node available.
                 let ghost the_node = new_owner.value().node();
 
-                OwnerSubtree::lemma_child_some_properties(new_owner, i as usize);
+                assert(new_owner.children()[i as int]->0.inv());
+                assert(new_owner.children()[i as int]->0.level() == new_owner.level() + 1);
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
             }
 

@@ -574,7 +574,8 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
     ) by {
         // Each child has all-`None` grandchildren, so its `subtree_satisfies`
         // unfolds to `f` at the child (the grandchild forall is vacuous).
-        node.lemma_child_some_properties(i as usize);
+        assert(node.children()[i]->0.inv());
+        assert(node.children()[i]->0.level() == node.level() + 1);
     };
 }
 
