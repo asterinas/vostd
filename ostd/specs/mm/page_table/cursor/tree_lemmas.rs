@@ -46,7 +46,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             g,
         ) by {
             self.inv_children_unroll(j);
-            OwnerSubtree::map_implies(
+            OwnerSubtree::lemma_map_implies(
                 self.children[j].unwrap(),
                 self.path().push_tail(j as usize),
                 f,
@@ -91,7 +91,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ) by {
             if j != idx {
                 cont0.inv_children_unroll(j);
-                OwnerSubtree::map_implies(
+                OwnerSubtree::lemma_map_implies(
                     cont0.children[j].unwrap(),
                     cont0.path().push_tail(j as usize),
                     f,
@@ -146,7 +146,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
             cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);
-                OwnerSubtree::map_implies(
+                OwnerSubtree::lemma_map_implies(
                     cont.children[j].unwrap(),
                     cont.path().push_tail(j as usize),
                     f,
@@ -245,7 +245,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     cont.children[j].unwrap(),
                     cont.path().push_tail(j as usize),
                 );
-                cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), nsp, g);
+                cont.children[j].unwrap().lemma_map_implies(cont.path().push_tail(j as usize), nsp, g);
             };
         };
     }

@@ -1585,7 +1585,7 @@ impl AbstractVaddr {
             let aligned = self.align_down(4);
             self.align_down_shape(4);
             self.to_path_index(3, 0);
-            path.index_satisfies_elem_inv(0);
+            path.lemma_index_satisfies_elem_inv(0);
             assert(vaddr(path) == path.index(0) * 0x80_0000_0000usize) by {
                 assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, path.index(0)) + rec_vaddr(
                     path,
@@ -1612,8 +1612,8 @@ impl AbstractVaddr {
             self.align_down_shape(3);
             self.to_path_index(2, 0);
             self.to_path_index(2, 1);
-            path.index_satisfies_elem_inv(0);
-            path.index_satisfies_elem_inv(1);
+            path.lemma_index_satisfies_elem_inv(0);
+            path.lemma_index_satisfies_elem_inv(1);
             assert(vaddr(path) == path.index(0) * 0x80_0000_0000usize + path.index(1)
                 * 0x4000_0000usize) by {
                 assert(vaddr(path) == rec_vaddr(path, 0));
@@ -1638,9 +1638,9 @@ impl AbstractVaddr {
             self.to_path_index(1, 0);
             self.to_path_index(1, 1);
             self.to_path_index(1, 2);
-            path.index_satisfies_elem_inv(0);
-            path.index_satisfies_elem_inv(1);
-            path.index_satisfies_elem_inv(2);
+            path.lemma_index_satisfies_elem_inv(0);
+            path.lemma_index_satisfies_elem_inv(1);
+            path.lemma_index_satisfies_elem_inv(2);
             assert(vaddr(path) == path.index(0) * 0x80_0000_0000usize + path.index(1)
                 * 0x4000_0000usize + path.index(2) * 0x20_0000usize) by {
                 assert(vaddr(path) == rec_vaddr(path, 0));
@@ -1684,10 +1684,10 @@ impl AbstractVaddr {
             self.to_path_index(0, 1);
             self.to_path_index(0, 2);
             self.to_path_index(0, 3);
-            path.index_satisfies_elem_inv(0);
-            path.index_satisfies_elem_inv(1);
-            path.index_satisfies_elem_inv(2);
-            path.index_satisfies_elem_inv(3);
+            path.lemma_index_satisfies_elem_inv(0);
+            path.lemma_index_satisfies_elem_inv(1);
+            path.lemma_index_satisfies_elem_inv(2);
+            path.lemma_index_satisfies_elem_inv(3);
             assert(vaddr(path) == path.index(0) * 0x80_0000_0000usize + path.index(1)
                 * 0x4000_0000usize + path.index(2) * 0x20_0000usize + path.index(3) * 0x1000usize)
                 by {
@@ -1971,8 +1971,8 @@ impl AbstractVaddr {
         decreases path1.len() - idx,
     {
         if idx < path1.len() {
-            path1.index_satisfies_elem_inv(idx);
-            path2.index_satisfies_elem_inv(idx);
+            path1.lemma_index_satisfies_elem_inv(idx);
+            path2.lemma_index_satisfies_elem_inv(idx);
             Self::rec_vaddr_eq_if_indices_eq(path1, path2, idx + 1);
         }
     }

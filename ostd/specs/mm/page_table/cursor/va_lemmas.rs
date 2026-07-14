@@ -234,11 +234,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.view_preserves_inv();
         self.cur_entry_frame_present();
         let subtree = self.cur_subtree();
-        let path = subtree.value.path;
+        let path = subtree.value().path;
         let frame = self.cur_entry_owner().frame();
         let cont = self.continuations[self.level - 1];
 
-        cont.path().push_tail_property_len(cont.idx as usize);
+        cont.path().lemma_push_tail_len(cont.idx as usize);
 
         let ps = page_size(self.level as PagingLevel);
         let m = Mapping {
@@ -317,9 +317,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.in_locked_range(),
         ensures
-            vaddr(self.cur_subtree().value.path) + self.va.leading_bits * 0x1_0000_0000_0000int
+            vaddr(self.cur_subtree().value().path) + self.va.leading_bits * 0x1_0000_0000_0000int
                 <= self.cur_va(),
-            self.cur_va() < vaddr(self.cur_subtree().value.path) + self.va.leading_bits
+            self.cur_va() < vaddr(self.cur_subtree().value().path) + self.va.leading_bits
                 * 0x1_0000_0000_0000int + page_size(self.level as PagingLevel),
     {
         let L = self.level as int;
@@ -328,35 +328,35 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let va_path = self.va.to_path(L - 1);
 
         self.va.to_path_len(L - 1);
-        cont.path().push_tail_property_len(cont.idx as usize);
+        cont.path().lemma_push_tail_len(cont.idx as usize);
 
         assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path.index(i)
             == va_path.index(i) by {
             self.va.to_path_index(L - 1, i);
             if L == 4 {
-                cont.path().push_tail_property_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as usize);
             } else if L == 3 {
-                cont.path().push_tail_property_index(cont.idx as usize);
-                self.continuations[3].path().push_tail_property_index(
+                cont.path().lemma_push_tail_index(cont.idx as usize);
+                self.continuations[3].path().lemma_push_tail_index(
                     self.continuations[3].idx as usize,
                 );
             } else if L == 2 {
-                cont.path().push_tail_property_index(cont.idx as usize);
-                self.continuations[2].path().push_tail_property_index(
+                cont.path().lemma_push_tail_index(cont.idx as usize);
+                self.continuations[2].path().lemma_push_tail_index(
                     self.continuations[2].idx as usize,
                 );
-                self.continuations[3].path().push_tail_property_index(
+                self.continuations[3].path().lemma_push_tail_index(
                     self.continuations[3].idx as usize,
                 );
             } else {
-                cont.path().push_tail_property_index(cont.idx as usize);
-                self.continuations[1].path().push_tail_property_index(
+                cont.path().lemma_push_tail_index(cont.idx as usize);
+                self.continuations[1].path().lemma_push_tail_index(
                     self.continuations[1].idx as usize,
                 );
-                self.continuations[2].path().push_tail_property_index(
+                self.continuations[2].path().lemma_push_tail_index(
                     self.continuations[2].idx as usize,
                 );
-                self.continuations[3].path().push_tail_property_index(
+                self.continuations[3].path().lemma_push_tail_index(
                     self.continuations[3].idx as usize,
                 );
             }

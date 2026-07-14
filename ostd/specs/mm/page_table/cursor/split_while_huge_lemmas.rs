@@ -1160,7 +1160,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.present(),
             qm == self@.query_mapping(),
         ensures
-            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(qm),
+            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value().path).contains(qm),
     {
         let f = self@.mappings.filter(
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
@@ -1182,11 +1182,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if self@.present() {
             self.cur_subtree_inv();
             let subtree = self.cur_subtree();
-            let path = subtree.value.path;
+            let path = subtree.value().path;
             let qm = self@.query_mapping();
             self.query_mapping_from_subtree(qm);
             let cont = self.continuations[self.level - 1];
-            cont.path().push_tail_property_len(cont.idx as usize);
+            cont.path().lemma_push_tail_len(cont.idx as usize);
             PageTableOwner(subtree).view_rec_node_page_size_bound(path, qm);
         }
     }
@@ -1216,11 +1216,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if self@.present() {
             self.cur_subtree_inv();
             let subtree = self.cur_subtree();
-            let path = subtree.value.path;
+            let path = subtree.value().path;
             let qm = self@.query_mapping();
             self.query_mapping_from_subtree(qm);
             let cont = self.continuations[self.level - 1];
-            cont.path().push_tail_property_len(cont.idx as usize);
+            cont.path().lemma_push_tail_len(cont.idx as usize);
             PageTableOwner(subtree).view_rec_page_size_bound(path, qm);
         }
     }

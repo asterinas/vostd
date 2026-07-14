@@ -40,7 +40,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(guards): Tracked<&mut Guards<'rcu>>
     requires
-        forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
+        forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children()[i] is Some,
         va.start < va.end,
         // Per-config tightening; see `Cursor::new`. Pulled through to the
         // cursor's `LOCKED_END_BOUND_spec` invariant.
@@ -57,7 +57,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // The root continuation's path matches the input's root path — this
         // lets `view_rec(pt_own.0.value.path)` unify with the lemma's
         // `view_rec(continuations[3].path())`.
-        (*ret.1).continuations[3].path() == pt_own.0.value.path,
+        (*ret.1).continuations[3].path() == pt_own.0.value().path,
         // Non-saturation preservation: if the caller established that no
         // non-UNUSED slot was one increment away from REF_COUNT_MAX before
         // locking, the same bound holds after. Locking may allocate new PT
@@ -221,7 +221,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         assume(res.0.invariants(*res.1, *regions, *guards) && (*res.1).in_locked_range()
             && res.0.level == res.0.guard_level && res.0.va < res.0.barrier_va.end && (
         *res.1).as_page_table_owner() == pt_own && (*res.1).continuations[3].path()
-            == pt_own.0.value.path);
+            == pt_own.0.value().path);
         assume((forall|i: usize|
             #![trigger old(regions).slot_owners[i]]
             old(regions).slot_owners.contains_key(i) && old(
@@ -658,7 +658,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         final(owner).level <= 3 ==> final(owner).continuations[2].guard == old(owner).continuations[2].guard,
         final(owner).level <= 2 ==> final(owner).continuations[1].guard == old(owner).continuations[1].guard,
         final(owner).level == 1 ==> final(owner).continuations[0].guard == old(owner).continuations[0].guard,
-        final(owner).continuations[final(owner).level - 1].children[final(owner).continuations[final(owner).level - 1].idx as int]->0.value.is_absent(),
+        final(owner).continuations[final(owner).level - 1].children[final(owner).continuations[final(owner).level - 1].idx as int]->0.value().is_absent(),
         // entry_own at current level is preserved
         final(owner).continuations[final(owner).level - 1].entry_own == old(owner).continuations[old(owner).level - 1].entry_own,
         // Children at current level are preserved

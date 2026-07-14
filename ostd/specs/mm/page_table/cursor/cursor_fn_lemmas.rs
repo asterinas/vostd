@@ -189,8 +189,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE().start <= j
                     < C::TOP_LEVEL_INDEX_RANGE().end) ==> (#[trigger] self.continuations[NR_LEVELS
                     - 1].children[j]) is Some ==> (self.continuations[NR_LEVELS
-                    - 1].children[j].unwrap().value.is_borrowed() || self.continuations[NR_LEVELS
-                    - 1].children[j].unwrap().value.is_absent()));
+                    - 1].children[j].unwrap().value().is_borrowed() || self.continuations[NR_LEVELS
+                    - 1].children[j].unwrap().value().is_absent()));
         }
     }
 
@@ -210,11 +210,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             owner0.continuations[owner0.level - 1].children[owner0.continuations[owner0.level
                 - 1].idx as int] is Some,
             owner0.continuations[owner0.level - 1].children[owner0.continuations[owner0.level
-                - 1].idx as int]->0.value.is_absent(),
+                - 1].idx as int]->0.value().is_absent(),
             self.continuations[self.level - 1].children[self.continuations[self.level
                 - 1].idx as int] is Some,
             self.continuations[self.level - 1].children[self.continuations[self.level
-                - 1].idx as int]->0.value.is_node(),
+                - 1].idx as int]->0.value().is_node(),
             // Non-idx children and path preserved
             self.continuations[self.level - 1].path() == owner0.continuations[owner0.level
                 - 1].path(),
@@ -314,7 +314,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int|
                 0 <= i < NR_ENTRIES ==> #[trigger] self.continuations[self.level
                     - 1].children[i] is Some && self.continuations[self.level
-                    - 1].children[i]->0.value.is_absent(),
+                    - 1].children[i]->0.value().is_absent(),
         ensures
             self.cur_entry_owner().is_absent(),
     {
@@ -331,19 +331,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == self.continuations[i].idx,
     {
         if i == 3 && j == 2 {
-            self.continuations[3].path().push_tail_property_index(
+            self.continuations[3].path().lemma_push_tail_index(
                 self.continuations[3].idx as usize,
             );
-            self.continuations[3].path().push_tail_property_len(self.continuations[3].idx as usize);
+            self.continuations[3].path().lemma_push_tail_len(self.continuations[3].idx as usize);
         } else if i == 3 && j == 1 {
             let p3 = self.continuations[3].path();
             let p2 = self.continuations[2].path();
             let idx3 = self.continuations[3].idx as usize;
             let idx2 = self.continuations[2].idx as usize;
-            p3.push_tail_property_index(idx3);
-            p3.push_tail_property_len(idx3);
-            p2.push_tail_property_index(idx2);
-            p2.push_tail_property_len(idx2);
+            p3.lemma_push_tail_index(idx3);
+            p3.lemma_push_tail_len(idx3);
+            p2.lemma_push_tail_index(idx2);
+            p2.lemma_push_tail_len(idx2);
             assert(p3.len() < p2.len());
             assert(self.continuations[1].path() == p2.push_tail(idx2));
             assert(p2.push_tail(idx2).index(p3.len() as int) == p2.index(p3.len() as int));
@@ -354,40 +354,40 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let idx3 = self.continuations[3].idx as usize;
             let idx2 = self.continuations[2].idx as usize;
             let idx1 = self.continuations[1].idx as usize;
-            p3.push_tail_property_index(idx3);
-            p3.push_tail_property_len(idx3);
-            p2.push_tail_property_index(idx2);
-            p2.push_tail_property_len(idx2);
-            p1.push_tail_property_index(idx1);
-            p1.push_tail_property_len(idx1);
+            p3.lemma_push_tail_index(idx3);
+            p3.lemma_push_tail_len(idx3);
+            p2.lemma_push_tail_index(idx2);
+            p2.lemma_push_tail_len(idx2);
+            p1.lemma_push_tail_index(idx1);
+            p1.lemma_push_tail_len(idx1);
             assert(p3.len() < p2.len());
             assert(p3.len() < p1.len());
             assert(p1.push_tail(idx1).index(p3.len() as int) == p1.index(p3.len() as int));
             assert(p2.push_tail(idx2).index(p3.len() as int) == p2.index(p3.len() as int));
         } else if i == 2 && j == 1 {
-            self.continuations[2].path().push_tail_property_index(
+            self.continuations[2].path().lemma_push_tail_index(
                 self.continuations[2].idx as usize,
             );
-            self.continuations[2].path().push_tail_property_len(self.continuations[2].idx as usize);
+            self.continuations[2].path().lemma_push_tail_len(self.continuations[2].idx as usize);
         } else if i == 2 && j == 0 {
             let p2 = self.continuations[2].path();
             let p1 = self.continuations[1].path();
             let idx2 = self.continuations[2].idx as usize;
             let idx1 = self.continuations[1].idx as usize;
-            p2.push_tail_property_index(idx2);
-            p2.push_tail_property_len(idx2);
-            p1.push_tail_property_index(idx1);
-            p1.push_tail_property_len(idx1);
+            p2.lemma_push_tail_index(idx2);
+            p2.lemma_push_tail_len(idx2);
+            p1.lemma_push_tail_index(idx1);
+            p1.lemma_push_tail_len(idx1);
             assert(p2.len() < p1.len());
             assert(self.continuations[0].path() == p1.push_tail(idx1));
             assert(p1.push_tail(idx1).index(p2.len() as int) == p1.index(p2.len() as int));
             assert(p1 == p2.push_tail(idx2));
             assert(p2.push_tail(idx2).index(p2.len() as int) == idx2);
         } else if i == 1 && j == 0 {
-            self.continuations[1].path().push_tail_property_index(
+            self.continuations[1].path().lemma_push_tail_index(
                 self.continuations[1].idx as usize,
             );
-            self.continuations[1].path().push_tail_property_len(self.continuations[1].idx as usize);
+            self.continuations[1].path().lemma_push_tail_len(self.continuations[1].idx as usize);
         }
     }
 
