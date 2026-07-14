@@ -1383,12 +1383,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 TreePath::lemma_push_tail_len(new_owner_path, i as int);
                 new_owner_before_update.lemma_set_value_property(new_owner.value());
                 let owner_with_updated_value = new_owner_before_update.set_value(new_owner.value());
-                OwnerSubtree::lemma_insert_preserves_inv(
+                OwnerSubtree::lemma_update_preserves_inv(
                     owner_with_updated_value,
                     i as int,
                     new_owner_child,
                 );
-                OwnerSubtree::lemma_insert_property(
+                OwnerSubtree::lemma_update_property(
                     owner_with_updated_value,
                     i as int,
                     new_owner_child,
@@ -1401,29 +1401,29 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(new_owner.children() == new_owner_before_update.children().remove(
                     i as int,
                 ).insert(i as int, Some(new_owner_child)));
-                assert(owner_with_updated_value.insert(
+                assert(owner_with_updated_value.update(
                     i as int,
                     new_owner_child,
                 ).children() == new_owner_before_update.children().update(
                     i as int,
                     Some(new_owner_child),
                 ));
-                assert(new_owner.children() =~= owner_with_updated_value.insert(
+                assert(new_owner.children() =~= owner_with_updated_value.update(
                     i as int,
                     new_owner_child,
                 ).children());
-                assert(new_owner.children() == owner_with_updated_value.insert(
+                assert(new_owner.children() == owner_with_updated_value.update(
                     i as int,
                     new_owner_child,
                 ).children());
                 OwnerSubtree::lemma_ext_equal(
                     new_owner,
-                    owner_with_updated_value.insert(i as int, new_owner_child),
+                    owner_with_updated_value.update(i as int, new_owner_child),
                 );
                 assert forall|j: int| 0 <= j < NR_ENTRIES implies
                     (#[trigger] new_owner.children()[j]) is Some by {
                     if j != i {
-                        assert(owner_with_updated_value.insert(
+                        assert(owner_with_updated_value.update(
                             i as int,
                             new_owner_child,
                         ).children()[j] == owner_with_updated_value.children()[j]);
