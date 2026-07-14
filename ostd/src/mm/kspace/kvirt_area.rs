@@ -421,7 +421,7 @@ impl KVirtArea {
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
-            owner.pt_owner.0.value.node().relate_guard(root_guard),
+            owner.pt_owner.0.value().node().relate_guard(root_guard),
             // Precise: out-of-range diverges at the top `assert!`, and the
             // inner `Cursor::query` clones the resolved leaf frame — that
             // clone aborts only when *that specific slot* is saturated.
@@ -566,7 +566,7 @@ impl KVirtArea {
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
-            owner.pt_owner.0.value.node().relate_guard(root_guard),
+            owner.pt_owner.0.value().node().relate_guard(root_guard),
             // For each frame, the map contains an appropriate owner keyed by
             // that frame's paddr. Duplicates in `frames` share the same owner.
             forall|i: int|
@@ -932,7 +932,7 @@ impl KVirtArea {
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
-            owner.pt_owner.0.value.node().relate_guard(root_guard),
+            owner.pt_owner.0.value().node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
             map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= usize::MAX,
         ensures

@@ -1225,7 +1225,7 @@ impl<C: PageTableConfig> PageTable<C> {
         regions: MetaRegionOwners,
     ) -> bool {
         &&& owner.inv()
-        &&& self.root.ptr.addr() == owner.0.value.node().meta_addr_self()
+        &&& self.root.ptr.addr() == owner.0.value().node().meta_addr_self()
         &&& owner.metaregion_sound(regions)
     }
 
@@ -1377,7 +1377,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             self.relates_owner(owner, *old(regions)),
-            owner.0.value.node().relate_guard(root_guard),
+            owner.0.value().node().relate_guard(root_guard),
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
@@ -1433,7 +1433,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             self.relates_owner(owner, *old(regions)),
-            owner.0.value.node().relate_guard(root_guard),
+            owner.0.value().node().relate_guard(root_guard),
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures
