@@ -2747,7 +2747,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         assert(child_owner.value().parent_level == parent_owner.level);
                         assert(reconstructed_entry_own.path == cont_pre_alloc.entry_own.path);
                         assert(child_owner.value().path == reconstructed_entry_own.path.push_tail(
-                            cont_pre_alloc.idx,
+                            cont_pre_alloc.idx as int,
                         ));
                         assert(child_owner.value().path.len() == parent_owner.tree_level + 1);
 
@@ -3177,7 +3177,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let cont = owner1.continuations[owner1.level - 1];
             assert(new_owner.value() == EntryOwner::<C>::new_frame(
                 pa,
-                cont.path().push_tail(cont.idx as usize),
+                cont.path().push_tail(cont.idx as int),
                 cont.level(),
                 prop,
                 is_tracked,
@@ -3934,7 +3934,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             new_owner.value().parent_level == old(owner).continuations[old(owner).level
                 - 1].child().value().parent_level,
             new_owner.value().path == old(owner).continuations[old(owner).level - 1].path().push_tail(
-                old(owner).continuations[old(owner).level - 1].idx as usize,
+                old(owner).continuations[old(owner).level - 1].idx as int,
             ),
             new_child.wf(new_owner.value()),
             new_owner == OwnerSubtree::new_val(new_owner.value(), new_owner.level() as nat),
@@ -4144,15 +4144,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             // Bridge view_mappings to view().mappings via open-spec unfolding,
             // and connect cont0/final_cont to PageTableOwner views by path equality.
-            assert(owner0.cur_subtree().value().path == cont0.path().push_tail(cont0.idx as usize));
-            assert(new_owner.value().path == cont1.path().push_tail(cont1.idx as usize));
+            assert(owner0.cur_subtree().value().path == cont0.path().push_tail(cont0.idx as int));
+            assert(new_owner.value().path == cont1.path().push_tail(cont1.idx as int));
             cont0.view_mappings_take_child();
             assert(cont0.view_mappings_take_child_spec() == PageTableOwner(
                 owner0.cur_subtree(),
             )@.mappings);
             let old_sub = cont0.view_mappings_take_child_spec();
             let new_sub = PageTableOwner(new_owner).view_rec(
-                cont1.path().push_tail(cont1.idx as usize),
+                cont1.path().push_tail(cont1.idx as int),
             );
             assert(cont1.view_mappings() == cont0.view_mappings() - old_sub);
             assert(owner.view_mappings() == (owner0.view_mappings() - cont0.view_mappings()).union(
@@ -4168,7 +4168,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     #![auto]
                     0 <= j < final_cont.children.len() && final_cont.children[j] is Some
                         && PageTableOwner(final_cont.children[j].unwrap()).view_rec(
-                        final_cont.path().push_tail(j as usize),
+                        final_cont.path().push_tail(j),
                     ).contains(m);
             };
             assert forall|m: Mapping|
@@ -4181,7 +4181,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         new_owner,
                     ).children[j] is Some && PageTableOwner(
                         cont1.put_child(new_owner).children[j].unwrap(),
-                    ).view_rec(cont1.put_child(new_owner).path().push_tail(j as usize)).contains(m);
+                    ).view_rec(cont1.put_child(new_owner).path().push_tail(j)).contains(m);
             };
             assert(final_cont.view_mappings() == cont1.view_mappings() + new_sub);
             // Set arithmetic: (A - B) + C == A - D + E
@@ -4249,13 +4249,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         #![auto]
                         0 <= j < NR_ENTRIES
                             && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
-                    cont.path().push_tail(j as usize), g_sound) by {
+                    cont.path().push_tail(j), g_sound) by {
                         cont.inv_children_unroll(j);
                         let subtree = cont.children[j].unwrap();
-                        let path_j = cont.path().push_tail(j as usize);
+                        let path_j = cont.path().push_tail(j);
                         owner0.cursor_path_nesting(i, owner0.level - 1);
-                        cont0.path().lemma_push_tail_index(idx as usize);
-                        cont.path().lemma_push_tail_index(j as usize);
+                        cont0.path().lemma_push_tail_index(idx as int);
+                        cont.path().lemma_push_tail_index(j);
                         cont.pt_inv_children_unroll(j);
                         PageTableOwner::<C>::pt_inv_implies_path_correct(subtree, path_j);
                         PageTableOwner::<C>::neq_old_from_path_disjoint(
@@ -4279,7 +4279,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
 
             assert(new_owner.value().metaregion_sound(*regions));
-            let child_path = final_cont.path().push_tail(idx as usize);
+            let child_path = final_cont.path().push_tail(idx as int);
             assert(new_owner.subtree_satisfies(child_path, g_sound)) by {
                 OwnerSubtree::lemma_new_val_subtree_satisfies(new_owner, child_path, g_sound);
             };
@@ -4291,14 +4291,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         #![auto]
                         0 <= j < NR_ENTRIES
                             && final_cont.children[j] is Some implies final_cont.children[j].unwrap().subtree_satisfies(
-                    final_cont.path().push_tail(j as usize), g_sound) by {
+                    final_cont.path().push_tail(j), g_sound) by {
                         if j != idx {
                             cont0.inv_children_unroll(j);
                             let subtree = cont0.children[j].unwrap();
-                            let path_j = final_cont.path().push_tail(j as usize);
-                            cont0.path().lemma_push_tail_index(j as usize);
-                            cont0.path().lemma_push_tail_index(idx as usize);
-                            cont0.path().lemma_push_tail_len(j as usize);
+                            let path_j = final_cont.path().push_tail(j);
+                            cont0.path().lemma_push_tail_index(j);
+                            cont0.path().lemma_push_tail_index(idx as int);
+                            cont0.path().lemma_push_tail_len(j);
                             cont0.pt_inv_children_unroll(j);
                             PageTableOwner::<C>::pt_inv_implies_path_correct(subtree, path_j);
                             PageTableOwner::<C>::neq_old_from_path_disjoint(
@@ -4330,11 +4330,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.metaregion_sound(regions0),
                     ));
                     assert(cont0.children[cont0.idx as int].unwrap().subtree_satisfies(
-                        cont0.path().push_tail(cont0.idx as usize),
+                        cont0.path().push_tail(cont0.idx as int),
                         |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.metaregion_sound(regions0),
                     ));
                     cont0.inv_children_rel_unroll(cont0.idx as int);
-                    cont0.path().lemma_push_tail_len(cont0.idx as usize);
+                    cont0.path().lemma_push_tail_len(cont0.idx as int);
                 }
                 assert forall|i: int|
                     #![trigger owner.continuations[i]]
@@ -4371,7 +4371,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 #![trigger final_cont.children[j]]
                 0 <= j < NR_ENTRIES && final_cont.children[j] is Some implies {
                 &&& final_cont.children[j].unwrap().value().path == final_cont.path().push_tail(
-                    j as usize,
+                    j,
                 )
                 &&& final_cont.children[j].unwrap().value().parent_level == final_cont.level()
                 &&& final_cont.children[j].unwrap().inv()
@@ -4557,7 +4557,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                         && PageTableOwner(
                                         owner.continuations[i].children[j].unwrap(),
                                     ).view_rec(
-                                        owner.continuations[i].path().push_tail(j as usize),
+                                        owner.continuations[i].path().push_tail(j),
                                     ).contains(m);
                                 assert(owner_before_dfs.continuations[i].children[j]
                                     == owner.continuations[i].children[j]);
@@ -4574,7 +4574,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                         owner_before_dfs.continuations[i].children[j].unwrap(),
                                     ).view_rec(
                                         owner_before_dfs.continuations[i].path().push_tail(
-                                            j as usize,
+                                            j,
                                         ),
                                     ).contains(m);
                                 assert(owner.continuations[i].children[j]

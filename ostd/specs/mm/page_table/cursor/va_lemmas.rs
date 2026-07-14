@@ -238,7 +238,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let frame = self.cur_entry_owner().frame();
         let cont = self.continuations[self.level - 1];
 
-        cont.path().lemma_push_tail_len(cont.idx as usize);
+        cont.path().lemma_push_tail_len(cont.idx as int);
 
         let ps = page_size(self.level as PagingLevel);
         let m = Mapping {
@@ -324,40 +324,40 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let L = self.level as int;
         let cont = self.continuations[L - 1];
-        let subtree_path = cont.path().push_tail(cont.idx as usize);
+        let subtree_path = cont.path().push_tail(cont.idx as int);
         let va_path = self.va.to_path(L - 1);
 
         self.va.to_path_len(L - 1);
-        cont.path().lemma_push_tail_len(cont.idx as usize);
+        cont.path().lemma_push_tail_len(cont.idx as int);
 
         assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path.index(i)
             == va_path.index(i) by {
             self.va.to_path_index(L - 1, i);
             if L == 4 {
-                cont.path().lemma_push_tail_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as int);
             } else if L == 3 {
-                cont.path().lemma_push_tail_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as int);
                 self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as usize,
+                    self.continuations[3].idx as int,
                 );
             } else if L == 2 {
-                cont.path().lemma_push_tail_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as int);
                 self.continuations[2].path().lemma_push_tail_index(
-                    self.continuations[2].idx as usize,
+                    self.continuations[2].idx as int,
                 );
                 self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as usize,
+                    self.continuations[3].idx as int,
                 );
             } else {
-                cont.path().lemma_push_tail_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as int);
                 self.continuations[1].path().lemma_push_tail_index(
-                    self.continuations[1].idx as usize,
+                    self.continuations[1].idx as int,
                 );
                 self.continuations[2].path().lemma_push_tail_index(
-                    self.continuations[2].idx as usize,
+                    self.continuations[2].idx as int,
                 );
                 self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as usize,
+                    self.continuations[3].idx as int,
                 );
             }
         };

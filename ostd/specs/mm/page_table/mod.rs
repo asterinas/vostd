@@ -1543,7 +1543,7 @@ impl AbstractVaddr {
     /// Builds the path sequence from abstract_level down to bottom_level (both inclusive).
     /// abstract_level and bottom_level refer to the index keys in self.index (0 = lowest level, NR_LEVELS-1 = root).
     /// Returns indices in order from highest level (first in seq) to lowest level (last in seq).
-    pub open spec fn rec_to_path(self, abstract_level: int, bottom_level: int) -> Seq<usize>
+    pub open spec fn rec_to_path(self, abstract_level: int, bottom_level: int) -> Seq<int>
         decreases abstract_level - bottom_level,
         when bottom_level <= abstract_level
     {
@@ -1551,10 +1551,10 @@ impl AbstractVaddr {
             seq![]
         } else if abstract_level == bottom_level {
             // Base case: just this one level
-            seq![self.index[abstract_level] as usize]
+            seq![self.index[abstract_level]]
         } else {
             // Recursive case: place the current higher level first, then recurse downward.
-            seq![self.index[abstract_level] as usize].add(
+            seq![self.index[abstract_level]].add(
                 self.rec_to_path(abstract_level - 1, bottom_level),
             )
         }
@@ -1587,7 +1587,7 @@ impl AbstractVaddr {
             self.to_path_index(3, 0);
             path.lemma_index_satisfies_elem_inv(0);
             assert(vaddr(path) == path.index(0) * 0x80_0000_0000usize) by {
-                assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, path.index(0)) + rec_vaddr(
+                assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, path.index(0) as usize) + rec_vaddr(
                     path,
                     1,
                 )) as usize);
@@ -1617,7 +1617,7 @@ impl AbstractVaddr {
             assert(vaddr(path) == path.index(0) * 0x80_0000_0000usize + path.index(1)
                 * 0x4000_0000usize) by {
                 assert(vaddr(path) == rec_vaddr(path, 0));
-                assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, path.index(1)) + rec_vaddr(
+                assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, path.index(1) as usize) + rec_vaddr(
                     path,
                     2,
                 )) as usize);
@@ -1645,24 +1645,24 @@ impl AbstractVaddr {
                 * 0x4000_0000usize + path.index(2) * 0x20_0000usize) by {
                 assert(vaddr(path) == rec_vaddr(path, 0));
                 assert(rec_vaddr(path, 3) == 0);
-                assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, path.index(2)) + rec_vaddr(
+                assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, path.index(2) as usize) + rec_vaddr(
                     path,
                     3,
                 )) as usize);
-                assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, path.index(1)) + rec_vaddr(
+                assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, path.index(1) as usize) + rec_vaddr(
                     path,
                     2,
                 )) as usize);
-                assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, path.index(0)) + rec_vaddr(
+                assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, path.index(0) as usize) + rec_vaddr(
                     path,
                     1,
                 )) as usize);
-                assert(vaddr_make::<NR_LEVELS>(0, path.index(0)) == 0x80_0000_0000usize
+                assert(vaddr_make::<NR_LEVELS>(0, path.index(0) as usize) == 0x80_0000_0000usize
                     * path.index(0)) by (compute);
-                assert(vaddr_make::<NR_LEVELS>(1, path.index(1)) == 0x4000_0000usize * path.index(
+                assert(vaddr_make::<NR_LEVELS>(1, path.index(1) as usize) == 0x4000_0000usize * path.index(
                     1,
                 )) by (compute);
-                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2))
+                assert(vaddr_make::<NR_LEVELS>(2, path.index(2) as usize) == 0x20_0000usize * path.index(2))
                     by (compute);
             };
             assert(aligned.rec_compute_vaddr(3) == self.index[3] * 0x80_0000_0000usize) by {
@@ -1693,25 +1693,25 @@ impl AbstractVaddr {
                 by {
                 assert(vaddr(path) == rec_vaddr(path, 0));
                 assert(rec_vaddr(path, 4) == 0);
-                assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, path.index(2)) + rec_vaddr(
+                assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, path.index(2) as usize) + rec_vaddr(
                     path,
                     3,
                 )) as usize);
-                assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, path.index(1)) + rec_vaddr(
+                assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, path.index(1) as usize) + rec_vaddr(
                     path,
                     2,
                 )) as usize);
-                assert(vaddr_make::<NR_LEVELS>(0, path.index(0)) == 0x80_0000_0000usize
+                assert(vaddr_make::<NR_LEVELS>(0, path.index(0) as usize) == 0x80_0000_0000usize
                     * path.index(0)) by (compute);
-                assert(vaddr_make::<NR_LEVELS>(1, path.index(1)) == 0x4000_0000usize * path.index(
+                assert(vaddr_make::<NR_LEVELS>(1, path.index(1) as usize) == 0x4000_0000usize * path.index(
                     1,
                 )) by (compute);
-                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2))
+                assert(vaddr_make::<NR_LEVELS>(2, path.index(2) as usize) == 0x20_0000usize * path.index(2))
                     by {
                     assert(vaddr_shift_bits::<NR_LEVELS>(2) == 21nat) by (compute);
                     assert(pow2(21nat) == 0x20_0000) by (compute);
                 }
-                assert(vaddr_make::<NR_LEVELS>(3, path.index(3)) == 0x1000usize * path.index(3))
+                assert(vaddr_make::<NR_LEVELS>(3, path.index(3) as usize) == 0x1000usize * path.index(3))
                     by (compute);
             };
             assert(aligned.rec_compute_vaddr(4) == 0);
@@ -2054,7 +2054,7 @@ impl AbstractVaddr {
         assert(self.index.contains_key(abstract_level));
         if abstract_level == bottom_level {
         } else {
-            let head = seq![self.index[abstract_level] as usize];
+            let head = seq![self.index[abstract_level]];
             let tail = self.rec_to_path(abstract_level - 1, bottom_level);
             let full = head.add(tail);
             if i == 0 {

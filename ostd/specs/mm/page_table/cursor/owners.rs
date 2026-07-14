@@ -120,7 +120,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             tree_level: (self.tree_level + 1) as nat,
             idx: idx,
             children: self.children[self.idx as int]->0.children(),
-            path: self.path.push_tail(self.idx as usize),
+            path: self.path.push_tail(self.idx as int),
             guard: guard,
         };
         let cont = Self { children: self.children.update(self.idx as int, None), ..self };
@@ -187,7 +187,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         forall|i: int|
             #![trigger(self.children[i])]
             0 <= i < self.children.len() ==> self.children[i] is Some
-                ==> self.children[i]->0.subtree_satisfies(self.path().push_tail(i as usize), f)
+                ==> self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f)
     }
 
     // map_children_lift, map_children_lift_skip_idx, as_subtree_restore
@@ -240,7 +240,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                         self.entry_own.node().children_perm.value()[i],
                         self.entry_own.node().level,
                     )
-                    &&& child->0.value().path == self.path().push_tail(i as usize)
+                    &&& child->0.value().path == self.path().push_tail(i)
                 }
             }
     }
@@ -281,7 +281,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.entry_own.node().children_perm.value()[i],
                 self.entry_own.node().level,
             ),
-            self.children[i]->0.value().path == self.path().push_tail(i as usize),
+            self.children[i]->0.value().path == self.path().push_tail(i),
     {
         lemma_forall_seq_index(self.children, self.inv_children_rel_pred(), i);
     }
@@ -331,7 +331,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         self.children.map(
             |i, child: Option<OwnerSubtree<C>>|
                 if child is Some {
-                    PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                    PageTableOwner(child->0).view_rec(self.path().push_tail(i))
                 } else {
                     Set::empty()
                 },
@@ -346,7 +346,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     #![trigger self.children[i]]
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                         self.children[i]->0,
-                    ).view_rec(self.path().push_tail(i as usize)).contains(m),
+                    ).view_rec(self.path().push_tail(i)).contains(m),
     {
         broadcast use vstd::seq_lib::group_seq_properties;
 
@@ -354,11 +354,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             #![trigger self.children[i]]
             0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                 self.children[i]->0,
-            ).view_rec(self.path().push_tail(i as usize)).contains(m) by {
+            ).view_rec(self.path().push_tail(i)).contains(m) by {
             let mapped = self.children.map(
                 |i, child: Option<OwnerSubtree<C>>|
                     if child is Some {
-                        PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                        PageTableOwner(child->0).view_rec(self.path().push_tail(i))
                     } else {
                         Set::empty()
                     },
@@ -371,7 +371,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             let i = mapped.lemma_contains_to_index(elem_s);
             if self.children[i] is Some {
                 assert(mapped[i] == PageTableOwner(self.children[i]->0).view_rec(
-                    self.path().push_tail(i as usize),
+                    self.path().push_tail(i),
                 ));
             } else {
                 assert(mapped[i] == Set::<Mapping>::empty());
@@ -385,7 +385,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             0 <= i < self.children.len(),
             self.children[i] is Some,
             #[trigger] PageTableOwner(self.children[i]->0).view_rec(
-                self.path().push_tail(i as usize),
+                self.path().push_tail(i),
             ).contains(m),
         ensures
             self.view_mappings().contains(m),
@@ -395,7 +395,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         let mapped = self.children.map(
             |i, child: Option<OwnerSubtree<C>>|
                 if child is Some {
-                    PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                    PageTableOwner(child->0).view_rec(self.path().push_tail(i))
                 } else {
                     Set::empty()
                 },
@@ -416,7 +416,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn view_mappings_take_child_spec(self) -> Set<Mapping> {
         PageTableOwner(self.children[self.idx as int]->0).view_rec(
-            self.path().push_tail(self.idx as usize),
+            self.path().push_tail(self.idx as int),
         )
     }
 
@@ -444,7 +444,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             entry.idx == idx,
             entry_own.is_node(),
             entry_own.node() == parent_owner,
-            child_value.path == entry_own.path.push_tail(idx),
+            child_value.path == entry_own.path.push_tail(idx as int),
             child_value.path.len() == parent_owner.tree_level + 1,
         ensures
             child_value.path.len() == parent_owner.tree_level + 1,
@@ -452,7 +452,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 parent_owner.children_perm.value()[idx as int],
                 parent_owner.level,
             ),
-            child_value.path == entry_own.path.push_tail(idx),
+            child_value.path == entry_own.path.push_tail(idx as int),
             child_value.parent_level == parent_owner.level,
     {
     }
@@ -515,7 +515,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.children[self.idx as int]->0.inv(),
             self.children[self.idx as int]->0.value().parent_level == self.level(),
             self.children[self.idx as int]->0.value().path == self.path().push_tail(
-                self.idx as usize,
+                self.idx as int,
             ),
             self.children[self.idx as int]->0.level() == self.tree_level + 1,
             self.children[self.idx as int]->0.value().path.len() == self.entry_own.node().tree_level
@@ -549,14 +549,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             paddr < MAX_PADDR,
             paddr % page_size(self.level()) == 0,
             paddr + page_size(self.level()) <= MAX_PADDR,
-            self.path().push_tail(self.idx as usize).inv(),
+            self.path().push_tail(self.idx as int).inv(),
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
             // Allocating a child doesn't touch the segment obligation ledger.
             res.value() == EntryOwner::<C>::new_frame(
                 paddr,
-                self.path().push_tail(self.idx as usize),
+                self.path().push_tail(self.idx as int),
                 self.level(),
                 prop,
                 is_tracked,
@@ -567,7 +567,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     {
         let tracked mut owner = EntryOwner::<C>::tracked_new_frame(
             paddr,
-            self.path().push_tail(self.idx as usize),
+            self.path().push_tail(self.idx as int),
             self.level(),
             prop,
             is_tracked,
@@ -714,7 +714,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 != self.continuations[3].guard.inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[2].path() == self.continuations[3].path().push_tail(
-                self.continuations[3].idx as usize,
+                self.continuations[3].idx as int,
             )
             // PTE consistency
             &&& self.continuations[2].entry_own.path.len()
@@ -738,7 +738,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 != self.continuations[3].guard.inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[1].path() == self.continuations[2].path().push_tail(
-                self.continuations[2].idx as usize,
+                self.continuations[2].idx as int,
             )
             // PTE consistency
             &&& self.continuations[1].entry_own.path.len()
@@ -764,7 +764,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 != self.continuations[3].guard.inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[0].path() == self.continuations[1].path().push_tail(
-                self.continuations[1].idx as usize,
+                self.continuations[1].idx as int,
             )
             // PTE consistency
             &&& self.continuations[0].entry_own.path.len()
@@ -1248,7 +1248,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             new_subtree.inv(),
             new_subtree.value().is_frame(),
             new_subtree.value().path == self.continuations[self.level - 1].path().push_tail(
-                self.continuations[self.level - 1].idx as usize,
+                self.continuations[self.level - 1].idx as int,
             ),
             new_subtree.value().frame().mapped_pa == pa,
             new_subtree.value().frame().prop == prop,
@@ -1265,7 +1265,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ps = page_size(level);
         let cont = self.continuations[self.level - 1];
 
-        cont.path().lemma_push_tail_len(cont.idx as usize);
+        cont.path().lemma_push_tail_len(cont.idx as int);
 
         // Bridge `nat_align_down(cur_va, ps) == vaddr_of::<C>(path) as Vaddr`:
         //   to_path_vaddr_concrete: vaddr(path) + va.leading_bits * 2^48 == nat_align_down(cur_va, ps)
@@ -1282,30 +1282,30 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|i: int| 0 <= i < path.len() implies path.index(i) == va_path.index(i) by {
                 self.va.to_path_index(self.level - 1, i);
                 if self.level == 4 {
-                    cont.path().lemma_push_tail_index(cont.idx as usize);
+                    cont.path().lemma_push_tail_index(cont.idx as int);
                 } else if self.level == 3 {
-                    cont.path().lemma_push_tail_index(cont.idx as usize);
+                    cont.path().lemma_push_tail_index(cont.idx as int);
                     self.continuations[3].path().lemma_push_tail_index(
-                        self.continuations[3].idx as usize,
+                        self.continuations[3].idx as int,
                     );
                 } else if self.level == 2 {
-                    cont.path().lemma_push_tail_index(cont.idx as usize);
+                    cont.path().lemma_push_tail_index(cont.idx as int);
                     self.continuations[2].path().lemma_push_tail_index(
-                        self.continuations[2].idx as usize,
+                        self.continuations[2].idx as int,
                     );
                     self.continuations[3].path().lemma_push_tail_index(
-                        self.continuations[3].idx as usize,
+                        self.continuations[3].idx as int,
                     );
                 } else {
-                    cont.path().lemma_push_tail_index(cont.idx as usize);
+                    cont.path().lemma_push_tail_index(cont.idx as int);
                     self.continuations[1].path().lemma_push_tail_index(
-                        self.continuations[1].idx as usize,
+                        self.continuations[1].idx as int,
                     );
                     self.continuations[2].path().lemma_push_tail_index(
-                        self.continuations[2].idx as usize,
+                        self.continuations[2].idx as int,
                     );
                     self.continuations[3].path().lemma_push_tail_index(
-                        self.continuations[3].idx as usize,
+                        self.continuations[3].idx as int,
                     );
                 }
             };
@@ -2390,7 +2390,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let pt_level = INC_LEVELS - path.len();
         let cont = self.continuations[self.level - 1];
 
-        cont.path().lemma_push_tail_len(cont.idx as usize);
+        cont.path().lemma_push_tail_len(cont.idx as int);
 
         let m = Mapping {
             va_range: Range {
@@ -2467,9 +2467,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
-            cont.path().push_tail(j as usize), g) by {
+            cont.path().push_tail(j), g) by {
                 cont.inv_children_unroll(j);
-                cont.children[j].unwrap().lemma_map_implies(cont.path().push_tail(j as usize), f, g);
+                cont.children[j].unwrap().lemma_map_implies(cont.path().push_tail(j), f, g);
             };
         };
         assert(other.path_metaregion_sound(regions1)) by {
@@ -2636,20 +2636,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
-            cont.path().push_tail(j as usize), nsp) by {
+            cont.path().push_tail(j), nsp) by {
                 cont.inv_children_unroll(j);
                 PageTableOwner::tree_not_in_scope(
                     cont.children[j].unwrap(),
-                    cont.path().push_tail(j as usize),
+                    cont.path().push_tail(j),
                 );
             };
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
-            cont.path().push_tail(j as usize), g) by {
+            cont.path().push_tail(j), g) by {
                 cont.inv_children_unroll(j);
                 cont.children[j].unwrap().lemma_map_implies_and(
-                    cont.path().push_tail(j as usize),
+                    cont.path().push_tail(j),
                     f,
                     nsp,
                     g,
@@ -2888,32 +2888,32 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         let j = choose|j: int|
             0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
-            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+            ).view_rec(cont.path().push_tail(j)).contains(m);
         cont.pt_inv_children_unroll(j);
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
-        let p = cont.path().push_tail(j as usize);
-        cont.path().lemma_push_tail_len(j as usize);
-        cont.path().lemma_push_tail_index(j as usize);
+        let p = cont.path().push_tail(j);
+        cont.path().lemma_push_tail_len(j);
+        cont.path().lemma_push_tail_index(j);
         let pidx = p.index(0) as int;
         assert(start <= pidx < end) by {
             if i != NR_LEVELS - 1 {
                 assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
                     owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
-                        owner.continuations[NR_LEVELS - 1].idx,
+                        owner.continuations[NR_LEVELS - 1].idx as int,
                     );
                     if i == 2 {
                     } else if i == 1 {
                         owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx,
+                            owner.continuations[2].idx as int,
                         );
                     } else {
                         owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx,
+                            owner.continuations[2].idx as int,
                         );
                         owner.continuations[1].path().lemma_push_tail_index(
-                            owner.continuations[1].idx,
+                            owner.continuations[1].idx as int,
                         );
                     }
                 }
@@ -2964,12 +2964,12 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         let j = choose|j: int|
             0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
-            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+            ).view_rec(cont.path().push_tail(j)).contains(m);
         cont.pt_inv_children_unroll(j);
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
-        let p = cont.path().push_tail(j as usize);
-        cont.path().lemma_push_tail_index(j as usize);
+        let p = cont.path().push_tail(j);
+        cont.path().lemma_push_tail_index(j);
         assert(0 <= p.index(0) < end) by {
             if i == NR_LEVELS - 1 {
                 // Root continuation: `p == [j]`. A contributing child is a
@@ -2990,19 +2990,19 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
                 assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
                     owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
-                        owner.continuations[NR_LEVELS - 1].idx,
+                        owner.continuations[NR_LEVELS - 1].idx as int,
                     );
                     if i == 2 {
                     } else if i == 1 {
                         owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx,
+                            owner.continuations[2].idx as int,
                         );
                     } else {
                         owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx,
+                            owner.continuations[2].idx as int,
                         );
                         owner.continuations[1].path().lemma_push_tail_index(
-                            owner.continuations[1].idx,
+                            owner.continuations[1].idx as int,
                         );
                     }
                 }
@@ -3057,12 +3057,12 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
         let j = choose|j: int|
             0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
-            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+            ).view_rec(cont.path().push_tail(j)).contains(m);
         cont.pt_inv_children_unroll(j);
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
-        let p = cont.path().push_tail(j as usize);
-        cont.path().lemma_push_tail_index(j as usize);
+        let p = cont.path().push_tail(j);
+        cont.path().lemma_push_tail_index(j);
         assert(start <= p.index(0) < end) by {
             if i == NR_LEVELS - 1 {
             } else {
@@ -3071,19 +3071,19 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
                 assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
                     owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
-                        owner.continuations[NR_LEVELS - 1].idx,
+                        owner.continuations[NR_LEVELS - 1].idx as int,
                     );
                     if i == 2 {
                     } else if i == 1 {
                         owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx,
+                            owner.continuations[2].idx as int,
                         );
                     } else {
                         owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx,
+                            owner.continuations[2].idx as int,
                         );
                         owner.continuations[1].path().lemma_push_tail_index(
-                            owner.continuations[1].idx,
+                            owner.continuations[1].idx as int,
                         );
                     }
                 }

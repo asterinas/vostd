@@ -45,7 +45,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     #![auto]
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                         self.children[i].unwrap(),
-                    ).view_rec(self.path().push_tail(i as usize)).contains(m);
+                    ).view_rec(self.path().push_tail(i)).contains(m);
                 assert(pto.view_rec(self.path()).contains(m));
             };
             assert forall|m: Mapping|
@@ -56,7 +56,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     #![auto]
                     0 <= i < pto.0.children().len() && pto.0.children()[i] is Some && PageTableOwner(
                         pto.0.children()[i].unwrap(),
-                    ).view_rec(self.path().push_tail(i as usize)).contains(m);
+                    ).view_rec(self.path().push_tail(i)).contains(m);
             };
         };
     }
@@ -78,7 +78,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             let i = choose|i: int|
                 0 <= i < self.children.len() && #[trigger] self.children[i] is Some
                     && PageTableOwner(self.children[i].unwrap()).view_rec(
-                    self.path().push_tail(i as usize),
+                    self.path().push_tail(i),
                 ).contains(m);
             assert(i != self.idx);
             assert(self.take_child().1.children[i] is Some);
@@ -93,34 +93,34 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 #![auto]
                 0 <= i < left.children.len() && left.children[i] is Some && PageTableOwner(
                     left.children[i].unwrap(),
-                ).view_rec(left.path().push_tail(i as usize)).contains(m);
+                ).view_rec(left.path().push_tail(i)).contains(m);
             if self.view_mappings_take_child_spec().contains(m) {
                 assert(PageTableOwner(self.children[self.idx as int].unwrap()).view_rec(
-                    self.path().push_tail(self.idx as usize),
+                    self.path().push_tail(self.idx as int),
                 ).contains(m));
                 let i = choose|i: int|
                     0 <= i < left.children.len() && #[trigger] left.children[i] is Some
                         && PageTableOwner(left.children[i].unwrap()).view_rec(
-                        left.path().push_tail(i as usize),
+                        left.path().push_tail(i),
                     ).contains(m);
                 assert(PageTableOwner(left.children[i as int].unwrap()).view_rec(
-                    left.path().push_tail(i as usize),
+                    left.path().push_tail(i),
                 ).contains(m));
 
                 PageTableOwner(self.children[self.idx as int].unwrap()).view_rec_vaddr_range(
-                    self.path().push_tail(self.idx as usize),
+                    self.path().push_tail(self.idx as int),
                     m,
                 );
                 PageTableOwner(left.children[i as int].unwrap()).view_rec_vaddr_range(
-                    left.path().push_tail(i as usize),
+                    left.path().push_tail(i),
                     m,
                 );
 
                 let size = page_size((INC_LEVELS - self.path().len() - 1) as PagingLevel);
                 // Positional disjointness; shift both sides by LEADING_BITS * 2^48.
-                sibling_paths_disjoint::<C>(self.path(), self.idx, i as usize, size);
-                lemma_vaddr_of_eq_int::<C>(self.path().push_tail(self.idx as usize));
-                lemma_vaddr_of_eq_int::<C>(self.path().push_tail(i as usize));
+                sibling_paths_disjoint::<C>(self.path(), self.idx as int, i, size);
+                lemma_vaddr_of_eq_int::<C>(self.path().push_tail(self.idx as int));
+                lemma_vaddr_of_eq_int::<C>(self.path().push_tail(i));
             }
         };
     }
@@ -133,26 +133,26 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.put_child(child).view_mappings() == self.view_mappings() + PageTableOwner(
                 child,
-            ).view_rec(self.path().push_tail(self.idx as usize)),
+            ).view_rec(self.path().push_tail(self.idx as int)),
     {
         broadcast use CursorContinuation::group_lemmas;
 
         let def = self.put_child(child).view_mappings();
         let sum = self.view_mappings() + PageTableOwner(child).view_rec(
-            self.path().push_tail(self.idx as usize),
+            self.path().push_tail(self.idx as int),
         );
         assert forall|m: Mapping| sum.contains(m) implies def.contains(m) by {
             if self.view_mappings().contains(m) {
                 let i = choose|i: int|
                     0 <= i < self.children.len() && #[trigger] self.children[i] is Some
                         && PageTableOwner(self.children[i].unwrap()).view_rec(
-                        self.path().push_tail(i as usize),
+                        self.path().push_tail(i),
                     ).contains(m);
                 assert(self.put_child(child).children[i] == self.children[i]);
                 self.put_child(child).lemma_view_mappings_intro(m, i);
             } else {
                 assert(PageTableOwner(child).view_rec(
-                    self.path().push_tail(self.idx as usize),
+                    self.path().push_tail(self.idx as int),
                 ).contains(m));
                 assert(self.put_child(child).children[self.idx as int] == Some(child));
                 self.put_child(child).lemma_view_mappings_intro(m, self.idx as int);
@@ -164,7 +164,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     child,
                 ).children[i] is Some && PageTableOwner(
                     self.put_child(child).children[i].unwrap(),
-                ).view_rec(self.put_child(child).path().push_tail(i as usize)).contains(m);
+                ).view_rec(self.put_child(child).path().push_tail(i)).contains(m);
             if i == self.idx {
             } else {
                 assert(self.children[i] == self.put_child(child).children[i]);
@@ -293,11 +293,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 #![auto]
                 0 <= j < NR_ENTRIES && cont_i.children[j] is Some && PageTableOwner(
                     cont_i.children[j].unwrap(),
-                ).view_rec(cont_i.path().push_tail(j as usize)).contains(m);
+                ).view_rec(cont_i.path().push_tail(j)).contains(m);
 
             cont_i.inv_children_unroll(j);
             PageTableOwner(cont_i.children[j].unwrap()).view_rec_vaddr_range(
-                cont_i.path().push_tail(j as usize),
+                cont_i.path().push_tail(j),
                 m,
             );
 
@@ -306,30 +306,30 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     // cont_i.children[j] is exactly cur_subtree; m is already
                     // in subtree_mappings via view_rec at the same path.
                     assert(cont_i.children[j] == Some(cur_subtree));
-                    assert(cont_i.path().push_tail(j as usize) == cur_path);
+                    assert(cont_i.path().push_tail(j) == cur_path);
                     assert(subtree_mappings == PageTableOwner(cur_subtree).view_rec(cur_path));
                     assert(PageTableOwner(cur_subtree).view_rec(cur_path).contains(m));
                     assert(subtree_mappings.contains(m));
                 } else {
                     // Disjointness: sibling j's VA range doesn't overlap [subtree_va, subtree_va + page_size(level))
                     let sib_size = page_size((INC_LEVELS - cont.path().len() - 1) as PagingLevel);
-                    sibling_paths_disjoint::<C>(cont.path(), self.index(), j as usize, sib_size);
+                    sibling_paths_disjoint::<C>(cont.path(), self.index() as int, j, sib_size);
                     // Lift positional disjointness to canonical by adding
                     // the same leading_bits * 2^48 to both sides.
-                    lemma_vaddr_of_eq_int::<C>(cont.path().push_tail(self.index() as usize));
-                    lemma_vaddr_of_eq_int::<C>(cont.path().push_tail(j as usize));
+                    lemma_vaddr_of_eq_int::<C>(cont.path().push_tail(self.index() as int));
+                    lemma_vaddr_of_eq_int::<C>(cont.path().push_tail(j));
                     assert(false);  // contradiction from disjointness + filter
                 }
             } else {
-                if j as usize != cont_i.idx as usize {
+                if j as usize != cont_i.idx as int {
                     // Subtree VA range is contained in ancestor child range
                     self.subtree_va_in_ancestor_range(i);
 
                     // Sibling j is disjoint from cont_i.idx child
                     let sib_size = page_size((INC_LEVELS - cont_i.path().len() - 1) as PagingLevel);
-                    sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx, j as usize, sib_size);
-                    lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(cont_i.idx as usize));
-                    lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(j as usize));
+                    sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx as int, j, sib_size);
+                    lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(cont_i.idx as int));
+                    lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(j));
                     lemma_vaddr_of_eq_int::<C>(cur_path);
                     assert(false);  // contradiction
                 } else {
@@ -387,54 +387,54 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             self.level - 1 <= lvl < NR_LEVELS,
         ensures
-            vaddr(self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as usize))
+            vaddr(self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int))
                 + self.va.leading_bits * 0x1_0000_0000_0000int <= self.cur_va(),
             self.cur_va() < vaddr(
-                self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as usize),
+                self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int),
             ) + self.va.leading_bits * 0x1_0000_0000_0000int + page_size((lvl + 1) as PagingLevel),
-            vaddr(self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as usize))
+            vaddr(self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int))
                 == vaddr(self.va.to_path(lvl)),
     {
         let cont = self.continuations[lvl];
-        let child_path = cont.path().push_tail(cont.idx as usize);
+        let child_path = cont.path().push_tail(cont.idx as int);
         let va_path = self.va.to_path(lvl);
 
         self.va.to_path_len(lvl);
-        cont.path().lemma_push_tail_len(cont.idx as usize);
+        cont.path().lemma_push_tail_len(cont.idx as int);
         assert forall|k: int| 0 <= k < child_path.len() implies child_path.index(k)
             == va_path.index(k) by {
             self.va.to_path_index(lvl, k);
             if lvl == 3 {
-                cont.path().lemma_push_tail_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as int);
             } else if lvl == 2 {
-                cont.path().lemma_push_tail_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as int);
                 self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as usize,
+                    self.continuations[3].idx as int,
                 );
             } else if lvl == 1 {
-                cont.path().lemma_push_tail_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as int);
                 self.continuations[2].path().lemma_push_tail_index(
-                    self.continuations[2].idx as usize,
+                    self.continuations[2].idx as int,
                 );
                 self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as usize,
+                    self.continuations[3].idx as int,
                 );
             } else {
-                cont.path().lemma_push_tail_index(cont.idx as usize);
+                cont.path().lemma_push_tail_index(cont.idx as int);
                 self.continuations[1].path().lemma_push_tail_index(
-                    self.continuations[1].idx as usize,
+                    self.continuations[1].idx as int,
                 );
                 self.continuations[2].path().lemma_push_tail_index(
-                    self.continuations[2].idx as usize,
+                    self.continuations[2].idx as int,
                 );
                 self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as usize,
+                    self.continuations[3].idx as int,
                 );
             }
         };
 
         self.va.to_path_inv(lvl);
-        cont.path().lemma_push_tail_preserves_inv(cont.idx as usize);
+        cont.path().lemma_push_tail_preserves_inv(cont.idx as int);
         AbstractVaddr::rec_vaddr_eq_if_indices_eq(child_path, va_path, 0);
         self.va.vaddr_range_from_path(lvl);
     }
@@ -450,7 +450,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ({
                 let subtree_va = vaddr(self.cur_subtree().value().path);
                 let idx_path_va = vaddr(
-                    self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as usize),
+                    self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int),
                 );
                 &&& idx_path_va <= subtree_va
                 &&& subtree_va + page_size(self.level) <= idx_path_va + page_size(
@@ -480,7 +480,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         // Explicit chain: idx_path_va + shift == nat_align_down(x, coarse)
         let idx_path_va = vaddr(
-            self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as usize),
+            self.continuations[lvl].path().push_tail(self.continuations[lvl].idx as int),
         );
         assert(idx_path_va == vaddr(self.va.to_path(lvl)));
         assert(idx_path_va + shift == nat_align_down(x, coarse));
@@ -503,11 +503,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             j != self.index(),
             self.continuations[self.level - 1].children[j] is Some,
         ensures
-            vaddr(self.continuations[self.level - 1].path().push_tail(j as usize))
+            vaddr(self.continuations[self.level - 1].path().push_tail(j))
                 + self.va.leading_bits * 0x1_0000_0000_0000int + page_size(
                 self.level as PagingLevel,
             ) <= self.cur_va() || self.cur_va() < vaddr(
-                self.continuations[self.level - 1].path().push_tail(j as usize),
+                self.continuations[self.level - 1].path().push_tail(j),
             ) + self.va.leading_bits * 0x1_0000_0000_0000int,
     {
         let cont = self.continuations[self.level - 1];
@@ -519,7 +519,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         // Sibling paths are separated by `page_size(self.level)` (child page size).
         let size = page_size((INC_LEVELS - cont.path().len() - 1) as PagingLevel);
-        sibling_paths_disjoint::<C>(cont.path(), idx, j as usize, size);
+        sibling_paths_disjoint::<C>(cont.path(), idx as int, j, size);
     }
 
     /// Children of higher-level continuations have VA ranges that don't include cur_va,
@@ -533,9 +533,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             j != self.continuations[i].idx,
             self.continuations[i].children[j] is Some,
         ensures
-            vaddr(self.continuations[i].path().push_tail(j as usize)) + self.va.leading_bits
+            vaddr(self.continuations[i].path().push_tail(j)) + self.va.leading_bits
                 * 0x1_0000_0000_0000int + page_size((i + 1) as PagingLevel) <= self.cur_va()
-                || self.cur_va() < vaddr(self.continuations[i].path().push_tail(j as usize))
+                || self.cur_va() < vaddr(self.continuations[i].path().push_tail(j))
                 + self.va.leading_bits * 0x1_0000_0000_0000int,
     {
         let cont = self.continuations[i];
@@ -546,7 +546,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         // Siblings at this depth are separated by `page_size(i+1)` (child page size).
         let size = page_size((INC_LEVELS - cont.path().len() - 1) as PagingLevel);
-        sibling_paths_disjoint::<C>(cont.path(), cont.idx, j as usize, size);
+        sibling_paths_disjoint::<C>(cont.path(), cont.idx as int, j, size);
     }
 
     /// Any mapping that covers cur_va must come from the current subtree.
@@ -576,11 +576,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             #![auto]
             0 <= j < NR_ENTRIES && cont_i.children[j] is Some && PageTableOwner(
                 cont_i.children[j].unwrap(),
-            ).view_rec(cont_i.path().push_tail(j as usize)).contains(m);
+            ).view_rec(cont_i.path().push_tail(j)).contains(m);
 
         cont_i.inv_children_unroll(j);
         let child_j = cont_i.children[j].unwrap();
-        let path_j = cont_i.path().push_tail(j as usize);
+        let path_j = cont_i.path().push_tail(j);
         PageTableOwner(child_j).view_rec_vaddr_range(path_j, m);
         // Bridge view_rec_vaddr_range's canonical bounds to the
         // disjointness lemmas (also canonical after the refactor).
@@ -591,7 +591,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.subtree_va_ranges_disjoint(j);
             }
         } else {
-            if j as usize != cont_i.idx as usize {
+            if j as usize != cont_i.idx as int {
                 self.higher_level_children_disjoint(i, j);
             } else {
                 assert(cont_i.children[cont_i.idx as int] is None);
@@ -648,10 +648,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         #![auto]
                         0 <= j < NR_ENTRIES && cont_i.children[j] is Some && PageTableOwner(
                             cont_i.children[j].unwrap(),
-                        ).view_rec(cont_i.path().push_tail(j as usize)).contains(m);
+                        ).view_rec(cont_i.path().push_tail(j)).contains(m);
                     cont_i.inv_children_unroll(j);
                     PageTableOwner(cont_i.children[j].unwrap()).view_rec_vaddr_range(
-                        cont_i.path().push_tail(j as usize),
+                        cont_i.path().push_tail(j),
                         m,
                     );
 
@@ -659,14 +659,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         #![auto]
                         0 <= k < NR_ENTRIES && old_cont.children[k] is Some && PageTableOwner(
                             old_cont.children[k].unwrap(),
-                        ).view_rec(old_cont.path().push_tail(k as usize)).contains(m);
+                        ).view_rec(old_cont.path().push_tail(k)).contains(m);
                     old_cont.inv_children_unroll(k);
                     PageTableOwner(old_cont.children[k].unwrap()).view_rec_vaddr_range(
-                        old_cont.path().push_tail(k as usize),
+                        old_cont.path().push_tail(k),
                         m,
                     );
 
-                    if j as usize != cont_i.idx as usize {
+                    if j as usize != cont_i.idx as int {
                         old_self.cur_va_in_cont_child_range(level as int);
                         old_self.va.to_path_vaddr_concrete(level as int);
                         old_self.cur_va_in_cont_child_range(i);
@@ -692,13 +692,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         );
                         sibling_paths_disjoint::<C>(
                             cont_i.path(),
-                            cont_i.idx,
-                            j as usize,
+                            cont_i.idx as int,
+                            j,
                             sib_size,
                         );
                         // Lift positional disjointness to canonical.
-                        lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(cont_i.idx as usize));
-                        lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(j as usize));
+                        lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(cont_i.idx as int));
+                        lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(j));
 
                         old_cont.as_subtree_inv();
                         old_cont.as_subtree_properties();

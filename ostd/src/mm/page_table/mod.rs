@@ -1121,7 +1121,7 @@ impl PageTable<KernelPtConfig> {
                     i as int,
                 );
                 assert(child_subtree.subtree_satisfies(
-                    kernel_owner.0.value().path.push_tail(i as usize),
+                    kernel_owner.0.value().path.push_tail(i as int),
                     PageTableOwner::<KernelPtConfig>::metaregion_sound_pred(*regions),
                 ));
                 assert(entry_owner.metaregion_sound(*regions));

@@ -73,7 +73,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let new_child = other.continuations[self.level
                     - 1].children[other.continuations[self.level - 1].idx as int]->0;
                 let new_path = other.continuations[self.level - 1].path().push_tail(
-                    other.continuations[self.level - 1].idx as usize,
+                    other.continuations[self.level - 1].idx as int,
                 );
                 new_child.subtree_satisfies(
                     new_path,
@@ -106,7 +106,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     #![trigger o_cont.children[j]]
                     0 <= j < o_cont.children.len()
                         && o_cont.children[j] is Some implies o_cont.children[j].unwrap().subtree_satisfies(
-                o_cont.path().push_tail(j as usize), f) by {
+                o_cont.path().push_tail(j), f) by {
                     if j != idx {
                         assert(o_cont.children[j] == s_cont.children[j]);
                         s_cont.inv_children_unroll(j);
@@ -228,7 +228,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     - 1].idx as int]->0,
             ).view_rec(
                 self.continuations[self.level - 1].path().push_tail(
-                    self.continuations[self.level - 1].idx as usize,
+                    self.continuations[self.level - 1].idx as int,
                 ),
             ) =~= Set::<Mapping>::empty(),
         ensures
@@ -244,14 +244,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(cont.view_mappings() == cont0.view_mappings()) by {
             cont0.inv_children_unroll(idx);
             PageTableOwner(cont0.children[idx].unwrap()).view_rec_absent_empty(
-                cont0.path().push_tail(idx as usize),
+                cont0.path().push_tail(idx as int),
             );
             assert forall|m: Mapping|
                 cont.view_mappings().contains(m) implies cont0.view_mappings().contains(m) by {
                 let j = choose|j: int|
                     0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some
                         && PageTableOwner(cont.children[j].unwrap()).view_rec(
-                        cont.path().push_tail(j as usize),
+                        cont.path().push_tail(j),
                     ).contains(m);
                 if j == idx {
                     // cont.children[idx]'s view_rec == empty (from precondition)
@@ -265,7 +265,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let j = choose|j: int|
                     0 <= j < cont0.children.len() && #[trigger] cont0.children[j] is Some
                         && PageTableOwner(cont0.children[j].unwrap()).view_rec(
-                        cont0.path().push_tail(j as usize),
+                        cont0.path().push_tail(j),
                     ).contains(m);
                 if j == idx {
                     // cont0.children[idx] is absent, view_rec is empty
@@ -332,14 +332,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         if i == 3 && j == 2 {
             self.continuations[3].path().lemma_push_tail_index(
-                self.continuations[3].idx as usize,
+                self.continuations[3].idx as int,
             );
-            self.continuations[3].path().lemma_push_tail_len(self.continuations[3].idx as usize);
+            self.continuations[3].path().lemma_push_tail_len(self.continuations[3].idx as int);
         } else if i == 3 && j == 1 {
             let p3 = self.continuations[3].path();
             let p2 = self.continuations[2].path();
-            let idx3 = self.continuations[3].idx as usize;
-            let idx2 = self.continuations[2].idx as usize;
+            let idx3 = self.continuations[3].idx as int;
+            let idx2 = self.continuations[2].idx as int;
             p3.lemma_push_tail_index(idx3);
             p3.lemma_push_tail_len(idx3);
             p2.lemma_push_tail_index(idx2);
@@ -351,9 +351,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let p3 = self.continuations[3].path();
             let p2 = self.continuations[2].path();
             let p1 = self.continuations[1].path();
-            let idx3 = self.continuations[3].idx as usize;
-            let idx2 = self.continuations[2].idx as usize;
-            let idx1 = self.continuations[1].idx as usize;
+            let idx3 = self.continuations[3].idx as int;
+            let idx2 = self.continuations[2].idx as int;
+            let idx1 = self.continuations[1].idx as int;
             p3.lemma_push_tail_index(idx3);
             p3.lemma_push_tail_len(idx3);
             p2.lemma_push_tail_index(idx2);
@@ -366,14 +366,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(p2.push_tail(idx2).index(p3.len() as int) == p2.index(p3.len() as int));
         } else if i == 2 && j == 1 {
             self.continuations[2].path().lemma_push_tail_index(
-                self.continuations[2].idx as usize,
+                self.continuations[2].idx as int,
             );
-            self.continuations[2].path().lemma_push_tail_len(self.continuations[2].idx as usize);
+            self.continuations[2].path().lemma_push_tail_len(self.continuations[2].idx as int);
         } else if i == 2 && j == 0 {
             let p2 = self.continuations[2].path();
             let p1 = self.continuations[1].path();
-            let idx2 = self.continuations[2].idx as usize;
-            let idx1 = self.continuations[1].idx as usize;
+            let idx2 = self.continuations[2].idx as int;
+            let idx1 = self.continuations[1].idx as int;
             p2.lemma_push_tail_index(idx2);
             p2.lemma_push_tail_len(idx2);
             p1.lemma_push_tail_index(idx1);
@@ -385,9 +385,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(p2.push_tail(idx2).index(p2.len() as int) == idx2);
         } else if i == 1 && j == 0 {
             self.continuations[1].path().lemma_push_tail_index(
-                self.continuations[1].idx as usize,
+                self.continuations[1].idx as int,
             );
-            self.continuations[1].path().lemma_push_tail_len(self.continuations[1].idx as usize);
+            self.continuations[1].path().lemma_push_tail_len(self.continuations[1].idx as int);
         }
     }
 

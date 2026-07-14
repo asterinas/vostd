@@ -1186,7 +1186,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let qm = self@.query_mapping();
             self.query_mapping_from_subtree(qm);
             let cont = self.continuations[self.level - 1];
-            cont.path().lemma_push_tail_len(cont.idx as usize);
+            cont.path().lemma_push_tail_len(cont.idx as int);
             PageTableOwner(subtree).view_rec_node_page_size_bound(path, qm);
         }
     }
@@ -1220,7 +1220,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let qm = self@.query_mapping();
             self.query_mapping_from_subtree(qm);
             let cont = self.continuations[self.level - 1];
-            cont.path().lemma_push_tail_len(cont.idx as usize);
+            cont.path().lemma_push_tail_len(cont.idx as int);
             PageTableOwner(subtree).view_rec_page_size_bound(path, qm);
         }
     }
