@@ -125,6 +125,7 @@ pub axiom fn query_embedded<'rcu>(
         old(regions).inv(),
         old(kernel_pt).inv(),
         old(kernel_pt).metaregion_sound(*old(regions)),
+        old(kernel_pt).0.value.node().relate_guard(root_guard),
         !(KVirtArea { range }).query_panic_condition(
             KVirtAreaOwner { pt_owner: *old(kernel_pt) },
             addr,
@@ -165,6 +166,7 @@ impl KVmStore {
                 addr,
                 old(self).regions,
             ),
+            old(self).kernel_pt.0.value.node().relate_guard(root_guard),
         ensures
             final(self).inv(),
             final(self).kvirt_areas == old(self).kvirt_areas,
