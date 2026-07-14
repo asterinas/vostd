@@ -198,7 +198,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         other.as_subtree_properties();
     }
 
-    /// When a continuation has all_some and inv, its as_subtree() also has Node::inv().
+    /// When a continuation has all_some and inv, its as_subtree() also has `TreeNode::inv()`.
     proof fn as_subtree_inv(self)
         requires
             self.inv(),

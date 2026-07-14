@@ -378,7 +378,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
 
 pub const INC_LEVELS: usize = NR_LEVELS + 1;
 
-/// `OwnerSubtree` is a tree `Node` (from `vstd_extra::ghost_tree`) containing `EntryOwner`s.
+/// `OwnerSubtree` is a [`TreeNode`] containing `EntryOwner`s.
 /// It lives in a tree of maximum depth 5. Page table nodes can be at levels 0-3, and their entries are their children at the next
 /// level down. This means that level 4, the lowest level, can only contain frame entries as it consists of the entries of level 1 page tables.
 ///
@@ -387,7 +387,7 @@ pub const INC_LEVELS: usize = NR_LEVELS + 1;
 ///                        tree level 2 ==> path length 2 ==> level 2 page table or frame mapped by level 3 table
 ///                        tree level 3 ==> path length 3 ==> level 1 page table or frame mapped by level 2 table
 ///                        tree level 4 ==> path length 4 ==> frame mapped by level 1 table
-pub type OwnerSubtree<C> = Node<EntryOwner<C>, NR_ENTRIES, INC_LEVELS>;
+pub type OwnerSubtree<C> = TreeNode<EntryOwner<C>, NR_ENTRIES, INC_LEVELS>;
 
 /// Specifies that `owner` is the ghost owner of a newly allocated empty page table node.
 /// Captures the structural post-conditions of `PageTableNode::alloc`.
@@ -579,7 +579,7 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
 }
 
 /// # Verification Design
-/// `PageTableOwner` is a wrapper around [`OwnerSubtree`], which is a [`vstd_extra::ghost_tree::Node`]
+/// `PageTableOwner` is a wrapper around [`OwnerSubtree`], which is a [`TreeNode`].
 /// in a tree of [`EntryOwner`]s. In turn, `EntryOwner` carries a enum that may be a
 /// [`FrameEntryOwner`] if the entry is a leaf node that maps a frame, or a [`NodeOwner`] if
 /// the entry is a sub-table. The root of the top-level page table owner should always be
@@ -719,7 +719,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             && PageTableOwner(owner.children()[i].unwrap()).pt_inv_at_depth((depth - 1) as nat) by {
             let child = owner.children()[i].unwrap();
             // pt_edge_at follows from the per-edge facts in the precondition.
-            // owner.inv() ⇒ child.inv() (Node::inv recurses since
+            // owner.inv() ⇒ child.inv() (`TreeNode::inv` recurses since
             // INC_LEVELS - owner.level > 1) ⇒ child.value.inv() ⇒ inv_base
             // ⇒ (node is Some ⇒ !absent), so is_absent ⇒ !is_node.
             assert(child.inv());
