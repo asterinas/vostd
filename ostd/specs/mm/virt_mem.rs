@@ -1144,37 +1144,14 @@ impl GlobalMemView {
             view == old(self).take_view(vaddr, len).1,
     {
         let ghost old_self = *self;
-        let ghost range_end = vaddr + len;
-
-        let ghost leave_mappings = old_self.tlb_mappings.filter(
-            |m: Mapping| m.va_range.end <= vaddr || m.va_range.start > range_end,
-        );
-        let ghost take_mappings = old_self.tlb_mappings.filter(
-            |m: Mapping| m.va_range.start < range_end && m.va_range.end > vaddr,
-        );
-        let ghost leave_pas = old_self.memory.dom().filter(
-            |pa: usize|
-                exists|m: Mapping|
-                    leave_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end,
-        );
-        let ghost take_pas = old_self.memory.dom().filter(
-            |pa: usize|
-                exists|m: Mapping|
-                    take_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end,
-        );
-        let ghost non_leave_pas = old_self.memory.dom().difference(leave_pas);
-
+        let ghost taken = old_self.take_view(vaddr, len);
+        let ghost non_leave_pas = old_self.memory.dom().difference(taken.0.memory.dom());
         let tracked mut non_leave_memory = self.memory.tracked_remove_keys(non_leave_pas);
-
-        assert(self.memory == old_self.memory.restrict(leave_pas)) by {};
-
-        let tracked view_memory = non_leave_memory.tracked_remove_keys(take_pas);
-        assert(view_memory == old_self.memory.restrict(take_pas)) by {};
-        self.tlb_mappings = leave_mappings;
-
-        let tracked view = MemView { mappings: take_mappings, memory: view_memory };
-
-        view
+        assert(self.memory == taken.0.memory);
+        let tracked view_memory = non_leave_memory.tracked_remove_keys(taken.1.memory.dom());
+        assert(view_memory == taken.1.memory);
+        self.tlb_mappings = taken.0.tlb_mappings;
+        MemView { mappings: taken.1.mappings, memory: view_memory }
     }
 
     pub open spec fn return_view(self, view: MemView) -> Self {
