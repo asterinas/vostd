@@ -1143,7 +1143,7 @@ impl GlobalMemView {
             *final(self) == old(self).take_view(vaddr, len).0,
             view == old(self).take_view(vaddr, len).1,
     {
-        let ghost old_self = *self;
+        let ghost old_self = old(self);
         let ghost taken = old_self.take_view(vaddr, len);
         let ghost non_leave_pas = old_self.memory.dom().difference(taken.0.memory.dom());
         let tracked mut non_leave_memory = self.memory.tracked_remove_keys(non_leave_pas);
@@ -1241,7 +1241,7 @@ impl GlobalMemView {
             *final(self) == old(self).pt_unmap(m),
             final(self).inv(),
     {
-        let ghost old_self = *self;
+        let ghost old_self = old(self);
         self.pt_mappings = self.pt_mappings.remove(m);
         self.unmapped_pas = self.unmapped_pas.union(
             Set::<usize>::range(m.pa_range.start, m.pa_range.end),
