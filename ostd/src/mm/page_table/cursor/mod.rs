@@ -272,7 +272,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
-            pt_own.inv(),
+            pt.relates_owner(pt_own, *old(regions)),
+            pt_own.0.value.node().relate_guard(root_guard),
             // Per-config tightening: e.g. `KernelPtConfig` overrides
             // `LOCKED_END_BOUND_spec` to `FRAME_METADATA_BASE_VADDR`. Callers
             // for `KernelPtConfig` (KVirtArea, etc.) discharge this from the
@@ -2230,7 +2231,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
              Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
-            pt_own.inv(),
+            pt.relates_owner(pt_own, *old(regions)),
+            pt_own.0.value.node().relate_guard(root_guard),
             // Per-config tightening; see `Cursor::new`.
             0 < va.end <= C::LOCKED_END_BOUND_spec(),
         ensures

@@ -199,11 +199,14 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> alloc::vec::Vec<(P
         Tracked(guards): Tracked<&Guards<'rcu>>,
     requires
         regions.inv(),
+        old(kernel_owner)@ is Some ==> old(kernel_owner)@->0.inv(),
+        old(kernel_owner)@ is Some ==> old(kernel_owner)@->0.metaregion_sound(*regions),
     ensures
         final(kernel_owner)@ is Some,
         final(kernel_owner)@->0.inv(),
         (final(kernel_owner)@->0).0.value().is_node(),
         res.root.ptr.addr() == (final(kernel_owner)@->0).0.value().node().meta_addr_self(),
+        old(kernel_owner)@ is Some ==> final(kernel_owner)@ == old(kernel_owner)@,
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
             (final(kernel_owner)@->0).0.value().node(),
         ),
@@ -417,6 +420,8 @@ impl KVirtArea {
             self.inv(),
             old(regions).inv(),
             owner.inv(),
+            owner.pt_owner.metaregion_sound(*old(regions)),
+            owner.pt_owner.0.value.node().relate_guard(root_guard),
             // Precise: out-of-range diverges at the top `assert!`, and the
             // inner `Cursor::query` clones the resolved leaf frame — that
             // clone aborts only when *that specific slot* is saturated.
@@ -460,9 +465,10 @@ impl KVirtArea {
             // gives `start + PAGE_SIZE <= FRAME_METADATA_BASE_VADDR + PAGE_SIZE`.
         }
         let page_table = {
-            proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
-
-            #[verus_spec(with Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards))]
+            proof_decl! {
+                let tracked mut kpt_owner = Some(&owner.pt_owner);
+            }
+            #[verus_spec(with Tracked(&mut kpt_owner), Tracked(regions), Tracked(guards))]
             get_kernel_page_table()
         };
         let preempt_guard: &'rcu A = disable_preempt::<A>();
@@ -559,6 +565,8 @@ impl KVirtArea {
             kvirt_alloc_oom_condition(area_size) ==> may_panic(),
             old(regions).inv(),
             owner.inv(),
+            owner.pt_owner.metaregion_sound(*old(regions)),
+            owner.pt_owner.0.value.node().relate_guard(root_guard),
             // For each frame, the map contains an appropriate owner keyed by
             // that frame's paddr. Duplicates in `frames` share the same owner.
             forall|i: int|
@@ -614,10 +622,9 @@ impl KVirtArea {
 
         let page_table = {
             proof_decl! {
-                    let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
-                }
-
-            #[verus_spec(with Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards))]
+                let tracked mut kpt_owner = Some(&owner.pt_owner);
+            }
+            #[verus_spec(with Tracked(&mut kpt_owner), Tracked(regions), Tracked(guards))]
             get_kernel_page_table()
         };
         let preempt_guard = disable_preempt::<A>();
@@ -924,6 +931,8 @@ impl KVirtArea {
             kvirt_alloc_oom_condition(area_size) ==> may_panic(),
             old(regions).inv(),
             owner.inv(),
+            owner.pt_owner.metaregion_sound(*old(regions)),
+            owner.pt_owner.0.value.node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
             map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= usize::MAX,
         ensures
@@ -959,10 +968,9 @@ impl KVirtArea {
 
             let page_table = {
                 proof_decl! {
-                    let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
+                    let tracked mut kpt_owner = Some(&owner.pt_owner);
                 }
-
-                #[verus_spec(with Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards))]
+                #[verus_spec(with Tracked(&mut kpt_owner), Tracked(regions), Tracked(guards))]
                 get_kernel_page_table()
             };
             let preempt_guard = disable_preempt::<A>();
