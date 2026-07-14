@@ -1279,7 +1279,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.va.to_path_len(self.level - 1);
             self.va.to_path_inv(self.level - 1);
             self.cur_subtree_inv();
-            assert forall|i: int| 0 <= i < path.len() implies path.index(i) == va_path.index(i) by {
+            assert forall|i: int| 0 <= i < path.len() implies path[i] == va_path[i] by {
                 self.va.to_path_index(self.level - 1, i);
                 if self.level == 4 {
                     cont.path().lemma_push_tail_index(cont.idx as int);
@@ -2895,10 +2895,10 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         let p = cont.path().push_tail(j);
         cont.path().lemma_push_tail_len(j);
         cont.path().lemma_push_tail_index(j);
-        let pidx = p.index(0) as int;
+        let pidx = p[0] as int;
         assert(start <= pidx < end) by {
             if i != NR_LEVELS - 1 {
-                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
                     owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
                         owner.continuations[NR_LEVELS - 1].idx as int,
@@ -2970,24 +2970,24 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         let child = PageTableOwner(cont.children[j].unwrap());
         let p = cont.path().push_tail(j);
         cont.path().lemma_push_tail_index(j);
-        assert(0 <= p.index(0) < end) by {
+        assert(0 <= p[0] < end) by {
             if i == NR_LEVELS - 1 {
                 // Root continuation: `p == [j]`. A contributing child is a
                 // frame/node (borrowed/absent give an empty `view_rec`), hence
                 // neither borrowed nor absent; the cursor-inv top-level clause
                 // then forces `j ∈ [0, 256)`.
                 assert(cont.path().len() == 0);
-                assert(p.index(0) == j);
+                assert(p[0] == j);
                 assert(child.0.value().is_frame() || child.0.value().is_node());
                 assert(!child.0.value().is_borrowed());
                 assert(!child.0.value().is_absent());
             } else {
-                // Non-root continuation: `p.index(0) == cont.path().index(0)`,
+                // Non-root continuation: `p[0] == cont.path()[0]`,
                 // which (via the inv path chain) equals the root continuation's
                 // descended index, in `[0, 256)` by the cursor-inv idx clause.
                 assert(cont.path().len() > 0);
-                assert(p.index(0) == cont.path().index(0));
-                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                assert(p[0] == cont.path()[0]);
+                assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
                     owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
                         owner.continuations[NR_LEVELS - 1].idx as int,
@@ -3063,12 +3063,12 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
         let child = PageTableOwner(cont.children[j].unwrap());
         let p = cont.path().push_tail(j);
         cont.path().lemma_push_tail_index(j);
-        assert(start <= p.index(0) < end) by {
+        assert(start <= p[0] < end) by {
             if i == NR_LEVELS - 1 {
             } else {
-                // Non-root: `p.index(0) == cont.path().index(0) == root.idx ∈
+                // Non-root: `p[0] == cont.path()[0] == root.idx ∈
                 // [256, 512)` (path chain + cursor-inv idx clause).
-                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
                     owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
                         owner.continuations[NR_LEVELS - 1].idx as int,
@@ -3091,10 +3091,10 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
         }
         child.view_rec_top_index_va_bound(p, m, end);
         // m.start ≥ index(0)·2^39 + lb·2^48 ≥ start·2^39 + lb·2^48 = bound.0.
-        assert(p.index(0) * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int >= start
+        assert(p[0] * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int >= start
             * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int) by (nonlinear_arith)
             requires
-                start <= p.index(0),
+                start <= p[0],
         ;
     }
 }

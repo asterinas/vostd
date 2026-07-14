@@ -330,8 +330,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.to_path_len(L - 1);
         cont.path().lemma_push_tail_len(cont.idx as int);
 
-        assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path.index(i)
-            == va_path.index(i) by {
+        assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path[i]
+            == va_path[i] by {
             self.va.to_path_index(L - 1, i);
             if L == 4 {
                 cont.path().lemma_push_tail_index(cont.idx as int);

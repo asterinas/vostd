@@ -327,7 +327,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             i < NR_LEVELS,
         ensures
             self.continuations[j].path().len() as int > self.continuations[i].path().len(),
-            self.continuations[j].path().index(self.continuations[i].path().len() as int)
+            self.continuations[j].path()[self.continuations[i].path().len() as int]
                 == self.continuations[i].idx,
     {
         if i == 3 && j == 2 {
@@ -346,7 +346,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             p2.lemma_push_tail_len(idx2);
             assert(p3.len() < p2.len());
             assert(self.continuations[1].path() == p2.push_tail(idx2));
-            assert(p2.push_tail(idx2).index(p3.len() as int) == p2.index(p3.len() as int));
+            assert(p2.push_tail(idx2)[p3.len() as int] == p2[p3.len() as int]);
         } else if i == 3 && j == 0 {
             let p3 = self.continuations[3].path();
             let p2 = self.continuations[2].path();
@@ -362,8 +362,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             p1.lemma_push_tail_len(idx1);
             assert(p3.len() < p2.len());
             assert(p3.len() < p1.len());
-            assert(p1.push_tail(idx1).index(p3.len() as int) == p1.index(p3.len() as int));
-            assert(p2.push_tail(idx2).index(p3.len() as int) == p2.index(p3.len() as int));
+            assert(p1.push_tail(idx1)[p3.len() as int] == p1[p3.len() as int]);
+            assert(p2.push_tail(idx2)[p3.len() as int] == p2[p3.len() as int]);
         } else if i == 2 && j == 1 {
             self.continuations[2].path().lemma_push_tail_index(
                 self.continuations[2].idx as int,
@@ -380,9 +380,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             p1.lemma_push_tail_len(idx1);
             assert(p2.len() < p1.len());
             assert(self.continuations[0].path() == p1.push_tail(idx1));
-            assert(p1.push_tail(idx1).index(p2.len() as int) == p1.index(p2.len() as int));
+            assert(p1.push_tail(idx1)[p2.len() as int] == p1[p2.len() as int]);
             assert(p1 == p2.push_tail(idx2));
-            assert(p2.push_tail(idx2).index(p2.len() as int) == idx2);
+            assert(p2.push_tail(idx2)[p2.len() as int] == idx2);
         } else if i == 1 && j == 0 {
             self.continuations[1].path().lemma_push_tail_index(
                 self.continuations[1].idx as int,

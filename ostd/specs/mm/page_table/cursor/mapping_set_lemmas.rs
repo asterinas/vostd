@@ -401,8 +401,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         self.va.to_path_len(lvl);
         cont.path().lemma_push_tail_len(cont.idx as int);
-        assert forall|k: int| 0 <= k < child_path.len() implies child_path.index(k)
-            == va_path.index(k) by {
+        assert forall|k: int| 0 <= k < child_path.len() implies child_path[k]
+            == va_path[k] by {
             self.va.to_path_index(lvl, k);
             if lvl == 3 {
                 cont.path().lemma_push_tail_index(cont.idx as int);

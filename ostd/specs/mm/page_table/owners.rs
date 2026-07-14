@@ -75,7 +75,7 @@ pub open spec fn rec_vaddr(
     if idx == path.len() {
         0
     } else {
-        let offset = path.index(idx) as usize;
+        let offset = path[idx] as usize;
         (vaddr_make::<NR_LEVELS>(idx, offset) + rec_vaddr(path, idx + 1)) as usize
     }
 }
@@ -126,22 +126,22 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     if path.len() == 0 {
     } else if path.len() == 1 {
         path.lemma_index_satisfies_elem_inv(0);
-        let i0 = path.index(0);
+        let i0 = path[0];
         assert(rec_vaddr(path, 1) == 0);
     } else if path.len() == 2 {
         path.lemma_index_satisfies_elem_inv(0);
         path.lemma_index_satisfies_elem_inv(1);
-        let i0 = path.index(0);
-        let i1 = path.index(1);
+        let i0 = path[0];
+        let i1 = path[1];
         assert(rec_vaddr(path, 2) == 0);
         assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1 as usize) as usize);
     } else if path.len() == 3 {
         path.lemma_index_satisfies_elem_inv(0);
         path.lemma_index_satisfies_elem_inv(1);
         path.lemma_index_satisfies_elem_inv(2);
-        let i0 = path.index(0);
-        let i1 = path.index(1);
-        let i2 = path.index(2);
+        let i0 = path[0];
+        let i1 = path[1];
+        let i2 = path[2];
         assert(rec_vaddr(path, 3) == 0);
         assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2 as usize) as usize);
         assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<NR_LEVELS>(
@@ -153,10 +153,10 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
         path.lemma_index_satisfies_elem_inv(1);
         path.lemma_index_satisfies_elem_inv(2);
         path.lemma_index_satisfies_elem_inv(3);
-        let i0 = path.index(0);
-        let i1 = path.index(1);
-        let i2 = path.index(2);
-        let i3 = path.index(3);
+        let i0 = path[0];
+        let i1 = path[1];
+        let i2 = path[2];
+        let i3 = path[3];
         assert(rec_vaddr(path, 4) == 0);
         assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3 as usize) as usize);
         assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + vaddr_make::<NR_LEVELS>(
@@ -192,8 +192,8 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
         path.inv(),
         1 <= path.len() <= INC_LEVELS - 1,
     ensures
-        (path.index(0)) * 0x80_0000_0000int <= vaddr(path),
-        vaddr(path) + page_size((INC_LEVELS - path.len()) as PagingLevel) <= (path.index(0) + 1)
+        (path[0]) * 0x80_0000_0000int <= vaddr(path),
+        vaddr(path) + page_size((INC_LEVELS - path.len()) as PagingLevel) <= (path[0] + 1)
             * 0x80_0000_0000int,
 {
     broadcast use TreePath::lemma_index_satisfies_elem_inv;
@@ -201,14 +201,14 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
     lemma_page_size_spec_values();
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
-    let i0 = path.index(0);
+    let i0 = path[0];
     assert(i0 < NR_ENTRIES);
     assert(vaddr_make::<NR_LEVELS>(0, i0 as usize) == 0x80_0000_0000usize * i0) by (compute);
     if path.len() == 1 {
         assert(rec_vaddr(path, 1) == 0);
         assert(vaddr(path) == 0x80_0000_0000usize * i0);
     } else if path.len() == 2 {
-        let i1 = path.index(1);
+        let i1 = path[1];
         assert(i1 < NR_ENTRIES);
         assert(rec_vaddr(path, 2) == 0);
         assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1 as usize) as usize);
@@ -219,8 +219,8 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
                 i1 < 512,
         ;
     } else if path.len() == 3 {
-        let i1 = path.index(1);
-        let i2 = path.index(2);
+        let i1 = path[1];
+        let i2 = path[2];
         assert(i1 < NR_ENTRIES);
         assert(i2 < NR_ENTRIES);
         assert(rec_vaddr(path, 3) == 0);
@@ -240,9 +240,9 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
                 i2 < 512,
         ;
     } else {
-        let i1 = path.index(1);
-        let i2 = path.index(2);
-        let i3 = path.index(3);
+        let i1 = path[1];
+        let i2 = path[2];
+        let i3 = path[3];
         assert(i1 < NR_ENTRIES);
         assert(i2 < NR_ENTRIES);
         assert(i3 < NR_ENTRIES);
@@ -917,13 +917,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     i < 512,
             ;
         } else if path.len() == 1 {
-            let i0 = path.index(0);
+            let i0 = path[0];
             assert(rec_vaddr(path, 1) == 0);
             assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0 as usize) as usize);
             assert(rec_vaddr(path, 0) == 0x80_0000_0000usize * i0);
             assert(pt.len() == 2);
-            assert(pt.index(0) == i0);
-            assert(pt.index(1) == i);
+            assert(pt[0] == i0);
+            assert(pt[1] == i);
             assert(rec_vaddr(pt, 2) == 0);
             assert(rec_vaddr(pt, 1) == vaddr_make::<NR_LEVELS>(1, i as usize) as usize);
             assert(rec_vaddr(pt, 0) == (0x80_0000_0000usize * i0) + 0x4000_0000usize * i);
@@ -935,8 +935,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     i < 512,
             ;
         } else if path.len() == 2 {
-            let i0 = path.index(0);
-            let i1 = path.index(1);
+            let i0 = path[0];
+            let i1 = path[1];
             assert(rec_vaddr(path, 2) == 0);
             assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1 as usize) as usize);
             assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0 as usize) + vaddr_make::<NR_LEVELS>(
@@ -945,7 +945,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             )) as usize);
             assert(vaddr_make::<NR_LEVELS>(1, i1 as usize) == 0x4000_0000usize * i1) by (compute);
             assert(pt.len() == 3);
-            assert(pt.index(2) == i);
+            assert(pt[2] == i);
             assert(rec_vaddr(pt, 3) == 0);
             assert(rec_vaddr(pt, 2) == vaddr_make::<NR_LEVELS>(2, i as usize) as usize);
             assert(rec_vaddr(pt, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<NR_LEVELS>(
@@ -963,9 +963,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
         } else {
             assert(path.len() == 3);
-            let i0 = path.index(0);
-            let i1 = path.index(1);
-            let i2 = path.index(2);
+            let i0 = path[0];
+            let i1 = path[1];
+            let i2 = path[2];
             assert(rec_vaddr(path, 3) == 0);
             assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2 as usize) as usize);
             assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<NR_LEVELS>(
@@ -979,10 +979,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(vaddr_make::<NR_LEVELS>(1, i1 as usize) == 0x4000_0000usize * i1) by (compute);
             assert(vaddr_make::<NR_LEVELS>(2, i2 as usize) == 0x20_0000usize * i2) by (compute);
             assert(pt.len() == 4);
-            assert(pt.index(0) == i0);
-            assert(pt.index(1) == i1);
-            assert(pt.index(2) == i2);
-            assert(pt.index(3) == i);
+            assert(pt[0] == i0);
+            assert(pt[1] == i1);
+            assert(pt[2] == i2);
+            assert(pt[3] == i);
             assert(rec_vaddr(pt, 4) == 0);
             assert(rec_vaddr(pt, 3) == vaddr_make::<NR_LEVELS>(3, i as usize) as usize);
             assert(rec_vaddr(pt, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + vaddr_make::<NR_LEVELS>(
@@ -1116,10 +1116,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             1 <= path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level(),
             self.0.value().parent_level == (INC_LEVELS - self.0.level()) as PagingLevel,
-            path.index(0) < t,
+            path[0] < t,
             self.view_rec(path).contains(m),
         ensures
-            (path.index(0)) * 0x80_0000_0000int + C::LEADING_BITS_spec() * 0x1_0000_0000_0000int
+            (path[0]) * 0x80_0000_0000int + C::LEADING_BITS_spec() * 0x1_0000_0000_0000int
                 <= m.va_range.start,
             m.va_range.start < m.va_range.end,
             m.va_range.end <= t * 0x80_0000_0000int + C::LEADING_BITS_spec()
@@ -1134,10 +1134,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         // `(index(0)+1) <= t`. Adding the `LEADING_BITS*2^48` base shifts both
         // ends — giving the user (LB=0) low half and the kernel (LB=0xffff)
         // high half.
-        assert((path.index(0) + 1) * 0x80_0000_0000int <= t * 0x80_0000_0000int)
+        assert((path[0] + 1) * 0x80_0000_0000int <= t * 0x80_0000_0000int)
             by (nonlinear_arith)
             requires
-                path.index(0) < t,
+                path[0] < t,
         ;
     }
 
@@ -1411,7 +1411,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         if path.len() == 0 {
             assert(rec_vaddr(path, 0) == 0);
         } else if path.len() == 1 {
-            let i0 = path.index(0);
+            let i0 = path[0];
             assert(rec_vaddr(path, 1) == 0);
             assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0 as usize) + rec_vaddr(
                 path,
@@ -1426,8 +1426,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     i0 < 512,
             ;
         } else if path.len() == 2 {
-            let i0 = path.index(0);
-            let i1 = path.index(1);
+            let i0 = path[0];
+            let i1 = path[1];
             assert(rec_vaddr(path, 2) == 0);
             assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + rec_vaddr(
                 path,
@@ -1453,9 +1453,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     i1 < 512,
             ;
         } else if path.len() == 3 {
-            let i0 = path.index(0);
-            let i1 = path.index(1);
-            let i2 = path.index(2);
+            let i0 = path[0];
+            let i1 = path[1];
+            let i2 = path[2];
             assert(rec_vaddr(path, 3) == 0);
             assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + rec_vaddr(
                 path,
@@ -1488,10 +1488,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
         } else {
             assert(path.len() == 4);
-            let i0 = path.index(0);
-            let i1 = path.index(1);
-            let i2 = path.index(2);
-            let i3 = path.index(3);
+            let i0 = path[0];
+            let i1 = path[1];
+            let i2 = path[2];
+            let i3 = path[3];
             assert(rec_vaddr(path, 4) == 0);
             assert(rec_vaddr(path, 3) == (vaddr_make::<NR_LEVELS>(3, i3 as usize) + rec_vaddr(
                 path,
@@ -2018,7 +2018,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Spec function: path1 is a prefix of path2
     pub open spec fn is_prefix_of<const N: usize>(prefix: TreePath<N>, path: TreePath<N>) -> bool {
         &&& prefix.len() <= path.len()
-        &&& forall|i: int| 0 <= i < prefix.len() ==> prefix.index(i) == path.index(i)
+        &&& forall|i: int| 0 <= i < prefix.len() ==> prefix[i] == path[i]
     }
 
     /// Transitivity of is_prefix_of
@@ -2034,9 +2034,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             Self::is_prefix_of(p1, p3),
     {
         assert(p1.len() <= p3.len());
-        assert forall|i: int| 0 <= i < p1.len() implies p1.index(i) == p3.index(i) by {
-            assert(p1.index(i) == p2.index(i));
-            assert(p2.index(i) == p3.index(i));
+        assert forall|i: int| 0 <= i < p1.len() implies p1[i] == p3[i] by {
+            assert(p1[i] == p2[i]);
+            assert(p2[i] == p3[i]);
         };
     }
 
@@ -2054,7 +2054,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             !Self::is_prefix_of(prefix.push_tail(j), path),
     {
-        assert(path.index(prefix.len() as int) == i);
+        assert(path[prefix.len() as int] == i);
     }
 
     pub proof fn prefix_push_tail_implies_prefix<const N: usize>(
@@ -2074,9 +2074,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         prefix.lemma_push_tail_index(i);
         prefix.lemma_push_tail_preserves_inv(i);
         assert(prefix.len() <= path.len());
-        assert forall|j: int| 0 <= j < prefix.len() implies prefix.index(j) == path.index(j) by {
-            assert(prefix.push_tail(i).index(j) == prefix.index(j));
-            assert(prefix.push_tail(i).index(j) == path.index(j));
+        assert forall|j: int| 0 <= j < prefix.len() implies prefix[j] == path[j] by {
+            assert(prefix.push_tail(i)[j] == prefix[j]);
+            assert(prefix.push_tail(i)[j] == path[j]);
         };
     }
 
@@ -2309,13 +2309,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 assert(root_path.0.len() == dest_path.0.len());
                 assert forall|i: int| 0 <= i < root_path.0.len() implies #[trigger] root_path.0[i]
                     == dest_path.0[i] by {
-                    assert(root_path.index(i) == dest_path.index(i));
+                    assert(root_path[i] == dest_path[i]);
                 };
                 assert(root_path == dest_path);
                 assert(false);
             }
             assert(root_path.len() < dest_path.len());
-            let i = dest_path.index(root_path.len() as int);
+            let i = dest_path[root_path.len() as int];
             PageTableOwner(subtree).pt_inv_unroll(i as int);
             assert(Self::is_prefix_of(root_path.push_tail(i), dest_path));
             Self::is_at_eq_rec(

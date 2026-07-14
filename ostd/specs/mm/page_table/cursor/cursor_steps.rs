@@ -40,8 +40,8 @@ pub proof fn push_tail_different_indices_different_paths(
 {
     path.lemma_push_tail_len(i);
     path.lemma_push_tail_len(j);
-    assert(path.push_tail(i).index(path.len() as int) == i);
-    assert(path.push_tail(j).index(path.len() as int) == j);
+    assert(path.push_tail(i)[path.len() as int] == i);
+    assert(path.push_tail(j)[path.len() as int] == j);
     if path.push_tail(i) == path.push_tail(j) {
         assert(i == j);  // Contradiction
     }
@@ -106,7 +106,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         // excepted_path.len() <= path.len() it can't be a descendant; otherwise
         // it must diverge at some index below path.len())
         excepted_path.len() <= path.len() || (exists|k: int|
-            0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k)),
+            0 <= k < path.len() && #[trigger] excepted_path[k] != path[k]),
     ensures
         subtree.subtree_satisfies(path, CursorOwner::<'rcu, C>::node_unlocked(guards)),
     decreases INC_LEVELS - subtree.level(),
@@ -148,8 +148,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
                 if excepted_path.len() <= path.len() {
                 } else {
                     let k = choose|k: int|
-                        0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k);
-                    assert(child_path.index(k) == path.index(k));
+                        0 <= k < path.len() && #[trigger] excepted_path[k] != path[k];
+                    assert(child_path[k] == path[k]);
                 }
             };
 
@@ -1043,7 +1043,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         cont_sl.idx as int,
                     );
                 }
-                assert(cur_entry_path.index(cont_i.tree_level as int) == cont_i.idx as int);
+                assert(cur_entry_path[cont_i.tree_level as int] == cont_i.idx as int);
 
                 assert forall|j: int|
                     #![trigger cont_i.children[j]]
@@ -1056,11 +1056,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     cont_i.inv_children_rel_unroll(j);
                     cont_i.path().lemma_push_tail_len(j);
 
-                    assert(child_path.index(cont_i.tree_level as int) == j as usize);
+                    assert(child_path[cont_i.tree_level as int] == j as usize);
                     assert(j != cont_i.idx);
-                    assert(child_path.index(cont_i.tree_level as int) != cur_entry_path.index(
-                        cont_i.tree_level as int,
-                    ));
+                    assert(child_path[cont_i.tree_level as int] != cur_entry_path[cont_i.tree_level as int]);
                     assert(cont_i.tree_level < child_path.len());
                     cont_i.pt_inv_children_unroll(j);
                     subtree_unlock_upgrade(
