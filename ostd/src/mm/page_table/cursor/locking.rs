@@ -116,6 +116,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
 )]
 #[verifier::spinoff_prover]
 #[verifier::exec_allows_no_decreases_clause]
+#[verifier::loop_isolation(false)]
 pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     pt: &'rcu PageTable<C>,
     guard: &'rcu A,
@@ -130,21 +131,13 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     );
 
     // Retry if the candidate subtree became stray before we acquired its lock.
-    // A failed attempt is transactional at the specification level, so every
-    // iteration starts from the same cursor and ownership state.
-    let ghost cursor_own_before_retry = cursor_own;
-    let ghost regions_before_retry = *regions;
-    let ghost guards_before_retry = *guards;
     let mut subtree_root = None;
     #[verus_spec(
         invariant
             subtree_root is None ==> {
-                &&& cursor_own == cursor_own_before_retry
                 &&& cursor_own.level == NR_LEVELS
                 &&& cursor_own.continuations.dom().contains(NR_LEVELS - 1)
                 &&& cursor_own.continuations[NR_LEVELS - 1].all_some()
-                &&& *regions == regions_before_retry
-                &&& *guards == guards_before_retry
             },
             subtree_root is Some ==> {
                 &&& regions.inv()
