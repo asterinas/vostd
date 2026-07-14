@@ -1143,9 +1143,8 @@ impl GlobalMemView {
             *final(self) == old(self).take_view(vaddr, len).0,
             view == old(self).take_view(vaddr, len).1,
     {
-        let ghost old_self = old(self);
-        let ghost taken = old_self.take_view(vaddr, len);
-        let ghost non_leave_pas = old_self.memory.dom().difference(taken.0.memory.dom());
+        let ghost taken = old(self).take_view(vaddr, len);
+        let ghost non_leave_pas = old(self).memory.dom().difference(taken.0.memory.dom());
         let tracked mut non_leave_memory = self.memory.tracked_remove_keys(non_leave_pas);
         assert(self.memory == taken.0.memory);
         let tracked view_memory = non_leave_memory.tracked_remove_keys(taken.1.memory.dom());
@@ -1241,18 +1240,17 @@ impl GlobalMemView {
             *final(self) == old(self).pt_unmap(m),
             final(self).inv(),
     {
-        let ghost old_self = old(self);
         self.pt_mappings = self.pt_mappings.remove(m);
         self.unmapped_pas = self.unmapped_pas.union(
             Set::<usize>::range(m.pa_range.start, m.pa_range.end),
         );
 
-        assert(self.tlb_mappings == old_self.tlb_mappings);
+        assert(self.tlb_mappings == old(self).tlb_mappings);
 
         assert(self.unmapped_correct()) by {
             assert forall|pa: Paddr| #[trigger]
                 self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa) by {
-                assert(self.is_mapped(pa) == old_self.is_mapped(pa));
+                assert(self.is_mapped(pa) == old(self).is_mapped(pa));
             };
         };
 
