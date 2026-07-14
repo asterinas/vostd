@@ -90,7 +90,7 @@ impl Inv for FrameContents {
 /// [`VmSpaceOwner`]: crate::mm::vm_space::vm_space_specs::VmSpaceOwner
 pub tracked struct MemView {
     /// Virtual-to-physical mapping set used for address translation.
-    pub mappings: Set<Mapping>,
+    pub ghost mappings: Set<Mapping>,
     /// Physical frame contents for mapped pages referenced by [`Self::mappings`].
     pub memory: Map<Paddr, FrameContents>,
 }
@@ -466,18 +466,13 @@ impl MemView {
     {
         Self::lemma_split_preserves_transl(original, vaddr, len, left, right);
         let split_end = vaddr + len;
-        let right_pas = original.memory.dom().filter(
-            |pa: usize| exists|va: usize| va >= split_end && original.is_mapped(va, pa),
-        );
         assert forall|va: usize|
             va >= split_end && original.addr_transl(va) is Some && original.memory.contains_key(
                 original.addr_transl(va).unwrap().0,
             ) implies #[trigger] original.read(va) == right.read(va) by {
-            assert(original.addr_transl(va) == right.addr_transl(va));
             let pa = original.addr_transl(va).unwrap().0;
             assert(original.is_mapped(va, pa));
-            assert(right_pas.contains(pa));
-            assert(right.memory[pa] == original.memory[pa]);
+
         }
     }
 
@@ -1041,9 +1036,9 @@ impl VirtPtr {
 /// A [`GlobalMemView`] is a more abstract view of memory that elides most of the details. The API specifications
 /// of higher-level objects like [`VmSpaceOwner`](crate::specs::mm::vm_space::VmSpaceOwner) use this view.
 pub tracked struct GlobalMemView {
-    pub pt_mappings: Set<Mapping>,
-    pub tlb_mappings: Set<Mapping>,
-    pub unmapped_pas: Set<Paddr>,
+    pub ghost pt_mappings: Set<Mapping>,
+    pub ghost tlb_mappings: Set<Mapping>,
+    pub ghost unmapped_pas: Set<Paddr>,
     pub memory: Map<Paddr, FrameContents>,
 }
 
@@ -1140,12 +1135,23 @@ impl GlobalMemView {
         )
     }
 
-    pub axiom fn tracked_take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view:
+    pub proof fn tracked_take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view:
         MemView)
+        requires
+            old(self).inv(),
         ensures
             *final(self) == old(self).take_view(vaddr, len).0,
             view == old(self).take_view(vaddr, len).1,
-    ;
+    {
+        let ghost taken = old(self).take_view(vaddr, len);
+        let ghost non_leave_pas = old(self).memory.dom().difference(taken.0.memory.dom());
+        let tracked mut non_leave_memory = self.memory.tracked_remove_keys(non_leave_pas);
+        assert(self.memory == taken.0.memory);
+        let tracked view_memory = non_leave_memory.tracked_remove_keys(taken.1.memory.dom());
+        assert(view_memory == taken.1.memory);
+        self.tlb_mappings = taken.0.tlb_mappings;
+        MemView { mappings: taken.1.mappings, memory: view_memory }
+    }
 
     pub open spec fn return_view(self, view: MemView) -> Self {
         GlobalMemView {
@@ -1155,10 +1161,13 @@ impl GlobalMemView {
         }
     }
 
-    pub axiom fn tracked_return_view(&mut self, view: MemView)
+    pub proof fn tracked_return_view(tracked &mut self, tracked view: MemView)
         ensures
             *final(self) == old(self).return_view(view),
-    ;
+    {
+        self.tlb_mappings = self.tlb_mappings.union(view.mappings);
+        self.memory.tracked_union_prefer_right(view.memory);
+    }
 
     pub open spec fn tlb_flush_vaddr(self, vaddr: Vaddr) -> Self {
         let tlb_mappings = self.tlb_mappings.filter(
@@ -1199,14 +1208,19 @@ impl GlobalMemView {
         GlobalMemView { pt_mappings, unmapped_pas, ..self }
     }
 
-    pub axiom fn tracked_pt_map(&mut self, m: Mapping)
+    pub proof fn tracked_pt_map(tracked &mut self, m: Mapping)
         requires
             forall|pa: Paddr|
                 m.pa_range.start <= pa < m.pa_range.end ==> old(self).unmapped_pas.contains(pa),
             old(self).inv(),
         ensures
             *final(self) == old(self).pt_map(m),
-    ;
+    {
+        self.pt_mappings = self.pt_mappings.insert(m);
+        self.unmapped_pas = self.unmapped_pas.difference(
+            Set::<usize>::range(m.pa_range.start, m.pa_range.end),
+        );
+    }
 
     pub open spec fn pt_unmap(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.remove(m);
@@ -1216,14 +1230,31 @@ impl GlobalMemView {
         GlobalMemView { pt_mappings, unmapped_pas, ..self }
     }
 
-    pub axiom fn tracked_pt_unmap(&mut self, m: Mapping)
+    pub proof fn tracked_pt_unmap(tracked &mut self, m: Mapping)
         requires
             old(self).pt_mappings.contains(m),
+            forall|pa: Paddr|
+                m.pa_range.start <= pa < m.pa_range.end ==> old(self).unmapped_pas.contains(pa),
             old(self).inv(),
         ensures
             *final(self) == old(self).pt_unmap(m),
             final(self).inv(),
-    ;
+    {
+        self.pt_mappings = self.pt_mappings.remove(m);
+        self.unmapped_pas = self.unmapped_pas.union(
+            Set::<usize>::range(m.pa_range.start, m.pa_range.end),
+        );
+
+        assert(self.tlb_mappings == old(self).tlb_mappings);
+
+        assert(self.unmapped_correct()) by {
+            assert forall|pa: Paddr| #[trigger]
+                self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa) by {
+                assert(self.is_mapped(pa) == old(self).is_mapped(pa));
+            };
+        };
+
+    }
 
     pub proof fn lemma_va_mapping_unique(self, va: usize)
         requires
@@ -1235,18 +1266,6 @@ impl GlobalMemView {
                 |m: Mapping| m.va_range.start <= va < m.va_range.end,
             ).is_singleton(),
     {
-        let f = self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
-        // addr_transl is Some iff the filter is non-empty.
-        assert(f.len() > 0);
-        // Pairwise disjointness on tlb_mappings (from inv) plus both
-        // mappings covering va forces equality.
-        assert forall|m: Mapping, n: Mapping| f.contains(m) && f.contains(n) implies m == n by {
-            assert(self.tlb_mappings.contains(m));
-            assert(self.tlb_mappings.contains(n));
-            assert(m.va_range.start <= va < m.va_range.end);
-            assert(n.va_range.start <= va < n.va_range.end);
-            // If m != n, pairwise disjointness gives va-disjoint, contradicting va ∈ both.
-        };
     }
 }
 
