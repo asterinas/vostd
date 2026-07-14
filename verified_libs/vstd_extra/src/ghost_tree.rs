@@ -446,7 +446,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     ///
     /// `path` identifies the current node. When descending through child index `i`, the
     /// corresponding child path is `path.push_tail(i)`.
-    pub open spec fn tree_predicate_map(
+    pub open spec fn subtree_satisfies(
         self,
         path: TreePath<N>,
         f: spec_fn(T, TreePath<N>) -> bool,
@@ -458,7 +458,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             &&& f(self.value(), path)
             &&& forall|i: int|
                 0 <= i < self.children().len() ==> (#[trigger] self.children()[i]) is Some
-                    ==> self.children()[i]->0.tree_predicate_map(path.push_tail(i as usize), f)
+                    ==> self.children()[i]->0.subtree_satisfies(path.push_tail(i as usize), f)
         } else {
             &&& f(self.value(), path)
         }
@@ -475,9 +475,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.level() < L - 1,
             0 <= i < self.children().len(),
             self.children()[i] is Some,
-            self.tree_predicate_map(path, f),
+            self.subtree_satisfies(path, f),
         ensures
-            self.children()[i]->0.tree_predicate_map(path.push_tail(i as usize), f),
+            self.children()[i]->0.subtree_satisfies(path.push_tail(i as usize), f),
     {
     }
 
@@ -498,16 +498,16 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         requires
             self.inv(),
             Self::implies(f, g),
-            Self::tree_predicate_map(self, path, f),
+            Self::subtree_satisfies(self, path, f),
         ensures
-            Self::tree_predicate_map(self, path, g),
+            Self::subtree_satisfies(self, path, g),
         decreases L - self.level(),
     {
         if self.level() < L - 1 {
             assert forall|i: int|
                 #![trigger self.children()[i]->0]
                 0 <= i < self.children().len()
-                    && self.children()[i] is Some implies self.children()[i]->0.tree_predicate_map(
+                    && self.children()[i] is Some implies self.children()[i]->0.subtree_satisfies(
                 path.push_tail(i as usize),
                 g,
             ) by {
@@ -516,8 +516,8 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
-    /// `Node::new_default(lv)` has all-None children, so `tree_predicate_map` reduces to `f(default(lv), path)`.
-    pub proof fn lemma_new_tree_predicate_map(
+    /// `Node::new_default(lv)` has all-None children, so `subtree_satisfies` reduces to `f(default(lv), path)`.
+    pub proof fn lemma_new_subtree_satisfies(
         lv: nat,
         path: TreePath<N>,
         f: spec_fn(T, TreePath<N>) -> bool,
@@ -527,15 +527,15 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             Self::new_default(lv).inv(),
             f(T::default(lv), path),
         ensures
-            Self::new_default(lv).tree_predicate_map(path, f),
+            Self::new_default(lv).subtree_satisfies(path, f),
     {
-        // Self::new_default(lv).children()[i] = None for all i, so the forall in tree_predicate_map is vacuous.
+        // Self::new_default(lv).children()[i] = None for all i, so the forall in subtree_satisfies is vacuous.
     }
 
     /// `Node::new_val(val, lv)` has all-None children.
-    /// `tree_predicate_map` holds trivially: `f(val, path)` at the root,
+    /// `subtree_satisfies` holds trivially: `f(val, path)` at the root,
     /// no children to recurse into.
-    pub proof fn lemma_new_val_tree_predicate_map(
+    pub proof fn lemma_new_val_subtree_satisfies(
         self,
         path: TreePath<N>,
         f: spec_fn(T, TreePath<N>) -> bool,
@@ -545,12 +545,12 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self == Self::new_val(self.value(), self.level()),
             f(self.value(), path),
         ensures
-            self.tree_predicate_map(path, f),
+            self.subtree_satisfies(path, f),
     {
-        // All children are None, so the forall in tree_predicate_map is vacuous.
+        // All children are None, so the forall in subtree_satisfies is vacuous.
     }
 
-    /// Proves `tree_predicate_map(self, path, g)` from two source predicates `f1`, `f2`,
+    /// Proves `subtree_satisfies(self, path, g)` from two source predicates `f1`, `f2`,
     /// and the implication `forall |v, p| v.inv() && f1(v, p) && f2(v, p) ==> g(v, p)`.
     pub proof fn lemma_map_implies_and(
         self,
@@ -562,17 +562,17 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         requires
             self.inv(),
             Self::implies(|v: T, p: TreePath<N>| f1(v, p) && f2(v, p), g),
-            Self::tree_predicate_map(self, path, f1),
-            Self::tree_predicate_map(self, path, f2),
+            Self::subtree_satisfies(self, path, f1),
+            Self::subtree_satisfies(self, path, f2),
         ensures
-            Self::tree_predicate_map(self, path, g),
+            Self::subtree_satisfies(self, path, g),
         decreases L - self.level(),
     {
         if self.level() < L - 1 {
             assert forall|i: int|
                 #![trigger self.children()[i]->0]
                 0 <= i < self.children().len()
-                    && self.children()[i] is Some implies self.children()[i]->0.tree_predicate_map(
+                    && self.children()[i] is Some implies self.children()[i]->0.subtree_satisfies(
                 path.push_tail(i as usize),
                 g,
             ) by {

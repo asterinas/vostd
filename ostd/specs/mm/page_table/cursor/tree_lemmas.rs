@@ -41,7 +41,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
-                && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
+                && self.children[j] is Some implies self.children[j].unwrap().subtree_satisfies(
             self.path().push_tail(j as usize),
             g,
         ) by {
@@ -75,7 +75,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             forall|j: int|
                 #![auto]
                 0 <= j < NR_ENTRIES && j != idx ==> self.children[j] == cont0.children[j],
-            self.children[idx] is Some ==> self.children[idx]->0.tree_predicate_map(
+            self.children[idx] is Some ==> self.children[idx]->0.subtree_satisfies(
                 self.path().push_tail(idx as usize),
                 g,
             ),
@@ -85,7 +85,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
-                && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
+                && self.children[j] is Some implies self.children[j].unwrap().subtree_satisfies(
             self.path().push_tail(j as usize),
             g,
         ) by {
@@ -143,7 +143,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|j: int|
                 #![trigger cont.children[j]]
                 0 <= j < cont.children.len()
-                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                    && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);
                 OwnerSubtree::lemma_map_implies(
@@ -238,7 +238,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);
                 PageTableOwner::tree_not_in_scope(

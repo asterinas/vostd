@@ -1120,7 +1120,7 @@ impl PageTable<KernelPtConfig> {
                     PageTableOwner::<KernelPtConfig>::metaregion_sound_pred(*regions),
                     i as int,
                 );
-                assert(child_subtree.tree_predicate_map(
+                assert(child_subtree.subtree_satisfies(
                     kernel_owner.0.value().path.push_tail(i as usize),
                     PageTableOwner::<KernelPtConfig>::metaregion_sound_pred(*regions),
                 ));
@@ -1291,7 +1291,7 @@ impl<C: PageTableConfig> PageTable<C> {
             forall |kt: PageTableOwner<KernelPtConfig>|
                 #![trigger kt.metaregion_sound(*old(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions)) ==>
-                kt.0.tree_predicate_map(
+                kt.0.subtree_satisfies(
                     kt.0.value().path,
                     |e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|
@@ -1307,7 +1307,7 @@ impl<C: PageTableConfig> PageTable<C> {
             forall |kt: PageTableOwner<KernelPtConfig>|
                 #![trigger kt.metaregion_sound(*old(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions)) ==>
-                kt.0.tree_predicate_map(
+                kt.0.subtree_satisfies(
                     kt.0.value().path,
                     |e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
                      p: vstd_extra::ghost_tree::TreePath<NR_ENTRIES>|

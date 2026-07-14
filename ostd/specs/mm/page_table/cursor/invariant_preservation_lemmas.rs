@@ -83,7 +83,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|j: int|
                 #![trigger cont.children[j]]
                 0 <= j < cont.children.len()
-                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                    && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j as usize), combined) by {
                 cont.inv_children_unroll(j);
                 OwnerSubtree::lemma_map_implies_and(
@@ -281,7 +281,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|j: int|
                 #![trigger cont.children[j]]
                 0 <= j < cont.children.len()
-                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                    && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);
                 cont.pt_inv_children_unroll(j);

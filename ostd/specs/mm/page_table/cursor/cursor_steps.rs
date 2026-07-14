@@ -90,8 +90,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     requires
         subtree.inv(),
         PageTableOwner::<C>(subtree).pt_inv(),
-        subtree.tree_predicate_map(path, PageTableOwner::<C>::metaregion_sound_pred(regions)),
-        subtree.tree_predicate_map(
+        subtree.subtree_satisfies(path, PageTableOwner::<C>::metaregion_sound_pred(regions)),
+        subtree.subtree_satisfies(
             path,
             CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr),
         ),
@@ -108,7 +108,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         excepted_path.len() <= path.len() || (exists|k: int|
             0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k)),
     ensures
-        subtree.tree_predicate_map(path, CursorOwner::<'rcu, C>::node_unlocked(guards)),
+        subtree.subtree_satisfies(path, CursorOwner::<'rcu, C>::node_unlocked(guards)),
     decreases INC_LEVELS - subtree.level(),
 {
     let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
@@ -134,7 +134,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         assert forall|i: int|
             #![trigger subtree.children()[i]]
             0 <= i < subtree.children().len()
-                && subtree.children()[i] is Some implies subtree.children()[i].unwrap().tree_predicate_map(
+                && subtree.children()[i] is Some implies subtree.children()[i].unwrap().subtree_satisfies(
         path.push_tail(i as usize), h) by {
             let child = subtree.children()[i].unwrap();
             subtree.lemma_map_unroll_once(path, f, i);
@@ -163,12 +163,12 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
             );
         };
     } else if subtree.level() < INC_LEVELS - 1 && !subtree.value().is_node() {
-        // Non-node: pt_inv gives children[i] is None, so tree_predicate_map
+        // Non-node: pt_inv gives children[i] is None, so subtree_satisfies
         // has no children to recurse into.
         assert forall|i: int|
             #![trigger subtree.children()[i]]
             0 <= i < subtree.children().len()
-                && subtree.children()[i] is Some implies subtree.children()[i].unwrap().tree_predicate_map(
+                && subtree.children()[i] is Some implies subtree.children()[i].unwrap().subtree_satisfies(
         path.push_tail(i as usize), h) by {
             PageTableOwner::<C>(subtree).pt_inv_non_node(i);
         };
@@ -952,7 +952,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert forall|j: int|
                     #![trigger child_cont.children[j]]
                     0 <= j < child_cont.children.len()
-                        && child_cont.children[j] is Some implies child_cont.children[j].unwrap().tree_predicate_map(
+                        && child_cont.children[j] is Some implies child_cont.children[j].unwrap().subtree_satisfies(
                 child_cont.path().push_tail(j as usize), h) by {
                     let gc = child_cont.children[j].unwrap();
                     let gc_path = child_cont.path().push_tail(j as usize);
@@ -983,7 +983,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert forall|j: int|
                     #![trigger modified_cont.children[j]]
                     0 <= j < modified_cont.children.len()
-                        && modified_cont.children[j] is Some implies modified_cont.children[j].unwrap().tree_predicate_map(
+                        && modified_cont.children[j] is Some implies modified_cont.children[j].unwrap().subtree_satisfies(
                 modified_cont.path().push_tail(j as usize), h) by {
                     assert(j != old_cont.idx as int);
                     assert(modified_cont.children[j] == old_cont.children[j]);
@@ -1048,7 +1048,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert forall|j: int|
                     #![trigger cont_i.children[j]]
                     0 <= j < cont_i.children.len()
-                        && cont_i.children[j] is Some implies cont_i.children[j].unwrap().tree_predicate_map(
+                        && cont_i.children[j] is Some implies cont_i.children[j].unwrap().subtree_satisfies(
                 cont_i.path().push_tail(j as usize), h) by {
                     let child_sub = cont_i.children[j].unwrap();
                     let child_path = cont_i.path().push_tail(j as usize);
@@ -1134,13 +1134,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             child_cont.inv_children_unroll(j);
         };
 
-        // Pre-prove tree_predicate_map for child_subtree (f)
-        assert(child_subtree.tree_predicate_map(child_cont.path(), f)) by {
+        // Pre-prove subtree_satisfies for child_subtree (f)
+        assert(child_subtree.subtree_satisfies(child_cont.path(), f)) by {
             assert(f(child_subtree.value(), child_cont.path()));
             assert forall|j: int|
                 0 <= j
                     < child_subtree.children().len() implies match #[trigger] child_subtree.children()[j] {
-                Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), f),
+                Some(ch) => ch.subtree_satisfies(child_cont.path().push_tail(j as usize), f),
                 None => true,
             } by {
                 child_subtree.lemma_map_unroll_once(child_cont.path(), f, j);
@@ -1151,7 +1151,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(modified_cont.map_children(f)) by {
             assert forall|j: int|
                 0 <= j < modified_cont.children.len()
-                    && #[trigger] modified_cont.children[j] is Some implies modified_cont.children[j].unwrap().tree_predicate_map(
+                    && #[trigger] modified_cont.children[j] is Some implies modified_cont.children[j].unwrap().subtree_satisfies(
             modified_cont.path().push_tail(j as usize), f) by {
                 assert(j != old_cont.idx as int);
                 assert(modified_cont.children[j] == old_cont.children[j]);

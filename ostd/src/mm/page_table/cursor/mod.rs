@@ -3195,7 +3195,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(new_owner.inv());
             };
 
-            OwnerSubtree::lemma_new_val_tree_predicate_map(
+            OwnerSubtree::lemma_new_val_subtree_satisfies(
                 new_owner,
                 new_owner.value().path,
                 CursorOwner::<'rcu, C>::node_unlocked(*guards),
@@ -3577,7 +3577,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         proof {
             // subtree.value is absent, so not_in_tree is vacuously true.
             owner.absent_not_in_tree(subtree.value());
-            OwnerSubtree::lemma_new_val_tree_predicate_map(
+            OwnerSubtree::lemma_new_val_subtree_satisfies(
                 subtree,
                 subtree.value().path,
                 CursorOwner::<'rcu, C>::node_unlocked(*guards),
@@ -3939,7 +3939,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             new_child.wf(new_owner.value()),
             new_owner == OwnerSubtree::new_val(new_owner.value(), new_owner.level() as nat),
             new_owner.value().metaregion_sound(*old(regions)),
-            new_owner.tree_predicate_map(
+            new_owner.subtree_satisfies(
                 new_owner.value().path,
                 CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
             ),
@@ -4248,7 +4248,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     assert forall|j: int|
                         #![auto]
                         0 <= j < NR_ENTRIES
-                            && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                            && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
                     cont.path().push_tail(j as usize), g_sound) by {
                         cont.inv_children_unroll(j);
                         let subtree = cont.children[j].unwrap();
@@ -4280,8 +4280,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             assert(new_owner.value().metaregion_sound(*regions));
             let child_path = final_cont.path().push_tail(idx as usize);
-            assert(new_owner.tree_predicate_map(child_path, g_sound)) by {
-                OwnerSubtree::lemma_new_val_tree_predicate_map(new_owner, child_path, g_sound);
+            assert(new_owner.subtree_satisfies(child_path, g_sound)) by {
+                OwnerSubtree::lemma_new_val_subtree_satisfies(new_owner, child_path, g_sound);
             };
 
             // Bottom continuation siblings: metaregion_sound
@@ -4290,7 +4290,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     assert forall|j: int|
                         #![auto]
                         0 <= j < NR_ENTRIES
-                            && final_cont.children[j] is Some implies final_cont.children[j].unwrap().tree_predicate_map(
+                            && final_cont.children[j] is Some implies final_cont.children[j].unwrap().subtree_satisfies(
                     final_cont.path().push_tail(j as usize), g_sound) by {
                         if j != idx {
                             cont0.inv_children_unroll(j);
@@ -4329,7 +4329,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     assert(cont0.map_children(
                         |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.metaregion_sound(regions0),
                     ));
-                    assert(cont0.children[cont0.idx as int].unwrap().tree_predicate_map(
+                    assert(cont0.children[cont0.idx as int].unwrap().subtree_satisfies(
                         cont0.path().push_tail(cont0.idx as usize),
                         |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.metaregion_sound(regions0),
                     ));

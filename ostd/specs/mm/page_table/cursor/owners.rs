@@ -187,7 +187,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         forall|i: int|
             #![trigger(self.children[i])]
             0 <= i < self.children.len() ==> self.children[i] is Some
-                ==> self.children[i]->0.tree_predicate_map(self.path().push_tail(i as usize), f)
+                ==> self.children[i]->0.subtree_satisfies(self.path().push_tail(i as usize), f)
     }
 
     // map_children_lift, map_children_lift_skip_idx, as_subtree_restore
@@ -2466,7 +2466,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);
                 cont.children[j].unwrap().lemma_map_implies(cont.path().push_tail(j as usize), f, g);
@@ -2635,7 +2635,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j as usize), nsp) by {
                 cont.inv_children_unroll(j);
                 PageTableOwner::tree_not_in_scope(
@@ -2645,7 +2645,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j as usize), g) by {
                 cont.inv_children_unroll(j);
                 cont.children[j].unwrap().lemma_map_implies_and(
@@ -2679,7 +2679,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ///
     /// ## Justification
     /// When the cursor descends into a subtree, each continuation's `entry_own`
-    /// was previously checked by `tree_predicate_map` in the parent's child
+    /// was previously checked by `subtree_satisfies` in the parent's child
     /// subtree.  After descent, `map_full_tree` only covers the siblings (the
     /// taken child is `None`), so the path entries' properties are no longer
     /// covered by `map_full_tree`.  However, `regions` is unchanged since

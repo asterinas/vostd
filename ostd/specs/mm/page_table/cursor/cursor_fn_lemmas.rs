@@ -75,7 +75,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let new_path = other.continuations[self.level - 1].path().push_tail(
                     other.continuations[self.level - 1].idx as usize,
                 );
-                new_child.tree_predicate_map(
+                new_child.subtree_satisfies(
                     new_path,
                     PageTableOwner::<C>::metaregion_sound_pred(regions),
                 )
@@ -105,7 +105,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert forall|j: int|
                     #![trigger o_cont.children[j]]
                     0 <= j < o_cont.children.len()
-                        && o_cont.children[j] is Some implies o_cont.children[j].unwrap().tree_predicate_map(
+                        && o_cont.children[j] is Some implies o_cont.children[j].unwrap().subtree_satisfies(
                 o_cont.path().push_tail(j as usize), f) by {
                     if j != idx {
                         assert(o_cont.children[j] == s_cont.children[j]);

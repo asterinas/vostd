@@ -554,10 +554,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& Self::metaregion_sound_neq_preserved(old(owner).value(), final(owner).value(), *old(regions), *final(regions))
                 &&& Self::path_tracked_pred_preserved(*old(regions), *final(regions))
                 &&& old(regions).slots.contains_key(frame_to_index(final(owner).value().meta_slot_paddr()->0))
-                &&& final(owner).tree_predicate_map(final(owner).value().path,
+                &&& final(owner).subtree_satisfies(final(owner).value().path,
                     CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().meta_addr_self()))
-                &&& final(owner).tree_predicate_map(final(owner).value().path, PageTableOwner::<C>::metaregion_sound_pred(*final(regions)))
-                &&& final(owner).tree_predicate_map(final(owner).value().path, PageTableOwner::<C>::path_tracked_pred(*final(regions)))
+                &&& final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::metaregion_sound_pred(*final(regions)))
+                &&& final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::path_tracked_pred(*final(regions)))
                 &&& PageTableOwner(*final(owner)).view_rec(final(owner).value().path) == set![]
                 // All children of the newly allocated node are absent (empty PT node).
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
@@ -764,15 +764,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
             proof {
                 // Discharge the region-preservation + fresh-node
-                // `tree_predicate_map` conjuncts of the big `is_absent` ensures
+                // `subtree_satisfies` conjuncts of the big `is_absent` ensures
                 // block.
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
                 // (a) Region predicates preserved off the new node's slot: the
                 // install only touches `new_idx`. (Mirrors `replace`.)
-                // (b) `tree_predicate_map` over the fresh node: each predicate
+                // (b) `subtree_satisfies` over the fresh node: each predicate
                 // holds at the node root and trivially at the absent children
                 // (which have `None` grandchildren), via
-                // `fresh_node_tree_predicate_map`.
+                // `fresh_node_subtree_satisfies`.
 
                 let ghost new_node_addr = owner.value().node().meta_addr_self();
                 let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
@@ -797,17 +797,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     )
                 } by {};
 
-                crate::specs::mm::page_table::fresh_node_tree_predicate_map(
+                crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                     *owner,
                     owner.value().path,
                     f_nu,
                 );
-                crate::specs::mm::page_table::fresh_node_tree_predicate_map(
+                crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                     *owner,
                     owner.value().path,
                     f_ms,
                 );
-                crate::specs::mm::page_table::fresh_node_tree_predicate_map(
+                crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                     *owner,
                     owner.value().path,
                     f_pt,
@@ -895,9 +895,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& OwnerSubtree::implies(
                     PageTableOwner::<C>::metaregion_sound_pred(*old(regions)),
                     PageTableOwner::<C>::metaregion_sound_pred(*final(regions)))
-                &&& final(owner).tree_predicate_map(final(owner).value().path,
+                &&& final(owner).subtree_satisfies(final(owner).value().path,
                     CursorOwner::<'rcu, C>::node_unlocked(*final(guards)))
-                &&& final(owner).tree_predicate_map(final(owner).value().path,
+                &&& final(owner).subtree_satisfies(final(owner).value().path,
                     PageTableOwner::<C>::metaregion_sound_pred(*final(regions)))
             },
             !old(owner).value().is_frame() || old(parent_owner).level <= 1 ==> {
@@ -1818,10 +1818,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             ),
             Entry::<C>::path_tracked_pred_preserved(*old(regions), *final(regions)),
             old(regions).slots.contains_key(frame_to_index(final(owner).value().meta_slot_paddr()->0)),
-            final(owner).tree_predicate_map(final(owner).value().path,
+            final(owner).subtree_satisfies(final(owner).value().path,
                 CursorOwner::<'rcu, C>::node_unlocked_except(*final(guards), final(owner).value().node().meta_addr_self())),
-            final(owner).tree_predicate_map(final(owner).value().path, PageTableOwner::<C>::metaregion_sound_pred(*final(regions))),
-            final(owner).tree_predicate_map(final(owner).value().path, PageTableOwner::<C>::path_tracked_pred(*final(regions))),
+            final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::metaregion_sound_pred(*final(regions))),
+            final(owner).subtree_satisfies(final(owner).value().path, PageTableOwner::<C>::path_tracked_pred(*final(regions))),
             PageTableOwner(*final(owner)).view_rec(final(owner).value().path) == set![],
             forall|i: int| 0 <= i < NR_ENTRIES ==>
                 #[trigger] final(owner).children()[i] is Some && final(owner).children()[i]->0.value().is_absent(),
@@ -1984,15 +1984,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 
         proof {
             // Discharge the region-preservation + fresh-node
-            // `tree_predicate_map` conjuncts of the big `is_absent` ensures
+            // `subtree_satisfies` conjuncts of the big `is_absent` ensures
             // block.
             broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
             // (a) Region predicates preserved off the new node's slot: the
             // install only touches `new_idx`.
-            // (b) `tree_predicate_map` over the fresh node: each predicate
+            // (b) `subtree_satisfies` over the fresh node: each predicate
             // holds at the node root and trivially at the absent children
             // (which have `None` grandchildren), via
-            // `fresh_node_tree_predicate_map`.
+            // `fresh_node_subtree_satisfies`.
 
             let ghost new_node_addr = owner.value().node().meta_addr_self();
             let f_nu = CursorOwner::<'rcu, C>::node_unlocked_except(*guards, new_node_addr);
@@ -2011,17 +2011,17 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 &&& f_pt(owner.children()[i].unwrap().value(), owner.value().path.push_tail(i as usize))
             } by {};
 
-            crate::specs::mm::page_table::fresh_node_tree_predicate_map(
+            crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                 *owner,
                 owner.value().path,
                 f_nu,
             );
-            crate::specs::mm::page_table::fresh_node_tree_predicate_map(
+            crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                 *owner,
                 owner.value().path,
                 f_ms,
             );
-            crate::specs::mm::page_table::fresh_node_tree_predicate_map(
+            crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                 *owner,
                 owner.value().path,
                 f_pt,
