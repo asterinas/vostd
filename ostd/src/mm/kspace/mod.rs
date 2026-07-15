@@ -305,12 +305,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
         match item {
             MappedItem::Tracked(frame, prop_actual) => {
-                assert(Self::item_well_formed(MappedItem::Tracked(frame, prop_actual)));
+                assert(Self::item_well_formed(item));
                 prop_actual.lemma_avail1_tag_encoding();
-                assert(frame.inv());
-                crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(
-                    frame.ptr.addr(),
-                );
             },
             MappedItem::Untracked(_, _, prop_actual) => {
                 assert(Self::item_well_formed(item));
@@ -365,16 +361,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
         prop.lemma_avail1_tag_encoding();
         if prop.flags.contains(PageFlags::AVAIL1()) {
-            crate::specs::mm::frame::mapping::lemma_frame_to_meta_soundness(pa);
             let item = Self::item_from_raw_spec(pa, level, prop);
-            assert(item is Tracked);
-            assert(item->Tracked_0.inv());
-            assert(!item->Tracked_1.flags.contains(PageFlags::AVAIL1()));
             assert(Self::item_well_formed(item));
         } else {
             let item = Self::item_from_raw_spec(pa, level, prop);
-            assert(item is Untracked);
-            assert(!item->Untracked_2.flags.contains(PageFlags::AVAIL1()));
             assert(Self::item_well_formed(item));
         }
     }
@@ -392,7 +382,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         match item {
             MappedItem::Tracked(frame, _) => {
                 let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
-                assert(frame_to_index(pa) == frame_idx);
                 assert(<MappedItem as RCClone>::clone_ensures(
                     item,
                     old_regions,
@@ -416,12 +405,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         broadcast use group_page_meta;
 
         Self::lemma_item_from_raw_well_formed(pa, level, prop);
-        match item {
-            MappedItem::Tracked(frame, _) => {
-                assert(meta_to_frame(frame.ptr.addr()) == pa);
-            },
-            MappedItem::Untracked(_, _, _) => {},
-        }
     }
 }
 
