@@ -27,6 +27,8 @@ use core::ops::Range;
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn protect_preserves_cursor_inv_metaregion(
         self,
@@ -73,9 +75,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let new_child = other.continuations[self.level
                     - 1].children[other.continuations[self.level - 1].idx as int]->0;
                 let new_path = other.continuations[self.level - 1].path().push_tail(
-                    other.continuations[self.level - 1].idx as usize,
+                    other.continuations[self.level - 1].idx as int,
                 );
-                new_child.tree_predicate_map(
+                new_child.subtree_satisfies(
                     new_path,
                     PageTableOwner::<C>::metaregion_sound_pred(regions),
                 )
@@ -105,8 +107,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert forall|j: int|
                     #![trigger o_cont.children[j]]
                     0 <= j < o_cont.children.len()
-                        && o_cont.children[j] is Some implies o_cont.children[j].unwrap().tree_predicate_map(
-                o_cont.path().push_tail(j as usize), f) by {
+                        && o_cont.children[j] is Some implies o_cont.children[j].unwrap().subtree_satisfies(
+                o_cont.path().push_tail(j), f) by {
                     if j != idx {
                         assert(o_cont.children[j] == s_cont.children[j]);
                         s_cont.inv_children_unroll(j);
@@ -189,8 +191,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE().start <= j
                     < C::TOP_LEVEL_INDEX_RANGE().end) ==> (#[trigger] self.continuations[NR_LEVELS
                     - 1].children[j]) is Some ==> (self.continuations[NR_LEVELS
-                    - 1].children[j].unwrap().value.is_borrowed() || self.continuations[NR_LEVELS
-                    - 1].children[j].unwrap().value.is_absent()));
+                    - 1].children[j].unwrap().value().is_borrowed() || self.continuations[NR_LEVELS
+                    - 1].children[j].unwrap().value().is_absent()));
         }
     }
 
@@ -210,11 +212,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             owner0.continuations[owner0.level - 1].children[owner0.continuations[owner0.level
                 - 1].idx as int] is Some,
             owner0.continuations[owner0.level - 1].children[owner0.continuations[owner0.level
-                - 1].idx as int]->0.value.is_absent(),
+                - 1].idx as int]->0.value().is_absent(),
             self.continuations[self.level - 1].children[self.continuations[self.level
                 - 1].idx as int] is Some,
             self.continuations[self.level - 1].children[self.continuations[self.level
-                - 1].idx as int]->0.value.is_node(),
+                - 1].idx as int]->0.value().is_node(),
             // Non-idx children and path preserved
             self.continuations[self.level - 1].path() == owner0.continuations[owner0.level
                 - 1].path(),
@@ -228,7 +230,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     - 1].idx as int]->0,
             ).view_rec(
                 self.continuations[self.level - 1].path().push_tail(
-                    self.continuations[self.level - 1].idx as usize,
+                    self.continuations[self.level - 1].idx as int,
                 ),
             ) =~= Set::<Mapping>::empty(),
         ensures
@@ -244,14 +246,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(cont.view_mappings() == cont0.view_mappings()) by {
             cont0.inv_children_unroll(idx);
             PageTableOwner(cont0.children[idx].unwrap()).view_rec_absent_empty(
-                cont0.path().push_tail(idx as usize),
+                cont0.path().push_tail(idx as int),
             );
             assert forall|m: Mapping|
                 cont.view_mappings().contains(m) implies cont0.view_mappings().contains(m) by {
                 let j = choose|j: int|
                     0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some
                         && PageTableOwner(cont.children[j].unwrap()).view_rec(
-                        cont.path().push_tail(j as usize),
+                        cont.path().push_tail(j),
                     ).contains(m);
                 if j == idx {
                     // cont.children[idx]'s view_rec == empty (from precondition)
@@ -265,7 +267,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let j = choose|j: int|
                     0 <= j < cont0.children.len() && #[trigger] cont0.children[j] is Some
                         && PageTableOwner(cont0.children[j].unwrap()).view_rec(
-                        cont0.path().push_tail(j as usize),
+                        cont0.path().push_tail(j),
                     ).contains(m);
                 if j == idx {
                     // cont0.children[idx] is absent, view_rec is empty
@@ -314,7 +316,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int|
                 0 <= i < NR_ENTRIES ==> #[trigger] self.continuations[self.level
                     - 1].children[i] is Some && self.continuations[self.level
-                    - 1].children[i]->0.value.is_absent(),
+                    - 1].children[i]->0.value().is_absent(),
         ensures
             self.cur_entry_owner().is_absent(),
     {
@@ -327,67 +329,41 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             i < NR_LEVELS,
         ensures
             self.continuations[j].path().len() as int > self.continuations[i].path().len(),
-            self.continuations[j].path().index(self.continuations[i].path().len() as int)
+            self.continuations[j].path()[self.continuations[i].path().len() as int]
                 == self.continuations[i].idx,
     {
         if i == 3 && j == 2 {
-            self.continuations[3].path().push_tail_property_index(
-                self.continuations[3].idx as usize,
-            );
-            self.continuations[3].path().push_tail_property_len(self.continuations[3].idx as usize);
         } else if i == 3 && j == 1 {
             let p3 = self.continuations[3].path();
             let p2 = self.continuations[2].path();
-            let idx3 = self.continuations[3].idx as usize;
-            let idx2 = self.continuations[2].idx as usize;
-            p3.push_tail_property_index(idx3);
-            p3.push_tail_property_len(idx3);
-            p2.push_tail_property_index(idx2);
-            p2.push_tail_property_len(idx2);
+            let idx3 = self.continuations[3].idx as int;
+            let idx2 = self.continuations[2].idx as int;
             assert(p3.len() < p2.len());
             assert(self.continuations[1].path() == p2.push_tail(idx2));
-            assert(p2.push_tail(idx2).index(p3.len() as int) == p2.index(p3.len() as int));
+            assert(p2.push_tail(idx2)[p3.len() as int] == p2[p3.len() as int]);
         } else if i == 3 && j == 0 {
             let p3 = self.continuations[3].path();
             let p2 = self.continuations[2].path();
             let p1 = self.continuations[1].path();
-            let idx3 = self.continuations[3].idx as usize;
-            let idx2 = self.continuations[2].idx as usize;
-            let idx1 = self.continuations[1].idx as usize;
-            p3.push_tail_property_index(idx3);
-            p3.push_tail_property_len(idx3);
-            p2.push_tail_property_index(idx2);
-            p2.push_tail_property_len(idx2);
-            p1.push_tail_property_index(idx1);
-            p1.push_tail_property_len(idx1);
+            let idx3 = self.continuations[3].idx as int;
+            let idx2 = self.continuations[2].idx as int;
+            let idx1 = self.continuations[1].idx as int;
             assert(p3.len() < p2.len());
             assert(p3.len() < p1.len());
-            assert(p1.push_tail(idx1).index(p3.len() as int) == p1.index(p3.len() as int));
-            assert(p2.push_tail(idx2).index(p3.len() as int) == p2.index(p3.len() as int));
+            assert(p1.push_tail(idx1)[p3.len() as int] == p1[p3.len() as int]);
+            assert(p2.push_tail(idx2)[p3.len() as int] == p2[p3.len() as int]);
         } else if i == 2 && j == 1 {
-            self.continuations[2].path().push_tail_property_index(
-                self.continuations[2].idx as usize,
-            );
-            self.continuations[2].path().push_tail_property_len(self.continuations[2].idx as usize);
         } else if i == 2 && j == 0 {
             let p2 = self.continuations[2].path();
             let p1 = self.continuations[1].path();
-            let idx2 = self.continuations[2].idx as usize;
-            let idx1 = self.continuations[1].idx as usize;
-            p2.push_tail_property_index(idx2);
-            p2.push_tail_property_len(idx2);
-            p1.push_tail_property_index(idx1);
-            p1.push_tail_property_len(idx1);
+            let idx2 = self.continuations[2].idx as int;
+            let idx1 = self.continuations[1].idx as int;
             assert(p2.len() < p1.len());
             assert(self.continuations[0].path() == p1.push_tail(idx1));
-            assert(p1.push_tail(idx1).index(p2.len() as int) == p1.index(p2.len() as int));
+            assert(p1.push_tail(idx1)[p2.len() as int] == p1[p2.len() as int]);
             assert(p1 == p2.push_tail(idx2));
-            assert(p2.push_tail(idx2).index(p2.len() as int) == idx2);
+            assert(p2.push_tail(idx2)[p2.len() as int] == idx2);
         } else if i == 1 && j == 0 {
-            self.continuations[1].path().push_tail_property_index(
-                self.continuations[1].idx as usize,
-            );
-            self.continuations[1].path().push_tail_property_len(self.continuations[1].idx as usize);
         }
     }
 

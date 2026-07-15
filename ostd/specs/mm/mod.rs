@@ -48,7 +48,7 @@ impl GlobalMemOwner {
     /// The set of mappings in the page table is determined by
     /// [`PageTableOwner::view_rec`](crate::specs::mm::page_table::owners::PageTableOwner::view_rec).
     pub closed spec fn page_table_mappings(self) -> Set<Mapping> {
-        self.pt.view_rec(self.pt.0.value.path)
+        self.pt.view_rec(self.pt.0.value().path)
     }
 
     /// Top-level property: the page table mappings are disjoint in the virtual address space.
@@ -123,7 +123,7 @@ impl GlobalMemOwner {
             self.invariants(),
     {
         let pt = self.pt;
-        let root_path = pt.0.value.path;
+        let root_path = pt.0.value().path;
 
         assert forall|m1: Mapping, m2: Mapping|
             self.page_table_mappings() has m1 && self.page_table_mappings() has m2 && m1

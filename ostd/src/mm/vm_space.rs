@@ -226,7 +226,7 @@ impl<'a> VmSpace<'a> {
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             self.pt.relates_owner(owner, *old(regions)),
-            owner.0.value.node().relate_guard(root_guard),
+            owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
@@ -287,7 +287,7 @@ impl<'a> VmSpace<'a> {
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             self.pt.relates_owner(owner, *old(regions)),
-            owner.0.value.node().relate_guard(root_guard),
+            owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),

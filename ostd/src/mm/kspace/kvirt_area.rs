@@ -204,15 +204,15 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> alloc::vec::Vec<(P
     ensures
         final(kernel_owner)@ is Some,
         final(kernel_owner)@->0.inv(),
-        (final(kernel_owner)@->0).0.value.is_node(),
-        res.root.ptr.addr() == (final(kernel_owner)@->0).0.value.node().meta_addr_self(),
+        (final(kernel_owner)@->0).0.value().is_node(),
+        res.root.ptr.addr() == (final(kernel_owner)@->0).0.value().node().meta_addr_self(),
         old(kernel_owner)@ is Some ==> final(kernel_owner)@ == old(kernel_owner)@,
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
-            (final(kernel_owner)@->0).0.value.node(),
+            (final(kernel_owner)@->0).0.value().node(),
         ),
-        (final(kernel_owner)@->0).0.value.metaregion_sound(*regions),
+        (final(kernel_owner)@->0).0.value().metaregion_sound(*regions),
         final(kernel_owner)@->0.metaregion_sound(*regions),
-        guards.unlocked((final(kernel_owner)@->0).0.value.node().meta_addr_self()),
+        guards.unlocked((final(kernel_owner)@->0).0.value().node().meta_addr_self()),
 )]
 pub(crate) fn get_kernel_page_table<'rcu>() -> &'static PageTable<KernelPtConfig> {
     KERNEL_PAGE_TABLE.get().unwrap()
@@ -297,7 +297,7 @@ impl KVirtAreaOwner {
     pub closed spec fn cursor_view_at(self, addr: Vaddr) -> CursorView<KernelPtConfig> {
         CursorView {
             cur_va: nat_align_down(addr as nat, PAGE_SIZE as nat) as Vaddr,
-            mappings: self.pt_owner.view_rec(self.pt_owner.0.value.path),
+            mappings: self.pt_owner.view_rec(self.pt_owner.0.value().path),
             phantom: PhantomData,
         }
     }
@@ -421,7 +421,7 @@ impl KVirtArea {
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
-            owner.pt_owner.0.value.node().relate_guard(root_guard),
+            owner.pt_owner.0.value().node().relate_guard(root_guard),
             // Precise: out-of-range diverges at the top `assert!`, and the
             // inner `Cursor::query` clones the resolved leaf frame — that
             // clone aborts only when *that specific slot* is saturated.
@@ -566,7 +566,7 @@ impl KVirtArea {
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
-            owner.pt_owner.0.value.node().relate_guard(root_guard),
+            owner.pt_owner.0.value().node().relate_guard(root_guard),
             // For each frame, the map contains an appropriate owner keyed by
             // that frame's paddr. Duplicates in `frames` share the same owner.
             forall|i: int|
@@ -932,7 +932,7 @@ impl KVirtArea {
             old(regions).inv(),
             owner.inv(),
             owner.pt_owner.metaregion_sound(*old(regions)),
-            owner.pt_owner.0.value.node().relate_guard(root_guard),
+            owner.pt_owner.0.value().node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
             map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= usize::MAX,
         ensures
