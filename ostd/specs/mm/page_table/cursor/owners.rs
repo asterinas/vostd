@@ -574,7 +574,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         );
         let ghost owner_spec = owner;
         let tracked res = OwnerSubtree::tracked_new_val(owner, self.tree_level + 1);
-        res.lemma_new_val_properties(owner_spec, self.tree_level + 1);
         res
     }
 

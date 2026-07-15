@@ -1707,7 +1707,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
 } // verus!
 verus! {
 
-pub broadcast group group_ghost_tree {
+pub broadcast group group_ghost_tree_lemmas {
     TreePath::lemma_index_satisfies_elem_inv,
     TreePath::lemma_empty_satisfies_inv,
     TreePath::lemma_pop_head_preserves_inv,

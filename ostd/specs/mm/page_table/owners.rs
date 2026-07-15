@@ -31,7 +31,7 @@ use core::ops::Deref;
 
 verus! {
 
-broadcast use group_ghost_tree;
+broadcast use group_ghost_tree_lemmas;
 
 #[verifier::inline]
 pub open spec fn vaddr_shift_bits<const L: usize>(idx: int) -> nat

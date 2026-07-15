@@ -3555,9 +3555,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             absent_entry_owner,
             subtree_level,
         );
-        proof {
-            lemma_new_val_properties(absent_entry_owner_spec, subtree_level);
-        }
 
         assert(subtree.value().meta_slot_paddr() is None);
         proof {
@@ -4081,7 +4078,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 pre_new_owner.set_value(new_owner.value()),
             );
             assert(new_owner == OwnerSubtree::new_val(new_owner.value(), new_owner.level()));
-            lemma_new_val_properties(new_owner.value(), new_owner.level());
             old_child_owner_pre_replace.lemma_set_value_observable_fields(
                 old_child_owner.value(),
             );
