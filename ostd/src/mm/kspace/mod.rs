@@ -419,20 +419,12 @@ unsafe impl PageTableConfig for KernelPtConfig {
         regions: MetaRegionOwners,
     ) {
         use crate::mm::frame::meta::mapping::meta_to_frame;
-        use crate::specs::mm::frame::mapping::frame_to_index;
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
-        // `MappedItem::clone_requires` case-analyzes:
-        //   - Tracked: `frame.clone_requires(regions)` — needs `frame.inv()` and the
-        //     slot facts at `frame_to_index(meta_to_frame(frame.ptr.addr()))`.
-        //   - Untracked: `regions.inv()`. Trivially satisfied from precondition.
-        // Discharge `frame.inv()` via the trait-level structural well-formedness method.
         Self::lemma_item_from_raw_well_formed(pa, level, prop);
         match item {
             MappedItem::Tracked(frame, _) => {
                 assert(meta_to_frame(frame.ptr.addr()) == pa);
-                assert(frame_to_index(meta_to_frame(frame.ptr.addr())) == frame_to_index(pa));
-                assert(frame.inv());
             },
             MappedItem::Untracked(_, _, _) => {},
         }
