@@ -4,6 +4,7 @@ use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ord
 
 use vstd::prelude::*;
 
+use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::{
@@ -28,6 +29,8 @@ use core::ops::IndexMut;
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) -> (res: Range<Idx>)
     ensures
         res == *range,
@@ -40,8 +43,8 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         Tracked(guards): Tracked<&mut Guards<'rcu>>
     requires
         pt.relates_owner(pt_own, *old(regions)),
-        pt_own.0.value.node().relate_guard(root_guard),
-        forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
+        pt_own.0.value().node().relate_guard(root_guard),
+        forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.has_child(i),
         va.start < va.end,
         // Per-config tightening; see `Cursor::new`. Pulled through to the
         // cursor's `LOCKED_END_BOUND_spec` invariant.
@@ -58,7 +61,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // The root continuation's path matches the input's root path — this
         // lets `view_rec(pt_own.0.value.path)` unify with the lemma's
         // `view_rec(continuations[3].path())`.
-        (*ret.1).continuations[3].path() == pt_own.0.value.path,
+        (*ret.1).continuations[3].path() == pt_own.0.value().path,
         // Non-saturation preservation: if the caller established that no
         // non-UNUSED slot was one increment away from REF_COUNT_MAX before
         // locking, the same bound holds after. Locking may allocate new PT
@@ -124,6 +127,13 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
     let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS - 1];
 
+    proof {
+        assert forall|i: int| 0 <= i < NR_ENTRIES implies (
+        #[trigger] pt_own.0.children()[i]) is Some by {
+            assert(pt_own.0.has_child(i));
+        };
+    }
+
     let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::tracked_new(
         pt_own.0,
         start_idx as usize,
@@ -176,10 +186,6 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         assert(cont.entry_own.metaregion_sound(*regions));
         assert(regions.slots.contains_key(cont_slot_idx));
         assert(regions.slot_owners.contains_key(cont_slot_idx));
-        assert(vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<PageTablePageMeta<C>>>::new_spec(
-            regions.slots[cont_slot_idx],
-            regions.slot_owners[cont_slot_idx].inner_perms,
-        ).wf(&regions.slot_owners[cont_slot_idx].inner_perms));
     }
     let tracked cont_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(cont_slot_idx);
     #[verus_spec(with Tracked(cont_meta_perm))]
@@ -215,7 +221,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         assume(res.0.invariants(*res.1, *regions, *guards) && (*res.1).in_locked_range()
             && res.0.level == res.0.guard_level && res.0.va < res.0.barrier_va.end && (
         *res.1).as_page_table_owner() == pt_own && (*res.1).continuations[3].path()
-            == pt_own.0.value.path);
+            == pt_own.0.value().path);
         assume((forall|i: usize|
             #![trigger old(regions).slot_owners[i]]
             old(regions).slot_owners.contains_key(i) && old(
@@ -652,7 +658,7 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         final(owner).level <= 3 ==> final(owner).continuations[2].guard == old(owner).continuations[2].guard,
         final(owner).level <= 2 ==> final(owner).continuations[1].guard == old(owner).continuations[1].guard,
         final(owner).level == 1 ==> final(owner).continuations[0].guard == old(owner).continuations[0].guard,
-        final(owner).continuations[final(owner).level - 1].children[final(owner).continuations[final(owner).level - 1].idx as int]->0.value.is_absent(),
+        final(owner).continuations[final(owner).level - 1].children[final(owner).continuations[final(owner).level - 1].idx as int]->0.value().is_absent(),
         // entry_own at current level is preserved
         final(owner).continuations[final(owner).level - 1].entry_own == old(owner).continuations[old(owner).level - 1].entry_own,
         // Children at current level are preserved
