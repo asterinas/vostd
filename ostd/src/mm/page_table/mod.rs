@@ -250,7 +250,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         requires
             Self::raw_item_well_formed(paddr, level, prop),
         ensures
-            Self::item_well_formed(item),
+            Self::item_well_formed(res),
         returns
             Self::item_from_raw_spec(paddr, level, prop),
     ;

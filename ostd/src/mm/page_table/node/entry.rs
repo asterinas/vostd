@@ -1253,6 +1253,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     pa, level, i);
 
                 }
+                C::lemma_raw_item_well_formed_split(pa, level, prop, small_pa, i);
             }
 
             // Snapshot the node's own-slot facts while the loop invariant still
@@ -1478,6 +1479,17 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 
         let prop = pte.prop();
         let new_prop = op(prop);
+
+        proof {
+            assert(owner.frame().prop == prop);
+            assert(op.ensures((prop,), new_prop));
+            C::lemma_raw_item_well_formed_preserved(
+                owner.frame().mapped_pa,
+                owner.parent_level,
+                prop,
+                new_prop,
+            );
+        }
 
         assume(pte.set_prop_req(new_prop));
         pte.set_prop(new_prop);

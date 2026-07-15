@@ -290,7 +290,19 @@ unsafe impl PageTableConfig for KernelPtConfig {
     ) {
         broadcast use group_page_meta;
 
+        assert(Self::raw_item_well_formed(pa, level, prop));
+        Self::lemma_item_from_raw_well_formed(pa, level, prop);
         Self::lemma_tracked_prop_encoding(prop);
+        let item = Self::item_from_raw_spec(pa, level, prop);
+        if prop.flags.contains(PageFlags::AVAIL1()) {
+            assert(level == 1);
+            crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
+            assert(item is Tracked);
+            assert(Self::item_into_raw_spec(item) == (pa, level, prop));
+        } else {
+            assert(item is Untracked);
+            assert(Self::item_into_raw_spec(item) == (pa, level, prop));
+        }
     }
 
     proof fn lemma_item_from_raw_roundtrip(
@@ -303,9 +315,15 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
         match item {
             MappedItem::Tracked(frame, prop_actual) => {
+                assert(Self::item_well_formed(MappedItem::Tracked(frame, prop_actual)));
                 Self::lemma_tracked_prop_encoding(prop_actual);
+                assert(frame.inv());
+                crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(
+                    frame.ptr.addr(),
+                );
             },
             MappedItem::Untracked(_, _, prop_actual) => {
+                assert(Self::item_well_formed(item));
                 Self::lemma_tracked_prop_encoding(prop_actual);
             },
         }
@@ -356,6 +374,19 @@ unsafe impl PageTableConfig for KernelPtConfig {
         broadcast use group_page_meta;
 
         Self::lemma_tracked_prop_encoding(prop);
+        if prop.flags.contains(PageFlags::AVAIL1()) {
+            crate::specs::mm::frame::mapping::lemma_frame_to_meta_soundness(pa);
+            let item = Self::item_from_raw_spec(pa, level, prop);
+            assert(item is Tracked);
+            assert(item->Tracked_0.inv());
+            assert(!item->Tracked_1.flags.contains(PageFlags::AVAIL1()));
+            assert(Self::item_well_formed(item));
+        } else {
+            let item = Self::item_from_raw_spec(pa, level, prop);
+            assert(item is Untracked);
+            assert(!item->Untracked_2.flags.contains(PageFlags::AVAIL1()));
+            assert(Self::item_well_formed(item));
+        }
     }
 
     proof fn lemma_clone_ensures_concrete(
@@ -365,6 +396,28 @@ unsafe impl PageTableConfig for KernelPtConfig {
         new_regions: MetaRegionOwners,
         res: Self::Item,
     ) {
+        use crate::mm::frame::meta::mapping::meta_to_frame;
+        use crate::specs::mm::frame::mapping::frame_to_index;
+
+        match item {
+            MappedItem::Tracked(frame, _) => {
+                let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
+                assert(frame_to_index(pa) == frame_idx);
+                assert(<MappedItem as RCClone>::clone_ensures(
+                    item,
+                    old_regions,
+                    new_regions,
+                    res,
+                ));
+                assert(frame.clone_ensures(old_regions, new_regions, frame));
+                assert(forall|i: usize|
+                    i != frame_idx ==> #[trigger] new_regions.slot_owners[i]
+                        == old_regions.slot_owners[i]);
+            },
+            MappedItem::Untracked(_, _, _) => {
+                assert(old_regions == new_regions);
+            },
+        }
     }
 
     proof fn lemma_clone_requires_concrete(
@@ -374,12 +427,24 @@ unsafe impl PageTableConfig for KernelPtConfig {
         prop: PageProperty,
         regions: MetaRegionOwners,
     ) {
+        use crate::mm::frame::meta::mapping::meta_to_frame;
+        use crate::specs::mm::frame::mapping::frame_to_index;
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+
         // `MappedItem::clone_requires` case-analyzes:
         //   - Tracked: `frame.clone_requires(regions)` — needs `frame.inv()` and the
         //     slot facts at `frame_to_index(meta_to_frame(frame.ptr.addr()))`.
         //   - Untracked: `regions.inv()`. Trivially satisfied from precondition.
         // Discharge `frame.inv()` via the trait-level structural well-formedness method.
         Self::lemma_item_from_raw_well_formed(pa, level, prop);
+        match item {
+            MappedItem::Tracked(frame, _) => {
+                assert(meta_to_frame(frame.ptr.addr()) == pa);
+                assert(frame_to_index(meta_to_frame(frame.ptr.addr())) == frame_to_index(pa));
+                assert(frame.inv());
+            },
+            MappedItem::Untracked(_, _, _) => {},
+        }
     }
 }
 

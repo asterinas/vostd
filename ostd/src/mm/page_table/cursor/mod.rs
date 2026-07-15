@@ -650,9 +650,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         let idx = frame_to_index(pa);
                         assert(regions.slot_owners.contains_key(idx));
-                        EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                            owner.cur_entry_owner(),
-                        );
                         assert(owner.cur_entry_owner().inv_base());
                         if C::tracked(item)
                             && regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -3112,6 +3109,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         assert!(self.0.va < self.0.barrier_va.end);
         let (pa, level, prop) = C::item_into_raw(item);
+        proof {
+            C::lemma_item_from_raw_roundtrip(item, pa, level, prop);
+        }
         assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
         assert!(level < self.0.guard_level);
         if !C::TOP_LEVEL_CAN_UNMAP() {
