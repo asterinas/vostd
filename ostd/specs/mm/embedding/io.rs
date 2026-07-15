@@ -52,7 +52,7 @@ use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
 use crate::mm::{MAX_USERSPACE_VADDR, Vaddr};
 use crate::specs::mm::io::VmIoOwner;
 
-use super::{VmIoEntry, VmIoKind, VmSpaceId, axiom_vm_io_entry_new};
+use super::{VmIoEntry, VmIoKind, VmSpaceId, tracked_vm_io_entry_new};
 
 verus! {
 
@@ -268,7 +268,7 @@ pub(super) proof fn new_vm_io_step<'a>(
     };
     match owner_opt {
         Option::Some(owner) => {
-            let tracked entry = axiom_vm_io_entry_new(vs, kind, vaddr, len, owner);
+            let tracked entry = tracked_vm_io_entry_new(vs, kind, vaddr, len, owner);
             Option::Some(entry)
         },
         Option::None => Option::None,
@@ -292,7 +292,7 @@ pub(super) proof fn new_kernel_vm_io_step(vaddr: Vaddr, len: usize, kind: VmIoKi
         VmIoKind::Reader => vm_reader_from_kernel_space_embedded(vaddr, len),
         VmIoKind::Writer => vm_writer_from_kernel_space_embedded(vaddr, len),
     };
-    axiom_vm_io_entry_new(Option::<VmSpaceId>::None, kind, vaddr, len, owner)
+    tracked_vm_io_entry_new(Option::<VmSpaceId>::None, kind, vaddr, len, owner)
 }
 
 /// Per-op step for `Op::DropReader` / `Op::DropWriter`. The caller has
@@ -355,7 +355,7 @@ pub(super) proof fn read_step(
         res.vm_space is None,
 {
     let tracked val_owner = vm_reader_read_embedded(&mut source.owner, &mut dest.owner);
-    axiom_vm_io_entry_new(Option::<VmSpaceId>::None, VmIoKind::Writer, 0usize, 0usize, val_owner)
+    tracked_vm_io_entry_new(Option::<VmSpaceId>::None, VmIoKind::Writer, 0usize, 0usize, val_owner)
 }
 
 /// Per-op step for `Op::Write` (Infallible `VmWriter::write`). Mutates
