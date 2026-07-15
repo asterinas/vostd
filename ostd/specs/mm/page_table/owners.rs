@@ -1262,7 +1262,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     path.lemma_push_tail_len(i);
                     // child.view_rec ⊆ self.view_rec(path) ⊆ ambient
                     // path-correctness passes to the child.
-                    self.0.lemma_map_unroll_once(path, Self::path_correct_pred(), i);
+                    self.0.lemma_subtree_satisfies_unroll_once(path, Self::path_correct_pred(), i);
                     child.no_frame_with_path_rec(path.push_tail(i), removed_path, ambient);
                 } else {
                     PageTableOwner(self.0).pt_inv_non_node(i);
@@ -2258,8 +2258,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path_j.push_tail(i), g) by {
                 let child = subtree.child(i);
                 let child_path = path_j.push_tail(i);
-                subtree.lemma_map_unroll_once(path_j, f_sound, i);
-                subtree.lemma_map_unroll_once(path_j, f_path, i);
+                subtree.lemma_subtree_satisfies_unroll_once(path_j, f_sound, i);
+                subtree.lemma_subtree_satisfies_unroll_once(path_j, f_path, i);
                 path_j.lemma_push_tail_len(i);
                 path_j.lemma_push_tail_index(i);
                 path_j.lemma_push_tail_preserves_inv(i);

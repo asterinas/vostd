@@ -1019,7 +1019,7 @@ impl PageTable<KernelPtConfig> {
             };
             assert(kernel_owner.metaregion_sound(regions_before_alloc));
 
-            kernel_owner.0.lemma_map_implies(
+            kernel_owner.0.lemma_subtree_satisfies_implies(
                 kernel_owner.0.value().path,
                 |
                     e: crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>,
@@ -1115,7 +1115,7 @@ impl PageTable<KernelPtConfig> {
                 assert(entry_owner.inv());
                 assert(root_owner.relate_guard(root_node));
 
-                kernel_owner.0.lemma_map_unroll_once(
+                kernel_owner.0.lemma_subtree_satisfies_unroll_once(
                     kernel_owner.0.value().path,
                     PageTableOwner::<KernelPtConfig>::metaregion_sound_pred(*regions),
                     i as int,

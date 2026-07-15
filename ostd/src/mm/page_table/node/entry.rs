@@ -1321,10 +1321,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 pt_lock_guard.replace_absent_with_frame(i, small_pa, level - 1, prop);
 
                 proof {
-                    OwnerSubtree::lemma_set_value_property(
-                        new_owner_child_before_update,
-                        child_owner,
-                    );
                     *new_owner_child_value = child_owner;
                 }
             }
@@ -1344,14 +1340,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.tracked_insert_child(i as int, Some(new_owner_child));
 
                 TreePath::lemma_push_tail_len(new_owner_path, i as int);
-                new_owner_before_update.lemma_set_value_property(new_owner.value());
                 let owner_with_updated_value = new_owner_before_update.set_value(new_owner.value());
-                OwnerSubtree::lemma_update_preserves_inv(
+                OwnerSubtree::lemma_insert_preserves_inv(
                     owner_with_updated_value,
                     i as int,
                     new_owner_child,
                 );
-                OwnerSubtree::lemma_update_property(
+                OwnerSubtree::lemma_insert_property(
                     owner_with_updated_value,
                     i as int,
                     new_owner_child,

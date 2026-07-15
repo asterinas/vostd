@@ -137,8 +137,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
                 && subtree.has_child(i) implies subtree.child(i).subtree_satisfies(
         path.push_tail(i), h) by {
             let child = subtree.child(i);
-            subtree.lemma_map_unroll_once(path, f, i);
-            subtree.lemma_map_unroll_once(path, g, i);
+            subtree.lemma_subtree_satisfies_unroll_once(path, f, i);
+            subtree.lemma_subtree_satisfies_unroll_once(path, g, i);
 
             PageTableOwner::<C>(subtree).pt_inv_unroll(i);
             let child_path = path.push_tail(i);
@@ -942,8 +942,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     child_cont.path().lemma_push_tail_len(j);
 
                     let child_subtree = old_cont.children[old_cont.idx as int].unwrap();
-                    child_subtree.lemma_map_unroll_once(cur_entry_path, f, j);
-                    child_subtree.lemma_map_unroll_once(cur_entry_path, g_except, j);
+                    child_subtree.lemma_subtree_satisfies_unroll_once(cur_entry_path, f, j);
+                    child_subtree.lemma_subtree_satisfies_unroll_once(cur_entry_path, g_except, j);
 
                     assert(child_cont.path() == cur_entry_path);
                     assert(gc_path == cur_entry_path.push_tail(j));
@@ -1122,7 +1122,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 Some(ch) => ch.subtree_satisfies(child_cont.path().push_tail(j), f),
                 None => true,
             } by {
-                child_subtree.lemma_map_unroll_once(child_cont.path(), f, j);
+                child_subtree.lemma_subtree_satisfies_unroll_once(child_cont.path(), f, j);
             };
         };
 

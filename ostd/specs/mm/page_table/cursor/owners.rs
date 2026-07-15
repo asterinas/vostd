@@ -2469,7 +2469,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j), g) by {
                 cont.inv_children_unroll(j);
-                cont.children[j].unwrap().lemma_map_implies(cont.path().push_tail(j), f, g);
+                cont.children[j].unwrap().lemma_subtree_satisfies_implies(cont.path().push_tail(j), f, g);
             };
         };
         assert(other.path_metaregion_sound(regions1)) by {
@@ -2567,7 +2567,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Transfers `metaregion_sound` when `raw_count` changed from 0 to 1 at one index.
-    /// Uses `lemma_map_implies_and` with the trivial `not_in_scope_pred`.
+    /// Uses `lemma_subtree_satisfies_implies_and` with the trivial `not_in_scope_pred`.
     pub proof fn metaregion_borrow_slot(
         self,
         regions0: MetaRegionOwners,
@@ -2648,7 +2648,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j), g) by {
                 cont.inv_children_unroll(j);
-                cont.children[j].unwrap().lemma_map_implies_and(
+                cont.children[j].unwrap().lemma_subtree_satisfies_implies_and(
                     cont.path().push_tail(j),
                     f,
                     nsp,

@@ -3195,11 +3195,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(new_owner.inv());
             };
 
-            OwnerSubtree::lemma_new_val_subtree_satisfies(
-                new_owner,
-                new_owner.value().path,
-                CursorOwner::<'rcu, C>::node_unlocked(*guards),
-            );
 
             let ghost pa_idx_install = frame_to_index(pa);
             let ghost new_frame_path = new_owner.value().path;
@@ -3561,7 +3556,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             subtree_level,
         );
         proof {
-            subtree.lemma_new_val_properties(absent_entry_owner_spec, subtree_level);
+            lemma_new_val_properties(absent_entry_owner_spec, subtree_level);
         }
 
         assert(subtree.value().meta_slot_paddr() is None);
@@ -3574,15 +3569,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost va_after_find = self.0.va;
         let ghost level_after_find = self.0.level;
 
-        proof {
-            // subtree.value is absent, so not_in_tree is vacuously true.
-            owner.absent_not_in_tree(subtree.value());
-            OwnerSubtree::lemma_new_val_subtree_satisfies(
-                subtree,
-                subtree.value().path,
-                CursorOwner::<'rcu, C>::node_unlocked(*guards),
-            );
-        }
         #[verus_spec(with Tracked(owner), Tracked(subtree), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::None);
         let ghost regions_after_replace = *regions;
@@ -4090,17 +4076,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         proof {
             pre_new_owner.lemma_set_value_observable_fields(new_owner.value());
             pre_new_owner.lemma_set_value_preserves_new_val_shape(new_owner.value());
-            pre_new_owner.lemma_set_value_property(new_owner.value());
             OwnerSubtree::<C>::lemma_ext_equal(
                 new_owner,
                 pre_new_owner.set_value(new_owner.value()),
             );
             assert(new_owner == OwnerSubtree::new_val(new_owner.value(), new_owner.level()));
-            new_owner.lemma_new_val_properties(new_owner.value(), new_owner.level());
+            lemma_new_val_properties(new_owner.value(), new_owner.level());
             old_child_owner_pre_replace.lemma_set_value_observable_fields(
                 old_child_owner.value(),
             );
-            old_child_owner_pre_replace.lemma_set_value_property(old_child_owner.value());
             OwnerSubtree::<C>::lemma_ext_equal(
                 old_child_owner,
                 old_child_owner_pre_replace.set_value(old_child_owner.value()),
@@ -4264,7 +4248,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             old_child_pre_replace,
                             regions0,
                         );
-                        OwnerSubtree::lemma_map_implies_and(
+                        OwnerSubtree::lemma_subtree_satisfies_implies_and(
                             subtree,
                             path_j,
                             f_sound,
@@ -4280,9 +4264,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             assert(new_owner.value().metaregion_sound(*regions));
             let child_path = final_cont.path().push_tail(idx as int);
-            assert(new_owner.subtree_satisfies(child_path, g_sound)) by {
-                OwnerSubtree::lemma_new_val_subtree_satisfies(new_owner, child_path, g_sound);
-            };
 
             // Bottom continuation siblings: metaregion_sound
             if old_child_pre_replace.is_node() {
@@ -4307,7 +4288,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 old_child_pre_replace,
                                 regions0,
                             );
-                            OwnerSubtree::lemma_map_implies_and(
+                            OwnerSubtree::lemma_subtree_satisfies_implies_and(
                                 subtree,
                                 path_j,
                                 f_sound,
