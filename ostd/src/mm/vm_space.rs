@@ -740,7 +740,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// # Panics
     ///
     /// This method panics if the address has bad alignment.
-    /// 
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: The page table cursor safety invariants
@@ -1665,11 +1665,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
-    proof fn lemma_item_into_raw_roundtrip(
-        pa: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) {
+    proof fn lemma_item_into_raw_roundtrip(pa: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         Self::item_from_raw_spec_frame_ptr(pa, level, prop);
@@ -1699,11 +1695,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         item.frame.inv()
     }
 
-    open spec fn raw_item_well_formed(
-        _pa: Paddr,
-        level: PagingLevel,
-        _prop: PageProperty,
-    ) -> bool {
+    open spec fn raw_item_well_formed(_pa: Paddr, level: PagingLevel, _prop: PageProperty) -> bool {
         level == 1
     }
 

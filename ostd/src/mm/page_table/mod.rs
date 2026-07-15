@@ -213,7 +213,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             has_safe_slot(paddr),
             paddr % page_size(level) == 0,
             paddr + page_size(level) <= MAX_PADDR,
-            Self::raw_item_well_formed(paddr, level , prop),
+            Self::raw_item_well_formed(paddr, level, prop),
         returns
             Self::item_into_raw_spec(item),
     ;
@@ -245,7 +245,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ///  - the [`super::PageFlags::AVAIL1`] flag is the same as that returned
     ///    from [`PageTableConfig::item_into_raw`].
     #[verifier::when_used_as_spec(item_from_raw_spec)]
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res:Self::Item)
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res:
+        Self::Item)
         requires
             has_safe_slot(paddr),
             Self::raw_item_well_formed(paddr, level, prop),
@@ -267,11 +268,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
     /// Per-config predicate that captures the well-formedness of raw properties
     /// produced via [`PageTableConfig::item_into_raw`] must satisfy.
-    spec fn raw_item_well_formed(
-        pa: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) -> bool;
+    spec fn raw_item_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) -> bool;
 
     /// Changing properties without changing trackedness preserves a canonical raw item.
     proof fn lemma_raw_item_well_formed_preserved(
@@ -283,8 +280,9 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         requires
             has_safe_slot(pa),
             Self::raw_item_well_formed(pa, level, old_prop),
-            Self::tracked(Self::item_from_raw(pa, level, new_prop))
-                == Self::tracked(Self::item_from_raw(pa, level, old_prop)),
+            Self::tracked(Self::item_from_raw(pa, level, new_prop)) == Self::tracked(
+                Self::item_from_raw(pa, level, old_prop),
+            ),
         ensures
             Self::raw_item_well_formed(pa, level, new_prop),
     ;
@@ -302,9 +300,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::raw_item_well_formed(pa, level, prop),
             level > 1,
             child_idx < NR_ENTRIES,
-            child_pa == pa + child_idx * page_size(
-                (level - 1) as PagingLevel,
-            ),
+            child_pa == pa + child_idx * page_size((level - 1) as PagingLevel),
         ensures
             Self::raw_item_well_formed(child_pa, (level - 1) as PagingLevel, prop),
     ;
@@ -319,17 +315,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ;
 
     /// Re-encoding a canonical raw item preserves the complete raw representation.
-    proof fn lemma_item_into_raw_roundtrip(
-        pa: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    )
+    proof fn lemma_item_into_raw_roundtrip(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
             has_safe_slot(pa),
             Self::raw_item_well_formed(pa, level, prop),
         ensures
-            Self::item_into_raw(Self::item_from_raw(pa, level, prop))
-                == (pa, level, prop),
+            Self::item_into_raw(Self::item_from_raw(pa, level, prop)) == (pa, level, prop),
     ;
 
     /// Decoding the raw representation produced from a well-formed item restores that item.

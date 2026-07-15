@@ -206,10 +206,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Step 3: align_down(self_va + ps, ps) = align_down(self_va, ps) + ps.
         // Because (self_va + ps) % ps == self_va % ps, adding a full ps doesn't
         // change the remainder.
-        vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(
-            self_va as int,
-            ps as int,
-        );
+        vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(self_va as int, ps as int);
 
         // Step 4: align_down(self_va, ps) + ps > self_va.
         // Because align_down(self_va, ps) = self_va - self_va % ps,

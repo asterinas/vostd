@@ -222,17 +222,12 @@ unsafe impl PageTableConfig for KernelPtConfig {
                 1,
                 Self::encode_tracked_prop(prop),
             ),
-            MappedItem::Untracked(pa, level, prop) => (
-                pa,
-                level,
-                Self::decode_tracked_prop(prop),
-            ),
+            MappedItem::Untracked(pa, level, prop) => (pa, level, Self::decode_tracked_prop(prop)),
         }
     }
 
     #[verifier::external_body]
-    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
-    {
+    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty)) {
         match item {
             MappedItem::Tracked(frame, mut prop) => {
                 debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
@@ -268,8 +263,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     }
 
     #[verifier::external_body]
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item
-    {
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
         if prop.flags.contains(PageFlags::AVAIL1()) {
             debug_assert_eq!(level, 1);
             // [KNOWN] BUG FOUND BY FV: forgotting to clean `AVAIL1`. https://github.com/asterinas/vostd/issues/625
@@ -283,11 +277,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    proof fn lemma_item_into_raw_roundtrip(
-        pa: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) {
+    proof fn lemma_item_into_raw_roundtrip(pa: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use group_page_meta;
 
         assert(Self::raw_item_well_formed(pa, level, prop));
@@ -331,11 +321,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         }
     }
 
-    open spec fn raw_item_well_formed(
-        _pa: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) -> bool {
+    open spec fn raw_item_well_formed(_pa: Paddr, level: PagingLevel, prop: PageProperty) -> bool {
         prop.flags.contains(PageFlags::AVAIL1()) ==> level == 1
     }
 
@@ -382,15 +368,9 @@ unsafe impl PageTableConfig for KernelPtConfig {
         match item {
             MappedItem::Tracked(frame, _) => {
                 let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
-                assert(<MappedItem as RCClone>::clone_ensures(
-                    item,
-                    old_regions,
-                    new_regions,
-                    res,
-                ));
+                assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
             },
-            MappedItem::Untracked(_, _, _) => {
-            },
+            MappedItem::Untracked(_, _, _) => {},
         }
     }
 

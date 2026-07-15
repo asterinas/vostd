@@ -164,14 +164,17 @@ impl PageProperty {
         ensures
             self.flags.union(PageFlags::AVAIL1()).contains(PageFlags::AVAIL1()),
             !self.flags.difference(PageFlags::AVAIL1()).contains(PageFlags::AVAIL1()),
-            !self.flags.contains(PageFlags::AVAIL1()) ==>
-                self.flags.difference(PageFlags::AVAIL1()) == self.flags,
-            !self.flags.contains(PageFlags::AVAIL1()) ==>
-                self.flags.union(PageFlags::AVAIL1()).difference(PageFlags::AVAIL1()) == self.flags,
-            self.flags.contains(PageFlags::AVAIL1()) ==>
-                self.flags.difference(PageFlags::AVAIL1()).union(PageFlags::AVAIL1()) == self.flags,
+            !self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.difference(PageFlags::AVAIL1())
+                == self.flags,
+            !self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.union(
+                PageFlags::AVAIL1(),
+            ).difference(PageFlags::AVAIL1()) == self.flags,
+            self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.difference(
+                PageFlags::AVAIL1(),
+            ).union(PageFlags::AVAIL1()) == self.flags,
     {
         broadcast use PageFlags::lemma_consts;
+
         let tag = PageFlags::AVAIL1();
         let bits = self.flags.bits();
         let tag_bits = tag.bits();
@@ -182,20 +185,24 @@ impl PageProperty {
             assert((bits & tag_bits) == 0u8) by (bit_vector)
                 requires
                     tag_bits == 0x40u8,
-                    (bits & tag_bits) != tag_bits;
+                    (bits & tag_bits) != tag_bits,
+            ;
             assert((bits & !tag_bits) == bits) by (bit_vector)
                 requires
-                    (bits & tag_bits) == 0u8;
+                    (bits & tag_bits) == 0u8,
+            ;
             assert(((bits | tag_bits) & !tag_bits) == bits) by (bit_vector)
                 requires
-                    (bits & tag_bits) == 0u8;
+                    (bits & tag_bits) == 0u8,
+            ;
             PageFlags::lemma_eq_from_bits(self.flags.difference(tag), self.flags);
             PageFlags::lemma_eq_from_bits(self.flags.union(tag).difference(tag), self.flags);
         } else {
             assert((bits & tag_bits) == tag_bits);
             assert(((bits & !tag_bits) | tag_bits) == bits) by (bit_vector)
                 requires
-                    (bits & tag_bits) == tag_bits;
+                    (bits & tag_bits) == tag_bits,
+            ;
             PageFlags::lemma_eq_from_bits(self.flags.difference(tag).union(tag), self.flags);
         }
     }
