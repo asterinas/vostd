@@ -601,8 +601,8 @@ pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 impl<C: PageTableConfig> PageTableOwner<C> {
     /// Per-edge constraint between a node-parent and its child at index `i`.
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
-        &&& parent.children()[i] is Some
-        &&& parent.children()[i]->0.value().path.len() == parent.value().node().tree_level
+        &&& parent.has_child(i)
+        &&& parent.child(i).value().path.len() == parent.value().node().tree_level
             + 1
         // The child either matches its PTE as an owned node/frame/absent
         // entry, OR — only at the top level (`level == NR_LEVELS`, e.g. a user
@@ -611,16 +611,16 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         // owned by another config. Borrowed children contribute nothing to
         // `view_rec`. The top-level guard keeps deeper consumers on pure
         // `match_pte`, so borrowing never appears below the root.
-        &&& (parent.children()[i]->0.value().match_pte(
+        &&& (parent.child(i).value().match_pte(
             parent.value().node().children_perm.value()[i],
             parent.value().node().level,
         ) || (parent.value().node().level == NR_LEVELS && C::LEADING_BITS_spec() == 0
-            && parent.children()[i]->0.value().borrowed_match_pte(
+            && parent.child(i).value().borrowed_match_pte(
             parent.value().node().children_perm.value()[i],
             parent.value().node().level,
         )))
-        &&& parent.children()[i]->0.value().path == parent.value().path.push_tail(i)
-        &&& parent.children()[i]->0.value().parent_level == parent.value().node().level
+        &&& parent.child(i).value().path == parent.value().path.push_tail(i)
+        &&& parent.child(i).value().parent_level == parent.value().node().level
     }
 
     /// Depth-indexed PT-specific per-edge invariant. `depth` is a manifest
@@ -660,7 +660,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             0 <= i < NR_ENTRIES,
         ensures
             Self::pt_edge_at(self.0, i),
-            PageTableOwner(self.0.children()[i]->0).pt_inv(),
+            PageTableOwner(self.0.child(i)).pt_inv(),
     {
         // la_inv + is_node() gives tree_level < L-1, so depth > 0 and the
         // node branch of pt_inv_at_depth fires.
@@ -674,7 +674,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             !self.0.value().is_node(),
             0 <= i < NR_ENTRIES,
         ensures
-            self.0.children()[i] is None,
+            !self.0.has_child(i),
     {
     }
 
@@ -803,7 +803,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path.len() < INC_LEVELS - 1,
             self.0.value().is_node(),
             0 <= i < self.0.children().len(),
-            self.0.children()[i] is Some,
+            self.0.has_child(i),
             #[trigger] PageTableOwner(self.0.children()[i]->0).view_rec(
                 path.push_tail(i),
             ).contains(m),
@@ -850,8 +850,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             mapped.to_set_ensures();
             assert(mapped.contains(elem_s));
             let i = mapped.lemma_contains_to_index(elem_s);
-            if self.0.children()[i] is Some {
-                assert(mapped[i] == PageTableOwner(self.0.children()[i]->0).view_rec(
+            if self.0.has_child(i) {
+                assert(mapped[i] == PageTableOwner(self.0.child(i)).view_rec(
                     path.push_tail(i),
                 ));
             } else {
