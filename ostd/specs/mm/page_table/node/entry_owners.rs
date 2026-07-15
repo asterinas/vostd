@@ -15,10 +15,8 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::*;
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
-use crate::specs::mm::frame::meta_owners::PageUsage;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{meta_owners::PageUsage, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::node::entry_view::*;
 use crate::specs::mm::page_table::*;
 use core::marker::PhantomData;
@@ -848,8 +846,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // == NR_LEVELS` would be a 512 GiB huge page, which no current arch
             // permits — and `Mapping::inv` would reject its page_size.
             &&& 1 <= self.parent_level < NR_LEVELS
-            &&& self.frame().mapped_pa % PAGE_SIZE == 0
-            &&& self.frame().mapped_pa < MAX_PADDR
+            &&& has_safe_slot(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
             &&& C::raw_item_well_formed(
