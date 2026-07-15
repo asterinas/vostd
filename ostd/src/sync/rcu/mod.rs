@@ -11,7 +11,10 @@
 //! Rust atomics, while proofs only rely on the specification in
 //! [`specs::sync::weak_memory`]. Each RCU root pointer is represented by a
 //! `WeakAtomicPtr` whose history records the messages that may be observed by
-//! relaxed/acquire loads and CAS operations.
+//! relaxed/acquire loads and CAS operations. Weak atomic operations borrow the
+//! unique `ThreadView` from the current task's `RunningTaskContext`; RCU
+//! never mints a fresh view and therefore preserves observations across RCU
+//! operations and release publication.
 //!
 //! The current root-pointer invariant is intentionally small: `Rcu` roots are
 //! non-null in every atomic-history message, while `RcuOption` roots may be
@@ -45,9 +48,9 @@
 //! invariant: every flag-history message records a snapshot of the
 //! lock-protected monitor state (`specs::sync::rcu::MonitorStateView`), and a
 //! `false` message certifies that its snapshot has no pending callbacks and no
-//! incomplete grace period. The next step is to implement
-//! `set_monitoring`/`finish_grace_period` against this invariant and to prove
-//! callback execution only after the relevant grace period has completed.
+//! incomplete grace period. `finish_grace_period` removes the completed batch
+//! under the monitor lock, produces a `CompletedGracePeriod` certificate, and
+//! executes exactly that batch outside the lock.
 //!
 //! # Usage outline
 //!
@@ -57,6 +60,13 @@
 //! `read()` to obtain a guard and then use `get()` while the guard is live.
 //! Writers install a new pointer with `update()` or use the read guard's
 //! `compare_exchange()` to replace the value they observed.
+//!
+//! Verified callers carry one `RunningTaskContext` for the current task. RCU
+//! operations receive a mutable borrow of that context through erased
+//! `#[verus_spec(with ...)]` arguments. Starting a read-side critical section
+//! increments its modeled preemption depth and removes one session fraction;
+//! guard destruction reverses both changes. The scheduler can check the
+//! updated view back in only after the context is quiescent.
 //!
 //! Delayed reclamation is still being wired into the weak-memory proof. For now,
 //! `RcuDrop<T>` preserves the public wrapper API, while the monitor/callback
@@ -74,7 +84,7 @@ use crate::{
         },
         task::InAtomicMode,
     },
-    task::{DisabledPreemptGuard, disable_preempt},
+    task::{DisabledPreemptGuard, RunningTaskContext, disable_preempt_in_context},
 };
 
 use non_null::{NonNullPtr, NonNullPtrRef};
@@ -127,12 +137,6 @@ struct RcuReadGuardInner<'a, P: NonNullPtr> {
     obj_ptr: *mut <P as NonNullPtr>::Target,
     rcu: &'a RcuInner<P>,
     _inner_guard: DisabledPreemptGuard,
-    /// Thread-local weak-memory view for this read-side critical section.
-    ///
-    /// For now this only records the load/CAS view effects of the RCU pointer
-    /// itself. Traversal-safe RCU should later expose this to the paper-style
-    /// `SeenRemoved(D, LV)` proof layer in `specs::sync::rcu`.
-    view: Tracked<ThreadView>,
 }
 
 impl<P: NonNullPtr> RcuInner<P> {
@@ -236,12 +240,18 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         self.ptr.store_release_rcu(new_ptr, Tracked(tv));
     }
 
-    #[verus_spec(
+    fn update(&self, new_ptr: Option<P>, Tracked(session): Tracked<&mut RunningTaskContext>)
         requires
             self.type_inv(),
             self.is_nullable() || new_ptr is Some,
-    )]
-    fn update(&self, new_ptr: Option<P>) {
+            old(session).wf(),
+        ensures
+            final(session).wf(),
+            final(session).task() == old(session).task(),
+            final(session).session_id() == old(session).session_id(),
+            final(session).available_fractions() == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth(),
+    {
         proof_decl! {
             let ghost new_ptr_is_some = new_ptr is Some;
         }
@@ -252,13 +262,8 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             (core::ptr::null_mut(), Tracked(None))
         };
 
-        // TODO: A freshly minted empty view makes this release store publish no
-        // prior observations, so in the model it degrades to relaxed-strength
-        // publication. This is sound (the empty view is the weakest token) but
-        // lossy; switch to a per-task/per-CPU view once task-attached ghost
-        // state is available.
         proof_decl! {
-            let tracked mut tv = ThreadView::new();
+            let tracked tv = session.tracked_borrow_thread_view_mut();
         }
         proof {
             if !self.is_nullable() {
@@ -266,42 +271,54 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             }
             assert(self.is_nullable() || !raw.is_null());
         }
-        self.store_ptr_release(raw, Tracked(&mut tv));
+        self.store_ptr_release(raw, Tracked(tv));
     }
 
-    #[verus_spec(res =>
+    fn read(&self, Tracked(session): Tracked<&mut RunningTaskContext>) -> (res: RcuReadGuardInner<
+        '_,
+        P,
+    >)
         requires
             self.type_inv(),
+            old(session).wf(),
+            old(session).available_fractions() > 1,
         ensures
             res.type_inv(),
             res.rcu.is_nullable() == self.is_nullable(),
-    )]
-    fn read(&self) -> RcuReadGuardInner<'_, P> {
-        let inner_guard = disable_preempt();
-        // TODO: The guard's view starts empty instead of inheriting the
-        // thread's accumulated view; sound but forgets prior observations.
-        // Replace with a per-task/per-CPU view once available.
+            final(session).wf(),
+            final(session).available_fractions() + 1 == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth() + 1,
+            res.matches_context(*final(session)),
+    {
+        let inner_guard = disable_preempt_in_context(Tracked(session));
         proof_decl! {
-            let tracked mut tv = ThreadView::new();
+            let tracked tv = DisabledPreemptGuard::tracked_borrow_thread_view_mut_from_context(
+                session,
+                &inner_guard,
+            );
         }
-        let obj_ptr = self.load_ptr_acquire(Tracked(&mut tv));
-        RcuReadGuardInner { obj_ptr, rcu: self, _inner_guard: inner_guard, view: Tracked(tv) }
+        let obj_ptr = self.load_ptr_acquire(Tracked(tv));
+        RcuReadGuardInner { obj_ptr, rcu: self, _inner_guard: inner_guard }
     }
 
     #[inline]
-    #[verus_spec(
+    pub fn read_with<'a, A: InAtomicMode>(
+        &'a self,
+        _guard: &'a A,
+        Tracked(session): Tracked<&mut RunningTaskContext>,
+    ) -> Option<<P as NonNullPtrRef<'a>>::Ref> where P: NonNullPtrRef<'a>
         requires
             self.type_inv(),
-    )]
-    pub fn read_with<'a, A: InAtomicMode>(&'a self, _guard: &'a A) -> Option<
-        <P as NonNullPtrRef<'a>>::Ref,
-    > where P: NonNullPtrRef<'a> {
-        // TODO: Same as `read`: a fresh empty view forgets the thread's prior
-        // observations; replace with a per-task/per-CPU view once available.
+            old(session).wf(),
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth(),
+    {
         proof_decl! {
-            let tracked mut tv = ThreadView::new();
+            let tracked tv = session.tracked_borrow_thread_view_mut();
         }
-        let obj_ptr = self.load_ptr_acquire(Tracked(&mut tv));
+        let obj_ptr = self.load_ptr_acquire(Tracked(tv));
         NonNull::new(obj_ptr).map(|ptr| unsafe { assume_shared_ref::<P>(ptr) })
     }
 }
@@ -325,13 +342,23 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         res
     }
 
-    #[verus_spec(res =>
+    fn compare_exchange(
+        self,
+        new_ptr: Option<P>,
+        Tracked(session): Tracked<&mut RunningTaskContext>,
+    ) -> (res: Result<(), Option<P>>)
         requires
             self.rcu.is_nullable() || new_ptr is Some,
+            old(session).wf(),
+            self.matches_context(*old(session)),
         ensures
             new_ptr is Some && res is Err ==> res->Err_0 is Some,
-    )]
-    fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
+            final(session).wf(),
+            final(session).task() == old(session).task(),
+            final(session).session_id() == old(session).session_id(),
+            final(session).available_fractions() == old(session).available_fractions() + 1,
+            final(session).preempt_depth() + 1 == old(session).preempt_depth(),
+    {
         let expected = self.obj_ptr;
         let rcu = self.rcu;
 
@@ -340,8 +367,11 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         }
 
         proof_decl! {
-            let tracked mut tv = self.view.get();
             let ghost new_ptr_is_some = new_ptr is Some;
+            let tracked tv = DisabledPreemptGuard::tracked_borrow_thread_view_mut_from_context(
+                session,
+                &self._inner_guard,
+            );
         }
 
         let (new_raw, Tracked(new_perm)) = if let Some(new_ptr) = new_ptr {
@@ -361,24 +391,39 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             assert(rcu.ptr.constant() == rcu.is_nullable());
             assert(rcu.ptr.constant() || !new_raw.is_null());
         }
-        let res = rcu.ptr.compare_exchange_acqrel_acquire_rcu(expected, new_raw, Tracked(&mut tv));
+        let cas_res = rcu.ptr.compare_exchange_acqrel_acquire_rcu(expected, new_raw, Tracked(tv));
 
-        match res.0 {
+        let res = match cas_res.0 {
             Result::Ok(_) => Ok(()),
             Result::Err(_) => {
-                let Some(new_nonnull) = NonNull::new(new_raw) else {
-                    return Err(None);
-                };
-                proof_decl! {
-                    let tracked perm = new_perm.tracked_unwrap();
+                if let Some(new_nonnull) = NonNull::new(new_raw) {
+                    proof_decl! {
+                        let tracked perm = new_perm.tracked_unwrap();
+                    }
+                    Err(Some(unsafe { P::from_raw(new_nonnull, Tracked(perm)) }))
+                } else {
+                    Err(None)
                 }
-                Err(Some(unsafe { P::from_raw(new_nonnull, Tracked(perm)) }))
             },
-        }
+        };
+        self._inner_guard.release_to_context(Tracked(session));
+        res
     }
 
     #[inline]
-    fn drop(self) {
+    fn drop(self, Tracked(session): Tracked<&mut RunningTaskContext>)
+        requires
+            old(session).wf(),
+            self.matches_context(*old(session)),
+        ensures
+            final(session).wf(),
+            final(session).task() == old(session).task(),
+            final(session).view() == old(session).view(),
+            final(session).session_id() == old(session).session_id(),
+            final(session).available_fractions() == old(session).available_fractions() + 1,
+            final(session).preempt_depth() + 1 == old(session).preempt_depth(),
+    {
+        self._inner_guard.release_to_context(Tracked(session));
     }
 }
 
@@ -403,20 +448,42 @@ impl<P: NonNullPtr + Send> Rcu<P> {
 
     /// Replaces the current pointer with `new_ptr` using a release store.
     #[inline]
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth(),
+    )]
     pub fn update(&self, new_ptr: P) {
         proof {
             use_type_invariant(self);
         }
-        self.0.update(Some(new_ptr));
+        self.0.update(Some(new_ptr), Tracked(session));
     }
 
     /// Starts a read-side critical section and acquires the current pointer.
     #[inline]
+    #[verus_spec(res =>
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+            old(session).available_fractions() > 1,
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() + 1 == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth() + 1,
+            res.matches_context(*final(session)),
+    )]
     pub fn read(&self) -> RcuReadGuard<'_, P> {
         proof {
             use_type_invariant(self);
         }
-        RcuReadGuard(self.0.read())
+        RcuReadGuard(self.0.read(Tracked(session)))
     }
 }
 
@@ -443,38 +510,81 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
 
     /// Replaces the current pointer using a release store.
     #[inline]
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth(),
+    )]
     pub fn update(&self, new_ptr: Option<P>) {
         proof {
             use_type_invariant(self);
         }
-        self.0.update(new_ptr);
+        self.0.update(new_ptr, Tracked(session));
     }
 
     /// Starts a read-side critical section and acquires the current pointer.
     #[inline]
+    #[verus_spec(res =>
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+            old(session).available_fractions() > 1,
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() + 1 == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth() + 1,
+            res.matches_context(*final(session)),
+    )]
     pub fn read(&self) -> RcuOptionReadGuard<'_, P> {
         proof {
             use_type_invariant(self);
         }
-        RcuOptionReadGuard(self.0.read())
+        RcuOptionReadGuard(self.0.read(Tracked(session)))
     }
 
     #[inline]
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth(),
+    )]
     pub fn read_with<'a, A: InAtomicMode>(&'a self, guard: &'a A) -> Option<
         <P as NonNullPtrRef<'a>>::Ref,
     > where P: NonNullPtrRef<'a> {
         proof {
             use_type_invariant(self);
         }
-        self.0.read_with(guard)
+        self.0.read_with(guard, Tracked(session))
     }
 }
 
 #[verus_verify]
 impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
     #[inline]
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+            self.matches_context(*old(session)),
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() == old(session).available_fractions() + 1,
+            final(session).preempt_depth() + 1 == old(session).preempt_depth(),
+    )]
     pub fn drop(self) {
-        self.0.drop();
+        self.0.drop(Tracked(session));
     }
 
     #[inline]
@@ -488,8 +598,19 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
 
     /// Tries to replace the pointer using AcqRel/Acquire CAS.
     #[inline]
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+            self.matches_context(*old(session)),
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() == old(session).available_fractions() + 1,
+            final(session).preempt_depth() + 1 == old(session).preempt_depth(),
+    )]
     pub fn compare_exchange(self, new_ptr: P) -> Result<(), P> {
-        self.0.compare_exchange(Some(new_ptr)).map_err(
+        self.0.compare_exchange(Some(new_ptr), Tracked(session)).map_err(
             |err|
                 requires
                     err is Some,
@@ -501,8 +622,19 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
 #[verus_verify]
 impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
     #[inline]
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+            self.matches_context(*old(session)),
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() == old(session).available_fractions() + 1,
+            final(session).preempt_depth() + 1 == old(session).preempt_depth(),
+    )]
     pub fn drop(self) {
-        self.0.drop();
+        self.0.drop(Tracked(session));
     }
 
     #[inline]
@@ -517,11 +649,22 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
 
     /// Tries to replace the pointer using AcqRel/Acquire CAS.
     #[inline]
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+            self.matches_context(*old(session)),
+        ensures
+            final(session).wf(),
+            final(session).available_fractions() == old(session).available_fractions() + 1,
+            final(session).preempt_depth() + 1 == old(session).preempt_depth(),
+    )]
     pub fn compare_exchange(self, new_ptr: Option<P>) -> Result<(), Option<P>> {
         proof {
             use_type_invariant(&self);
         }
-        self.0.compare_exchange(new_ptr)
+        self.0.compare_exchange(new_ptr, Tracked(session))
     }
 }
 
@@ -606,6 +749,12 @@ impl<P: NonNullPtr> RcuOption<P> {
 }
 
 impl<'a, P: NonNullPtr> RcuReadGuard<'a, P> {
+    /// Relates this guard to the task session that supplied its weak-memory
+    /// view. Consuming operations require the same session.
+    pub closed spec fn matches_context(self, session: RunningTaskContext) -> bool {
+        self.0.matches_context(session)
+    }
+
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.0.type_inv()
@@ -614,6 +763,12 @@ impl<'a, P: NonNullPtr> RcuReadGuard<'a, P> {
 }
 
 impl<'a, P: NonNullPtr> RcuOptionReadGuard<'a, P> {
+    /// Relates this guard to the task session that supplied its weak-memory
+    /// view. Consuming operations require the same session.
+    pub closed spec fn matches_context(self, session: RunningTaskContext) -> bool {
+        self.0.matches_context(session)
+    }
+
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.0.type_inv()
@@ -622,6 +777,10 @@ impl<'a, P: NonNullPtr> RcuOptionReadGuard<'a, P> {
 }
 
 impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
+    closed spec fn matches_context(self, session: RunningTaskContext) -> bool {
+        self._inner_guard.matches_context(session)
+    }
+
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.rcu.type_inv()

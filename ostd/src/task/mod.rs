@@ -23,8 +23,11 @@ use kernel_stack::KernelStack;
 use processor::current_task;*/
 use spin::Once;
 // use utils::ForceSync;
+pub(crate) use self::preempt::disable_preempt_in_context;
 pub use self::{
-    preempt::{DisabledPreemptGuard, disable_preempt},
+    preempt::{
+        DisabledPreemptGuard, PreemptThreadViewSession, RunningTaskContext, disable_preempt,
+    },
     /* scheduler::info::{AtomicCpuId, TaskScheduleInfo}, */
 };
 /*

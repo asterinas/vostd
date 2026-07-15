@@ -14,6 +14,7 @@ use crate::specs::{
     },
 };
 use crate::sync::{LocalIrqDisabled, SpinLock};
+use crate::task::RunningTaskContext;
 
 verus! {
 
@@ -109,27 +110,20 @@ fn run_completed_callbacks(
         assert forall|i: int| 0 <= i < callbacks@.len() implies completed.covers(
             (#[trigger] callbacks@[i])@,
         ) by {
-            let summaries = callback_summaries(callbacks);
-            assert(completed@ == summaries);
-            assert(summaries[i] == callbacks@[i]@);
-            summaries.lemma_index_contains(i);
+            callback_summaries(callbacks).lemma_index_contains(i);
         }
     }
-    while callbacks.len() > 0
+
+    #[verus_spec(
         invariant
             forall|i: int|
                 0 <= i < callbacks@.len() ==> completed.covers((#[trigger] callbacks@[i])@),
         decreases callbacks@.len(),
-    {
-        proof {
-            assert(callbacks@.len() > 0);
-            assert(completed.covers(callbacks@[0]@));
-        }
+    )]
+    while callbacks.len() > 0 {
         let ghost before = callbacks@;
         let callback = callbacks.pop_front().unwrap();
         proof {
-            assert(callback == before[0]);
-            assert(callback@ == before[0]@);
             assert(completed.covers(callback@));
             assert forall|i: int| 0 <= i < callbacks@.len() implies completed.covers(
                 (#[trigger] callbacks@[i])@,
@@ -572,6 +566,18 @@ impl RcuMonitor {
     /// grace period. Only an idle monitor promotes that queue into a new
     /// current grace period and publishes a `true` flag; if a grace period is
     /// already running, the existing monitor flag is left unchanged.
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+        ensures
+            final(session).wf(),
+            final(session).task() == old(session).task(),
+            final(session).session_id() == old(session).session_id(),
+            final(session).available_fractions() == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth(),
+    )]
     pub(super) fn after_grace_period(&self, callback: RcuCallback) {
         proof {
             use_type_invariant(self);
@@ -585,9 +591,9 @@ impl RcuMonitor {
                 use_type_invariant(self);
             }
             proof_decl! {
-                let tracked mut tv = ThreadView::new();
+                let tracked tv = session.tracked_borrow_thread_view_mut();
             }
-            self.set_monitoring(true, Ghost(state.view()@), Tracked(&mut tv));
+            self.set_monitoring(true, Ghost(state.view()@), Tracked(tv));
         }
         state.drop();
     }
@@ -599,14 +605,26 @@ impl RcuMonitor {
     /// immediately, a stale true flag may still find a completed state under
     /// the lock and return, an incomplete CPU mask keeps monitoring without
     /// touching the flag, and callback bodies run outside the monitor lock.
+    #[verus_spec(
+        with
+            Tracked(session): Tracked<&mut RunningTaskContext>,
+        requires
+            old(session).wf(),
+        ensures
+            final(session).wf(),
+            final(session).task() == old(session).task(),
+            final(session).session_id() == old(session).session_id(),
+            final(session).available_fractions() == old(session).available_fractions(),
+            final(session).preempt_depth() == old(session).preempt_depth(),
+    )]
     pub(super) unsafe fn finish_grace_period(&self) {
         proof {
             use_type_invariant(self);
         }
         proof_decl! {
-            let tracked mut fast_tv = ThreadView::new();
+            let tracked fast_tv = session.tracked_borrow_thread_view_mut();
         }
-        let is_monitoring = self.is_monitoring.load_relaxed(Tracked(&mut fast_tv)).0;
+        let is_monitoring = self.is_monitoring.load_relaxed(Tracked(fast_tv)).0;
         if !is_monitoring {
             return;
         }
@@ -631,9 +649,9 @@ impl RcuMonitor {
                 use_type_invariant(self);
             }
             proof_decl! {
-                let tracked mut tv = ThreadView::new();
+                let tracked tv = session.tracked_borrow_thread_view_mut();
             }
-            self.set_monitoring(false, Ghost(state.view()@), Tracked(&mut tv));
+            self.set_monitoring(false, Ghost(state.view()@), Tracked(tv));
         }
         state.drop();
         run_completed_callbacks(completed_callbacks, Tracked(completed));

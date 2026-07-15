@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{prelude::*, resource::Loc};
-use vstd_extra::resource::ghost_resource::{
-    count::CountGhost,
-    tokens::CountGhostResource,
-};
+use vstd_extra::resource::ghost_resource::{count::CountGhost, tokens::CountGhostResource};
 
 use crate::{
     specs::sync::weak_memory::{ThreadView, WmView},
@@ -52,7 +49,7 @@ impl NestedPreemptToken {
 /// view is intentionally not stored here because weak atomic operations update
 /// that view while guard fragments may be outstanding.
 pub tracked struct PreemptSessionToken {
-    tracked token: CountGhost<Loc, PREEMPT_SESSION_FRACTIONS>,
+    token: CountGhost<Loc, PREEMPT_SESSION_FRACTIONS>,
 }
 
 impl PreemptSessionToken {
@@ -60,11 +57,16 @@ impl PreemptSessionToken {
         ensures
             res.wf(),
     {
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(PREEMPT_SESSION_FRACTIONS > 1) by (compute);
         let tracked mut tokens = CountGhostResource::<Loc, PREEMPT_SESSION_FRACTIONS>::alloc(
             arbitrary(),
         );
         let tracked token = tokens.split_one();
-        PreemptSessionToken { token }
+        assert(token.frac() == 1);
+        let tracked res = PreemptSessionToken { token };
+        assert(res.wf());
+        res
     }
 
     pub closed spec fn id(self) -> Loc {
@@ -115,9 +117,17 @@ impl PreemptThreadViewSession {
             res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
             res.wf_session_resource(),
     {
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(PREEMPT_SESSION_FRACTIONS > 1) by (compute);
         let task = task_view.task();
-        let tracked tokens = CountGhostResource::alloc(task);
-        PreemptThreadViewSession { task_view, tokens }
+        let tracked tokens = CountGhostResource::<Loc, PREEMPT_SESSION_FRACTIONS>::alloc(task);
+        assert(tokens.is_full());
+        tokens.validate_full();
+        assert(tokens.frac() == PREEMPT_SESSION_FRACTIONS);
+        let tracked res = PreemptThreadViewSession { task_view, tokens };
+        assert(res.available_fractions() == PREEMPT_SESSION_FRACTIONS);
+        assert(res.wf_session_resource());
+        res
     }
 
     pub closed spec fn task(self) -> Loc {
@@ -161,9 +171,8 @@ impl PreemptThreadViewSession {
     ///
     /// The session keeps at least one fraction after the split so future
     /// agreement checks can still relate guard fragments back to the session.
-    pub proof fn tracked_split_guard_token(
-        tracked &mut self,
-    ) -> (tracked token: PreemptSessionToken)
+    pub proof fn tracked_split_guard_token(tracked &mut self) -> (tracked token:
+        PreemptSessionToken)
         requires
             old(self).wf_session_resource(),
             old(self).available_fractions() > 1,
@@ -182,10 +191,7 @@ impl PreemptThreadViewSession {
     }
 
     /// Returns a guard fragment when a preemption-disable guard is dropped.
-    pub proof fn tracked_return_guard_token(
-        tracked &mut self,
-        tracked token: PreemptSessionToken,
-    )
+    pub proof fn tracked_return_guard_token(tracked &mut self, tracked token: PreemptSessionToken)
         requires
             old(self).wf_session_resource(),
             old(self).token_matches(token),
@@ -197,8 +203,19 @@ impl PreemptThreadViewSession {
             final(self).available_fractions() == old(self).available_fractions() + token.frac(),
             final(self).wf_session_resource(),
     {
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        let ghost old_frac = self.tokens.frac();
         let tracked PreemptSessionToken { token } = token;
+        let ghost returned_frac = token.frac();
+        assert(returned_frac == 1);
         self.tokens.combine(token);
+        assert(old_frac + returned_frac > PREEMPT_SESSION_FRACTIONS ==> false);
+        assert(old_frac + returned_frac <= PREEMPT_SESSION_FRACTIONS);
+        self.tokens.validate();
+        assert(self.tokens.frac() == old_frac + returned_frac);
+        assert(0 < self.tokens.frac() <= PREEMPT_SESSION_FRACTIONS);
+        assert(self.tokens@ == self.task_view.task());
+        assert(self.wf_session_resource());
     }
 
     /// Borrows the single task-local `ThreadView` for weak atomic operations.
@@ -226,11 +243,140 @@ impl PreemptThreadViewSession {
     /// the caller can write it back with
     /// `SchedulerThreadViews::tracked_put_checked_out_thread_view`.
     pub proof fn tracked_into_task_view(tracked self) -> (tracked res: TaskThreadView)
+        requires
+            self.wf_session_resource(),
+            self.available_fractions() == PREEMPT_SESSION_FRACTIONS,
         ensures
             res.task() == self.task(),
             res.view() == self.view(),
     {
         self.task_view
+    }
+}
+
+/// The proof-owned state for one task while it is running.
+///
+/// The scheduler creates this context after checking out the task's
+/// `TaskThreadView`. Every preemption-disable guard consumes one fractional
+/// session token and increments `preempt_depth`; releasing the guard performs
+/// the inverse transition. Consequently the context can only be returned to
+/// the scheduler when no guard remains live.
+pub tracked struct RunningTaskContext {
+    tracked session: PreemptThreadViewSession,
+    ghost preempt_depth: nat,
+}
+
+impl RunningTaskContext {
+    /// Starts a running interval for a checked-out task view.
+    pub proof fn new(
+        tracked task_view: TaskThreadView,
+        sched_view: SchedulerView,
+    ) -> (tracked res: Self)
+        requires
+            task_view.wf(sched_view),
+        ensures
+            res.task() == task_view.task(),
+            res.view() == task_view.view(),
+            res.preempt_depth() == 0,
+            res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
+            res.wf(),
+            res.is_quiescent(),
+            res.wf_scheduler(sched_view),
+    {
+        let tracked session = PreemptThreadViewSession::new(task_view);
+        let tracked res = RunningTaskContext { session, preempt_depth: 0 };
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(res.wf());
+        res
+    }
+
+    pub closed spec fn task(self) -> Loc {
+        self.session.task()
+    }
+
+    pub closed spec fn view(self) -> WmView {
+        self.session.view()
+    }
+
+    pub closed spec fn session_id(self) -> Loc {
+        self.session.session_id()
+    }
+
+    pub closed spec fn available_fractions(self) -> int {
+        self.session.available_fractions()
+    }
+
+    pub closed spec fn preempt_depth(self) -> nat {
+        self.preempt_depth
+    }
+
+    pub open spec fn wf(self) -> bool {
+        &&& self.session.wf_session_resource()
+        &&& self.available_fractions() + self.preempt_depth()
+            == PREEMPT_SESSION_FRACTIONS
+    }
+
+    /// Relates this running context to the scheduler snapshot from which its
+    /// task view was checked out.
+    pub open spec fn wf_scheduler(self, sched_view: SchedulerView) -> bool {
+        &&& self.wf()
+        &&& self.session.wf(sched_view)
+    }
+
+    pub open spec fn is_quiescent(self) -> bool {
+        &&& self.preempt_depth() == 0
+        &&& self.available_fractions() == PREEMPT_SESSION_FRACTIONS
+    }
+
+    /// Borrows the running task's persistent weak-memory view.
+    pub proof fn tracked_borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ThreadView)
+        requires
+            old(self).wf(),
+        ensures
+            (*tv)@ == old(self).view(),
+            final(self).task() == old(self).task(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).preempt_depth() == old(self).preempt_depth(),
+            final(self).wf(),
+            final(self).view() == (*final(tv))@,
+    {
+        self.session.tracked_borrow_thread_view_mut()
+    }
+
+    /// Ends a running interval and returns the updated task view to scheduler
+    /// ownership. The full-fraction requirement rules out live preempt guards.
+    pub proof fn tracked_into_task_view(tracked self) -> (tracked res: TaskThreadView)
+        requires
+            self.wf(),
+            self.preempt_depth() == 0,
+        ensures
+            res.task() == self.task(),
+            res.view() == self.view(),
+    {
+        assert(self.available_fractions() == PREEMPT_SESSION_FRACTIONS);
+        self.session.tracked_into_task_view()
+    }
+
+    /// Scheduler-facing form of `tracked_into_task_view` that preserves the
+    /// checked-out token's relation to the supplied scheduler snapshot.
+    pub proof fn tracked_into_task_view_for_scheduler(
+        tracked self,
+        sched_view: SchedulerView,
+    ) -> (tracked res: TaskThreadView)
+        requires
+            self.wf_scheduler(sched_view),
+            self.is_quiescent(),
+        ensures
+            res.task() == self.task(),
+            res.view() == self.view(),
+            res.wf(sched_view),
+    {
+        assert(self.preempt_depth() == 0);
+        assert(self.available_fractions() == PREEMPT_SESSION_FRACTIONS);
+        let tracked res = self.session.tracked_into_task_view();
+        assert(res.wf(sched_view));
+        res
     }
 }
 
@@ -243,10 +389,7 @@ impl PreemptThreadViewSession {
 /// them to borrow the active session.
 pub tracked enum PreemptGuardResource {
     Outermost(PreemptSessionToken),
-    Nested {
-        tracked session: PreemptSessionToken,
-        tracked nested: NestedPreemptToken,
-    },
+    Nested { tracked session: PreemptSessionToken, tracked nested: NestedPreemptToken },
 }
 
 impl PreemptGuardResource {
@@ -298,6 +441,96 @@ impl PreemptGuardResource {
         &&& self.wf(arbitrary())
         &&& session.token_matches(self.session_token())
     }
+
+    pub closed spec fn matches_context(self, context: RunningTaskContext) -> bool {
+        &&& context.wf()
+        &&& context.preempt_depth() > 0
+        &&& self.matches_session(context.session)
+    }
+
+    /// Returns this guard's session fragment to its owning session.
+    pub proof fn tracked_return_to_session(
+        tracked self,
+        tracked session: &mut PreemptThreadViewSession,
+    )
+        requires
+            old(session).wf_session_resource(),
+            self.matches_session(*old(session)),
+        ensures
+            final(session).wf_session_resource(),
+            final(session).task() == old(session).task(),
+            final(session).view() == old(session).view(),
+            final(session).session_id() == old(session).session_id(),
+            final(session).available_fractions() == old(session).available_fractions() + 1,
+    {
+        match self {
+            PreemptGuardResource::Outermost(token) => {
+                session.tracked_return_guard_token(token);
+            },
+            PreemptGuardResource::Nested { session: token, nested: _ } => {
+                session.tracked_return_guard_token(token);
+            },
+        }
+    }
+}
+
+impl RunningTaskContext {
+    /// Performs the proof transition corresponding to incrementing the
+    /// executable preemption counter.
+    pub proof fn tracked_disable_preempt(tracked &mut self) -> (tracked resource:
+        PreemptGuardResource)
+        requires
+            old(self).wf(),
+            old(self).available_fractions() > 1,
+        ensures
+            final(self).wf(),
+            final(self).task() == old(self).task(),
+            final(self).view() == old(self).view(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).available_fractions() + 1 == old(self).available_fractions(),
+            final(self).preempt_depth() == old(self).preempt_depth() + 1,
+            resource.matches_context(*final(self)),
+            resource.is_outermost() <==> old(self).preempt_depth() == 0,
+            resource.is_nested() <==> old(self).preempt_depth() > 0,
+    {
+        let ghost depth_before = self.preempt_depth;
+        let tracked token = self.session.tracked_split_guard_token();
+        let tracked resource = if depth_before == 0 {
+            PreemptGuardResource::Outermost(token)
+        } else {
+            let tracked nested = NestedPreemptToken::new(depth_before);
+            PreemptGuardResource::Nested { session: token, nested }
+        };
+        self.preempt_depth = depth_before + 1;
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(self.wf());
+        resource
+    }
+
+    /// Performs the inverse transition when a preemption-disable guard is
+    /// consumed.
+    pub proof fn tracked_enable_preempt(
+        tracked &mut self,
+        tracked resource: PreemptGuardResource,
+    )
+        requires
+            old(self).wf(),
+            old(self).preempt_depth() > 0,
+            resource.matches_context(*old(self)),
+        ensures
+            final(self).wf(),
+            final(self).task() == old(self).task(),
+            final(self).view() == old(self).view(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).available_fractions() == old(self).available_fractions() + 1,
+            final(self).preempt_depth() + 1 == old(self).preempt_depth(),
+    {
+        let ghost old_depth = self.preempt_depth;
+        resource.tracked_return_to_session(&mut self.session);
+        self.preempt_depth = (old_depth - 1) as nat;
+        assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
+        assert(self.wf());
+    }
 }
 
 /// A guard for disable preempt.
@@ -307,7 +540,6 @@ impl PreemptGuardResource {
 pub struct DisabledPreemptGuard {
     // This private field prevents user from constructing values of this type directly.
     _private: (),
-
     // Proof-only guard resource.
     //
     // The guard only records whether this scope is outermost or nested. The
@@ -323,22 +555,18 @@ unsafe impl InAtomicMode for DisabledPreemptGuard {}
 */
 
 impl DisabledPreemptGuard {
-    fn new(
-        Tracked(tracked_resource): Tracked<PreemptGuardResource>,
-    ) -> (res: DisabledPreemptGuard)
+    fn new(Tracked(tracked_resource): Tracked<PreemptGuardResource>) -> (res: DisabledPreemptGuard)
         requires
             tracked_resource.wf(arbitrary()),
         ensures
             res.wf(arbitrary()),
+            res.tracked_resource@ == tracked_resource,
     {
         // The current verification slice does not include the CPU-local
         // runtime preemption counter backend. This body verifies construction
         // of the guard resource; wiring the real counter increment back in
         // should happen when that backend is part of this dependency closure.
-        Self {
-            _private: (),
-            tracked_resource: Tracked(tracked_resource),
-        }
+        Self { _private: (), tracked_resource: Tracked(tracked_resource) }
     }
 }
 
@@ -359,29 +587,54 @@ impl DisabledPreemptGuard {
         self.tracked_resource@.matches_session(session)
     }
 
-    /// Lets a nested preemption-disable scope use the outer/session view.
-    ///
-    /// The `nested` guard is only a witness that this call happens under a
-    /// nested preemption-disable scope. The linear `ThreadView` is borrowed
-    /// from `session`, so nested RCU can perform weak atomic operations
-    /// without owning or synthesizing another per-task view.
-    pub proof fn tracked_borrow_thread_view_mut_from_session<'session>(
-        tracked session: &'session mut PreemptThreadViewSession,
-        nested: &DisabledPreemptGuard,
-    ) -> (tracked tv: &'session mut ThreadView)
+    pub closed spec fn matches_context(&self, context: RunningTaskContext) -> bool {
+        self.tracked_resource@.matches_context(context)
+    }
+
+    /// Borrows the running task's view while this guard witnesses that
+    /// preemption is disabled. Both outermost and nested guards use the same
+    /// context-owned view.
+    pub proof fn tracked_borrow_thread_view_mut_from_context<'context>(
+        tracked context: &'context mut RunningTaskContext,
+        guard: &DisabledPreemptGuard,
+    ) -> (tracked tv: &'context mut ThreadView)
         requires
-            nested.is_nested(),
-            nested.matches_session(*old(session)),
+            old(context).wf(),
+            guard.matches_context(*old(context)),
         ensures
-            (*tv)@ == old(session).view(),
-            final(session).task() == old(session).task(),
-            final(session).session_id() == old(session).session_id(),
-            final(session).session_task() == old(session).session_task(),
-            final(session).available_fractions() == old(session).available_fractions(),
-            final(session).wf_session_resource() == old(session).wf_session_resource(),
-            final(session).view() == (*final(tv))@,
+            (*tv)@ == old(context).view(),
+            final(context).task() == old(context).task(),
+            final(context).session_id() == old(context).session_id(),
+            final(context).available_fractions() == old(context).available_fractions(),
+            final(context).preempt_depth() == old(context).preempt_depth(),
+            final(context).wf(),
+            final(context).view() == (*final(tv))@,
+            guard.matches_context(*final(context)),
     {
-        session.tracked_borrow_thread_view_mut()
+        context.tracked_borrow_thread_view_mut()
+    }
+
+    /// Consumes this guard, returns its fractional witness, and decrements the
+    /// modeled preemption depth.
+    pub(crate) fn release_to_context(self, Tracked(context): Tracked<&mut RunningTaskContext>)
+        requires
+            old(context).wf(),
+            old(context).preempt_depth() > 0,
+            self.matches_context(*old(context)),
+        ensures
+            final(context).wf(),
+            final(context).task() == old(context).task(),
+            final(context).view() == old(context).view(),
+            final(context).session_id() == old(context).session_id(),
+            final(context).available_fractions() == old(context).available_fractions() + 1,
+            final(context).preempt_depth() + 1 == old(context).preempt_depth(),
+    {
+        proof_decl! {
+            let tracked resource = self.tracked_resource.get();
+        }
+        proof {
+            context.tracked_enable_preempt(resource);
+        }
     }
 }
 
@@ -405,6 +658,34 @@ pub fn disable_preempt() -> (res: DisabledPreemptGuard)
         let tracked tracked_resource = PreemptGuardResource::new_placeholder();
     }
     DisabledPreemptGuard::new(Tracked(tracked_resource))
+}
+
+/// Disables preemption inside the current running-task context.
+///
+/// This has the same executable effect as [`disable_preempt`]. Its additional
+/// tracked argument updates the modeled preemption depth and ties the guard to
+/// the task view checked out by the scheduler.
+pub(crate) fn disable_preempt_in_context(
+    Tracked(context): Tracked<&mut RunningTaskContext>,
+) -> (res: DisabledPreemptGuard)
+    requires
+        old(context).wf(),
+        old(context).available_fractions() > 1,
+    ensures
+        final(context).wf(),
+        final(context).task() == old(context).task(),
+        final(context).view() == old(context).view(),
+        final(context).session_id() == old(context).session_id(),
+        final(context).available_fractions() + 1 == old(context).available_fractions(),
+        final(context).preempt_depth() == old(context).preempt_depth() + 1,
+        res.is_outermost() <==> old(context).preempt_depth() == 0,
+        res.is_nested() <==> old(context).preempt_depth() > 0,
+        res.matches_context(*final(context)),
+{
+    proof_decl! {
+        let tracked resource = context.tracked_disable_preempt();
+    }
+    DisabledPreemptGuard::new(Tracked(resource))
 }
 
 } // verus!

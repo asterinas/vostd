@@ -65,7 +65,7 @@
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
 use vstd::{map::Map, prelude::*, resource::Loc};
 
-use super::Task;
+use super::{Task, preempt::RunningTaskContext};
 use crate::{
     specs::mm::cpu::CpuId,
     specs::sync::weak_memory::{ThreadView, WmView},
@@ -102,18 +102,18 @@ pub ghost enum TaskSchedState {
 /// tracked owner that stores the actual linear `ThreadView` resources for
 /// tasks whose views are still owned by the scheduler.
 ///
-/// When the outermost preemption-disable guard is created, the current task's
-/// `ThreadView` is checked out of `SchedulerThreadViews` and moved into a
-/// `TaskThreadView` token held by the guard. While it is checked out,
+/// When a task is scheduled in, its `ThreadView` is checked out of
+/// `SchedulerThreadViews` and moved into a `RunningTaskContext`. While it is
+/// checked out,
 /// `SchedulerView::task_views` remains the logical source of truth, but the
 /// ownership partition records that the view is in `checked_out_views` rather
 /// than `stored_views`. Weak-memory operations mutate the token's
 /// `ThreadView`; the scheduler view must be updated with
 /// `update_checked_out_task_view` to keep the logical snapshot synchronized.
-/// Dropping the guard checks the token back into `stored_views`.
+/// A quiescent schedule-out checks the updated token back into `stored_views`.
 ///
 /// In short, the resource flow is:
-/// `stored_views -> TaskThreadView -> checked_out_views update -> stored_views`.
+/// `stored_views -> RunningTaskContext -> checked_out_views update -> stored_views`.
 ///
 /// Abstract proof view of the scheduler state.
 ///
@@ -232,6 +232,22 @@ impl SchedulerView {
         }
     }
 
+    /// Updating the view of the currently checked-out task preserves the
+    /// scheduler ownership partition and all scheduling invariants.
+    pub proof fn lemma_update_checked_out_task_view_preserves_wf(self, task: Loc, view: WmView)
+        requires
+            self.wf(),
+            self.task_view_is_checked_out(task),
+        ensures
+            self.update_checked_out_task_view(task, view).wf(),
+            self.update_checked_out_task_view(task, view).task_view_is_checked_out(task),
+            self.update_checked_out_task_view(task, view).task_views.contains_key(task),
+            self.update_checked_out_task_view(task, view).task_views[task] == view,
+            self.update_checked_out_task_view(task, view).checked_out_views[task] == view,
+            !self.update_checked_out_task_view(task, view).stored_views.contains_key(task),
+    {
+    }
+
     /// Writes a checked-out task view back to scheduler storage.
     ///
     /// The caller must provide the same view that is recorded as checked out;
@@ -312,7 +328,8 @@ impl SchedulerView {
 ///
 /// This is the resource that should eventually back `disable_preempt()`:
 /// a guard borrows or moves out the current task's `ThreadView`, atomic
-/// operations update it, and guard drop writes it back to the same task entry.
+/// operations update it, and schedule-out writes it back to the same task
+/// entry after all preemption guards have been released.
 pub tracked struct SchedulerThreadViews {
     tracked views: Map<Loc, ThreadView>,
 }
@@ -354,6 +371,20 @@ impl TaskThreadView {
         &&& sched_view.checked_out_views[self.task()] == self.view()
         &&& sched_view.task_views.contains_key(self.task())
         &&& sched_view.task_views[self.task()] == self.view()
+    }
+
+    /// Packages the public scheduler facts needed to establish ownership of a
+    /// checked-out task view.
+    pub proof fn lemma_wf(tracked &self, sched_view: SchedulerView)
+        requires
+            sched_view.wf(),
+            sched_view.task_view_is_checked_out(self.task()),
+            sched_view.checked_out_views[self.task()] == self.view(),
+            sched_view.task_views.contains_key(self.task()),
+            sched_view.task_views[self.task()] == self.view(),
+        ensures
+            self.wf(sched_view),
+    {
     }
 
     /// Borrows the linear `ThreadView` for weak-memory operations.
@@ -453,6 +484,34 @@ impl SchedulerThreadViews {
         token
     }
 
+    /// Checks out the current task's weak-memory view and starts its running
+    /// context.
+    pub proof fn tracked_take_current_running_context(
+        tracked &mut self,
+        sched_view: SchedulerView,
+        cpu: CpuId,
+    ) -> (tracked context: RunningTaskContext)
+        requires
+            old(self).wf(sched_view),
+            sched_view.wf(),
+            sched_view.current.contains_key(cpu),
+            sched_view.current[cpu] is Some,
+            sched_view.task_view_is_stored(sched_view.current[cpu]->0),
+            old(self).contains(sched_view.current[cpu]->0),
+        ensures
+            context.task() == sched_view.current[cpu]->0,
+            context.view() == old(self).thread_view(sched_view.current[cpu]->0),
+            context.is_quiescent(),
+            context.wf_scheduler(sched_view.checkout_task_view(cpu)),
+            final(self).view() == sched_view.checkout_task_view(cpu).stored_views,
+            final(self).wf(sched_view.checkout_task_view(cpu)),
+    {
+        let ghost next = sched_view.checkout_task_view(cpu);
+        let tracked task_view = self.tracked_take_current_thread_view(sched_view, cpu);
+        let tracked context = RunningTaskContext::new(task_view, next);
+        context
+    }
+
     /// Returns a checked-out task view to the tracked owner.
     ///
     /// The `token.wf(sched_view)` precondition ties this write-back to the
@@ -481,6 +540,42 @@ impl SchedulerThreadViews {
         let next = sched_view.checkin_task_view(task, view);
         assert(final(self).view() == next.stored_views);
         assert(final(self).wf(next));
+    }
+
+    /// Ends a quiescent running interval and checks its updated task view back
+    /// into scheduler ownership.
+    pub proof fn tracked_put_running_context(
+        tracked &mut self,
+        sched_view: SchedulerView,
+        tracked context: RunningTaskContext,
+    )
+        requires
+            old(self).wf(sched_view),
+            sched_view.wf(),
+            sched_view.task_view_is_checked_out(context.task()),
+            context.wf(),
+            context.is_quiescent(),
+            !old(self).contains(context.task()),
+        ensures
+            final(self).view() == old(self).view().insert(context.task(), context.view()),
+            final(self).view() == sched_view.update_checked_out_task_view(
+                context.task(),
+                context.view(),
+            ).checkin_task_view(context.task(), context.view()).stored_views,
+            final(self).wf(
+                sched_view.update_checked_out_task_view(
+                    context.task(),
+                    context.view(),
+                ).checkin_task_view(context.task(), context.view()),
+            ),
+    {
+        let ghost task = context.task();
+        let ghost view = context.view();
+        sched_view.lemma_update_checked_out_task_view_preserves_wf(task, view);
+        let ghost updated = sched_view.update_checked_out_task_view(task, view);
+        context.lemma_wf_scheduler(updated);
+        let tracked task_view = context.tracked_into_task_view_for_scheduler(updated);
+        self.tracked_put_checked_out_thread_view(updated, task_view);
     }
 }
 
