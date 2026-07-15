@@ -546,8 +546,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.inv(),
             self.level() < NR_LEVELS,
             old(regions).slots.contains_key(frame_to_index(paddr)),
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            has_safe_slot(paddr),
             paddr % page_size(self.level()) == 0,
             paddr + page_size(self.level()) <= MAX_PADDR,
             C::raw_item_well_formed(paddr, self.level(), prop),
@@ -572,9 +571,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.level(),
             prop,
         );
-        let ghost owner_spec = owner;
-        let tracked res = OwnerSubtree::tracked_new_val(owner, self.tree_level + 1);
-        res
+        OwnerSubtree::tracked_new_val(owner, self.tree_level + 1)
     }
 
     pub broadcast group group_lemmas {
@@ -1035,7 +1032,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(exists|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s);
             let i = choose|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s;
             assert(filtered.dom().contains(i));
-            assert(self.level - 1 <= i < NR_LEVELS);
             assert(filtered[i] == self.continuations[i]);
             assert(mapped[i] == self.continuations[i].view_mappings());
         }
@@ -1137,17 +1133,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let entry = self.cur_entry_owner();
         let idx = frame_to_index(pa);
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
-        assert(regions.slot_owners[idx].slot_vaddr == crate::specs::mm::frame::mapping::meta_addr(
-            idx,
-        ));
-        if C::tracked(item) {
-            assert(!crate::specs::mm::frame::meta_owners::is_mmio_paddr(pa));
-            assert(regions.slot_owners[idx].usage !is MMIO);
-            assert(regions.slot_owners[idx].inner_perms.ref_count.value() > 0);
-            assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
-        }
-        // Now all preconditions of `C::lemma_clone_requires_concrete` are in scope.
-
         C::lemma_clone_requires_concrete(item, pa, level, prop, regions);
     }
 

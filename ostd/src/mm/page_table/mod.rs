@@ -210,8 +210,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_well_formed(item),
         ensures
             1 <= level <= NR_LEVELS,
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            has_safe_slot(paddr),
             paddr % page_size(level) == 0,
             paddr + page_size(level) <= MAX_PADDR,
             Self::raw_item_well_formed(paddr, level , prop),
@@ -248,6 +247,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(item_from_raw_spec)]
     unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res:Self::Item)
         requires
+            has_safe_slot(paddr),
             Self::raw_item_well_formed(paddr, level, prop),
         ensures
             Self::item_well_formed(res),
@@ -281,6 +281,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         new_prop: PageProperty,
     )
         requires
+            has_safe_slot(pa),
             Self::raw_item_well_formed(pa, level, old_prop),
             Self::tracked(Self::item_from_raw(pa, level, new_prop))
                 == Self::tracked(Self::item_from_raw(pa, level, old_prop)),
@@ -297,6 +298,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         child_idx: usize,
     )
         requires
+            has_safe_slot(pa),
             Self::raw_item_well_formed(pa, level, prop),
             level > 1,
             child_idx < NR_ENTRIES,
@@ -530,7 +532,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 
     fn NR_LEVELS() -> PagingLevel {
         proof {
-            assert(Self::NR_LEVELS_spec() == C::C::NR_LEVELS_spec());
+            assert(Self::NR_LEVELS() == C::C::NR_LEVELS());
         }
         C::C::NR_LEVELS()
     }
@@ -1697,7 +1699,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            res % PAGE_SIZE == 0,
+            has_safe_slot(res),
         returns
             self.paddr(),
     ;
