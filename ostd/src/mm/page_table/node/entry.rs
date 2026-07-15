@@ -468,32 +468,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
 
         proof {
-            // When both old and new are not nodes:
-            // from_pte/into_pte are identity, no slot_owners change. Regions unchanged.
-            if !old(owner).is_node() && !new_owner.is_node() {
-                // slot_owners and slots are identical → metaregion_sound trivially preserved.
-            }
-        }
-
-        proof {
             if new_owner.is_node() || new_owner.is_frame() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 regions.inv_implies_correct_addr(paddr);
             }
-        }
-
-        proof {
-            // Restore `count_consistent` (`nr_children == count_present(children_perm)`):
-            // `write_pte` changed only slot `self.idx`, and `nr_children` was
-            // inc/dec'd by exactly that slot's present-status change.
             crate::specs::mm::page_table::node::owners::lemma_count_present_upto_update(
                 cp0,
                 NR_ENTRIES as int,
                 self.idx as int,
                 new_pte,
             );
-            // Present-status of the old/new PTEs is pinned to the owner kind by
-            // `match_pte`, and the counter branches keyed off `is_none()`.
         }
 
         old_child
@@ -633,12 +617,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let ghost old_owner_val = owner.value();
 
             proof {
-                // `nr_children < NR_ENTRIES` (needed below so the `+ 1`
-                // increment yields a valid count). Established PRE-`alloc` while
-                // the parent slot at `self.idx` is still absent and
-                // `count_consistent` holds (from `metaregion_sound_node`).
-                // `alloc`/`write_pte` preserve `parent_owner.meta_own.nr_children`,
-                // so the bound persists to the increment.
                 parent_owner.nr_children_absent_slot_bound(self.idx);
             }
 
@@ -688,11 +666,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             };
             self.pte = new_pte;
 
-            proof {
-                broadcast use group_page_meta;
-
-            }
-
             let pt_ref = unsafe {
                 #[verus_spec(with Tracked(regions))]
                 PageTableNodeRef::borrow_paddr(paddr)
@@ -729,11 +702,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // `owner.level` (from `allocated_empty_node_owner` + the
                 // `owner.level + parent_owner.level == INC_LEVELS` precond), so
                 // the grafted children's levels line up with `owner.level + 1`.
-                {
-                    let tracked new_node_value = new_node_owner.tracked_borrow_mut_value();
-                    new_node_value.parent_level = level as PagingLevel;
-                    new_node_value.path = old_path;
-                }
+                let tracked new_node_value = new_node_owner.tracked_borrow_mut_value();
+                new_node_value.parent_level = level as PagingLevel;
+                new_node_value.path = old_path;
                 *owner = new_node_owner;
                 // Rebase children's paths from `[i]` (rooted at empty) onto
                 // the cursor path `old_path` so `pt_edge_at`'s
@@ -1343,18 +1314,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 }
                 new_owner.tracked_insert_child(i as int, Some(new_owner_child));
 
-                TreePath::lemma_push_tail_len(new_owner_path, i as int);
                 let owner_with_updated_value = new_owner_before_update.set_value(new_owner.value());
-                OwnerSubtree::lemma_insert_preserves_inv(
-                    owner_with_updated_value,
-                    i as int,
-                    new_owner_child,
-                );
-                OwnerSubtree::lemma_insert_property(
-                    owner_with_updated_value,
-                    i as int,
-                    new_owner_child,
-                );
                 vstd::seq_lib::lemma_update_is_remove_insert(
                     new_owner_before_update.children(),
                     i as int,
