@@ -209,7 +209,6 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
         assert(vaddr(path) == 0x80_0000_0000usize * i0);
     } else if path.len() == 2 {
         let i1 = path[1];
-        assert(i1 < NR_ENTRIES);
         assert(rec_vaddr(path, 2) == 0);
         assert(rec_vaddr(path, 1) == vaddr_make::<NR_LEVELS>(1, i1 as usize) as usize);
         assert(vaddr_make::<NR_LEVELS>(1, i1 as usize) == 0x4000_0000usize * i1) by (compute);
@@ -221,8 +220,6 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
     } else if path.len() == 3 {
         let i1 = path[1];
         let i2 = path[2];
-        assert(i1 < NR_ENTRIES);
-        assert(i2 < NR_ENTRIES);
         assert(rec_vaddr(path, 3) == 0);
         assert(rec_vaddr(path, 2) == vaddr_make::<NR_LEVELS>(2, i2 as usize) as usize);
         assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + vaddr_make::<NR_LEVELS>(
@@ -243,9 +240,6 @@ pub proof fn lemma_vaddr_top_index_cell(path: TreePath<NR_ENTRIES>)
         let i1 = path[1];
         let i2 = path[2];
         let i3 = path[3];
-        assert(i1 < NR_ENTRIES);
-        assert(i2 < NR_ENTRIES);
-        assert(i3 < NR_ENTRIES);
         assert(rec_vaddr(path, 4) == 0);
         assert(rec_vaddr(path, 3) == vaddr_make::<NR_LEVELS>(3, i3 as usize) as usize);
         assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + vaddr_make::<NR_LEVELS>(
@@ -900,8 +894,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         broadcast use {
             TreePath::lemma_push_tail_len,
             TreePath::lemma_push_tail_preserves_inv,
+            TreePath::lemma_index_satisfies_elem_inv,
         };
-        broadcast use TreePath::lemma_index_satisfies_elem_inv;
 
         lemma_page_size_spec_values();
         vstd::arithmetic::power2::lemma2_to64();
@@ -1292,11 +1286,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let i1 = self.view_rec_contains_choose(path, m1);
             let i2 = self.view_rec_contains_choose(path, m2);
 
-            path.lemma_push_tail_preserves_inv(i1);
-            path.lemma_push_tail_preserves_inv(i2);
-            path.lemma_push_tail_len(i1);
-            path.lemma_push_tail_len(i2);
-
             if i1 == i2 {
                 self.pt_inv_unroll(i1);
                 PageTableOwner(self.0.children()[i1].unwrap()).view_rec_disjoint_vaddrs(
@@ -1627,7 +1616,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     ).view_rec(path.push_tail(i)).contains(m);
                 self.pt_inv_unroll(i);
                 let child = self.0.children()[i].unwrap();
-                path.lemma_push_tail_preserves_inv(i);
                 PageTableOwner(child).view_rec_mapping_inv(path.push_tail(i));
             };
         }
@@ -2062,10 +2050,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             Self::is_prefix_of(prefix, path),
     {
-        prefix.lemma_push_tail_len(i);
-        prefix.lemma_push_tail_index(i);
-        prefix.lemma_push_tail_preserves_inv(i);
-        assert(prefix.len() <= path.len());
         assert forall|j: int| 0 <= j < prefix.len() implies prefix[j] == path[j] by {
             assert(prefix.push_tail(i)[j] == prefix[j]);
             assert(prefix.push_tail(i)[j] == path[j]);
@@ -2252,11 +2236,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 let child_path = path_j.push_tail(i);
                 subtree.lemma_subtree_satisfies_unroll_once(path_j, f_sound, i);
                 subtree.lemma_subtree_satisfies_unroll_once(path_j, f_path, i);
-                path_j.lemma_push_tail_len(i);
-                path_j.lemma_push_tail_index(i);
-                path_j.lemma_push_tail_preserves_inv(i);
                 assert(child_path.inv());
-                assert(child_path.len() == child.level());
                 assert(child.value().path == child_path);
                 assert(!Self::is_prefix_of(child_path, old_entry.path)) by {
                     if Self::is_prefix_of(child_path, old_entry.path) {
