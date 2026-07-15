@@ -217,7 +217,7 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 /// - `slot_index` identifies the underlying frame's index in the metadata region
 /// - Each node is a page table with a level between 1 and 4 (on x86); `level` tracks
 ///   the level of this node.
-/// - `tree_level` is the level field of the `ghost_tree::Node` that carries this object.
+/// - `tree_level` is the level field of the `ghost_tree::TreeNode` that carries this object.
 ///   Carried here for convenience, though it can be computed from `level`.
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,

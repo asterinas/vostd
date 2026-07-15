@@ -164,8 +164,8 @@ impl Inv for LinkModel {
 }
 
 pub tracked struct LinkOwner {
-    pub paddr: Paddr,
-    pub in_list: u64,
+    pub ghost paddr: Paddr,
+    pub ghost in_list: u64,
 }
 
 impl Inv for LinkOwner {
@@ -229,8 +229,8 @@ impl Inv for LinkedListModel {
 
 pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
     pub list: Seq<LinkOwner>,
-    pub list_id: u64,
-    pub _marker: core::marker::PhantomData<M>,
+    pub ghost list_id: u64,
+    pub ghost _marker: core::marker::PhantomData<M>,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
@@ -1130,7 +1130,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     /// already non-zero), and `index` advances by one. In the borrow model, the
     /// link's tracked permission remains parked in `MetaRegionOwners.slots`;
     /// this axiom doesn't need to take or carry a perm.
-    pub axiom fn tracked_list_insert(
+    pub proof fn tracked_list_insert(
         tracked cursor: &mut Self,
         tracked link: &mut LinkOwner,
         list_id: u64,
@@ -1146,7 +1146,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
 
                 res.0 == *final(cursor) && res.1 == *final(link)
             }),
-    ;
+    {
+        let ghost idx = cursor.index;
+        let ghost link_paddr = link.paddr;
+        let tracked list_entry = LinkOwner { paddr: link_paddr, in_list: list_id };
+
+        cursor.list_own.list.tracked_insert(idx, list_entry);
+        cursor.list_own.list_id = list_id;
+        cursor.index = idx + 1;
+        *link = LinkOwner { paddr: link_paddr, in_list: list_id };
+    }
 
     pub open spec fn front_owner(list_own: LinkedListOwner<M>) -> Self {
         CursorOwner::<M> { list_own: list_own, index: 0 }

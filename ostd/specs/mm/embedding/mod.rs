@@ -482,10 +482,10 @@ pub enum VmIoKind {
 ///   `read`): `has_write_view()`, per `from_kernel_space` /
 ///   [`io::read_step`] ensures.
 pub tracked struct VmIoEntry {
-    pub vm_space: Option<VmSpaceId>,
-    pub kind: VmIoKind,
-    pub vaddr: Vaddr,
-    pub len: usize,
+    pub ghost vm_space: Option<VmSpaceId>,
+    pub ghost kind: VmIoKind,
+    pub ghost vaddr: Vaddr,
+    pub ghost len: usize,
     pub owner: VmIoOwner,
 }
 
@@ -5378,20 +5378,19 @@ pub axiom fn axiom_cursor_entry_new<'rcu>(
 ;
 
 /// Tracked constructor for [`VmIoEntry`].
-pub axiom fn axiom_vm_io_entry_new<'a>(
+pub proof fn tracked_vm_io_entry_new<'a>(
     vm_space: Option<VmSpaceId>,
     kind: VmIoKind,
     vaddr: Vaddr,
     len: usize,
     tracked owner: VmIoOwner,
-) -> (tracked res: VmIoEntry)
-    ensures
-        res.vm_space == vm_space,
-        res.kind == kind,
-        res.vaddr == vaddr,
-        res.len == len,
-        res.owner == owner,
-;
+) -> tracked VmIoEntry
+    returns
+        (VmIoEntry { vm_space, kind, vaddr, len, owner }),
+{
+    let tracked res = VmIoEntry { vm_space, kind, vaddr, len, owner };
+    res
+}
 
 /// Tracked constructor for [`FrameEntry`].
 pub proof fn tracked_frame_entry_new(paddr: Paddr) -> tracked FrameEntry

@@ -220,11 +220,13 @@ impl<'a> VmSpace<'a> {
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
+            Ghost(root_guard): Ghost<PageTableGuard<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a>>,
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
-            owner.inv(),
+            self.pt.relates_owner(owner, *old(regions)),
+            owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
@@ -242,7 +244,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         match {
-            #[verus_spec(with Tracked(owner), Ghost(vstd::pervasive::arbitrary::<PageTableGuard<'a, UserPtConfig>>()), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
             self.pt.cursor(guard, va)
         } {
             Ok((pt_cursor, tracked_owner)) => {
@@ -279,11 +281,13 @@ impl<'a> VmSpace<'a> {
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
+            Ghost(root_guard): Ghost<PageTableGuard<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a>>
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
-            owner.inv(),
+            self.pt.relates_owner(owner, *old(regions)),
+            owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
@@ -297,7 +301,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         match {
-            #[verus_spec(with Tracked(owner), Ghost(vstd::pervasive::arbitrary::<PageTableGuard<'a, UserPtConfig>>()), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
             self.pt.cursor_mut(guard, va)
         } {
             Ok((pt_cursor, tracked_owner)) => {

@@ -22,7 +22,7 @@ verus! {
 /// extracts from `regions.slots` (the root is owned by the page table,
 /// not parked in the free pool).
 pub open spec fn vm_space_root_idx(owner: VmSpaceOwner) -> usize {
-    frame_to_index(owner.page_table_owner.value.meta_slot_paddr()->0)
+    frame_to_index(owner.page_table_owner.value().meta_slot_paddr()->0)
 }
 
 // =============================================================================
