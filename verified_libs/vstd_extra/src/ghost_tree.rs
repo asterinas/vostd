@@ -13,7 +13,7 @@ verus! {
 /// Each element selects one child at the corresponding tree level.
 /// `N` is the maximum number of children of each node, so every index is less than `N`.
 #[verifier::ext_equal]
-pub tracked struct TreePath<const N: usize>(pub Seq<int>);
+pub ghost struct TreePath<const N: usize>(pub Seq<int>);
 
 impl<const N: usize> TreePath<N> {
     pub open spec fn len(self) -> nat {

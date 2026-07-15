@@ -982,8 +982,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                 self.va.index_increment_adds_page_size(self.level as int);
 
-                vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    1int,
+                let inc_va = inc.va.to_vaddr() as nat;
+                assert(inc_va == self_va + ps);
+                vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(
+
                     self_va as int,
                     ps as int,
                 );
@@ -1008,7 +1010,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             self.va.index_increment_adds_page_size(self.level as int);
 
-            vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(1int, self_va as int, ps as int);
+            let inc_va = inc.va.to_vaddr() as nat;
+            assert(inc_va == self_va + ps);
+            vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(self_va as int, ps as int);
+
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(self_va as int, ps as int);
 
             self.va.align_up_advances_general(self.level as int);
@@ -1035,8 +1040,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                 popped.va.index_increment_adds_page_size(popped.level as int);
 
-                vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    1int,
+                assert(inc_p_va == popped_va + ps_p);
+                vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(
+
                     popped_va as int,
                     ps_p as int,
                 );

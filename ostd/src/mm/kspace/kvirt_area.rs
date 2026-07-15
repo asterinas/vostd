@@ -646,7 +646,6 @@ impl KVirtArea {
                 let item_i = MappedItem::Tracked(frames[i], prop);
                 let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
                 let idx_i = frame_to_index(pa_i);
-                KernelPtConfig::item_into_raw_spec_tracked_level(item_i);
                 assert(regions.slot_owners.contains_key(idx_i));
             };
         }
@@ -714,30 +713,11 @@ impl KVirtArea {
             // Capture the original-owner facts now (Verus can lose them across the
             // cursor.map call, which churns enormous proof context).
             let ghost orig_mapped_pa = pre_remove_owners[cur_mapped_pa].frame().mapped_pa;
-            let ghost orig_size = pre_remove_owners[cur_mapped_pa].frame().size;
             let ghost orig_prop = pre_remove_owners[cur_mapped_pa].frame().prop;
-            proof {
-                KernelPtConfig::item_into_raw_spec_tracked_level(MappedItem::Tracked(frame, prop));
-                KernelPtConfig::item_into_raw_spec_tracked_pa(
-                    DynFrame { ptr: frame.ptr, _marker: PhantomData },
-                    prop,
-                );
-                KernelPtConfig::item_into_raw_spec_tracked_prop(
-                    DynFrame { ptr: frame.ptr, _marker: PhantomData },
-                    prop,
-                );
-            }
-
             let tracked mut entry_owner = entry_owners.tracked_remove(cur_mapped_pa);
 
             // Now Verus knows: dynframe == frame_as_dynframe(it.seq()[it.index()])
             let item = MappedItem::Tracked(frame, prop);
-            // For a tracked frame, item_into_raw gives level 1 (4KB page), and
-            // frame_entry_wf requires `entry_owner.parent_level == level`, so:
-            proof {
-                KernelPtConfig::item_into_raw_spec_tracked_level(item);
-            }
-
             let ghost regions_before_map = *regions;
             let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor_owner@;
             let ghost old_cursor_owner_va = cursor_owner.va;
@@ -745,8 +725,6 @@ impl KVirtArea {
                 cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                 cursor_owner.va.reflect_prop(cursor.0.va);
                 let (pa, level, prop_from_item) = KernelPtConfig::item_into_raw_spec(item);
-                KernelPtConfig::item_into_raw_spec_level_bounds(item);
-                KernelPtConfig::item_into_raw_spec_tracked_level(item);
                 lemma_va_align_page_size_level_1(cursor.0.va);
                 cursor_owner.locked_range_page_aligned();
                 let ghost diff: int = cursor.0.barrier_va.end - cursor.0.va;
@@ -754,8 +732,6 @@ impl KVirtArea {
                     nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
                 );
                 vstd::arithmetic::power::lemma_pow0(2int);
-
-                KernelPtConfig::item_into_raw_spec_tracked_level(item);
             }
 
             // SAFETY: The constructor of the `KVirtArea` has already ensured
@@ -763,20 +739,6 @@ impl KVirtArea {
             // `item_slot_in_regions` for the current item is delivered by the
             // loop invariant (instantiated at i = it.index()), itself established by
             // the function precondition.
-            proof {
-                // Discharge `cursor.map`'s `map_panic_conditions ==>
-                // may_panic()` via the chain. Most disjuncts of
-                // `map_panic_conditions` are ruled out by loop invariants
-                // (cursor.va < barrier from the just-passed assert,
-                // level==1 ⟹ ≤ HIGHEST_TRANSLATION_LEVEL/< guard_level/<
-                // NR_LEVELS, va aligned). The only one that can fire is
-                // `cursor.va + page_size(1) > barrier.end`, which via
-                // cursor-VA tracking + range relationship gives
-                // `map_offset + (it.index()+1)*PAGE > area_size`, ⟹
-                // `map_offset + frames.len()*PAGE > area_size` (capacity
-                // disjunct) ⟹ `may_panic()`.
-                KernelPtConfig::lemma_kernel_htl_lt_nr_levels();
-            }
             let res = unsafe {
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 cursor.map(item)
@@ -801,7 +763,6 @@ impl KVirtArea {
                     let item_i = MappedItem::Tracked(it.seq()[i], prop);
                     let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
                     let idx_i = frame_to_index(pa_i);
-                    KernelPtConfig::item_into_raw_spec_tracked_level(item_i);
                 };
             }
 
@@ -809,7 +770,6 @@ impl KVirtArea {
                 let cur_idx = frame_to_index(cur_mapped_pa);
 
                 let (pa, level, prop_) = KernelPtConfig::item_into_raw_spec(item);
-                KernelPtConfig::item_into_raw_spec_tracked_level(item);
 
                 let split_self = old_cursor_model.split_while_huge(PAGE_SIZE);
 
@@ -845,8 +805,7 @@ impl KVirtArea {
                     cur_mapped_pa,
                     cur_path,
                     cur_parent_level,
-                    prop,  /* is_tracked */
-                    true,
+                    prop,
                 );
                 entry_owners.tracked_insert(cur_mapped_pa, fresh);
             }
@@ -1069,8 +1028,6 @@ impl KVirtArea {
                     cursor_owner.view_preserves_inv();  // old_cursor_model.inv()
                     cursor_owner.va.reflect_prop(cursor.0.va);
 
-                    KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
-
                     // pa_range.end == pa_range.start + len (in nat) — from loop invariant.
                     sum_page_sizes_extend_right(it.seq(), 0, pos@);
                     sum_page_sizes_mono(it.seq(), 0, pos@ + 1, it.seq().len() as int);
@@ -1079,22 +1036,16 @@ impl KVirtArea {
                 // Pre-map: capture the overflow bound `cursor_owner.va + page_size(level) <= usize::MAX`.
                 // Valid because the cursor is `in_locked_range` here (required by `cursor.map`).
                 proof {
-                    KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
                     cursor_owner.va_plus_page_size_no_overflow(level);
                 }
 
                 // Save ghost copy of regions before map for post-map invariant maintenance.
                 let ghost pre_map_regions: MetaRegionOwners = *regions;
 
-                proof {
-                    KernelPtConfig::lemma_kernel_htl_lt_nr_levels();
-                }
-
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
                 // `item_slot_in_regions` for the current `(pa, level)` follows from the
                 // loop invariant's per-PA slot facts, instantiated at the current `pa`.
                 proof {
-                    KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                 }
                 let _ = unsafe {
@@ -1107,12 +1058,10 @@ impl KVirtArea {
                 }
 
                 proof {
-                    KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
                     let level_raw = KernelPtConfig::item_into_raw_spec(item).1;
 
                     crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
                     level_raw);
-                    KernelPtConfig::item_into_raw_spec_level_bounds(item);
                     let split_self = old_cursor_model.split_while_huge(page_size(level_raw));
 
                     CursorView::<KernelPtConfig>::lemma_split_while_huge_preserves_cur_va(
