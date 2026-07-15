@@ -367,7 +367,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         //        const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
 
         proof {
-            assert(pt_own.0.value().is_node());
             assert forall|i: int| 0 <= i < NR_ENTRIES implies pt_own.0.has_child(i) by {
                 pt_own.pt_inv_unroll(i);
             };
@@ -558,12 +557,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 cont0.take_put_child();
                 owner.continuations.tracked_insert(owner.level - 1, continuation);
                 owner.metaregion_slot_owners_preserved(regions_before_ref, *regions);
-                // `cur_entry` ensures `*final(owner) == *old(owner)` and the
-                // remove/put_child/insert dance restores the same
-                // continuation, so the owner — hence its model — is exactly
-                // the loop-head value here (before any `push_level`). This
-                // carries the loop invariant's `owner@.{mappings,cur_va}`
-                // equalities into the non-descending (`None`/`Frame`) arms.
                 assert(owner.continuations == owner_snap.continuations);
                 assert(*owner == owner_snap);
                 assert(owner@ == old(owner)@);
@@ -652,16 +645,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         C::item_from_raw_roundtrip(item, pa, level, prop);
                     }
 
-                    assert(pa == owner.cur_entry_owner().frame().mapped_pa);
-
                     let ghost old_regions = *regions;
 
                     proof {
                         let idx = frame_to_index(pa);
-                        assert(owner.path_metaregion_sound(*regions));
-                        assert(owner.cur_entry_owner().metaregion_sound(*regions));
                         assert(regions.slot_owners.contains_key(idx));
-                        assert(owner.cur_entry_owner().inv_base());
                         EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
                             owner.cur_entry_owner(),
                         );
@@ -671,12 +659,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
                             );
-                            assert(owner@ == old(owner)@);
-                            assert(owner@.query_mapping().pa_range.start == pa);
-                            assert(old(owner)@.present());
                             assert(!is_mmio_paddr(pa));
-                            assert(old(regions).slot_owners[idx].inner_perms.ref_count.value()
-                                == regions.slot_owners[idx].inner_perms.ref_count.value());
                             assert(old(self).query_panic_condition(*old(owner), *old(regions)));
                             assert(may_panic());
                         }
@@ -700,15 +683,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
                             );
-                            assert(old_regions.slot_owners[idx].slot_vaddr == meta_addr(idx));
-                            assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
-                                != REF_COUNT_UNUSED);
-                            assert(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value());
                             assert(regions.slot_owners[idx].inv());
-                            assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                                == old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1);
-                            assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                                <= REF_COUNT_MAX);
                             owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         } else {
                             assert(regions.slots == old_regions.slots);
