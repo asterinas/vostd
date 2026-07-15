@@ -893,9 +893,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[i].node_locked(guards1)
         } by {
             let cont_addr = self.continuations[i].guard.inner.inner@.ptr.addr();
-            assert(self.level - 1 <= i < NR_LEVELS);
-            assert(cont_addr != dropped_addr);
-            assert(self.continuations[i].node_locked(guards0));
             assert(guards0.guards.contains(cont_addr));
             assert(guards1.guards.contains(cont_addr));
         };
@@ -1063,7 +1060,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(filtered.dom().contains(i));
         assert(filtered[i] == self.continuations[i]);
         assert(mapped.dom().contains(i));
-        assert(mapped[i] == self.continuations[i].view_mappings());
         assert(values.contains(mapped[i]));
         values.lemma_flatten_contains(m);
     }
@@ -1138,26 +1134,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             item.clone_requires(regions),
     {
         broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-        // Extract the frame-slot facts from metaregion_sound via path_metaregion_sound.
-
-        assert(self.path_metaregion_sound(regions));
-        assert(self.cur_entry_owner().metaregion_sound(regions));
         let entry = self.cur_entry_owner();
         let idx = frame_to_index(pa);
-        // Bridge `C::tracked(item)` to `usage != MMIO`: the entry's `is_tracked`
-        // is connected to its paddr's MMIO-ness by `axiom_frame_is_tracked_iff_not_mmio`,
-        // and `usage == MMIO` to the paddr by `axiom_mmio_usage_iff_mmio_paddr`.
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
-        assert(regions.slot_owners[idx].slot_vaddr == crate::specs::mm::frame::mapping::meta_addr(
-            idx,
-        ));
-        if C::tracked(item) {
-            assert(!crate::specs::mm::frame::meta_owners::is_mmio_paddr(pa));
-            assert(regions.slot_owners[idx].usage !is MMIO);
-            assert(regions.slot_owners[idx].inner_perms.ref_count.value() > 0);
-            assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
-        }
-        // Now all preconditions of `C::clone_requires_concrete` are in scope.
 
         C::clone_requires_concrete(item, pa, level, prop, regions);
     }
@@ -1265,8 +1244,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let path = new_subtree.value().path;
         let ps = page_size(level);
         let cont = self.continuations[self.level - 1];
-
-        cont.path().lemma_push_tail_len(cont.idx as int);
 
         // Bridge `nat_align_down(cur_va, ps) == vaddr_of::<C>(path) as Vaddr`:
         //   to_path_vaddr_concrete: vaddr(path) + va.leading_bits * 2^48 == nat_align_down(cur_va, ps)
@@ -2364,8 +2341,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let pt_level = INC_LEVELS - path.len();
         let cont = self.continuations[self.level - 1];
 
-        cont.path().lemma_push_tail_len(cont.idx as int);
-
         let m = Mapping {
             va_range: Range {
                 start: vaddr_of::<C>(path) as int,
@@ -2867,8 +2842,6 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
         let p = cont.path().push_tail(j);
-        cont.path().lemma_push_tail_len(j);
-        cont.path().lemma_push_tail_index(j);
         let pidx = p[0] as int;
         assert(start <= pidx < end) by {
             if i != NR_LEVELS - 1 {

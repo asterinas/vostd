@@ -27,6 +27,8 @@ use core::ops::Range;
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn protect_preserves_cursor_inv_metaregion(
         self,
@@ -331,19 +333,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == self.continuations[i].idx,
     {
         if i == 3 && j == 2 {
-            self.continuations[3].path().lemma_push_tail_index(
-                self.continuations[3].idx as int,
-            );
-            self.continuations[3].path().lemma_push_tail_len(self.continuations[3].idx as int);
         } else if i == 3 && j == 1 {
             let p3 = self.continuations[3].path();
             let p2 = self.continuations[2].path();
             let idx3 = self.continuations[3].idx as int;
             let idx2 = self.continuations[2].idx as int;
-            p3.lemma_push_tail_index(idx3);
-            p3.lemma_push_tail_len(idx3);
-            p2.lemma_push_tail_index(idx2);
-            p2.lemma_push_tail_len(idx2);
             assert(p3.len() < p2.len());
             assert(self.continuations[1].path() == p2.push_tail(idx2));
             assert(p2.push_tail(idx2)[p3.len() as int] == p2[p3.len() as int]);
@@ -354,40 +348,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let idx3 = self.continuations[3].idx as int;
             let idx2 = self.continuations[2].idx as int;
             let idx1 = self.continuations[1].idx as int;
-            p3.lemma_push_tail_index(idx3);
-            p3.lemma_push_tail_len(idx3);
-            p2.lemma_push_tail_index(idx2);
-            p2.lemma_push_tail_len(idx2);
-            p1.lemma_push_tail_index(idx1);
-            p1.lemma_push_tail_len(idx1);
             assert(p3.len() < p2.len());
             assert(p3.len() < p1.len());
             assert(p1.push_tail(idx1)[p3.len() as int] == p1[p3.len() as int]);
             assert(p2.push_tail(idx2)[p3.len() as int] == p2[p3.len() as int]);
         } else if i == 2 && j == 1 {
-            self.continuations[2].path().lemma_push_tail_index(
-                self.continuations[2].idx as int,
-            );
-            self.continuations[2].path().lemma_push_tail_len(self.continuations[2].idx as int);
         } else if i == 2 && j == 0 {
             let p2 = self.continuations[2].path();
             let p1 = self.continuations[1].path();
             let idx2 = self.continuations[2].idx as int;
             let idx1 = self.continuations[1].idx as int;
-            p2.lemma_push_tail_index(idx2);
-            p2.lemma_push_tail_len(idx2);
-            p1.lemma_push_tail_index(idx1);
-            p1.lemma_push_tail_len(idx1);
             assert(p2.len() < p1.len());
             assert(self.continuations[0].path() == p1.push_tail(idx1));
             assert(p1.push_tail(idx1)[p2.len() as int] == p1[p2.len() as int]);
             assert(p1 == p2.push_tail(idx2));
             assert(p2.push_tail(idx2)[p2.len() as int] == idx2);
         } else if i == 1 && j == 0 {
-            self.continuations[1].path().lemma_push_tail_index(
-                self.continuations[1].idx as int,
-            );
-            self.continuations[1].path().lemma_push_tail_len(self.continuations[1].idx as int);
         }
     }
 

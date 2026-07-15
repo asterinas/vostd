@@ -397,41 +397,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let va_path = self.va.to_path(lvl);
 
         self.va.to_path_len(lvl);
-        cont.path().lemma_push_tail_len(cont.idx as int);
         assert forall|k: int| 0 <= k < child_path.len() implies child_path[k]
             == va_path[k] by {
             self.va.to_path_index(lvl, k);
-            if lvl == 3 {
-                cont.path().lemma_push_tail_index(cont.idx as int);
-            } else if lvl == 2 {
-                cont.path().lemma_push_tail_index(cont.idx as int);
-                self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as int,
-                );
-            } else if lvl == 1 {
-                cont.path().lemma_push_tail_index(cont.idx as int);
-                self.continuations[2].path().lemma_push_tail_index(
-                    self.continuations[2].idx as int,
-                );
-                self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as int,
-                );
-            } else {
-                cont.path().lemma_push_tail_index(cont.idx as int);
-                self.continuations[1].path().lemma_push_tail_index(
-                    self.continuations[1].idx as int,
-                );
-                self.continuations[2].path().lemma_push_tail_index(
-                    self.continuations[2].idx as int,
-                );
-                self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as int,
-                );
-            }
         };
 
         self.va.to_path_inv(lvl);
-        cont.path().lemma_push_tail_preserves_inv(cont.idx as int);
         AbstractVaddr::rec_vaddr_eq_if_indices_eq(child_path, va_path, 0);
         self.va.vaddr_range_from_path(lvl);
     }
