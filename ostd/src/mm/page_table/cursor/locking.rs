@@ -186,10 +186,6 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         assert(cont.entry_own.metaregion_sound(*regions));
         assert(regions.slots.contains_key(cont_slot_idx));
         assert(regions.slot_owners.contains_key(cont_slot_idx));
-        assert(vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<PageTablePageMeta<C>>>::new_spec(
-            regions.slots[cont_slot_idx],
-            regions.slot_owners[cont_slot_idx].inner_perms,
-        ).wf(&regions.slot_owners[cont_slot_idx].inner_perms));
     }
     let tracked cont_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(cont_slot_idx);
     #[verus_spec(with Tracked(cont_meta_perm))]
