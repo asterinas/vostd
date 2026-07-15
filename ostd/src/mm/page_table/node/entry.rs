@@ -577,12 +577,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& crate::specs::mm::page_table::allocated_empty_node_grandchildren_none(*final(owner))
                 // Other child fields preserved from `allocated_empty_node_owner`.
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
-                    (#[trigger] final(owner).children()[i])->0.value().parent_level
+                    (#[trigger] final(owner).child(i)).value().parent_level
                         == final(owner).value().node().level
                 &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
-                    (#[trigger] final(owner).children()[i])->0.value().match_pte(
+                    (#[trigger] final(owner).child(i)).value().match_pte(
                         final(owner).value().node().children_perm.value()[i],
-                        final(owner).children()[i]->0.value().parent_level)
+                        final(owner).child(i).value().parent_level)
                 // slot_owners unchanged for all indices except the new PT node's index.
                 &&& forall|i: usize| i != frame_to_index(final(owner).value().meta_slot_paddr()->0) ==>
                     (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i]
@@ -711,21 +711,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 self.node.write_pte(self.idx, self.pte)
             };
 
-            proof {
-                // `count_consistent` is momentarily broken between `alloc` (which
-                // set the parent's PTE present via `set_children_perm`) and the
-                // `+ 1` below, so the full `metaregion_sound_node` doesn't hold
-                // here. But its id clause — all `nr_children_mut`/`read` need — is
-                // frame-stable, so we transfer it from the pre-`alloc` snapshot:
-                //  - `meta_own` is preserved by `set_children_perm`/`write_pte`.
-                //  - the parent slot (`!= child slot`, since the parent is a live
-                //    node with `rc != UNUSED` while the child slot was `UNUSED`)
-                //    is preserved by `alloc` (`get_from_unused`/`reparked` only
-                //    touch the child slot) and by `write_pte` (regions immutable),
-                //    so `meta_perm_of` — a deterministic `new_spec(slots[idx],
-                //    inner_perms)` — is structurally unchanged.
-            }
-
             let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
                 parent_owner.slot_index,
             );
@@ -761,9 +746,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
                 new_meta_slot.paths_in_pt = set![owner.value().path];
                 regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
-            }
-
-            proof {
+  
                 // Restore the parent's `count_consistent`: the slot at `self.idx`
                 // went absent → present (the new PT node) and `nr_children` was
                 // incremented by 1.
@@ -773,9 +756,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     self.idx as int,
                     self.pte,
                 );
-            }
-
-            proof {
+  
                 // Discharge the region-preservation + fresh-node
                 // `subtree_satisfies` conjuncts of the big `is_absent` ensures
                 // block.
