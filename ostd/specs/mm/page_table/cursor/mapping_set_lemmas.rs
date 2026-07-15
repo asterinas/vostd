@@ -19,6 +19,8 @@ use crate::specs::mm::page_table::{AbstractVaddr, Mapping};
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 // ─── CursorContinuation mapping lemmas ───────────────────────────────────────
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub proof fn as_page_table_owner_preserves_view_mappings(self)
@@ -180,11 +182,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.as_subtree().level() == self.tree_level,
             self.as_subtree().children() == self.children,
     {
-        OwnerSubtree::<C>::lemma_new_properties(
-            self.entry_own,
-            self.tree_level,
-            self.children,
-        );
     }
 
     proof fn as_subtree_eq_implies_view_mappings_eq(self, other: Self)

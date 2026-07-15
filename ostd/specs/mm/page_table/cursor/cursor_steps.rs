@@ -1202,11 +1202,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let new_owner = self.pop_level_owner().0;
 
         let child_node = OwnerSubtree::new(child.entry_own, child.tree_level, child.children);
-        OwnerSubtree::<C>::lemma_new_properties(
-            child.entry_own,
-            child.tree_level,
-            child.children,
-        );
 
         let nc = self.continuations.insert(self.level as int, new_cont).remove(self.level - 1);
         assert(new_owner.continuations == nc);
@@ -2094,14 +2089,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let (restored_parent, _) = parent.restore(child);
         let popped = self.pop_level_owner().0;
         let child_subtree = child.as_subtree();
-        OwnerSubtree::<C>::lemma_new_properties(
-            child.entry_own,
-            child.tree_level,
-            child.children,
-        );
-
-        assert(child.all_some());
-        assert(parent.all_but_index_some());
         assert(child.path() == parent.path().push_tail(parent.idx as int));
 
         assert(child_subtree.inv()) by {
