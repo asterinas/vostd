@@ -40,8 +40,6 @@ pub proof fn push_tail_different_indices_different_paths(
     ensures
         path.push_tail(i) != path.push_tail(j),
 {
-    path.lemma_push_tail_len(i);
-    path.lemma_push_tail_len(j);
     assert(path.push_tail(i)[path.len() as int] == i);
     assert(path.push_tail(j)[path.len() as int] == j);
     if path.push_tail(i) == path.push_tail(j) {
@@ -144,7 +142,6 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
 
             PageTableOwner::<C>(subtree).pt_inv_unroll(i);
             let child_path = path.push_tail(i);
-            path.lemma_push_tail_len(i);
 
             assert(child_path != excepted_path) by {
                 if excepted_path.len() <= path.len() {
@@ -383,11 +380,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let child_path = old_cont.path().push_tail(old_cont.idx as int);
         assert(child_cont.children == child_subtree.children());
         assert(child_cont.path() == child_path);
-        assert(child_subtree.value().is_node());
         assert(child_path.len() < INC_LEVELS - 1) by {
             assert(old_cont.tree_level < INC_LEVELS - 1);
             assert(old_cont.entry_own.inv_base());
-            old_cont.path().lemma_push_tail_len(old_cont.idx as int);
         };
         old_cont.inv_children_unroll(old_cont.idx as int);
         let pto = PageTableOwner(child_subtree);
@@ -503,10 +498,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         );
 
         old_cont.inv_children_rel_unroll(old_cont.idx as int);
-        assert(child.children == child_node.children());
-        assert(child.entry_own == child_node.value());
-        assert(child.tree_level == child_node.level());
-        assert(child.path() == child_node.value().path);
 
         assert(self.va.index.contains_key(self.level - 2));
 
@@ -520,7 +511,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 Some(gc.value()),
             ));
             assert(child.entry_own.inv_base());
-            child.entry_own.path.lemma_push_tail_len(0);
         };
 
         assert(child.inv_children()) by {
@@ -553,9 +543,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 PageTableOwner(child_node).pt_inv_unroll(j);
                 assert(gc == child_node.child(j));
                 assert(PageTableOwner::<C>::pt_edge_at(child_node, j));
-                assert(gc.value().parent_level == child.level());
-                assert(gc.level() == child.tree_level + 1);
-                assert(gc.value().path.len() == child.entry_own.node().tree_level + 1);
                 assert(gc.value().match_pte(
                     child.entry_own.node().children_perm.value()[j],
                     child.entry_own.node().level,
@@ -664,12 +651,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 old_cont.pt_inv_children_unroll(i);
             };
         };
-        assert(modified_cont.entry_own.is_node());
-        assert(modified_cont.entry_own.node().relate_guard(modified_cont.guard));
-        assert(modified_cont.tree_level == INC_LEVELS - modified_cont.level() - 1);
-        assert(modified_cont.tree_level < INC_LEVELS - 1);
-        assert(modified_cont.path().len() == modified_cont.tree_level);
-        assert(modified_cont.inv());
 
         assert(new_owner.level <= 4 ==> {
             &&& new_owner.continuations.contains_key(3)
