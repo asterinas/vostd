@@ -293,10 +293,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
         assert(Self::raw_item_well_formed(pa, level, prop));
         Self::lemma_item_from_raw_well_formed(pa, level, prop);
         prop.lemma_avail1_tag_encoding();
-        let item = Self::item_from_raw_spec(pa, level, prop);
-        if prop.flags.contains(PageFlags::AVAIL1()) {
-            crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
-        }
     }
 
     proof fn lemma_item_from_raw_roundtrip(
@@ -403,10 +399,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
                     new_regions,
                     res,
                 ));
-                assert(frame.clone_ensures(old_regions, new_regions, frame));
             },
             MappedItem::Untracked(_, _, _) => {
-                assert(old_regions == new_regions);
             },
         }
     }
@@ -419,7 +413,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         regions: MetaRegionOwners,
     ) {
         use crate::mm::frame::meta::mapping::meta_to_frame;
-        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+        broadcast use group_page_meta;
 
         Self::lemma_item_from_raw_well_formed(pa, level, prop);
         match item {
