@@ -2256,7 +2256,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 0 <= i < subtree.children().len() && (
                 #[trigger] subtree.children()[i]) is Some implies subtree.children()[i].unwrap().subtree_satisfies(
             path_j.push_tail(i), g) by {
-                let child = subtree.children()[i].unwrap();
+                let child = subtree.child(i);
                 let child_path = path_j.push_tail(i);
                 subtree.lemma_map_unroll_once(path_j, f_sound, i);
                 subtree.lemma_map_unroll_once(path_j, f_path, i);

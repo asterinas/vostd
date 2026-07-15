@@ -2027,8 +2027,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             }
             *owner = new_node_owner;
             assert(owner.children() == fresh_children);
-            assert forall|i: int| 0 <= i < NR_ENTRIES implies
-                (#[trigger] owner.children()[i]) is Some by {};
             crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
 
             let new_paddr = owner.value().meta_slot_paddr().unwrap();
@@ -2057,16 +2055,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
 
             // Root predicates.
-
-            // Child predicates (absent children ⟹ trivial).
-            assert forall|i: int| 0 <= i < NR_ENTRIES implies {
-                &&& #[trigger] f_nu(
-                    owner.children()[i].unwrap().value(),
-                    owner.value().path.push_tail(i),
-                )
-                &&& f_ms(owner.children()[i].unwrap().value(), owner.value().path.push_tail(i))
-                &&& f_pt(owner.children()[i].unwrap().value(), owner.value().path.push_tail(i))
-            } by {};
 
             crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                 *owner,
