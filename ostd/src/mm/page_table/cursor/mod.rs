@@ -366,7 +366,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             assert(pt_own.0.value().is_node());
-            assert forall|i: int| 0 <= i < NR_ENTRIES implies pt_own.0.children()[i] is Some by {
+            assert forall|i: int| 0 <= i < NR_ENTRIES implies pt_own.0.has_child(i) by {
                 pt_own.pt_inv_unroll(i);
             };
         }

@@ -41,7 +41,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
     requires
         pt.relates_owner(pt_own, *old(regions)),
         pt_own.0.value().node().relate_guard(root_guard),
-        forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children()[i] is Some,
+        forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.has_child(i),
         va.start < va.end,
         // Per-config tightening; see `Cursor::new`. Pulled through to the
         // cursor's `LOCKED_END_BOUND_spec` invariant.

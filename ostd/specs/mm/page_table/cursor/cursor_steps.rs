@@ -134,9 +134,9 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         assert forall|i: int|
             #![trigger subtree.children()[i]]
             0 <= i < subtree.children().len()
-                && subtree.children()[i] is Some implies subtree.children()[i].unwrap().subtree_satisfies(
+                && subtree.has_child(i) implies subtree.child(i).subtree_satisfies(
         path.push_tail(i), h) by {
-            let child = subtree.children()[i].unwrap();
+            let child = subtree.child(i);
             subtree.lemma_map_unroll_once(path, f, i);
             subtree.lemma_map_unroll_once(path, g, i);
 
@@ -168,7 +168,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         assert forall|i: int|
             #![trigger subtree.children()[i]]
             0 <= i < subtree.children().len()
-                && subtree.children()[i] is Some implies subtree.children()[i].unwrap().subtree_satisfies(
+                && subtree.has_child(i) implies subtree.child(i).subtree_satisfies(
         path.push_tail(i), h) by {
             PageTableOwner::<C>(subtree).pt_inv_non_node(i);
         };
@@ -400,7 +400,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         && PageTableOwner(child_cont.children[j].unwrap()).view_rec(
                         child_cont.path().push_tail(j),
                     ).contains(m);
-                assert(pto.0.children()[j] is Some);
+                assert(pto.0.has_child(j));
                 assert(pto.0.children()[j] == child_cont.children[j]);
                 assert(pto.view_rec(child_path).contains(m));
             };
@@ -410,8 +410,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ) implies #[trigger] child_cont.view_mappings().contains(m) by {
                 let j = choose|j: int|
                     #![trigger pto.0.children()[j]]
-                    0 <= j < pto.0.children().len() && pto.0.children()[j] is Some && PageTableOwner(
-                        pto.0.children()[j].unwrap(),
+                    0 <= j < pto.0.children().len() && pto.0.has_child(j) && PageTableOwner(
+                        pto.0.child(j),
                     ).view_rec(child_path.push_tail(j)).contains(m);
                 assert(child_cont.children[j] == pto.0.children()[j]);
                 assert(child_cont.children[j] is Some);

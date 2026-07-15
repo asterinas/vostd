@@ -429,19 +429,19 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& forall|i: int|
         0 <= i < NR_ENTRIES ==> {
             &&& (#[trigger] owner.children()[i]) is Some
-            &&& owner.children()[i]->0.value().is_absent()
-            &&& owner.children()[i]->0.value().inv()
-            &&& owner.children()[i]->0.value().path == owner.value().path.push_tail(i)
+            &&& owner.child(i).value().is_absent()
+            &&& owner.child(i).value().inv()
+            &&& owner.child(i).value().path == owner.value().path.push_tail(i)
         }
     &&& forall|i: int|
         #![auto]
-        0 <= i < NR_ENTRIES ==> owner.children()[i]->0.value().match_pte(
+        0 <= i < NR_ENTRIES ==> owner.child(i).value().match_pte(
             owner.value().node().children_perm.value()[i],
-            owner.children()[i]->0.value().parent_level,
+            owner.child(i).value().parent_level,
         )
     &&& forall|i: int|
         #![auto]
-        0 <= i < NR_ENTRIES ==> owner.children()[i]->0.value().parent_level
+        0 <= i < NR_ENTRIES ==> owner.child(i).value().parent_level
             == owner.value().node().level
     // The freshly-allocated PT node is zero-filled, so every PTE in
     // `children_perm` is the absent PTE. (Stronger than the existing
@@ -489,9 +489,9 @@ pub proof fn rebase_freshly_allocated_children_at<C: PageTableConfig>(
             0 <= j < i ==> (#[trigger] final(owner).children()[j]) == old(owner).children()[j],
         forall|j: int|
             i <= j < NR_ENTRIES ==> {
-                let c_old = old(owner).children()[j]->0;
+                let c_old = old(owner).child(j);
                 let c_new = (#[trigger] final(owner).children()[j])->0;
-                &&& final(owner).children()[j] is Some
+                &&& final(owner).has_child(j)
                 &&& c_new.value() == EntryOwner {
                     path: new_path.push_tail(j),
                     ..c_old.value()
@@ -534,9 +534,9 @@ pub proof fn rebase_freshly_allocated_children<C: PageTableConfig>(
         final(owner).children().len() == NR_ENTRIES,
         forall|i: int|
             0 <= i < NR_ENTRIES ==> {
-                let c_old = old(owner).children()[i]->0;
+                let c_old = old(owner).child(i);
                 let c_new = (#[trigger] final(owner).children()[i])->0;
-                &&& final(owner).children()[i] is Some
+                &&& final(owner).has_child(i)
                 &&& c_new.value() == EntryOwner {
                     path: new_path.push_tail(i),
                     ..c_old.value()
@@ -579,14 +579,14 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
 {
     assert forall|i: int|
         0 <= i < node.children().len()
-            && #[trigger] node.children()[i] is Some implies node.children()[i]->0.subtree_satisfies(
+            && #[trigger] node.children()[i] is Some implies node.child(i).subtree_satisfies(
         path.push_tail(i),
         f,
     ) by {
         // Each child has all-`None` grandchildren, so its `subtree_satisfies`
         // unfolds to `f` at the child (the grandchild forall is vacuous).
-        assert(node.children()[i]->0.inv());
-        assert(node.children()[i]->0.level() == node.level() + 1);
+        assert(node.child(i).inv());
+        assert(node.child(i).level() == node.level() + 1);
     };
 }
 
@@ -728,8 +728,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
         // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
         assert forall|i: int| 0 <= i < NR_ENTRIES implies #[trigger] Self::pt_edge_at(owner, i)
-            && PageTableOwner(owner.children()[i].unwrap()).pt_inv_at_depth((depth - 1) as nat) by {
-            let child = owner.children()[i].unwrap();
+            && PageTableOwner(owner.child(i)).pt_inv_at_depth((depth - 1) as nat) by {
+            let child = owner.child(i);
             // pt_edge_at follows from the per-edge facts in the precondition.
             // owner.inv() ⇒ child.inv() (`TreeNode::inv` recurses since
             // INC_LEVELS - owner.level > 1) ⇒ child.value.inv() ⇒ inv_base

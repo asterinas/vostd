@@ -1187,10 +1187,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let ghost the_node = new_owner.value().node();
 
                 assert(0 <= i < NR_ENTRIES);
-                assert(new_owner.children()[i as int] is Some);
+                assert(new_owner.has_child(i as int));
                 assert(new_owner.inv_children());
-                assert(new_owner.children()[i as int]->0.inv());
-                assert(new_owner.children()[i as int]->0.level() == new_owner.level() + 1);
+                assert(new_owner.child(i as int).inv());
+                assert(new_owner.child(i as int).level() == new_owner.level() + 1);
                 EntryOwner::huge_frame_split_child_at(owner.value(), *regions, i as usize);
             }
 
