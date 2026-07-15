@@ -27,11 +27,7 @@ verus! {
 broadcast use group_ghost_tree_lemmas;
 
 /// Paths obtained by push_tail with different indices are different
-pub proof fn push_tail_different_indices_different_paths(
-    path: TreePath<NR_ENTRIES>,
-    i: int,
-    j: int,
-)
+pub proof fn push_tail_different_indices_different_paths(path: TreePath<NR_ENTRIES>, i: int, j: int)
     requires
         path.inv(),
         0 <= i < NR_ENTRIES,
@@ -132,9 +128,9 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     if subtree.level() < INC_LEVELS - 1 && subtree.value().is_node() {
         assert forall|i: int|
             #![trigger subtree.children()[i]]
-            0 <= i < subtree.children().len()
-                && subtree.has_child(i) implies subtree.child(i).subtree_satisfies(
-        path.push_tail(i), h) by {
+            0 <= i < subtree.children().len() && subtree.has_child(i) implies subtree.child(
+            i,
+        ).subtree_satisfies(path.push_tail(i), h) by {
             let child = subtree.child(i);
             subtree.lemma_subtree_satisfies_unroll_once(path, f, i);
             subtree.lemma_subtree_satisfies_unroll_once(path, g, i);
@@ -165,9 +161,9 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         // has no children to recurse into.
         assert forall|i: int|
             #![trigger subtree.children()[i]]
-            0 <= i < subtree.children().len()
-                && subtree.has_child(i) implies subtree.child(i).subtree_satisfies(
-        path.push_tail(i), h) by {
+            0 <= i < subtree.children().len() && subtree.has_child(i) implies subtree.child(
+            i,
+        ).subtree_satisfies(path.push_tail(i), h) by {
             PageTableOwner::<C>(subtree).pt_inv_non_node(i);
         };
     }
@@ -624,9 +620,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     i,
                     Some(modified_cont.children[i].unwrap().value()),
                 )
-                &&& modified_cont.children[i].unwrap().value().path == modified_cont.path().push_tail(
-                    i,
-                )
+                &&& modified_cont.children[i].unwrap().value().path
+                    == modified_cont.path().push_tail(i)
             } by {
                 assert(i != modified_cont.idx);
                 assert(modified_cont.children[i] == old_cont.children[i]);
@@ -778,7 +773,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             )
         }) by {
             if new_owner.level == 1 {
-
                 // parent_level == 2: from inv_children_rel on old_cont
                 assert(child.entry_own.parent_level == 2) by {
                     old_cont.inv_children_rel_unroll(old_cont.idx as int);
@@ -791,9 +785,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(modified_cont.path() == old_cont.path());
                     assert(modified_cont.idx == old_cont.idx);
                     old_cont.inv_children_rel_unroll(old_cont.idx as int);
-                    assert(child.entry_own.path == old_cont.path().push_tail(
-                        old_cont.idx as int,
-                    ));
+                    assert(child.entry_own.path == old_cont.path().push_tail(old_cont.idx as int));
                 };
 
                 // PTE consistency: from old_cont.inv_children_rel at idx
@@ -1018,8 +1010,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     j,
                     None,
                 ),
-            } by {
-            };
+            } by {};
         };
         assert forall|j: int|
             0 <= j < NR_ENTRIES implies match #[trigger] child_subtree.children()[j] {
@@ -1043,8 +1034,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(child_cont.map_children(f)) by {
             assert forall|j: int|
                 0 <= j < child_cont.children.len()
-                    && #[trigger] child_cont.children[j] is Some implies child_cont.children[j]
-                .unwrap().subtree_satisfies(child_cont.path().push_tail(j), f) by {
+                    && #[trigger] child_cont.children[j] is Some implies child_cont.children[j].unwrap().subtree_satisfies(
+            child_cont.path().push_tail(j), f) by {
                 assert(child_subtree.has_child(j));
                 child_subtree.lemma_subtree_satisfies_unroll_once(child_cont.path(), f, j);
                 assert(child_subtree.child(j) == child_cont.children[j].unwrap());
@@ -1202,7 +1193,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 ));
             };
         };
-        assert forall|j: int| 0 <= j < NR_ENTRIES implies match #[trigger] child_node.children()[j] {
+        assert forall|j: int|
+            0 <= j < NR_ENTRIES implies match #[trigger] child_node.children()[j] {
             Some(ch) => ch.inv(),
             None => true,
         } by {
@@ -1232,9 +1224,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     i,
                     Some(new_cont.children[i].unwrap().value()),
                 )
-                &&& new_cont.children[i].unwrap().value().path == new_cont.path().push_tail(
-                    i,
-                )
+                &&& new_cont.children[i].unwrap().value().path == new_cont.path().push_tail(i)
             } by {
                 if i == cont.idx {
                     assert(new_cont.children[i].unwrap() == child_node);

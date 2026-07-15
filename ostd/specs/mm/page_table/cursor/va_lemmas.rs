@@ -327,8 +327,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         self.va.to_path_len(L - 1);
 
-        assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path[i]
-            == va_path[i] by {
+        assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path[i] == va_path[i] by {
             self.va.to_path_index(L - 1, i);
         };
 

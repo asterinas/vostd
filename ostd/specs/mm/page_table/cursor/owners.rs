@@ -1134,6 +1134,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             item.clone_requires(regions),
     {
         broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
+
         let entry = self.cur_entry_owner();
         let idx = frame_to_index(pa);
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
@@ -2418,7 +2419,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
             cont.path().push_tail(j), g) by {
                 cont.inv_children_unroll(j);
-                cont.children[j].unwrap().lemma_subtree_satisfies_implies(cont.path().push_tail(j), f, g);
+                cont.children[j].unwrap().lemma_subtree_satisfies_implies(
+                    cont.path().push_tail(j),
+                    f,
+                    g,
+                );
             };
         };
         assert(other.path_metaregion_sound(regions1)) by {
@@ -2978,8 +2983,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
         }
         child.view_rec_top_index_va_bound(p, m, end);
         // m.start ≥ index(0)·2^39 + lb·2^48 ≥ start·2^39 + lb·2^48 = bound.0.
-        assert(p[0] * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int >= start
-            * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int) by (nonlinear_arith)
+        assert(p[0] * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int >= start * 0x80_0000_0000int
+            + lb * 0x1_0000_0000_0000int) by (nonlinear_arith)
             requires
                 start <= p[0],
         ;

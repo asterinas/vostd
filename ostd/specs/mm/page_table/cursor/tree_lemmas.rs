@@ -144,7 +144,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 #![trigger cont.children[j]]
                 0 <= j < cont.children.len()
                     && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
-            cont.path().push_tail(j), g) by {
+                cont.path().push_tail(j),
+                g,
+            ) by {
                 cont.inv_children_unroll(j);
                 OwnerSubtree::lemma_subtree_satisfies_implies(
                     cont.children[j].unwrap(),
@@ -245,7 +247,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     cont.children[j].unwrap(),
                     cont.path().push_tail(j),
                 );
-                cont.children[j].unwrap().lemma_subtree_satisfies_implies(cont.path().push_tail(j), nsp, g);
+                cont.children[j].unwrap().lemma_subtree_satisfies_implies(
+                    cont.path().push_tail(j),
+                    nsp,
+                    g,
+                );
             };
         };
     }

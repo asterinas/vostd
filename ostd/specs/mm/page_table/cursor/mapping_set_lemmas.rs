@@ -20,8 +20,8 @@ use crate::specs::mm::page_table::{AbstractVaddr, Mapping};
 verus! {
 
 broadcast use group_ghost_tree_lemmas;
-
 // ─── CursorContinuation mapping lemmas ───────────────────────────────────────
+
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub proof fn as_page_table_owner_preserves_view_mappings(self)
         requires
@@ -55,9 +55,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 ) implies #[trigger] self.view_mappings().contains(m) by {
                 let i = choose|i: int|
                     #![auto]
-                    0 <= i < pto.0.children().len() && pto.0.children()[i] is Some && PageTableOwner(
-                        pto.0.children()[i].unwrap(),
-                    ).view_rec(self.path().push_tail(i)).contains(m);
+                    0 <= i < pto.0.children().len() && pto.0.children()[i] is Some
+                        && PageTableOwner(pto.0.children()[i].unwrap()).view_rec(
+                        self.path().push_tail(i),
+                    ).contains(m);
             };
         };
     }
@@ -175,7 +176,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 }
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
-
     /// When a continuation has all_some and inv, its as_subtree() also has `TreeNode::inv()`.
     proof fn as_subtree_inv(self)
         requires
@@ -376,8 +376,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let va_path = self.va.to_path(lvl);
 
         self.va.to_path_len(lvl);
-        assert forall|k: int| 0 <= k < child_path.len() implies child_path[k]
-            == va_path[k] by {
+        assert forall|k: int| 0 <= k < child_path.len() implies child_path[k] == va_path[k] by {
             self.va.to_path_index(lvl, k);
         };
 
@@ -450,12 +449,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             j != self.index(),
             self.continuations[self.level - 1].children[j] is Some,
         ensures
-            vaddr(self.continuations[self.level - 1].path().push_tail(j))
-                + self.va.leading_bits * 0x1_0000_0000_0000int + page_size(
-                self.level as PagingLevel,
-            ) <= self.cur_va() || self.cur_va() < vaddr(
-                self.continuations[self.level - 1].path().push_tail(j),
-            ) + self.va.leading_bits * 0x1_0000_0000_0000int,
+            vaddr(self.continuations[self.level - 1].path().push_tail(j)) + self.va.leading_bits
+                * 0x1_0000_0000_0000int + page_size(self.level as PagingLevel) <= self.cur_va()
+                || self.cur_va() < vaddr(self.continuations[self.level - 1].path().push_tail(j))
+                + self.va.leading_bits * 0x1_0000_0000_0000int,
     {
         let cont = self.continuations[self.level - 1];
         let idx = self.index();
@@ -506,7 +503,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.view_mappings().contains(m),
             m.va_range.start <= self.cur_va() < m.va_range.end,
         ensures
-            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value().path).contains(m),
+            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value().path).contains(
+                m,
+            ),
     {
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 
@@ -637,12 +636,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         let sib_size = page_size(
                             (INC_LEVELS - cont_i.path().len() - 1) as PagingLevel,
                         );
-                        sibling_paths_disjoint::<C>(
-                            cont_i.path(),
-                            cont_i.idx as int,
-                            j,
-                            sib_size,
-                        );
+                        sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx as int, j, sib_size);
                         // Lift positional disjointness to canonical.
                         lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(cont_i.idx as int));
                         lemma_vaddr_of_eq_int::<C>(cont_i.path().push_tail(j));

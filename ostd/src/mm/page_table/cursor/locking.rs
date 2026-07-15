@@ -128,8 +128,8 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS - 1];
 
     proof {
-        assert forall|i: int| 0 <= i < NR_ENTRIES implies
-            (#[trigger] pt_own.0.children()[i]) is Some by {
+        assert forall|i: int| 0 <= i < NR_ENTRIES implies (
+        #[trigger] pt_own.0.children()[i]) is Some by {
             assert(pt_own.0.has_child(i));
         };
     }

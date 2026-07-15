@@ -1123,7 +1123,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.present(),
             qm == self@.query_mapping(),
         ensures
-            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value().path).contains(qm),
+            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value().path).contains(
+                qm,
+            ),
     {
         let f = self@.mappings.filter(
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,

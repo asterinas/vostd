@@ -637,8 +637,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             let new_page = PageTableNode::<C>::alloc(level - 1);
             let ghost fresh_children = new_node_owner.children();
             proof {
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies
-                    (#[trigger] fresh_children[i]) is Some by {
+                assert forall|i: int| 0 <= i < NR_ENTRIES implies (
+                #[trigger] fresh_children[i]) is Some by {
                     assert(crate::specs::mm::page_table::allocated_empty_node_owner(
                         new_node_owner,
                         (level - 1) as PagingLevel,
@@ -710,8 +710,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // the cursor path `old_path` so `pt_edge_at`'s
                 // `child.path == parent.path.push_tail(i)` holds.
                 assert(owner.children() == fresh_children);
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies
-                    (#[trigger] owner.children()[i]) is Some by {};
+                assert forall|i: int| 0 <= i < NR_ENTRIES implies (
+                #[trigger] owner.children()[i]) is Some by {};
                 crate::specs::mm::page_table::rebase_freshly_allocated_children(owner, old_path);
 
                 let new_paddr = owner.value().meta_slot_paddr().unwrap();
@@ -720,7 +720,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
                 new_meta_slot.paths_in_pt = set![owner.value().path];
                 regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
-  
+
                 // Restore the parent's `count_consistent`: the slot at `self.idx`
                 // went absent → present (the new PT node) and `nr_children` was
                 // incremented by 1.
@@ -730,7 +730,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     self.idx as int,
                     self.pte,
                 );
-  
+
                 // Discharge the region-preservation + fresh-node
                 // `subtree_satisfies` conjuncts of the big `is_absent` ensures
                 // block.
@@ -916,8 +916,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         #[verus_spec(with Tracked(parent_owner), Tracked(regions), Tracked(guards), Ghost(self.idx) => Tracked(new_owner))]
         let new_page = PageTableNode::<C>::alloc(level - 1);
         proof {
-            assert forall|i: int| 0 <= i < NR_ENTRIES implies
-                (#[trigger] new_owner.children()[i]) is Some by {
+            assert forall|i: int| 0 <= i < NR_ENTRIES implies (
+            #[trigger] new_owner.children()[i]) is Some by {
                 assert(crate::specs::mm::page_table::allocated_empty_node_owner(
                     new_owner,
                     (level - 1) as PagingLevel,
@@ -1046,8 +1046,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value().node().relate_guard(pt_lock_guard),
                 guards.lock_held(new_owner_meta_addr),
                 new_owner.value().node().level == (level - 1) as PagingLevel,
-                forall|j: int| 0 <= j < NR_ENTRIES ==>
-                    (#[trigger] new_owner.children()[j]) is Some,
+                forall|j: int| 0 <= j < NR_ENTRIES ==> (#[trigger] new_owner.children()[j]) is Some,
                 forall|j: int|
                     0 <= j < NR_ENTRIES ==> {
                         &&& (#[trigger] new_owner.children()[j]) is Some
@@ -1058,9 +1057,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         &&& new_owner.children()[j].unwrap().value().parent_level
                             == new_owner.value().node().level
                         &&& new_owner.children()[j].unwrap().value().inv()
-                        &&& new_owner.children()[j].unwrap().value().path == new_owner_path.push_tail(
-                            j,
-                        )
+                        &&& new_owner.children()[j].unwrap().value().path
+                            == new_owner_path.push_tail(j)
                     },
                 forall|j: int|
                     i <= j < NR_ENTRIES ==> {
@@ -1323,13 +1321,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(new_owner.children() == new_owner_before_update.children().remove(
                     i as int,
                 ).insert(i as int, Some(new_owner_child)));
-                assert(owner_with_updated_value.insert(
-                    i as int,
-                    new_owner_child,
-                ).children() == new_owner_before_update.children().update(
-                    i as int,
-                    Some(new_owner_child),
-                ));
+                assert(owner_with_updated_value.insert(i as int, new_owner_child).children()
+                    == new_owner_before_update.children().update(i as int, Some(new_owner_child)));
                 assert(new_owner.children() =~= owner_with_updated_value.insert(
                     i as int,
                     new_owner_child,
@@ -1342,8 +1335,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     new_owner,
                     owner_with_updated_value.insert(i as int, new_owner_child),
                 );
-                assert forall|j: int| 0 <= j < NR_ENTRIES implies
-                    (#[trigger] new_owner.children()[j]) is Some by {
+                assert forall|j: int| 0 <= j < NR_ENTRIES implies (
+                #[trigger] new_owner.children()[j]) is Some by {
                     if j != i {
                         assert(owner_with_updated_value.insert(
                             i as int,
@@ -1865,8 +1858,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let new_page = PageTableNode::<C>::alloc(level - 1);
         let ghost fresh_children = new_node_owner.children();
         proof {
-            assert forall|i: int| 0 <= i < NR_ENTRIES implies
-                (#[trigger] fresh_children[i]) is Some by {
+            assert forall|i: int| 0 <= i < NR_ENTRIES implies (
+            #[trigger] fresh_children[i]) is Some by {
                 assert(crate::specs::mm::page_table::allocated_empty_node_owner(
                     new_node_owner,
                     (level - 1) as PagingLevel,
