@@ -792,24 +792,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 let f_ms = PageTableOwner::<C>::metaregion_sound_pred(*regions);
                 let f_pt = PageTableOwner::<C>::path_tracked_pred(*regions);
 
-                // Root predicates.
-
-                // Child predicates (absent children ⟹ trivial).
-                assert forall|i: int| 0 <= i < NR_ENTRIES implies {
-                    &&& #[trigger] f_nu(
-                        owner.children()[i].unwrap().value(),
-                        owner.value().path.push_tail(i),
-                    )
-                    &&& f_ms(
-                        owner.children()[i].unwrap().value(),
-                        owner.value().path.push_tail(i),
-                    )
-                    &&& f_pt(
-                        owner.children()[i].unwrap().value(),
-                        owner.value().path.push_tail(i),
-                    )
-                } by {};
-
                 crate::specs::mm::page_table::fresh_node_subtree_satisfies(
                     *owner,
                     owner.value().path,
