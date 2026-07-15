@@ -2399,14 +2399,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] self.0.children()[j] is Some implies self.0.children()[j].unwrap().subtree_satisfies(
+                    && #[trigger] self.0.has_child(j) implies self.0.child(j).subtree_satisfies(
             path.push_tail(j), Self::path_in_tree_pred(entry.path)) by {
                 if j != i {
                     self.pt_inv_unroll(j);
                     Self::prefix_push_different_indices(path, entry.path, i, j);
                     assert(!Self::is_prefix_of(path.push_tail(j), entry.path));
                     Self::path_in_tree_holds_when_on_wrong_path(
-                        self.0.children()[j].unwrap(),
+                        self.0.child(j),
                         path.push_tail(j),
                         entry.path,
                     );
