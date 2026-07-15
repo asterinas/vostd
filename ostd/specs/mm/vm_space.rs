@@ -733,6 +733,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
+        &&& frame.inv()
         &&& prop == prop0
         &&& entry_owner.frame().mapped_pa == paddr
         &&& entry_owner.frame().prop == prop

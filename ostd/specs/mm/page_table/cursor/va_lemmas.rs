@@ -206,7 +206,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Step 3: align_down(self_va + ps, ps) = align_down(self_va, ps) + ps.
         // Because (self_va + ps) % ps == self_va % ps, adding a full ps doesn't
         // change the remainder.
-        vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(1int, self_va as int, ps as int);
+        vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(self_va as int, ps as int);
 
         // Step 4: align_down(self_va, ps) + ps > self_va.
         // Because align_down(self_va, ps) = self_va - self_va % ps,
@@ -274,25 +274,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 vaddr_of::<C>(path) as int,
                 ps as int,
             );
-            vstd::arithmetic::div_mod::lemma_div_is_ordered(
+            assert(vaddr_of::<C>(path) as int % ps as int == 0);
+            vstd::arithmetic::div_mod::lemma_indistinguishable_quotients(
                 vaddr_of::<C>(path) as int,
                 cur_va as int,
                 ps as int,
             );
-            let q_cur = cur_va as int / ps as int;
-            let q_path = vaddr_of::<C>(path) as int / ps as int;
-            assert(vaddr_of::<C>(path) as int % ps as int == 0);
-            assert(q_path * ps == vaddr_of::<C>(path));
-            vstd::arithmetic::mul::lemma_mul_inequality(q_path, q_cur, ps as int);
-            if q_path < q_cur {
-                vstd::arithmetic::mul::lemma_mul_inequality(q_path + 1, q_cur, ps as int);
-                vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                    ps as int,
-                    q_path,
-                    1int,
-                );
-                assert(false);
-            }
         };
 
         self.locked_range_page_aligned();

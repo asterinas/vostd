@@ -258,7 +258,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     pub fn clone_item(item: &C::Item) -> C::Item {
         let res = item.clone(Tracked(regions));
         proof {
-            C::clone_ensures_concrete(*item, pa, *old(regions), *regions, res);
+            C::lemma_clone_ensures_concrete(*item, pa, *old(regions), *regions, res);
         }
         res
     }
@@ -641,8 +641,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     ;
 
                     proof {
-                        C::item_from_raw_well_formed(pa, level, prop);
-                        C::item_from_raw_roundtrip(item, pa, level, prop);
+                        C::lemma_item_from_raw_well_formed(pa, level, prop);
+                        C::lemma_item_into_raw_roundtrip(pa, level, prop);
                     }
 
                     let ghost old_regions = *regions;
@@ -650,9 +650,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         let idx = frame_to_index(pa);
                         assert(regions.slot_owners.contains_key(idx));
-                        EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                            owner.cur_entry_owner(),
-                        );
+                        assert(owner.cur_entry_owner().inv_base());
                         if C::tracked(item)
                             && regions.slot_owners[idx].inner_perms.ref_count.value()
                             >= REF_COUNT_MAX {
@@ -663,6 +661,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(old(self).query_panic_condition(*old(owner), *old(regions)));
                             assert(may_panic());
                         }
+                        assert(C::raw_item_well_formed(pa, level, prop));
                         owner.cur_frame_clone_requires(item, pa, level, prop, *regions);
                     }
 
@@ -677,9 +676,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner.cur_entry_owner().metaregion_sound(old_regions));
                         assert(old_regions.slot_owners.contains_key(idx));
                         if C::tracked(item) {
-                            EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                                owner.cur_entry_owner(),
-                            );
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
                             );
@@ -710,9 +706,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(old(regions).slot_owners[idx].inner_perms.ref_count.value()
                                 < REF_COUNT_MAX);
                         } else {
-                            EntryOwner::<C>::axiom_frame_is_tracked_matches_item(
-                                owner.cur_entry_owner(),
-                            );
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
                             );
@@ -942,7 +935,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     > {
         assert_eq!(len % PAGE_SIZE, 0);
 
-        //*** KNOWN BUG: `self.va + len` could overflow. For now assume that it doesn't. ***
+        // [KNOWN] BUG FOUND BY FV: `self.va + len` could overflow. For now assume that it doesn't. https://github.com/asterinas/asterinas/issues/3159
         assume(self.va + len <= usize::MAX);
         let end = self.va + len;
 
@@ -3116,6 +3109,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         assert!(self.0.va < self.0.barrier_va.end);
         let (pa, level, prop) = C::item_into_raw(item);
+        proof {
+            C::lemma_item_from_raw_roundtrip(item, pa, level, prop);
+        }
         assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
         assert!(level < self.0.guard_level);
         if !C::TOP_LEVEL_CAN_UNMAP() {
@@ -3158,7 +3154,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(
             pa,
             prop,
-            is_tracked,
             regions,
         );
 
@@ -3172,7 +3167,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont.path().push_tail(cont.idx as int),
                 cont.level(),
                 prop,
-                is_tracked,
             ));
             assert(new_owner.value().is_frame());
             assert(new_owner.value().frame().mapped_pa == pa);
@@ -3810,9 +3804,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             forall |p: PageProperty| op.requires((p,)),
-            // POTENTIALLY UNSOUND PATCH: see `Entry::protect` for rationale.
-            // `op` must preserve `C::tracked` of the reconstructed item so that
-            // `axiom_frame_is_tracked_matches_item` remains consistent across the
+            // `op` must preserve `C::tracked` of the reconstructed item across the
             // prop change. Quantified over `(pa, level)` because `find_next_impl`
             // may descend to any frame in the range. For UserPtConfig
             // (`tracked == true` always) this is trivial; for KernelPtConfig it
@@ -4351,8 +4343,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // `protect_next` method uphold this invariant.
                 let item = unsafe { C::item_from_raw(pa, level, prop) };
                 proof {
-                    C::item_from_raw_well_formed(pa, level, prop);
-                    C::item_from_raw_roundtrip(item, pa, level, prop);
+                    C::lemma_item_from_raw_well_formed(pa, level, prop);
+                    C::lemma_item_into_raw_roundtrip(pa, level, prop);
                 }
                 Some(PageTableFrag::Mapped { va, item })
             },

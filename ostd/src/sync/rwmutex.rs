@@ -930,6 +930,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
         }
     }
 
+    // [FIXED] BUG FOUND BY FV: deadlock. https://github.com/asterinas/asterinas/pull/3007
     /// Attempts to upgrade this upread guard to a write guard atomically.
     ///
     /// This function will return immediately.

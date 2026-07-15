@@ -209,25 +209,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             regions.inv(),
             regions.slots.contains_key(old(parent_owner).slot_index),
             old(parent_owner).metaregion_sound_node(*regions),
-            // POTENTIALLY UNSOUND PATCH: `op` must preserve the trackedness of
-            // `item_from_raw_spec(pa, level, _)` across the prop change.
-            //
-            // `axiom_frame_is_tracked_matches_item` asserts that the entry's recorded
-            // `is_tracked` field equals `C::tracked(C::item_from_raw_spec(pa, level, prop))`.
-            // `protect` updates `prop = op(old_prop)` but preserves `is_tracked`. If
-            // `C::tracked` of the reconstructed item depended on a bit `op` flipped, the
-            // axiom would be violated.
-            //
+            // `op` must preserve the trackedness of `item_from_raw_spec(pa, level, _)`
+            // across the prop change so frame-accounting guarantees remain unchanged.
             // For `KernelPtConfig`, `C::tracked(item)` reads `prop.flags.AVAIL1`, so this
             // precondition reduces to "op preserves AVAIL1". For `UserPtConfig`,
             // `C::tracked` is constant `true`, so this is trivial.
-            //
-            // This precondition is a *patch*, not a fix. The underlying issue is that
-            // `KernelPtConfig` overloads the PTE's `prop.AVAIL1` to encode tracked-ness,
-            // conflating "page property bits the user wants to mutate" with "internal
-            // accounting." A clean fix is to track tracked-ness separately from `prop`,
-            // or to reformulate `axiom_frame_is_tracked_matches_item` so it doesn't
-            // depend on `prop`.
             forall|pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
                 #![auto]
                 op.ensures((p_in,), p_out) ==> C::tracked(C::item_from_raw_spec(pa, level, p_out))
@@ -239,7 +225,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(self).parent_perms_preserved(*old(parent_owner), *final(parent_owner)),
             final(owner).is_frame(),
             final(owner).frame().mapped_pa == old(owner).frame().mapped_pa,
-            final(owner).frame().is_tracked == old(owner).frame().is_tracked,
+            final(owner).frame_is_tracked() == old(owner).frame_is_tracked(),
             final(owner).path == old(owner).path,
             final(owner).parent_level == old(owner).parent_level,
             final(self).idx == old(self).idx,
@@ -1137,8 +1123,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 new_owner.value().path.push_tail(i as int),
                 (level - 1) as PagingLevel,
                 prop,
-                /* is_tracked */
-                owner.value().frame().is_tracked,
             );
 
             let ghost new_owner_before_update = new_owner;
@@ -1269,6 +1253,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     pa, level, i);
 
                 }
+                C::lemma_raw_item_well_formed_split(pa, level, prop, small_pa, i);
             }
 
             // Snapshot the node's own-slot facts while the loop invariant still
@@ -1465,7 +1450,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(parent_owner).relate_guard(*final(self)),
             final(parent_owner).metaregion_sound_node(*regions),
             final(owner).frame().mapped_pa == old(owner).frame().mapped_pa,
-            final(owner).frame().is_tracked == old(owner).frame().is_tracked,
+            final(owner).frame_is_tracked() == old(owner).frame_is_tracked(),
             final(owner).path == old(owner).path,
             final(owner).parent_level == old(owner).parent_level,
             forall|j: int| 0 <= j < NR_ENTRIES && j != idx ==>
@@ -1495,6 +1480,17 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let prop = pte.prop();
         let new_prop = op(prop);
 
+        proof {
+            assert(owner.frame().prop == prop);
+            assert(op.ensures((prop,), new_prop));
+            C::lemma_raw_item_well_formed_preserved(
+                owner.frame().mapped_pa,
+                owner.parent_level,
+                prop,
+                new_prop,
+            );
+        }
+
         assume(pte.set_prop_req(new_prop));
         pte.set_prop(new_prop);
 
@@ -1504,7 +1500,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         };
 
         proof {
-            owner.tracked_borrow_mut_frame().prop = new_prop;
+            owner.tracked_set_frame_prop(new_prop);
             // The PTE at `idx` stayed present (only `prop` changed), so the
             // present-count is unchanged by the `write_pte` update — preserving
             // `count_consistent` for the caller.

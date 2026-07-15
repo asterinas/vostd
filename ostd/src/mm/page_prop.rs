@@ -158,4 +158,54 @@ impl Inv for PageProperty {
     }
 }
 
+impl PageProperty {
+    /// Adding and removing `AVAIL1` is reversible when it is used as a reserved tag.
+    pub proof fn lemma_avail1_tag_encoding(self)
+        ensures
+            self.flags.union(PageFlags::AVAIL1()).contains(PageFlags::AVAIL1()),
+            !self.flags.difference(PageFlags::AVAIL1()).contains(PageFlags::AVAIL1()),
+            !self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.difference(PageFlags::AVAIL1())
+                == self.flags,
+            !self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.union(
+                PageFlags::AVAIL1(),
+            ).difference(PageFlags::AVAIL1()) == self.flags,
+            self.flags.contains(PageFlags::AVAIL1()) ==> self.flags.difference(
+                PageFlags::AVAIL1(),
+            ).union(PageFlags::AVAIL1()) == self.flags,
+    {
+        broadcast use PageFlags::lemma_consts;
+
+        let tag = PageFlags::AVAIL1();
+        let bits = self.flags.bits();
+        let tag_bits = tag.bits();
+        assert(((bits | tag_bits) & tag_bits) == tag_bits) by (bit_vector);
+        assert(((bits & !tag_bits) & tag_bits) == 0u8) by (bit_vector);
+        if !self.flags.contains(tag) {
+            assert((bits & tag_bits) != tag_bits);
+            assert((bits & tag_bits) == 0u8) by (bit_vector)
+                requires
+                    tag_bits == 0x40u8,
+                    (bits & tag_bits) != tag_bits,
+            ;
+            assert((bits & !tag_bits) == bits) by (bit_vector)
+                requires
+                    (bits & tag_bits) == 0u8,
+            ;
+            assert(((bits | tag_bits) & !tag_bits) == bits) by (bit_vector)
+                requires
+                    (bits & tag_bits) == 0u8,
+            ;
+            PageFlags::lemma_eq_from_bits(self.flags.difference(tag), self.flags);
+            PageFlags::lemma_eq_from_bits(self.flags.union(tag).difference(tag), self.flags);
+        } else {
+            assert((bits & tag_bits) == tag_bits);
+            assert(((bits & !tag_bits) | tag_bits) == bits) by (bit_vector)
+                requires
+                    (bits & tag_bits) == tag_bits,
+            ;
+            PageFlags::lemma_eq_from_bits(self.flags.difference(tag).union(tag), self.flags);
+        }
+    }
+}
+
 } // verus!

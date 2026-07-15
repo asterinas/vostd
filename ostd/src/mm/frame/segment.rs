@@ -729,7 +729,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verifier::spinoff_prover]
     #[verifier::loop_isolation(false)]
     pub fn slice(&self, range: &Range<usize>) -> Self {
-        // KNOWN BUG: potential overflows https://github.com/asterinas/asterinas/issues/3165
+        // [KNOWN] BUG FOUND BY FV: potential overflow. https://github.com/asterinas/asterinas/issues/3165
         assume(self.range.start + range.start <= usize::MAX);
         assume(self.range.start + range.end <= usize::MAX);
 
