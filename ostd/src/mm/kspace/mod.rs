@@ -292,16 +292,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
         assert(Self::raw_item_well_formed(pa, level, prop));
         Self::lemma_item_from_raw_well_formed(pa, level, prop);
-        Self::lemma_tracked_prop_encoding(prop);
+        prop.lemma_avail1_tag_encoding();
         let item = Self::item_from_raw_spec(pa, level, prop);
         if prop.flags.contains(PageFlags::AVAIL1()) {
-            assert(level == 1);
             crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
-            assert(item is Tracked);
-            assert(Self::item_into_raw_spec(item) == (pa, level, prop));
-        } else {
-            assert(item is Untracked);
-            assert(Self::item_into_raw_spec(item) == (pa, level, prop));
         }
     }
 
@@ -316,7 +310,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
         match item {
             MappedItem::Tracked(frame, prop_actual) => {
                 assert(Self::item_well_formed(MappedItem::Tracked(frame, prop_actual)));
-                Self::lemma_tracked_prop_encoding(prop_actual);
+                prop_actual.lemma_avail1_tag_encoding();
                 assert(frame.inv());
                 crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(
                     frame.ptr.addr(),
@@ -324,7 +318,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
             },
             MappedItem::Untracked(_, _, prop_actual) => {
                 assert(Self::item_well_formed(item));
-                Self::lemma_tracked_prop_encoding(prop_actual);
+                prop_actual.lemma_avail1_tag_encoding();
             },
         }
     }
@@ -338,8 +332,8 @@ unsafe impl PageTableConfig for KernelPtConfig {
     open spec fn item_well_formed(item: Self::Item) -> bool {
         match item {
             MappedItem::Tracked(frame, prop) => {
-                &&& frame.inv()
                 &&& !prop.flags.contains(PageFlags::AVAIL1())
+                &&& frame.inv()
             },
             MappedItem::Untracked(_, _, prop) => !prop.flags.contains(PageFlags::AVAIL1()),
         }
@@ -373,7 +367,7 @@ unsafe impl PageTableConfig for KernelPtConfig {
     proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use group_page_meta;
 
-        Self::lemma_tracked_prop_encoding(prop);
+        prop.lemma_avail1_tag_encoding();
         if prop.flags.contains(PageFlags::AVAIL1()) {
             crate::specs::mm::frame::mapping::lemma_frame_to_meta_soundness(pa);
             let item = Self::item_from_raw_spec(pa, level, prop);
@@ -410,9 +404,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
                     res,
                 ));
                 assert(frame.clone_ensures(old_regions, new_regions, frame));
-                assert(forall|i: usize|
-                    i != frame_idx ==> #[trigger] new_regions.slot_owners[i]
-                        == old_regions.slot_owners[i]);
             },
             MappedItem::Untracked(_, _, _) => {
                 assert(old_regions == new_regions);
@@ -458,26 +449,6 @@ impl KernelPtConfig {
     pub open spec fn decode_tracked_prop(prop: PageProperty) -> PageProperty {
         PageProperty { flags: prop.flags.difference(PageFlags::AVAIL1()), ..prop }
     }
-
-    /// Algebraic facts for the raw trackedness tag.
-    pub proof fn lemma_tracked_prop_encoding(prop: PageProperty)
-        ensures
-            KernelPtConfig::encode_tracked_prop(prop).flags.contains(PageFlags::AVAIL1()),
-            !KernelPtConfig::decode_tracked_prop(prop).flags.contains(PageFlags::AVAIL1()),
-            !prop.flags.contains(PageFlags::AVAIL1()) ==>
-                KernelPtConfig::decode_tracked_prop(prop) == prop,
-            !prop.flags.contains(PageFlags::AVAIL1()) ==>
-                KernelPtConfig::decode_tracked_prop(
-                    KernelPtConfig::encode_tracked_prop(prop),
-                ) == prop,
-            prop.flags.contains(PageFlags::AVAIL1()) ==>
-                KernelPtConfig::encode_tracked_prop(
-                    KernelPtConfig::decode_tracked_prop(prop),
-                ) == prop,
-    {
-        PageFlags::lemma_avail1_tag_encoding(prop.flags);
-    }
-
 }
 
 /*

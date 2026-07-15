@@ -282,8 +282,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     )
         requires
             Self::raw_item_well_formed(pa, level, old_prop),
-            Self::tracked(Self::item_from_raw_spec(pa, level, new_prop))
-                == Self::tracked(Self::item_from_raw_spec(pa, level, old_prop)),
+            Self::tracked(Self::item_from_raw(pa, level, new_prop))
+                == Self::tracked(Self::item_from_raw(pa, level, old_prop)),
         ensures
             Self::raw_item_well_formed(pa, level, new_prop),
     ;
