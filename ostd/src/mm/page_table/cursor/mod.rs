@@ -4264,9 +4264,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             cont0.inv_children_unroll(j);
                             let subtree = cont0.children[j].unwrap();
                             let path_j = final_cont.path().push_tail(j);
-                            cont0.path().lemma_push_tail_index(j);
-                            cont0.path().lemma_push_tail_index(idx as int);
-                            cont0.path().lemma_push_tail_len(j);
                             cont0.pt_inv_children_unroll(j);
                             PageTableOwner::<C>::pt_inv_implies_path_correct(subtree, path_j);
                             PageTableOwner::<C>::neq_old_from_path_disjoint(
@@ -4302,7 +4299,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.metaregion_sound(regions0),
                     ));
                     cont0.inv_children_rel_unroll(cont0.idx as int);
-                    cont0.path().lemma_push_tail_len(cont0.idx as int);
                 }
                 assert forall|i: int|
                     #![trigger owner.continuations[i]]
@@ -4315,8 +4311,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     }
                     owner0.inv_continuation(i);
                     let eo = owner0.continuations[i].entry_own;
-                    assert(eo.inv() && eo.is_node());
-                    assert(eo.metaregion_sound(regions0));
 
                     if old_child_pre_replace.is_node() {
                         // Path lengths differ: eo at tree_level, child at tree_level + 1.
@@ -4358,15 +4352,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let result = match old {
             Child::None => None,
             Child::Frame(pa, ch_level, prop) => {
-                proof {
-                    let ghost entry_owner_snap = old_child_owner.value();
-                    assert(old_child_snap.invariants(entry_owner_snap, regions_after_replace));
-                    assert(entry_owner_snap.is_frame());
-                    assert(entry_owner_snap.metaregion_sound(regions_after_replace));
-
-                    // No slot_perm extraction/insertion — regions unchanged in Frame path.
-                    assert(*regions == regions_after_replace);
-                }
                 // SAFETY:
                 // This is part of (if `split_huge` happens) a page table item mapped
                 // with a previous call to `C::item_into_raw`, where:
