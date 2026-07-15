@@ -255,15 +255,16 @@ pub trait TreeNodeValue<const L: usize>: Sized + Inv {
     ;
 }
 
-/// A ghost tree node with maximum `N` children,
-/// the maximum depth of the tree is `L`
-/// Each tree node has a value of type `T` and a sequence of children
+/// A ghost tree node with depth `L` and `N` children.
+/// 
+/// Each tree node has a value of type `T` and a sequence of children, forming a subtree.
+/// The length of the child seuquence is fixed at `N`, while the absence of a child is represeneted with `Option::None`.
+/// The maximum depth of the tree is `L`. 
 pub tracked struct TreeNode<T: TreeNodeValue<L>, const N: usize, const L: usize> {
     tracked value: T,
     ghost level: nat,
-    // FIXME: This should use tracked indirection, but that is blocked by
-    // https://github.com/verus-lang/verus/issues/2627.
-    tracked children: Ghost<Seq<Option<TreeNode<T, N, L>>>>,
+    // See https://github.com/verus-lang/verus/issues/2627.
+    tracked children: Tracked<Seq<Option<TreeNode<T, N, L>>>>,
 }
 
 impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
@@ -304,7 +305,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
 
     /// Constructs a node from its fields.
     pub closed spec fn new(value: T, level: nat, children: Seq<Option<Self>>) -> Self {
-        TreeNode { value, level, children: Ghost::new(children) }
+        TreeNode { value, level, children: Tracked(children) }
     }
 
     /// Constructs a node at the given level with default value and no children.
@@ -397,42 +398,19 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
     {
     }
 
-    /// Removes a child from the underlying sequence.
-    pub axiom fn tracked_remove_child(tracked &mut self, i: int) -> (tracked ret: Option<Self>)
-        requires
-            0 <= i < old(self).children().len(),
-        ensures
-            ret == old(self).children()[i],
-            final(self).children().len() == old(self).children().len() - 1,
-            final(self).children() == old(self).children().remove(i),
-            final(self).value() == old(self).value(),
-            final(self).level() == old(self).level(),
-    ;
-
-    /// Inserts a child into the underlying sequence.
-    pub axiom fn tracked_insert_child(
-        tracked &mut self,
-        i: int,
-        tracked child: Option<Self>,
-    )
-        requires
-            0 <= i <= old(self).children().len(),
-        ensures
-            final(self).children().len() == old(self).children().len() + 1,
-            final(self).children() == old(self).children().insert(i, child),
-            final(self).value() == old(self).value(),
-            final(self).level() == old(self).level(),
-    ;
-
     /// Borrows a child from the underlying sequence.
-    pub axiom fn tracked_borrow_child(tracked &self, i: int) -> (tracked ret: &Self)
+    pub proof fn tracked_borrow_child(tracked &self, i: int) -> (tracked ret: &Self)
         requires
             0 <= i < self.children().len(),
             self.children()[i] is Some,
         ensures
             *ret == self.children()[i] -> 0,
-    ;
+    {
+        self.children.tracked_borrow(i).tracked_borrow()
+    }
 
+    /// Mutably borrows a child from the underlying sequence.
+    // FIXME: There is currenly no `tracked_borrow_mut` method for `Seq`.
     pub axiom fn tracked_borrow_mut_child(tracked &mut self, i: int) -> (tracked ret: &mut Self)
         requires
             0 <= i < self.children().len(),
@@ -442,7 +420,8 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
             final(self).value() == old(self).value(),
             final(self).level() == old(self).level(),
             final(self).children() == old(self).children().update(i, Some(*final(ret))),
-            ;
+        ;
+
 
     pub proof fn tracked_borrow_value(tracked &self) -> (tracked res: &T)
         ensures
