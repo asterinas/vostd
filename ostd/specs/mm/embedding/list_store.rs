@@ -379,7 +379,7 @@ pub proof fn lemma_fresh_loose_id_not_in_dom<M: AnyFrameMeta + Repr<MetaSlotSmal
 /// every loose slot (it was a list link, `in_list == list_id != 0`),
 /// which keeps loose-slot disjointness when the popped frame joins
 /// `loose`.
-pub proof fn pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
 ) -> (tracked frame_own: UniqueFrameOwner<Link<M>>)
@@ -450,7 +450,7 @@ pub proof fn pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 /// (verified) [`crate::mm::frame::LinkedList::push_back`]. Identical to
 /// [`push_front_embedded`] except the frame is spliced in at the *tail*
 /// (touching the back neighbours instead of the front).
-pub proof fn push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
     tracked frame_own: &mut UniqueFrameOwner<Link<M>>,
@@ -529,9 +529,9 @@ pub proof fn push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 
 /// Checked back specialization of [`take_at_embedded`], reflecting the
 /// (verified) [`crate::mm::frame::LinkedList::pop_back`]. Identical to
-/// [`pop_front_embedded`] except the *last* link is popped (touching the
+/// [`tracked_pop_front_embedded`] except the *last* link is popped (touching the
 /// back neighbour at `slot_index_at(len - 2)`).
-pub proof fn pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+pub proof fn tracked_pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
     tracked owner: &mut LinkedListOwner<M>,
 ) -> (tracked frame_own: UniqueFrameOwner<Link<M>>)
@@ -595,7 +595,7 @@ pub proof fn pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 /// Trusted reflection of [`crate::mm::frame::CursorMut::insert_before`]
 /// applied to a cursor at an arbitrary index `n` over `owner`. The
 /// general form of [`push_front_embedded`] (`n == 0`) /
-/// [`push_back_embedded`]: splices the loose frame in at position `n`
+/// [`lemma_push_back_embedded`]: splices the loose frame in at position `n`
 /// (`0 <= n <= len`), touching `n`'s ≤2 link neighbours.
 pub axiom fn insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     tracked regions: &mut MetaRegionOwners,
@@ -661,7 +661,7 @@ pub axiom fn insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
 
 /// Trusted reflection of [`crate::mm::frame::CursorMut::take_current`]
 /// at an arbitrary index `n` over `owner`. The general form of
-/// [`pop_front_embedded`] (`n == 0`) / [`pop_back_embedded`]: removes
+/// [`tracked_pop_front_embedded`] (`n == 0`) / [`tracked_pop_back_embedded`]: removes
 /// the link at position `n` (`0 <= n < len`) back into a loose handle,
 /// touching `n`'s ≤2 bridged neighbours.
 pub axiom fn take_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
@@ -1277,7 +1277,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.lists[id].relate_region(self.regions));
 
             let tracked mut owner = self.lists.tracked_remove(id);
-            let tracked frame_own = pop_front_embedded(&mut self.regions, &mut owner);
+            let tracked frame_own = tracked_pop_front_embedded(&mut self.regions, &mut owner);
             self.lists.tracked_insert(id, owner);
             let ghost new_loose = fresh_loose_id(self.loose);
             lemma_fresh_loose_id_not_in_dom(self.loose);
@@ -1416,7 +1416,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
 
         let tracked mut owner = self.lists.tracked_remove(id);
         let tracked mut frame_own = self.loose.tracked_remove(lid);
-        push_back_embedded(&mut self.regions, &mut owner, &mut frame_own, used);
+        lemma_push_back_embedded(&mut self.regions, &mut owner, &mut frame_own, used);
         self.lists.tracked_insert(id, owner);
         assert(self.loose =~= old_self.loose.remove(lid));
         assert(self.lists =~= old_self.lists.remove(id).insert(id, owner));
@@ -1560,7 +1560,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             assert(self.lists[id].relate_region(self.regions));
 
             let tracked mut owner = self.lists.tracked_remove(id);
-            let tracked frame_own = pop_back_embedded(&mut self.regions, &mut owner);
+            let tracked frame_own = tracked_pop_back_embedded(&mut self.regions, &mut owner);
             self.lists.tracked_insert(id, owner);
             let ghost new_loose = fresh_loose_id(self.loose);
             lemma_fresh_loose_id_not_in_dom(self.loose);
