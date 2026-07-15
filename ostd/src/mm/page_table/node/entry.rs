@@ -1142,10 +1142,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             );
 
             let ghost new_owner_before_update = new_owner;
-            let tracked mut new_owner_child = new_owner.tracked_remove_child(
-                i as int,
-            ).tracked_unwrap();
-            let ghost new_owner_child_before_update = new_owner_child;
+            // Take the node out before borrowing the child in place so the two
+            // mutable borrows of `new_owner` do not overlap.
+            let tracked mut new_owner_node = {
+                let tracked new_owner_value = new_owner.tracked_borrow_mut_value();
+                new_owner_value.tracked_take_node()
+            };
+            let tracked mut new_owner_child = new_owner.tracked_borrow_mut_child(i as int);
+            let ghost new_owner_child_before_update = *new_owner_child;
 
             proof {
                 let idx = frame_to_index(small_pa);
@@ -1267,14 +1271,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 }
             }
 
-            // Take the node OUT (vs borrowing in place) to keep Verus's
-            // loop-invariant maintenance tracking intact across the per-child
-            // `replace`; the in-place `tracked_borrow_mut_node` form loses the
-            // new node's own-slot facts at the loop back-edge.
-            let tracked mut new_owner_node = {
-                let tracked new_owner_value = new_owner.tracked_borrow_mut_value();
-                new_owner_value.tracked_take_node()
-            };
             // Snapshot the node's own-slot facts while the loop invariant still
             // holds (regions unchanged since loop entry), so we can frame them
             // across the `replace` below.
@@ -1301,7 +1297,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             proof {
                 new_owner_child_before_update.lemma_set_value_observable_fields(child_owner);
                 OwnerSubtree::lemma_ext_equal(
-                    new_owner_child,
+                    *new_owner_child,
                     new_owner_child_before_update.set_value(child_owner),
                 );
                 assert(new_owner_child.inv());
@@ -1310,37 +1306,36 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     let tracked new_owner_value = new_owner.tracked_borrow_mut_value();
                     new_owner_value.tracked_put_node(new_owner_node);
                 }
-                new_owner.tracked_insert_child(i as int, Some(new_owner_child));
 
                 let owner_with_updated_value = new_owner_before_update.set_value(new_owner.value());
                 vstd::seq_lib::lemma_update_is_remove_insert(
                     new_owner_before_update.children(),
                     i as int,
-                    Some(new_owner_child),
+                    Some(*new_owner_child),
                 );
                 assert(new_owner.children() == new_owner_before_update.children().remove(
                     i as int,
-                ).insert(i as int, Some(new_owner_child)));
-                assert(owner_with_updated_value.insert(i as int, new_owner_child).children()
-                    == new_owner_before_update.children().update(i as int, Some(new_owner_child)));
+                ).insert(i as int, Some(*new_owner_child)));
+                assert(owner_with_updated_value.insert(i as int, *new_owner_child).children()
+                    == new_owner_before_update.children().update(i as int, Some(*new_owner_child)));
                 assert(new_owner.children() =~= owner_with_updated_value.insert(
                     i as int,
-                    new_owner_child,
+                    *new_owner_child,
                 ).children());
                 assert(new_owner.children() == owner_with_updated_value.insert(
                     i as int,
-                    new_owner_child,
+                    *new_owner_child,
                 ).children());
                 OwnerSubtree::lemma_ext_equal(
                     new_owner,
-                    owner_with_updated_value.insert(i as int, new_owner_child),
+                    owner_with_updated_value.insert(i as int, *new_owner_child),
                 );
                 assert forall|j: int| 0 <= j < NR_ENTRIES implies (
                 #[trigger] new_owner.children()[j]) is Some by {
                     if j != i {
                         assert(owner_with_updated_value.insert(
                             i as int,
-                            new_owner_child,
+                            *new_owner_child,
                         ).children()[j] == owner_with_updated_value.children()[j]);
                     }
                 };
