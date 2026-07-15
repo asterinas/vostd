@@ -6,7 +6,10 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
+use crate::mm::frame::{
+    MetaSlot,
+    meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+};
 use crate::mm::{
     NR_ENTRIES, NR_LEVELS, PAGE_SIZE, Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
     nr_subpage_per_huge, paddr_to_vaddr, page_table::*,
@@ -15,7 +18,7 @@ use crate::mm::{
 use vstd_extra::array_ptr::*;
 
 use crate::mm::page_table::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{meta_owners::Metadata, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::node::Guards;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::task::InAtomicMode;
@@ -36,6 +39,8 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(guards): Tracked<&mut Guards<'rcu>>
     requires
+        pt.relates_owner(pt_own, *old(regions)),
+        pt_own.0.value.node().relate_guard(root_guard),
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
         va.start < va.end,
         // Per-config tightening; see `Cursor::new`. Pulled through to the
@@ -110,6 +115,8 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
             CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
 )]
 #[verifier::spinoff_prover]
+#[verifier::exec_allows_no_decreases_clause]
+#[verifier::loop_isolation(false)]
 pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     pt: &'rcu PageTable<C>,
     guard: &'rcu A,
@@ -123,31 +130,57 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         root_guard,
     );
 
-    // The re-try loop of finding the sub-tree root.
-    //
-    // If we locked a stray node, we need to re-try. Otherwise, although
-    // there are no safety concerns, the operations of a cursor on an stray
-    // sub-tree will not see the current state and will not change the current
-    // state, breaking serializability.
-    /*
-    let mut subtree_root = loop {
-        if let Some(subtree_root) = try_traverse_and_lock_subtree_root(pt, guard, va) {
-            break subtree_root;
+    // Retry if the candidate subtree became stray before we acquired its lock.
+    let mut subtree_root = None;
+    #[verus_spec(
+        invariant
+            subtree_root is None ==> {
+                &&& cursor_own.level == NR_LEVELS
+                &&& cursor_own.continuations.dom().contains(NR_LEVELS - 1)
+                &&& cursor_own.continuations[NR_LEVELS - 1].all_some()
+            },
+            subtree_root is Some ==> {
+                &&& regions.inv()
+                &&& 1 <= cursor_own.level <= NR_LEVELS
+                &&& cursor_own.continuations.dom().contains(cursor_own.level - 1)
+                &&& cursor_own.continuations[cursor_own.level - 1].inv()
+                &&& cursor_own.continuations[cursor_own.level - 1].guard == subtree_root->0
+                &&& cursor_own.continuations[cursor_own.level - 1].entry_own.is_node()
+                &&& cursor_own.continuations[cursor_own.level - 1].entry_own.inv()
+                &&& cursor_own.continuations[cursor_own.level - 1].entry_own.node().relate_guard(
+                    cursor_own.continuations[cursor_own.level - 1].guard,
+                )
+                &&& cursor_own.continuations[cursor_own.level - 1].entry_own.metaregion_sound(
+                    *regions,
+                )
+                &&& guards.lock_held(
+                    cursor_own.continuations[cursor_own.level - 1]
+                        .entry_own.node().meta_addr_self(),
+                )
+            },
+    )]
+    while subtree_root.is_none() {
+        #[verus_spec(with Tracked(&mut cursor_own), Tracked(regions), Tracked(guards))]
+        let candidate = try_traverse_and_lock_subtree_root(pt, guard, va);
+        if let Some(candidate_root) = candidate {
+            subtree_root = Some(candidate_root);
         }
-    };
-    */
-    #[verus_spec(with Tracked(&mut cursor_own), Tracked(regions), Tracked(guards))]
-    let subtree_root = try_traverse_and_lock_subtree_root(pt, guard, va);
-
-    // `try_traverse_and_lock_subtree_root`'s postcondition
-    // unconditionally promises `r is Some` (the external_body implementation
-    // is the post-retry form).
+    }
     let mut subtree_root = subtree_root.unwrap();
 
     // Once we have locked the sub-tree that is not stray, we won't read any
     // stray nodes in the following traversal since we must lock before reading.
     let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let ghost cont_slot_idx = cont.entry_own.tracked_borrow_node().slot_index;
+    proof {
+        assert(cont.entry_own.metaregion_sound(*regions));
+        assert(regions.slots.contains_key(cont_slot_idx));
+        assert(regions.slot_owners.contains_key(cont_slot_idx));
+        assert(vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<PageTablePageMeta<C>>>::new_spec(
+            regions.slots[cont_slot_idx],
+            regions.slot_owners[cont_slot_idx].inner_perms,
+        ).wf(&regions.slot_owners[cont_slot_idx].inner_perms));
+    }
     let tracked cont_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(cont_slot_idx);
     #[verus_spec(with Tracked(cont_meta_perm))]
     let guard_level = subtree_root.level();
@@ -236,14 +269,15 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         Tracked(guards): Tracked<&mut Guards<'rcu>>
     requires
         old(cursor_own).level == NR_LEVELS,
+        old(cursor_own).continuations.dom().contains(NR_LEVELS - 1),
         old(cursor_own).continuations[NR_LEVELS - 1].all_some(),
     ensures
-        // Phase 6: the retry loop in the commented-out body would handle the
-        // stray-node race; the external_body shipped here is the post-retry
-        // form that always returns Some on success paths in the absence of
-        // concurrent recycling.
-        r is Some,
-        {
+        r is None ==> {
+            &&& *final(cursor_own) == *old(cursor_own)
+            &&& *final(regions) == *old(regions)
+            &&& *final(guards) == *old(guards)
+        },
+        r is Some ==> {
             &&& final(cursor_own).va == old(cursor_own).va
             &&& final(cursor_own).prefix == old(cursor_own).prefix
             &&& final(cursor_own).view_mappings() == old(cursor_own).view_mappings()
@@ -254,7 +288,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& final(cursor_own).continuations[final(cursor_own).level - 1].guard == r->0
         },
         // The subtree root's entry_own is a valid node with matching guard.
-        {
+        r is Some ==> {
             let cont = final(cursor_own).continuations[final(cursor_own).level - 1];
             &&& cont.entry_own.is_node()
             &&& cont.entry_own.inv()
@@ -262,7 +296,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& cont.entry_own.metaregion_sound(*final(regions))
         },
         // The subtree root is lock_held in guards.
-        final(guards).lock_held(
+        r is Some ==> final(guards).lock_held(
             final(cursor_own).continuations[final(cursor_own).level - 1]
                 .entry_own.node().meta_addr_self()),
         // regions invariant preserved
