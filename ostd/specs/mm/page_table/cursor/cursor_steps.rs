@@ -500,21 +500,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         );
 
         old_cont.inv_children_rel_unroll(old_cont.idx as int);
-        assert(child.entry_own == child_node.value());
-        assert(child.entry_own == self.cur_entry_owner());
         assert(child.children == child_node.children());
-        assert(child.tree_level == old_cont.tree_level + 1);
 
         assert(self.va.index.contains_key(self.level - 2));
-        assert(child.idx == self.va.index[self.level - 2] as usize);
-
-        assert(child.entry_own.path.len() == old_cont.entry_own.node().tree_level + 1);
-        assert(old_cont.entry_own.node().tree_level == old_cont.tree_level) by {
-            assert(old_cont.tree_level == INC_LEVELS - old_cont.level() - 1);
-        };
-        assert(child.entry_own.path.len() == child.tree_level) by {
-            assert(child.tree_level == old_cont.tree_level + 1);
-        };
 
         assert(child.entry_own.node().tree_level == child.entry_own.path.len()) by {
             assert(child.children[0] is Some);
@@ -524,15 +512,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0,
                 Some(gc.value()),
             ));
-            assert(gc.value().path.len() == child.entry_own.node().tree_level + 1);
-            assert(gc.value().path == child.entry_own.path.push_tail(0));
             assert(child.entry_own.inv_base());
             child.entry_own.path.lemma_push_tail_len(0);
-            assert(child.entry_own.path.push_tail(0).len() == child.entry_own.path.len() + 1);
         };
-
-        assert(child.tree_level == child.entry_own.node().tree_level);
-        assert(child.tree_level == INC_LEVELS - child.level() - 1);
 
         assert(child.inv_children()) by {
             assert forall|j: int|
@@ -555,7 +537,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 &&& child.children[j].unwrap().value().path == child.path().push_tail(j)
             } by {
                 let gc = child.children[j].unwrap();
-                assert(child.children[j] == child_node.children()[j]);
                 assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     child.entry_own,
                     j,
