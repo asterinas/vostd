@@ -18,6 +18,8 @@ use vstd_extra::arithmetic::*;
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 impl<C: PageTableConfig> CursorView<C> {
     /// After `split_if_mapped_huge_spec(new_size)`, a sub-mapping at `cur_va`
     /// still exists.  The witness is `split_index(m, new_size, k)` where
@@ -261,14 +263,6 @@ impl<C: PageTableConfig> CursorView<C> {
                 // Bounds: sub is within m's range.
                 vstd::arithmetic::mul::lemma_mul_nonnegative(k, ns);
                 vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
-                // (k+1)*ns <= count*ns = ps, so m.start + (k+1)*ns <= m.start + ps = m.end.
-                assert(sub.va_range.start >= m.va_range.start);
-                assert(sub.va_range.end <= m.va_range.end);
-                assert(sub.va_range.start <= sub.va_range.end);
-
-                assert(sub.pa_range.start >= m.pa_range.start);
-                assert(sub.pa_range.end <= m.pa_range.end);
-                assert(sub.pa_range.start <= sub.pa_range.end);
             }
         };
 
@@ -887,20 +881,9 @@ impl<C: PageTableConfig> CursorView<C> {
             vstd::arithmetic::mul::lemma_mul_nonnegative(k, ns);
             vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
 
-            assert(k as usize == k);
             let ku = k as usize;
             assert(e == Self::split_index(qm, new_size, ku));
             vstd::arithmetic::mul::lemma_mul_is_distributive_add(ns, k, 1int);
-
-            assert(e.va_range.start == qm.va_range.start + k * ns);
-            assert(e.va_range.start >= qm.va_range.start);
-            assert(e.va_range.end == qm.va_range.start + (k + 1) * ns);
-            assert(e.va_range.end <= qm.va_range.end);
-            assert(e.pa_range.start == qm.pa_range.start + k * ns);
-            assert(e.va_range.start - qm.va_range.start == k * ns);
-            assert(e.pa_range.start == (qm.pa_range.start + (e.va_range.start
-                - qm.va_range.start)) as Paddr);
-            assert(e.property == qm.property);
         }
     }
 
@@ -975,26 +958,6 @@ impl<C: PageTableConfig> CursorView<C> {
                         assert(m.inv());
                         assert(new_self.inv());
                         assert(p.inv());
-                        // Mapping::inv gives `start + page_size == end`.
-                        assert(m.va_range.start + m.page_size == m.va_range.end);
-                        assert(qm.va_range.start + qm.page_size == qm.va_range.end);
-                        // m's va offset within qm: at most qm.page_size - m.page_size <= qm.page_size.
-                        assert(m.va_range.start - qm.va_range.start <= qm.page_size - m.page_size);
-                        // pa-side chain in int arithmetic.
-                        assert(qm.pa_range.start + qm.page_size == qm.pa_range.end);
-                        assert(qm.pa_range.end <= MAX_PADDR);
-                        assert(p.pa_range.start == qm.pa_range.start + (p.va_range.start
-                            - qm.va_range.start));
-                        assert(m.pa_range.start == p.pa_range.start + (m.va_range.start
-                            - p.va_range.start));
-                        assert(m.pa_range.start == qm.pa_range.start + (m.va_range.start
-                            - qm.va_range.start));
-                        // No-overflow: sum <= qm.pa_range.end <= MAX_PADDR <= usize::MAX.
-                        assert(qm.pa_range.start + (m.va_range.start - qm.va_range.start)
-                            <= qm.pa_range.end);
-                        assert(m.pa_range.start == (qm.pa_range.start + (m.va_range.start
-                            - qm.va_range.start)) as Paddr);
-                        assert(m.property == qm.property);
                     }
                 }
             }
@@ -1185,8 +1148,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let path = subtree.value().path;
             let qm = self@.query_mapping();
             self.query_mapping_from_subtree(qm);
-            let cont = self.continuations[self.level - 1];
-            cont.path().lemma_push_tail_len(cont.idx as int);
             PageTableOwner(subtree).view_rec_node_page_size_bound(path, qm);
         }
     }
@@ -1219,8 +1180,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let path = subtree.value().path;
             let qm = self@.query_mapping();
             self.query_mapping_from_subtree(qm);
-            let cont = self.continuations[self.level - 1];
-            cont.path().lemma_push_tail_len(cont.idx as int);
             PageTableOwner(subtree).view_rec_page_size_bound(path, qm);
         }
     }
@@ -1358,9 +1317,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             v1.split_while_huge(size).mappings == v2.split_while_huge(size).mappings,
     {
-        if v1.cur_va == v2.cur_va {
-            assert(v1 == v2);
-        }
     }
 }
 
