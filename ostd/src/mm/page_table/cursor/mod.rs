@@ -4225,8 +4225,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         let subtree = cont.children[j].unwrap();
                         let path_j = cont.path().push_tail(j);
                         owner0.cursor_path_nesting(i, owner0.level - 1);
-                        cont0.path().lemma_push_tail_index(idx as int);
-                        cont.path().lemma_push_tail_index(j);
                         cont.pt_inv_children_unroll(j);
                         PageTableOwner::<C>::pt_inv_implies_path_correct(subtree, path_j);
                         PageTableOwner::<C>::neq_old_from_path_disjoint(

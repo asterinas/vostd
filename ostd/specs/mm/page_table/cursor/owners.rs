@@ -2847,22 +2847,6 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
             if i != NR_LEVELS - 1 {
                 assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
-                    owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
-                        owner.continuations[NR_LEVELS - 1].idx as int,
-                    );
-                    if i == 2 {
-                    } else if i == 1 {
-                        owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx as int,
-                        );
-                    } else {
-                        owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx as int,
-                        );
-                        owner.continuations[1].path().lemma_push_tail_index(
-                            owner.continuations[1].idx as int,
-                        );
-                    }
                 }
             }
         }
@@ -2916,14 +2900,12 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
         let p = cont.path().push_tail(j);
-        cont.path().lemma_push_tail_index(j);
         assert(0 <= p[0] < end) by {
             if i == NR_LEVELS - 1 {
             } else {
                 // Non-root continuation: `p[0] == cont.path()[0]`,
                 // which (via the inv path chain) equals the root continuation's
                 // descended index, in `[0, 256)` by the cursor-inv idx clause.
-                assert(cont.path().len() > 0);
                 assert(p[0] == cont.path()[0]);
                 assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
@@ -2984,7 +2966,6 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
         let p = cont.path().push_tail(j);
-        cont.path().lemma_push_tail_index(j);
         assert(start <= p[0] < end) by {
             if i == NR_LEVELS - 1 {
             } else {
