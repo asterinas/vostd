@@ -52,7 +52,8 @@ impl<const N: usize> TreePath<N> {
             self.inv(),
             0 <= i < self.len(),
         ensures
-            Self::elem_inv(#[trigger] self[i]),
+            #![trigger self.spec_index(i)]
+            Self::elem_inv(self[i]),
     {
     }
 

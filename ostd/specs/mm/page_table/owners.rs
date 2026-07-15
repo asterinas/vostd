@@ -114,8 +114,8 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     ensures
         vaddr(path) < 0x1_0000_0000_0000int,
 {
-    broadcast use TreePath::lemma_index_satisfies_elem_inv;
     broadcast use {
+        TreePath::lemma_index_satisfies_elem_inv,
         TreePath::lemma_push_tail_len,
         TreePath::lemma_push_tail_preserves_inv,
     };
@@ -724,8 +724,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         let depth = (INC_LEVELS - owner.level()) as nat;
         // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
         assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::la_inv(owner.value(), owner.level()));
-        assert(owner.level() < INC_LEVELS - 1);
-        assert(depth > 0);
         // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
         // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
         assert forall|i: int| 0 <= i < NR_ENTRIES implies #[trigger] owner.has_child(i)
@@ -738,9 +736,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             // ⇒ (node is Some ⇒ !absent), so is_absent ⇒ !is_node.
             assert(owner.has_child(i));
             assert(owner.children()[i] is Some);
-            assert(child.inv());
-            assert(child.value().is_absent());
-            assert(!child.value().is_node());
             // Each child is non-node with all grandchildren None — the
             // non-node branch of pt_inv_at_depth fires.
             PageTableOwner(child).non_node_pt_inv_at_depth((depth - 1) as nat);
@@ -1071,8 +1066,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 ).view_rec(path.push_tail(i)).contains(m);
             self.pt_inv_unroll(i);
             let child = PageTableOwner(self.0.children()[i].unwrap());
-            path.lemma_push_tail_preserves_inv(i);
-            path.lemma_push_tail_len(i);
             child.view_rec_vaddr_range(path.push_tail(i), m);
             Self::lemma_vaddr_push_tail_eq(path, i);
 
@@ -1080,20 +1073,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let child_ps = page_size((INC_LEVELS - path.len() - 1) as PagingLevel) as int;
             vstd::arithmetic::power2::lemma2_to64();
             vstd::arithmetic::power2::lemma2_to64_rest();
-            if path.len() == 0 {
-                assert(parent_ps == 0x1_0000_0000_0000);
-                assert(child_ps == 0x80_0000_0000);
-            } else if path.len() == 1 {
-                assert(parent_ps == 0x80_0000_0000);
-                assert(child_ps == 0x4000_0000);
-            } else if path.len() == 2 {
-                assert(parent_ps == 0x4000_0000);
-                assert(child_ps == 0x20_0000);
-            } else {
-                assert(path.len() == 3);
-                assert(parent_ps == 0x20_0000);
-                assert(child_ps == 0x1000);
-            }
             assert(parent_ps == 512 * child_ps) by (nonlinear_arith)
                 requires
                     (parent_ps == 0x1_0000_0000_0000 && child_ps == 0x80_0000_0000) || (parent_ps
@@ -1273,8 +1252,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 if self.0.value().is_node() {
                     self.pt_inv_unroll(i);
                     let child = PageTableOwner(self.0.children()[i].unwrap());
-                    path.lemma_push_tail_preserves_inv(i);
-                    path.lemma_push_tail_len(i);
                     // child.view_rec ⊆ self.view_rec(path) ⊆ ambient
                     // path-correctness passes to the child.
                     self.0.lemma_subtree_satisfies_unroll_once(path, Self::path_correct_pred(), i);
