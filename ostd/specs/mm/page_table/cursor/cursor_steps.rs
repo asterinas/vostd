@@ -985,7 +985,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let inc_va = inc.va.to_vaddr() as nat;
                 assert(inc_va == self_va + ps);
                 vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(
-
                     self_va as int,
                     ps as int,
                 );
@@ -1040,9 +1039,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                 popped.va.index_increment_adds_page_size(popped.level as int);
 
-                assert(inc_p_va == popped_va + ps_p);
                 vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(
-
                     popped_va as int,
                     ps_p as int,
                 );
