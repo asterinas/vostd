@@ -643,11 +643,12 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
     {
     }
 
-    pub proof fn lemma_insert_property(self, key: int, node: Self)
+    pub broadcast proof fn lemma_insert_property(self, key: int, node: Self)
         requires
             0 <= key < Self::size(),
             self.inv(),
         ensures
+            #![trigger self.insert(key, node)]
             self.insert(key, node).value() == self.value(),
             self.insert(key, node).children()[key] == Some(node),
             self.insert(key,node).children() == self.children().update(key, Some(node)),
@@ -684,11 +685,12 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
     {
     }
 
-    pub proof fn lemma_remove_property(self, key: int)
+    pub broadcast proof fn lemma_remove_property(self, key: int)
         requires
             0 <= key < Self::size(),
             self.inv(),
         ensures
+            #![trigger self.remove(key)]
             self.remove(key).value() == self.value(),
             self.remove(key).children()[key] is None,
             self.remove(key).children() == self.children().update(key, None),
@@ -1724,7 +1726,9 @@ pub broadcast group group_ghost_tree_lemmas {
     TreeNode::lemma_new_val_properties,
     TreeNode::lemma_ext_equal,
     TreeNode::lemma_insert_preserves_inv,
+    TreeNode::lemma_insert_property,
     TreeNode::lemma_remove_preserves_inv,
+    TreeNode::lemma_remove_property,
     TreeNode::lemma_set_value_observable_fields,
     TreeNode::lemma_is_leaf_bounded,
     TreeNode::lemma_on_subtree_property,
