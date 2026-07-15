@@ -29,6 +29,8 @@ use vstd_extra::arithmetic::nat_align_down;
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     // ─── Spec helpers ────────────────────────────────────────────────────
     pub open spec fn zero_below_level_rec(self, level: PagingLevel) -> Self
@@ -284,6 +286,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             );
             let q_cur = cur_va as int / ps as int;
             let q_path = vaddr_of::<C>(path) as int / ps as int;
+            assert(vaddr_of::<C>(path) as int % ps as int == 0);
             assert(q_path * ps == vaddr_of::<C>(path));
             vstd::arithmetic::mul::lemma_mul_inequality(q_path, q_cur, ps as int);
             if q_path < q_cur {

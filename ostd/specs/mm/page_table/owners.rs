@@ -428,7 +428,7 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& !owner.value().node().children_perm.value().all(|child: C::E| child.is_present())
     &&& forall|i: int|
         0 <= i < NR_ENTRIES ==> {
-            &&& (#[trigger] owner.children()[i]) is Some
+            &&& #[trigger] owner.has_child(i)
             &&& owner.child(i).value().is_absent()
             &&& owner.child(i).value().inv()
             &&& owner.child(i).value().path == owner.value().path.push_tail(i)
@@ -464,7 +464,7 @@ pub open spec fn allocated_empty_node_grandchildren_none<C: PageTableConfig>(
 ) -> bool {
     forall|i: int, j: int|
         0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES
-            ==> #[trigger] owner.children()[i]->0.children()[j] is None
+            ==> !#[trigger] owner.child(i).has_child(j)
 }
 
 /// Recursive worker for `rebase_freshly_allocated_children`. Rebases
@@ -565,13 +565,13 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
         node.inv(),
         node.level() < INC_LEVELS - 1,
         f(node.value(), path),
-        forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] node.children()[i] is Some,
+        forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] node.has_child(i),
         forall|i: int, j: int|
             0 <= i < NR_ENTRIES && 0 <= j < NR_ENTRIES
-                ==> #[trigger] node.children()[i].unwrap().children()[j] is None,
+                ==> !#[trigger] node.child(i).has_child(j),
         forall|i: int|
             0 <= i < NR_ENTRIES ==> #[trigger] f(
-                node.children()[i].unwrap().value(),
+                node.child(i).value(),
                 path.push_tail(i),
             ),
     ensures
@@ -579,7 +579,7 @@ pub proof fn fresh_node_subtree_satisfies<C: PageTableConfig>(
 {
     assert forall|i: int|
         0 <= i < node.children().len()
-            && #[trigger] node.children()[i] is Some implies node.child(i).subtree_satisfies(
+            && #[trigger] node.has_child(i) implies node.child(i).subtree_satisfies(
         path.push_tail(i),
         f,
     ) by {
@@ -633,14 +633,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             true
         } else if self.0.value().is_node() {
             forall|i: int|
-                #![trigger self.0.children()[i]]
+                #![trigger self.0.has_child(i)]
                 0 <= i < NR_ENTRIES ==> Self::pt_edge_at(self.0, i) && PageTableOwner(
-                    self.0.children()[i]->0,
+                    self.0.child(i),
                 ).pt_inv_at_depth((depth - 1) as nat)
         } else {
             forall|i: int|
-                #![trigger self.0.children()[i]]
-                0 <= i < NR_ENTRIES ==> self.0.children()[i] is None
+                #![trigger self.0.has_child(i)]
+                0 <= i < NR_ENTRIES ==> !self.0.has_child(i)
         }
     }
 
@@ -684,7 +684,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     pub proof fn non_node_pt_inv_at_depth(self, depth: nat)
         requires
             !self.0.value().is_node(),
-            forall|j: int| 0 <= j < NR_ENTRIES ==> #[trigger] self.0.children()[j] is None,
+            forall|j: int| 0 <= j < NR_ENTRIES ==> !#[trigger] self.0.has_child(j),
         ensures
             self.pt_inv_at_depth(depth),
         decreases depth,
@@ -707,16 +707,15 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             owner.children().len() == NR_ENTRIES,
             forall|i: int|
                 0 <= i < NR_ENTRIES ==> {
-                    let c = #[trigger] owner.children()[i];
-                    &&& c is Some
-                    &&& c->0.value().is_absent()
-                    &&& c->0.value().path.len() == owner.value().node().tree_level + 1
-                    &&& c->0.value().match_pte(
+                    &&& #[trigger] owner.has_child(i)
+                    &&& owner.child(i).value().is_absent()
+                    &&& owner.child(i).value().path.len() == owner.value().node().tree_level + 1
+                    &&& owner.child(i).value().match_pte(
                         owner.value().node().children_perm.value()[i],
                         owner.value().node().level,
                     )
-                    &&& c->0.value().path == owner.value().path.push_tail(i)
-                    &&& c->0.value().parent_level == owner.value().node().level
+                    &&& owner.child(i).value().path == owner.value().path.push_tail(i)
+                    &&& owner.child(i).value().parent_level == owner.value().node().level
                 },
             allocated_empty_node_grandchildren_none(owner),
         ensures
@@ -725,20 +724,29 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         let depth = (INC_LEVELS - owner.level()) as nat;
         // `is_node` + `la_inv` forces `owner.level < INC_LEVELS - 1`, so depth >= 2.
         assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::la_inv(owner.value(), owner.level()));
+        assert(owner.level() < INC_LEVELS - 1);
+        assert(depth > 0);
         // Drive `pt_inv_at_depth(depth)` via the `is_node` branch: prove
         // `pt_edge_at` and the recursive `pt_inv_at_depth(depth-1)` for each child.
-        assert forall|i: int| 0 <= i < NR_ENTRIES implies #[trigger] Self::pt_edge_at(owner, i)
+        assert forall|i: int| 0 <= i < NR_ENTRIES implies #[trigger] owner.has_child(i)
+            && Self::pt_edge_at(owner, i)
             && PageTableOwner(owner.child(i)).pt_inv_at_depth((depth - 1) as nat) by {
             let child = owner.child(i);
             // pt_edge_at follows from the per-edge facts in the precondition.
             // owner.inv() ⇒ child.inv() (`TreeNode::inv` recurses since
             // INC_LEVELS - owner.level > 1) ⇒ child.value.inv() ⇒ inv_base
             // ⇒ (node is Some ⇒ !absent), so is_absent ⇒ !is_node.
+            assert(owner.has_child(i));
+            assert(owner.children()[i] is Some);
             assert(child.inv());
+            assert(child.value().is_absent());
+            assert(!child.value().is_node());
             // Each child is non-node with all grandchildren None — the
             // non-node branch of pt_inv_at_depth fires.
             PageTableOwner(child).non_node_pt_inv_at_depth((depth - 1) as nat);
         };
+        assert(PageTableOwner(owner).pt_inv_at_depth(depth));
+        assert(PageTableOwner(owner).pt_inv());
     }
 
     /// For a top-level (root) page table, entries at indices outside of
@@ -748,9 +756,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     pub open spec fn top_level_indices_absent(self) -> bool {
         let range = C::TOP_LEVEL_INDEX_RANGE();
         self.0.value().is_node() ==> forall|i: int|
-            #![trigger self.0.children()[i]]
-            0 <= i < NR_ENTRIES && !(range.start <= i < range.end) ==> self.0.children()[i] is Some
-                && self.0.children()[i]->0.value().is_absent()
+            #![trigger self.0.has_child(i)]
+            0 <= i < NR_ENTRIES && !(range.start <= i < range.end) ==> self.0.has_child(i)
+                && self.0.child(i).value().is_absent()
     }
 
     pub open spec fn view_rec_node_children(self, path: TreePath<NR_ENTRIES>) -> Seq<Set<Mapping>>
@@ -918,8 +926,15 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             ;
         } else if path.len() == 1 {
             let i0 = path[0];
+            assert(0 <= i0 < 512);
             assert(rec_vaddr(path, 1) == 0);
             assert(rec_vaddr(path, 0) == vaddr_make::<NR_LEVELS>(0, i0 as usize) as usize);
+            assert(i0 as usize == i0);
+            assert(0x80_0000_0000usize * i0 <= usize::MAX) by (nonlinear_arith)
+                requires
+                    0 <= i0 < 512,
+            ;
+            assert(vaddr_make::<NR_LEVELS>(0, i0 as usize) == 0x80_0000_0000usize * i0);
             assert(rec_vaddr(path, 0) == 0x80_0000_0000usize * i0);
             assert(pt.len() == 2);
             assert(pt[0] == i0);
@@ -1763,12 +1778,12 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         // Recursively for each Some child.
         if subtree.level() < INC_LEVELS - 1 {
             assert forall|i: int|
-                #![trigger subtree.children()[i]]
+                #![trigger subtree.has_child(i)]
                 0 <= i < NR_ENTRIES
-                    && subtree.children()[i] is Some implies subtree.children()[i].unwrap().subtree_satisfies(
+                    && subtree.has_child(i) implies subtree.child(i).subtree_satisfies(
             path.push_tail(i), Self::metaregion_sound_pred(r1)) by {
                 Self::metaregion_sound_preserved_slot_owners_eq_subtree(
-                    subtree.children()[i].unwrap(),
+                    subtree.child(i),
                     path.push_tail(i),
                     r0,
                     r1,
@@ -1888,12 +1903,12 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         subtree.value().metaregion_sound_one_slot_changed(r0, r1, changed_idx);
         if subtree.level() < INC_LEVELS - 1 {
             assert forall|i: int|
-                #![trigger subtree.children()[i]]
+                #![trigger subtree.has_child(i)]
                 0 <= i < NR_ENTRIES
-                    && subtree.children()[i] is Some implies subtree.children()[i].unwrap().subtree_satisfies(
+                    && subtree.has_child(i) implies subtree.child(i).subtree_satisfies(
             path.push_tail(i), Self::metaregion_sound_pred(r1)) by {
                 Self::metaregion_sound_preserved_one_slot_changed_subtree(
-                    subtree.children()[i].unwrap(),
+                    subtree.child(i),
                     path.push_tail(i),
                     r0,
                     r1,

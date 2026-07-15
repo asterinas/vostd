@@ -34,6 +34,8 @@ use super::*;
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 /// A reference to a page table node.
 pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
 
@@ -663,6 +665,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         new_node_owner,
                         (level - 1) as PagingLevel,
                     ));
+                    assert(new_node_owner.has_child(i));
                 };
             }
 
@@ -948,6 +951,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     new_owner,
                     (level - 1) as PagingLevel,
                 ));
+                assert(new_owner.has_child(i));
             };
         }
 
@@ -1907,6 +1911,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     new_node_owner,
                     (level - 1) as PagingLevel,
                 ));
+                assert(new_node_owner.has_child(i));
             };
         }
 

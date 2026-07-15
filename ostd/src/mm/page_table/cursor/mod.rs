@@ -68,6 +68,8 @@ use super::{
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 /// The state of virtual pages represented by a page table.
 ///
 /// This is the return type of the [`Cursor::query`] method.
@@ -2176,6 +2178,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
         let ghost cont0 = continuation;
         let tracked mut child_owner = continuation.tracked_take_child();
+        let ghost child_owner0 = child_owner;
         let tracked mut parent_owner = continuation.entry_own.tracked_take_node();
 
         {
@@ -2199,6 +2202,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost child_owner_parent_level = child_owner.value().parent_level;
 
         proof {
+            cont0.pt_inv_children_unroll(cont0.idx as int);
+            assert(PageTableOwner(child_owner0).pt_inv());
+            assert(child_owner0.value().is_frame());
+            assert(child_owner.value().is_frame());
+            assert(child_owner.children() == child_owner0.children());
+            assert forall|i: int| 0 <= i < NR_ENTRIES implies
+                !#[trigger] child_owner.has_child(i) by {
+                PageTableOwner(child_owner0).pt_inv_non_node(i);
+            };
+            PageTableOwner(child_owner).non_node_pt_inv_at_depth(
+                (INC_LEVELS - child_owner.level()) as nat,
+            );
+            assert(PageTableOwner(child_owner).pt_inv());
             continuation.tracked_put_child(child_owner);
             continuation.entry_own.tracked_put_node(parent_owner);
             cont0.take_put_child();

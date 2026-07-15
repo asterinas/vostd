@@ -41,6 +41,8 @@ use crate::specs::task::InAtomicMode;
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub entry_own: EntryOwner<C>,
     pub ghost idx: usize,

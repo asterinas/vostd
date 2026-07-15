@@ -4,6 +4,7 @@ use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ord
 
 use vstd::prelude::*;
 
+use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::{
@@ -27,6 +28,8 @@ use align_ext::AlignExt;
 use core::ops::IndexMut;
 
 verus! {
+
+broadcast use group_ghost_tree_lemmas;
 
 pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) -> (res: Range<Idx>)
     ensures
@@ -123,6 +126,13 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
     let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS - 1];
+
+    proof {
+        assert forall|i: int| 0 <= i < NR_ENTRIES implies
+            (#[trigger] pt_own.0.children()[i]) is Some by {
+            assert(pt_own.0.has_child(i));
+        };
+    }
 
     let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::tracked_new(
         pt_own.0,
