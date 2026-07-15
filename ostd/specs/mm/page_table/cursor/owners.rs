@@ -44,9 +44,9 @@ verus! {
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub entry_own: EntryOwner<C>,
     pub ghost idx: usize,
-    pub tree_level: nat,
+    pub ghost tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
-    pub path: TreePath<NR_ENTRIES>,
+    pub ghost path: TreePath<NR_ENTRIES>,
     pub guard: PageTableGuard<'rcu, C>,
 }
 
@@ -153,12 +153,24 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         )
     }
 
-    pub axiom fn tracked_restore(tracked &mut self, tracked child: Self) -> (tracked guard:
+    pub proof fn tracked_restore(tracked &mut self, tracked child: Self) -> (tracked guard:
         PageTableGuard<'rcu, C>)
+        requires
+            old(self).idx < old(self).children.len(),
         ensures
             *final(self) == old(self).restore(child).0,
             guard == old(self).restore(child).1,
-    ;
+    {
+        let tracked child_node = OwnerSubtree {
+            value: child.entry_own,
+            level: child.tree_level,
+            children: child.children,
+        };
+        lemma_update_is_remove_insert(self.children, self.idx as int, Some(child_node));
+        let _ = self.children.tracked_remove(self.idx as int);
+        self.children.tracked_insert(self.idx as int, Some(child_node));
+        child.guard
+    }
 
     pub open spec fn new(
         owner_subtree: OwnerSubtree<C>,
@@ -175,14 +187,24 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         }
     }
 
-    pub axiom fn tracked_new(
+    pub proof fn tracked_new(
         tracked owner_subtree: OwnerSubtree<C>,
         idx: usize,
-        guard: PageTableGuard<'rcu, C>,
+        tracked guard: PageTableGuard<'rcu, C>,
     ) -> (tracked res: Self)
         ensures
             res == Self::new(owner_subtree, idx, guard),
-    ;
+    {
+        let tracked res = Self {
+            entry_own: owner_subtree.value,
+            idx,
+            tree_level: owner_subtree.level,
+            children: owner_subtree.children,
+            path: TreePath::new(Seq::empty()),
+            guard,
+        };
+        res
+    }
 
     pub open spec fn map_children(
         self,
