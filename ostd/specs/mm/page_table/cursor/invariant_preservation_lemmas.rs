@@ -57,9 +57,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// Pointwise conjunction of two tree-wide predicates: if `self.map_full_tree(f)`
     /// and `self.map_full_tree(guard)` hold, then `self.map_full_tree(f && guard)`
-    /// holds. A thin wrapper around `OwnerSubtree::map_implies_and` applied per
+    /// holds. A thin wrapper around `OwnerSubtree::lemma_subtree_satisfies_implies_and` applied per
     /// continuation + per child; extracted so callers don't have to re-derive
-    /// the same nested `assert forall ... by { map_implies_and(...) }` block.
+    /// the same nested `assert forall ... by { lemma_subtree_satisfies_implies_and(...) }` block.
     pub proof fn and_map_full_tree(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -83,12 +83,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|j: int|
                 #![trigger cont.children[j]]
                 0 <= j < cont.children.len()
-                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
-            cont.path().push_tail(j as usize), combined) by {
+                    && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
+                cont.path().push_tail(j),
+                combined,
+            ) by {
                 cont.inv_children_unroll(j);
-                OwnerSubtree::map_implies_and(
+                OwnerSubtree::lemma_subtree_satisfies_implies_and(
                     cont.children[j].unwrap(),
-                    cont.path().push_tail(j as usize),
+                    cont.path().push_tail(j),
                     f,
                     guard,
                     combined,
@@ -281,13 +283,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|j: int|
                 #![trigger cont.children[j]]
                 0 <= j < cont.children.len()
-                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
-            cont.path().push_tail(j as usize), g) by {
+                    && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
+                cont.path().push_tail(j),
+                g,
+            ) by {
                 cont.inv_children_unroll(j);
                 cont.pt_inv_children_unroll(j);
                 cont.inv_children_rel_unroll(j);
                 let child = cont.children[j].unwrap();
-                let child_path = cont.path().push_tail(j as usize);
+                let child_path = cont.path().push_tail(j);
                 // child.value.path == child_path (inv_children_rel) and
                 // child.value.path.inv() (EntryOwner::inv_base).
                 // L1: pt_inv ⟹ tree-wide path correctness.
@@ -459,7 +463,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 owner_before_replace.cur_subtree(),
             )@.mappings,
             PageTableOwner(owner_before_replace.cur_subtree())@.mappings == set![target],
-            owner_before_replace.cur_subtree().value.path == removed_path,
+            owner_before_replace.cur_subtree().value().path == removed_path,
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
             forall|i: usize|
