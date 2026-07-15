@@ -136,12 +136,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old_self.va.align_down_to_vaddr_nat_align_down(old_self.level as int);
 
         let ghost old_va_val = old_self.va.to_vaddr() as nat;
-        let ghost new_va_val = self.va.to_vaddr() as nat;
         let ghost prefix_va_val = old_self.prefix.to_vaddr() as nat;
         let ghost ps = page_size(old_self.level as PagingLevel) as nat;
         let ghost guard_ps = page_size(old_self.guard_level as PagingLevel) as nat;
         let ghost start = old_self.locked_range().start as nat;
-        let ghost end = old_self.locked_range().end as nat;
 
         vstd_extra::arithmetic::lemma_nat_align_down_monotone(prefix_va_val, ps, guard_ps);
         assert(start % ps == 0);
@@ -238,9 +236,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let subtree = self.cur_subtree();
         let path = subtree.value().path;
         let frame = self.cur_entry_owner().frame();
-        let cont = self.continuations[self.level - 1];
-
-        cont.path().lemma_push_tail_len(cont.idx as int);
 
         let ps = page_size(self.level as PagingLevel);
         let m = Mapping {
@@ -331,38 +326,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let va_path = self.va.to_path(L - 1);
 
         self.va.to_path_len(L - 1);
-        cont.path().lemma_push_tail_len(cont.idx as int);
 
         assert forall|i: int| 0 <= i < subtree_path.len() implies subtree_path[i]
             == va_path[i] by {
             self.va.to_path_index(L - 1, i);
-            if L == 4 {
-                cont.path().lemma_push_tail_index(cont.idx as int);
-            } else if L == 3 {
-                cont.path().lemma_push_tail_index(cont.idx as int);
-                self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as int,
-                );
-            } else if L == 2 {
-                cont.path().lemma_push_tail_index(cont.idx as int);
-                self.continuations[2].path().lemma_push_tail_index(
-                    self.continuations[2].idx as int,
-                );
-                self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as int,
-                );
-            } else {
-                cont.path().lemma_push_tail_index(cont.idx as int);
-                self.continuations[1].path().lemma_push_tail_index(
-                    self.continuations[1].idx as int,
-                );
-                self.continuations[2].path().lemma_push_tail_index(
-                    self.continuations[2].idx as int,
-                );
-                self.continuations[3].path().lemma_push_tail_index(
-                    self.continuations[3].idx as int,
-                );
-            }
         };
 
         self.va.to_path_inv(L - 1);
