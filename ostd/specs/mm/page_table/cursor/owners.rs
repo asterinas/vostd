@@ -1282,33 +1282,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_subtree_inv();
             assert forall|i: int| 0 <= i < path.len() implies path[i] == va_path[i] by {
                 self.va.to_path_index(self.level - 1, i);
-                if self.level == 4 {
-                    cont.path().lemma_push_tail_index(cont.idx as int);
-                } else if self.level == 3 {
-                    cont.path().lemma_push_tail_index(cont.idx as int);
-                    self.continuations[3].path().lemma_push_tail_index(
-                        self.continuations[3].idx as int,
-                    );
-                } else if self.level == 2 {
-                    cont.path().lemma_push_tail_index(cont.idx as int);
-                    self.continuations[2].path().lemma_push_tail_index(
-                        self.continuations[2].idx as int,
-                    );
-                    self.continuations[3].path().lemma_push_tail_index(
-                        self.continuations[3].idx as int,
-                    );
-                } else {
-                    cont.path().lemma_push_tail_index(cont.idx as int);
-                    self.continuations[1].path().lemma_push_tail_index(
-                        self.continuations[1].idx as int,
-                    );
-                    self.continuations[2].path().lemma_push_tail_index(
-                        self.continuations[2].idx as int,
-                    );
-                    self.continuations[3].path().lemma_push_tail_index(
-                        self.continuations[3].idx as int,
-                    );
-                }
             };
             AbstractVaddr::rec_vaddr_eq_if_indices_eq(path, va_path, 0);
         };
@@ -2973,15 +2946,6 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         cont.path().lemma_push_tail_index(j);
         assert(0 <= p[0] < end) by {
             if i == NR_LEVELS - 1 {
-                // Root continuation: `p == [j]`. A contributing child is a
-                // frame/node (borrowed/absent give an empty `view_rec`), hence
-                // neither borrowed nor absent; the cursor-inv top-level clause
-                // then forces `j ∈ [0, 256)`.
-                assert(cont.path().len() == 0);
-                assert(p[0] == j);
-                assert(child.0.value().is_frame() || child.0.value().is_node());
-                assert(!child.0.value().is_borrowed());
-                assert(!child.0.value().is_absent());
             } else {
                 // Non-root continuation: `p[0] == cont.path()[0]`,
                 // which (via the inv path chain) equals the root continuation's
@@ -2990,22 +2954,6 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
                 assert(p[0] == cont.path()[0]);
                 assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
-                    owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
-                        owner.continuations[NR_LEVELS - 1].idx as int,
-                    );
-                    if i == 2 {
-                    } else if i == 1 {
-                        owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx as int,
-                        );
-                    } else {
-                        owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx as int,
-                        );
-                        owner.continuations[1].path().lemma_push_tail_index(
-                            owner.continuations[1].idx as int,
-                        );
-                    }
                 }
             }
         }
@@ -3071,22 +3019,6 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
                 // [256, 512)` (path chain + cursor-inv idx clause).
                 assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
-                    owner.continuations[NR_LEVELS - 1].path().lemma_push_tail_index(
-                        owner.continuations[NR_LEVELS - 1].idx as int,
-                    );
-                    if i == 2 {
-                    } else if i == 1 {
-                        owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx as int,
-                        );
-                    } else {
-                        owner.continuations[2].path().lemma_push_tail_index(
-                            owner.continuations[2].idx as int,
-                        );
-                        owner.continuations[1].path().lemma_push_tail_index(
-                            owner.continuations[1].idx as int,
-                        );
-                    }
                 }
             }
         }
