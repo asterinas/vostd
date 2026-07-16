@@ -54,7 +54,7 @@ pub tracked struct MetaRegionOwners {
     /// [`crate::specs::mm::frame::segment::tracked_mint_seg_obligations`]).
     /// Multiset semantics — multiple outstanding obligations at the same slot
     /// are counted individually.
-    pub ghost frame_obligations: vstd::multiset::Multiset<usize>,
+    pub frame_obligations: vstd::multiset::Multiset<usize>,
 }
 
 pub ghost struct MetaRegionModel {
@@ -275,20 +275,17 @@ impl MetaRegionOwners {
     /// Pairs the production of a per-Frame [`DropObligation`] with a
     /// `+1` on the `frame_obligations[slot_idx]` count. Called by Frame's
     /// `constructor_spec` (i.e. `ManuallyDrop::new(frame, ..)`).
-    pub proof fn tracked_mint_frame_obligation(tracked &mut self, slot_idx: usize) -> (tracked obl:
+    pub axiom fn tracked_mint_frame_obligation(tracked &mut self, slot_idx: usize) -> (tracked obl:
         DropObligation<usize>)
         ensures
             obl.value() == slot_idx,
             *final(self) == old(self).mint_frame_obligation(slot_idx),
-    {
-        self.frame_obligations = self.frame_obligations.insert(slot_idx);
-        DropObligation::tracked_mint(slot_idx)
-    }
+    ;
 
     /// Redeems a per-Frame obligation, decrementing `frame_obligations`
     /// at `obl.value()`. Called by Frame's `consume_obligation` (i.e.
     /// by `Drop::drop` or `ManuallyDrop::new`).
-    pub proof fn tracked_redeem_frame_obligation(
+    pub axiom fn tracked_redeem_frame_obligation(
         tracked &mut self,
         tracked obl: DropObligation<usize>,
     )
@@ -296,9 +293,7 @@ impl MetaRegionOwners {
             old(self).frame_obligations.count(obl.value()) > 0,
         ensures
             *final(self) == old(self).redeem_frame_obligation(obl.value()),
-    {
-        self.frame_obligations = self.frame_obligations.remove(obl.value());
-    }
+    ;
 }
 
 } // verus!

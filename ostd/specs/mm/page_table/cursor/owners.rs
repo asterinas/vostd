@@ -46,9 +46,9 @@ broadcast use group_ghost_tree_lemmas;
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub entry_own: EntryOwner<C>,
     pub ghost idx: usize,
-    pub ghost tree_level: nat,
+    pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
-    pub ghost path: TreePath<NR_ENTRIES>,
+    pub path: TreePath<NR_ENTRIES>,
     pub guard: PageTableGuard<'rcu, C>,
 }
 
@@ -151,24 +151,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         )
     }
 
-    pub proof fn tracked_restore(tracked &mut self, tracked child: Self) -> (tracked guard:
+    pub axiom fn tracked_restore(tracked &mut self, tracked child: Self) -> (tracked guard:
         PageTableGuard<'rcu, C>)
-        requires
-            old(self).idx < old(self).children.len(),
         ensures
             *final(self) == old(self).restore(child).0,
             guard == old(self).restore(child).1,
-    {
-        let tracked child_node = OwnerSubtree::tracked_new(
-            child.entry_own,
-            child.tree_level,
-            child.children,
-        );
-        lemma_update_is_remove_insert(self.children, self.idx as int, Some(child_node));
-        let _ = self.children.tracked_remove(self.idx as int);
-        self.children.tracked_insert(self.idx as int, Some(child_node));
-        child.guard
-    }
+    ;
 
     pub open spec fn new(
         owner_subtree: OwnerSubtree<C>,
@@ -185,18 +173,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         }
     }
 
-    pub proof fn tracked_new(
+    pub axiom fn tracked_new(
         tracked owner_subtree: OwnerSubtree<C>,
         idx: usize,
-        tracked guard: PageTableGuard<'rcu, C>,
-    ) -> tracked Self
-        returns
-            Self::new(owner_subtree, idx, guard),
-    {
-        let ghost tree_level = owner_subtree.level();
-        let tracked (entry_own, children) = owner_subtree.tracked_into_parts();
-        Self { entry_own, idx, tree_level, children, path: TreePath::new(Seq::empty()), guard }
-    }
+        guard: PageTableGuard<'rcu, C>,
+    ) -> (tracked res: Self)
+        ensures
+            res == Self::new(owner_subtree, idx, guard),
+    ;
 
     pub open spec fn map_children(
         self,

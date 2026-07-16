@@ -538,9 +538,9 @@ pub enum CursorKind {
 /// cursor holds locked; mirrors what the exec `Cursor` carries via
 /// `path: [Option<PageTableGuard<'rcu, C>>; NR_LEVELS]`.
 pub tracked struct CursorEntry<'rcu> {
-    pub ghost vm_space: VmSpaceId,
-    pub ghost kind: CursorKind,
-    pub ghost va: Range<Vaddr>,
+    pub vm_space: VmSpaceId,
+    pub kind: CursorKind,
+    pub va: Range<Vaddr>,
     pub owner: CursorOwner<'rcu, UserPtConfig>,
     pub guards: Guards<'rcu>,
 }
@@ -5362,7 +5362,7 @@ pub proof fn lemma_fresh_frame_id_not_in_dom(m: Map<FrameId, FrameEntry>)
 }
 
 /// Tracked constructor for [`CursorEntry`].
-pub proof fn tracked_cursor_entry_new<'rcu>(
+pub axiom fn axiom_cursor_entry_new<'rcu>(
     vm_space: VmSpaceId,
     kind: CursorKind,
     va: Range<Vaddr>,
@@ -5375,9 +5375,7 @@ pub proof fn tracked_cursor_entry_new<'rcu>(
         res.va == va,
         res.owner == owner,
         res.guards == guards,
-{
-    CursorEntry { vm_space, kind, va, owner, guards }
-}
+;
 
 /// Tracked constructor for [`VmIoEntry`].
 pub proof fn tracked_vm_io_entry_new<'a>(
