@@ -187,6 +187,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let inc = self.inc_index();
         inc.zero_preserves_all_but_va();
         inc.zero_below_level_va();
+        assert(inc.va.inv());
 
         let ps = page_size(self.level as PagingLevel) as nat;
         let self_va = self.va.to_vaddr() as nat;
