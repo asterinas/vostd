@@ -218,6 +218,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 #![auto]
                 op.ensures((p_in,), p_out) ==> C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+            forall|pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+                #![auto]
+                op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in)
+                    ==> C::E::new_page_req(pa, level, p_out),
         ensures
             final(owner).inv(),
             final(self).wf(*final(owner)),
@@ -1432,6 +1436,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 #![auto]
                 op.ensures((p_in,), p_out) ==> C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+            forall|pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+                #![auto]
+                op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in)
+                    ==> C::E::new_page_req(pa, level, p_out),
         ensures
             final(owner).inv(),
             final(owner).is_frame(),
@@ -1489,6 +1497,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 prop,
                 new_prop,
             );
+            assert(C::E::new_page_req(owner.frame().mapped_pa, owner.parent_level, new_prop));
         }
 
         assume(pte.set_prop_req(new_prop));

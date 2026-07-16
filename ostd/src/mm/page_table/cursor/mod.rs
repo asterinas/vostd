@@ -2121,6 +2121,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 op.ensures((p_in,), p_out) ==>
                     C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
+                op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in) ==>
+                    C::E::new_page_req(pa, level, p_out),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.barrier_va == old(self).0.barrier_va,
@@ -3813,6 +3816,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 op.ensures((p_in,), p_out) ==>
                     C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
+                op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in) ==>
+                    C::E::new_page_req(pa, level, p_out),
             // `find_next_impl` diverges on the find-next panic condition.
             old(self).0.find_next_panic_condition(len) ==> may_panic(),
         ensures

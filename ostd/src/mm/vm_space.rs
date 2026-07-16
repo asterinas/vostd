@@ -1535,6 +1535,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 op.ensures((p_in,), p_out) ==>
                     UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_out))
                     == UserPtConfig::tracked(UserPtConfig::item_from_raw_spec(pa, level, p_in)),
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
+                op.ensures((p_in,), p_out)
+                    && <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_in) ==>
+                        <PageTableEntry as PageTableEntryTrait>::new_page_req(pa, level, p_out),
 
             old(self).pt_cursor.0.find_next_panic_condition(len) ==> may_panic(),
         ensures
