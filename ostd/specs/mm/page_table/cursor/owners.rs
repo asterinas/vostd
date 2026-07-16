@@ -868,7 +868,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.nodes_locked(guards1),
     {
-        let dropped_addr = guard.inner.inner@.ptr.addr();
     }
 
     /// After a `protect` operation that only modifies `frame.prop` of the current entry,
@@ -942,10 +941,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         old(self).va.index_increment_adds_page_size(old(self).level as int);
 
-        if self.level >= self.guard_level {
-            if !old(self).above_locked_range() {
-            }
-        }
         if old(self).popped_too_high {
             old(self).in_locked_range_prefix_match();
         }
