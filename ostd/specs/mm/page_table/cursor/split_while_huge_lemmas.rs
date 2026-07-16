@@ -63,7 +63,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
         let sub = Self::split_index(m, new_size, ki as usize);
 
-        assert(ki * new_size >= 0) by {};
+        assert(ki * new_size >= 0);
         assert((ki + 1) * new_size <= ps) by {
             vstd::arithmetic::mul::lemma_mul_inequality(
                 ki + 1,
@@ -202,11 +202,9 @@ impl<C: PageTableConfig> CursorView<C> {
                 assert(m.inv());
                 // new_size is a valid page size (case split on m.page_size).
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 {
-                    } else if m.page_size == 1073741824 {
-                    } else {
+                    if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);
-                    }  // 4096 case impossible: 8 not in set
+                    }
                 };
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
 
@@ -242,9 +240,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 vstd::set::lemma_set_choose_len(f);
                 assert(m.inv());
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 {
-                    } else if m.page_size == 1073741824 {
-                    } else {
+                    if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);
                     }
                 };
@@ -485,9 +481,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 assert(m.inv());
                 // m2 != m and disjoint va_ranges (non-overlap invariant).
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 {
-                    } else if m.page_size == 1073741824 {
-                    } else {
+                    if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);
                     }
                 };
@@ -538,9 +532,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
                 };
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 {
-                    } else if m.page_size == 1073741824 {
-                    } else {
+                    if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);
                     }
                 };
@@ -653,9 +645,7 @@ impl<C: PageTableConfig> CursorView<C> {
                 vstd::set::lemma_set_choose_len(f);
                 assert(qm.inv());
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if qm.page_size == 2097152 {
-                    } else if qm.page_size == 1073741824 {
-                    } else {
+                    if qm.page_size != 2097152 && qm.page_size != 1073741824 {
                         assert(false);
                     }
                 };
