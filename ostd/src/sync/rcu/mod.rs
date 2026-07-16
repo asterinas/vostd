@@ -19,7 +19,9 @@
 //! The root-pointer invariant keeps publication metadata for the complete
 //! atomic history. Each non-null message has a domain-local allocation ID, so
 //! stale messages remain distinguishable even if a physical address is later
-//! reused. `Rcu` roots are non-null in every message, while `RcuOption` roots
+//! reused. Multiple messages may refer to one registration and therefore carry
+//! the same allocation ID; an atomic timestamp is never used as an allocation
+//! identity. `Rcu` roots are non-null in every message, while `RcuOption` roots
 //! may contain null messages without allocation IDs. Physical `P::Permission`,
 //! reader permissions, traversal snapshots, and reclamation are modeled
 //! separately in [`specs::sync::rcu`] and are being connected incrementally.
@@ -73,9 +75,11 @@
 //!
 //! Delayed reclamation is still being wired into the weak-memory proof. The
 //! remaining boundary is concrete: executable preemption guards do not yet own
-//! the domain's `Inactive/Guard` reader token, and pointer replacement does not
-//! yet route the old allocation's unique retire permission into the monitor.
-//! For now, `RcuDrop<T>` preserves the public wrapper API.
+//! the domain's `Inactive/Guard` reader token. Fresh stores and successful CAS
+//! operations now produce `RcuRegistration`, but `RcuInner` does not yet retain
+//! that resource together with `P::Permission` or route the replaced object's
+//! retire permission into the monitor. For now, `RcuDrop<T>` preserves the
+//! public wrapper API.
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
@@ -178,7 +182,8 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.is_nullable(),
     {
         proof_decl! {
-            let tracked root_ghost = rcu_spec::RcuRootGhost::tracked_initial(
+            // TODO: retain this beside the initial `P::Permission`.
+            let tracked (root_ghost, _registration) = rcu_spec::RcuRootGhost::tracked_initial(
                 core::ptr::null_mut::<<P as NonNullPtr>::Target>(),
             );
         }
@@ -205,7 +210,9 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             assert(!raw_ptr.is_null());
         }
         proof_decl! {
-            let tracked root_ghost = rcu_spec::RcuRootGhost::tracked_initial(raw_ptr);
+            // TODO: retain this beside the initial `P::Permission`.
+            let tracked (root_ghost, _registration) =
+                rcu_spec::RcuRootGhost::tracked_initial(raw_ptr);
         }
         let ptr = WeakAtomicPtr::new(Ghost(nullable), raw_ptr, Tracked(root_ghost));
         Self {
@@ -241,16 +248,19 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         &self,
         new_ptr: *mut <P as NonNullPtr>::Target,
         Tracked(tv): Tracked<&mut ThreadView>,
-    )
+    ) -> (res: Tracked<Option<rcu_spec::RcuRegistration<<P as NonNullPtr>::Target>>>)
         requires
             self.type_inv(),
             self.is_nullable() || !new_ptr.is_null(),
+        ensures
+            (res@ is Some) == !new_ptr.is_null(),
+            res@ is Some ==> res@->Some_0.0.ptr() == new_ptr,
     {
         proof {
             assert(self.ptr.constant() == self.is_nullable());
             assert(self.ptr.constant() || !new_ptr.is_null());
         }
-        self.ptr.store_release_rcu(new_ptr, Tracked(tv));
+        self.ptr.store_release_rcu(new_ptr, Tracked(tv))
     }
 
     fn update(&self, new_ptr: Option<P>, Tracked(session): Tracked<&mut RunningTaskContext>)
@@ -284,7 +294,8 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             }
             assert(self.is_nullable() || !raw.is_null());
         }
-        self.store_ptr_release(raw, Tracked(tv));
+        // TODO: retain the registration with `perm` until this object is detached.
+        let Tracked(_registration) = self.store_ptr_release(raw, Tracked(tv));
     }
 
     fn read(&self, Tracked(session): Tracked<&mut RunningTaskContext>) -> (res: RcuReadGuardInner<
@@ -405,6 +416,8 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             assert(rcu.ptr.constant() || !new_raw.is_null());
         }
         let cas_res = rcu.ptr.compare_exchange_acqrel_acquire_rcu(expected, new_raw, Tracked(tv));
+        // A successful CAS must route this registration into the ownership map.
+        let Tracked(_registration) = cas_res.2;
 
         let res = match cas_res.0 {
             Result::Ok(_) => Ok(()),

@@ -716,13 +716,25 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
         result
     }
 
-    /// Release-store helper for RCU root pointers.
+    /// Release-store helper for a freshly introduced RCU root pointer.
+    ///
+    /// A non-null store returns the registration resources allocated for the
+    /// new object. Callers must retain them for traversal and eventual retire;
+    /// the append-only atomic invariant owns only publication metadata.
     #[inline(always)]
-    pub fn store_release_rcu(&self, value: *mut T, Tracked(tv): Tracked<&mut ThreadView>)
+    pub fn store_release_rcu(&self, value: *mut T, Tracked(tv): Tracked<&mut ThreadView>) -> (res:
+        Tracked<Option<rcu_spec::RcuRegistration<T>>>)
         requires
             self.well_formed(),
             self.constant() || !value.is_null(),
+        ensures
+            (res@ is Some) == !value.is_null(),
+            res@ is Some ==> res@->Some_0.0.ptr() == value,
+            res@ is Some ==> res@->Some_0.0.obj() == res@->Some_0.1.obj(),
     {
+        proof_decl! {
+            let tracked registration;
+        }
         proof {
             use_type_invariant(self);
         }
@@ -748,25 +760,42 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
                     next,
                     snap@.msg(),
                 );
-                g.tracked_push(prev, next, snap@.msg());
+                registration = g.tracked_push_fresh(prev, next, snap@.msg());
                 pair = (hist, g);
             }
         });
+        Tracked(registration)
     }
 
-    /// Strong AcqRel/Acquire CAS helper for RCU root pointers.
+    /// Strong AcqRel/Acquire CAS helper for a freshly introduced RCU pointer.
+    ///
+    /// Registration occurs only in the successful CAS branch. A failed CAS
+    /// therefore returns no allocation ID or retire permission, allowing the
+    /// same owning pointer to be retried without acquiring a second identity.
     #[inline(always)]
     pub fn compare_exchange_acqrel_acquire_rcu(
         &self,
         current: *mut T,
         new: *mut T,
         Tracked(tv): Tracked<&mut ThreadView>,
-    ) -> (res: (Result<*mut T, *mut T>, Ghost<Timestamp>))
+    ) -> (res: (
+        Result<*mut T, *mut T>,
+        Ghost<Timestamp>,
+        Tracked<Option<rcu_spec::RcuRegistration<T>>>,
+    ))
         requires
             self.well_formed(),
             self.constant() || !new.is_null(),
+        ensures
+            res.0 is Ok ==> ((res.2@ is Some) == !new.is_null()),
+            res.0 is Err ==> res.2@ is None,
+            res.2@ is Some ==> res.2@->Some_0.0.ptr() == new,
+            res.2@ is Some ==> res.2@->Some_0.0.obj() == res.2@->Some_0.1.obj(),
     {
         let result;
+        proof_decl! {
+            let tracked registration;
+        }
         proof {
             use_type_invariant(self);
         }
@@ -803,14 +832,16 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
                                     next,
                                     snap.msg(),
                                 );
-                                g.tracked_push(prev, next, snap.msg());
+                                registration = g.tracked_push_fresh(prev, next, snap.msg());
                             },
                             Option::None => {
                                 assert(false);
+                                registration = None;
                             },
                         }
                     },
                     Result::Err(_) => {
+                        registration = None;
                         assert(next == prev);
                         assert(rcu_spec::rcu_history_inv(self.constant(), next));
                     },
@@ -818,7 +849,7 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
                 pair = (hist, g);
             }
         });
-        result
+        (result.0, result.1, Tracked(registration))
     }
 }
 

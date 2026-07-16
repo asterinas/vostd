@@ -58,6 +58,13 @@ pub ghost struct RcuPublishedObject {
     pub addr: usize,
 }
 
+/// Resources created by one application of the paper's registration rule.
+///
+/// `BlockInfo` is persistent and may justify any number of publications. The
+/// base retire permission is unique and must survive until traversal proves
+/// that the registered allocation has been removed.
+pub type RcuRegistration<T> = (RcuBlockInfo<T>, RcuBaseRetirePerm<T>);
+
 /// Publication metadata paired with an RCU root's atomic message history.
 ///
 /// Entry `publications[i]` describes atomic message `i`. A null message has no
@@ -113,45 +120,71 @@ impl RcuRootGhost {
     }
 
     /// Allocate a fresh publication registry containing the initial message.
-    pub proof fn tracked_initial<T>(ptr: *mut T) -> (tracked res: Self)
+    ///
+    /// A non-null initial value is registered exactly once and the registration
+    /// resources are returned to the caller. The root history retains only the
+    /// allocation ID; it does not consume the unique retire permission.
+    pub proof fn tracked_initial<T>(ptr: *mut T) -> (tracked res: (
+        Self,
+        Option<RcuRegistration<T>>,
+    ))
         ensures
-            rcu_root_history_inv(seq![Msg { value: ptr, view: WmView::empty() }], res),
+            rcu_root_history_inv(seq![Msg { value: ptr, view: WmView::empty() }], res.0),
+            (res.1 is Some) == (ptr.addr() != 0),
+            res.1 is Some ==> res.1->Some_0.0.ptr() == ptr,
+            res.1 is Some ==> res.1->Some_0.0.obj() == res.1->Some_0.1.obj(),
+            res.1 is Some ==> res.1->Some_0.0.domain() == res.0.domain(),
+            res.1 is Some ==> res.0.publications()[0] == Some(res.1->Some_0.0.obj()),
+            res.1 is Some ==> res.1->Some_0.0.wf(),
     {
         let tracked mut domain = RcuDomainAuth::tracked_new();
         if ptr.addr() == 0 {
-            RcuRootGhost { domain, publications: seq![None] }
+            (RcuRootGhost { domain, publications: seq![None] }, None)
         } else {
-            let tracked (block_info, _retire_perm) = domain.tracked_register(ptr);
+            let tracked (block_info, retire_perm) = domain.tracked_register(ptr);
             let ghost obj = block_info.obj();
             assert(domain.objects().contains_pair(obj, ptr.addr()));
-            RcuRootGhost { domain, publications: seq![Some(obj)] }
+            (
+                RcuRootGhost { domain, publications: seq![Some(obj)] },
+                Some((block_info, retire_perm)),
+            )
         }
     }
 
-    /// Extend the publication registry for one newly appended atomic message.
-    pub proof fn tracked_push<T>(
+    /// Publish a freshly introduced allocation.
+    ///
+    /// This combines the paper's registration rule with the first publication
+    /// of that registration. The returned resources must remain associated
+    /// with the allocation; in particular, the retire permission is not part
+    /// of the append-only atomic history.
+    pub proof fn tracked_push_fresh<T>(
         tracked &mut self,
         prev: History<*mut T>,
         next: History<*mut T>,
         msg: Msg<*mut T>,
-    )
+    ) -> (tracked res: Option<RcuRegistration<T>>)
         requires
             rcu_root_history_inv(prev, *old(self)),
             next == prev.push(msg),
         ensures
             rcu_root_history_inv(next, *final(self)),
             final(self).domain() == old(self).domain(),
+            (res is Some) == (msg.value.addr() != 0),
+            res is Some ==> res->Some_0.0.ptr() == msg.value,
+            res is Some ==> res->Some_0.0.obj() == res->Some_0.1.obj(),
     {
         let ghost ts = prev.len();
         assert(self.publications().len() == ts);
 
-        if msg.value.addr() == 0 {
+        let tracked res = if msg.value.addr() == 0 {
             self.publications = self.publications.push(None);
+            None
         } else {
-            let tracked (block_info, _retire_perm) = self.domain.tracked_register(msg.value);
+            let tracked (block_info, retire_perm) = self.domain.tracked_register(msg.value);
             let ghost obj = block_info.obj();
             self.publications = self.publications.push(Some(obj));
-        }
+            Some((block_info, retire_perm))
+        };
 
         assert forall|i: int| 0 <= i < next.len() implies {
             match #[trigger] self.publications()[i] {
@@ -164,6 +197,67 @@ impl RcuRootGhost {
         } by {
             if i == prev.len() {
                 assert(next[i] == msg);
+            } else {
+                assert(i < prev.len());
+                assert(next[i] == prev[i]);
+                assert(self.publications()[i] == old(self).publications()[i]);
+                match self.publications()[i] {
+                    Some(obj) => {
+                        assert(old(self).objects().contains_pair(obj, prev[i].value.addr()));
+                        assert(self.objects().contains_pair(obj, next[i].value.addr()));
+                    },
+                    None => {},
+                }
+            }
+        };
+        res
+    }
+
+    /// Re-publish an allocation that was registered earlier.
+    ///
+    /// Unlike [`tracked_push_fresh`](Self::tracked_push_fresh), this rule does
+    /// not allocate a new AId. Every message published with the same persistent
+    /// `BlockInfo` therefore carries the same allocation identity.
+    pub proof fn tracked_push_registered<T>(
+        tracked &mut self,
+        prev: History<*mut T>,
+        next: History<*mut T>,
+        msg: Msg<*mut T>,
+        tracked info: &RcuBlockInfo<T>,
+    )
+        requires
+            rcu_root_history_inv(prev, *old(self)),
+            next == prev.push(msg),
+            info.domain() == old(self).domain(),
+            info.ptr() == msg.value,
+            info.wf(),
+        ensures
+            rcu_root_history_inv(next, *final(self)),
+            final(self).domain() == old(self).domain(),
+            final(self).objects() == old(self).objects(),
+            final(self).publications() == old(self).publications().push(Some(info.obj())),
+    {
+        let ghost ts = prev.len();
+        assert(self.publications().len() == ts);
+        self.domain.lemma_block_info_agree(info);
+        self.publications = self.publications.push(Some(info.obj()));
+        assert(self.objects() == old(self).objects());
+
+        assert forall|i: int| 0 <= i < next.len() implies {
+            match #[trigger] self.publications()[i] {
+                None => next[i].value.addr() == 0,
+                Some(obj) => {
+                    &&& next[i].value.addr() != 0
+                    &&& self.objects().contains_pair(obj, next[i].value.addr())
+                },
+            }
+        } by {
+            if i == prev.len() {
+                assert(next[i] == msg);
+                assert(info.addr() == msg.value.addr());
+                assert(msg.value.addr() != 0);
+                assert(self.publications()[i] == Some(info.obj()));
+                assert(self.objects().contains_pair(info.obj(), next[i].value.addr()));
             } else {
                 assert(i < prev.len());
                 assert(next[i] == prev[i]);
@@ -659,9 +753,11 @@ impl RcuDomainAuth {
             res.0.obj() == old(self).next_obj(),
             res.0.ptr() == ptr,
             res.0.addr() == ptr.addr(),
+            res.0.wf(),
             res.1.domain() == final(self).id(),
             res.1.obj() == res.0.obj(),
             res.1.ptr() == ptr,
+            res.1.wf(),
             res.1.belongs_to(*final(self)),
     {
         let ghost obj = self.next_obj;
@@ -945,7 +1041,8 @@ impl<T> RcuBlockInfo<T> {
     }
 
     pub open spec fn wf(self) -> bool {
-        self.addr() == self.ptr().addr()
+        &&& self.addr() == self.ptr().addr()
+        &&& self.ptr().addr() != 0
     }
 
     /// Persistent block information can be retained by both the client and
@@ -995,6 +1092,34 @@ pub proof fn registration_distinguishes_reused_address<T>(ptr: *mut T) -> (track
     let tracked (second, _second_retire) = domain.tracked_register(ptr);
     assert(first.obj() < second.obj());
     (first, first_history_copy, second)
+}
+
+/// Regression proof for registration-time identity across re-publication.
+///
+/// Both history entries are justified by the same persistent `BlockInfo`, so
+/// they contain the same AId even though they have different atomic
+/// timestamps. This is the paper's required separation between allocation
+/// identity and modification-order position.
+pub proof fn registered_republication_preserves_allocation_id<T>(ptr: *mut T) -> (tracked res: (
+    RcuRootGhost,
+    RcuRegistration<T>,
+))
+    requires
+        ptr.addr() != 0,
+    ensures
+        res.0.publications().len() == 2,
+        res.0.publications()[0] == Some(res.1.0.obj()),
+        res.0.publications()[1] == Some(res.1.0.obj()),
+        res.1.0.domain() == res.0.domain(),
+        res.1.0.obj() == res.1.1.obj(),
+{
+    let ghost initial = seq![Msg { value: ptr, view: WmView::empty() }];
+    let tracked (mut root, registration_opt) = RcuRootGhost::tracked_initial(ptr);
+    let tracked registration = registration_opt.tracked_unwrap();
+    let ghost msg = Msg { value: ptr, view: WmView::empty() };
+    let ghost next = initial.push(msg);
+    root.tracked_push_registered(initial, next, msg, &registration.0);
+    (root, registration)
 }
 
 /// Low-level base retire permission.
