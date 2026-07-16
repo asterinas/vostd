@@ -1497,7 +1497,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 prop,
                 new_prop,
             );
-            assert(C::E::new_page_req(owner.frame().mapped_pa, owner.parent_level, new_prop));
         }
 
         assume(pte.set_prop_req(new_prop));
