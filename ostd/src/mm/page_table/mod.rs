@@ -214,6 +214,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             paddr % page_size(level) == 0,
             paddr + page_size(level) <= MAX_PADDR,
             Self::raw_item_well_formed(paddr, level, prop),
+            Self::E::new_page_req(paddr, level, prop),
         returns
             Self::item_into_raw_spec(item),
     ;
@@ -298,11 +299,13 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         requires
             has_safe_slot(pa),
             Self::raw_item_well_formed(pa, level, prop),
+            Self::E::new_page_req(pa, level, prop),
             level > 1,
             child_idx < NR_ENTRIES,
             child_pa == pa + child_idx * page_size((level - 1) as PagingLevel),
         ensures
             Self::raw_item_well_formed(child_pa, (level - 1) as PagingLevel, prop),
+            Self::E::new_page_req(child_pa, (level - 1) as PagingLevel, prop),
     ;
 
     /// The item produced by [`PageTableConfig::item_from_raw`] is well-formed.

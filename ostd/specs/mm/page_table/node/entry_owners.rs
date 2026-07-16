@@ -863,6 +863,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 self.parent_level,
                 self.frame().prop,
             )
+            &&& C::E::new_page_req(self.frame().mapped_pa, self.parent_level, self.frame().prop)
         }
         &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()

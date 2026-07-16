@@ -538,6 +538,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             paddr % page_size(self.level()) == 0,
             paddr + page_size(self.level()) <= MAX_PADDR,
             C::raw_item_well_formed(paddr, self.level(), prop),
+            C::E::new_page_req(paddr, self.level(), prop),
             self.path().push_tail(self.idx as int).inv(),
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
