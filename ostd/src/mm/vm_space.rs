@@ -1624,21 +1624,6 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type C = PagingConsts;
 
-    proof fn lemma_page_table_config_constant_requirements() {
-        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
-        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
-
-        lemma2_to64();
-        lemma2_to64_rest();
-        vstd::layout::unsigned_int_max_values();
-        lemma_usize_pow2_ilog2(12);
-        lemma_usize_pow2_ilog2(9);
-        lemma_pow2_adds(9, 39);
-        PageTableEntry::lemma_layout();
-        Self::C::lemma_paging_consts_properties();
-        assert(Self::LEADING_BITS_spec() == 0usize);
-    }
-
     type Item = MappedItem;
 
     open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
@@ -1653,11 +1638,22 @@ unsafe impl PageTableConfig for UserPtConfig {
         (paddr, level, prop)
     }
 
-    uninterp spec fn item_from_raw_spec(
+    open spec fn item_from_raw_spec(
         paddr: Paddr,
-        level: PagingLevel,
+        _level: PagingLevel,
         prop: PageProperty,
-    ) -> Self::Item;
+    ) -> Self::Item {
+        MappedItem {
+            frame: UFrame {
+                ptr: vstd::simple_pptr::PPtr(
+                    crate::mm::frame::meta::mapping::frame_to_meta(paddr),
+                    PhantomData,
+                ),
+                _marker: PhantomData,
+            },
+            prop,
+        }
+    }
 
     #[verifier::external_body]
     unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
@@ -1668,9 +1664,10 @@ unsafe impl PageTableConfig for UserPtConfig {
     proof fn lemma_item_into_raw_roundtrip(pa: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
-        Self::item_from_raw_spec_frame_ptr(pa, level, prop);
         let item = Self::item_from_raw_spec(pa, level, prop);
-        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
+        assert(Self::raw_item_well_formed(pa, level, prop));
+        assert(item.frame.ptr.addr() == crate::mm::frame::meta::mapping::frame_to_meta(pa));
+        crate::specs::mm::frame::mapping::lemma_paddr_to_meta_biinjective(pa);
     }
 
     proof fn lemma_item_from_raw_roundtrip(
@@ -1681,7 +1678,6 @@ unsafe impl PageTableConfig for UserPtConfig {
     ) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
-        Self::item_from_raw_spec_frame_ptr(paddr, level, prop);
         assert(Self::item_well_formed(item));
         crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
     }
@@ -1718,13 +1714,9 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
-        // Derive `frame.inv()` from the structural-shape axiom + soundness lemmas.
 
-        Self::item_from_raw_spec_frame_ptr(pa, level, prop);
         let item = Self::item_from_raw_spec(pa, level, prop);
         crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
-        // frame.inv() unfolds to `addr % META_SLOT_SIZE == 0` and addr in
-        // FRAME_METADATA_RANGE. Both follow from `lemma_frame_to_meta_soundness`.
     }
 
     proof fn lemma_clone_ensures_concrete(
@@ -1734,24 +1726,11 @@ unsafe impl PageTableConfig for UserPtConfig {
         new_regions: MetaRegionOwners,
         res: Self::Item,
     ) {
-        // `MappedItem::clone_ensures` unfolds to `item.frame.clone_ensures(...,
-        // res.frame)`, which delivers per-field facts at `frame_to_index(meta_to_frame(
-        // item.frame.ptr.addr()))`. Bridge that index to `frame_to_index(pa)` via
-        // `pa == item.frame.paddr() == meta_to_frame(item.frame.ptr.addr())`.
-        use crate::mm::frame::meta::mapping::meta_to_frame;
         use crate::specs::mm::frame::mapping::frame_to_index;
         let frame_idx = frame_to_index(meta_to_frame(item.frame.ptr.addr()));
         assert(frame_to_index(pa) == frame_idx);
-        // The MappedItem clone_ensures unfolds to its frame's clone_ensures.
-        // Verus needs `item.clone_ensures` (a trait method) revealed via the impl.
         assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
         assert(item.frame.clone_ensures(old_regions, new_regions, res.frame));
-        assert(new_regions.slot_owners[frame_idx].inner_perms.ref_count.value()
-            == old_regions.slot_owners[frame_idx].inner_perms.ref_count.value() + 1);
-        assert(forall|i: usize|
-            i != frame_idx ==> #[trigger] new_regions.slot_owners[i] == old_regions.slot_owners[i]);
-        // Canonical: the cloned frame minted one obligation at its slot.
-        assert(new_regions.frame_obligations == old_regions.frame_obligations.insert(frame_idx));
     }
 
     proof fn lemma_clone_requires_concrete(
@@ -1761,33 +1740,28 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         regions: MetaRegionOwners,
     ) {
-        use crate::mm::frame::meta::mapping::meta_to_frame;
         use crate::specs::mm::frame::mapping::frame_to_index;
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         Self::lemma_item_from_raw_well_formed(pa, level, prop);
-        Self::item_from_raw_spec_frame_ptr(pa, level, prop);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
         assert(frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa));
-        // `Self::item_well_formed(item)` unfolds to `item.frame.inv()`.
-        assert(item.frame.inv());
     }
-}
 
-impl UserPtConfig {
-    /// Structural shape of `item_from_raw_spec` for UserPtConfig: the reconstructed
-    /// item's frame has its pointer at `frame_to_meta(pa)`. Mirrors the exec body's
-    /// `UFrame::from_raw(pa)` call whose ensures gives this address shape.
-    pub axiom fn item_from_raw_spec_frame_ptr(pa: Paddr, level: PagingLevel, prop: PageProperty)
-        requires
-            has_safe_slot(pa),
-            UserPtConfig::raw_item_well_formed(pa, level, prop),
-        ensures
-            UserPtConfig::item_from_raw_spec(pa, level, prop).frame.ptr.addr()
-                == crate::mm::frame::meta::mapping::frame_to_meta(pa),
-            level == 1,
-            UserPtConfig::item_from_raw_spec(pa, level, prop).prop == prop,
-    ;
+    proof fn lemma_page_table_config_constant_requirements() {
+        use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest, lemma_pow2_adds};
+        use vstd_extra::prelude::lemma_usize_pow2_ilog2;
+
+        lemma2_to64();
+        lemma2_to64_rest();
+        vstd::layout::unsigned_int_max_values();
+        lemma_usize_pow2_ilog2(12);
+        lemma_usize_pow2_ilog2(9);
+        lemma_pow2_adds(9, 39);
+        PageTableEntry::lemma_layout();
+        Self::C::lemma_paging_consts_properties();
+        assert(Self::LEADING_BITS_spec() == 0usize);
+    }
 }
 
 } // verus!
