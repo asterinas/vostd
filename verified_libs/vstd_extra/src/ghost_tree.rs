@@ -305,6 +305,18 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
         TreeNode { value, level, children: Tracked(children) }
     }
 
+    /// Constructs a tracked node from its tracked fields.
+    pub proof fn tracked_new(
+        tracked value: T,
+        level: nat,
+        tracked children: Seq<Option<Self>>,
+    ) -> tracked Self
+        returns
+            Self::new(value, level, children),
+    {
+        TreeNode { value, level, children: Tracked(children) }
+    }
+
     /// Constructs a node at the given level with default value and no children.
     pub open spec fn new_default(lv: nat) -> Self {
         Self::new(T::default(lv), lv, Seq::new(N as nat, |i| None))
@@ -430,6 +442,19 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
             final(self).children() == old(self).children(),
     {
         &mut self.value
+    }
+
+    /// Consumes this node and returns its tracked value and children.
+    pub proof fn tracked_into_parts(tracked self) -> (tracked (value, children): (
+        T,
+        Seq<Option<Self>>,
+    ))
+        ensures
+            value == self.value(),
+            children == self.children(),
+    {
+        let tracked Tracked(children) = self.children;
+        (self.value, children)
     }
 
     /// Requires `f` to hold for this node and every present descendant.
