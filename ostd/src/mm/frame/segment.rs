@@ -686,6 +686,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             )].inner_perms.ref_count.value() >= REF_COUNT_MAX
     }
 
+    // [FIXED] BUG FOUND BY FV: potential overflow. https://github.com/asterinas/asterinas/pull/3587
     /// Gets an extra handle to the frames in the byte offset range.
     ///
     /// The sliced byte offset range in indexed by the offset from the start of
@@ -709,7 +710,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             range.start % PAGE_SIZE != 0 ==> may_panic(),
             range.end % PAGE_SIZE != 0 ==> may_panic(),
             range.start > range.end ==> may_panic(),
-            self.range.start + range.end > self.range.end ==> may_panic(),
+            range.end > self.size() ==> may_panic(),
             self.page_in_range_saturated(range, *old(regions)) ==> may_panic(),
         ensures
             range.start % PAGE_SIZE == 0,
@@ -729,14 +730,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verifier::spinoff_prover]
     #[verifier::loop_isolation(false)]
     pub fn slice(&self, range: &Range<usize>) -> Self {
-        // [KNOWN] BUG FOUND BY FV: potential overflow. https://github.com/asterinas/asterinas/issues/3165
-        assume(self.range.start + range.start <= usize::MAX);
-        assume(self.range.start + range.end <= usize::MAX);
-
         assert!(range.start % PAGE_SIZE == 0 && range.end % PAGE_SIZE == 0);
+        assert!(range.start <= range.end && range.end <= self.size());
         let start = self.range.start + range.start;
         let end = self.range.start + range.end;
-        assert!(start <= end && end <= self.range.end);
 
         let mut paddr = start;
         let ghost addr_len = (end - start) / PAGE_SIZE as int;
