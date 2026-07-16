@@ -41,6 +41,8 @@ use crate::specs::task::InAtomicMode;
 
 verus! {
 
+broadcast use group_ghost_tree_lemmas;
+
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub entry_own: EntryOwner<C>,
     pub ghost idx: usize,
@@ -116,11 +118,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn make_cont(self, idx: usize, guard: PageTableGuard<'rcu, C>) -> (Self, Self) {
         let child = Self {
-            entry_own: self.children[self.idx as int]->0.value,
+            entry_own: self.children[self.idx as int]->0.value(),
             tree_level: (self.tree_level + 1) as nat,
             idx: idx,
-            children: self.children[self.idx as int]->0.children,
-            path: self.path.push_tail(self.idx as usize),
+            children: self.children[self.idx as int]->0.children(),
+            path: self.path.push_tail(self.idx as int),
             guard: guard,
         };
         let cont = Self { children: self.children.update(self.idx as int, None), ..self };
@@ -142,11 +144,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     ;
 
     pub open spec fn restore(self, child: Self) -> (Self, PageTableGuard<'rcu, C>) {
-        let child_node = OwnerSubtree {
-            value: child.entry_own,
-            level: child.tree_level,
-            children: child.children,
-        };
+        let child_node = OwnerSubtree::new(child.entry_own, child.tree_level, child.children);
         (
             Self { children: self.children.update(self.idx as int, Some(child_node)), ..self },
             child.guard,
@@ -166,10 +164,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
     ) -> Self {
         Self {
-            entry_own: owner_subtree.value,
+            entry_own: owner_subtree.value(),
             idx: idx,
-            tree_level: owner_subtree.level,
-            children: owner_subtree.children,
+            tree_level: owner_subtree.level(),
+            children: owner_subtree.children(),
             path: TreePath::new(Seq::empty()),
             guard: guard,
         }
@@ -191,7 +189,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         forall|i: int|
             #![trigger(self.children[i])]
             0 <= i < self.children.len() ==> self.children[i] is Some
-                ==> self.children[i]->0.tree_predicate_map(self.path().push_tail(i as usize), f)
+                ==> self.children[i]->0.subtree_satisfies(self.path().push_tail(i), f)
     }
 
     // map_children_lift, map_children_lift_skip_idx, as_subtree_restore
@@ -237,14 +235,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         |i: int, child: Option<OwnerSubtree<C>>|
             {
                 child is Some ==> {
-                    &&& child->0.value.parent_level == self.level()
-                    &&& child->0.level == self.tree_level + 1
-                    &&& child->0.value.path.len() == self.entry_own.node().tree_level + 1
-                    &&& child->0.value.match_pte(
+                    &&& child->0.value().parent_level == self.level()
+                    &&& child->0.level() == self.tree_level + 1
+                    &&& child->0.value().path.len() == self.entry_own.node().tree_level + 1
+                    &&& child->0.value().match_pte(
                         self.entry_own.node().children_perm.value()[i],
                         self.entry_own.node().level,
                     )
-                    &&& child->0.value.path == self.path().push_tail(i as usize)
+                    &&& child->0.value().path == self.path().push_tail(i)
                 }
             }
     }
@@ -278,14 +276,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             0 <= i < self.children.len(),
             self.children[i] is Some,
         ensures
-            self.children[i]->0.value.parent_level == self.level(),
-            self.children[i]->0.level == self.tree_level + 1,
-            self.children[i]->0.value.path.len() == self.entry_own.node().tree_level + 1,
-            self.children[i]->0.value.match_pte(
+            self.children[i]->0.value().parent_level == self.level(),
+            self.children[i]->0.level() == self.tree_level + 1,
+            self.children[i]->0.value().path.len() == self.entry_own.node().tree_level + 1,
+            self.children[i]->0.value().match_pte(
                 self.entry_own.node().children_perm.value()[i],
                 self.entry_own.node().level,
             ),
-            self.children[i]->0.value.path == self.path().push_tail(i as usize),
+            self.children[i]->0.value().path == self.path().push_tail(i),
     {
         lemma_forall_seq_index(self.children, self.inv_children_rel_pred(), i);
     }
@@ -335,7 +333,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         self.children.map(
             |i, child: Option<OwnerSubtree<C>>|
                 if child is Some {
-                    PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                    PageTableOwner(child->0).view_rec(self.path().push_tail(i))
                 } else {
                     Set::empty()
                 },
@@ -350,7 +348,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     #![trigger self.children[i]]
                     0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                         self.children[i]->0,
-                    ).view_rec(self.path().push_tail(i as usize)).contains(m),
+                    ).view_rec(self.path().push_tail(i)).contains(m),
     {
         broadcast use vstd::seq_lib::group_seq_properties;
 
@@ -358,11 +356,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             #![trigger self.children[i]]
             0 <= i < self.children.len() && self.children[i] is Some && PageTableOwner(
                 self.children[i]->0,
-            ).view_rec(self.path().push_tail(i as usize)).contains(m) by {
+            ).view_rec(self.path().push_tail(i)).contains(m) by {
             let mapped = self.children.map(
                 |i, child: Option<OwnerSubtree<C>>|
                     if child is Some {
-                        PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                        PageTableOwner(child->0).view_rec(self.path().push_tail(i))
                     } else {
                         Set::empty()
                     },
@@ -375,7 +373,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             let i = mapped.lemma_contains_to_index(elem_s);
             if self.children[i] is Some {
                 assert(mapped[i] == PageTableOwner(self.children[i]->0).view_rec(
-                    self.path().push_tail(i as usize),
+                    self.path().push_tail(i),
                 ));
             } else {
                 assert(mapped[i] == Set::<Mapping>::empty());
@@ -389,7 +387,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             0 <= i < self.children.len(),
             self.children[i] is Some,
             #[trigger] PageTableOwner(self.children[i]->0).view_rec(
-                self.path().push_tail(i as usize),
+                self.path().push_tail(i),
             ).contains(m),
         ensures
             self.view_mappings().contains(m),
@@ -399,7 +397,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         let mapped = self.children.map(
             |i, child: Option<OwnerSubtree<C>>|
                 if child is Some {
-                    PageTableOwner(child->0).view_rec(self.path().push_tail(i as usize))
+                    PageTableOwner(child->0).view_rec(self.path().push_tail(i))
                 } else {
                     Set::empty()
                 },
@@ -411,7 +409,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     pub open spec fn as_subtree(self) -> OwnerSubtree<C> {
-        OwnerSubtree { value: self.entry_own, level: self.tree_level, children: self.children }
+        OwnerSubtree::new(self.entry_own, self.tree_level, self.children)
     }
 
     pub open spec fn as_page_table_owner(self) -> PageTableOwner<C> {
@@ -420,7 +418,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn view_mappings_take_child_spec(self) -> Set<Mapping> {
         PageTableOwner(self.children[self.idx as int]->0).view_rec(
-            self.path().push_tail(self.idx as usize),
+            self.path().push_tail(self.idx as int),
         )
     }
 
@@ -448,7 +446,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             entry.idx == idx,
             entry_own.is_node(),
             entry_own.node() == parent_owner,
-            child_value.path == entry_own.path.push_tail(idx),
+            child_value.path == entry_own.path.push_tail(idx as int),
             child_value.path.len() == parent_owner.tree_level + 1,
         ensures
             child_value.path.len() == parent_owner.tree_level + 1,
@@ -456,7 +454,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 parent_owner.children_perm.value()[idx as int],
                 parent_owner.level,
             ),
-            child_value.path == entry_own.path.push_tail(idx),
+            child_value.path == entry_own.path.push_tail(idx as int),
             child_value.parent_level == parent_owner.level,
     {
     }
@@ -517,14 +515,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             // The new child at idx is well-formed
             self.children[self.idx as int] is Some,
             self.children[self.idx as int]->0.inv(),
-            self.children[self.idx as int]->0.value.parent_level == self.level(),
-            self.children[self.idx as int]->0.value.path == self.path().push_tail(
-                self.idx as usize,
+            self.children[self.idx as int]->0.value().parent_level == self.level(),
+            self.children[self.idx as int]->0.value().path == self.path().push_tail(
+                self.idx as int,
             ),
-            self.children[self.idx as int]->0.level == self.tree_level + 1,
-            self.children[self.idx as int]->0.value.path.len() == self.entry_own.node().tree_level
+            self.children[self.idx as int]->0.level() == self.tree_level + 1,
+            self.children[self.idx as int]->0.value().path.len() == self.entry_own.node().tree_level
                 + 1,
-            self.children[self.idx as int]->0.value.match_pte(
+            self.children[self.idx as int]->0.value().match_pte(
                 self.entry_own.node().children_perm.value()[self.idx as int],
                 self.entry_own.node().level,
             ),
@@ -542,41 +540,38 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         tracked &self,
         paddr: Paddr,
         prop: PageProperty,
-        is_tracked: bool,
         tracked regions: &mut MetaRegionOwners,
     ) -> (tracked res: OwnerSubtree<C>)
         requires
             self.inv(),
             self.level() < NR_LEVELS,
             old(regions).slots.contains_key(frame_to_index(paddr)),
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            has_safe_slot(paddr),
             paddr % page_size(self.level()) == 0,
             paddr + page_size(self.level()) <= MAX_PADDR,
-            self.path().push_tail(self.idx as usize).inv(),
+            C::raw_item_well_formed(paddr, self.level(), prop),
+            self.path().push_tail(self.idx as int).inv(),
         ensures
             final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
             // Allocating a child doesn't touch the segment obligation ledger.
-            res.value == EntryOwner::<C>::new_frame(
+            res.value() == EntryOwner::<C>::new_frame(
                 paddr,
-                self.path().push_tail(self.idx as usize),
+                self.path().push_tail(self.idx as int),
                 self.level(),
                 prop,
-                is_tracked,
             ),
             res.inv(),
-            res.level == self.tree_level + 1,
-            res == OwnerSubtree::new_val(res.value, res.level as nat),
+            res.level() == self.tree_level + 1,
+            res == OwnerSubtree::new_val(res.value(), res.level() as nat),
     {
         let tracked mut owner = EntryOwner::<C>::tracked_new_frame(
             paddr,
-            self.path().push_tail(self.idx as usize),
+            self.path().push_tail(self.idx as int),
             self.level(),
             prop,
-            is_tracked,
         );
-        OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
+        OwnerSubtree::tracked_new_val(owner, self.tree_level + 1)
     }
 
     pub broadcast group group_lemmas {
@@ -640,8 +635,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             0 <= j < NR_ENTRIES && !(C::TOP_LEVEL_INDEX_RANGE().start <= j
                 < C::TOP_LEVEL_INDEX_RANGE().end) ==> self.continuations[NR_LEVELS
                 - 1].children[j] is Some ==> (self.continuations[NR_LEVELS
-                - 1].children[j].unwrap().value.is_borrowed() || self.continuations[NR_LEVELS
-                - 1].children[j].unwrap().value.is_absent())
+                - 1].children[j].unwrap().value().is_borrowed() || self.continuations[NR_LEVELS
+                - 1].children[j].unwrap().value().is_absent())
         &&& self.prefix.inv()
         &&& self.prefix.offset == 0
         &&& forall|i: int|
@@ -715,7 +710,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 != self.continuations[3].guard.inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[2].path() == self.continuations[3].path().push_tail(
-                self.continuations[3].idx as usize,
+                self.continuations[3].idx as int,
             )
             // PTE consistency
             &&& self.continuations[2].entry_own.path.len()
@@ -739,7 +734,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 != self.continuations[3].guard.inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[1].path() == self.continuations[2].path().push_tail(
-                self.continuations[2].idx as usize,
+                self.continuations[2].idx as int,
             )
             // PTE consistency
             &&& self.continuations[1].entry_own.path.len()
@@ -765,7 +760,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 != self.continuations[3].guard.inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[0].path() == self.continuations[1].path().push_tail(
-                self.continuations[1].idx as usize,
+                self.continuations[1].idx as int,
             )
             // PTE consistency
             &&& self.continuations[0].entry_own.path.len()
@@ -893,9 +888,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[i].node_locked(guards1)
         } by {
             let cont_addr = self.continuations[i].guard.inner.inner@.ptr.addr();
-            assert(self.level - 1 <= i < NR_LEVELS);
-            assert(cont_addr != dropped_addr);
-            assert(self.continuations[i].node_locked(guards0));
             assert(guards0.guards.contains(cont_addr));
             assert(guards1.guards.contains(cont_addr));
         };
@@ -1040,7 +1032,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(exists|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s);
             let i = choose|i: int| #[trigger] mapped.dom().contains(i) && mapped[i] == elem_s;
             assert(filtered.dom().contains(i));
-            assert(self.level - 1 <= i < NR_LEVELS);
             assert(filtered[i] == self.continuations[i]);
             assert(mapped[i] == self.continuations[i].view_mappings());
         }
@@ -1063,7 +1054,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(filtered.dom().contains(i));
         assert(filtered[i] == self.continuations[i]);
         assert(mapped.dom().contains(i));
-        assert(mapped[i] == self.continuations[i].view_mappings());
         assert(values.contains(mapped[i]));
         values.lemma_flatten_contains(m);
     }
@@ -1091,7 +1081,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn cur_entry_owner(self) -> EntryOwner<C> {
-        self.cur_subtree().value
+        self.cur_subtree().value()
     }
 
     pub open spec fn cur_subtree(self) -> OwnerSubtree<C> {
@@ -1128,8 +1118,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             pa == self.cur_entry_owner().frame().mapped_pa,
             C::item_from_raw_spec(pa, level, prop) == item,
             has_safe_slot(pa),
+            C::raw_item_well_formed(pa, level, prop),
             // The recorded entry trackedness matches the item being cloned.
-            C::tracked(item) == self.cur_entry_owner().frame().is_tracked,
+            C::tracked(item) == self.cur_entry_owner().frame_is_tracked(),
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
             C::tracked(item) ==> (regions.slot_owners[frame_to_index(
                 pa,
@@ -1138,28 +1129,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             item.clone_requires(regions),
     {
         broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
-        // Extract the frame-slot facts from metaregion_sound via path_metaregion_sound.
 
-        assert(self.path_metaregion_sound(regions));
-        assert(self.cur_entry_owner().metaregion_sound(regions));
         let entry = self.cur_entry_owner();
         let idx = frame_to_index(pa);
-        // Bridge `C::tracked(item)` to `usage != MMIO`: the entry's `is_tracked`
-        // is connected to its paddr's MMIO-ness by `axiom_frame_is_tracked_iff_not_mmio`,
-        // and `usage == MMIO` to the paddr by `axiom_mmio_usage_iff_mmio_paddr`.
         EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(entry);
-        assert(regions.slot_owners[idx].slot_vaddr == crate::specs::mm::frame::mapping::meta_addr(
-            idx,
-        ));
-        if C::tracked(item) {
-            assert(!crate::specs::mm::frame::meta_owners::is_mmio_paddr(pa));
-            assert(regions.slot_owners[idx].usage !is MMIO);
-            assert(regions.slot_owners[idx].inner_perms.ref_count.value() > 0);
-            assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
-        }
-        // Now all preconditions of `C::clone_requires_concrete` are in scope.
-
-        C::clone_requires_concrete(item, pa, level, prop, regions);
+        C::lemma_clone_requires_concrete(item, pa, level, prop, regions);
     }
 
     /// Incrementing the ref count of the current frame preserves `regions.inv()` and
@@ -1247,12 +1221,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             level == self.level,
             new_subtree.inv(),
-            new_subtree.value.is_frame(),
-            new_subtree.value.path == self.continuations[self.level - 1].path().push_tail(
-                self.continuations[self.level - 1].idx as usize,
+            new_subtree.value().is_frame(),
+            new_subtree.value().path == self.continuations[self.level - 1].path().push_tail(
+                self.continuations[self.level - 1].idx as int,
             ),
-            new_subtree.value.frame().mapped_pa == pa,
-            new_subtree.value.frame().prop == prop,
+            new_subtree.value().frame().mapped_pa == pa,
+            new_subtree.value().frame().prop == prop,
         ensures
             PageTableOwner(new_subtree)@.mappings
                 == set![Mapping {
@@ -1262,11 +1236,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 property: prop,
             }],
     {
-        let path = new_subtree.value.path;
+        let path = new_subtree.value().path;
         let ps = page_size(level);
         let cont = self.continuations[self.level - 1];
-
-        cont.path().push_tail_property_len(cont.idx as usize);
 
         // Bridge `nat_align_down(cur_va, ps) == vaddr_of::<C>(path) as Vaddr`:
         //   to_path_vaddr_concrete: vaddr(path) + va.leading_bits * 2^48 == nat_align_down(cur_va, ps)
@@ -1280,35 +1252,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.va.to_path_len(self.level - 1);
             self.va.to_path_inv(self.level - 1);
             self.cur_subtree_inv();
-            assert forall|i: int| 0 <= i < path.len() implies path.index(i) == va_path.index(i) by {
+            assert forall|i: int| 0 <= i < path.len() implies path[i] == va_path[i] by {
                 self.va.to_path_index(self.level - 1, i);
-                if self.level == 4 {
-                    cont.path().push_tail_property_index(cont.idx as usize);
-                } else if self.level == 3 {
-                    cont.path().push_tail_property_index(cont.idx as usize);
-                    self.continuations[3].path().push_tail_property_index(
-                        self.continuations[3].idx as usize,
-                    );
-                } else if self.level == 2 {
-                    cont.path().push_tail_property_index(cont.idx as usize);
-                    self.continuations[2].path().push_tail_property_index(
-                        self.continuations[2].idx as usize,
-                    );
-                    self.continuations[3].path().push_tail_property_index(
-                        self.continuations[3].idx as usize,
-                    );
-                } else {
-                    cont.path().push_tail_property_index(cont.idx as usize);
-                    self.continuations[1].path().push_tail_property_index(
-                        self.continuations[1].idx as usize,
-                    );
-                    self.continuations[2].path().push_tail_property_index(
-                        self.continuations[2].idx as usize,
-                    );
-                    self.continuations[3].path().push_tail_property_index(
-                        self.continuations[3].idx as usize,
-                    );
-                }
             };
             AbstractVaddr::rec_vaddr_eq_if_indices_eq(path, va_path, 0);
         };
@@ -1877,91 +1822,30 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let gl = self.guard_level;
         let ps_gl = page_size(gl as PagingLevel) as nat;
         let ps = page_size((level + 1) as PagingLevel) as nat;
-        let pv = self.prefix.to_vaddr() as nat;
         let va = self.va.to_vaddr() as nat;
+        let start = self.locked_range().start as nat;
+        let end = self.locked_range().end as nat;
 
         lemma_page_size_ge_page_size(gl as PagingLevel);
         lemma_page_size_ge_page_size((level + 1) as PagingLevel);
         lemma_page_size_divides((level + 1) as PagingLevel, gl as PagingLevel);
+        self.locked_range_span();
 
-        self.prefix.align_down_concrete(gl as int);
-        self.prefix_aligned_to_guard_level();
-        self.prefix_plus_ps_no_overflow();
-        self.prefix.aligned_align_up_advances(gl as int);
-        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(pv, ps_gl) as Vaddr);
-
-        let start = nat_align_down(pv, ps_gl);
-        // Locked range's end is `prefix + ps_gl` (aligned prefix, always-advance).
-        let end = nat_align_down(pv, ps_gl) + ps_gl;
-
-        lemma_nat_align_down_sound(pv, ps_gl);
-        lemma_nat_align_down_sound(va, ps);
-        let ad = nat_align_down(va, ps);
-
-        // `start` and `end` are ps-aligned because ps | ps_gl.
-        let q = (ps_gl / ps) as int;
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps_gl as int, ps as int);
+        vstd::arithmetic::div_mod::lemma_indistinguishable_quotients(
+            start as int,
+            va as int,
+            ps_gl as int,
+        );
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, ps_gl as int);
-        // New `end = nat_align_down(pv, ps_gl) + ps_gl` is ps_gl-aligned: both summands are.
-        assert(end as int % ps_gl as int == 0) by {
-            vstd::arithmetic::div_mod::lemma_add_mod_noop(start as int, ps_gl as int, ps_gl as int);
-            vstd::arithmetic::div_mod::lemma_mod_self_0(ps_gl as int);
-        };
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps_gl as int);
-        let ks = start as int / ps_gl as int;
-        let ke = end as int / ps_gl as int;
-        vstd::arithmetic::mul::lemma_mul_is_associative(ps as int, q, ks);
-        vstd::arithmetic::mul::lemma_mul_is_associative(ps as int, q, ke);
-        vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(q * ks, 0int, ps as int);
-        vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(q * ke, 0int, ps as int);
-        vstd::arithmetic::div_mod::lemma_small_mod(0nat, ps);
-        assert(start as int % ps as int == 0int);
-        assert(end as int % ps as int == 0int);
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(va as int, ps_gl as int);
+        assert(nat_align_down(va, ps_gl) == start);
 
-        assert(ad >= start) by {
-            vstd::arithmetic::div_mod::lemma_div_is_ordered(start as int, va as int, ps as int);
-            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, ps as int);
-            vstd::arithmetic::mul::lemma_mul_inequality(
-                start as int / ps as int,
-                va as int / ps as int,
-                ps as int,
-            );
-        };
+        lemma_nat_align_down_sound(va, ps);
+        lemma_nat_align_down_sound(va, ps_gl);
+        lemma_nat_align_down_monotone(va, ps, ps_gl);
+        lemma_nat_align_down_within_block(va, ps, ps_gl);
 
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad as int, ps as int);
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps as int);
-        vstd::arithmetic::div_mod::lemma_div_is_ordered(ad as int, end as int, ps as int);
-        let ad_q = ad as int / ps as int;
-        let end_q = end as int / ps as int;
-        let ps_i = ps as int;
-        vstd_extra::arithmetic::lemma_nat_align_down_sound(va, ps);
-        vstd_extra::arithmetic::lemma_nat_align_up_sound(pv, ps_gl);
-        assert(ad as int % ps as int == 0);
-        assert(end as int % ps as int == 0);
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad as int, ps as int);
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps as int);
-        // ad == ps * (ad / ps) + ad % ps (from fundamental_div_mod) with ad % ps == 0.
-        assert(ad == ps * (ad as int / ps as int) + ad as int % ps as int);
-        assert(end == ps * (end as int / ps as int) + end as int % ps as int);
-        vstd::arithmetic::mul::lemma_mul_is_commutative(ps as int, ad as int / ps as int);
-        vstd::arithmetic::mul::lemma_mul_is_commutative(ps as int, end as int / ps as int);
-        assert(ad == ad_q * ps_i + (ad as int % ps as int));
-        assert(ad as int % ps as int == 0);
-        assert(ad == ad_q * ps_i);
-        assert(end as int % ps as int == 0);
-        assert(end == end_q * ps_i) by (nonlinear_arith)
-            requires
-                end == ps * (end as int / ps as int) + end as int % ps as int,
-                end as int % ps as int == 0,
-                end_q == end as int / ps as int,
-                ps_i == ps as int,
-        ;
-        assert((ad_q + 1) * ps_i <= end_q * ps_i) by (nonlinear_arith)
-            requires
-                ad_q + 1 <= end_q,
-                ps_i >= 0,
-        ;
-        assert((ad_q + 1) * ps_i == ad_q * ps_i + ps_i) by (nonlinear_arith);
+        assert(end == start + ps_gl);
     }
 
     /// The cursor's `prefix` is aligned to `page_size(self.guard_level)`, since the
@@ -2316,7 +2200,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.cur_subtree_inv();
         let cur_va = self.cur_va();
         let cur_subtree = self.cur_subtree();
-        let cur_path = cur_subtree.value.path;
+        let cur_path = cur_subtree.value().path;
         PageTableOwner(cur_subtree).view_rec_absent_empty(cur_path);
 
         assert forall|m: Mapping| self.view_mappings().contains(m) implies !(m.va_range.start
@@ -2343,7 +2227,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.in_locked_range(),
-            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path) =~= set![],
+            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value().path) =~= set![],
         ensures
             !self@.present(),
     {
@@ -2378,7 +2262,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self@.present(),
             self@.query(
                 self.cur_entry_owner().frame().mapped_pa,
-                self.cur_entry_owner().frame().size,
+                page_size(self.cur_entry_owner().parent_level),
                 self.cur_entry_owner().frame().prop,
             ),
     {
@@ -2386,12 +2270,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.cur_va_in_subtree_range();
         self.view_preserves_inv();
         let subtree = self.cur_subtree();
-        let path = subtree.value.path;
+        let path = subtree.value().path;
         let frame = self.cur_entry_owner().frame();
         let pt_level = INC_LEVELS - path.len();
         let cont = self.continuations[self.level - 1];
-
-        cont.path().push_tail_property_len(cont.idx as usize);
 
         let m = Mapping {
             va_range: Range {
@@ -2467,10 +2349,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
-            cont.path().push_tail(j as usize), g) by {
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
+            cont.path().push_tail(j), g) by {
                 cont.inv_children_unroll(j);
-                cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), f, g);
+                cont.children[j].unwrap().lemma_subtree_satisfies_implies(
+                    cont.path().push_tail(j),
+                    f,
+                    g,
+                );
             };
         };
         assert(other.path_metaregion_sound(regions1)) by {
@@ -2568,7 +2454,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// Transfers `metaregion_sound` when `raw_count` changed from 0 to 1 at one index.
-    /// Uses `map_implies_and` with the trivial `not_in_scope_pred`.
+    /// Uses `lemma_subtree_satisfies_implies_and` with the trivial `not_in_scope_pred`.
     pub proof fn metaregion_borrow_slot(
         self,
         regions0: MetaRegionOwners,
@@ -2636,21 +2522,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
-            cont.path().push_tail(j as usize), nsp) by {
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
+            cont.path().push_tail(j), nsp) by {
                 cont.inv_children_unroll(j);
                 PageTableOwner::tree_not_in_scope(
                     cont.children[j].unwrap(),
-                    cont.path().push_tail(j as usize),
+                    cont.path().push_tail(j),
                 );
             };
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
-            cont.path().push_tail(j as usize), g) by {
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
+            cont.path().push_tail(j), g) by {
                 cont.inv_children_unroll(j);
-                cont.children[j].unwrap().map_implies_and(
-                    cont.path().push_tail(j as usize),
+                cont.children[j].unwrap().lemma_subtree_satisfies_implies_and(
+                    cont.path().push_tail(j),
                     f,
                     nsp,
                     g,
@@ -2680,7 +2566,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ///
     /// ## Justification
     /// When the cursor descends into a subtree, each continuation's `entry_own`
-    /// was previously checked by `tree_predicate_map` in the parent's child
+    /// was previously checked by `subtree_satisfies` in the parent's child
     /// subtree.  After descent, `map_full_tree` only covers the siblings (the
     /// taken child is `None`), so the path entries' properties are no longer
     /// covered by `map_full_tree`.  However, `regions` is unchanged since
@@ -2889,34 +2775,16 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         let j = choose|j: int|
             0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
-            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+            ).view_rec(cont.path().push_tail(j)).contains(m);
         cont.pt_inv_children_unroll(j);
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
-        let p = cont.path().push_tail(j as usize);
-        cont.path().push_tail_property_len(j as usize);
-        cont.path().push_tail_property_index(j as usize);
-        let pidx = p.index(0) as int;
+        let p = cont.path().push_tail(j);
+        let pidx = p[0] as int;
         assert(start <= pidx < end) by {
             if i != NR_LEVELS - 1 {
-                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
-                    owner.continuations[NR_LEVELS - 1].path().push_tail_property_index(
-                        owner.continuations[NR_LEVELS - 1].idx,
-                    );
-                    if i == 2 {
-                    } else if i == 1 {
-                        owner.continuations[2].path().push_tail_property_index(
-                            owner.continuations[2].idx,
-                        );
-                    } else {
-                        owner.continuations[2].path().push_tail_property_index(
-                            owner.continuations[2].idx,
-                        );
-                        owner.continuations[1].path().push_tail_property_index(
-                            owner.continuations[1].idx,
-                        );
-                    }
                 }
             }
         }
@@ -2965,47 +2833,20 @@ pub proof fn lemma_view_in_vaddr_range_user<'rcu>(
         let j = choose|j: int|
             0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
-            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+            ).view_rec(cont.path().push_tail(j)).contains(m);
         cont.pt_inv_children_unroll(j);
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
-        let p = cont.path().push_tail(j as usize);
-        cont.path().push_tail_property_index(j as usize);
-        assert(0 <= p.index(0) < end) by {
+        let p = cont.path().push_tail(j);
+        assert(0 <= p[0] < end) by {
             if i == NR_LEVELS - 1 {
-                // Root continuation: `p == [j]`. A contributing child is a
-                // frame/node (borrowed/absent give an empty `view_rec`), hence
-                // neither borrowed nor absent; the cursor-inv top-level clause
-                // then forces `j ∈ [0, 256)`.
-                assert(cont.path().len() == 0);
-                assert(p.index(0) == j);
-                assert(child.0.value.is_frame() || child.0.value.is_node());
-                assert(!child.0.value.is_borrowed());
-                assert(!child.0.value.is_absent());
             } else {
-                // Non-root continuation: `p.index(0) == cont.path().index(0)`,
+                // Non-root continuation: `p[0] == cont.path()[0]`,
                 // which (via the inv path chain) equals the root continuation's
                 // descended index, in `[0, 256)` by the cursor-inv idx clause.
-                assert(cont.path().len() > 0);
-                assert(p.index(0) == cont.path().index(0));
-                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                assert(p[0] == cont.path()[0]);
+                assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
-                    owner.continuations[NR_LEVELS - 1].path().push_tail_property_index(
-                        owner.continuations[NR_LEVELS - 1].idx,
-                    );
-                    if i == 2 {
-                    } else if i == 1 {
-                        owner.continuations[2].path().push_tail_property_index(
-                            owner.continuations[2].idx,
-                        );
-                    } else {
-                        owner.continuations[2].path().push_tail_property_index(
-                            owner.continuations[2].idx,
-                        );
-                        owner.continuations[1].path().push_tail_property_index(
-                            owner.continuations[1].idx,
-                        );
-                    }
                 }
             }
         }
@@ -3058,44 +2899,27 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
         let j = choose|j: int|
             0 <= j < cont.children.len() && #[trigger] cont.children[j] is Some && PageTableOwner(
                 cont.children[j].unwrap(),
-            ).view_rec(cont.path().push_tail(j as usize)).contains(m);
+            ).view_rec(cont.path().push_tail(j)).contains(m);
         cont.pt_inv_children_unroll(j);
         cont.inv_children_rel_unroll(j);
         let child = PageTableOwner(cont.children[j].unwrap());
-        let p = cont.path().push_tail(j as usize);
-        cont.path().push_tail_property_index(j as usize);
-        assert(start <= p.index(0) < end) by {
+        let p = cont.path().push_tail(j);
+        assert(start <= p[0] < end) by {
             if i == NR_LEVELS - 1 {
             } else {
-                // Non-root: `p.index(0) == cont.path().index(0) == root.idx ∈
+                // Non-root: `p[0] == cont.path()[0] == root.idx ∈
                 // [256, 512)` (path chain + cursor-inv idx clause).
-                assert(cont.path().index(0) == owner.continuations[NR_LEVELS - 1].idx) by {
+                assert(cont.path()[0] == owner.continuations[NR_LEVELS - 1].idx) by {
                     owner.inv_continuation(NR_LEVELS - 1);
-                    owner.continuations[NR_LEVELS - 1].path().push_tail_property_index(
-                        owner.continuations[NR_LEVELS - 1].idx,
-                    );
-                    if i == 2 {
-                    } else if i == 1 {
-                        owner.continuations[2].path().push_tail_property_index(
-                            owner.continuations[2].idx,
-                        );
-                    } else {
-                        owner.continuations[2].path().push_tail_property_index(
-                            owner.continuations[2].idx,
-                        );
-                        owner.continuations[1].path().push_tail_property_index(
-                            owner.continuations[1].idx,
-                        );
-                    }
                 }
             }
         }
         child.view_rec_top_index_va_bound(p, m, end);
         // m.start ≥ index(0)·2^39 + lb·2^48 ≥ start·2^39 + lb·2^48 = bound.0.
-        assert(p.index(0) * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int >= start
-            * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int) by (nonlinear_arith)
+        assert(p[0] * 0x80_0000_0000int + lb * 0x1_0000_0000_0000int >= start * 0x80_0000_0000int
+            + lb * 0x1_0000_0000_0000int) by (nonlinear_arith)
             requires
-                start <= p.index(0),
+                start <= p[0],
         ;
     }
 }

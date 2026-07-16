@@ -226,7 +226,7 @@ impl<'a> VmSpace<'a> {
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             self.pt.relates_owner(owner, *old(regions)),
-            owner.0.value.node().relate_guard(root_guard),
+            owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
@@ -287,7 +287,7 @@ impl<'a> VmSpace<'a> {
                 -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>,
         requires
             self.pt.relates_owner(owner, *old(regions)),
-            owner.0.value.node().relate_guard(root_guard),
+            owner.0.value().node().relate_guard(root_guard),
             va.end > 0,
         ensures
             crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(*va) ==> (r matches Ok(_) && cursor_owner@ matches Some(_)),
@@ -562,10 +562,15 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         self.0.find_next(len)
     }
 
-    /// Jump to the virtual address.
+    // [FIXED] BUG FOUND BY FV: missing panic documentation. https://github.com/asterinas/asterinas/pull/3007
+    /// Jumps to the virtual address.
     ///
-    /// This function will move the cursor to the given virtual address.
-    /// If the target address is not in the locked range, it will return an error.
+    /// If the target address is out of the range, this method will return `Err`.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the address has bad alignment.
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Safety Invariants**: The page table cursor safety invariants
@@ -578,8 +583,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// the result will be `Ok` and the cursor's virtual address will be set to `va`.
     /// - **Correctness**: If the target `va` is outside the locked range, the result is `Err`.
     /// - **Correctness**: If the metadata region was well-formed before the call, it will be well-formed after.
-    /// ## Panics
-    /// This method panics if the target address is not aligned to the page size.
     /// ## Safety
     /// This function preserves all memory invariants.
     /// Because it throws an error rather than move the cursor to an invalid address,
@@ -729,9 +732,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         self.pt_cursor.find_next(len)
     }
 
+    // [FIXED] BUG FOUND BY FV: missing panic documentation. https://github.com/asterinas/asterinas/pull/3007
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the address has bad alignment.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -935,7 +943,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
         assert_eq!(len % PAGE_SIZE, 0);
 
-        //*** KNOWN BUG: `self.virt_addr() + len` could overflow. For now, assume that it doesn't. ***
+        // [KNOWN] BUG FOUND BY FV: `self.va + len` could overflow. For now assume that it doesn't. https://github.com/asterinas/asterinas/issues/3159
         assume(self.pt_cursor.0.va + len <= usize::MAX);
 
         assert!(self.virt_addr() + len <= self.pt_cursor.0.barrier_va.end);
@@ -1657,7 +1665,15 @@ unsafe impl PageTableConfig for UserPtConfig {
         MappedItem { frame, prop }
     }
 
-    proof fn item_from_raw_roundtrip(
+    proof fn lemma_item_into_raw_roundtrip(pa: Paddr, level: PagingLevel, prop: PageProperty) {
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+
+        Self::item_from_raw_spec_frame_ptr(pa, level, prop);
+        let item = Self::item_from_raw_spec(pa, level, prop);
+        crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
+    }
+
+    proof fn lemma_item_from_raw_roundtrip(
         item: Self::Item,
         paddr: Paddr,
         level: PagingLevel,
@@ -1666,7 +1682,6 @@ unsafe impl PageTableConfig for UserPtConfig {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         Self::item_from_raw_spec_frame_ptr(paddr, level, prop);
-
         assert(Self::item_well_formed(item));
         crate::specs::mm::frame::mapping::lemma_meta_to_paddr_biinjective(item.frame.ptr.addr());
     }
@@ -1680,7 +1695,28 @@ unsafe impl PageTableConfig for UserPtConfig {
         item.frame.inv()
     }
 
-    proof fn item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
+    open spec fn raw_item_well_formed(_pa: Paddr, level: PagingLevel, _prop: PageProperty) -> bool {
+        level == 1
+    }
+
+    proof fn lemma_raw_item_well_formed_preserved(
+        pa: Paddr,
+        level: PagingLevel,
+        old_prop: PageProperty,
+        new_prop: PageProperty,
+    ) {
+    }
+
+    proof fn lemma_raw_item_well_formed_split(
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        child_pa: Paddr,
+        child_idx: usize,
+    ) {
+    }
+
+    proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
         // Derive `frame.inv()` from the structural-shape axiom + soundness lemmas.
 
@@ -1691,7 +1727,7 @@ unsafe impl PageTableConfig for UserPtConfig {
         // FRAME_METADATA_RANGE. Both follow from `lemma_frame_to_meta_soundness`.
     }
 
-    proof fn clone_ensures_concrete(
+    proof fn lemma_clone_ensures_concrete(
         item: Self::Item,
         pa: Paddr,
         old_regions: MetaRegionOwners,
@@ -1718,25 +1754,19 @@ unsafe impl PageTableConfig for UserPtConfig {
         assert(new_regions.frame_obligations == old_regions.frame_obligations.insert(frame_idx));
     }
 
-    proof fn clone_requires_concrete(
+    proof fn lemma_clone_requires_concrete(
         item: Self::Item,
         pa: Paddr,
         level: PagingLevel,
         prop: PageProperty,
         regions: MetaRegionOwners,
     ) {
-        // `MappedItem::clone_requires` unfolds to `item.frame.clone_requires(regions)`.
-        // The trait precondition delivers all the slot facts at `frame_to_index(pa)`.
-        // We bridge:
-        //   (1) `item.frame.inv()` — discharged via `item_from_raw_well_formed`
-        //       (the trait-level structural well-formedness method).
-        //   (2) `frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa)`
-        //       from `pa == item.frame.paddr()` (UserPtConfig::item_into_raw_spec).
         use crate::mm::frame::meta::mapping::meta_to_frame;
         use crate::specs::mm::frame::mapping::frame_to_index;
-        Self::item_from_raw_well_formed(pa, level, prop);
-        Self::item_from_raw_roundtrip(item, pa, level, prop);
-        assert(item.frame.paddr() == pa);
+        broadcast use crate::specs::mm::frame::mapping::group_page_meta;
+
+        Self::lemma_item_from_raw_well_formed(pa, level, prop);
+        Self::item_from_raw_spec_frame_ptr(pa, level, prop);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
         assert(frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa));
         // `Self::item_well_formed(item)` unfolds to `item.frame.inv()`.
@@ -1751,6 +1781,7 @@ impl UserPtConfig {
     pub axiom fn item_from_raw_spec_frame_ptr(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
             has_safe_slot(pa),
+            UserPtConfig::raw_item_well_formed(pa, level, prop),
         ensures
             UserPtConfig::item_from_raw_spec(pa, level, prop).frame.ptr.addr()
                 == crate::mm::frame::meta::mapping::frame_to_meta(pa),

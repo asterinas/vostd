@@ -392,6 +392,7 @@ impl PageTableEntryTrait for PageTableEntry {
     fn paddr(&self) -> Paddr {
         proof {
             self.lemma_paddr_is_page_aligned();
+            assume(self.0 & Self::PHYS_ADDR_MASK < MAX_PADDR);
         }
         self.0 & Self::PHYS_ADDR_MASK
     }

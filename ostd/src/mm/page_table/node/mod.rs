@@ -148,6 +148,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         &&& regions.inv()
         &&& Self::child_perms_embedding(regions, vstd::set::Set::empty())
         &&& self.walk_coverage_from_view(reader, vm_io_owner.read_view_of(), regions.slots.dom())
+        &&& self.walk_items_well_formed_from_view(reader, vm_io_owner.read_view_of())
         &&& self.walk_uniqueness_from_view(reader, vm_io_owner.read_view_of())
     }
 
@@ -252,6 +253,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 regions.slots.dom() == initial_dom,
                 Self::child_perms_embedding(*regions, removed_indices),
                 self.walk_coverage_from_view(initial_reader, initial_view, initial_dom),
+                self.walk_items_well_formed_from_view(initial_reader, initial_view),
                 self.walk_uniqueness_from_view(initial_reader, initial_view),
                 // Without this, Verus treats `self.level` as potentially
                 // mutated by `&mut self` and the level-comparison facts go
@@ -436,6 +438,24 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 } else {
                     // SAFETY: The PTE points to a mapped item. The ownership
                     // of the item is transferred here then dropped.
+                    proof {
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+                            size_of_e,
+                            range_start,
+                            iter_count as int,
+                        );
+                        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(
+                            range_start + iter_count,
+                            size_of_e,
+                        );
+                        Self::lemma_item_well_formed_at(
+                            *self,
+                            initial_reader,
+                            initial_view,
+                            cursor_pre_read,
+                        );
+                        assert(C::raw_item_well_formed(paddr, level, pte.prop()));
+                    }
                     let _item = unsafe { C::item_from_raw(paddr, level, pte.prop()) };
                 }
             }
@@ -509,22 +529,22 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).inv(),
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
-            res.ptr.addr() == owner@.value.node().meta_addr_self(),
-            guards.unlocked(owner@.value.node().meta_addr_self()),
-            MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value.node().meta_addr_self()), *old(regions), *final(regions)),
-            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value.node().meta_addr_self()), *old(regions), *final(regions)),
+            res.ptr.addr() == owner@.value().node().meta_addr_self(),
+            guards.unlocked(owner@.value().node().meta_addr_self()),
+            MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value().node().meta_addr_self()), *old(regions), *final(regions)),
+            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().meta_addr_self()), *old(regions), *final(regions)),
 
             final(regions).frame_obligations == old(regions).frame_obligations.insert(
-                frame_to_index(meta_to_frame(owner@.value.node().meta_addr_self()))),
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node().meta_addr_self()))),
+                frame_to_index(meta_to_frame(owner@.value().node().meta_addr_self()))),
+            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value().node().meta_addr_self()))),
 
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                meta_to_frame(owner@.value.node().meta_addr_self())),
-            owner@.value.metaregion_sound(*final(regions)),
+                meta_to_frame(owner@.value().node().meta_addr_self())),
+            owner@.value().metaregion_sound(*final(regions)),
             forall|i: usize|
                 #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> i != frame_to_index(meta_to_frame(owner@.value.node().meta_addr_self())),
-            owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node().meta_addr_self())), level as PagingLevel),
+                ==> i != frame_to_index(meta_to_frame(owner@.value().node().meta_addr_self())),
+            owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_addr_self())), level as PagingLevel),
             final(parent_owner).meta_own == old(parent_owner).meta_own,
             final(parent_owner).slot_index == old(parent_owner).slot_index,
             final(parent_owner).level == old(parent_owner).level,
@@ -532,10 +552,10 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).children_perm.addr() == old(parent_owner).children_perm.addr(),
             final(parent_owner).children_perm.value() == old(parent_owner).children_perm.value().update(
                 idx as int,
-                C::E::new_pt_spec(meta_to_frame(owner@.value.node().meta_addr_self())),
+                C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_addr_self())),
             ),
-            final(regions).slots.contains_key(owner@.value.node().slot_index),
-            owner@.value.node().metaregion_sound_node(*final(regions)),
+            final(regions).slots.contains_key(owner@.value().node().slot_index),
+            owner@.value().node().metaregion_sound_node(*final(regions)),
     )]
     #[verifier::external_body]
     pub fn alloc<'rcu>(level: PagingLevel) -> Self {
@@ -544,7 +564,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             level,
         );
 
-        let tracked mut owner = OwnerSubtree::<C>::new_val_tracked(entry_owner, level as nat);
+        let tracked mut owner = OwnerSubtree::<C>::tracked_new_val(entry_owner, level as nat);
         let meta = PageTablePageMeta::new(level);
         let mut frame = FrameAllocOptions::new();
         frame.zeroed(true);
@@ -942,6 +962,30 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     {
     }
 
+    /// Instantiate [`walk_items_well_formed_from_view`]'s forall at one cursor.
+    pub proof fn lemma_item_well_formed_at(
+        self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        view: crate::specs::mm::virt_mem::MemView,
+        c: usize,
+    )
+        requires
+            self.walk_items_well_formed_from_view(reader, view),
+            reader.cursor.vaddr <= c,
+            c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr + reader.remain_spec(),
+            (c - reader.cursor.vaddr) % core::mem::size_of::<C::E>() as int == 0,
+        ensures
+            ({
+                let pte = Self::walk_pte_at_view(view, c);
+                pte.is_present() && pte.is_last(self.level) ==> C::raw_item_well_formed(
+                    pte.paddr(),
+                    self.level,
+                    pte.prop(),
+                )
+            }),
+    {
+    }
+
     /// Instantiate [`walk_uniqueness_from_view`]'s forall at one cursor pair.
     pub proof fn lemma_uniqueness_at_pair(
         self,
@@ -988,6 +1032,28 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                 let pte = Self::walk_pte_at_view(view, c);
                 pte.is_present() && !pte.is_last(self.level) ==> dom.contains(
                     frame_to_index(pte.paddr()),
+                )
+            }
+    }
+
+    /// Every present leaf PTE encountered by the drop walk contains a canonical
+    /// raw item for the node's paging level.
+    pub open spec fn walk_items_well_formed_from_view(
+        self,
+        reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
+        view: crate::specs::mm::virt_mem::MemView,
+    ) -> bool {
+        forall|c: usize|
+            #![trigger Self::walk_pte_at_view(view, c)]
+            reader.cursor.vaddr <= c && c + core::mem::size_of::<C::E>() <= reader.cursor.vaddr
+                + reader.remain_spec() && (c - reader.cursor.vaddr) % core::mem::size_of::<
+                C::E,
+            >() as int == 0 ==> {
+                let pte = Self::walk_pte_at_view(view, c);
+                pte.is_present() && pte.is_last(self.level) ==> C::raw_item_well_formed(
+                    pte.paddr(),
+                    self.level,
+                    pte.prop(),
                 )
             }
     }

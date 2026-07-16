@@ -41,14 +41,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
-                && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
-            self.path().push_tail(j as usize),
+                && self.children[j] is Some implies self.children[j].unwrap().subtree_satisfies(
+            self.path().push_tail(j),
             g,
         ) by {
             self.inv_children_unroll(j);
-            OwnerSubtree::map_implies(
+            OwnerSubtree::lemma_subtree_satisfies_implies(
                 self.children[j].unwrap(),
-                self.path().push_tail(j as usize),
+                self.path().push_tail(j),
                 f,
                 g,
             );
@@ -75,8 +75,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             forall|j: int|
                 #![auto]
                 0 <= j < NR_ENTRIES && j != idx ==> self.children[j] == cont0.children[j],
-            self.children[idx] is Some ==> self.children[idx]->0.tree_predicate_map(
-                self.path().push_tail(idx as usize),
+            self.children[idx] is Some ==> self.children[idx]->0.subtree_satisfies(
+                self.path().push_tail(idx as int),
                 g,
             ),
         ensures
@@ -85,15 +85,15 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert forall|j: int|
             #![auto]
             0 <= j < self.children.len()
-                && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
-            self.path().push_tail(j as usize),
+                && self.children[j] is Some implies self.children[j].unwrap().subtree_satisfies(
+            self.path().push_tail(j),
             g,
         ) by {
             if j != idx {
                 cont0.inv_children_unroll(j);
-                OwnerSubtree::map_implies(
+                OwnerSubtree::lemma_subtree_satisfies_implies(
                     cont0.children[j].unwrap(),
-                    cont0.path().push_tail(j as usize),
+                    cont0.path().push_tail(j),
                     f,
                     g,
                 );
@@ -143,12 +143,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall|j: int|
                 #![trigger cont.children[j]]
                 0 <= j < cont.children.len()
-                    && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
-            cont.path().push_tail(j as usize), g) by {
+                    && cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
+                cont.path().push_tail(j),
+                g,
+            ) by {
                 cont.inv_children_unroll(j);
-                OwnerSubtree::map_implies(
+                OwnerSubtree::lemma_subtree_satisfies_implies(
                     cont.children[j].unwrap(),
-                    cont.path().push_tail(j as usize),
+                    cont.path().push_tail(j),
                     f,
                     g,
                 );
@@ -238,14 +240,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             reveal(CursorContinuation::inv_children);
             assert forall|j: int|
                 0 <= j < NR_ENTRIES
-                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
-            cont.path().push_tail(j as usize), g) by {
+                    && #[trigger] cont.children[j] is Some implies cont.children[j].unwrap().subtree_satisfies(
+            cont.path().push_tail(j), g) by {
                 cont.inv_children_unroll(j);
                 PageTableOwner::tree_not_in_scope(
                     cont.children[j].unwrap(),
-                    cont.path().push_tail(j as usize),
+                    cont.path().push_tail(j),
                 );
-                cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), nsp, g);
+                cont.children[j].unwrap().lemma_subtree_satisfies_implies(
+                    cont.path().push_tail(j),
+                    nsp,
+                    g,
+                );
             };
         };
     }
