@@ -276,6 +276,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             paddr % page_size(parent_level) == 0,
             paddr + page_size(parent_level) <= MAX_PADDR,
             C::raw_item_well_formed(paddr, parent_level, prop),
+            C::E::new_page_req(paddr, parent_level, prop),
             !C::tracked(C::item_from_raw_spec(paddr, parent_level, prop)),
         ensures
             res.is_frame(),
