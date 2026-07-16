@@ -271,10 +271,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         prop: PageProperty,
     ) -> (tracked res: Self)
         requires
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
-            1 <= parent_level,
-            parent_level < NR_LEVELS,
+            has_safe_slot(paddr),
+            1 <= parent_level < NR_LEVELS,
             paddr % page_size(parent_level) == 0,
             paddr + page_size(parent_level) <= MAX_PADDR,
             C::raw_item_well_formed(paddr, parent_level, prop),
