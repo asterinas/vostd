@@ -1943,6 +1943,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.cur_entry_owner().frame().prop,
             ),
     {
+        self.cur_subtree_inv();
         self.cur_va_in_subtree_range();
         self.view_preserves_inv();
         let subtree = self.cur_subtree();
@@ -1963,12 +1964,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             page_size: page_size(pt_level as PagingLevel),
             property: frame.prop,
         };
+        assert(PageTableOwner(subtree).view_rec(path) == set![m]);
         cont.lemma_view_mappings_intro(m, cont.idx as int);
         self.lemma_view_mappings_intro(m, self.level - 1);
+        assert(m.va_range.start <= self@.cur_va < m.va_range.end) by {
+            self.cur_va_in_subtree_range();
+            crate::specs::mm::page_table::owners::lemma_vaddr_of_eq_int::<C>(path);
+        };
 
         let filtered = self@.mappings.filter(
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end,
         );
+        assert(filtered.contains(m));
         lemma_set_contains_len(filtered, m);
     }
 
