@@ -159,11 +159,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             *final(self) == old(self).restore(child).0,
             guard == old(self).restore(child).1,
     {
-        let tracked child_node = OwnerSubtree {
-            value: child.entry_own,
-            level: child.tree_level,
-            children: child.children,
-        };
+        let tracked child_node = OwnerSubtree::tracked_new(
+            child.entry_own,
+            child.tree_level,
+            child.children,
+        );
         lemma_update_is_remove_insert(self.children, self.idx as int, Some(child_node));
         let _ = self.children.tracked_remove(self.idx as int);
         self.children.tracked_insert(self.idx as int, Some(child_node));
@@ -193,15 +193,9 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             res == Self::new(owner_subtree, idx, guard),
     {
-        let tracked res = Self {
-            entry_own: owner_subtree.value,
-            idx,
-            tree_level: owner_subtree.level,
-            children: owner_subtree.children,
-            path: TreePath::new(Seq::empty()),
-            guard,
-        };
-        res
+        let ghost tree_level = owner_subtree.level();
+        let tracked (entry_own, children) = owner_subtree.tracked_into_parts();
+        Self { entry_own, idx, tree_level, children, path: TreePath::new(Seq::empty()), guard }
     }
 
     pub open spec fn map_children(
