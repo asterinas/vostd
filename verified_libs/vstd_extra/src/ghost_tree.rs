@@ -310,9 +310,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
         tracked value: T,
         level: nat,
         tracked children: Seq<Option<Self>>,
-    ) -> (tracked res: Self)
-        ensures
-            res == Self::new(value, level, children),
+    ) -> tracked Self
+        returns
+            Self::new(value, level, children),
     {
         TreeNode { value, level, children: Tracked(children) }
     }
