@@ -189,9 +189,9 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         tracked owner_subtree: OwnerSubtree<C>,
         idx: usize,
         tracked guard: PageTableGuard<'rcu, C>,
-    ) -> (tracked res: Self)
-        ensures
-            res == Self::new(owner_subtree, idx, guard),
+    ) -> tracked Self
+        returns
+            Self::new(owner_subtree, idx, guard),
     {
         let ghost tree_level = owner_subtree.level();
         let tracked (entry_own, children) = owner_subtree.tracked_into_parts();
