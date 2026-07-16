@@ -15,10 +15,8 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::*;
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
-use crate::specs::mm::frame::meta_owners::PageUsage;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{meta_owners::PageUsage, meta_region_owners::MetaRegionOwners};
 use crate::specs::mm::page_table::node::entry_view::*;
 use crate::specs::mm::page_table::*;
 use core::marker::PhantomData;
@@ -26,24 +24,18 @@ use core::marker::PhantomData;
 verus! {
 
 /// # Verification Design
-/// The owner type for a page table leaf: a frame mapped in a node. Asterinas supports
-/// huge pages, so it is not necessarily at level 1.
+/// The proof-side snapshot for a page table leaf: a frame mapped in a node. Asterinas
+/// supports huge pages, so it is not necessarily at level 1.
 /// - `mapped_pa` is the physical address of the mapped frame.
-/// - `size` is the size of the mapping, which corresponds to the level of the parent
-///   page table. 4k at level 1, 2M at level 2, and 1G at level 3.
 /// - `prop` is a bitfield tracking the properties of the page ([`PageProperty`])
-/// - `is_tracked` refers to whether the frame is ref-counted (when `true`) or
-///   raw MMIO (when `false`).
-pub tracked struct FrameEntryOwner {
-    pub ghost mapped_pa: usize,
-    pub ghost size: usize,
-    pub ghost prop: PageProperty,
-    pub ghost is_tracked: bool,
+pub ghost struct FrameEntryState {
+    pub mapped_pa: usize,
+    pub prop: PageProperty,
 }
 
 pub tracked enum EntryOwnerKind<C: PageTableConfig> {
     Node(NodeOwner<C>),
-    Frame(FrameEntryOwner),
+    Frame(ghost FrameEntryState),
     /// Translation-only / borrowed-sub-tree variant.
     ///
     /// Present when the slot's PTE references a sub-tree owned by *another*
@@ -88,8 +80,17 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.kind->Node_0
     }
 
-    pub open spec fn frame(self) -> FrameEntryOwner {
+    pub open spec fn frame(self) -> FrameEntryState {
         self.kind->Frame_0
+    }
+
+    pub open spec fn frame_is_tracked(self) -> bool
+        recommends
+            self.is_frame(),
+    {
+        C::tracked(
+            C::item_from_raw_spec(self.frame().mapped_pa, self.parent_level, self.frame().prop),
+        )
     }
 
     pub open spec fn borrowed(self) -> Set<Mapping> {
@@ -105,17 +106,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         path: TreePath<NR_ENTRIES>,
         parent_level: PagingLevel,
         prop: PageProperty,
-        is_tracked: bool,
     ) -> Self {
         EntryOwner {
-            kind: EntryOwnerKind::Frame(
-                FrameEntryOwner {
-                    mapped_pa: paddr,
-                    size: page_size(parent_level),
-                    prop,
-                    is_tracked,
-                },
-            ),
+            kind: EntryOwnerKind::Frame(FrameEntryState { mapped_pa: paddr, prop }),
             path,
             parent_level,
         }
@@ -207,51 +200,17 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub proof fn tracked_take_frame(tracked &mut self) -> (tracked res: FrameEntryOwner)
+    pub proof fn tracked_set_frame_prop(tracked &mut self, prop: PageProperty)
         requires
             old(self).kind is Frame,
         ensures
-            res == old(self).frame(),
-            *final(self) == (EntryOwner { kind: EntryOwnerKind::Absent, ..*old(self) }),
+            *final(self) == (EntryOwner {
+                kind: EntryOwnerKind::Frame(FrameEntryState { prop, ..old(self).frame() }),
+                ..*old(self)
+            }),
     {
-        let tracked mut tmp = EntryOwnerKind::Absent;
-        tracked_swap(&mut self.kind, &mut tmp);
-        match tmp {
-            EntryOwnerKind::Frame(frame) => frame,
-            _ => { proof_from_false() },
-        }
-    }
-
-    pub proof fn tracked_put_frame(tracked &mut self, tracked frame: FrameEntryOwner)
-        ensures
-            *final(self) == (EntryOwner { kind: EntryOwnerKind::Frame(frame), ..*old(self) }),
-    {
-        self.kind = EntryOwnerKind::Frame(frame);
-    }
-
-    pub proof fn tracked_borrow_frame(tracked &self) -> (tracked res: &FrameEntryOwner)
-        requires
-            self.kind is Frame,
-        ensures
-            *res == self.frame(),
-    {
-        match self.kind {
-            EntryOwnerKind::Frame(ref frame) => frame,
-            _ => { proof_from_false() },
-        }
-    }
-
-    pub proof fn tracked_borrow_mut_frame(tracked &mut self) -> (tracked res: &mut FrameEntryOwner)
-        requires
-            old(self).kind is Frame,
-        ensures
-            *res == old(self).frame(),
-            *final(self) == (EntryOwner { kind: EntryOwnerKind::Frame(*final(res)), ..*old(self) }),
-    {
-        match self.kind {
-            EntryOwnerKind::Frame(ref mut frame) => frame,
-            _ => { proof_from_false() },
-        }
+        let ghost old_frame = self.frame();
+        self.kind = EntryOwnerKind::Frame(FrameEntryState { prop, ..old_frame });
     }
 
     pub proof fn tracked_new_frame(
@@ -259,65 +218,28 @@ impl<C: PageTableConfig> EntryOwner<C> {
         path: TreePath<NR_ENTRIES>,
         parent_level: PagingLevel,
         prop: PageProperty,
-        is_tracked: bool,
     ) -> tracked Self
         returns
-            Self::new_frame(paddr, path, parent_level, prop, is_tracked),
+            Self::new_frame(paddr, path, parent_level, prop),
     {
         Self {
-            kind: EntryOwnerKind::Frame(
-                FrameEntryOwner {
-                    mapped_pa: paddr,
-                    size: page_size(parent_level),
-                    prop,
-                    is_tracked,
-                },
-            ),
+            kind: EntryOwnerKind::Frame(FrameEntryState { mapped_pa: paddr, prop }),
             path,
             parent_level,
         }
     }
 
-    /// Structural connection between a frame entry's recorded `is_tracked` flag and
-    /// the trackedness of the item that would be reconstructed by `item_from_raw_spec`.
-    ///
-    /// **Why this is sound:** every `FrameEntryOwner` was created via `new_frame(...,
-    /// is_tracked)`, and at every construction site the caller passes
-    /// `is_tracked = C::tracked(item)` where `item` is the item being mapped. By the
-    /// `item_from_raw / item_into_raw` round-trip law, re-reading the entry's
-    /// `(mapped_pa, parent_level, prop)` and reconstructing via `item_from_raw_spec`
-    /// gives back the original `item`. So `C::tracked` of the reconstructed item
-    /// equals the recorded `is_tracked`.
-    ///
-    /// Currently an axiom. The proper encoding discharges this connection
-    /// through the `PageTableConfig` trait impls — establishing
-    /// `is_tracked == C::tracked(item)` at each `new_frame` construction site
-    /// (e.g. as an `EntryOwner::inv_base` clause) — rather than axiomatizing it.
-    pub axiom fn axiom_frame_is_tracked_matches_item(entry: Self)
-        requires
-            entry.is_frame(),
-            entry.inv_base(),
-        ensures
-            entry.frame().is_tracked == C::tracked(
-                C::item_from_raw_spec(
-                    entry.frame().mapped_pa,
-                    entry.parent_level,
-                    entry.frame().prop,
-                ),
-            ),
-    ;
-
     /// The frame's `is_tracked` flag is pinned to its paddr's range membership:
     /// tracked frames map regular RAM (non-MMIO paddrs); untracked frames map
     /// MMIO. Combined with `axiom_mmio_usage_iff_mmio_paddr`, this lets proofs
-    /// translate between `is_tracked` on a `FrameEntryOwner` and `usage == MMIO`
+    /// translate between the derived frame trackedness and `usage == MMIO`
     /// on the corresponding meta slot.
     pub broadcast axiom fn axiom_frame_is_tracked_iff_not_mmio(entry: Self)
         requires
             entry.is_frame(),
             entry.inv_base(),
         ensures
-            #[trigger] entry.frame().is_tracked
+            #[trigger] entry.frame_is_tracked()
                 != crate::specs::mm::frame::meta_owners::is_mmio_paddr(entry.frame().mapped_pa),
     ;
 
@@ -356,8 +278,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             res.is_frame(),
             res.frame().mapped_pa == paddr,
             res.frame().prop == prop,
-            res.frame().size == page_size(parent_level),
-            res.frame().is_tracked == false,
+            !res.frame_is_tracked(),
             res.parent_level == parent_level,
             res.path.inv(),
             res.inv_base(),
@@ -925,11 +846,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // == NR_LEVELS` would be a 512 GiB huge page, which no current arch
             // permits — and `Mapping::inv` would reject its page_size.
             &&& 1 <= self.parent_level < NR_LEVELS
-            &&& self.frame().mapped_pa % PAGE_SIZE == 0
-            &&& self.frame().mapped_pa < MAX_PADDR
-            &&& self.frame().size == page_size(self.parent_level)
+            &&& has_safe_slot(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
+            &&& C::raw_item_well_formed(
+                self.frame().mapped_pa,
+                self.parent_level,
+                self.frame().prop,
+            )
         }
         &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()
