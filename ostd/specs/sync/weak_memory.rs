@@ -658,17 +658,25 @@ impl<T, K> WeakAtomicPtr<T, K, (), TrueWeakAtomicInv> {
     }
 }
 
-impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
+impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicInv> {
     /// Acquire-load helper for RCU root pointers.
     #[inline(always)]
     pub fn load_acquire_rcu(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
         *mut T,
         Ghost<Timestamp>,
+        Ghost<Option<rcu_spec::RcuPublishedObject>>,
     ))
         requires
             self.well_formed(),
         ensures
             !self.constant() ==> !res.0.is_null(),
+            match res.2@ {
+                None => res.0.addr() == 0,
+                Some(object) => {
+                    &&& res.0.addr() != 0
+                    &&& object.addr == res.0.addr()
+                },
+            },
     {
         let result;
         proof {
@@ -681,13 +689,27 @@ impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
                 assert(self.atomic_inv@.constant().1 == self.atomic.id());
                 assert(hist.id() == self.atomic.id());
             }
-            result = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
+            let loaded = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
+            proof_decl! {
+                let ghost published = g.published_at(loaded.1@);
+            }
             proof {
                 assert(rcu_spec::rcu_history_inv(self.constant(), hist.history()));
-                if !self.constant() {
-                    rcu_spec::rcu_history_inv_read_nonnull::<T>(hist.history(), result.1@);
-                    assert(!result.0.is_null());
+                match published {
+                    Some(object) => {
+                        assert(object.addr == loaded.0.addr());
+                    },
+                    None => {
+                        assert(loaded.0.addr() == 0);
+                    },
                 }
+                if !self.constant() {
+                    rcu_spec::rcu_history_inv_read_nonnull::<T>(hist.history(), loaded.1@);
+                    assert(!loaded.0.is_null());
+                }
+            }
+            result = (loaded.0, loaded.1, Ghost(published));
+            proof {
                 pair = (hist, g);
             }
         });
@@ -705,7 +727,7 @@ impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
             use_type_invariant(self);
         }
         vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
-            let tracked (mut hist, g) = pair;
+            let tracked (mut hist, mut g) = pair;
             proof {
                 assert(hist.id() == self.atomic_inv@.constant().1);
                 assert(self.atomic_inv@.constant().1 == self.atomic.id());
@@ -715,6 +737,7 @@ impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
             let snap = self.atomic.store_release(Tracked(&mut hist), Tracked(tv), value);
             let ghost next = hist.history();
             proof {
+                assert(rcu_spec::rcu_root_history_inv(prev, g));
                 if !self.constant() {
                     assert(!value.is_null());
                     assert(snap@.msg().value.addr() != 0);
@@ -725,6 +748,7 @@ impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
                     next,
                     snap@.msg(),
                 );
+                g.tracked_push(prev, next, snap@.msg());
                 pair = (hist, g);
             }
         });
@@ -747,7 +771,7 @@ impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
             use_type_invariant(self);
         }
         vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
-            let tracked (mut hist, g) = pair;
+            let tracked (mut hist, mut g) = pair;
             proof {
                 assert(hist.id() == self.atomic_inv@.constant().1);
                 assert(self.atomic_inv@.constant().1 == self.atomic.id());
@@ -763,6 +787,7 @@ impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
             result = (cas_result.0, cas_result.1);
             let ghost next = hist.history();
             proof {
+                assert(rcu_spec::rcu_root_history_inv(prev, g));
                 match cas_result.0 {
                     Result::Ok(_) => {
                         let tracked snap_opt = cas_result.2.get();
@@ -778,6 +803,7 @@ impl<T> WeakAtomicPtr<T, bool, (), rcu_spec::RcuWeakAtomicInv> {
                                     next,
                                     snap.msg(),
                                 );
+                                g.tracked_push(prev, next, snap.msg());
                             },
                             Option::None => {
                                 assert(false);

@@ -109,13 +109,17 @@ pub tracked struct PreemptThreadViewSession {
 }
 
 impl PreemptThreadViewSession {
-    pub proof fn new(tracked task_view: TaskThreadView) -> (tracked res: Self)
+    pub proof fn new(tracked task_view: TaskThreadView, sched_view: SchedulerView) -> (tracked res:
+        Self)
+        requires
+            task_view.wf(sched_view),
         ensures
             res.task() == task_view.task(),
             res.view() == task_view.view(),
             res.session_task() == task_view.task(),
             res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
             res.wf_session_resource(),
+            res.wf(sched_view),
     {
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(PREEMPT_SESSION_FRACTIONS > 1) by (compute);
@@ -127,6 +131,7 @@ impl PreemptThreadViewSession {
         let tracked res = PreemptThreadViewSession { task_view, tokens };
         assert(res.available_fractions() == PREEMPT_SESSION_FRACTIONS);
         assert(res.wf_session_resource());
+        assert(res.wf(sched_view));
         res
     }
 
@@ -252,6 +257,22 @@ impl PreemptThreadViewSession {
     {
         self.task_view
     }
+
+    /// Returns the checked-out view while preserving its scheduler relation.
+    pub proof fn tracked_into_task_view_for_scheduler(
+        tracked self,
+        sched_view: SchedulerView,
+    ) -> (tracked res: TaskThreadView)
+        requires
+            self.wf(sched_view),
+            self.available_fractions() == PREEMPT_SESSION_FRACTIONS,
+        ensures
+            res.task() == self.task(),
+            res.view() == self.view(),
+            res.wf(sched_view),
+    {
+        self.task_view
+    }
 }
 
 /// The proof-owned state for one task while it is running.
@@ -268,10 +289,8 @@ pub tracked struct RunningTaskContext {
 
 impl RunningTaskContext {
     /// Starts a running interval for a checked-out task view.
-    pub proof fn new(
-        tracked task_view: TaskThreadView,
-        sched_view: SchedulerView,
-    ) -> (tracked res: Self)
+    pub proof fn new(tracked task_view: TaskThreadView, sched_view: SchedulerView) -> (tracked res:
+        Self)
         requires
             task_view.wf(sched_view),
         ensures
@@ -283,10 +302,12 @@ impl RunningTaskContext {
             res.is_quiescent(),
             res.wf_scheduler(sched_view),
     {
-        let tracked session = PreemptThreadViewSession::new(task_view);
+        let tracked session = PreemptThreadViewSession::new(task_view, sched_view);
         let tracked res = RunningTaskContext { session, preempt_depth: 0 };
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(res.wf());
+        assert(res.session.wf(sched_view));
+        assert(res.wf_scheduler(sched_view));
         res
     }
 
@@ -310,17 +331,33 @@ impl RunningTaskContext {
         self.preempt_depth
     }
 
-    pub open spec fn wf(self) -> bool {
+    pub closed spec fn wf(self) -> bool {
         &&& self.session.wf_session_resource()
-        &&& self.available_fractions() + self.preempt_depth()
-            == PREEMPT_SESSION_FRACTIONS
+        &&& self.available_fractions() + self.preempt_depth() == PREEMPT_SESSION_FRACTIONS
     }
 
     /// Relates this running context to the scheduler snapshot from which its
     /// task view was checked out.
-    pub open spec fn wf_scheduler(self, sched_view: SchedulerView) -> bool {
+    pub closed spec fn wf_scheduler(self, sched_view: SchedulerView) -> bool {
         &&& self.wf()
         &&& self.session.wf(sched_view)
+    }
+
+    /// Re-establishes the scheduler relation after the checked-out task view
+    /// has been updated to this context's current weak-memory view.
+    pub proof fn lemma_wf_scheduler(tracked &self, sched_view: SchedulerView)
+        requires
+            self.wf(),
+            sched_view.wf(),
+            sched_view.task_view_is_checked_out(self.task()),
+            sched_view.checked_out_views[self.task()] == self.view(),
+            sched_view.task_views.contains_key(self.task()),
+            sched_view.task_views[self.task()] == self.view(),
+        ensures
+            self.wf_scheduler(sched_view),
+    {
+        self.session.task_view.lemma_wf(sched_view);
+        assert(self.session.wf(sched_view));
     }
 
     pub open spec fn is_quiescent(self) -> bool {
@@ -374,8 +411,8 @@ impl RunningTaskContext {
     {
         assert(self.preempt_depth() == 0);
         assert(self.available_fractions() == PREEMPT_SESSION_FRACTIONS);
-        let tracked res = self.session.tracked_into_task_view();
-        assert(res.wf(sched_view));
+        assert(self.session.wf(sched_view));
+        let tracked res = self.session.tracked_into_task_view_for_scheduler(sched_view);
         res
     }
 }
@@ -509,10 +546,7 @@ impl RunningTaskContext {
 
     /// Performs the inverse transition when a preemption-disable guard is
     /// consumed.
-    pub proof fn tracked_enable_preempt(
-        tracked &mut self,
-        tracked resource: PreemptGuardResource,
-    )
+    pub proof fn tracked_enable_preempt(tracked &mut self, tracked resource: PreemptGuardResource)
         requires
             old(self).wf(),
             old(self).preempt_depth() > 0,
@@ -591,6 +625,15 @@ impl DisabledPreemptGuard {
         self.tracked_resource@.matches_context(context)
     }
 
+    /// Extracts the positive preemption depth witnessed by this guard.
+    pub proof fn lemma_matches_context_depth(&self, tracked context: &RunningTaskContext)
+        requires
+            self.matches_context(*context),
+        ensures
+            context.preempt_depth() > 0,
+    {
+    }
+
     /// Borrows the running task's view while this guard witnesses that
     /// preemption is disabled. Both outermost and nested guards use the same
     /// context-owned view.
@@ -650,6 +693,8 @@ impl GuardTransfer for DisabledPreemptGuard {
 verus! {
 
 /// Disables preemption.
+///
+/// TODO: This API is still unsound.
 pub fn disable_preempt() -> (res: DisabledPreemptGuard)
     ensures
         res.wf(arbitrary()),

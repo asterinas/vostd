@@ -16,22 +16,25 @@
 //! never mints a fresh view and therefore preserves observations across RCU
 //! operations and release publication.
 //!
-//! The current root-pointer invariant is intentionally small: `Rcu` roots are
-//! non-null in every atomic-history message, while `RcuOption` roots may be
-//! null. Ownership, reader permissions, traversal snapshots, and reclamation are
-//! modeled separately in [`specs::sync::rcu`] and are being connected
-//! incrementally.
+//! The root-pointer invariant keeps publication metadata for the complete
+//! atomic history. Each non-null message has a domain-local allocation ID, so
+//! stale messages remain distinguishable even if a physical address is later
+//! reused. `Rcu` roots are non-null in every message, while `RcuOption` roots
+//! may contain null messages without allocation IDs. Physical `P::Permission`,
+//! reader permissions, traversal snapshots, and reclamation are modeled
+//! separately in [`specs::sync::rcu`] and are being connected incrementally.
 //!
 //! The traversal layer follows the paper's shape:
 //!
 //! - [`RcuReadGuardToken<T>`] represents a read-side critical section together
-//!   with its `SeenRemoved(D, LV)` observation.
-//! - [`RcuProtectedPtr<T>`] records that a typed pointer is protected by that
-//!   guard and has not been observed removed.
+//!   with its base `Guard(tid, X, G)` state and `SeenRemoved(D, LV)` observation.
+//! - [`RcuProtectedPtr<T>`] records an AId/address pair installed in the live
+//!   guard's mutable protection map `G`.
 //! - [`RcuBaseRetirePerm<T>`] becomes [`RcuRetirePerm<T>`] only after the caller has
-//!   observed enough traversal state to prove the retired object is in the
-//!   removed set.
-//! - `RcuCallbackSafety` compresses that typed retire proof into an erased
+//!   observed enough traversal state to prove the allocation ID is in the
+//!   removed set. The domain's base `rcu-retire` transition then records it in
+//!   `RcuState.R` as `RcuRetired<T>`.
+//! - `RcuCallbackSafety` compresses that recorded retire proof into an erased
 //!   `RcuCallbackSummary { domain, obj, retire_epoch }`, which is what the
 //!   monitor stores next to a type-erased executable callback.
 //!
@@ -68,9 +71,11 @@
 //! guard destruction reverses both changes. The scheduler can check the
 //! updated view back in only after the context is quiescent.
 //!
-//! Delayed reclamation is still being wired into the weak-memory proof. For now,
-//! `RcuDrop<T>` preserves the public wrapper API, while the monitor/callback
-//! path carries the new proof summary and safety certificate skeleton.
+//! Delayed reclamation is still being wired into the weak-memory proof. The
+//! remaining boundary is concrete: executable preemption guards do not yet own
+//! the domain's `Inactive/Guard` reader token, and pointer replacement does not
+//! yet route the old allocation's unique retire permission into the monitor.
+//! For now, `RcuDrop<T>` preserves the public wrapper API.
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
@@ -100,14 +105,14 @@ broadcast use vstd_extra::external::nonnull::group_nonull_axioms;
 ///
 /// `bool` is the constant key: `true` means the public cell may contain null
 /// (`RcuOption`), and `false` means the public cell is non-null (`Rcu`).  The
-/// ghost state is still empty for this cut, but the predicate is now
-/// RCU-specific: non-null `Rcu` cells require every atomic-history message to
-/// contain a non-null pointer. Later revisions should extend the ghost state to
-/// carry read permissions, retired pools, and traversal snapshots.
+/// RCU-specific predicate requires non-null `Rcu` cells to contain only
+/// non-null history messages. Its publication registry also assigns every
+/// non-null message a domain-local allocation identity, matching the paper's
+/// distinction between physical addresses and allocation IDs.
 type RcuAtomicPtr<P> = WeakAtomicPtr<
     <P as NonNullPtr>::Target,
     bool,
-    (),
+    rcu_spec::RcuRootGhost,
     rcu_spec::RcuWeakAtomicInv,
 >;
 
@@ -172,7 +177,12 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.type_inv(),
             res.is_nullable(),
     {
-        let ptr = WeakAtomicPtr::new(Ghost(true), core::ptr::null_mut(), Tracked(()));
+        proof_decl! {
+            let tracked root_ghost = rcu_spec::RcuRootGhost::tracked_initial(
+                core::ptr::null_mut::<<P as NonNullPtr>::Target>(),
+            );
+        }
+        let ptr = WeakAtomicPtr::new(Ghost(true), core::ptr::null_mut(), Tracked(root_ghost));
         Self {
             ptr,
             ghost_nullable: Ghost(true),
@@ -194,7 +204,10 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         proof {
             assert(!raw_ptr.is_null());
         }
-        let ptr = WeakAtomicPtr::new(Ghost(nullable), raw_ptr, Tracked(()));
+        proof_decl! {
+            let tracked root_ghost = rcu_spec::RcuRootGhost::tracked_initial(raw_ptr);
+        }
+        let ptr = WeakAtomicPtr::new(Ghost(nullable), raw_ptr, Tracked(root_ghost));
         Self {
             ptr,
             ghost_nullable: Ghost(nullable),
@@ -406,6 +419,9 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
                 }
             },
         };
+        proof {
+            self._inner_guard.lemma_matches_context_depth(session);
+        }
         self._inner_guard.release_to_context(Tracked(session));
         res
     }
@@ -423,6 +439,9 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     {
+        proof {
+            self._inner_guard.lemma_matches_context_depth(session);
+        }
         self._inner_guard.release_to_context(Tracked(session));
     }
 }
