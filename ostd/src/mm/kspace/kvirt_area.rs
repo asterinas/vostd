@@ -1017,7 +1017,7 @@ impl KVirtArea {
                 }
                 proof_decl! {
                     let tracked entry_owner =
-                        EntryOwner::<KernelPtConfig>::new_untracked_frame(pa, level, prop);
+                        EntryOwner::<KernelPtConfig>::tracked_new_untracked_frame(pa, level, prop);
                 }
 
                 let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor_owner@;
