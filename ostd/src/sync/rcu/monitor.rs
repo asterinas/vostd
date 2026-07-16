@@ -2,7 +2,7 @@
 use alloc::collections::VecDeque;
 use core::sync::atomic::Ordering;
 
-use vstd::prelude::*;
+use vstd::{predicate::Predicate as DataPredicate, prelude::*};
 use vstd_extra::raw_callback::RawCallback;
 
 use crate::specs::{
@@ -13,7 +13,9 @@ use crate::specs::{
         weak_memory::{History, ThreadView, WeakAtomicBool},
     },
 };
-use crate::sync::{LocalIrqDisabled, SpinLock};
+use crate::sync::{
+    AtomicDataWithOwner, LocalIrqDisabled, SpinLock, once::Predicate as OncePredicate,
+};
 use crate::task::RunningTaskContext;
 
 verus! {
@@ -35,6 +37,7 @@ type MonitorAtomicBool = WeakAtomicBool<
 pub struct RcuCallback {
     raw: RawCallback,
     summary: Ghost<rcu_spec::RcuCallbackSummary>,
+    safety: Tracked<rcu_spec::RcuCallbackSafety>,
 }
 
 impl View for RcuCallback {
@@ -49,13 +52,25 @@ impl RcuCallback {
     /// Converts a raw callback into an RCU callback, given a proof that the callback is
     /// safe to run after a grace period.
     #[inline]
-    pub fn from_raw(raw: RawCallback, Tracked(cert): Tracked<rcu_spec::RcuCallbackSafety>) -> (res:
-        Self)
+    fn from_raw(
+        raw: RawCallback,
+        Tracked(cert): Tracked<rcu_spec::RcuCallbackSafety>,
+        Ghost(retire_epoch): Ghost<nat>,
+    ) -> (res: Self)
         ensures
-            res@ == cert@,
+            res.wf(),
+            res@ == (rcu_spec::RcuCallbackSummary {
+                domain: cert.domain(),
+                obj: cert.obj(),
+                retire_epoch,
+            }),
     {
-        let ghost summary = cert@;
-        Self { raw, summary: Ghost(summary) }
+        let ghost summary = rcu_spec::RcuCallbackSummary {
+            domain: cert.domain(),
+            obj: cert.obj(),
+            retire_epoch,
+        };
+        Self { raw, summary: Ghost(summary), safety: Tracked(cert) }
     }
 
     /// Runs the underlying callback once the monitor has completed the grace
@@ -64,11 +79,21 @@ impl RcuCallback {
     #[verifier::external_body]
     unsafe fn call_once(self, Tracked(completed): Tracked<&CompletedGracePeriod>)
         requires
+            self.wf(),
             completed.covers(self@),
     {
         unsafe {
             self.raw.call_once();
         }
+    }
+
+    closed spec fn wf(self) -> bool {
+        self.safety@.matches(self@)
+    }
+
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
     }
 }
 
@@ -78,20 +103,22 @@ impl RcuCallback {
 /// certify that a callback is safe to enqueue, but cannot manufacture the
 /// completion fact needed to execute the callback.
 tracked struct CompletedGracePeriod {
+    ghost epoch: nat,
     ghost callbacks: Seq<rcu_spec::RcuCallbackSummary>,
 }
 
-impl View for CompletedGracePeriod {
-    type V = Seq<rcu_spec::RcuCallbackSummary>;
-
-    closed spec fn view(&self) -> Seq<rcu_spec::RcuCallbackSummary> {
+impl CompletedGracePeriod {
+    closed spec fn callbacks(self) -> Seq<rcu_spec::RcuCallbackSummary> {
         self.callbacks
     }
-}
 
-impl CompletedGracePeriod {
+    closed spec fn epoch(self) -> nat {
+        self.epoch
+    }
+
     closed spec fn covers(self, callback: rcu_spec::RcuCallbackSummary) -> bool {
-        self@.contains(callback)
+        &&& self.callbacks().contains(callback)
+        &&& callback.retire_epoch == self.epoch()
     }
 }
 
@@ -104,7 +131,11 @@ fn run_completed_callbacks(
     Tracked(completed): Tracked<CompletedGracePeriod>,
 )
     requires
-        completed@ == callback_summaries(callbacks),
+        completed.callbacks() == callback_summaries(callbacks),
+        forall|i: int|
+            0 <= i < callback_summaries(callbacks).len() ==> (#[trigger] callback_summaries(
+                callbacks,
+            )[i]).retire_epoch == completed.epoch(),
 {
     proof {
         assert forall|i: int| 0 <= i < callbacks@.len() implies completed.covers(
@@ -134,6 +165,9 @@ fn run_completed_callbacks(
             }
         }
         unsafe {
+            proof {
+                use_type_invariant(&callback);
+            }
             callback.call_once(Tracked(&completed));
         }
     }
@@ -157,6 +191,31 @@ proof fn callback_summaries_len(callbacks: Callbacks)
 {
 }
 
+fn push_callback(callbacks: &mut Callbacks, callback: RcuCallback)
+    ensures
+        callback_summaries(*final(callbacks)) == callback_summaries(*old(callbacks)).push(
+            callback@,
+        ),
+{
+    let ghost before = callbacks@;
+    callbacks.push_back(callback);
+    proof {
+        assert(callbacks@ == before.push(callback));
+        vstd::seq_lib::assert_seqs_equal!(
+            callback_summaries(*callbacks)
+                == callback_summaries(*old(callbacks)).push(callback@),
+            i => {
+                if i < before.len() {
+                    assert(callbacks@[i] == before[i]);
+                } else {
+                    assert(i == before.len());
+                    assert(callbacks@[i] == callback);
+                }
+            }
+        );
+    }
+}
+
 // The proof-facing views `GracePeriodView` and `MonitorStateView` live in
 // `specs::sync::rcu` so that the monitor flag's weak-memory ghost state can
 // record a state snapshot per flag message without depending on this module.
@@ -164,6 +223,7 @@ pub(super) struct GracePeriod {
     callbacks: Callbacks,
     cpu_mask: AtomicCpuSet,
     is_complete: bool,
+    ghost_epoch: Ghost<nat>,
 }
 
 impl View for GracePeriod {
@@ -171,6 +231,7 @@ impl View for GracePeriod {
 
     closed spec fn view(&self) -> GracePeriodView {
         GracePeriodView {
+            epoch: self.ghost_epoch@,
             callbacks: callback_summaries(self.callbacks),
             is_complete: self.is_complete,
         }
@@ -187,7 +248,7 @@ impl GracePeriod {
     {
         let callbacks = Callbacks::new();
         let cpu_mask = AtomicCpuSet::new(CpuSet::new_empty());
-        let res = Self { callbacks, cpu_mask, is_complete: true };
+        let res = Self { callbacks, cpu_mask, is_complete: true, ghost_epoch: Ghost(0) };
         proof {
             callback_summaries_empty(res.callbacks);
         }
@@ -198,14 +259,22 @@ impl GracePeriod {
     /// after it completes. The CPU mask is reset because all CPUs must pass a
     /// fresh quiescent state for this new batch. Keep the same atomic object so
     /// later weak-memory ghost state can attach stable identity to this mask.
-    fn restart(&mut self, callbacks: Callbacks)
+    fn restart(&mut self, callbacks: Callbacks, Ghost(epoch): Ghost<nat>)
+        requires
+            forall|i: int|
+                0 <= i < callback_summaries(callbacks).len() ==> (#[trigger] callback_summaries(
+                    callbacks,
+                )[i]).retire_epoch == epoch,
         ensures
             final(self).callback_summaries() == callback_summaries(callbacks),
+            final(self)@.epoch == epoch,
             !final(self).is_complete,
+            final(self).wf(),
         no_unwind
     {
         self.is_complete = false;
         self.callbacks = callbacks;
+        self.ghost_epoch = Ghost(epoch);
         self.cpu_mask.store(&CpuSet::new_empty(), Ordering::Relaxed);
     }
 
@@ -237,11 +306,6 @@ impl GracePeriod {
     closed spec fn wf(self) -> bool {
         self@.wf()
     }
-
-    #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
-        self.wf()
-    }
 }
 
 pub(super) struct State {
@@ -261,6 +325,10 @@ impl View for State {
 }
 
 impl State {
+    closed spec fn next_callback_epoch(self) -> nat {
+        self@.current_gp.epoch + 1
+    }
+
     /// Creates the lock-protected initial monitor state: there is no active
     /// grace period and no callbacks waiting to be attached to the next one.
     pub(super) fn new() -> (res: Self)
@@ -288,21 +356,58 @@ impl State {
     /// keeps `next_callbacks` empty whenever the current grace period is
     /// complete, so the idle case constructs the current batch directly.
     fn enqueue_after_grace_period(&mut self, callback: RcuCallback) -> (started_gp: bool)
+        requires
+            callback.wf(),
+            callback@.retire_epoch == old(self).next_callback_epoch(),
         ensures
             final(self).wf(),
             final(self).has_pending_work(),
             started_gp ==> !final(self)@.current_gp.is_complete,
             !started_gp ==> !old(self)@.current_gp.is_complete,
     {
+        proof {
+            use_type_invariant(&*self);
+        }
+        let ghost callback_epoch = self.next_callback_epoch();
         if self.current_gp.is_complete {
             let mut callbacks = Callbacks::new();
-            callbacks.push_back(callback);
-            self.current_gp.restart(callbacks);
+            push_callback(&mut callbacks, callback);
+            proof {
+                assert(callback_summaries(callbacks).len() == 1);
+                assert(callback_summaries(self.next_callbacks).len() == 0);
+            }
+            self.current_gp.restart(callbacks, Ghost(callback_epoch));
             true
         } else {
             let mut next_callbacks = Callbacks::new();
+            let ghost existing_summaries = callback_summaries(self.next_callbacks);
+            proof {
+                assert(self.current_gp.wf());
+                assert(!self.current_gp.is_complete);
+                assert(self.wf());
+                assert(self@.wf());
+                assert(self@.next_callbacks == existing_summaries);
+                assert forall|i: int| 0 <= i < existing_summaries.len() implies (
+                #[trigger] existing_summaries[i]).retire_epoch == self.current_gp@.epoch + 1 by {};
+            }
             core::mem::swap(&mut next_callbacks, &mut self.next_callbacks);
-            next_callbacks.push_back(callback);
+            let ghost before_summaries = callback_summaries(next_callbacks);
+            proof {
+                assert(before_summaries == existing_summaries);
+            }
+            push_callback(&mut next_callbacks, callback);
+            proof {
+                assert forall|i: int| 0 <= i < callback_summaries(next_callbacks).len() implies (
+                #[trigger] callback_summaries(next_callbacks)[i]).retire_epoch
+                    == self.current_gp@.epoch + 1 by {
+                    if i < before_summaries.len() {
+                        assert(callback_summaries(next_callbacks)[i] == before_summaries[i]);
+                    } else {
+                        assert(i == before_summaries.len());
+                        assert(callback_summaries(next_callbacks)[i] == callback@);
+                    }
+                };
+            }
             self.next_callbacks = next_callbacks;
             false
         }
@@ -324,10 +429,17 @@ impl State {
     ): (bool, Callbacks, Tracked<CompletedGracePeriod>))
         ensures
             final(self).wf(),
-            completed_token@@ == callback_summaries(completed_callbacks),
+            completed_token@.callbacks() == callback_summaries(completed_callbacks),
             completed_gp ==> !old(self)@.current_gp.is_complete,
-            completed_gp ==> completed_token@@ == old(self)@.current_gp.callbacks,
-            !completed_gp ==> completed_token@@ == Seq::<rcu_spec::RcuCallbackSummary>::empty(),
+            completed_gp ==> completed_token@.callbacks() == old(self)@.current_gp.callbacks,
+            completed_gp ==> completed_token@.epoch() == old(self)@.current_gp.epoch,
+            !completed_gp ==> completed_token@.callbacks() == Seq::<
+                rcu_spec::RcuCallbackSummary,
+            >::empty(),
+            forall|i: int|
+                0 <= i < callback_summaries(completed_callbacks).len() ==> (
+                #[trigger] callback_summaries(completed_callbacks)[i]).retire_epoch
+                    == completed_token@.epoch(),
             (!completed_gp && !(old(self)@.current_gp.is_complete)) ==> !(
             final(self)@.current_gp.is_complete),
     {
@@ -336,6 +448,21 @@ impl State {
         }
         let ghost initially_complete = self.current_gp.is_complete;
         let ghost initial_current_callbacks = self.current_gp@.callbacks;
+        let ghost initial_current_epoch = self.current_gp@.epoch;
+        let ghost initial_next_callbacks = callback_summaries(self.next_callbacks);
+        proof {
+            assert(self.wf());
+            assert(self@.wf());
+            assert(self@.next_callbacks == initial_next_callbacks);
+            assert forall|i: int| 0 <= i < initial_current_callbacks.len() implies (
+            #[trigger] initial_current_callbacks[i]).retire_epoch == initial_current_epoch by {
+                assert(self.current_gp.wf());
+            };
+            assert forall|i: int| 0 <= i < initial_next_callbacks.len() implies (
+            #[trigger] initial_next_callbacks[i]).retire_epoch == initial_current_epoch + 1 by {
+                assert(self.wf());
+            };
+        }
         let mut completed_callbacks = Callbacks::new();
         let mut completed_gp = false;
         if !self.current_gp.is_complete {
@@ -352,8 +479,9 @@ impl State {
                     core::mem::swap(&mut next_callbacks, &mut self.next_callbacks);
                     proof {
                         callback_summaries_empty(self.next_callbacks);
+                        assert(callback_summaries(next_callbacks) == initial_next_callbacks);
                     }
-                    self.current_gp.restart(next_callbacks);
+                    self.current_gp.restart(next_callbacks, Ghost(initial_current_epoch + 1));
                 } else {
                     self.current_gp.is_complete = true;
                     proof {
@@ -367,18 +495,26 @@ impl State {
         }
         proof_decl! {
             let tracked completed = CompletedGracePeriod {
+                epoch: if completed_gp { initial_current_epoch } else { 0 },
                 callbacks: callback_summaries(completed_callbacks),
             };
         }
         proof {
             callback_summaries_len(self.current_gp.callbacks);
             callback_summaries_len(self.next_callbacks);
-            assert(completed@ == callback_summaries(completed_callbacks));
+            assert(completed.callbacks() == callback_summaries(completed_callbacks));
             if !completed_gp {
                 callback_summaries_empty(completed_callbacks);
             } else {
                 assert(!initially_complete);
                 assert(callback_summaries(completed_callbacks) == initial_current_callbacks);
+                assert forall|i: int|
+                    0 <= i < callback_summaries(completed_callbacks).len() implies (
+                #[trigger] callback_summaries(completed_callbacks)[i]).retire_epoch
+                    == completed.epoch() by {
+                    assert(callback_summaries(completed_callbacks)[i]
+                        == initial_current_callbacks[i]);
+                };
             }
             if initially_complete {
                 assert(initial_current_callbacks.len() == 0);
@@ -578,11 +714,20 @@ impl RcuMonitor {
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
-    pub(super) fn after_grace_period(&self, callback: RcuCallback) {
+    pub(super) fn after_grace_period(
+        &self,
+        raw: RawCallback,
+        cert: Tracked<rcu_spec::RcuCallbackSafety>,
+    ) {
         proof {
             use_type_invariant(self);
         }
         let mut state = self.state.lock();
+        let ghost retire_epoch = state.view()@.current_gp.epoch + 1;
+        proof_decl! {
+            let tracked cert = cert.get();
+        }
+        let callback = RcuCallback::from_raw(raw, Tracked(cert), Ghost(retire_epoch));
         let started_gp = state.enqueue_after_grace_period(callback);
         if started_gp {
             proof {
@@ -610,8 +755,10 @@ impl RcuMonitor {
             Tracked(session): Tracked<&mut RunningTaskContext>,
         requires
             old(session).wf(),
+            old(session).is_quiescent(),
         ensures
             final(session).wf(),
+            final(session).is_quiescent(),
             final(session).task() == old(session).task(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions(),
@@ -665,6 +812,45 @@ impl RcuMonitor {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.wf()
+    }
+}
+
+/// Tracked witness stored beside the global monitor in `Once`.
+pub(super) tracked struct RcuMonitorOwner {}
+
+impl DataPredicate<RcuMonitor> for RcuMonitorOwner {
+    closed spec fn predicate(&self, monitor: RcuMonitor) -> bool {
+        monitor.wf()
+    }
+}
+
+/// Invariant used by the global `Once` cell.
+pub(super) struct RcuMonitorPred;
+
+impl OncePredicate<AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner>> for RcuMonitorPred {
+    closed spec fn inv(self, value: AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner>) -> bool {
+        value.permission@.predicate(value.data)
+    }
+}
+
+impl RcuMonitor {
+    /// Packages a fresh monitor with the owner expected by the global `Once`.
+    pub(super) fn new_data() -> (res: AtomicDataWithOwner<RcuMonitor, RcuMonitorOwner>)
+        ensures
+            RcuMonitorPred.inv(res),
+    {
+        let data = Self::new();
+        proof_decl! {
+            let tracked owner = RcuMonitorOwner {};
+        }
+        proof {
+            use_type_invariant(&data);
+        }
+        let res = AtomicDataWithOwner { data, permission: Tracked(owner) };
+        proof {
+            assert(res.permission@.predicate(res.data));
+        }
+        res
     }
 }
 

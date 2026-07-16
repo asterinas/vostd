@@ -658,7 +658,12 @@ impl<T, K> WeakAtomicPtr<T, K, (), TrueWeakAtomicInv> {
     }
 }
 
-impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicInv> {
+impl<T, O, OwnPred> WeakAtomicPtr<
+    T,
+    bool,
+    rcu_spec::RcuRootOwnedGhost<T, O>,
+    rcu_spec::RcuOwnedWeakAtomicInv<OwnPred>,
+> where OwnPred: rcu_spec::RcuRootOwnershipPredicate<T, O> {
     /// Acquire-load helper for RCU root pointers.
     #[inline(always)]
     pub fn load_acquire_rcu(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
@@ -716,24 +721,39 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
         result
     }
 
-    /// Release-store helper for a freshly introduced RCU root pointer.
+    /// Release-swap helper for a freshly introduced RCU root pointer.
     ///
-    /// A non-null store returns the registration resources allocated for the
-    /// new object. Callers must retain them for traversal and eventual retire;
-    /// the append-only atomic invariant owns only publication metadata.
+    /// The new registration remains owned by the atomic invariant. The return
+    /// value contains the previous root's retired ownership, if any. Root
+    /// removal and the base retire transition happen while the same atomic
+    /// invariant is open.
     #[inline(always)]
-    pub fn store_release_rcu(&self, value: *mut T, Tracked(tv): Tracked<&mut ThreadView>) -> (res:
-        Tracked<Option<rcu_spec::RcuRegistration<T>>>)
+    pub fn swap_release_rcu(
+        &self,
+        value: *mut T,
+        Tracked(ownership): Tracked<Option<O>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (*mut T, Tracked<Option<rcu_spec::RcuRetiredOwnedObject<T, O>>>))
         requires
             self.well_formed(),
             self.constant() || !value.is_null(),
+            match ownership {
+                Some(ownership) => {
+                    &&& !value.is_null()
+                    &&& OwnPred::owns(value, ownership)
+                },
+                None => value.is_null(),
+            },
         ensures
-            (res@ is Some) == !value.is_null(),
-            res@ is Some ==> res@->Some_0.0.ptr() == value,
-            res@ is Some ==> res@->Some_0.0.obj() == res@->Some_0.1.obj(),
+            (res.1@ is Some) == !res.0.is_null(),
+            res.1@ is Some ==> res.1@->Some_0.object().wf(),
+            res.1@ is Some ==> equal(res.1@->Some_0.ptr(), res.0),
+            res.1@ is Some ==> res.1@->Some_0.retired().obj() == res.1@->Some_0.obj(),
+            res.1@ is Some ==> OwnPred::owns(res.0, res.1@->Some_0.ownership()),
     {
+        let result;
         proof_decl! {
-            let tracked registration;
+            let tracked retired_ownership;
         }
         proof {
             use_type_invariant(self);
@@ -746,10 +766,14 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
                 assert(hist.id() == self.atomic.id());
             }
             let ghost prev = hist.history();
-            let snap = self.atomic.store_release(Tracked(&mut hist), Tracked(tv), value);
+            let swap = self.atomic.swap_release(Tracked(&mut hist), Tracked(tv), value);
+            result = swap.0;
+            let snap = swap.1;
             let ghost next = hist.history();
             proof {
-                assert(rcu_spec::rcu_root_history_inv(prev, g));
+                assert(rcu_spec::rcu_owned_root_history_inv(prev, g));
+                assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
+                rcu_spec::lemma_current_owned_resources::<T, O, OwnPred>(prev, &g);
                 if !self.constant() {
                     assert(!value.is_null());
                     assert(snap@.msg().value.addr() != 0);
@@ -760,41 +784,74 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
                     next,
                     snap@.msg(),
                 );
-                registration = g.tracked_push_fresh(prev, next, snap@.msg());
+                let tracked detached = g.tracked_push_fresh::<OwnPred>(
+                    prev,
+                    next,
+                    snap@.msg(),
+                    ownership,
+                );
+                assert(detached is Some ==> detached->Some_0.object().wf());
+                assert(detached is Some ==> equal(detached->Some_0.ptr(), result));
+                assert(detached is Some ==> OwnPred::owns(
+                    result,
+                    detached->Some_0.ownership(),
+                ));
+                assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g)) by {
+                    match g.current_owned() {
+                        Some(owned) => {
+                            assert(ownership == Some(owned.ownership()));
+                            assert(equal(owned.block_info().ptr(), value));
+                        },
+                        None => {},
+                    }
+                };
+                retired_ownership = detached;
                 pair = (hist, g);
             }
         });
-        Tracked(registration)
+        (result, Tracked(retired_ownership))
     }
 
     /// Strong AcqRel/Acquire CAS helper for a freshly introduced RCU pointer.
     ///
-    /// Registration occurs only in the successful CAS branch. A failed CAS
-    /// therefore returns no allocation ID or retire permission, allowing the
-    /// same owning pointer to be retried without acquiring a second identity.
+    /// Registration occurs only in the successful CAS branch. A successful
+    /// CAS returns the previous root registration; a failed CAS leaves the
+    /// ownership state unchanged and returns no detached registration.
     #[inline(always)]
     pub fn compare_exchange_acqrel_acquire_rcu(
         &self,
         current: *mut T,
         new: *mut T,
+        Tracked(new_ownership): Tracked<Option<O>>,
         Tracked(tv): Tracked<&mut ThreadView>,
     ) -> (res: (
         Result<*mut T, *mut T>,
         Ghost<Timestamp>,
-        Tracked<Option<rcu_spec::RcuRegistration<T>>>,
+        Tracked<(Option<rcu_spec::RcuRetiredOwnedObject<T, O>>, Option<O>)>,
     ))
         requires
             self.well_formed(),
             self.constant() || !new.is_null(),
+            match new_ownership {
+                Some(ownership) => {
+                    &&& !new.is_null()
+                    &&& OwnPred::owns(new, ownership)
+                },
+                None => new.is_null(),
+            },
         ensures
-            res.0 is Ok ==> ((res.2@ is Some) == !new.is_null()),
-            res.0 is Err ==> res.2@ is None,
-            res.2@ is Some ==> res.2@->Some_0.0.ptr() == new,
-            res.2@ is Some ==> res.2@->Some_0.0.obj() == res.2@->Some_0.1.obj(),
+            res.0 is Err ==> res.2@.0 is None,
+            res.0 is Err ==> res.2@.1 == new_ownership,
+            res.0 is Ok ==> res.2@.1 is None,
+            res.0 is Ok ==> ((res.2@.0 is Some) == !res.0->Ok_0.is_null()),
+            res.2@.0 is Some ==> res.2@.0->Some_0.object().wf(),
+            res.2@.0 is Some ==> equal(res.2@.0->Some_0.ptr(), res.0->Ok_0),
+            res.2@.0 is Some ==> res.2@.0->Some_0.retired().obj() == res.2@.0->Some_0.obj(),
+            res.2@.0 is Some ==> OwnPred::owns(res.0->Ok_0, res.2@.0->Some_0.ownership()),
     {
         let result;
         proof_decl! {
-            let tracked registration;
+            let tracked retired_ownership;
         }
         proof {
             use_type_invariant(self);
@@ -816,7 +873,9 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
             result = (cas_result.0, cas_result.1);
             let ghost next = hist.history();
             proof {
-                assert(rcu_spec::rcu_root_history_inv(prev, g));
+                assert(rcu_spec::rcu_owned_root_history_inv(prev, g));
+                assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
+                rcu_spec::lemma_current_owned_resources::<T, O, OwnPred>(prev, &g);
                 match cas_result.0 {
                     Result::Ok(_) => {
                         let tracked snap_opt = cas_result.2.get();
@@ -832,16 +891,40 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
                                     next,
                                     snap.msg(),
                                 );
-                                registration = g.tracked_push_fresh(prev, next, snap.msg());
+                                let tracked detached = g.tracked_push_fresh::<OwnPred>(
+                                    prev,
+                                    next,
+                                    snap.msg(),
+                                    new_ownership,
+                                );
+                                assert(detached is Some ==> detached->Some_0.object().wf());
+                                assert(detached is Some ==> equal(
+                                    detached->Some_0.ptr(),
+                                    cas_result.0->Ok_0,
+                                ));
+                                assert(detached is Some ==> OwnPred::owns(
+                                    cas_result.0->Ok_0,
+                                    detached->Some_0.ownership(),
+                                ));
+                                assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g)) by {
+                                    match g.current_owned() {
+                                        Some(owned) => {
+                                            assert(new_ownership == Some(owned.ownership()));
+                                            assert(equal(owned.block_info().ptr(), new));
+                                        },
+                                        None => {},
+                                    }
+                                };
+                                retired_ownership = (detached, None);
                             },
                             Option::None => {
                                 assert(false);
-                                registration = None;
+                                retired_ownership = (None, None);
                             },
                         }
                     },
                     Result::Err(_) => {
-                        registration = None;
+                        retired_ownership = (None, new_ownership);
                         assert(next == prev);
                         assert(rcu_spec::rcu_history_inv(self.constant(), next));
                     },
@@ -849,7 +932,7 @@ impl<T> WeakAtomicPtr<T, bool, rcu_spec::RcuRootGhost, rcu_spec::RcuWeakAtomicIn
                 pair = (hist, g);
             }
         });
-        (result.0, result.1, Tracked(registration))
+        (result.0, result.1, Tracked(retired_ownership))
     }
 }
 
@@ -1977,6 +2060,47 @@ impl<T> AtomicPtrW<T> {
     {
         self.value.store(value, Ordering::Release);
         Tracked::assume_new()
+    }
+
+    /// Release swap: return the latest pointer and append a new release
+    /// message in the same atomic read-modify-write step.
+    ///
+    /// `Ordering::Release` does not acquire the old message's view. The caller
+    /// observes the new modification-order timestamp and publishes its existing
+    /// thread view, exactly as for a release store.
+    #[inline(always)]
+    #[verifier::external_body]
+    #[verifier::atomic]
+    pub fn swap_release(
+        &self,
+        Tracked(auth): Tracked<&mut HistAuth<*mut T>>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+        value: *mut T,
+    ) -> (res: (*mut T, Tracked<MsgSnap<*mut T>>))
+        requires
+            old(auth).id() == self.id(),
+            old(auth).wf(),
+        ensures
+            ({
+                let write_ts = old(auth).history().len();
+                let old_msg = old(auth).history()[(write_ts - 1) as int];
+                let write_msg = Msg { value, view: old(tv)@.observe(self.id(), write_ts) };
+                &&& write_ts >= 1
+                &&& equal(res.0, old_msg.value)
+                &&& final(auth).id() == old(auth).id()
+                &&& final(auth).history() == old(auth).history().push(write_msg)
+                &&& final(auth).wf()
+                &&& final(tv)@ == old(tv)@.observe(self.id(), write_ts)
+                &&& res.1@.id() == self.id()
+                &&& res.1@.ts() == write_ts
+                &&& res.1@.msg() == write_msg
+                &&& res.1@.agrees_with(*final(auth))
+            }),
+        opens_invariants none
+        no_unwind
+    {
+        let old = self.value.swap(value, Ordering::Release);
+        (old, Tracked::assume_new())
     }
 }
 

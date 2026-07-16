@@ -75,15 +75,17 @@
 //!
 //! Delayed reclamation is still being wired into the weak-memory proof. The
 //! remaining boundary is concrete: executable preemption guards do not yet own
-//! the domain's `Inactive/Guard` reader token. Fresh stores and successful CAS
-//! operations now produce `RcuRegistration`, but `RcuInner` does not yet retain
-//! that resource together with `P::Permission` or route the replaced object's
-//! retire permission into the monitor. For now, `RcuDrop<T>` preserves the
+//! the domain's `Inactive/Guard` reader token. The weak atomic invariant now
+//! retains the current registration together with `P::Permission`; Release
+//! swap and successful CAS return the old raw pointer and matching owned
+//! resource. `RcuInner` does not yet establish traversal removal or route that
+//! detached ownership into the monitor. For now, `RcuDrop<T>` preserves the
 //! public wrapper API.
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
+use vstd_extra::raw_callback::{RawCallback, RawCallbackContext};
 
 use crate::{
     specs::{
@@ -93,6 +95,7 @@ use crate::{
         },
         task::InAtomicMode,
     },
+    sync::Once,
     task::{DisabledPreemptGuard, RunningTaskContext, disable_preempt_in_context},
 };
 
@@ -105,6 +108,35 @@ verus! {
 
 broadcast use vstd_extra::external::nonnull::group_nonull_axioms;
 
+exec static RCU_MONITOR: Once<
+    monitor::RcuMonitor,
+    monitor::RcuMonitorOwner,
+    monitor::RcuMonitorPred,
+>
+    ensures
+        RCU_MONITOR.wf(),
+        RCU_MONITOR.inv() == monitor::RcuMonitorPred,
+{
+    Once::new(Ghost(monitor::RcuMonitorPred))
+}
+
+struct RcuPointerOwnership<P: NonNullPtr> {
+    _marker: PhantomData<P>,
+}
+
+impl<P: NonNullPtr> rcu_spec::RcuRootOwnershipPredicate<
+    <P as NonNullPtr>::Target,
+    <P as NonNullPtr>::Permission,
+> for RcuPointerOwnership<P> {
+    open spec fn owns(
+        ptr: *mut <P as NonNullPtr>::Target,
+        ownership: <P as NonNullPtr>::Permission,
+    ) -> bool {
+        &&& P::ptr_perm_match(ptr, ownership)
+        &&& ownership.inv()
+    }
+}
+
 /// The weak-memory atomic slot used by RCU.
 ///
 /// `bool` is the constant key: `true` means the public cell may contain null
@@ -113,11 +145,16 @@ broadcast use vstd_extra::external::nonnull::group_nonull_axioms;
 /// non-null history messages. Its publication registry also assigns every
 /// non-null message a domain-local allocation identity, matching the paper's
 /// distinction between physical addresses and allocation IDs.
+type RcuAtomicGhost<P> = rcu_spec::RcuRootOwnedGhost<
+    <P as NonNullPtr>::Target,
+    <P as NonNullPtr>::Permission,
+>;
+
 type RcuAtomicPtr<P> = WeakAtomicPtr<
     <P as NonNullPtr>::Target,
     bool,
-    rcu_spec::RcuRootGhost,
-    rcu_spec::RcuWeakAtomicInv,
+    RcuAtomicGhost<P>,
+    rcu_spec::RcuOwnedWeakAtomicInv<RcuPointerOwnership<P>>,
 >;
 
 /// A Read-Copy Update cell for sharing a non-null pointer.
@@ -146,6 +183,71 @@ struct RcuReadGuardInner<'a, P: NonNullPtr> {
     obj_ptr: *mut <P as NonNullPtr>::Target,
     rcu: &'a RcuInner<P>,
     _inner_guard: DisabledPreemptGuard,
+}
+
+/// Sized callback payload that retains the physical ownership of one detached
+/// RCU object until the monitor executes its callback.
+struct RcuDropCallbackContext<P: NonNullPtr + Send> {
+    pointer: NonNull<<P as NonNullPtr>::Target>,
+    permission: Tracked<<P as NonNullPtr>::Permission>,
+}
+
+// SAFETY: the callback consumes the same owning pointer type `P` that was
+// accepted by the RCU cell. The tracked permission has no runtime payload.
+#[verifier::external]
+unsafe impl<P: NonNullPtr + Send> Send for RcuDropCallbackContext<P> {
+
+}
+
+impl<P: NonNullPtr + Send> RawCallbackContext for RcuDropCallbackContext<P> {
+    fn run(self) {
+        proof {
+            use_type_invariant(&self);
+        }
+        proof_decl! {
+            let tracked permission = self.permission.get();
+        }
+        let _pointer = unsafe { P::from_raw(self.pointer, Tracked(permission)) };
+    }
+}
+
+impl<P: NonNullPtr + Send> RcuDropCallbackContext<P> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        &&& P::ptr_perm_match(self.pointer.as_ptr(), self.permission@)
+        &&& self.permission@.inv()
+    }
+}
+
+/// Erases a detached owned object into an executable callback payload.
+///
+/// This function does not certify or enqueue the callback. Those operations
+/// still require `RcuRetired` and a monitor grace-period certificate.
+fn callback_from_detached<P: NonNullPtr + Send>(
+    pointer: *mut <P as NonNullPtr>::Target,
+    Tracked(owned): Tracked<
+        rcu_spec::RcuRetiredOwnedObject<<P as NonNullPtr>::Target, <P as NonNullPtr>::Permission>,
+    >,
+) -> (res: (RawCallback, Tracked<rcu_spec::RcuCallbackSafety>))
+    requires
+        !pointer.is_null(),
+        equal(owned.ptr(), pointer),
+        P::ptr_perm_match(pointer, owned.ownership()),
+        owned.ownership().inv(),
+{
+    proof {
+        use_type_invariant(&owned);
+    }
+    proof_decl! {
+        let tracked (object, retired, permission) = owned.tracked_into_parts();
+        let tracked cert = rcu_spec::certify_callback_from_retired(&object, retired);
+    }
+    let pointer = unsafe { NonNull::new_unchecked(pointer) };
+    let context = RcuDropCallbackContext::<P> { pointer, permission: Tracked(permission) };
+    proof {
+        use_type_invariant(&context);
+    }
+    (RawCallback::new(context), Tracked(cert))
 }
 
 impl<P: NonNullPtr> RcuInner<P> {
@@ -182,9 +284,10 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.is_nullable(),
     {
         proof_decl! {
-            // TODO: retain this beside the initial `P::Permission`.
-            let tracked (root_ghost, _registration) = rcu_spec::RcuRootGhost::tracked_initial(
+            let tracked root_ghost: RcuAtomicGhost<P> =
+                rcu_spec::RcuRootOwnedGhost::tracked_initial(
                 core::ptr::null_mut::<<P as NonNullPtr>::Target>(),
+                None,
             );
         }
         let ptr = WeakAtomicPtr::new(Ghost(true), core::ptr::null_mut(), Tracked(root_ghost));
@@ -204,15 +307,14 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.is_nullable() == nullable,
     )]
     fn new(pointer: P) -> Self {
-        let (raw, Tracked(_perm)) = P::into_raw(pointer);
+        let (raw, Tracked(perm)) = P::into_raw(pointer);
         let raw_ptr = raw.as_ptr();
         proof {
             assert(!raw_ptr.is_null());
         }
         proof_decl! {
-            // TODO: retain this beside the initial `P::Permission`.
-            let tracked (root_ghost, _registration) =
-                rcu_spec::RcuRootGhost::tracked_initial(raw_ptr);
+            let tracked root_ghost =
+                rcu_spec::RcuRootOwnedGhost::tracked_initial(raw_ptr, Some(perm));
         }
         let ptr = WeakAtomicPtr::new(Ghost(nullable), raw_ptr, Tracked(root_ghost));
         Self {
@@ -244,23 +346,45 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     }
 
     #[inline(always)]
-    fn store_ptr_release(
+    fn swap_ptr_release(
         &self,
         new_ptr: *mut <P as NonNullPtr>::Target,
+        Tracked(ownership): Tracked<Option<<P as NonNullPtr>::Permission>>,
         Tracked(tv): Tracked<&mut ThreadView>,
-    ) -> (res: Tracked<Option<rcu_spec::RcuRegistration<<P as NonNullPtr>::Target>>>)
+    ) -> (res: (
+        *mut <P as NonNullPtr>::Target,
+        Tracked<
+            Option<
+                rcu_spec::RcuRetiredOwnedObject<
+                    <P as NonNullPtr>::Target,
+                    <P as NonNullPtr>::Permission,
+                >,
+            >,
+        >,
+    ))
         requires
             self.type_inv(),
             self.is_nullable() || !new_ptr.is_null(),
+            match ownership {
+                Some(ownership) => {
+                    &&& !new_ptr.is_null()
+                    &&& P::ptr_perm_match(new_ptr, ownership)
+                    &&& ownership.inv()
+                },
+                None => new_ptr.is_null(),
+            },
         ensures
-            (res@ is Some) == !new_ptr.is_null(),
-            res@ is Some ==> res@->Some_0.0.ptr() == new_ptr,
+            (res.1@ is Some) == !res.0.is_null(),
+            res.1@ is Some ==> res.1@->Some_0.object().wf(),
+            res.1@ is Some ==> equal(res.1@->Some_0.ptr(), res.0),
+            res.1@ is Some ==> P::ptr_perm_match(res.0, res.1@->Some_0.ownership()),
+            res.1@ is Some ==> res.1@->Some_0.ownership().inv(),
     {
         proof {
             assert(self.ptr.constant() == self.is_nullable());
             assert(self.ptr.constant() || !new_ptr.is_null());
         }
-        self.ptr.store_release_rcu(new_ptr, Tracked(tv))
+        self.ptr.swap_release_rcu(new_ptr, Tracked(ownership), Tracked(tv))
     }
 
     fn update(&self, new_ptr: Option<P>, Tracked(session): Tracked<&mut RunningTaskContext>)
@@ -278,24 +402,35 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         proof_decl! {
             let ghost new_ptr_is_some = new_ptr is Some;
         }
-        let (raw, Tracked(_perm)) = if let Some(new_ptr) = new_ptr {
+        let (raw, Tracked(perm)) = if let Some(new_ptr) = new_ptr {
             let (ptr, Tracked(perm)) = P::into_raw(new_ptr);
             (ptr.as_ptr(), Tracked(Some(perm)))
         } else {
             (core::ptr::null_mut(), Tracked(None))
         };
 
-        proof_decl! {
-            let tracked tv = session.tracked_borrow_thread_view_mut();
-        }
         proof {
             if !self.is_nullable() {
                 assert(new_ptr_is_some);
             }
             assert(self.is_nullable() || !raw.is_null());
         }
-        // TODO: retain the registration with `perm` until this object is detached.
-        let Tracked(_registration) = self.store_ptr_release(raw, Tracked(tv));
+        let (old_raw, Tracked(detached)) = {
+            proof_decl! {
+                let tracked tv = session.tracked_borrow_thread_view_mut();
+            }
+            self.swap_ptr_release(raw, Tracked(perm), Tracked(tv))
+        };
+        if !old_raw.is_null() {
+            proof_decl! {
+                let tracked detached = detached.tracked_unwrap();
+            }
+            let (callback, cert) = callback_from_detached::<P>(old_raw, Tracked(detached));
+            if let Some(monitor) = RCU_MONITOR.get() {
+                #[verus_spec(with Tracked(session))]
+                monitor.after_grace_period(callback, cert);
+            }
+        }
     }
 
     fn read(&self, Tracked(session): Tracked<&mut RunningTaskContext>) -> (res: RcuReadGuardInner<
@@ -392,10 +527,6 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
 
         proof_decl! {
             let ghost new_ptr_is_some = new_ptr is Some;
-            let tracked tv = DisabledPreemptGuard::tracked_borrow_thread_view_mut_from_context(
-                session,
-                &self._inner_guard,
-            );
         }
 
         let (new_raw, Tracked(new_perm)) = if let Some(new_ptr) = new_ptr {
@@ -415,16 +546,46 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             assert(rcu.ptr.constant() == rcu.is_nullable());
             assert(rcu.ptr.constant() || !new_raw.is_null());
         }
-        let cas_res = rcu.ptr.compare_exchange_acqrel_acquire_rcu(expected, new_raw, Tracked(tv));
-        // A successful CAS must route this registration into the ownership map.
-        let Tracked(_registration) = cas_res.2;
+        let cas_res = {
+            proof_decl! {
+                let tracked tv = DisabledPreemptGuard::tracked_borrow_thread_view_mut_from_context(
+                    session,
+                    &self._inner_guard,
+                );
+            }
+            rcu.ptr.compare_exchange_acqrel_acquire_rcu(
+                expected,
+                new_raw,
+                Tracked(new_perm),
+                Tracked(tv),
+            )
+        };
+        let ghost context_before_enqueue = *session;
+        proof {
+            assert(self._inner_guard.matches_context(context_before_enqueue));
+        }
+        proof_decl! {
+            let tracked (detached, rejected_new_perm) = cas_res.2.get();
+        }
 
         let res = match cas_res.0 {
-            Result::Ok(_) => Ok(()),
+            Result::Ok(old_raw) => {
+                if !old_raw.is_null() {
+                    proof_decl! {
+                        let tracked detached = detached.tracked_unwrap();
+                    }
+                    let (callback, cert) = callback_from_detached::<P>(old_raw, Tracked(detached));
+                    if let Some(monitor) = RCU_MONITOR.get() {
+                        #[verus_spec(with Tracked(session))]
+                        monitor.after_grace_period(callback, cert);
+                    }
+                }
+                Ok(())
+            },
             Result::Err(_) => {
                 if let Some(new_nonnull) = NonNull::new(new_raw) {
                     proof_decl! {
-                        let tracked perm = new_perm.tracked_unwrap();
+                        let tracked perm = rejected_new_perm.tracked_unwrap();
                     }
                     Err(Some(unsafe { P::from_raw(new_nonnull, Tracked(perm)) }))
                 } else {
@@ -433,6 +594,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             },
         };
         proof {
+            self._inner_guard.lemma_matches_context_preserved(context_before_enqueue, session);
             self._inner_guard.lemma_matches_context_depth(session);
         }
         self._inner_guard.release_to_context(Tracked(session));
@@ -478,7 +640,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
         )
     }
 
-    /// Replaces the current pointer with `new_ptr` using a release store.
+    /// Replaces the current pointer with `new_ptr` using a release swap.
     #[inline]
     #[verus_spec(
         with
@@ -540,7 +702,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
         Self(RcuInner::new_none())
     }
 
-    /// Replaces the current pointer using a release store.
+    /// Replaces the current pointer using a release swap.
     #[inline]
     #[verus_spec(
         with
@@ -747,11 +909,31 @@ impl<T: Send + 'static> Deref for RcuDrop<T> {
 
 /// Finishes a grace period on the current CPU.
 ///
-/// No-op until the weak-memory monitor/reclamation path is rebuilt.
+#[verus_spec(
+    with
+        Tracked(session): Tracked<&mut RunningTaskContext>,
+    requires
+        old(session).wf(),
+        old(session).is_quiescent(),
+    ensures
+        final(session).wf(),
+        final(session).is_quiescent(),
+        final(session).task() == old(session).task(),
+        final(session).session_id() == old(session).session_id(),
+        final(session).available_fractions() == old(session).available_fractions(),
+        final(session).preempt_depth() == old(session).preempt_depth(),
+)]
 pub unsafe fn finish_grace_period() {
+    if let Some(monitor) = RCU_MONITOR.get() {
+        unsafe {
+            #[verus_spec(with Tracked(session))]
+            monitor.finish_grace_period();
+        }
+    }
 }
 
 pub fn init() {
+    RCU_MONITOR.init(monitor::RcuMonitor::new_data());
 }
 
 } // verus!

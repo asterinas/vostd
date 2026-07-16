@@ -634,6 +634,30 @@ impl DisabledPreemptGuard {
     {
     }
 
+    /// Changing only the task's weak-memory view preserves this guard's
+    /// relation to the running context.
+    pub proof fn lemma_matches_context_preserved(
+        &self,
+        before: RunningTaskContext,
+        tracked after: &RunningTaskContext,
+    )
+        requires
+            self.matches_context(before),
+            after.wf(),
+            after.task() == before.task(),
+            after.session_id() == before.session_id(),
+            after.available_fractions() == before.available_fractions(),
+            after.preempt_depth() == before.preempt_depth(),
+        ensures
+            self.matches_context(*after),
+    {
+        assert(before.session.session_task() == before.task());
+        assert(after.session.session_task() == after.task());
+        assert(self.tracked_resource@.session_token().task() == before.task());
+        assert(self.tracked_resource@.session_token().task() == after.task());
+        assert(after.session.token_matches(self.tracked_resource@.session_token()));
+    }
+
     /// Borrows the running task's view while this guard witnesses that
     /// preemption is disabled. Both outermost and nested guards use the same
     /// context-owned view.
