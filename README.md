@@ -14,8 +14,8 @@ This work is ongoing. Our current focus is OSTD's *memory management* and *synch
 
 This project is tied to the following papers:
 
-- 🏆 **CortenMM** — *CortenMM: Efficient Memory Management with Strong Correctness Guarantees*, SOSP 2025 (Best Paper). Concurrency proofs for OSTD memory management; for the artifact see the [`func-correct`](https://github.com/asterinas/vostd/tree/func-correct) branch and [TELOS-syslab/CortenMM-Artifact](https://github.com/TELOS-syslab/CortenMM-Artifact). [DOI](https://dl.acm.org/doi/10.1145/3731569.3764836)
-- **KVerus** — *KVerus: Scalable and Resilient Formal Verification Proof Generation for Rust Code*, ASE 2026 (Industry Track). Retrieval-augmented, self-adaptive proof synthesis and repair for Verus. Upstream-accepted proofs in OSTD `AI-assist`; see [these PRs](https://github.com/asterinas/vostd/pulls?q=is%3Apr+label%3AAI-assist+). [arXiv:2605.03822](https://arxiv.org/abs/2605.03822)
+- 🏆 **CortenMM** — *CortenMM: Efficient Memory Management with Strong Correctness Guarantees*, SOSP 2025 (Best Paper). Concurrency proofs for OSTD memory management; for the artifact see the [`func-correct`](https://github.com/asterinas/vostd/tree/func-correct) branch and [TELOS-syslab/CortenMM-Artifact](https://github.com/TELOS-syslab/CortenMM-Artifact). [paper](https://dl.acm.org/doi/10.1145/3731569.3764836)
+- **KVerus** — *KVerus: Scalable and Resilient Formal Verification Proof Generation for Rust Code*, ASE 2026 (Industry Track). Retrieval-augmented, self-adaptive proof synthesis and repair for Verus. Upstream-accepted proofs in OSTD `AI-assist`; see [these PRs](https://github.com/asterinas/vostd/pulls?q=is%3Apr+label%3AAI-assist+). [paper](https://arxiv.org/abs/2605.03822)
 - **Beyond Benchmarks** — *Beyond Benchmarks: A Case Study of LLM-Generated Verus Specification Failures on Asterinas Vostd*, ASE 2026 (Industry Track). *coming soon*
 
 ## Bugs Found by Verification
