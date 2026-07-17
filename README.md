@@ -24,10 +24,17 @@ Formal verification has surfaced real bugs in OSTD and the upstream Asterinas ke
 
 ## Project Structure
 
-- `ostd/src/`: OSTD implementation and proofs.
-- `ostd/specs/`: Verus specifications.
-- `verified_libs/`: auxiliary verified libraries (e.g. `vstd_extra`).
-- `dv`: the build system (xtask-equivalent).
+```tree
+vostd/
+├── dv/               # Build system
+├── ostd/
+│   ├── specs/        # Verus specifications
+│   └── src/          # OSTD implementation and proofs
+└── verified_libs/    # Auxiliary verified libraries
+    ├── bitflags/
+    ├── ostd-pod/
+    └── vstd_extra/
+```
 
 ## Building
 
