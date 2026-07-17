@@ -1850,7 +1850,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             ));
             owner.pop_level_owner_preserves_invs(*guards, *regions);
         }
-        let tracked guard = owner.tracked_pop_level_owner();
+        let ghost guard = owner.tracked_pop_level_owner();
 
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;

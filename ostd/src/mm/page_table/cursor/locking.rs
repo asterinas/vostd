@@ -195,7 +195,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     }
     let cur_node_va = va.start.align_down(page_size(guard_level + 1));
 
-    #[verus_spec(with Tracked(cont.entry_own), Tracked(&cont.guard), Tracked(guards), Tracked(regions))]
+    #[verus_spec(with Tracked(cont.entry_own), Tracked(guards), Tracked(regions))]
     dfs_acquire_lock(guard, &mut subtree_root, cur_node_va, va.clone());
 
     let mut path = [None, None, None, None];
@@ -517,7 +517,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 /// The function will forget all the [`PageTableGuard`] objects in the sub-tree.
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
-        Tracked(guard_ref): Tracked<&PageTableGuard<'rcu, C>>,
         Tracked(guards): Tracked<&mut Guards<'rcu>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>
     requires
