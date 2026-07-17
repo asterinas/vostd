@@ -1,8 +1,6 @@
 [env]
 
 [alias]
-dv-init = "run --manifest-path scripts/Cargo.toml --bin init --"
-dv-populate = "run --manifest-path scripts/Cargo.toml --bin populate --"
 dv = "run --manifest-path dv/Cargo.toml --bin rust-dv --"
 pre-commit = "run --manifest-path dv/Cargo.toml --bin pre_commit --"
 

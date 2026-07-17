@@ -11,11 +11,9 @@ members = [
 #    "kernel/libs/int-to-c-enum",
 ]
 exclude = [
-    "scripts",
     "dv",
     "tools/verus",
     "tools/verus-analyzer",
-    "tests",
     "osdk",
 ]
 
