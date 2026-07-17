@@ -114,12 +114,6 @@ pub proof fn lemma_vaddr_strict_bound(path: TreePath<NR_ENTRIES>)
     ensures
         vaddr(path) < 0x1_0000_0000_0000int,
 {
-    broadcast use {
-        TreePath::lemma_index_satisfies_elem_inv,
-        TreePath::lemma_push_tail_len,
-        TreePath::lemma_push_tail_preserves_inv,
-    };
-
     vstd::arithmetic::power2::lemma2_to64();
     vstd::arithmetic::power2::lemma2_to64_rest();
     if path.len() == 0 {
