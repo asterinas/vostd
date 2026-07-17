@@ -1824,6 +1824,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.va.to_vaddr() + page_size(level) <= usize::MAX,
     {
         let gl = self.guard_level;
+        lemma_page_size_ge_page_size(gl as PagingLevel);
+        lemma_page_size_ge_page_size(level as PagingLevel);
+        page_size_monotonic(level as PagingLevel, gl as PagingLevel);
 
         // Pin down locked_range().end == prefix.to_vaddr() + page_size(gl).
         self.prefix_aligned_to_guard_level();
@@ -1832,10 +1835,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         // Re-derive the structural bounds on prefix (as in prefix_plus_ps_no_overflow)
         // so nonlinear_arith has enough slack to discharge pv + ps + psl <= usize::MAX.
+        self.prefix.to_vaddr_indices_gap_bound(0);
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
 
+        assert forall|i: int| 0 <= i < gl implies self.prefix.index[i] == 0 by {
+            assert(self.prefix.index.contains_key(i));
+        };
+        self.prefix.to_vaddr_indices_drop_zero_range(0, gl as int);
         self.prefix.to_vaddr_indices_gap_bound(gl as int);
     }
 
