@@ -320,7 +320,7 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
 /// `unwrap` panic), so an out-of-range cursor is a safety non-issue —
 /// `in_locked_range` now only governs the success postcondition, and
 /// this proof soundly models the returning path.
-pub proof fn cursor_jump_embedded<'rcu>(
+pub proof fn lemma_cursor_jump_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
     tracked guards: &mut Guards<'rcu>,
@@ -888,7 +888,7 @@ pub(super) proof fn cursor_jump_step<'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    cursor_jump_embedded(&mut entry.owner, regions, &mut entry.guards, va)
+    lemma_cursor_jump_embedded(&mut entry.owner, regions, &mut entry.guards, va)
 }
 
 /// Per-op step for `Op::ProtectNext`. Rewrites PTE `prop` fields in
