@@ -1,17 +1,27 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Spec/proof companion for [`crate::mm::frame::segment`].
-use vstd::prelude::*;
-use vstd_extra::drop_tracking::*;
-use vstd_extra::ownership::*;
-
 use core::ops::Range;
 
-use crate::mm::frame::{AnyFrameMeta, Segment};
-use crate::mm::{Paddr, Vaddr, paddr_to_vaddr};
-use crate::specs::arch::PAGE_SIZE;
-use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::virt_mem::MemView;
+use vstd::prelude::*;
+
+use vstd_extra::{drop_tracking::*, ownership::*};
+
+use crate::specs::{
+    arch::PAGE_SIZE,
+    mm::{
+        frame::{
+            mapping::{frame_to_index, meta_addr},
+            meta_region_owners::MetaRegionOwners,
+        },
+        virt_mem::MemView,
+    },
+};
+
+use crate::mm::{
+    Paddr, Vaddr,
+    frame::{AnyFrameMeta, Segment},
+    paddr_to_vaddr,
+};
 
 verus! {
 

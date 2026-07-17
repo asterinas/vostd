@@ -42,15 +42,24 @@
 //!   (`meta` / `meta_mut` / `repurpose` / `transmute` /
 //!   `start_paddr`): no embedding state change / not surfaced.
 use vstd::prelude::*;
+
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::mm::vm_space::UserPtConfig;
-use crate::mm::Paddr;
-use crate::specs::arch::has_safe_slot;
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::{meta_owners::PageUsage, meta_region_owners::MetaRegionOwners};
-use crate::specs::mm::page_table::cursor::owners::CursorOwner;
+use crate::specs::{
+    arch::has_safe_slot,
+    mm::{
+        frame::{
+            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+        },
+        page_table::cursor::owners::CursorOwner,
+    },
+};
+
+use crate::mm::{
+    frame::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    vm_space::UserPtConfig,
+    Paddr,
+};
 
 verus! {
 

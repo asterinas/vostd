@@ -1,27 +1,31 @@
-use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 
-use vstd::cell;
-use vstd::simple_pptr::*;
+use vstd::{
+    cell::{self, pcell_maybe_uninit},
+    simple_pptr::*,
+};
+use vstd_extra::{array_ptr, ownership::*};
+
+use crate::specs::{
+    arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
+    mm::{
+        frame::{
+            mapping::{frame_to_index, max_meta_slots, meta_addr},
+            meta_owners::*,
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::owners::INC_LEVELS,
+    },
+};
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::meta_to_frame;
-use crate::mm::frame::meta::{META_SLOT_SIZE, MetaSlot};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR};
-use crate::mm::paddr_to_vaddr;
-use crate::mm::page_table::PageTableGuard;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS};
-use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
-use crate::specs::mm::frame::meta_owners::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::owners::INC_LEVELS;
-
-use vstd_extra::array_ptr;
-
-use vstd_extra::ownership::*;
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    frame::meta::{META_SLOT_SIZE, MetaSlot, mapping::meta_to_frame},
+    kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
+    paddr_to_vaddr,
+    page_table::{PageTableGuard, *},
+};
 
 verus! {
 

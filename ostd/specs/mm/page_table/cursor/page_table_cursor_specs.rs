@@ -1,19 +1,19 @@
+use core::ops::Range;
+
 use vstd::prelude::*;
 
 use vstd::set_lib::*;
+use vstd_extra::{arithmetic::*, ownership::*};
 
-use vstd_extra::ownership::*;
+use crate::specs::{
+    arch::NR_ENTRIES,
+    mm::page_table::{cursor::owners::*, *},
+};
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::NR_ENTRIES;
-use crate::specs::mm::page_table::cursor::owners::*;
-use crate::specs::mm::page_table::*;
-use vstd_extra::arithmetic::*;
-
-use core::ops::Range;
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_table::*,
+};
 
 verus! {
 

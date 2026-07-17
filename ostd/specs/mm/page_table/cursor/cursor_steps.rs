@@ -1,26 +1,33 @@
+use core::ops::Range;
+
 use vstd::prelude::*;
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use vstd_extra::{
+    arithmetic::{lemma_nat_align_down_sound, nat_align_down},
+    ghost_tree::*,
+    ownership::*,
+};
+
+use crate::specs::{
+    arch::{NR_ENTRIES, NR_LEVELS},
+    mm::{
+        Guards, Mapping, MetaRegionOwners,
+        frame::mapping::frame_to_index,
+        page_table::{
+            AbstractVaddr,
+            cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_page_size},
+            node::EntryOwner,
+            owners::{INC_LEVELS, OwnerSubtree, PageTableOwner},
+        },
+    },
+};
+
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, frame::meta::mapping::meta_to_frame, page_size,
+    page_table::*,
+};
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::mapping::meta_to_frame;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
-use crate::specs::mm::Guards;
-use crate::specs::mm::Mapping;
-use crate::specs::mm::MetaRegionOwners;
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::cursor::owners::*;
-use crate::specs::mm::page_table::node::EntryOwner;
-use crate::specs::mm::page_table::owners::{INC_LEVELS, OwnerSubtree, PageTableOwner};
-
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size;
-use vstd_extra::arithmetic::{lemma_nat_align_down_sound, nat_align_down};
-
-use core::ops::Range;
 
 verus! {
 

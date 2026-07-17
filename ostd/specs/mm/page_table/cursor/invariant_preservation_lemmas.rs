@@ -14,19 +14,24 @@
 /// `entry_owners.rs`) over the full cursor tree.
 use vstd::prelude::*;
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use vstd_extra::{ghost_tree::*, ownership::*};
 
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
-use crate::mm::page_size;
-use crate::mm::page_table::*;
-use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_owners::PageUsage;
-use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
-use crate::specs::mm::page_table::Mapping;
-use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
-use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
-use crate::specs::mm::page_table::owners::{OwnerSubtree, PageTableOwner, vaddr_of};
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{
+            Mapping,
+            cursor::owners::{CursorContinuation, CursorOwner},
+            node::entry_owners::EntryOwner,
+            owners::{OwnerSubtree, PageTableOwner, vaddr_of},
+        },
+    },
+};
+
+use crate::mm::{frame::meta::REF_COUNT_UNUSED, page_size, page_table::*};
 
 verus! {
 

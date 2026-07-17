@@ -1,17 +1,25 @@
+use core::ops::Range;
+
 use vstd::prelude::*;
 
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
-use crate::mm::page_table::*;
-use crate::mm::{PagingConstsTrait, Vaddr};
-use crate::specs::arch::{NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::{PageUsage, is_mmio_paddr};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::*;
-use crate::specs::mm::page_table::{cursor::owners::*, is_valid_range_spec};
-use crate::specs::task::InAtomicMode;
+use crate::specs::{
+    arch::{NR_LEVELS, PAGE_SIZE},
+    mm::{
+        frame::{
+            mapping::frame_to_index,
+            meta_owners::{PageUsage, is_mmio_paddr},
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{cursor::owners::*, is_valid_range_spec, *},
+    },
+    task::InAtomicMode,
+};
 
-use core::ops::Range;
+use crate::mm::{
+    PagingConstsTrait, Vaddr,
+    frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED},
+    page_table::*,
+};
 
 verus! {
 

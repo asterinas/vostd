@@ -55,23 +55,26 @@
 //! through it (`step_cursor_insert_before` / `step_cursor_take_current`),
 //! and checks it back in on drop ([`ListStore::step_cursor_drop`]).
 use vstd::prelude::*;
-use vstd_extra::cast_ptr::Repr;
-use vstd_extra::ownership::*;
-use vstd_extra::set_extra::lemma_finite_int_set_has_unused;
+use vstd_extra::{cast_ptr::Repr, ownership::*, set_extra::lemma_finite_int_set_has_unused};
 
-use crate::mm::Paddr;
-use crate::mm::frame::{
-    AnyFrameMeta, Link,
-    meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+use crate::specs::{
+    arch::has_safe_slot,
+    mm::frame::{
+        linked_list::linked_list_owners::{CursorOwner, LinkOwner, LinkedListOwner, MetaSlotSmall},
+        mapping::frame_to_index,
+        meta_owners::PageUsage,
+        meta_region_owners::MetaRegionOwners,
+        unique::UniqueFrameOwner,
+    },
 };
-use crate::specs::arch::has_safe_slot;
-use crate::specs::mm::frame::linked_list::linked_list_owners::{
-    CursorOwner, LinkOwner, LinkedListOwner, MetaSlotSmall,
+
+use crate::mm::{
+    Paddr,
+    frame::{
+        AnyFrameMeta, Link,
+        meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    },
 };
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::PageUsage;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 verus! {
 

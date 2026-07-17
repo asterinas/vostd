@@ -5,21 +5,22 @@
 /// - **Theme 5**: Tree predicate lifting (`map_children_lift`, `map_children_implies`, etc.)
 /// - **Theme 11**: Tree entry level constraints (`cur_entry_node_implies_level_gt_1`, etc.)
 /// - **Theme 12**: Tree membership & tracking (`absent_not_in_tree`)
+use core::ops::Range;
+
 use vstd::prelude::*;
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use vstd_extra::{ghost_tree::*, ownership::*};
 
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingLevel, Vaddr, page_size};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::{
+    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    mm::page_table::{
+        cursor::owners::{CursorContinuation, CursorOwner},
+        node::entry_owners::EntryOwner,
+        owners::*,
+    },
+};
 
-use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
-use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
-use crate::specs::mm::page_table::owners::*;
-
-use core::ops::Range;
+use crate::mm::{Paddr, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*};
 
 verus! {
 

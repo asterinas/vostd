@@ -1,33 +1,29 @@
+use core::ops::{Deref, Range};
+
 use vstd::prelude::*;
 
-use core::ops::Range;
+use vstd::{arithmetic::power2::pow2, seq::*, seq_lib::*, set_lib::*};
+use vstd_extra::{drop_tracking::*, ghost_tree::*, ownership::*, prelude::TreeNodeValue};
 
-use vstd::arithmetic::power2::pow2;
-use vstd::seq::*;
-use vstd::seq_lib::*;
-use vstd::set_lib::*;
-
-use vstd_extra::drop_tracking::*;
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
-use vstd_extra::prelude::TreeNodeValue;
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
+        page_table::{
+            cursor::page_size_lemmas::{
+                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
+            },
+            *,
+        },
+    },
+};
 
 use crate::mm::{
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size,
-    page_table::{EntryOwner, EntryOwnerKind},
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    page_size,
+    page_table::{EntryOwner, EntryOwnerKind, PageTableEntryTrait, PageTableGuard},
 };
-
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard};
-
-use crate::specs::arch::*;
-use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
-};
-use crate::specs::mm::page_table::*;
-
-use core::ops::Deref;
 
 verus! {
 

@@ -1,20 +1,17 @@
 use vstd::prelude::*;
-use vstd::set::lemma_set_choose_len;
-use vstd::set_lib::*;
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use vstd::{set::lemma_set_choose_len, set_lib::*};
+use vstd_extra::{arithmetic::*, ghost_tree::*, ownership::*};
+
+use crate::specs::{
+    arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    mm::page_table::{Mapping, cursor::owners::*, owners::PageTableOwner},
+};
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
-use crate::specs::arch::MAX_PADDR;
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::page_table::Mapping;
-use crate::specs::mm::page_table::cursor::owners::*;
-use crate::specs::mm::page_table::owners::PageTableOwner;
-use vstd_extra::arithmetic::*;
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*,
+};
 
 verus! {
 
