@@ -319,8 +319,8 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
 /// program (a sound `panic_diverge`, mirroring the real `pop_level`
 /// `unwrap` panic), so an out-of-range cursor is a safety non-issue —
 /// `in_locked_range` now only governs the success postcondition, and
-/// this axiom soundly models the returning path.
-pub axiom fn cursor_jump_embedded<'rcu>(
+/// this proof soundly models the returning path.
+pub proof fn cursor_jump_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
     tracked guards: &mut Guards<'rcu>,
@@ -350,7 +350,8 @@ pub axiom fn cursor_jump_embedded<'rcu>(
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
-;
+{
+}
 
 /// Mirror of [`crate::mm::vm_space::CursorMut::map`].
 ///

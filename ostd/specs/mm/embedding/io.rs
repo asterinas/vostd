@@ -211,22 +211,24 @@ pub axiom fn vm_writer_fill_zeros_embedded(tracked owner: &mut VmIoOwner, len: u
 ;
 
 /// Mirror of [`crate::mm::io::VmWriter::limit`].
-pub axiom fn vm_writer_limit_embedded(tracked owner: &mut VmIoOwner, max_avail: usize)
+pub proof fn vm_writer_limit_embedded(tracked owner: &mut VmIoOwner, max_avail: usize)
     requires
         old(owner).inv(),
     ensures
         final(owner).inv(),
         *final(owner) == *old(owner),
-;
+{
+}
 
 /// Mirror of [`crate::mm::io::VmWriter::skip`].
-pub axiom fn vm_writer_skip_embedded(tracked owner: &mut VmIoOwner, nbytes: usize)
+pub proof fn vm_writer_skip_embedded(tracked owner: &mut VmIoOwner, nbytes: usize)
     requires
         old(owner).inv(),
     ensures
         final(owner).inv(),
         *final(owner) == *old(owner),
-;
+{
+}
 
 // =============================================================================
 // dispatch tags + step proofs
