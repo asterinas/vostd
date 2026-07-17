@@ -1,6 +1,0 @@
-MemfdTest.Name
-MemfdTest.Seal*
-MemfdTest.NoPartialSealApplicationWhenWriteSealRejected
-MemfdTest.TmpfsFilesHaveSealSeal
-MemfdTest.CanOpenFromProcfs
-MemfdTest.MemfdMustBeWritableToModifySeals
