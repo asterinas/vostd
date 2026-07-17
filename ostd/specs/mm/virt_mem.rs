@@ -1176,12 +1176,29 @@ impl GlobalMemView {
         GlobalMemView { tlb_mappings, ..self }
     }
 
+    pub axiom fn tracked_tlb_flush_vaddr(&mut self, vaddr: Vaddr)
+        requires
+            old(self).inv(),
+        ensures
+            *final(self) == old(self).tlb_flush_vaddr(vaddr),
+            final(self).inv(),
+    ;
+
     pub open spec fn tlb_soft_fault(self, vaddr: Vaddr) -> Self {
         let mapping = self.pt_mappings.filter(
             |m: Mapping| m.va_range.start <= vaddr < m.va_range.end,
         ).choose();
         GlobalMemView { tlb_mappings: self.tlb_mappings.insert(mapping), ..self }
     }
+
+    pub axiom fn tracked_tlb_soft_fault(tracked &mut self, vaddr: Vaddr)
+        requires
+            old(self).inv(),
+            old(self).addr_transl(vaddr) is None,
+        ensures
+            *final(self) == old(self).tlb_soft_fault(vaddr),
+            final(self).inv(),
+    ;
 
     pub open spec fn pt_map(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.insert(m);
