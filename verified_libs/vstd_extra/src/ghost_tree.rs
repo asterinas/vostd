@@ -403,8 +403,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
     }
 
     /// Mutably borrows a child from the underlying sequence.
-    // FIXME: There is currenly no `tracked_borrow_mut` method for `Seq`.
-    pub axiom fn tracked_borrow_mut_child(tracked &mut self, i: int) -> (tracked ret: &mut Self)
+    pub proof fn tracked_borrow_mut_child(tracked &mut self, i: int) -> (tracked ret: &mut Self)
         requires
             0 <= i < self.children().len(),
             self.children()[i] is Some,
@@ -413,7 +412,12 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> TreeNode<T, N, L> {
             final(self).value() == old(self).value(),
             final(self).level() == old(self).level(),
             final(self).children() == old(self).children().update(i, Some(*final(ret))),
-    ;
+    {
+        match self.children.tracked_borrow_mut(i) {
+            Some(ref mut node) => node,
+            None => proof_from_false(),
+        }
+    }
 
     pub proof fn tracked_borrow_value(tracked &self) -> (tracked res: &T)
         ensures
