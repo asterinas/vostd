@@ -1,32 +1,42 @@
-use vstd::atomic::*;
-
-use vstd::prelude::*;
-use vstd::seq_lib::*;
-use vstd::set_lib::*;
-use vstd::simple_pptr::*;
-
-use vstd::std_specs::convert::{FromSpec, FromSpecImpl};
-use vstd_extra::cast_ptr::{Repr, ReprPtr};
-use vstd_extra::ownership::*;
-
 use core::marker::PhantomData;
 
-use super::*;
-use crate::mm::Paddr;
-use crate::mm::frame::meta::REF_COUNT_UNIQUE;
-use crate::mm::frame::{
-    AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot,
-    meta::{
-        META_SLOT_SIZE,
-        mapping::{frame_to_meta, meta_to_frame},
+use vstd::prelude::*;
+
+use vstd::{
+    atomic::*,
+    seq_lib::*,
+    set_lib::*,
+    simple_pptr::*,
+    std_specs::convert::{FromSpec, FromSpecImpl},
+};
+use vstd_extra::{
+    cast_ptr::{Repr, ReprPtr},
+    ownership::*,
+};
+
+use crate::specs::{
+    arch::MAX_NR_PAGES,
+    mm::frame::{
+        mapping::{frame_to_index, max_meta_slots},
+        meta_owners::*,
+        meta_region_owners::MetaRegionOwners,
+        unique::UniqueFrameOwner,
     },
 };
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::MAX_NR_PAGES;
-use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots};
-use crate::specs::mm::frame::meta_owners::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
+
+use crate::mm::{
+    Paddr,
+    frame::{
+        AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot,
+        meta::{
+            META_SLOT_SIZE, REF_COUNT_UNIQUE,
+            mapping::{frame_to_meta, meta_to_frame},
+        },
+    },
+    kspace::FRAME_METADATA_RANGE,
+};
+
+use super::*;
 
 verus! {
 

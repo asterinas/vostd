@@ -1,4 +1,5 @@
 use vstd::prelude::*;
+
 use vstd_extra::{state_machine::*, temporal_logic::*};
 
 verus! {

@@ -1,25 +1,31 @@
+use core::marker::PhantomData;
+
 use vstd::prelude::*;
 
-use vstd::modes::tracked_swap;
-use vstd::simple_pptr::PointsTo;
+use vstd::{modes::tracked_swap, simple_pptr::PointsTo};
+use vstd_extra::{ghost_tree::*, ownership::*};
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            mapping::{frame_to_index, meta_addr},
+            meta_owners::PageUsage,
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{node::entry_view::*, *},
+    },
+};
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::meta_to_frame,
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    frame::meta::{
+        MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::meta_to_frame,
+    },
+    page_prop::PageProperty,
+    page_table::*,
 };
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
-use crate::specs::mm::frame::{meta_owners::PageUsage, meta_region_owners::MetaRegionOwners};
-use crate::specs::mm::page_table::node::entry_view::*;
-use crate::specs::mm::page_table::*;
-use core::marker::PhantomData;
 
 verus! {
 

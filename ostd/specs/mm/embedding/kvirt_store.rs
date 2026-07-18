@@ -31,19 +31,27 @@
 //! first). Accounting (the `rc == H + P + cover_count` equation
 //! [`super::VmStore`] carries) is deferred — `KVirtArea` is
 //! mapping-focused, not reference-count-focused.
+use core::ops::Range;
+
 use vstd::prelude::*;
 use vstd_extra::prelude::Inv;
 
-use core::ops::Range;
+use crate::specs::{
+    arch::PAGE_SIZE,
+    mm::{
+        frame::meta_region_owners::MetaRegionOwners,
+        page_table::{node::Guards, *},
+    },
+};
 
-use crate::mm::Vaddr;
-use crate::mm::kspace::kvirt_area::{KVirtArea, KVirtAreaOwner};
-use crate::mm::kspace::{FRAME_METADATA_BASE_VADDR, KERNEL_BASE_VADDR, KernelPtConfig, MappedItem};
-use crate::mm::page_table::PageTableGuard;
-use crate::specs::arch::PAGE_SIZE;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::node::Guards;
-use crate::specs::mm::page_table::*;
+use crate::mm::{
+    Vaddr,
+    kspace::{
+        FRAME_METADATA_BASE_VADDR, KERNEL_BASE_VADDR, KernelPtConfig, MappedItem,
+        kvirt_area::{KVirtArea, KVirtAreaOwner},
+    },
+    page_table::PageTableGuard,
+};
 
 verus! {
 

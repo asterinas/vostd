@@ -7,14 +7,17 @@ pub use entry_view::*;
 pub use owners::*;
 
 use core::marker::PhantomData;
+
 use vstd::prelude::*;
 
-use vstd_extra::cast_ptr::Repr;
-use vstd_extra::drop_tracking::*;
+use vstd_extra::{cast_ptr::Repr, drop_tracking::*};
 
-use crate::mm::frame::Frame;
-use crate::mm::page_table::{PageTableConfig, PageTableGuard, PageTablePageMeta};
 use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageMeta};
+
+use crate::mm::{
+    frame::Frame,
+    page_table::{PageTableConfig, PageTableGuard, PageTablePageMeta},
+};
 
 verus! {
 

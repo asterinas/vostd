@@ -46,11 +46,12 @@
 //!   `read_view_initialized()` / `has_write_view()` unconditionally) —
 //!   formally a slight strengthening pending kernel-VA modeling.
 use vstd::prelude::*;
+
 use vstd_extra::ownership::*;
 
-use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
-use crate::mm::{MAX_USERSPACE_VADDR, Vaddr};
 use crate::specs::mm::io::VmIoOwner;
+
+use crate::mm::{MAX_USERSPACE_VADDR, Vaddr, vm_space::vm_space_specs::VmSpaceOwner};
 
 use super::{VmIoEntry, VmIoKind, VmSpaceId, tracked_vm_io_entry_new};
 

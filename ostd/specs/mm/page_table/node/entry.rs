@@ -1,13 +1,16 @@
 use vstd::prelude::*;
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use vstd_extra::{ghost_tree::*, ownership::*};
 
-use crate::mm::frame::meta::REF_COUNT_UNUSED;
-use crate::mm::page_table::*;
-use crate::specs::arch::NR_ENTRIES;
-use crate::specs::mm::frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners};
-use crate::specs::mm::page_table::*;
+use crate::specs::{
+    arch::NR_ENTRIES,
+    mm::{
+        frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
+        page_table::*,
+    },
+};
+
+use crate::mm::{frame::meta::REF_COUNT_UNUSED, page_table::*};
 
 verus! {
 

@@ -1,43 +1,47 @@
-use vstd::arithmetic::power2::pow2;
+use core::{marker::PhantomData, ops::Range};
+
 use vstd::prelude::*;
-use vstd::seq_lib::*;
-use vstd::set::lemma_set_contains_len;
 
-use vstd_extra::drop_tracking::*;
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
-use vstd_extra::panic::may_panic;
-use vstd_extra::prelude::*;
-use vstd_extra::seq_extra::{forall_seq, lemma_forall_seq_index};
+use vstd::{arithmetic::power2::pow2, seq_lib::*, set::lemma_set_contains_len};
+use vstd_extra::{
+    drop_tracking::*,
+    ghost_tree::*,
+    ownership::*,
+    panic::may_panic,
+    prelude::*,
+    seq_extra::{forall_seq, lemma_forall_seq_index},
+};
 
-use core::marker::PhantomData;
-use core::ops::Range;
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            mapping::{frame_to_index, meta_addr},
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{
+            AbstractVaddr, Guards, Mapping,
+            cursor::page_size_lemmas::{
+                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
+            },
+            lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
+            owners::*,
+            pte_index_bit_offset_spec, vaddr_range_spec,
+        },
+    },
+    task::InAtomicMode,
+};
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
 use crate::mm::{
-    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
-    nr_subpage_per_huge, page_size,
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    kspace::KernelPtConfig,
+    nr_subpage_per_huge,
+    page_prop::PageProperty,
+    page_size,
+    page_table::*,
 };
-use crate::specs::arch::*;
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::page_table::owners::*;
-use crate::specs::mm::page_table::{
-    cursor::page_size_lemmas::{
-        lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
-    },
-    lemma_vaddr_range_spec_kernel, lemma_vaddr_range_spec_user,
-    owners::*,
-    pte_index_bit_offset_spec, vaddr_range_spec,
-};
-
-use crate::specs::mm::{
-    frame::{mapping::meta_addr, meta_region_owners::MetaRegionOwners},
-    page_table::{AbstractVaddr, Guards, Mapping},
-};
-use crate::specs::task::InAtomicMode;
 
 verus! {
 

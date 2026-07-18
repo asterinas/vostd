@@ -1,17 +1,19 @@
+use core::{mem::size_of, ops::Range};
+
 use vstd::prelude::*;
 
-use super::*;
-
-use core::mem::size_of;
-use core::ops::Range;
-
-use crate::mm::frame::meta::{
-    META_SLOT_SIZE, MetaSlot,
-    mapping::{frame_to_meta, meta_to_frame},
-};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::mm::{Paddr, Vaddr};
 use crate::specs::arch::*;
+
+use crate::mm::{
+    Paddr, Vaddr,
+    frame::meta::{
+        META_SLOT_SIZE, MetaSlot,
+        mapping::{frame_to_meta, meta_to_frame},
+    },
+    kspace::FRAME_METADATA_RANGE,
+};
+
+use super::*;
 
 verus! {
 
