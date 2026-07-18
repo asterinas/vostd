@@ -1406,7 +1406,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub(in crate::mm) unsafe fn new_at(guard: &'a mut PageTableGuard<'rcu, C>, idx: usize) -> Self {
         // SAFETY: The index is within the bound.
         #[verus_spec(with Tracked(parent_owner), Tracked(regions))]
-        let pte = guard.read_pte(idx);
+        let pte = unsafe { guard.read_pte(idx) };
         Self::new(pte, idx, guard)
     }
 }
