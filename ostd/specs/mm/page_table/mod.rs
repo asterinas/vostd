@@ -13,20 +13,20 @@ pub use owners::*;
 pub use view::*;
 
 use core::ops::{Range, RangeInclusive};
-use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
+
+use align_ext::AlignExt;
+
 use vstd::prelude::*;
-use vstd_extra::arithmetic::*;
-use vstd_extra::ghost_tree::TreePath;
-use vstd_extra::ownership::*;
-use vstd_extra::prelude::*;
+
+use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
+use vstd_extra::{arithmetic::*, ghost_tree::TreePath, ownership::*, prelude::*};
+
+use crate::specs::arch::*;
 
 use crate::mm::{
     PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, kspace::KernelPtConfig,
     nr_subpage_per_huge, page_size, page_table::PageTableConfig, vm_space::UserPtConfig,
 };
-use crate::specs::arch::*;
-
-use align_ext::AlignExt;
 
 verus! {
 

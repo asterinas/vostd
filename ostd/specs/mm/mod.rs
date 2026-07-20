@@ -10,12 +10,14 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::mm::vm_space::UserPtConfig;
-use crate::mm::{Paddr, PagingConstsTrait, Vaddr};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::{Guards, INC_LEVELS, Mapping, PageTableOwner, PageTableView};
-use crate::specs::mm::tlb::TlbModel;
-use crate::specs::mm::virt_mem::FrameContents;
+use crate::specs::mm::{
+    frame::meta_region_owners::MetaRegionOwners,
+    page_table::{Guards, INC_LEVELS, Mapping, PageTableOwner, PageTableView},
+    tlb::TlbModel,
+    virt_mem::FrameContents,
+};
+
+use crate::mm::{Paddr, PagingConstsTrait, Vaddr, vm_space::UserPtConfig};
 
 verus! {
 

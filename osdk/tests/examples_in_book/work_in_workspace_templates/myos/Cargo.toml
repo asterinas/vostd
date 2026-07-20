@@ -1,2 +1,0 @@
-[dependencies]
-mylib = { path = "../mylib" }

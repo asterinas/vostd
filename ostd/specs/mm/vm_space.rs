@@ -1,26 +1,35 @@
 use core::ops::Range;
-use vstd::pervasive::proof_from_false;
+
 use vstd::prelude::*;
 
+use vstd::pervasive::proof_from_false;
 use vstd_extra::ownership::*;
 
-use crate::arch::mm::current_page_table_paddr;
-use crate::mm::frame::untyped::UFrame;
-use crate::mm::io::{VmReader, VmWriter};
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace};
-use crate::mm::{MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::io::{VmIoMemView, VmIoOwner};
-use crate::specs::mm::page_table::cursor::CursorView;
-use crate::specs::mm::page_table::cursor::owners::CursorOwner;
-use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
-use crate::specs::mm::page_table::{Mapping, OwnerSubtree};
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::meta_region_owners::MetaRegionOwners,
+        io::{VmIoMemView, VmIoOwner},
+        page_table::{
+            Mapping, OwnerSubtree,
+            cursor::{CursorView, owners::CursorOwner},
+            node::entry_owners::EntryOwner,
+        },
+        virt_mem::MemView,
+    },
+    task::InAtomicMode,
+};
 
-use crate::specs::mm::virt_mem::MemView;
-use crate::specs::task::InAtomicMode;
+use crate::arch::mm::current_page_table_paddr;
+use crate::mm::{
+    MAX_USERSPACE_VADDR, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    frame::untyped::UFrame,
+    io::{VmReader, VmWriter},
+    page_prop::PageProperty,
+    page_size,
+    page_table::*,
+    vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace},
+};
 
 verus! {
 

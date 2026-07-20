@@ -1,5 +1,6 @@
-use verus_state_machines_macros::state_machine;
 use vstd::prelude::*;
+
+use verus_state_machines_macros::state_machine;
 
 verus! {
 
@@ -145,7 +146,6 @@ state_machine! {
             }
         }
     }
-
 
     transition!{
         wake_one_loop(proc_id: int) {

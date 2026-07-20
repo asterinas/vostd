@@ -8,24 +8,27 @@
 ///   (`cur_va`, `cur_va_range`).
 /// - Lemmas relating the abstract VA to the page table view range.
 /// - Axiom functions for updating the cursor VA (`set_va`, `set_va_in_node`).
-use vstd::prelude::*;
-
 use core::ops::Range;
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use vstd::prelude::*;
 
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingLevel, Vaddr, page_size};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::Mapping;
-use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
+use vstd_extra::{arithmetic::nat_align_down, ghost_tree::*, ownership::*};
+
+use crate::specs::{
+    arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    mm::page_table::{
+        AbstractVaddr, Mapping,
+        cursor::{
+            owners::{CursorContinuation, CursorOwner},
+            page_size_lemmas::{
+                lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
+            },
+        },
+        owners::*,
+    },
 };
-use crate::specs::mm::page_table::owners::*;
-use vstd_extra::arithmetic::nat_align_down;
+
+use crate::mm::{Paddr, PagingLevel, Vaddr, page_size, page_table::*};
 
 verus! {
 

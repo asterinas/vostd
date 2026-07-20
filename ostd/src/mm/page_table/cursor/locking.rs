@@ -611,7 +611,8 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
                 let va_end = va_range.end.min(child_node_va_end);
                 // SAFETY: The caller ensures that all the nodes in the sub-tree are locked and all
                 // guards are forgotten.
-                dfs_release_lock(guard, &mut child_node, child_node_va, va_start..va_end);
+                unsafe { dfs_release_lock(guard, &mut child_node, child_node_va, va_start..va_end)
+                };
             },
             ChildRef::None | ChildRef::Frame(_, _, _) => {},
         }

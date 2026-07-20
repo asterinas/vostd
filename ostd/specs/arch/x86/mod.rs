@@ -1,14 +1,19 @@
-use crate::mm::frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr};
-use crate::mm::{Paddr, PagingConstsTrait, Vaddr, page_size};
+use vstd::prelude::*;
+
+use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
+use vstd_extra::prelude::*;
+
 use crate::specs::mm::{
     frame::mapping::lemma_meta_to_frame_soundness,
     page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},
 };
-use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
-use vstd::prelude::*;
-use vstd_extra::prelude::*;
+
+use crate::mm::{
+    Paddr, PagingConstsTrait, Vaddr,
+    frame::meta::{META_SLOT_SIZE, mapping::meta_to_frame},
+    kspace::{FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR, paddr_to_vaddr},
+    page_size,
+};
 
 verus! {
 

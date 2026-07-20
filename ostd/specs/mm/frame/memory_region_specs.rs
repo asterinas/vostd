@@ -1,6 +1,7 @@
-use crate::specs::arch::MAX_PADDR;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
+
+use crate::specs::arch::MAX_PADDR;
 
 verus! {
 

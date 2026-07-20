@@ -10,8 +10,6 @@ This repository contains the Verus proof development for Asterinas OSTD. The lay
   - `ostd/specs/`: Verus specifications for OSTD.
 - `dv`: The main build system (you can think this as `xtask`-equivalent).
 
-Other components like `kernel` and `osdk` shall be ignored during verification.
-
 ## Build, Test, and Development Commands
 
 - `git submodule update --init --recursive`: initialize required submodules.
@@ -48,7 +46,6 @@ For proof-sensitive changes, use Verus-related skills in `.agents/skills` only w
 
 ## Hard Constraints
 
-- Do not change any code outside of the verification scope (e.g., `kernel/`, `osdk/`).
 - Try to only change proof code first to fix verification issues, and only modify specifications if necessary to enable proofs.
 - Avoid changing executable Rust code unless required to support verification (e.g., use `PPtr` instead of raw pointers). All changes to executable code must be prompted to the user or justified in the PR description, and should not change observable behavior.
 - Keep edits minimal and localized to the smallest necessary dependency closure.
