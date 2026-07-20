@@ -69,7 +69,7 @@ use crate::mm::{
     vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},
 };
 
-use super::{CursorEntry, CursorKind, VmSpaceId, axiom_cursor_entry_new};
+use super::{CursorEntry, CursorKind, VmSpaceId, tracked_cursor_entry_new};
 
 verus! {
 
@@ -714,7 +714,13 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
     let tracked owner_opt = vm_space_cursor_embedded(vm_space, regions, va);
     match owner_opt {
         Option::Some((owner, guards)) => {
-            let tracked entry = axiom_cursor_entry_new(vs, CursorKind::ReadOnly, va, owner, guards);
+            let tracked entry = tracked_cursor_entry_new(
+                vs,
+                CursorKind::ReadOnly,
+                va,
+                owner,
+                guards,
+            );
             Option::Some(entry)
         },
         Option::None => Option::None,
@@ -760,7 +766,13 @@ pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
     let tracked owner_opt = vm_space_cursor_mut_embedded(vm_space, regions, va);
     match owner_opt {
         Option::Some((owner, guards)) => {
-            let tracked entry = axiom_cursor_entry_new(vs, CursorKind::Mutable, va, owner, guards);
+            let tracked entry = tracked_cursor_entry_new(
+                vs,
+                CursorKind::Mutable,
+                va,
+                owner,
+                guards,
+            );
             Option::Some(entry)
         },
         Option::None => Option::None,
