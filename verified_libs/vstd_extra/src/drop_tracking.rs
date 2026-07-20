@@ -1,4 +1,4 @@
-use core::{marker::PhantomData, ops::Deref};
+use core::ops::Deref;
 use vstd::prelude::*;
 use vstd::resource::Loc;
 
@@ -70,39 +70,58 @@ pub trait Drop: TrackDrop {
     ;
 }
 
+} // verus!
+#[verus_verify]
 pub struct ManuallyDrop<T: TrackDrop> {
     value: T,
+    #[cfg(verus_keep_ghost_body)]
     tracked_obligation: Tracked<T::Obligation>,
 }
 
+#[verus_verify]
 impl<T: TrackDrop> ManuallyDrop<T> {
-    pub fn new(t: T, obligaton: Tracked<T::Obligation>) -> (res: Self)
+    #[verus_spec(res =>
+        with
+            Tracked(obligation): Tracked<T::Obligation>,
         ensures
             res@ == t,
-            res.obligation() == obligaton@,
-    {
-        Self { value: t, tracked_obligation: obligaton }
+            res.obligation() == obligation,
+    )]
+    pub fn new(t: T) -> Self {
+        proof_with! { tracked_obligation: Tracked(obligation) }
+        Self { value: t }
     }
 
-    pub fn into_inner(self) -> (res: (T, Tracked<T::Obligation>))
+    #[verus_spec(res =>
+        with
+            -> obligation: Tracked<T::Obligation>,
         ensures
-            res.0 == self@,
-            res.1@ == self.obligation(),
-    {
-        (self.value, self.tracked_obligation)
+            res == self@,
+            obligation@ == self.obligation(),
+    )]
+    pub fn into_inner(self) -> T {
+        proof_decl! {
+            let tracked obligation = self.tracked_obligation.get();
+        }
+        proof_with!(|= Tracked(obligation));
+        self.value
     }
 }
 
+#[verus_verify]
 impl<T: TrackDrop> Deref for ManuallyDrop<T> {
     type Target = T;
 
-    fn deref(&self) -> (res: &Self::Target)
+    #[verus_spec(res =>
         ensures
             *res == self@,
-    {
+    )]
+    fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
+
+verus! {
 
 impl<T: TrackDrop> View for ManuallyDrop<T> {
     type V = T;

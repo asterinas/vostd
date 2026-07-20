@@ -93,7 +93,13 @@ impl<C: PageTableConfig> Child<C> {
 
                 let ghost fo0 = regions.frame_obligations;
 
-                let _ = ManuallyDrop::new(node, Tracked(regions));
+                proof_decl! {
+                    let tracked redeem_obl = DropObligation::tracked_mint(node_index);
+                    regions.tracked_redeem_frame_obligation(redeem_obl);
+                    let tracked md_obl = DropObligation::tracked_mint(node_index);
+                }
+                proof_with!(Tracked(md_obl));
+                let _ = ManuallyDrop::new(node);
 
                 proof {
                     // `MD::new` removed one entry at `node_index`, matching

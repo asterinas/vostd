@@ -34,7 +34,7 @@ use vstd::math::abs;
 use vstd::simple_pptr::*;
 
 use vstd_extra::arithmetic::*;
-use vstd_extra::drop_tracking::ManuallyDrop;
+use vstd_extra::drop_tracking::{DropObligation, ManuallyDrop, TrackDrop};
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::panic::*;
@@ -1148,7 +1148,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         let ghost guards_before_drop = *guards;
                         let ghost locked_addr = child_node_owner.meta_addr_self();
 
-                        let _ = ManuallyDrop::new(pt_guard, Tracked(guards));
+                        proof_decl! {
+                            let tracked guard_obl = pt_guard.tracked_redeem(guards);
+                        }
+                        proof_with!(Tracked(guard_obl));
+                        let _ = ManuallyDrop::new(pt_guard);
 
                         proof {
                             owner.map_children_implies(
@@ -1870,7 +1874,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
 
-        let md = ManuallyDrop::new(taken, Tracked(guards));
+        proof_decl! {
+            let tracked guard_obl = taken.tracked_redeem(guards);
+        }
+        proof_with!(Tracked(guard_obl));
+        let md = ManuallyDrop::new(taken);
 
         proof {
             // `ManuallyDrop` is single-field now; the consumed obligation
@@ -4371,15 +4379,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Child::PageTable(pt) => {
                 // debug_assert_eq!(pt.level(), level - 1);
                 if !C::TOP_LEVEL_CAN_UNMAP() && level as usize == NR_LEVELS {
-                    proof {
+                    proof_decl! {
                         // The PT-node model tracks `raw_count`, not the
                         // per-frame ledger; mint the entry that `MD::new`
                         // consumes (net-zero), mirroring `into_pte`.
-                        let tracked _ = regions.tracked_mint_frame_obligation(
+                        let tracked redeem_obl = regions.tracked_mint_frame_obligation(
+                            frame_to_index(meta_to_frame(pt.ptr.addr())),
+                        );
+                        regions.tracked_redeem_frame_obligation(redeem_obl);
+                        let tracked md_obl = DropObligation::tracked_mint(
                             frame_to_index(meta_to_frame(pt.ptr.addr())),
                         );
                     }
-                    let _ = ManuallyDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
+                    proof_with!(Tracked(md_obl));
+                    let _ = ManuallyDrop::new(pt);  // leak it to make shared PTs stay `'static`.
                     // Runtime panic. Discharges the conditional postcondition
                     // `res matches Some(StrayPageTable) && !TOP_LEVEL_CAN_UNMAP
                     // ==> old.level < NR_LEVELS` via `panic_diverge`'s `-> !`.
