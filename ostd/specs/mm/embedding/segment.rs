@@ -1,6 +1,6 @@
 //! Embedding of `Segment` lifecycle operations: contiguous-range
 //! allocate ([`segment_from_unused_embedded`]) and drop
-//! ([`segment_drop_embedded`]).
+//! ([`lemma_segment_drop_embedded`]).
 //!
 //! A segment "handle" in the embedding is a `range`-bearing
 //! [`super::SegmentEntry`] in [`super::VmStore::segments`]. Each
@@ -28,22 +28,28 @@
 //!   to follow-up; the base `from_unused` + drop pair is enough to
 //!   exercise the Shape-B `raw_count == segment_cover_count`
 //!   invariant.
+use core::ops::Range;
 
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use core::ops::Range;
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+        },
+        page_table::cursor::owners::CursorOwner,
+    },
+};
 
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::mm::vm_space::UserPtConfig;
-use crate::mm::Paddr;
-use crate::specs::arch::*;
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::PageUsage;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::cursor::owners::CursorOwner;
+use crate::mm::{
+    frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    vm_space::UserPtConfig,
+    Paddr,
+};
 
-use super::{tracked_segment_entry_new, SegmentEntry};
+use super::{frame::frame_drop_embedded, tracked_segment_entry_new, SegmentEntry};
 
 verus! {
 
@@ -142,9 +148,10 @@ pub axiom fn segment_from_unused_embedded(
 /// In the embedding, the per-segment `raw_count == 1` form is
 /// generalized to `raw_count == segment_cover_count`, so after drop
 /// each covered slot's `raw_count` is `pre_cover_count - 1`. This
-/// axiom asserts the slot-level decrement; the embedding's
+/// proof derives the range-wide transition by recursively applying the
+/// single-frame [`frame_drop_embedded`] boundary; the embedding's
 /// [`super::structural_inv`] re-chains via segment removal.
-pub axiom fn segment_drop_embedded(
+pub proof fn lemma_segment_drop_embedded(
     tracked regions: &mut MetaRegionOwners,
     range: Range<Paddr>,
 )
@@ -212,7 +219,19 @@ pub axiom fn segment_drop_embedded(
             ).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
-;
+    decreases range.end - range.start,
+{
+    assert(regions.slot_owners.contains_key(frame_to_index(range.start)));
+    frame_drop_embedded(regions, range.start);
+
+    if range.start + PAGE_SIZE < range.end {
+        let ghost tail: Range<Paddr> = Range {
+            start: (range.start + PAGE_SIZE) as Paddr,
+            end: range.end,
+        };
+        lemma_segment_drop_embedded(regions, tail);
+    }
+}
 
 /// Mirror of [`crate::mm::frame::Segment::next`]'s "pop one frame"
 /// effect. At the popped paddr (= `range.start` pre):
@@ -393,9 +412,8 @@ pub(super) proof fn drop_step(
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    segment_drop_embedded(regions, entry.range);
+    lemma_segment_drop_embedded(regions, entry.range);
 }
-
 
 pub axiom fn segment_clone_embedded(
     tracked regions: &mut MetaRegionOwners,

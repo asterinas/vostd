@@ -1,9 +1,0 @@
-[master]
-url = "https://github.com/ggu-talend/studio-se-master.git"
-shallow = false
-
-[[repo]]
-name = "dv"
-url = "git@github.com:CertiKProject/rust-deductive-verifier.git"
-path = "dv"
-branch = "main"

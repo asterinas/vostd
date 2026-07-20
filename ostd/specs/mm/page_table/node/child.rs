@@ -2,13 +2,15 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::arch::mm::PagingConsts;
-use crate::mm::frame::{meta::mapping::meta_to_frame, *};
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+
+use crate::arch::mm::PagingConsts;
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    frame::{meta::mapping::meta_to_frame, *},
+    page_prop::PageProperty,
+    page_table::*,
+};
 
 verus! {
 
@@ -102,6 +104,10 @@ impl<C: PageTableConfig> Child<C> {
         &&& owner.inv_base()
         &&& regions.inv()
         &&& self.wf(owner)
+        &&& match self {
+            Self::Frame(paddr, level, prop) => C::E::new_page_req(paddr, level, prop),
+            _ => true,
+        }
         &&& owner.metaregion_sound(regions)
     }
 }

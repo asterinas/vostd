@@ -1850,7 +1850,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             ));
             owner.pop_level_owner_preserves_invs(*guards, *regions);
         }
-        let tracked guard = owner.tracked_pop_level_owner();
+        let ghost guard = {
+            let ghost owner_before_pop = *owner;
+            let tracked mut parent = owner.continuations.tracked_remove(owner.level as int);
+            let tracked child = owner.continuations.tracked_remove(owner.level - 1);
+            let ghost guard = parent.tracked_restore(child);
+            owner.continuations.tracked_insert(owner.level as int, parent);
+            assert(owner.continuations == owner_before_pop.continuations.insert(
+                owner.level as int,
+                parent,
+            ).remove(owner.level - 1));
+            owner.level = (owner.level + 1) as u8;
+            if owner.level >= owner.guard_level {
+                owner.popped_too_high = true;
+            }
+            guard
+        };
 
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
@@ -2121,6 +2136,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 op.ensures((p_in,), p_out) ==>
                     C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
+                op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in) ==>
+                    C::E::new_page_req(pa, level, p_out),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.barrier_va == old(self).0.barrier_va,
@@ -3813,6 +3831,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 op.ensures((p_in,), p_out) ==>
                     C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+            forall |pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty| #![auto]
+                op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in) ==>
+                    C::E::new_page_req(pa, level, p_out),
             // `find_next_impl` diverges on the find-next panic condition.
             old(self).0.find_next_panic_condition(len) ==> may_panic(),
         ensures

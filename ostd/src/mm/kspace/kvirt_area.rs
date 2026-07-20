@@ -26,12 +26,12 @@ use crate::mm::{
 };
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::PagingConstsTrait;
 use crate::mm::frame::DynFrame;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::mm::kspace::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::PageTableGuard;
+use crate::mm::{PagingConstsTrait, PagingLevel};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, PageUsage, is_mmio_paddr};
@@ -894,6 +894,13 @@ impl KVirtArea {
             owner.pt_owner.0.value().node().relate_guard(root_guard),
             Self::untracked_range_slots_in_regions(&pa_range, *old(regions)),
             map_offset + vstd_extra::external::range::range_usize_len(&pa_range) <= usize::MAX,
+            forall|pa: Paddr, level: PagingLevel|
+                #[trigger]
+                <crate::arch::mm::PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
+                    pa,
+                    level,
+                    prop,
+                ),
         ensures
             final(regions).inv(),
             res.inv(),
@@ -1017,7 +1024,7 @@ impl KVirtArea {
                 }
                 proof_decl! {
                     let tracked entry_owner =
-                        EntryOwner::<KernelPtConfig>::new_untracked_frame(pa, level, prop);
+                        EntryOwner::<KernelPtConfig>::tracked_new_untracked_frame(pa, level, prop);
                 }
 
                 let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor_owner@;

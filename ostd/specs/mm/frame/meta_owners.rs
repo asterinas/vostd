@@ -2,25 +2,30 @@
 //! - The model of the metadata slot: `MetaSlotModel`.
 //! - The invariants for both MetaSlot and MetaSlotModel.
 //! - The primitives for MetaSlot.
-use vstd::atomic::*;
-use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
-use vstd::simple_pptr::*;
 
-use vstd_extra::cast_ptr::{self, Repr};
-use vstd_extra::ghost_tree::TreePath;
-use vstd_extra::ownership::*;
+use vstd::{atomic::*, cell::pcell_maybe_uninit, simple_pptr::*};
+use vstd_extra::{
+    cast_ptr::{self, Repr},
+    ghost_tree::TreePath,
+    ownership::*,
+};
+
+use crate::specs::{arch::NR_ENTRIES, mm::frame::linked_list::linked_list_owners::StoredLink};
+
+use crate::mm::{
+    Paddr, PagingLevel, Vaddr,
+    frame::{
+        AnyFrameMeta,
+        meta::{
+            META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+            mapping::meta_to_frame,
+        },
+    },
+    kspace::FRAME_METADATA_RANGE,
+};
 
 use super::*;
-use crate::mm::frame::AnyFrameMeta;
-use crate::mm::frame::meta::{
-    META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-    mapping::meta_to_frame,
-};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::NR_ENTRIES;
-use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
 
 verus! {
 

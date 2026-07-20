@@ -6,17 +6,15 @@ members = [
     "verified_libs/ostd-pod",
     "ostd",
     "ostd/libs/align_ext",
-#    "ostd/libs/ostd-macros",
-#    "ostd/libs/ostd-test",
-#    "kernel/libs/int-to-c-enum",
+    # "ostd/libs/ostd-macros",
+    # "ostd/libs/ostd-test",
+    # "kernel/libs/int-to-c-enum",
 ]
 exclude = [
-    "scripts",
     "dv",
     "tools/verus",
     "tools/verus-analyzer",
-    "tests",
-    "osdk",
+    # "osdk",
 ]
 
 [workspace.lints.rust]

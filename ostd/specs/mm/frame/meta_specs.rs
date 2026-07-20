@@ -1,30 +1,37 @@
-use vstd::atomic::*;
-use vstd::atomic::*;
+use core::marker::PhantomData;
 
 use vstd::prelude::*;
-use vstd::simple_pptr::{self, PPtr};
 
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
+use vstd::{
+    atomic::*,
+    simple_pptr::{self, PPtr},
+};
+use vstd_extra::{cast_ptr::*, ownership::*};
+
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        mapping::{frame_to_index, index_to_frame, lemma_paddr_to_meta_biinjective, meta_addr},
+        meta_owners::MetadataInnerPerms,
+        meta_region_owners::MetaRegionOwners,
+    },
+};
+
+use crate::mm::{
+    Paddr, PagingLevel, Vaddr,
+    frame::{
+        meta::{
+            META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+            mapping::{frame_to_meta, meta_to_frame},
+        },
+        *,
+    },
+    kspace::FRAME_METADATA_RANGE,
+};
 
 use super::meta_owners::{
     MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, Metadata, PageUsage,
 };
-use crate::mm::frame::meta::{
-    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-    mapping::{frame_to_meta, meta_to_frame},
-};
-use crate::mm::frame::*;
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::mm::{Paddr, PagingLevel, Vaddr};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::{
-    mapping::{frame_to_index, index_to_frame, lemma_paddr_to_meta_biinjective, meta_addr},
-    meta_owners::MetadataInnerPerms,
-};
-
-use core::marker::PhantomData;
 
 verus! {
 

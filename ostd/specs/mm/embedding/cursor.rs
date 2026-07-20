@@ -48,19 +48,26 @@ use core::ops::Range;
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::UFrame;
-use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::mm::page_prop::PageProperty;
-use crate::mm::vm_space::UserPtConfig;
-use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
-use crate::mm::{Paddr, Vaddr};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::PageUsage;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::cursor::owners::CursorOwner;
-use crate::specs::mm::page_table::node::Guards;
-use crate::specs::mm::tlb::TlbModel;
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{cursor::owners::CursorOwner, node::Guards},
+        tlb::TlbModel,
+    },
+};
+
+use crate::mm::{
+    Paddr, Vaddr,
+    frame::{
+        UFrame,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    },
+    page_prop::PageProperty,
+    vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},
+};
 
 use super::{CursorEntry, CursorKind, VmSpaceId, axiom_cursor_entry_new};
 
@@ -319,8 +326,8 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
 /// program (a sound `panic_diverge`, mirroring the real `pop_level`
 /// `unwrap` panic), so an out-of-range cursor is a safety non-issue —
 /// `in_locked_range` now only governs the success postcondition, and
-/// this axiom soundly models the returning path.
-pub axiom fn cursor_jump_embedded<'rcu>(
+/// this proof soundly models the returning path.
+pub proof fn lemma_cursor_jump_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
     tracked guards: &mut Guards<'rcu>,
@@ -350,7 +357,8 @@ pub axiom fn cursor_jump_embedded<'rcu>(
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
-;
+{
+}
 
 /// Mirror of [`crate::mm::vm_space::CursorMut::map`].
 ///
@@ -887,7 +895,7 @@ pub(super) proof fn cursor_jump_step<'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    cursor_jump_embedded(&mut entry.owner, regions, &mut entry.guards, va)
+    lemma_cursor_jump_embedded(&mut entry.owner, regions, &mut entry.guards, va)
 }
 
 /// Per-op step for `Op::ProtectNext`. Rewrites PTE `prop` fields in

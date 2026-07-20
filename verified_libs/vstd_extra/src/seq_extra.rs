@@ -73,7 +73,7 @@ pub proof fn lemma_push_contains_different<T>(s: Seq<T>, new_elem: T, needle: T)
 {
     if s.contains(needle) {
         let i = choose|i: int| 0 <= i < s.len() && s[i] == needle;
-        axiom_seq_push_index_different(s, needle, i);
+        lemma_seq_push_index_different(s, needle, i);
         assert(0 <= i < s.push(new_elem).len() && s.push(new_elem)[i] == needle);
     }
 }

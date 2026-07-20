@@ -1,21 +1,30 @@
 use vstd::prelude::*;
-use vstd_extra::cast_ptr::*;
-use vstd_extra::drop_tracking::*;
-use vstd_extra::ownership::*;
+
+use vstd_extra::{cast_ptr::*, drop_tracking::*, ownership::*};
+
+use crate::specs::{
+    arch::MAX_NR_PAGES,
+    mm::{
+        Paddr,
+        frame::{
+            mapping::{frame_to_index, max_meta_slots, meta_addr},
+            meta_region_owners::MetaRegionOwners,
+        },
+    },
+};
+
+use crate::mm::{
+    frame::{
+        meta::{
+            REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
+            mapping::{frame_to_meta, meta_to_frame},
+        },
+        *,
+    },
+    kspace::FRAME_METADATA_RANGE,
+};
 
 use super::meta_owners::*;
-use crate::mm::frame::{
-    meta::{
-        REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-        mapping::{frame_to_meta, meta_to_frame},
-    },
-    *,
-};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::MAX_NR_PAGES;
-use crate::specs::mm::Paddr;
-use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
 

@@ -1,21 +1,26 @@
 use vstd::prelude::*;
 
-use vstd_extra::arithmetic::{
-    lemma_nat_align_down_monotone, lemma_nat_align_down_within_block, nat_align_down,
+use vstd_extra::{
+    arithmetic::{
+        lemma_nat_align_down_monotone, lemma_nat_align_down_within_block, nat_align_down,
+    },
+    ghost_tree::*,
+    ownership::*,
 };
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
 
-use crate::mm::page_table::*;
-use crate::mm::{PagingLevel, Vaddr, page_size};
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS};
-use crate::specs::mm::page_table::cursor::owners::*;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides;
-use crate::specs::mm::page_table::owners::{
-    INC_LEVELS, OwnerSubtree, PageTableOwner, lemma_vaddr_of_eq_int, sibling_paths_disjoint, vaddr,
-    vaddr_of,
+use crate::specs::{
+    arch::{NR_ENTRIES, NR_LEVELS},
+    mm::page_table::{
+        AbstractVaddr, Mapping,
+        cursor::{owners::*, page_size_lemmas::lemma_page_size_divides},
+        owners::{
+            INC_LEVELS, OwnerSubtree, PageTableOwner, lemma_vaddr_of_eq_int,
+            sibling_paths_disjoint, vaddr, vaddr_of,
+        },
+    },
 };
-use crate::specs::mm::page_table::{AbstractVaddr, Mapping};
+
+use crate::mm::{PagingLevel, Vaddr, page_size, page_table::*};
 
 verus! {
 

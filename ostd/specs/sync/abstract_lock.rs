@@ -1,6 +1,6 @@
-use vstd::pervasive::trigger;
 use vstd::prelude::*;
-use vstd::set_lib::*;
+
+use vstd::{pervasive::trigger, set_lib::*};
 use vstd_extra::{set_extra::*, state_machine::*, temporal_logic::*};
 
 use super::mutex::pre_check_lock;

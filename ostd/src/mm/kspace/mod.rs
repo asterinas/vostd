@@ -340,6 +340,16 @@ unsafe impl PageTableConfig for KernelPtConfig {
         child_pa: Paddr,
         child_idx: usize,
     ) {
+        assert(<PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
+            pa,
+            level,
+            prop,
+        ));
+        assert(<PageTableEntry as crate::mm::page_table::PageTableEntryTrait>::new_page_req(
+            child_pa,
+            (level - 1) as PagingLevel,
+            prop,
+        ));
     }
 
     proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty) {

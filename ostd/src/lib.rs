@@ -53,7 +53,7 @@ pub mod task;
 // pub mod timer;
 pub mod trap;
 // pub mod user;
-#[path = "../specs/lib.rs"]
+#[path = "../specs/mod.rs"]
 pub mod specs;
 pub mod util;
 

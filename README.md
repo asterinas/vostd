@@ -4,132 +4,98 @@
 [![verify](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci.yml?branch=main&label=verify)](https://github.com/asterinas/vostd/actions/workflows/ci.yml)
 [![verify (verus-lang/verus)](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci-upstream-verus.yml?branch=main&label=verify%20(verus-lang%2Fverus))](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
 
-The `vostd` project provides a formally-verified version of [OSTD](https://asterinas.github.io/book/ostd/index.html), the (unofficial) standard library for OS development in safe Rust. OSTD encapsulates low-level hardware interactions—which requires using `unsafe` Rust—into a small yet powerful set of high-level, safe abstractions. These abstractions enable the creation of complex, general-purpose OSes like [Asterinas](https://github.com/asterinas/asterinas) entirely in safe Rust.
+## Overview
 
-By design, OSTD guarantees *soundness*: no undefined behavior is possible, regardless of how its API is used in safe Rust. The goal of the `vostd` project is to bolster confidence in this soundness through formal verification, leveraging the [Verus](https://github.com/verus-lang/verus) verification tool.
+The `vostd` project provides a formally-verified version of [OSTD](https://asterinas.github.io/book/ostd/index.html), the (unofficial) standard library for OS development in safe Rust. OSTD encapsulates low-level hardware interactions—which require `unsafe` Rust—into a small set of high-level, safe abstractions, enabling complex, general-purpose OSes like [Asterinas](https://github.com/asterinas/asterinas) to be written entirely in safe Rust. By design, OSTD guarantees *soundness*: no undefined behavior is possible regardless of how its API is used. The goal of `vostd` is to bolster this soundness through formal verification with [Verus](https://github.com/verus-lang/verus).
 
-This work is ongoing. Our current focus is on verifying OSTD’s *memory management subsystem*, a core component that is directly related to kernel memory safety. As we continue, we aim to extend formal verification to additional parts of OSTD to further ensure its reliability and correctness.
+This work is ongoing. Our current focus is OSTD's *memory management* and *synchronization* subsystems—core components directly tied to kernel memory safety—and we aim to extend verification to further parts of OSTD over time.
+
+## Publications
+
+This project is tied to the following papers:
+
+- 🏆 **CortenMM** — *CortenMM: Efficient Memory Management with Strong Correctness Guarantees*, SOSP 2025 (**Best Paper Award**). Concurrency proofs for OSTD memory management. [[paper](https://dl.acm.org/doi/10.1145/3731569.3764836)] [[code](https://github.com/TELOS-syslab/CortenMM-Artifact)]
+- **KVerus** — *KVerus: Scalable and Resilient Formal Verification Proof Generation for Rust Code*, ASE 2026 (Industry Track). Retrieval-augmented, self-adaptive proof synthesis and repair for Verus. Upstream-accepted proofs in OSTD `AI-assist`; see [these PRs](https://github.com/asterinas/vostd/pulls?q=is%3Apr+label%3AAI-assist+). [[paper](https://arxiv.org/abs/2605.03822)]
+- **Beyond Benchmarks** — *Beyond Benchmarks: A Case Study of LLM-Generated Verus Specification Failures on Asterinas Vostd*, ASE 2026 (Industry Track). *coming soon*
+
+## Bugs Found by Verification
+
+Formal verification has surfaced real bugs in OSTD and the upstream Asterinas kernel, including undefined behavior, deadlocks, arithmetic overflows, and reachable panics. We track them in [issue #645](https://github.com/asterinas/vostd/issues/645).
 
 ## Project Structure
 
-Implementation code from the OSTD [mainline](https://github.com/asterinas/asterinas), together with its accompanying proofs, resides in the `ostd/src` directory, while specifications are located under `ostd/specs`.
-
-This repository currently contains verification code for `ostd/src/mm` and `ostd/src/sync`. It is independent of the concurrency proofs presented in our [SOSP paper](https://dl.acm.org/doi/10.1145/3731569.3764836) — *“CortenMM: Efficient Memory Management with Strong Correctness Guarantees.”*  For the SOSP artifact, please refer to the [func-correct](https://github.com/asterinas/vostd/tree/func-correct) branch for verification code, and to [this repo](https://github.com/TELOS-syslab/CortenMM-Artifact) for the complete artifact.
-
-A merge of these efforts is planned, but has not yet begun.
-
-## Building the Proof Development
-
-### Install Rust
-
-If you have not installed Rust yet, follow the [official instructions](https://www.rust-lang.org/tools/install).
-
-### Clone Submodule
-
-`vostd` relies on our [custom build tool](https://github.com/asterinas/rust-deductive-verifier). Please run:
-
-```bash
-git submodule update --init --recursive
+```tree
+vostd/
+├── dv/               # Build system
+├── ostd/
+│   ├── specs/        # Verus specifications
+│   └── src/          # OSTD implementation and proofs
+└── verified_libs/    # Auxiliary verified libraries
+    ├── bitflags/
+    ├── ostd-pod/
+    └── vstd_extra/
 ```
+
+## Building
+
+### Prerequisites
+
+- [Install Rust](https://www.rust-lang.org/tools/install).
+- Initialize submodules (for our [custom build tool](https://github.com/asterinas/rust-deductive-verifier)):
+
+  ```bash
+  git submodule update --init --recursive
+  ```
 
 ### Build Verus
 
-The recommended way to build Verus is by running the following command:
-
 ```bash
-make verus
+make verus      # or: cargo dv bootstrap
 ```
 
-or
-
-```bash
-cargo dv bootstrap
-```
-
-Verus should be automatically cloned and built in the `tools` directory. If download fails, please clone the repo manually into `tools/verus` , then run `cargo dv bootstrap` again.
+Verus is cloned and built under `tools/verus`. If the download fails, clone it manually into `tools/verus` and re-run `cargo dv bootstrap`.
 
 > [!NOTE]
->
-> We use [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the upstream repository. You may choose to install the [upstream Verus source](https://github.com/verus-lang/verus) via `cargo dv bootstrap --upstream-verus`, however, we cannot guarantee that it will always verify successfully with our project. That said, our CI continuously tests against upstream, and we typically resolve any breaking changes within about a week.
->
-> If you have already installed Verus elsewhere and just want to reproduce the verification result, a quick alternative is to set `CARGO_VERUS_PATH` to the directory containing the `cargo-verus` binary, or add it to your `PATH`. Then run `cargo verus verify`.
+> We use our [own fork](https://github.com/asterinas/verus) of Verus, kept in sync with upstream. To build against upstream Verus instead, use `cargo dv bootstrap --upstream-verus` (our CI tracks upstream; breaking changes are usually resolved within about a week).
 
-### Build Verification Targets
+> [!TIP]
+> If Verus is already installed elsewhere and you only want to reproduce a verification result (not the recommended way to set up the project), point `CARGO_VERUS_PATH` at the directory containing the `cargo-verus` binary (or add it to your `PATH`) and run `cargo verus verify`.
 
-To verify the entire project, simply run:
+### Verify
 
 ```bash
-make
+make                                         # verify everything (or: cargo dv verify)
+cargo dv verify -f --targets ostd            # ostd only, skip dependencies
+cargo dv verify --targets vstd_extra         # the verified dependency crate
 ```
 
-or
+### Clean
 
 ```bash
-cargo dv verify
+make clean      # or: cargo dv clean          # remove build artifacts for a fresh build
 ```
 
-To verify only `ostd` and skip its dependencies, run:
+### Build & Docs
 
 ```bash
-cargo dv verify -f --targets ostd
+make build      # or: cargo dv build               # build the verification targets
+make doc        # or: cargo dv doc --target ostd   # generate API docs at doc/index.html
 ```
 
-The `ostd` crate relies on a verified crate: `vstd_extra`. To verify it independently, run:
-
-```bash
-cargo dv verify --targets vstd_extra
-```
-
-### Clean Build Artifacts
-
-Recompilation and reverification are automatically skipped for crates that have not changed since the last build. To remove the build artifact for a fresh build, run:
-
-```bash
-make clean
-```
-
-or
-
-```bash
-cargo dv clean
-```
-
-### Documentation
-
-We provide comprehensive API-level documentation that describes the verified APIs along with their specifications. To generate the documentation, run:
-
-```bash
-make doc
-```
-
-or
-
-```bash
-cargo dv build
-cargo dv doc --target ostd
-```
-
-The generated documentation can be found at `doc/index.html`. An [online version](https://asterinas.github.io/vostd/) is also available.
+The generated documentation can be found at `doc/`.
+An [online version](https://asterinas.github.io/vostd/) is also available.
 
 ### IDE Support
 
-For VSCode users, the [`verus-analyzer`](https://marketplace.visualstudio.com/items?itemName=verus-lang.verus-analyzer) extension is available in the Marketplace.
+- VSCode: [`verus-analyzer`](https://marketplace.visualstudio.com/items?itemName=verus-lang.verus-analyzer)
+- Emacs: [`verus-mode`](https://github.com/verus-lang/verus-mode.el)
 
-For Emacs users, please refer to the [`verus-mode`](https://github.com/verus-lang/verus-mode.el).
+## Contributing
 
-## Contributing to VOSTD
+We welcome your contributions! Conventions:
 
-We welcome your contributions!
-
-### Common Conventions
-
-- We add an `axiom_` prefix to the name of each `axiom fn` and a `lemma_` prefix to each `proof fn`.
-- We prefer associated functions to isolated lemmas.
-- Specifications and lemmas are preferred to be add to `ostd/specs`.
-- General definitions and lemmas should be add to `verified_libs/vstd_extra`.
-
-### Tips
-
-- During your development process, please frequently run `make verus-upgrade` or `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
-- Format checking is enforced, please format your code with `cargo dv fmt` before submission.
-- If you are contributing to Verus, we recommend submitting pull requests to [the upstream repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.
+- Prefix `axiom fn` with `axiom_`, `proof fn` with `lemma_`, and proof helpers that manipulate `tracked` linear permission objects with `tracked_`.
+- Prefer associated functions over isolated lemmas.
+- Put specifications and lemmas in `ostd/specs`; general definitions and lemmas in `verified_libs/vstd_extra`.
+- Before submitting: run `make verus-upgrade` (`cargo dv bootstrap --upgrade`) to follow the [latest supported Verus](https://github.com/asterinas/verus), and `make fmt` (`cargo dv fmt`) to format (enforced).
+- For Verus changes, prefer PRs to [the upstream repo](https://github.com/verus-lang/verus) over our fork, since we aim to minimize differences between them.

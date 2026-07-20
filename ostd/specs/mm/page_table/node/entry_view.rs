@@ -1,14 +1,15 @@
-use vstd::prelude::*;
-
 use core::marker::PhantomData;
 
-use crate::arch::mm::PagingConsts;
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
-use crate::specs::arch::*;
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use vstd::prelude::*;
+
 use vstd_extra::ownership::*;
+
+use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, *};
+
+use crate::arch::mm::PagingConsts;
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*,
+};
 
 verus! {
 

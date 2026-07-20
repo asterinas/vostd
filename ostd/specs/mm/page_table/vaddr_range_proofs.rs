@@ -5,12 +5,13 @@
 //! triggers a Verus internal panic when used in `page_table/mod.rs`
 //! alongside `largest_pages` (which has an `impl Iterator` return type).
 //! Same workaround pattern as the older `vaddr_range_bv_lemmas`.
-use vstd::arithmetic::power2::{lemma_pow2_adds, lemma_pow2_pos, pow2};
 use vstd::prelude::*;
 
-use crate::mm::page_table::PageTableConfig;
-use crate::mm::{PagingConstsTrait, Vaddr};
+use vstd::arithmetic::power2::{lemma_pow2_adds, lemma_pow2_pos, pow2};
+
 use crate::specs::mm::page_table::pte_index_bit_offset_spec;
+
+use crate::mm::{PagingConstsTrait, Vaddr, page_table::PageTableConfig};
 
 verus! {
 

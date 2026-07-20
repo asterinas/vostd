@@ -46,11 +46,12 @@
 //!   `read_view_initialized()` / `has_write_view()` unconditionally) —
 //!   formally a slight strengthening pending kernel-VA modeling.
 use vstd::prelude::*;
+
 use vstd_extra::ownership::*;
 
-use crate::mm::vm_space::vm_space_specs::VmSpaceOwner;
-use crate::mm::{MAX_USERSPACE_VADDR, Vaddr};
 use crate::specs::mm::io::VmIoOwner;
+
+use crate::mm::{MAX_USERSPACE_VADDR, Vaddr, vm_space::vm_space_specs::VmSpaceOwner};
 
 use super::{VmIoEntry, VmIoKind, VmSpaceId, tracked_vm_io_entry_new};
 
@@ -211,22 +212,24 @@ pub axiom fn vm_writer_fill_zeros_embedded(tracked owner: &mut VmIoOwner, len: u
 ;
 
 /// Mirror of [`crate::mm::io::VmWriter::limit`].
-pub axiom fn vm_writer_limit_embedded(tracked owner: &mut VmIoOwner, max_avail: usize)
+pub proof fn lemma_vm_writer_limit_embedded(tracked owner: &mut VmIoOwner, max_avail: usize)
     requires
         old(owner).inv(),
     ensures
         final(owner).inv(),
         *final(owner) == *old(owner),
-;
+{
+}
 
 /// Mirror of [`crate::mm::io::VmWriter::skip`].
-pub axiom fn vm_writer_skip_embedded(tracked owner: &mut VmIoOwner, nbytes: usize)
+pub proof fn lemma_vm_writer_skip_embedded(tracked owner: &mut VmIoOwner, nbytes: usize)
     requires
         old(owner).inv(),
     ensures
         final(owner).inv(),
         *final(owner) == *old(owner),
-;
+{
+}
 
 // =============================================================================
 // dispatch tags + step proofs
@@ -319,8 +322,8 @@ pub(super) proof fn vm_io_method_step(tracked entry: &mut VmIoEntry, method: VmI
         VmIoMethod::ReaderLimit(max) => vm_reader_limit_embedded(&mut entry.owner, max),
         VmIoMethod::ReaderSkip(n) => vm_reader_skip_embedded(&mut entry.owner, n),
         VmIoMethod::WriterFillZeros(len) => vm_writer_fill_zeros_embedded(&mut entry.owner, len),
-        VmIoMethod::WriterLimit(max) => vm_writer_limit_embedded(&mut entry.owner, max),
-        VmIoMethod::WriterSkip(n) => vm_writer_skip_embedded(&mut entry.owner, n),
+        VmIoMethod::WriterLimit(max) => lemma_vm_writer_limit_embedded(&mut entry.owner, max),
+        VmIoMethod::WriterSkip(n) => lemma_vm_writer_skip_embedded(&mut entry.owner, n),
     }
 }
 

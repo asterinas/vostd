@@ -1,20 +1,17 @@
 use vstd::prelude::*;
-use vstd::set::lemma_set_choose_len;
-use vstd::set_lib::*;
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use vstd::{set::lemma_set_choose_len, set_lib::*};
+use vstd_extra::{arithmetic::*, ghost_tree::*, ownership::*};
+
+use crate::specs::{
+    arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
+    mm::page_table::{Mapping, cursor::owners::*, owners::PageTableOwner},
+};
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size};
-use crate::specs::arch::MAX_PADDR;
-use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::page_table::Mapping;
-use crate::specs::mm::page_table::cursor::owners::*;
-use crate::specs::mm::page_table::owners::PageTableOwner;
-use vstd_extra::arithmetic::*;
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_prop::PageProperty, page_size, page_table::*,
+};
 
 verus! {
 
@@ -45,13 +42,10 @@ impl<C: PageTableConfig> CursorView<C> {
             vstd::set::lemma_set_choose_len(f);
         };
         assert(m.inv());
-        assert(m.va_range.start + ps == m.va_range.end);
 
         let diff: int = cur_va - m.va_range.start;
         let ki: int = diff / new_size as int;
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(diff, new_size as int);
-        vstd::arithmetic::div_mod::lemma_mod_division_less_than_divisor(diff, new_size as int);
-        vstd::arithmetic::div_mod::lemma_div_pos_is_pos(diff, new_size as int);
 
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, new_size as int);
         assert(ki < ps as int / new_size as int) by {
@@ -66,9 +60,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
         let sub = Self::split_index(m, new_size, ki as usize);
 
-        assert(ki * new_size >= 0) by {
-            vstd::arithmetic::mul::lemma_mul_nonnegative(ki, new_size as int);
-        };
+        assert(ki * new_size >= 0);
         assert((ki + 1) * new_size <= ps) by {
             vstd::arithmetic::mul::lemma_mul_inequality(
                 ki + 1,
@@ -76,29 +68,16 @@ impl<C: PageTableConfig> CursorView<C> {
                 new_size as int,
             );
         };
-        assert(m.va_range.start + (ki + 1) * new_size <= m.va_range.end) by {
-            vstd::arithmetic::mul::lemma_mul_is_commutative(ki + 1, new_size as int);
-            vstd::arithmetic::mul::lemma_mul_is_commutative(
-                ps as int / new_size as int,
-                new_size as int,
-            );
-        };
 
-        assert(ki as usize == ki);
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(new_size as int, ki, 1 as int);
-        assert(cur_va >= m.va_range.start + ki * new_size);
-        assert(cur_va < m.va_range.start + (ki + 1) * new_size);
-        assert(sub.va_range.start <= cur_va);
 
         let new_self = v.split_if_mapped_huge_spec(new_size);
         let domain = Set::<int>::range(0int, ps as int / new_size as int);
         assert(domain.contains(ki));
-        assert(new_self.mappings.contains(sub));
 
         let new_filter = new_self.mappings.filter(
             |m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end,
         );
-        assert(new_filter.contains(sub));
         vstd::set::lemma_set_contains_len(new_filter, sub);
     }
 
@@ -144,21 +123,17 @@ impl<C: PageTableConfig> CursorView<C> {
         };
 
         if v.mappings.contains(m2) && m2 != m {
-            assert(m.va_range.end <= m2.va_range.start || m2.va_range.end <= m.va_range.start);
             assert(false);
         }
-        assert(!v.mappings.remove(m).contains(m2));
         let new_mappings = Set::<int>::range(0int, ps as int / new_size as int).map(
             |n: int| Self::split_index(m, new_size, n as usize),
         );
-        assert(new_mappings.contains(m2));
         let k = choose|k: int|
             0 <= k < ps as int / new_size as int && #[trigger] Self::split_index(
                 m,
                 new_size,
                 k as usize,
             ) == m2;
-        assert(m2.page_size == new_size);
     }
 
     /// `split_if_mapped_huge_spec` preserves `CursorView::inv()`.
@@ -181,12 +156,9 @@ impl<C: PageTableConfig> CursorView<C> {
         let m = v.query_mapping();
         let ps = m.page_size;
         let ns: int = new_size as int;
-        let new_self = v.split_if_mapped_huge_spec(new_size);
         let count: int = ps as int / ns;
-        let domain = Set::<int>::range(0int, count);
-        let new_mappings = domain.map(|n: int| Self::split_index(m, new_size, n as usize));
 
-        // --- Establish that m is in v.mappings and covers cur_va ---
+        // Establish that m is in v.mappings and covers cur_va.
         assert(v.mappings.contains(m) && m.va_range.start <= cur_va && cur_va < m.va_range.end) by {
             let f = v.mappings.filter(
                 |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end,
@@ -194,123 +166,9 @@ impl<C: PageTableConfig> CursorView<C> {
             vstd::set::lemma_set_choose_len(f);
         };
         assert(m.inv());
-
-        // --- (1) cur_va preserved ---
-
-        // --- Helper: ps == count * ns (no remainder) ---
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
-        assert(ps == count * ns);
-
         assert(m.va_range.start % new_size as int == 0) by {
             vstd::arithmetic::mul::lemma_mul_is_commutative(count, ns);
             vstd::arithmetic::div_mod::lemma_mod_mod(m.va_range.start as int, ns, count);
-        };
-        assert(m.pa_range.start % new_size == 0) by {
-            vstd::arithmetic::mul::lemma_mul_is_commutative(count, ns);
-            vstd::arithmetic::div_mod::lemma_mod_mod(m.pa_range.start as int, ns, count);
-        };
-
-        // --- (3) All mappings satisfy Mapping::inv() ---
-        assert forall|e: Mapping| new_self.mappings.contains(e) implies #[trigger] e.inv() by {
-            if v.mappings.remove(m).contains(e) {
-                assert(v.mappings.contains(e));
-            } else {
-                assert(new_mappings.contains(e));
-                let k = choose|k: int|
-                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e;
-                let sub = Self::split_index(m, new_size, k as usize);
-
-                // sub.page_size == new_size ∈ {4096, 2M, 1G}
-                assert(set![4096usize, 2097152, 1073741824].contains(sub.page_size));
-
-                // Alignment: (base + k * ns) % ns == base % ns == 0.
-                // Use lemma_mod_multiples_vanish: (ns * a + b) % ns == b % ns.
-                vstd::arithmetic::mul::lemma_mul_is_commutative(k, ns);
-                vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    k,
-                    m.va_range.start as int,
-                    ns,
-                );
-                assert(sub.va_range.start % new_size as int == 0);
-                vstd::arithmetic::mul::lemma_mul_is_commutative(k + 1, ns);
-                vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    k + 1,
-                    m.va_range.start as int,
-                    ns,
-                );
-                assert(sub.va_range.end % new_size as int == 0);
-
-                vstd::arithmetic::mul::lemma_mul_is_commutative(k, ns);
-                vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    k,
-                    m.pa_range.start as int,
-                    ns,
-                );
-                assert(sub.pa_range.start % new_size == 0);
-                vstd::arithmetic::mul::lemma_mul_is_commutative(k + 1, ns);
-                vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(
-                    k + 1,
-                    m.pa_range.start as int,
-                    ns,
-                );
-                assert(sub.pa_range.end % new_size == 0);
-
-                // Range spans exactly new_size.
-                vstd::arithmetic::mul::lemma_mul_is_distributive_add(ns, k, 1int);
-                assert(sub.va_range.start + new_size == sub.va_range.end);
-                assert(sub.pa_range.start + new_size == sub.pa_range.end);
-
-                // Bounds: sub is within m's range.
-                vstd::arithmetic::mul::lemma_mul_nonnegative(k, ns);
-                vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
-            }
-        };
-
-        // --- (4) Non-overlapping ---
-        assert forall|e1: Mapping, e2: Mapping| #[trigger]
-            new_self.mappings.contains(e1) && #[trigger] new_self.mappings.contains(e2) && e1
-                != e2 implies e1.va_range.end <= e2.va_range.start || e2.va_range.end
-            <= e1.va_range.start by {
-            if v.mappings.remove(m).contains(e1) && v.mappings.remove(m).contains(e2) {
-                // Both from original: inherit from v.inv().
-                assert(v.mappings.contains(e1));
-                assert(v.mappings.contains(e2));
-            } else if v.mappings.remove(m).contains(e1) && new_mappings.contains(e2) {
-                // e1 from original (disjoint from m), e2 sub-mapping within m.
-                assert(v.mappings.contains(e1));
-                assert(e1 != m);
-                let k2 = choose|k: int|
-                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e2;
-                vstd::arithmetic::mul::lemma_mul_nonnegative(k2, ns);
-                vstd::arithmetic::mul::lemma_mul_inequality(k2 + 1, count, ns);
-                assert(e2.va_range.start >= m.va_range.start);
-                assert(e2.va_range.end <= m.va_range.end);
-            } else if new_mappings.contains(e1) && v.mappings.remove(m).contains(e2) {
-                // Symmetric case.
-                assert(v.mappings.contains(e2));
-                assert(e2 != m);
-                let k1 = choose|k: int|
-                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e1;
-                vstd::arithmetic::mul::lemma_mul_nonnegative(k1, ns);
-                vstd::arithmetic::mul::lemma_mul_inequality(k1 + 1, count, ns);
-                assert(e1.va_range.start >= m.va_range.start);
-                assert(e1.va_range.end <= m.va_range.end);
-            } else if new_mappings.contains(e1) && new_mappings.contains(e2) {
-                // Both sub-mappings with different indices.
-                let i = choose|k: int|
-                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e1;
-                let j = choose|k: int|
-                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == e2;
-                vstd::arithmetic::mul::lemma_mul_nonnegative(i, ns);
-                vstd::arithmetic::mul::lemma_mul_nonnegative(j, ns);
-                if i < j {
-                    vstd::arithmetic::mul::lemma_mul_inequality(i + 1, j, ns);
-                    vstd::arithmetic::mul::lemma_mul_is_distributive_add(ns, i, 1int);
-                } else {
-                    vstd::arithmetic::mul::lemma_mul_inequality(j + 1, i, ns);
-                    vstd::arithmetic::mul::lemma_mul_is_distributive_add(ns, j, 1int);
-                }
-            }
         };
     }
 
@@ -339,23 +197,10 @@ impl<C: PageTableConfig> CursorView<C> {
                 );
                 vstd::set::lemma_set_choose_len(f);
                 assert(m.inv());
-                assert(NR_ENTRIES == 512usize) by (compute_only);
                 // new_size is a valid page size (case split on m.page_size).
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 {
-                        assert(2097152usize / 512 == 4096usize);
-                    } else if m.page_size == 1073741824 {
-                        assert(1073741824usize / 512 == 2097152usize);
-                    } else {
-                        assert(4096usize / 512 == 8usize);
+                    if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);
-                    }  // 4096 case impossible: 8 not in set
-                };
-                assert(m.page_size % new_size == 0) by {
-                    if m.page_size == 2097152 {
-                        assert(2097152usize % 4096 == 0);
-                    } else {
-                        assert(1073741824usize % 2097152 == 0);
                     }
                 };
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
@@ -391,22 +236,9 @@ impl<C: PageTableConfig> CursorView<C> {
                 );
                 vstd::set::lemma_set_choose_len(f);
                 assert(m.inv());
-                assert(NR_ENTRIES == 512usize) by (compute_only);
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 {
-                        assert(2097152usize / 512 == 4096usize);
-                    } else if m.page_size == 1073741824 {
-                        assert(1073741824usize / 512 == 2097152usize);
-                    } else {
-                        assert(4096usize / 512 == 8usize);
+                    if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);
-                    }
-                };
-                assert(m.page_size % new_size == 0) by {
-                    if m.page_size == 2097152 {
-                        assert(2097152usize % 4096 == 0);
-                    } else {
-                        assert(1073741824usize % 2097152 == 0);
                     }
                 };
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
@@ -446,19 +278,9 @@ impl<C: PageTableConfig> CursorView<C> {
         );
         vstd::set::lemma_set_choose_len(f);
         assert(m.inv());
-        assert(NR_ENTRIES == 512usize) by (compute_only);
         assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
             if m.page_size == 2097152 {
-                assert(2097152usize / 512 == 4096usize);
             } else {
-                assert(1073741824usize / 512 == 2097152usize);
-            }
-        };
-        assert(m.page_size % new_size == 0) by {
-            if m.page_size == 2097152 {
-                assert(2097152usize % 4096 == 0);
-            } else {
-                assert(1073741824usize % 2097152 == 0);
             }
         };
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
@@ -497,45 +319,21 @@ impl<C: PageTableConfig> CursorView<C> {
             );
             vstd::set::lemma_set_choose_len(f);
             assert(m.inv());
-            assert(NR_ENTRIES == 512usize) by (compute_only);
             assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
                 if m.page_size == 2097152 {
-                    assert(2097152usize / 512 == 4096usize);
                 } else if m.page_size == 1073741824 {
-                    assert(1073741824usize / 512 == 2097152usize);
                 } else {
-                    assert(4096usize / 512 == 8usize);
                     assert(false);
                 }
             };
-            assert(m.page_size % new_size == 0) by {
-                if m.page_size == 2097152 {
-                    assert(2097152usize % 4096 == 0);
-                } else {
-                    assert(1073741824usize % 2097152 == 0);
-                }
-            };
             Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
-            Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
             let new_self = self.split_if_mapped_huge_spec(new_size);
             new_self.split_while_huge_refinement(size, m);
-            assert(!new_self.mappings.contains(m)) by {
-                let new_mappings = Set::<int>::range(
-                    0int,
-                    m.page_size as int / new_size as int,
-                ).map(|n: int| Self::split_index(m, new_size, n as usize));
-                if new_mappings.contains(m) {
-                    let k = choose|k: int|
-                        0 <= k < m.page_size as int / new_size as int
-                            && #[trigger] Self::split_index(m, new_size, k as usize) == m;
-                }
-            };
             let p = choose|p: Mapping| #[trigger]
                 new_self.mappings.contains(p) && p.va_range.start <= m.va_range.start
                     && m.va_range.end <= p.va_range.end && m.pa_range.start == (p.pa_range.start + (
                 m.va_range.start - p.va_range.start)) as Paddr && m.property == p.property;
             if self.mappings.contains(p) {
-                assert(p.va_range.start <= self.cur_va < p.va_range.end);
             } else {
                 let new_mappings = Set::<int>::range(
                     0int,
@@ -547,20 +345,6 @@ impl<C: PageTableConfig> CursorView<C> {
                         new_size,
                         k as usize,
                     ) == p;
-                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                    m.page_size as int,
-                    new_size as int,
-                );
-                vstd::arithmetic::mul::lemma_mul_inequality(
-                    (k + 1) as int,
-                    m.page_size as int / new_size as int,
-                    new_size as int,
-                );
-                vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                    new_size as int,
-                    k,
-                    1int,
-                );
             }
         }
     }
@@ -591,9 +375,6 @@ impl<C: PageTableConfig> CursorView<C> {
             |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
         );
         vstd::set::lemma_set_choose_len(f0);
-        assert(m.inv());
-        assert(NR_ENTRIES == 512usize) by (compute_only);
-        Self::split_if_mapped_huge_spec_preserves_present(self, new_size);
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
         Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
         let new_self = self.split_if_mapped_huge_spec(new_size);
@@ -610,7 +391,6 @@ impl<C: PageTableConfig> CursorView<C> {
             let new_mappings = Set::<int>::range(0int, m.page_size as int / new_size as int).map(
                 |n: int| Self::split_index(m, new_size, n as usize),
             );
-            assert(new_mappings.contains(new_m));
         };
         assert(new_self.split_while_huge(size) == new_self);
     }
@@ -660,7 +440,6 @@ impl<C: PageTableConfig> CursorView<C> {
                     k,
                     1int,
                 );
-                vstd::arithmetic::mul::lemma_mul_nonnegative(k, new_size as int);
             }
         };
     }
@@ -696,33 +475,13 @@ impl<C: PageTableConfig> CursorView<C> {
                     |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end,
                 );
                 vstd::set::lemma_set_choose_len(f);
-                assert(self.mappings.contains(m));
-                assert(m.va_range.start <= self.cur_va < m.va_range.end);
                 assert(m.inv());
                 // m2 != m and disjoint va_ranges (non-overlap invariant).
-                assert(Mapping::disjoint_vaddrs(m2, m));
-                // page_size % new_size == 0
-                assert(NR_ENTRIES == 512usize);
-                assert(m.page_size % new_size == 0) by {
-                    if m.page_size == 4096 {
-                        assert(4096usize % (4096usize / 512usize) == 0);
-                    } else if m.page_size == 2097152 {
-                        assert(2097152usize % (2097152usize / 512usize) == 0);
-                    } else {
-                        assert(1073741824usize % (1073741824usize / 512usize) == 0);
-                    }
-                };
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 {
-                        assert(2097152usize / 512 == 4096usize);
-                    } else if m.page_size == 1073741824 {
-                        assert(1073741824usize / 512 == 2097152usize);
-                    } else {
-                        assert(4096usize / 512 == 8usize);
+                    if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);
                     }
                 };
-                self.split_if_mapped_huge_spec_locality(new_size, m2);
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
@@ -763,29 +522,19 @@ impl<C: PageTableConfig> CursorView<C> {
                     |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end,
                 );
                 vstd::set::lemma_set_choose_len(f);
-                assert(self.mappings.contains(m));
                 // page_size % new_size == 0
                 assert(m.inv());
                 assert(m.page_size % new_size == 0) by {
-                    assert(set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size));
-                    assert(4096usize % (4096usize / 512usize) == 0) by (compute_only);
                     assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
                     assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
                 };
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if m.page_size == 2097152 {
-                        assert(2097152usize / 512 == 4096usize);
-                    } else if m.page_size == 1073741824 {
-                        assert(1073741824usize / 512 == 2097152usize);
-                    } else {
-                        assert(4096usize / 512 == 8usize);
+                    if m.page_size != 2097152 && m.page_size != 1073741824 {
                         assert(false);
                     }
                 };
-                self.split_if_mapped_huge_spec_locality(new_size, m2);
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
-                Self::split_if_mapped_huge_spec_preserves_present(self, new_size);
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
                 assert(new_self.present() ==> Mapping::disjoint_vaddrs(
                     m2,
@@ -807,21 +556,6 @@ impl<C: PageTableConfig> CursorView<C> {
                         let k = choose|k: int|
                             0 <= k < m.page_size as int / new_size as int
                                 && #[trigger] Self::split_index(m, new_size, k as usize) == new_m;
-                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(
-                            m.page_size as int,
-                            new_size as int,
-                        );
-                        vstd::arithmetic::mul::lemma_mul_inequality(
-                            (k + 1) as int,
-                            m.page_size as int / new_size as int,
-                            new_size as int,
-                        );
-                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                            new_size as int,
-                            k,
-                            1int,
-                        );
-                        vstd::arithmetic::mul::lemma_mul_nonnegative(k, new_size as int);
                     }
                 };
                 new_self.split_while_huge_locality_absent(size, m2);
@@ -865,25 +599,16 @@ impl<C: PageTableConfig> CursorView<C> {
             |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
         );
         vstd::set::lemma_set_choose_len(f);
-        assert(self.mappings.contains(qm));
         assert(qm.inv());
 
         if self.mappings.remove(qm).contains(e) {
-            assert(self.mappings.contains(e));
         } else {
-            assert(new_mappings.contains(e));
             let k = choose|k: int|
                 0 <= k < count && #[trigger] Self::split_index(qm, new_size, k as usize) == e;
 
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, ns);
-            assert(ps == count * ns);
 
-            vstd::arithmetic::mul::lemma_mul_nonnegative(k, ns);
             vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
-
-            let ku = k as usize;
-            assert(e == Self::split_index(qm, new_size, ku));
-            vstd::arithmetic::mul::lemma_mul_is_distributive_add(ns, k, 1int);
         }
     }
 
@@ -916,22 +641,9 @@ impl<C: PageTableConfig> CursorView<C> {
                 );
                 vstd::set::lemma_set_choose_len(f);
                 assert(qm.inv());
-                assert(NR_ENTRIES == 512usize) by (compute_only);
                 assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
-                    if qm.page_size == 2097152 {
-                        assert(2097152usize / 512 == 4096usize);
-                    } else if qm.page_size == 1073741824 {
-                        assert(1073741824usize / 512 == 2097152usize);
-                    } else {
-                        assert(4096usize / 512 == 8usize);
+                    if qm.page_size != 2097152 && qm.page_size != 1073741824 {
                         assert(false);
-                    }
-                };
-                assert(qm.page_size % new_size == 0) by {
-                    if qm.page_size == 2097152 {
-                        assert(2097152usize % 4096 == 0);
-                    } else {
-                        assert(1073741824usize % 2097152 == 0);
                     }
                 };
                 Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
@@ -940,24 +652,13 @@ impl<C: PageTableConfig> CursorView<C> {
                 new_self.split_while_huge_refinement(size, m);
 
                 if new_self.mappings.contains(m) {
-                    self.split_if_mapped_huge_spec_refinement(new_size, m);
                 } else {
                     let p = choose|p: Mapping| #[trigger]
                         new_self.mappings.contains(p) && p.va_range.start <= m.va_range.start
                             && m.va_range.end <= p.va_range.end && m.pa_range.start == (
                         p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
                             && m.property == p.property;
-                    self.split_if_mapped_huge_spec_refinement(new_size, p);
                     if !self.mappings.contains(p) {
-                        assert(qm.va_range.start <= m.va_range.start);
-                        assert(m.va_range.end <= qm.va_range.end);
-                        // Extract m.inv() and p.inv() via inv preservation of
-                        // split_while_huge / split_if_mapped_huge_spec.
-                        new_self.lemma_split_while_huge_preserves_inv(size);
-                        assert(new_self.split_while_huge(size).inv());
-                        assert(m.inv());
-                        assert(new_self.inv());
-                        assert(p.inv());
                     }
                 }
             }
@@ -1016,7 +717,6 @@ impl<C: PageTableConfig> CursorView<C> {
                 #![trigger other.contains(x)]
                 other.contains(x) implies !self.split_while_huge(size).mappings.contains(x) by {
                 if self.mappings.contains(x) {
-                    assert(Mapping::disjoint_vaddrs(x, x));
                     assert(x.inv());
                 }
             };
@@ -1028,7 +728,6 @@ impl<C: PageTableConfig> CursorView<C> {
                 #![trigger other.contains(x)]
                 other.contains(x) implies !self.split_while_huge(size).mappings.contains(x) by {
                 if self.mappings.contains(x) {
-                    assert(Mapping::disjoint_vaddrs(x, x));
                     assert(x.inv());
                 }
             };
@@ -1041,25 +740,13 @@ impl<C: PageTableConfig> CursorView<C> {
             |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end,
         );
         vstd::set::lemma_set_choose_len(f);
-        assert(self.mappings.contains(m));
         assert(m.inv());
 
-        assert(NR_ENTRIES == 512usize) by (compute_only);
         assert(set![4096usize, 2097152, 1073741824].contains(new_size)) by {
             if m.page_size == 2097152 {
-                assert(2097152usize / 512 == 4096usize);
             } else if m.page_size == 1073741824 {
-                assert(1073741824usize / 512 == 2097152usize);
             } else {
-                assert(4096usize / 512 == 8usize);
                 assert(false);
-            }
-        };
-        assert(m.page_size % new_size == 0) by {
-            if m.page_size == 2097152 {
-                assert(2097152usize % 4096 == 0);
-            } else {
-                assert(1073741824usize % 2097152 == 0);
             }
         };
         Self::split_if_mapped_huge_spec_preserves_inv(self, new_size);
@@ -1079,7 +766,6 @@ impl<C: PageTableConfig> CursorView<C> {
                     0int,
                     m.page_size as int / new_size as int,
                 ).map(|n: int| Self::split_index(m, new_size, n as usize));
-                assert(new_mappings.contains(m2));
                 let k = choose|k: int|
                     0 <= k < m.page_size as int / new_size as int && #[trigger] Self::split_index(
                         m,
@@ -1090,19 +776,6 @@ impl<C: PageTableConfig> CursorView<C> {
                     m.page_size as int,
                     new_size as int,
                 );
-                vstd::arithmetic::mul::lemma_mul_inequality(
-                    k + 1,
-                    m.page_size as int / new_size as int,
-                    new_size as int,
-                );
-                vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
-                    new_size as int,
-                    k,
-                    1int,
-                );
-                vstd::arithmetic::mul::lemma_mul_nonnegative(k, new_size as int);
-                // m2.va_range ⊆ m.va_range; m.va_range va-disjoint from x.va_range.
-                assert(Mapping::disjoint_vaddrs(m, x));
             }
         };
 
@@ -1145,7 +818,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         self.view_preserves_inv();
         if self@.present() {
-            self.cur_subtree_inv();
             let subtree = self.cur_subtree();
             let path = subtree.value().path;
             let qm = self@.query_mapping();
@@ -1225,26 +897,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         owner0.view_preserves_inv();
         owner_before_frame.view_preserves_inv();
-        let s_top = page_size(level_before_frame as PagingLevel);
-        let s_low = page_size((level_before_frame - 1) as PagingLevel);
-
-        // page_size(L) >= PAGE_SIZE; page_size(L) > page_size(L-1);
-        // page_size(L) / NR_ENTRIES == page_size(L-1); page_size(L) % page_size(L-1) == 0;
-        // page_size(L-1) ∈ {4K, 2M, 1G}.
-        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
-        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(
-            level_before_frame as PagingLevel,
-        );
-        assert(NR_ENTRIES == 512usize) by (compute_only);
-
-        // Compose: owner0.split_while_huge(s_low)
-        //         == owner0.split_while_huge(s_top).split_while_huge(s_low)
-        //         == owner_before_frame.split_while_huge(s_low)
-        owner0@.split_while_huge_compose(s_top, s_low);
-
-        // One step: owner_before_frame.split_while_huge(s_low)
-        //         == owner_before_frame.split_if_mapped_huge_spec(s_low)
-        owner_before_frame@.split_while_huge_one_step(s_low);
     }
 
     /// After split_if_mapped_huge + push_level, the mappings equal
@@ -1272,17 +924,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let f = old_view.mappings.filter(
             |m2: Mapping| m2.va_range.start <= old_view.cur_va < m2.va_range.end,
         );
-        vstd::set::lemma_set_choose_len(f);
-        assert(m.inv());
-        assert(NR_ENTRIES == 512usize) by (compute_only);
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
-        assert(set![4096usize, 2097152, 1073741824].contains(ps)) by {
-            if m.page_size == 2097152 {
-                assert(2097152usize / 512 == 4096usize);
-            } else {
-                assert(1073741824usize / 512 == 2097152usize);
-            }
-        };
         old_view.split_while_huge_one_step(ps);
     }
 

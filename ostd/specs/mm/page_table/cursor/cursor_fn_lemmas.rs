@@ -6,24 +6,27 @@
 /// - **Theme 14**: Cursor path structure & jump utilities
 ///   (`cursor_path_nesting`, `jump_above_locked_range_va_in_node`,
 ///    `jump_not_in_node_level_lt_guard_minus_one`, `lemma_page_size_spec_5_eq_pow2_48`)
-use vstd::arithmetic::power2::pow2;
+use core::ops::Range;
+
 use vstd::prelude::*;
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use vstd::arithmetic::power2::pow2;
+use vstd_extra::{ghost_tree::*, ownership::*};
 
-use crate::mm::page_table::*;
-use crate::mm::{PagingLevel, Vaddr, page_size};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::AbstractVaddr;
-use crate::specs::mm::page_table::Mapping;
-use crate::specs::mm::page_table::cursor::owners::{CursorContinuation, CursorOwner};
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::meta_region_owners::MetaRegionOwners,
+        page_table::{
+            AbstractVaddr, Mapping,
+            cursor::owners::{CursorContinuation, CursorOwner},
+            nat_align_down,
+            owners::*,
+        },
+    },
+};
 
-use crate::specs::mm::page_table::nat_align_down;
-use crate::specs::mm::page_table::owners::*;
-
-use core::ops::Range;
+use crate::mm::{PagingLevel, Vaddr, page_size, page_table::*};
 
 verus! {
 

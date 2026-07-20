@@ -1,13 +1,12 @@
 use vstd::prelude::*;
+use vstd_extra::{cast_ptr::*, ownership::*, prelude::*};
 
-use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
-use vstd_extra::prelude::*;
+use crate::mm::{
+    Paddr, PagingLevel, Vaddr,
+    frame::{linked_list::Link, *},
+};
 
 use super::linked_list_owners::*;
-use crate::mm::frame::linked_list::Link;
-use crate::mm::frame::*;
-use crate::mm::{Paddr, PagingLevel, Vaddr};
 
 verus! {
 

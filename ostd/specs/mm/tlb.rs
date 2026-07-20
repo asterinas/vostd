@@ -1,11 +1,10 @@
 use vstd::prelude::*;
 
-use crate::mm::tlb::TlbFlushOp;
-use crate::mm::{Paddr, Vaddr};
-use crate::specs::mm::cpu::*;
-use crate::specs::mm::page_table::*;
-
 use vstd_extra::ownership::*;
+
+use crate::specs::mm::{cpu::*, page_table::*};
+
+use crate::mm::{Paddr, Vaddr, tlb::TlbFlushOp};
 
 verus! {
 

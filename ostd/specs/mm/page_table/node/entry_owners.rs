@@ -1,25 +1,31 @@
+use core::marker::PhantomData;
+
 use vstd::prelude::*;
 
-use vstd::modes::tracked_swap;
-use vstd::simple_pptr::PointsTo;
+use vstd::{modes::tracked_swap, simple_pptr::PointsTo};
+use vstd_extra::{ghost_tree::*, ownership::*};
 
-use vstd_extra::ghost_tree::*;
-use vstd_extra::ownership::*;
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            mapping::{frame_to_index, meta_addr},
+            meta_owners::PageUsage,
+            meta_region_owners::MetaRegionOwners,
+        },
+        page_table::{node::entry_view::*, *},
+    },
+};
 
 use crate::arch::mm::PagingConsts;
-use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::{
-    REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::meta_to_frame,
+use crate::mm::{
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
+    frame::meta::{
+        MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::meta_to_frame,
+    },
+    page_prop::PageProperty,
+    page_table::*,
 };
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::*;
-use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::*;
-use crate::specs::mm::frame::mapping::{frame_to_index, meta_addr};
-use crate::specs::mm::frame::{meta_owners::PageUsage, meta_region_owners::MetaRegionOwners};
-use crate::specs::mm::page_table::node::entry_view::*;
-use crate::specs::mm::page_table::*;
-use core::marker::PhantomData;
 
 verus! {
 
@@ -262,18 +268,22 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// since device memory PAs are outside the tracked frame allocator.
     /// The actual mapping correctness is guaranteed by the caller's `unsafe` contract.
     ///
-    /// The `requires` reflect properties guaranteed by `collect_largest_pages` postconditions,
-    /// so this axiom is only ever called with values that satisfy them.
-    pub axiom fn new_untracked_frame(
+    /// The `requires` reflect properties established by `collect_largest_pages` and the page-table
+    /// configuration model, allowing this checked constructor to build an invariant-safe,
+    /// untracked entry owner.
+    pub proof fn tracked_new_untracked_frame(
         paddr: Paddr,
         parent_level: PagingLevel,
         prop: PageProperty,
     ) -> (tracked res: Self)
         requires
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
-            1 <= parent_level,
-            parent_level <= NR_LEVELS,
+            has_safe_slot(paddr),
+            1 <= parent_level < NR_LEVELS,
+            paddr % page_size(parent_level) == 0,
+            paddr + page_size(parent_level) <= MAX_PADDR,
+            C::raw_item_well_formed(paddr, parent_level, prop),
+            C::E::new_page_req(paddr, parent_level, prop),
+            !C::tracked(C::item_from_raw_spec(paddr, parent_level, prop)),
         ensures
             res.is_frame(),
             res.frame().mapped_pa == paddr,
@@ -283,7 +293,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
             res.path.inv(),
             res.inv_base(),
             crate::mm::page_table::Child::<C>::Frame(paddr, parent_level, prop).wf(res),
-    ;
+    {
+        Self {
+            kind: EntryOwnerKind::Frame(FrameEntryState { mapped_pa: paddr, prop }),
+            path: TreePath(Seq::empty()),
+            parent_level,
+        }
+    }
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& pte.paddr() % PAGE_SIZE == 0
@@ -854,6 +870,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 self.parent_level,
                 self.frame().prop,
             )
+            &&& C::E::new_page_req(self.frame().mapped_pa, self.parent_level, self.frame().prop)
         }
         &&& self.is_borrowed() ==> { true }
         &&& self.path.inv()

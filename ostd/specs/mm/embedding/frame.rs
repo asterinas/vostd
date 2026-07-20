@@ -29,17 +29,24 @@
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::Paddr;
-use crate::mm::frame::{
-    MetaSlot,
-    meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+use crate::specs::{
+    arch::*,
+    mm::{
+        frame::{
+            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+        },
+        page_table::cursor::owners::CursorOwner,
+    },
 };
-use crate::mm::vm_space::UserPtConfig;
-use crate::specs::arch::*;
-use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::PageUsage;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::cursor::owners::CursorOwner;
+
+use crate::mm::{
+    Paddr,
+    frame::{
+        MetaSlot,
+        meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED},
+    },
+    vm_space::UserPtConfig,
+};
 
 use super::{FrameEntry, tracked_frame_entry_new};
 

@@ -218,6 +218,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 #![auto]
                 op.ensures((p_in,), p_out) ==> C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+            forall|pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+                #![auto]
+                op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in)
+                    ==> C::E::new_page_req(pa, level, p_out),
         ensures
             final(owner).inv(),
             final(self).wf(*final(owner)),
@@ -1401,8 +1405,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     )]
     pub(in crate::mm) unsafe fn new_at(guard: &'a mut PageTableGuard<'rcu, C>, idx: usize) -> Self {
         // SAFETY: The index is within the bound.
-        #[verus_spec(with Tracked(parent_owner), Tracked(regions))]
-        let pte = guard.read_pte(idx);
+        let pte = unsafe {
+            #[verus_spec(with Tracked(parent_owner), Tracked(regions))]
+            guard.read_pte(idx)
+        };
         Self::new(pte, idx, guard)
     }
 }
@@ -1432,6 +1438,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 #![auto]
                 op.ensures((p_in,), p_out) ==> C::tracked(C::item_from_raw_spec(pa, level, p_out))
                     == C::tracked(C::item_from_raw_spec(pa, level, p_in)),
+            forall|pa: Paddr, level: PagingLevel, p_in: PageProperty, p_out: PageProperty|
+                #![auto]
+                op.ensures((p_in,), p_out) && C::E::new_page_req(pa, level, p_in)
+                    ==> C::E::new_page_req(pa, level, p_out),
         ensures
             final(owner).inv(),
             final(owner).is_frame(),
