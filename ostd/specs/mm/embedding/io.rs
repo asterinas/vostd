@@ -210,7 +210,7 @@ pub proof fn tracked_vm_reader_read_embedded(
 /// Exec body writes through `self.cursor` and then advances the
 /// handle's cursor; the owner's `mem_view` shape is preserved (write
 /// view stays a write view).
-pub proof fn tracked_vm_writer_fill_zeros_embedded(tracked owner: &mut VmIoOwner, len: usize)
+pub proof fn lemma_vm_writer_fill_zeros_embedded(tracked owner: &mut VmIoOwner, len: usize)
     requires
         old(owner).inv(),
     ensures
@@ -331,7 +331,7 @@ pub(super) proof fn vm_io_method_step(tracked entry: &mut VmIoEntry, method: VmI
         VmIoMethod::ReaderLimit(_) => {},
         VmIoMethod::ReaderSkip(_) => {},
         VmIoMethod::WriterFillZeros(len) => {
-            tracked_vm_writer_fill_zeros_embedded(&mut entry.owner, len)
+            lemma_vm_writer_fill_zeros_embedded(&mut entry.owner, len)
         },
         VmIoMethod::WriterLimit(max) => lemma_vm_writer_limit_embedded(&mut entry.owner, max),
         VmIoMethod::WriterSkip(n) => lemma_vm_writer_skip_embedded(&mut entry.owner, n),
