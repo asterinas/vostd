@@ -16,17 +16,13 @@ verus! {
 ///
 /// 1. **Token (this type)**: an `ExclusiveGhost<R>` wrapper. Each `alloc`
 ///    produces a unique [`Loc`]; two outstanding tokens can be proven
-///    distinct via [`DropObligation::validate_with_other`]. No external_body
-///    axioms — the allocation is verified by `vstd`'s resource algebra.
+///    distinct via [`DropObligation::validate_with_other`].
 /// 2. **Ledger (in State)**: optional. For impls that opt in, the State
 ///    carries a set/multiset of outstanding keys; mint adds, redeem removes,
 ///    and the State's `clean_inv()` (or any boundary predicate) requires the
-///    set to be empty (or the per-slot counter to be zero). Combined with
+///    set to be empty. Combined with
 ///    `1`, the linear guarantee is sound: silently dropping the token leaves
 ///    the ledger non-empty and breaks the boundary check.
-///
-/// Impls that don't add a per-state ledger still pass tokens through —
-/// they get the API uniformity but not the enforcement.
 #[verifier::reject_recursive_types(R)]
 pub tracked struct DropObligation<R> {
     inner: ExclusiveGhost<R>,
@@ -37,21 +33,12 @@ impl<R> DropObligation<R> {
         self.inner.view()
     }
 
-    /// Unique identifier of this token. Two outstanding `DropObligation`s
-    /// can be proven distinct via [`Self::validate_with_other`].
+    /// Unique identifier of this token.
     pub closed spec fn id(self) -> Loc {
         self.inner.id()
     }
 
-    /// Mint a fresh obligation token. Sound on its own (no axiom — the
-    /// allocation goes through `vstd`'s resource algebra and is verified).
-    /// Two legitimate uses:
-    ///
-    /// - Inside an impl that opts out of per-state-ledger enforcement
-    ///   (e.g. `Key = ()` impls): the token is a no-op marker; the trait
-    ///   API stays uniform but no `clean_inv()` enforcement applies.
-    /// - As the underlying allocator for a paired mint axiom on
-    ///   [`HasObligations`] — the axiom adds the ledger entry alongside.
+    /// Mint a fresh obligation token. S.
     pub proof fn tracked_mint(value: R) -> (tracked res: DropObligation<R>)
         ensures
             res.value() == value,
@@ -69,11 +56,6 @@ impl<R> DropObligation<R> {
     }
 }
 
-/// State that carries an obligation ledger keyed by `K`.
-pub trait HasObligations<K> {
-    spec fn obligations(self) -> Set<K>;
-}
-
 pub trait TrackDrop: Sized {
     type State;
 
@@ -86,7 +68,7 @@ pub trait TrackDrop: Sized {
 
     spec fn constructor_requires(self, s: Self::State) -> bool;
 
-    spec fn constructor_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool;
+    spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool;
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
         Self::Key,
@@ -94,47 +76,32 @@ pub trait TrackDrop: Sized {
         requires
             self.constructor_requires(*old(s)),
         ensures
-            self.constructor_ensures(*old(s), *final(s), obl.value()),
+            self.constructor_ensures(*old(s), *final(s)),
             obl.value() == self.key(),
     ;
 
     spec fn drop_requires(self, s: Self::State) -> bool;
 
-    /// Postcondition of [`Drop::drop`]. `obl_id` is the [`Loc`] of the
-    /// consumed obligation token — ledger-enforcing impls reference it
-    /// to pin the ledger transition (e.g. "the entry at `obl_id` was
-    /// removed"); ledger-less impls ignore it.
-    spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool;
+    /// Postcondition of [`Drop::drop`].
+    spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool;
 
-    /// Precondition for "consume the obligation without running the
-    /// destructor" (see [`ConsumeDrop`]). `obl_id` is exposed so
-    /// ledger-enforcing impls can require the entry to be outstanding.
-    spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool;
+    /// Precondition for consuming the obligation without running the destructor.
+    spec fn consume_requires(self, s: Self::State) -> bool;
 
-    /// Postcondition for consuming an obligation. Encodes any ledger
-    /// mutation (e.g. redeeming the entry at `obl_id`). Impls without
-    /// a ledger keep `s0 == s1`.
-    spec fn consume_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool;
+    /// Postcondition for consuming the obligation.
+    spec fn consume_ensures(self, s0: Self::State, s1: Self::State) -> bool;
 
     /// Consume the obligation token without running the destructor body.
-    /// Used by [`ConsumeDrop::new`] to discharge the verifier's
-    /// linear-drop obligation when the underlying resource is
-    /// intentionally leaked (or freed via a separate path).
-    ///
-    /// Impls with a real ledger should call a paired redeem axiom here;
-    /// impls without (`Key = ()`) can leave the body empty — `obl` is
-    /// silently dropped, which is fine because no ledger entry needs to
-    /// shrink to match.
     proof fn consume_obligation(
         self,
         tracked s: &mut Self::State,
         tracked obl: DropObligation<Self::Key>,
     )
         requires
-            self.consume_requires(*old(s), obl.value()),
+            self.consume_requires(*old(s)),
             obl.value() == self.key(),
         ensures
-            self.consume_ensures(*old(s), *final(s), obl.value()),
+            self.consume_ensures(*old(s), *final(s)),
     ;
 }
 
@@ -148,12 +115,11 @@ pub trait Drop: TrackDrop {
     // The body must call `self.consume_obligation(s, obl)` first
     // (redeeming the token / shrinking the ledger), then run the
     // destructor work. Both preconditions are required up front.
-
-            self.consume_requires(*old(s), obl.value()),
+            self.consume_requires(*old(s)),
             self.drop_requires(*old(s)),
             obl.value() == self.key(),
         ensures
-            self.drop_ensures(*old(s), *final(s), obl.value()),
+            self.drop_ensures(*old(s), *final(s)),
     ;
 }
 
@@ -193,9 +159,9 @@ impl<T: TrackDrop> ManuallyDrop<T> {
     #[verifier::external_body]
     pub fn new(t: T, Tracked(s): Tracked<&mut T::State>) -> (res: Self)
         requires
-            t.consume_requires(*old(s), t.key()),
+            t.consume_requires(*old(s)),
         ensures
-            t.consume_ensures(*old(s), *final(s), t.key()),
+            t.consume_ensures(*old(s), *final(s)),
             res.0 == t,
     {
         proof {

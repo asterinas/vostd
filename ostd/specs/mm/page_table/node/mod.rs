@@ -64,10 +64,8 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
     ) -> bool {
         &&& s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
-        &&& obl_key == self.inner.inner@.ptr.addr()
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
@@ -81,21 +79,18 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s.unlocked(self.inner.inner@.ptr.addr())
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr())
     }
 
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
-        // The token must identify this guard's locked address — prevents
-        // a token forged for a different guard from discharging this one.
-        obl_key == self.inner.inner@.ptr.addr()
+    open spec fn consume_requires(self, s: Self::State) -> bool {
+        true
     }
 
     open spec fn consume_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
     ) -> bool {
         s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
     }

@@ -216,7 +216,6 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
     ) -> bool {
         let slot_own = s0.slot_owners[self.index()];
         &&& s1.slot_owners[self.index()] == slot_own
@@ -230,7 +229,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // not affect the segment obligation ledger.
         // Frame-side ledger: `constructor_spec` adds one entry at the
         // slot index via the paired mint axiom (multiset semantics).
-        &&& s1.frame_obligations =~= s0.frame_obligations.insert(obl_key)
+        &&& s1.frame_obligations =~= s0.frame_obligations.insert(self.index())
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
@@ -283,7 +282,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         }
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let so0 = s0.slot_owners[idx];
         let so1 = s1.slot_owners[idx];
@@ -314,25 +313,24 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // Frame-side ledger: routed through `consume_obligation` (called
         // by Drop::drop's body first), the count at `obl_key` shrinks
         // by 1.
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(self.index())
     }
 
     /// `ManuallyDrop::new` / `Drop::drop` require the ledger to contain
     /// at least one entry at this slot — preventing a forged token
     /// from being used to "consume" a non-existent obligation.
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
-        s.frame_obligations.count(obl_key) > 0
+    open spec fn consume_requires(self, s: Self::State) -> bool {
+        s.frame_obligations.count(self.index()) > 0
     }
 
     open spec fn consume_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
     ) -> bool {
         // Multiset count at the slot shrinks by 1; everything else
         // (slots, slot_owners, segment ledger) is preserved.
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(self.index())
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners =~= s0.slot_owners
     }

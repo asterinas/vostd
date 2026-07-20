@@ -820,7 +820,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
-        obl_key: usize,
     )
         requires
             self.inv(),
@@ -830,7 +829,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 guard,
                 guards0,
                 guards1,
-                obl_key,
             ),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
@@ -853,7 +851,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
-        obl_key: usize,
     )
         requires
             self.inv(),
@@ -863,7 +860,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 guard,
                 guards0,
                 guards1,
-                obl_key,
             ),
             forall|i: int|
                 #![trigger self.continuations[i]]

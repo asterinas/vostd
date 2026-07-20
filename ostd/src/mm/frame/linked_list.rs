@@ -1378,10 +1378,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
     ) -> bool {
         &&& s0 =~= s1
-        &&& obl_key == self.list_id
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
@@ -1430,7 +1428,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         &&& s.0.relate_region(s.1)
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         &&& s1.0.list.len() == 0
         &&& forall|i: int|
             #![trigger s0.0.list[i]]
@@ -1454,17 +1452,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         &&& s1.1.inv()
     }
 
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
-        // The token must match this list's identity — prevents a token
-        // forged for a different list from discharging this one.
-        obl_key == self.list_id
+    open spec fn consume_requires(self, s: Self::State) -> bool {
+        true
     }
 
     open spec fn consume_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
     ) -> bool {
         s0 =~= s1
     }

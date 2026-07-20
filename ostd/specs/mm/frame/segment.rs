@@ -57,10 +57,8 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
     ) -> bool {
         &&& s0 =~= s1
-        &&& obl_key == self.range
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
@@ -73,11 +71,11 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         s.inv()
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         true
     }
 
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn consume_requires(self, s: Self::State) -> bool {
         true
     }
 
@@ -85,7 +83,6 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
     ) -> bool {
         s0 =~= s1
     }

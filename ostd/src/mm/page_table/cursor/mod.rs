@@ -1875,8 +1875,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         proof {
             // `ManuallyDrop` is single-field now; the consumed obligation
             // matched `taken.key()` (the locked node's address).
-            let ghost obl_key = md.0.inner.inner@.ptr.addr();
-            owner.never_drop_restores_children_not_locked(guard, guards0, *guards, obl_key);
+            owner.never_drop_restores_children_not_locked(guard, guards0, *guards);
             let ghost pre_pop = *old(owner);
             let ghost dropped_addr = guard.inner.inner@.ptr.addr();
             assert forall|i: int|
@@ -1884,7 +1883,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.level - 1 <= i
                     < NR_LEVELS implies owner.continuations[i].guard.inner.inner@.ptr.addr()
                 != dropped_addr by {};
-            owner.never_drop_restores_nodes_locked(guard, guards0, *guards, obl_key);
+            owner.never_drop_restores_nodes_locked(guard, guards0, *guards);
         }
 
         self.level = self.level + 1;
