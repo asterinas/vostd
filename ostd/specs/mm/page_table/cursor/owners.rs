@@ -53,7 +53,7 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub ghost tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
     pub ghost path: TreePath<NR_ENTRIES>,
-    pub guard: PageTableGuard<'rcu, C>,
+    pub ghost guard: PageTableGuard<'rcu, C>,
 }
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
@@ -154,8 +154,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         )
     }
 
-    pub proof fn tracked_restore(tracked &mut self, tracked child: Self) -> (tracked guard:
-        PageTableGuard<'rcu, C>)
+    pub proof fn tracked_restore(tracked &mut self, tracked child: Self) -> (guard: PageTableGuard<
+        'rcu,
+        C,
+    >)
         requires
             old(self).idx < old(self).children.len(),
         ensures
@@ -191,7 +193,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub proof fn tracked_new(
         tracked owner_subtree: OwnerSubtree<C>,
         idx: usize,
-        tracked guard: PageTableGuard<'rcu, C>,
+        guard: PageTableGuard<'rcu, C>,
     ) -> tracked Self
         returns
             Self::new(owner_subtree, idx, guard),
