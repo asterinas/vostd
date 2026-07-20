@@ -69,7 +69,7 @@ use crate::mm::{
     vm_space::{UserPtConfig, vm_space_specs::VmSpaceOwner},
 };
 
-use super::{CursorEntry, CursorKind, VmSpaceId, axiom_cursor_entry_new};
+use super::{CursorEntry, CursorKind, VmSpaceId, tracked_cursor_entry_new};
 
 verus! {
 
@@ -270,47 +270,6 @@ pub axiom fn cursor_query_embedded<'rcu>(
                 regions,
             ).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr
         },
-        forall|c: CursorOwner<'rcu, UserPtConfig>|
-            #![auto]
-            c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
-;
-
-/// Mirror of [`crate::mm::vm_space::Cursor::find_next`] /
-/// [`crate::mm::vm_space::CursorMut::find_next`].
-///
-/// Exec requires `invariants(owner, regions, guards)`. Does NOT
-/// require `in_locked_range()` (the method itself navigates from
-/// wherever the cursor sits).
-pub axiom fn cursor_find_next_embedded<'rcu>(
-    tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
-    tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu>,
-    len: usize,
-)
-    requires
-        old(owner).inv(),
-        old(regions).inv(),
-        old(owner).children_not_locked(*old(guards)),
-        old(owner).nodes_locked(*old(guards)),
-        old(owner).metaregion_sound(*old(regions)),
-        !old(owner).popped_too_high,
-    ensures
-        final(owner).inv(),
-        final(regions).inv(),
-        final(owner).children_not_locked(*final(guards)),
-        final(owner).nodes_locked(*final(guards)),
-        final(owner).metaregion_sound(*final(regions)),
-        !final(owner).popped_too_high,
-        // `find_next` navigates the cursor's internal `path` state but
-        // does *not* touch any frame slot — it neither clones a leaf
-        // frame (only `query` may do that) nor writes a PTE. So the
-        // entire `slot_owners` map is preserved, which subsumes the
-        // earlier `raw_count` / `in_list` clauses and lets
-        // `accounting_inv` chain across this axiom.
-        final(regions).slots == old(regions).slots,
-        forall|i: usize|
-            #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -600,51 +559,6 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 ;
 
-/// Mirror of [`crate::mm::vm_space::CursorMut::protect_next`].
-///
-/// Exec requires (line 1443-1450):
-/// - `invariants(owner, regions, guards)`
-/// - `forall |p: PageProperty| op.requires((p,))` — MODEL GAP (closure).
-/// - The trackedness-preservation closure constraint — MODEL GAP.
-///
-/// Does NOT require `in_locked_range()` directly.
-pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
-    tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
-    tracked regions: &mut MetaRegionOwners,
-    tracked guards: &mut Guards<'rcu>,
-    len: usize,
-)
-    requires
-        old(owner).inv(),
-        old(regions).inv(),
-        old(owner).children_not_locked(*old(guards)),
-        old(owner).nodes_locked(*old(guards)),
-        old(owner).metaregion_sound(*old(regions)),
-        !old(
-            owner,
-        ).popped_too_high,
-// MODEL GAP: closure preconditions on `op`.
-
-    ensures
-        final(owner).inv(),
-        final(regions).inv(),
-        final(owner).children_not_locked(*final(guards)),
-        final(owner).nodes_locked(*final(guards)),
-        final(owner).metaregion_sound(*final(regions)),
-        !final(owner).popped_too_high,
-        // `protect_next` rewrites PTE `prop` fields in place but neither
-        // bumps refcounts nor mutates `paths_in_pt` (the path set is
-        // about *which* tree positions map a frame, not *how*). So the
-        // entire `slot_owners` map is preserved.
-        final(regions).slots == old(regions).slots,
-        forall|i: usize|
-            #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i] == old(regions).slot_owners[i],
-        forall|c: CursorOwner<'rcu, UserPtConfig>|
-            #![auto]
-            c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
-;
-
 // =============================================================================
 // dispatch tags + step proofs
 // =============================================================================
@@ -714,7 +628,13 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
     let tracked owner_opt = vm_space_cursor_embedded(vm_space, regions, va);
     match owner_opt {
         Option::Some((owner, guards)) => {
-            let tracked entry = axiom_cursor_entry_new(vs, CursorKind::ReadOnly, va, owner, guards);
+            let tracked entry = tracked_cursor_entry_new(
+                vs,
+                CursorKind::ReadOnly,
+                va,
+                owner,
+                guards,
+            );
             Option::Some(entry)
         },
         Option::None => Option::None,
@@ -760,7 +680,13 @@ pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
     let tracked owner_opt = vm_space_cursor_mut_embedded(vm_space, regions, va);
     match owner_opt {
         Option::Some((owner, guards)) => {
-            let tracked entry = axiom_cursor_entry_new(vs, CursorKind::Mutable, va, owner, guards);
+            let tracked entry = tracked_cursor_entry_new(
+                vs,
+                CursorKind::Mutable,
+                va,
+                owner,
+                guards,
+            );
             Option::Some(entry)
         },
         Option::None => Option::None,
@@ -866,7 +792,6 @@ pub(super) proof fn cursor_find_next_step<'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    cursor_find_next_embedded(&mut entry.owner, regions, &mut entry.guards, len)
 }
 
 /// Per-op step for `Op::Jump`. Repositions the cursor without
@@ -925,7 +850,6 @@ pub(super) proof fn cursor_protect_next_step<'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    cursor_mut_protect_next_embedded(&mut entry.owner, regions, &mut entry.guards, len)
 }
 
 /// Per-op step for cursor methods that mutate the cursor owner,
