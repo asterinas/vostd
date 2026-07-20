@@ -533,7 +533,7 @@ impl VmIoEntry {
 ///
 /// [`Cursor`]: crate::mm::vm_space::Cursor
 /// [`CursorMut`]: crate::mm::vm_space::CursorMut
-pub enum CursorKind {
+pub ghost enum CursorKind {
     ReadOnly,
     Mutable,
 }
