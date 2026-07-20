@@ -707,34 +707,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     }
 
-    pub proof fn tracked_pop_level_owner(tracked &mut self) -> (guard: PageTableGuard<'rcu, C>)
-        requires
-            old(self).inv(),
-            old(self).level < NR_LEVELS,
-        ensures
-            *final(self) == old(self).pop_level_owner().0,
-            guard == old(self).pop_level_owner().1,
-    {
-        let ghost self0 = *self;
-        let tracked mut parent = self.continuations.tracked_remove(self.level as int);
-        let tracked child = self.continuations.tracked_remove(self.level - 1);
-
-        let ghost guard = parent.tracked_restore(child);
-
-        self.continuations.tracked_insert(self.level as int, parent);
-
-        assert(self.continuations == self0.continuations.insert(self.level as int, parent).remove(
-            self.level - 1,
-        ));
-
-        self.level = (self.level + 1) as u8;
-
-        if self.level >= self.guard_level {
-            self.popped_too_high = true;
-        }
-        guard
-    }
-
     pub open spec fn move_forward_owner_spec(self) -> Self
         recommends
             self.inv(),
