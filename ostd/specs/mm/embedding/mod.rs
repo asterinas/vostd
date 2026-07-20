@@ -2521,7 +2521,6 @@ proof fn step_write<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: V
 {
     let tracked mut src = s.extract_vm_io(source);
     let tracked mut dst = s.extract_vm_io(dest);
-    io::write_step(&mut src, &mut dst);
     s.insert_vm_io(source, src);
     s.insert_vm_io(dest, dst);
 }

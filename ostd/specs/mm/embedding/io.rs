@@ -42,14 +42,15 @@
 //! - **`from_kernel_space`**: exec ensures `read_view_initialized()` /
 //!   `has_write_view()` only under a kernel-VA range guard
 //!   (`KERNEL_BASE_VADDR <= ptr.vaddr && ptr.vaddr+len <= KERNEL_END_VADDR`).
-//!   We assume that branch (i.e., the axioms commit to
+//!   We assume that branch (i.e., the embedding proofs commit to
 //!   `read_view_initialized()` / `has_write_view()` unconditionally) —
 //!   formally a slight strengthening pending kernel-VA modeling.
+use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::io::VmIoOwner;
+use crate::specs::mm::io::{VmIoMemView, VmIoOwner, axiom_kernel_mem_view};
 
 use crate::mm::{MAX_USERSPACE_VADDR, Vaddr, vm_space::vm_space_specs::VmSpaceOwner};
 
@@ -58,12 +59,12 @@ use super::{VmIoEntry, VmIoKind, VmSpaceId, tracked_vm_io_entry_new};
 verus! {
 
 // =============================================================================
-// _embedded axioms
+// _embedded proofs
 // =============================================================================
 /// Mirror of [`crate::mm::vm_space::VmSpace::reader`].
 ///
 /// Exec ensures `reader_owner@.unwrap().mem_view is None` ([vm_space.rs:323](crate::mm::vm_space)).
-pub axiom fn vm_space_reader_embedded<'a>(
+pub proof fn tracked_vm_space_reader_embedded<'a>(
     tracked vm_space: &VmSpaceOwner,
     vaddr: Vaddr,
     len: usize,
@@ -74,10 +75,23 @@ pub axiom fn vm_space_reader_embedded<'a>(
         res matches Some(o) ==> o.inv(),
         res matches Some(o) ==> o.mem_view is None,
         res is Some ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
-;
+{
+    if (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat {
+        let tracked owner = VmIoOwner {
+            id: arbitrary(),
+            range: vaddr..(vaddr + len) as usize,
+            is_fallible: true,
+            is_kernel: false,
+            mem_view: None,
+        };
+        Some(owner)
+    } else {
+        None
+    }
+}
 
 /// Mirror of [`crate::mm::vm_space::VmSpace::writer`].
-pub axiom fn vm_space_writer_embedded<'a>(
+pub proof fn tracked_vm_space_writer_embedded<'a>(
     tracked vm_space: &VmSpaceOwner,
     vaddr: Vaddr,
     len: usize,
@@ -88,32 +102,73 @@ pub axiom fn vm_space_writer_embedded<'a>(
         res matches Some(o) ==> o.inv(),
         res matches Some(o) ==> o.mem_view is None,
         res is Some ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
-;
+{
+    if (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat {
+        let tracked owner = VmIoOwner {
+            id: arbitrary(),
+            range: vaddr..(vaddr + len) as usize,
+            is_fallible: true,
+            is_kernel: false,
+            mem_view: None,
+        };
+        Some(owner)
+    } else {
+        None
+    }
+}
 
 /// Mirror of [`crate::mm::io::VmReader<Infallible>::from_kernel_space`].
 ///
 /// Exec ensures (line 1247-1255) that under the kernel-VA range guard,
 /// the produced owner satisfies `read_view_initialized()`. We
-/// instantiate the axiom on that branch — the resulting entry is
+/// instantiate that boundary on this branch — the resulting entry is
 /// pre-activated as a Reader.
-pub axiom fn vm_reader_from_kernel_space_embedded(vaddr: Vaddr, len: usize) -> (tracked res:
+pub proof fn tracked_vm_reader_from_kernel_space_embedded(vaddr: Vaddr, len: usize) -> (tracked res:
     VmIoOwner)
     ensures
         res.inv(),
         res.read_view_initialized(),
-;
+{
+    let ghost range = if (vaddr as nat) + (len as nat) <= usize::MAX as nat {
+        vaddr..(vaddr + len) as usize
+    } else {
+        vaddr..vaddr
+    };
+    let tracked mem_view = axiom_kernel_mem_view(range);
+    VmIoOwner {
+        id: arbitrary(),
+        range,
+        is_fallible: false,
+        is_kernel: true,
+        mem_view: Some(VmIoMemView::ReadView(mem_view)),
+    }
+}
 
 /// Mirror of [`crate::mm::io::VmWriter<Infallible>::from_kernel_space`].
 ///
 /// Exec ensures (line 787-795) that with `fallible = false` and under
 /// the kernel-VA range guard, the produced owner satisfies
 /// `has_write_view()`. Pre-activated as a Writer.
-pub axiom fn vm_writer_from_kernel_space_embedded(vaddr: Vaddr, len: usize) -> (tracked res:
+pub proof fn tracked_vm_writer_from_kernel_space_embedded(vaddr: Vaddr, len: usize) -> (tracked res:
     VmIoOwner)
     ensures
         res.inv(),
         res.has_write_view(),
-;
+{
+    let ghost range = if (vaddr as nat) + (len as nat) <= usize::MAX as nat {
+        vaddr..(vaddr + len) as usize
+    } else {
+        vaddr..vaddr
+    };
+    let tracked mem_view = axiom_kernel_mem_view(range);
+    VmIoOwner {
+        id: arbitrary(),
+        range,
+        is_fallible: false,
+        is_kernel: true,
+        mem_view: Some(VmIoMemView::WriteView(mem_view)),
+    }
+}
 
 /// Mirror of [`crate::mm::io::VmReader::read`] (Infallible).
 ///
@@ -122,7 +177,7 @@ pub axiom fn vm_writer_from_kernel_space_embedded(vaddr: Vaddr, len: usize) -> (
 ///
 /// Expressible: owner inv, has_write_view, read_view_initialized.
 /// MODEL GAP: handle inv/wf.
-pub axiom fn vm_reader_read_embedded(
+pub proof fn tracked_vm_reader_read_embedded(
     tracked source_owner: &mut VmIoOwner,
     tracked dest_owner: &mut VmIoOwner,
 ) -> (tracked consumed_w: VmIoOwner)
@@ -146,47 +201,24 @@ pub axiom fn vm_reader_read_embedded(
         // consumed_w covers the just-written portion of dest.
         consumed_w.range.start >= old(dest_owner).range.start,
         consumed_w.range.end <= final(dest_owner).range.start,
-;
-
-/// Mirror of [`crate::mm::io::VmWriter::write`] (Infallible).
-///
-/// Exec no longer surfaces `consumed_w` (the body delegates to
-/// `reader.read(self)` and discards its split-off output). So this
-/// axiom mutates both owners but produces nothing new.
-pub axiom fn vm_writer_write_embedded(
-    tracked source_owner: &mut VmIoOwner,
-    tracked dest_owner: &mut VmIoOwner,
-)
-    requires
-        old(source_owner).inv(),
-        old(dest_owner).inv(),
-        old(source_owner).read_view_initialized(),
-        old(dest_owner).has_write_view(),
-    ensures
-        final(source_owner).inv(),
-        final(dest_owner).inv(),
-        final(source_owner).read_view_initialized(),
-        final(dest_owner).has_write_view(),
-        // Ranges only shrink (start advances; end fixed).
-        final(source_owner).range.start >= old(source_owner).range.start,
-        final(source_owner).range.end == old(source_owner).range.end,
-        final(dest_owner).range.start >= old(dest_owner).range.start,
-        final(dest_owner).range.end == old(dest_owner).range.end,
-;
+{
+    dest_owner.split(0)
+}
 
 /// Mirror of [`crate::mm::io::VmWriter::fill_zeros`].
 ///
 /// Exec body writes through `self.cursor` and then advances the
 /// handle's cursor; the owner's `mem_view` shape is preserved (write
 /// view stays a write view).
-pub axiom fn vm_writer_fill_zeros_embedded(tracked owner: &mut VmIoOwner, len: usize)
+pub proof fn tracked_vm_writer_fill_zeros_embedded(tracked owner: &mut VmIoOwner, len: usize)
     requires
         old(owner).inv(),
     ensures
         final(owner).inv(),
         final(owner).mem_view == old(owner).mem_view,
         final(owner).range == old(owner).range,
-;
+{
+}
 
 /// Mirror of [`crate::mm::io::VmWriter::limit`].
 pub proof fn lemma_vm_writer_limit_embedded(tracked owner: &mut VmIoOwner, max_avail: usize)
@@ -243,8 +275,8 @@ pub(super) proof fn new_vm_io_step<'a>(
         res matches Some(_) ==> (vaddr as nat) + (len as nat) <= MAX_USERSPACE_VADDR as nat,
 {
     let tracked owner_opt = match kind {
-        VmIoKind::Reader => vm_space_reader_embedded(vm_space, vaddr, len),
-        VmIoKind::Writer => vm_space_writer_embedded(vm_space, vaddr, len),
+        VmIoKind::Reader => tracked_vm_space_reader_embedded(vm_space, vaddr, len),
+        VmIoKind::Writer => tracked_vm_space_writer_embedded(vm_space, vaddr, len),
     };
     match owner_opt {
         Option::Some(owner) => {
@@ -269,8 +301,8 @@ pub(super) proof fn new_kernel_vm_io_step(vaddr: Vaddr, len: usize, kind: VmIoKi
         res.vm_space is None,
 {
     let tracked owner = match kind {
-        VmIoKind::Reader => vm_reader_from_kernel_space_embedded(vaddr, len),
-        VmIoKind::Writer => vm_writer_from_kernel_space_embedded(vaddr, len),
+        VmIoKind::Reader => tracked_vm_reader_from_kernel_space_embedded(vaddr, len),
+        VmIoKind::Writer => tracked_vm_writer_from_kernel_space_embedded(vaddr, len),
     };
     tracked_vm_io_entry_new(Option::<VmSpaceId>::None, kind, vaddr, len, owner)
 }
@@ -298,7 +330,9 @@ pub(super) proof fn vm_io_method_step(tracked entry: &mut VmIoEntry, method: VmI
     match method {
         VmIoMethod::ReaderLimit(_) => {},
         VmIoMethod::ReaderSkip(_) => {},
-        VmIoMethod::WriterFillZeros(len) => vm_writer_fill_zeros_embedded(&mut entry.owner, len),
+        VmIoMethod::WriterFillZeros(len) => {
+            tracked_vm_writer_fill_zeros_embedded(&mut entry.owner, len)
+        },
         VmIoMethod::WriterLimit(max) => lemma_vm_writer_limit_embedded(&mut entry.owner, max),
         VmIoMethod::WriterSkip(n) => lemma_vm_writer_skip_embedded(&mut entry.owner, n),
     }
@@ -334,32 +368,8 @@ pub(super) proof fn read_step(
         res.kind == VmIoKind::Writer,
         res.vm_space is None,
 {
-    let tracked val_owner = vm_reader_read_embedded(&mut source.owner, &mut dest.owner);
+    let tracked val_owner = tracked_vm_reader_read_embedded(&mut source.owner, &mut dest.owner);
     tracked_vm_io_entry_new(Option::<VmSpaceId>::None, VmIoKind::Writer, 0usize, 0usize, val_owner)
-}
-
-/// Per-op step for `Op::Write` (Infallible `VmWriter::write`). Mutates
-/// both owners; the exec no longer surfaces `consumed_w`, so no fresh
-/// entry is produced.
-pub(super) proof fn write_step(tracked source: &mut VmIoEntry, tracked dest: &mut VmIoEntry)
-    requires
-        old(source).inv(),
-        old(dest).inv(),
-        old(source).is_kernel_reader(),
-        old(dest).is_kernel_writer(),
-    ensures
-        final(source).vm_space == old(source).vm_space,
-        final(source).kind == old(source).kind,
-        final(source).vaddr == old(source).vaddr,
-        final(source).len == old(source).len,
-        final(source).inv(),
-        final(dest).vm_space == old(dest).vm_space,
-        final(dest).kind == old(dest).kind,
-        final(dest).vaddr == old(dest).vaddr,
-        final(dest).len == old(dest).len,
-        final(dest).inv(),
-{
-    vm_writer_write_embedded(&mut source.owner, &mut dest.owner);
 }
 
 } // verus!
