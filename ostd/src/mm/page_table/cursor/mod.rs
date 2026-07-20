@@ -3525,6 +3525,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& subtree.len() == (res->0->StrayPageTable_num_frames) as nat
             },
     )]
+    #[verifier::spinoff_prover]
     #[verifier::rlimit(50)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         // This proof touches several cursor snapshots. Keep their quantified invariants
@@ -3562,15 +3563,29 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.level,
         );
         let ghost subtree_level = (owner.continuations[owner.level - 1].tree_level + 1) as nat;
-        proof {
+        assert(absent_entry_owner.inv()) by {
             reveal(<CursorOwner as Inv>::inv);
-        }
+        };
+        assert(subtree_level < INC_LEVELS) by {
+            reveal(<CursorOwner as Inv>::inv);
+        };
         let tracked subtree = OwnerSubtree::tracked_new_val(absent_entry_owner, subtree_level);
 
         proof {
-            reveal(<CursorOwner as Inv>::inv);
             owner.absent_not_in_tree(subtree.value());
         }
+        assert(subtree.value().path.len() <= INC_LEVELS - 1) by {
+            reveal(<CursorOwner as Inv>::inv);
+        };
+        assert(subtree.value().parent_level == owner.continuations[owner.level
+            - 1].child().value().parent_level) by {
+            reveal(<CursorOwner as Inv>::inv);
+        };
+        assert(subtree.value().path == owner.continuations[owner.level - 1].path().push_tail(
+            owner.continuations[owner.level - 1].idx as int,
+        )) by {
+            reveal(<CursorOwner as Inv>::inv);
+        };
 
         let ghost owner_before_replace = *owner;
         let ghost regions_before_replace = *regions;
@@ -3583,6 +3598,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost regions_after_replace = *regions;
 
         proof {
+            assert(owner.va.inv()) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
             owner.move_forward_increases_va();
             owner.move_forward_not_popped_too_high();
             owner.va.reflect_prop(self.0.va);
@@ -3593,6 +3611,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         self.0.move_forward();
 
         proof {
+            assert(owner.va.inv()) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
             owner.va.reflect_prop(self.0.va);
             old(owner).view_preserves_inv();
 
@@ -3611,6 +3632,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let ghost cur_st = owner_before_replace.cur_subtree();
                 owner_before_replace.cur_subtree_inv();
+                assert(cur_st.value().path
+                    == owner_before_replace.continuations[owner_before_replace.level
+                    - 1].path().push_tail(
+                    owner_before_replace.continuations[owner_before_replace.level - 1].idx as int,
+                )) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
                 owner_before_replace.new_child_mappings_eq_target(
                     cur_st,
                     cur_st.value().frame().mapped_pa,
