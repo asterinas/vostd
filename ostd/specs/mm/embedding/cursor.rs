@@ -281,7 +281,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
 /// Exec requires `invariants(owner, regions, guards)`. Does NOT
 /// require `in_locked_range()` (the method itself navigates from
 /// wherever the cursor sits).
-pub axiom fn cursor_find_next_embedded<'rcu>(
+pub proof fn lemma_cursor_find_next_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
     tracked guards: &mut Guards<'rcu>,
@@ -314,7 +314,8 @@ pub axiom fn cursor_find_next_embedded<'rcu>(
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
-;
+{
+}
 
 /// Mirror of [`crate::mm::vm_space::Cursor::jump`] /
 /// [`crate::mm::vm_space::CursorMut::jump`].
@@ -608,7 +609,7 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
 /// - The trackedness-preservation closure constraint — MODEL GAP.
 ///
 /// Does NOT require `in_locked_range()` directly.
-pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
+pub proof fn lemma_cursor_mut_protect_next_embedded<'rcu>(
     tracked owner: &mut CursorOwner<'rcu, UserPtConfig>,
     tracked regions: &mut MetaRegionOwners,
     tracked guards: &mut Guards<'rcu>,
@@ -643,7 +644,8 @@ pub axiom fn cursor_mut_protect_next_embedded<'rcu>(
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
-;
+{
+}
 
 // =============================================================================
 // dispatch tags + step proofs
@@ -866,7 +868,7 @@ pub(super) proof fn cursor_find_next_step<'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    cursor_find_next_embedded(&mut entry.owner, regions, &mut entry.guards, len)
+    lemma_cursor_find_next_embedded(&mut entry.owner, regions, &mut entry.guards, len)
 }
 
 /// Per-op step for `Op::Jump`. Repositions the cursor without
@@ -925,7 +927,7 @@ pub(super) proof fn cursor_protect_next_step<'rcu>(
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
 {
-    cursor_mut_protect_next_embedded(&mut entry.owner, regions, &mut entry.guards, len)
+    lemma_cursor_mut_protect_next_embedded(&mut entry.owner, regions, &mut entry.guards, len)
 }
 
 /// Per-op step for cursor methods that mutate the cursor owner,
