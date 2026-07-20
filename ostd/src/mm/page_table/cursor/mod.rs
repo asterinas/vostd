@@ -1850,7 +1850,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             ));
             owner.pop_level_owner_preserves_invs(*guards, *regions);
         }
-        let tracked guard = owner.tracked_pop_level_owner();
+        let ghost guard = {
+            let ghost owner_before_pop = *owner;
+            let tracked mut parent = owner.continuations.tracked_remove(owner.level as int);
+            let tracked child = owner.continuations.tracked_remove(owner.level - 1);
+            let ghost guard = parent.tracked_restore(child);
+            owner.continuations.tracked_insert(owner.level as int, parent);
+            assert(owner.continuations == owner_before_pop.continuations.insert(
+                owner.level as int,
+                parent,
+            ).remove(owner.level - 1));
+            owner.level = (owner.level + 1) as u8;
+            if owner.level >= owner.guard_level {
+                owner.popped_too_high = true;
+            }
+            guard
+        };
 
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
