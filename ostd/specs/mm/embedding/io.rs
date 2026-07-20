@@ -152,24 +152,26 @@ pub axiom fn vm_reader_read_embedded(
 ///
 /// Exec only mutates the handle's `end` field (no owner mutation), so
 /// owner state is fully preserved.
-pub axiom fn vm_reader_limit_embedded(tracked owner: &mut VmIoOwner, max_remain: usize)
+pub proof fn lemma_vm_reader_limit_embedded(tracked owner: &mut VmIoOwner, max_remain: usize)
     requires
         old(owner).inv(),
     ensures
         final(owner).inv(),
         *final(owner) == *old(owner),
-;
+{
+}
 
 /// Mirror of [`crate::mm::io::VmReader::skip`].
 ///
 /// Exec only mutates the handle's `cursor` field (no owner mutation).
-pub axiom fn vm_reader_skip_embedded(tracked owner: &mut VmIoOwner, nbytes: usize)
+pub proof fn lemma_vm_reader_skip_embedded(tracked owner: &mut VmIoOwner, nbytes: usize)
     requires
         old(owner).inv(),
     ensures
         final(owner).inv(),
         *final(owner) == *old(owner),
-;
+{
+}
 
 /// Mirror of [`crate::mm::io::VmWriter::write`] (Infallible).
 ///
@@ -319,8 +321,8 @@ pub(super) proof fn vm_io_method_step(tracked entry: &mut VmIoEntry, method: VmI
         final(entry).inv(),
 {
     match method {
-        VmIoMethod::ReaderLimit(max) => vm_reader_limit_embedded(&mut entry.owner, max),
-        VmIoMethod::ReaderSkip(n) => vm_reader_skip_embedded(&mut entry.owner, n),
+        VmIoMethod::ReaderLimit(max) => lemma_vm_reader_limit_embedded(&mut entry.owner, max),
+        VmIoMethod::ReaderSkip(n) => lemma_vm_reader_skip_embedded(&mut entry.owner, n),
         VmIoMethod::WriterFillZeros(len) => vm_writer_fill_zeros_embedded(&mut entry.owner, len),
         VmIoMethod::WriterLimit(max) => lemma_vm_writer_limit_embedded(&mut entry.owner, max),
         VmIoMethod::WriterSkip(n) => lemma_vm_writer_skip_embedded(&mut entry.owner, n),
