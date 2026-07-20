@@ -3510,10 +3510,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& subtree.len() == (res->0->StrayPageTable_num_frames) as nat
             },
     )]
-    #[verifier::spinoff_prover]
-    #[verifier::rlimit(infinity)]
+    #[verifier::rlimit(50)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
+        // This proof touches several cursor snapshots. Keep their quantified invariants
+        // opaque by default, then reveal only the concrete facts needed below. Leaving
+        // them all open creates matching loops across the snapshots and dominates `make`.
+        hide(<AbstractVaddr as Inv>::inv);
+        hide(<CursorOwner as Inv>::inv);
+        hide(<MetaRegionOwners as Inv>::inv);
+        hide(CursorContinuation::inv_children);
+        hide(CursorContinuation::map_children);
+        hide(CursorOwner::map_full_tree);
+        hide(CursorOwner::map_only_children);
+        hide(CursorOwner::path_metaregion_sound);
+        hide(CursorOwner::nodes_locked);
         proof {
+            assert(owner.va.inv()) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
             owner.va.reflect_prop(self.0.va);
         }
         let ghost old_cur_va = owner@.cur_va;
@@ -3524,6 +3538,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         if find_result.is_none() {
             proof {
+                assert(owner.va.inv()) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
                 owner.va.reflect_prop(self.0.va);
                 assert(old(owner)@.mappings.filter(
                     |m: Mapping|
@@ -3539,11 +3556,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         );
         let ghost absent_entry_owner_spec = absent_entry_owner;
         let ghost subtree_level = (owner.continuations[owner.level - 1].tree_level + 1) as nat;
+        proof {
+            reveal(<CursorOwner as Inv>::inv);
+            assert(0 <= subtree_level < INC_LEVELS);
+        }
         let tracked subtree = OwnerSubtree::tracked_new_val(absent_entry_owner, subtree_level);
 
         assert(subtree.value().meta_slot_paddr() is None);
         proof {
+            reveal(<CursorOwner as Inv>::inv);
             owner.absent_not_in_tree(subtree.value());
+            assert(subtree.value().path.len() <= INC_LEVELS - 1);
+            assert(subtree.value().parent_level == owner.continuations[owner.level
+                - 1].child().value().parent_level);
+            assert(subtree.value().path == owner.continuations[owner.level - 1].path().push_tail(
+                owner.continuations[owner.level - 1].idx as int,
+            ));
         }
 
         let ghost owner_before_replace = *owner;
@@ -3556,6 +3584,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost regions_after_replace = *regions;
 
         proof {
+            assert(owner.va.inv()) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
             owner.move_forward_increases_va();
             owner.move_forward_not_popped_too_high();
             owner.va.reflect_prop(self.0.va);
@@ -3566,8 +3597,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         self.0.move_forward();
 
         proof {
+            assert(owner.va.inv()) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
             assert(self.0.barrier_va == old(self).0.barrier_va);
             owner.va.reflect_prop(self.0.va);
+            old(owner).view_preserves_inv();
 
             owner_before_move.move_forward_owner_preserves_mappings();
             assert(owner_before_replace@.mappings == old(owner)@.split_while_huge(
@@ -3590,12 +3625,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let ghost cur_st = owner_before_replace.cur_subtree();
                 owner_before_replace.cur_subtree_inv();
+                assert(cur_st.value().path
+                    == owner_before_replace.continuations[owner_before_replace.level
+                    - 1].path().push_tail(
+                    owner_before_replace.continuations[owner_before_replace.level - 1].idx as int,
+                )) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
                 owner_before_replace.new_child_mappings_eq_target(
                     cur_st,
                     cur_st.value().frame().mapped_pa,
                     level_after_find,
                     cur_st.value().frame().prop,
                 );
+                assert(owner_before_replace.va.inv()) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
                 owner_before_replace.va.reflect_prop(va_after_find);
 
                 let view = CursorView::<C> {
@@ -3654,9 +3699,25 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(owner_before_replace.path_metaregion_sound(regions_before_replace));
                 assert(owner_before_replace.cur_entry_owner().metaregion_sound(
                     regions_before_replace,
-                ));
+                )) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                    reveal(CursorContinuation::map_children);
+                    reveal(CursorOwner::map_full_tree);
+                    reveal(CursorOwner::path_metaregion_sound);
+                };
+                assert(regions_before_replace.slot_owners.contains_key(removed_idx)) by {
+                    reveal(<MetaRegionOwners as Inv>::inv);
+                    assert(regions_before_replace.slots.contains_key(removed_idx));
+                };
                 assert(regions_before_replace.slot_owners[removed_idx].usage
                     != PageUsage::PageTable);
+                assert(regions_pre_remove.slot_owners.contains_key(removed_idx)) by {
+                    reveal(<MetaRegionOwners as Inv>::inv);
+                    assert(regions_before_replace.slots.contains_key(removed_idx));
+                    assert(regions_after_replace.slots.contains_key(removed_idx));
+                    assert(regions_pre_remove.slots == regions_after_replace.slots);
+                    assert(regions_pre_remove.slots.contains_key(removed_idx));
+                };
                 let tracked mut so_rm = regions.slot_owners.tracked_remove(removed_idx);
                 so_rm.paths_in_pt = so_rm.paths_in_pt.remove(removed_path);
                 regions.slot_owners.tracked_insert(removed_idx, so_rm);
@@ -3683,7 +3744,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // `regions.inv()` after the paths_in_pt edit:
                 // MetaSlotOwner::inv does not constrain paths_in_pt and
                 // `slots` is unchanged, so it is preserved.
-                assert(regions.inv());
+                assert(regions.inv()) by {
+                    reveal(<MetaRegionOwners as Inv>::inv);
+                };
             }
             if frag.unwrap() is StrayPageTable {
                 let va = frag.unwrap()->StrayPageTable_va;
@@ -3692,6 +3755,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     |m: Mapping| va <= m.va_range.start < va + len_frag,
                 );
 
+                assert(owner_before_replace.va.inv()) by {
+                    reveal(<CursorOwner as Inv>::inv);
+                };
                 owner_before_replace.va.reflect_prop(va_after_find);
                 owner_before_replace.cur_subtree_eq_filtered_mappings();
 
@@ -3728,6 +3794,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 ).contains(m));
             };
 
+            assert(owner_before_replace.va.inv()) by {
+                reveal(<CursorOwner as Inv>::inv);
+            };
             owner_before_replace.va.reflect_prop(va_after_find);
             owner_before_replace.cur_subtree_eq_filtered_mappings();
             let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
