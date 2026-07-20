@@ -825,11 +825,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.only_current_locked(guards0),
             <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
-                guard,
-                guards0,
-                guards1,
-            ),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
             guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_addr_self(),
@@ -856,11 +852,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.nodes_locked(guards0),
             <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
-                guard,
-                guards0,
-                guards1,
-            ),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
             forall|i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS

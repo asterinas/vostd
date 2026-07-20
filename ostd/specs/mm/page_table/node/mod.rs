@@ -60,11 +60,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         s.lock_held(self.inner.inner@.ptr.addr())
     }
 
-    open spec fn constructor_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-    ) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         &&& s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
     }
 
@@ -87,11 +83,7 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
         true
     }
 
-    open spec fn consume_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-    ) -> bool {
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
     }
 

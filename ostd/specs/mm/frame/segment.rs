@@ -53,11 +53,7 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         true
     }
 
-    open spec fn constructor_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-    ) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         &&& s0 =~= s1
     }
 
@@ -79,11 +75,7 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         true
     }
 
-    open spec fn consume_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-    ) -> bool {
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         s0 =~= s1
     }
 

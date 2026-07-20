@@ -212,11 +212,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         &&& s.inv()
     }
 
-    open spec fn constructor_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-    ) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let slot_own = s0.slot_owners[self.index()];
         &&& s1.slot_owners[self.index()] == slot_own
         &&& forall|i: usize|
@@ -323,11 +319,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         s.frame_obligations.count(self.index()) > 0
     }
 
-    open spec fn consume_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-    ) -> bool {
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         // Multiset count at the slot shrinks by 1; everything else
         // (slots, slot_owners, segment ledger) is preserved.
         &&& s1.frame_obligations =~= s0.frame_obligations.remove(self.index())

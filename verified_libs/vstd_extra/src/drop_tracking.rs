@@ -115,6 +115,7 @@ pub trait Drop: TrackDrop {
     // The body must call `self.consume_obligation(s, obl)` first
     // (redeeming the token / shrinking the ledger), then run the
     // destructor work. Both preconditions are required up front.
+
             self.consume_requires(*old(s)),
             self.drop_requires(*old(s)),
             obl.value() == self.key(),

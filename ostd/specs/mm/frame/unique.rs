@@ -217,11 +217,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         &&& s.inv()
     }
 
-    open spec fn constructor_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-    ) -> bool {
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].slot_vaddr
@@ -239,7 +235,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         // Linear-drop discipline: minting a UniqueFrame (`MD::new`) adds
         // one entry at the slot index via the paired mint axiom — same
         // ledger Frame uses.
-        &&& s1.frame_obligations =~= s0.frame_obligations.insert(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s1.frame_obligations =~= s0.frame_obligations.insert(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
         &&& s1.inv()
     }
 
@@ -271,7 +269,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         // ledger contribution: one entry at `obl_key` is removed via
         // `consume_obligation`. (`UniqueFrame`'s inherent `drop` exec
         // function is responsible for arranging this in the body.)
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
         &&& s1.inv()
     }
 
@@ -282,12 +282,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         s.frame_obligations.count(frame_to_index(meta_to_frame(self.ptr.addr()))) > 0
     }
 
-    open spec fn consume_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-    ) -> bool {
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(frame_to_index(meta_to_frame(self.ptr.addr())))
+    open spec fn consume_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners =~= s0.slot_owners
     }
