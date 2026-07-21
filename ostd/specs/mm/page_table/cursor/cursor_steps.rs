@@ -347,8 +347,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS
-                    ==> self.continuations[i].guard.inner.inner@.ptr.addr()
-                    != guard.inner.inner@.ptr.addr(),
+                    ==> self.continuations[i].guard.inner.frame().ptr.addr()
+                    != guard.inner.frame().ptr.addr(),
         ensures
             self.push_level_owner(guard).inv(),
     {
@@ -431,7 +431,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // The child node's guard relates to the new guard
             self.cur_entry_owner().node().relate_guard(guard),
             // The new guard must be locked in guards
-            guards.lock_held(guard.inner.inner@.ptr.addr()),
+            guards.lock_held(guard.inner.frame().ptr.addr()),
         ensures
             self.push_level_owner(guard).inv(),
             self.push_level_owner(guard).children_not_locked(guards),
@@ -453,11 +453,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i
-                < NR_LEVELS implies self.continuations[i].guard.inner.inner@.ptr.addr()
-            != guard.inner.inner@.ptr.addr() by {
+                < NR_LEVELS implies self.continuations[i].guard.inner.frame().ptr.addr()
+            != guard.inner.frame().ptr.addr() by {
             let cont_i = self.continuations[i];
 
-            if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
+            if cont_i.guard.inner.frame().ptr.addr() == guard.inner.frame().ptr.addr() {
                 let addr = cont_i.entry_own.node().meta_addr_self();
                 assert(addr == cur_entry.node().meta_addr_self());
                 let idx = frame_to_index(meta_to_frame(addr));

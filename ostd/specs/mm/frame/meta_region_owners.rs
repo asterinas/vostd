@@ -8,7 +8,6 @@ use vstd::{
 };
 use vstd_extra::{
     cast_ptr::{self, Repr},
-    drop_tracking::DropObligation,
     ownership::*,
 };
 
@@ -24,7 +23,10 @@ use crate::mm::{
     Paddr,
     frame::{
         Link,
-        meta::{AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::frame_to_meta},
+        meta::{
+            AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+            REF_COUNT_UNUSED, mapping::frame_to_meta,
+        },
     },
     kspace::FRAME_METADATA_RANGE,
 };
@@ -42,28 +44,10 @@ verus! {
 /// Every metadata slot has its owner ([`MetaSlotOwner`]) tracked by the `slot_owners` map at all times.
 /// This makes the `MetaRegionOwners` the one place that tracks every frame, whether or not it is
 /// in use. Likewise, every slot has an permission stored in `slots`.
-/// ## Safety
-/// The `frame_obligations` table tracks how many active (in-scope) frames exist for each slot.
-/// Each one corresponds to an active drop obligation that must be consumed when its owner leaves scope,
-/// either by dropping it with an explicit call to `drop` or forgetting it with `ManuallyDrop`.
-/// Forgetting a slot with `into_raw` or `ManuallyDrop::new` will leak the frame.
-/// Forgetting it multiple times without restoring it will likely result in a memory leak, but not double-free.
-/// Double-free happens when `from_raw` is called on a frame that is not forgotten, or that has been
-/// dropped with `ManuallyDrop::drop` instead of `into_raw`. All functions in
-/// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
 #[verifier::ext_equal]
 pub tracked struct MetaRegionOwners {
-    pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
+    pub slots: Map<usize, FramePermissionResource>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
-    /// Outstanding per-instance obligations for both `Frame<M>` and
-    /// `Segment<M>`, as a multiset of slot indices. `ManuallyDrop::new(frame,
-    /// ..)` adds one entry at `frame.key()` (mint paired with the `raw_count++`
-    /// bump); `Frame::drop` (via `consume_obligation`) and `ManuallyDrop::new`
-    /// redeem one. A `Segment<M>` records one entry per frame it holds (see
-    /// [`crate::specs::mm::frame::segment::tracked_mint_seg_obligations`]).
-    /// Multiset semantics — multiple outstanding obligations at the same slot
-    /// are counted individually.
-    pub frame_obligations: vstd::multiset::Multiset<usize>,
 }
 
 pub ghost struct MetaRegionModel {
@@ -84,11 +68,20 @@ impl Inv for MetaRegionOwners {
         &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
+                    let slot = self.slots[i].resource();
+                    let ref_count = self.slot_owners[i].inner_perms.ref_count.value();
                     &&& self.slot_owners[i].inv()
-                    &&& self.slots[i].is_init()
-                    &&& self.slots[i].addr() == meta_addr(i)
-                    &&& self.slots[i].value().wf(self.slot_owners[i])
-                    &&& self.slot_owners[i].slot_vaddr == self.slots[i].addr()
+                    &&& self.slots[i].wf()
+                    &&& self.slots[i].not_empty()
+                    &&& slot.is_init()
+                    &&& slot.addr() == meta_addr(i)
+                    &&& slot.value().wf(self.slot_owners[i])
+                    &&& self.slot_owners[i].slot_vaddr == slot.addr()
+                    &&& (ref_count <= REF_COUNT_MAX ==> self.slots[i].frac()
+                        + ref_count as int == FRAME_PERMISSION_TOTAL as int)
+                    &&& (ref_count == REF_COUNT_UNIQUE ==> self.slots[i].frac() + 1
+                        == FRAME_PERMISSION_TOTAL as int)
+                    &&& (ref_count == REF_COUNT_UNUSED ==> self.slots[i].is_full())
                 }
         }
     }
@@ -145,11 +138,11 @@ impl MetaRegionOwners {
             self.slots.contains_key(i),
             self.slot_owners.contains_key(i),
             vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<M>>::new_spec(
-                self.slots[i],
+                self.slots[i].resource(),
                 self.slot_owners[i].inner_perms,
             ).wf(&self.slot_owners[i].inner_perms),
         ensures
-            res.points_to == self.slots[i],
+            res.points_to == self.slots[i].resource(),
             res.inner_perms == self.slot_owners[i].inner_perms,
             res.wf(&res.inner_perms),
     ;
@@ -169,16 +162,17 @@ impl MetaRegionOwners {
             old(self).slots.contains_key(i),
             old(self).slot_owners.contains_key(i),
             vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<M>>::new_spec(
-                old(self).slots[i],
+                old(self).slots[i].resource(),
                 old(self).slot_owners[i].inner_perms,
             ).wf(&old(self).slot_owners[i].inner_perms),
         ensures
-            res.points_to == old(self).slots[i],
+            res.points_to == old(self).slots[i].resource(),
             res.inner_perms == old(self).slot_owners[i].inner_perms,
             res.wf(&res.inner_perms),
             final(self).slots.dom() == old(self).slots.dom(),
             final(self).slot_owners.dom() == old(self).slot_owners.dom(),
-            final(self).slots[i] == final(res).points_to,
+            final(self).slots[i] == old(self).slots[i],
+            final(res).points_to == old(self).slots[i].resource(),
             final(self).slot_owners[i].inner_perms == final(res).inner_perms,
             forall|k: usize| k != i ==> #[trigger] final(self).slots[k] == old(self).slots[k],
             forall|k: usize|
@@ -186,7 +180,6 @@ impl MetaRegionOwners {
             final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
             final(self).slot_owners[i].slot_vaddr == old(self).slot_owners[i].slot_vaddr,
             final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
-            final(self).frame_obligations == old(self).frame_obligations,
     ;
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
@@ -246,63 +239,6 @@ impl MetaRegionOwners {
     {
     }
 
-    // ----------------------------------------------------------------------
-    // Per-frame linear-drop ledger machinery.
-    // ----------------------------------------------------------------------
-    /// "Clean" boundary invariant: standard invariant plus an empty per-frame
-    /// obligation multiset (every minted token has been redeemed via
-    /// `Drop::drop` or `ManuallyDrop::new`; and every `Segment` has been
-    /// dropped, draining its per-frame entries).
-    ///
-    /// Functions that should leave no outstanding `Frame`/`Segment` obligations
-    /// (e.g., top-of-call-stack entry points, or any helper that opens fresh
-    /// resources locally) should require this in their postcondition instead of
-    /// the plain `inv()`.
-    pub open spec fn clean_inv(self) -> bool {
-        &&& self.inv()
-        // Per-frame linear-drop discipline via the multiset ledger: every
-        // `ManuallyDrop::new` / segment-frame mint adds one entry, every
-        // `Drop::drop` / `ManuallyDrop::new` / segment-frame redeem removes one.
-        &&& self.frame_obligations.len() == 0
-    }
-
-    // ----------------------------------------------------------------------
-    // Frame-side per-instance ledger.
-    // ----------------------------------------------------------------------
-    pub open spec fn mint_frame_obligation(self, slot_idx: usize) -> Self {
-        Self { frame_obligations: self.frame_obligations.insert(slot_idx), ..self }
-    }
-
-    pub open spec fn redeem_frame_obligation(self, slot_idx: usize) -> Self
-        recommends
-            self.frame_obligations.count(slot_idx) > 0,
-    {
-        Self { frame_obligations: self.frame_obligations.remove(slot_idx), ..self }
-    }
-
-    // FIXME: use authorative monoid instead of current unsound implementations
-    /// Pairs the production of a per-Frame [`DropObligation`] with a
-    /// `+1` on the `frame_obligations[slot_idx]` count. Called by Frame's
-    /// `constructor_spec` (i.e. `ManuallyDrop::new(frame, ..)`).
-    pub axiom fn tracked_mint_frame_obligation(tracked &mut self, slot_idx: usize) -> (tracked obl:
-        DropObligation<usize>)
-        ensures
-            obl.value() == slot_idx,
-            *final(self) == old(self).mint_frame_obligation(slot_idx),
-    ;
-
-    /// Redeems a per-Frame obligation, decrementing `frame_obligations`
-    /// at `obl.value()`. Called by Frame's `consume_obligation` (i.e.
-    /// by `Drop::drop` or `ManuallyDrop::new`).
-    pub axiom fn tracked_redeem_frame_obligation(
-        tracked &mut self,
-        tracked obl: DropObligation<usize>,
-    )
-        requires
-            old(self).frame_obligations.count(obl.value()) > 0,
-        ensures
-            *final(self) == old(self).redeem_frame_obligation(obl.value()),
-    ;
 }
 
 } // verus!

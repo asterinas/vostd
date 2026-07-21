@@ -432,6 +432,17 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         frac.agree(self.r.tracked_borrow());
     }
 
+    /// Borrows the resource while this pool retains at least one fraction.
+    pub proof fn tracked_borrow(tracked &self) -> (tracked res: &T)
+        requires
+            self.not_empty(),
+        ensures
+            res == self@,
+    {
+        use_type_invariant(self);
+        self.r.tracked_borrow().borrow()
+    }
+
     /// Consumes the token and takes out the resource.
     pub proof fn take_resource(tracked self) -> (tracked (res, empty): (T, EmptyCount<T, TOTAL>))
         requires

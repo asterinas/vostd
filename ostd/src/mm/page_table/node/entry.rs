@@ -288,9 +288,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(self).node_matching(*old(owner), *old(parent_owner), *old(self).node),
             old(self).new_owner_compatible(new_child, *old(owner), *old(new_owner), *old(regions)),
             old(parent_owner).metaregion_sound_node(*old(regions)),
-            new_child matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
-                frame_to_index(meta_to_frame(node.ptr.addr())),
-            ) > 0,
         ensures
             final(self).invariants(*final(new_owner), *final(regions)),
             res.invariants(*final(owner), *final(regions)),
@@ -298,7 +295,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(self).idx == old(self).idx,
             *final(self).node == *old(self).node,
             *final(owner) == old(owner).from_pte_owner_spec(),
-            *final(new_owner) == old(new_owner).into_pte_owner_spec(),
+            *final(new_owner) == old(new_owner).into_pte_owner_spec(new_child.permission()),
             Self::metaregion_sound_neq_preserved(
                 *old(owner),
                 *final(new_owner),
@@ -354,12 +351,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     final(regions).slot_owners[i] == old(
                         regions,
                     ).slot_owners[i]
-                // Canonical model: neither `from_pte` (old non-node) nor
-                // `into_pte` (new non-node) touches the per-frame ledger, so
-                // it is preserved. Lets the huge-page split loop carry the
-                // freshly-allocated node's obligation across the per-child
-                // `replace` calls up to its own `into_pte`.
-                &&& final(regions).frame_obligations == old(regions).frame_obligations
             },
             // When old child is absent and new child is not a node: slots values unchanged.
             (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: usize|
@@ -645,7 +636,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
 
             let ghost new_node_slot_idx = new_node_owner.value().node().slot_index;
-            let tracked new_node_slot_perm = regions.slots.tracked_borrow(new_node_slot_idx);
+            let tracked new_node_permission = new_page.tracked_perm.tracked_borrow();
+            let tracked new_node_slot_perm = new_node_permission.borrow();
             #[verus_spec(with Tracked(new_node_slot_perm))]
             let paddr = new_page.start_paddr();
 
@@ -657,7 +649,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             self.pte = new_pte;
 
             let pt_ref = unsafe {
-                #[verus_spec(with Tracked(regions))]
+                let tracked new_node_value = new_node_owner.tracked_borrow_value();
+                let tracked permission = new_node_value.tracked_borrow_permission();
+                #[verus_spec(with Tracked(regions), Tracked(permission))]
                 PageTableNodeRef::borrow_paddr(paddr)
             };
 
@@ -819,8 +813,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(owner).level() == old(owner).level()
                 &&& final(parent_owner).relate_guard(*final(self).node)
                 &&& final(owner).value().node().relate_guard(res->0)
-                &&& final(owner).value().node().meta_addr_self() == res->0.inner.inner@.ptr.addr()
-                &&& final(guards).lock_held(res->0.inner.inner@.ptr.addr())
+                &&& final(owner).value().node().meta_addr_self() == res->0.inner.frame().ptr.addr()
+                &&& final(guards).lock_held(res->0.inner.frame().ptr.addr())
                 // All children of the new node subtree are frames with the same prop (from the split loop).
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
                     (#[trigger] final(owner).children()[j])->0.value().is_frame()
@@ -852,7 +846,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(regions).inv(),
             final(parent_owner).inv(),
             final(parent_owner).level == old(parent_owner).level,
-            final(self).node.inner.inner@.ptr.addr() == old(self).node.inner.inner@.ptr.addr(),
+            final(self).node.inner.frame().ptr.addr() == old(self).node.inner.frame().ptr.addr(),
             forall |i: usize| old(guards).lock_held(i) ==> final(guards).lock_held(i),
             forall |i: usize| old(guards).unlocked(i) ==> final(guards).unlocked(i),
             // slot_owners unchanged for all indices except the new PT node's index.
@@ -917,7 +911,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
 
         let ghost new_owner_slot_idx = new_owner.value().node().slot_index;
-        let tracked new_owner_slot_perm = regions.slots.tracked_borrow(new_owner_slot_idx);
+        let tracked new_owner_permission = new_page.tracked_perm.tracked_borrow();
+        let tracked new_owner_slot_perm = new_owner_permission.borrow();
         #[verus_spec(with Tracked(new_owner_slot_perm))]
         let paddr = new_page.start_paddr();
 
@@ -927,7 +922,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
 
         let pt_ref = unsafe {
-            #[verus_spec(with Tracked(regions))]
+            let tracked new_owner_value = new_owner.tracked_borrow_value();
+            let tracked permission = new_owner_value.tracked_borrow_permission();
+            #[verus_spec(with Tracked(regions), Tracked(permission))]
             PageTableNodeRef::borrow_paddr(paddr)
         };
 
@@ -1022,12 +1019,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 pa % page_size(level) == 0,
                 pa + page_size(level) <= MAX_PADDR,
                 regions.inv(),
-                // Canonical model: the freshly-allocated node carries its
-                // pending-Drop obligation across the per-child `replace`
-                // calls (each net-zero on the ledger), discharging the
-                // `into_pte` consume after the loop.
-                regions.frame_obligations.count(frame_to_index(meta_to_frame(new_owner_meta_addr)))
-                    > 0,
                 parent_owner.inv(),
                 new_owner.value().is_node(),
                 new_owner.inv(),
@@ -1554,9 +1545,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             },
             old(parent_owner).metaregion_sound_node(*old(regions)),
-            new_child matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
-                frame_to_index(meta_to_frame(node.ptr.addr())),
-            ) > 0,
         ensures
             res.invariants(*final(owner), *final(regions)),
             final(new_owner).inv(),
@@ -1568,7 +1556,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(new_owner).path == old(new_owner).path,
             final(new_owner).parent_level == old(new_owner).parent_level,
             *final(owner) == old(owner).from_pte_owner_spec(),
-            *final(new_owner) == old(new_owner).into_pte_owner_spec(),
+            *final(new_owner) == old(new_owner).into_pte_owner_spec(new_child.permission()),
             Entry::<C>::metaregion_sound_neq_preserved(
                 *old(owner),
                 *final(new_owner),
@@ -1621,7 +1609,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     final(regions).slot_owners[i] == old(
                         regions,
                     ).slot_owners[i]
-                &&& final(regions).frame_obligations == old(regions).frame_obligations
             },
             (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: usize|
                 old(regions).slots.contains_key(k) ==> old(regions).slots[k]
@@ -1761,7 +1748,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(owner).value().path == old(owner).value().path,
             final(owner).value().metaregion_sound(*final(regions)),
             final(owner).value().node().relate_guard(res),
-            final(owner).value().node().meta_addr_self() == res.inner.inner@.ptr.addr(),
+            final(owner).value().node().meta_addr_self() == res.inner.frame().ptr.addr(),
             final(owner).value().match_pte(
                 final(parent_owner).children_perm.value()[idx as int],
                 final(parent_owner).level,
@@ -1877,7 +1864,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         }
 
         let ghost new_node_slot_idx = new_node_owner.value().node().slot_index;
-        let tracked new_node_slot_perm = regions.slots.tracked_borrow(new_node_slot_idx);
+        let tracked new_node_permission = new_page.tracked_perm.tracked_borrow();
+        let tracked new_node_slot_perm = new_node_permission.borrow();
         #[verus_spec(with Tracked(new_node_slot_perm))]
         let paddr = new_page.start_paddr();
 
@@ -1893,7 +1881,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         }
 
         let pt_ref = unsafe {
-            #[verus_spec(with Tracked(regions))]
+            let tracked new_node_value = new_node_owner.tracked_borrow_value();
+            let tracked permission = new_node_value.tracked_borrow_permission();
+            #[verus_spec(with Tracked(regions), Tracked(permission))]
             PageTableNodeRef::borrow_paddr(paddr)
         };
 
@@ -2021,7 +2011,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(new_owner).inv(),
             final(parent_owner).inv(),
             *final(owner) == old(owner).from_pte_owner_spec(),
-            *final(new_owner) == old(new_owner).into_pte_owner_spec(),
+            *final(new_owner) == old(new_owner).into_pte_owner_spec(None),
             final(new_owner).pte_invariants(
                 final(parent_owner).children_perm.value()[idx as int],
                 *final(regions),

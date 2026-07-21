@@ -2,7 +2,7 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{FramePermission, meta_region_owners::MetaRegionOwners};
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
@@ -21,6 +21,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
+                &&& owner.node_permission() is None
                 &&& node.ptr.addr() == owner.node().meta_addr_self()
                 &&& node.index() == frame_to_index(meta_to_frame(node.ptr.addr()))
             },
@@ -42,7 +43,9 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.inner@.ptr.addr() == owner.node().meta_addr_self()
+                &&& owner.node_permission() is Some
+                &&& node.frame().ptr.addr() == owner.node().meta_addr_self()
+                &&& *node.permission() == owner.node_permission()->0
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
@@ -65,6 +68,13 @@ impl<C: PageTableConfig> Child<C> {
     pub open spec fn get_frame_tuple(self) -> Option<(Paddr, PagingLevel, PageProperty)> {
         match self {
             Self::Frame(paddr, level, prop) => Some((paddr, level, prop)),
+            _ => None,
+        }
+    }
+
+    pub open spec fn permission(self) -> Option<FramePermission> {
+        match self {
+            Self::PageTable(node) => node.tracked_perm@,
             _ => None,
         }
     }
@@ -109,6 +119,7 @@ impl<C: PageTableConfig> Child<C> {
             _ => true,
         }
         &&& owner.metaregion_sound(regions)
+        &&& self matches Self::PageTable(node) ==> node.wf_with_region(regions)
     }
 }
 
@@ -123,42 +134,30 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
 impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn from_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
-        if self.is_node() {
-            let index = frame_to_index(self.meta_slot_paddr()->0);
-            MetaRegionOwners {
-                frame_obligations: regions.frame_obligations.insert(index),
-                ..regions
-            }
-        } else {
-            regions
-        }
+        regions
     }
 
     pub open spec fn into_pte_regions_spec(self, regions: MetaRegionOwners) -> MetaRegionOwners {
+        regions
+    }
+
+    pub open spec fn into_pte_owner_spec(
+        self,
+        permission: Option<FramePermission>,
+    ) -> EntryOwner<C> {
         if self.is_node() {
-            let index = frame_to_index(self.meta_slot_paddr()->0);
-            // Canonical model: forgetting a live PT-node into a PTE CONSUMES
-            // its pending-Drop obligation (the body's `MD::new` redeems one
-            // entry at the node's slot), mirroring `Frame::into_raw`. `slots`
-            // / `slot_owners` are untouched. Balances the `+1` minted by
-            // `from_pte` (`from_pte_regions_spec`) / `PageTableNode::alloc`.
-            MetaRegionOwners {
-                frame_obligations: regions.frame_obligations.remove(index),
-                ..regions
-            }
+            EntryOwner { kind: EntryOwnerKind::Node(self.node(), permission), ..self }
         } else {
-            // Forgetting a mapped frame / clearing an absent entry leaves the
-            // per-frame ledger untouched (`item_into_raw` is `external_body`).
-            regions
+            self
         }
     }
 
-    pub open spec fn into_pte_owner_spec(self) -> EntryOwner<C> {
-        self
-    }
-
     pub open spec fn from_pte_owner_spec(self) -> EntryOwner<C> {
-        self
+        if self.is_node() {
+            EntryOwner { kind: EntryOwnerKind::Node(self.node(), None), ..self }
+        } else {
+            self
+        }
     }
 
     /// This is equivalent to the other `invariants` relations, combining the `inv` predicates for each
@@ -168,6 +167,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& regions.inv()
         &&& self.match_pte(pte, self.parent_level)
         &&& self.metaregion_sound(regions)
+        &&& self.is_node() ==> {
+            let idx = frame_to_index(self.meta_slot_paddr()->0);
+            &&& self.node_permission() is Some
+            &&& self.node_permission()->0.frac() == 1
+            &&& self.node_permission()->0.id() == regions.slots[idx].id()
+            &&& self.node_permission()->0.resource().pptr().addr()
+                == self.node().meta_addr_self()
+        }
     }
 }
 

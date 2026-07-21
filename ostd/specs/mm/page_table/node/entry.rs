@@ -30,8 +30,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ) -> bool {
         &&& parent_owner.level == owner.parent_level
         &&& parent_owner.inv()
-        &&& guard.inner.inner@.ptr.addr() == parent_owner.meta_addr_self()
-        &&& guard.inner.inner@.wf(parent_owner)
+        &&& guard.inner.frame().ptr.addr() == parent_owner.meta_addr_self()
+        &&& guard.inner.frame().wf(parent_owner)
         &&& owner.match_pte(parent_owner.children_perm.value()[self.idx as int], owner.parent_level)
     }
 

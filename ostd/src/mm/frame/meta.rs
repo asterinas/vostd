@@ -104,6 +104,7 @@ use self::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
+    FramePermission,
     mapping::{frame_to_index, meta_addr},
     meta_owners::*,
     meta_region_owners::MetaRegionOwners,
@@ -380,8 +381,11 @@ impl MetaSlot {
             old(regions).inv(),
         ensures
             res is Err ==> *final(regions) == *old(regions),
-            res matches Ok(res) ==> {
-                &&& res.addr() == frame_to_meta(paddr)
+            res matches Ok((ptr, permission)) ==> {
+                &&& ptr.addr() == frame_to_meta(paddr)
+                &&& permission@.frac() == 1
+                &&& permission@.id() == final(regions).slots[frame_to_index(paddr)].id()
+                &&& permission@.resource().pptr() == ptr
                 &&& final(regions).inv()
                 &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
             },
@@ -391,14 +395,15 @@ impl MetaSlot {
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
-    ) -> Result<PPtr<Self>, GetFrameError> {
+    ) -> Result<(PPtr<Self>, Tracked<FramePermission>), GetFrameError> {
         let slot = get_slot(paddr)?;
 
         proof {
             regions.inv_implies_correct_addr(paddr);
         }
         let ghost idx = frame_to_index(paddr);
-        let tracked slot_perm = regions.slots.tracked_borrow(idx);
+        let tracked slot_pool = regions.slots.tracked_borrow_mut(idx);
+        let tracked slot_perm = slot_pool.tracked_borrow();
         let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         proof {
             axiom_mmio_usage_iff_mmio_paddr(*slot_own);
@@ -460,7 +465,8 @@ impl MetaSlot {
             axiom_mmio_usage_iff_mmio_paddr(*slot_own);
         }
 
-        Ok(slot)
+        let tracked frame_permission = slot_pool.split_one();
+        Ok((slot, Tracked(frame_permission)))
     }
 
     /// Gets another owning pointer to the metadata slot from the given page.
@@ -486,13 +492,19 @@ impl MetaSlot {
             final(regions).inv(),
             !has_safe_slot(paddr) ==> res is Err,
             res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *final(regions)),
-            res matches Ok(ptr) ==> ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
+            res matches Ok((ptr, permission)) ==> {
+                &&& ptr == old(regions).slots[frame_to_index(paddr)].resource().pptr()
+                &&& permission@.frac() == 1
+                &&& permission@.id() == final(regions).slots[frame_to_index(paddr)].id()
+                &&& permission@.resource().pptr() == ptr
+            },
             res is Err ==> *final(regions) == *old(regions),
-            final(regions).frame_obligations == old(regions).frame_obligations,
     )]
     #[verifier::exec_allows_no_decreases_clause]
     #[verifier::loop_isolation(false)]
-    pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
+    pub(super) fn get_from_in_use(
+        paddr: Paddr,
+    ) -> Result<(PPtr<Self>, Tracked<FramePermission>), GetFrameError> {
         let slot = get_slot(paddr)?;
 
         proof {
@@ -500,7 +512,8 @@ impl MetaSlot {
         }
 
         let ghost idx = frame_to_index(paddr);
-        let tracked slot_perm = regions.slots.tracked_borrow(idx);
+        let tracked slot_pool = regions.slots.tracked_borrow_mut(idx);
+        let tracked slot_perm = slot_pool.tracked_borrow();
 
         loop
             invariant
@@ -537,7 +550,8 @@ impl MetaSlot {
                         last_ref_cnt,
                         last_ref_cnt + 1,
                     ).is_ok() {
-                        return Ok(slot);
+                        let tracked frame_permission = slot_pool.split_one();
+                        return Ok((slot, Tracked(frame_permission)));
                     }
                     proof {
                         vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
