@@ -89,7 +89,9 @@ impl<T: TrackDrop> ManuallyDrop<T> {
     )]
     pub fn new(t: T) -> Self {
         proof_with! { tracked_obligation: Tracked(obligation) }
-        Self { value: core::mem::ManuallyDrop::new(t) }
+        Self {
+            value: core::mem::ManuallyDrop::new(t),
+        }
     }
 
     #[verus_spec(res =>
