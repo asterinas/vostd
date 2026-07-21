@@ -636,13 +636,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     // For page table configs that require the `AVAIL1` flag to be kept
                     // (currently, only kernel page tables), the callers of the unsafe
                     // `protect_next` method uphold this invariant.
-                    let item =   /*ManuallyDrop::new(*/
-                    unsafe { C::item_from_raw(pa, level, prop) }  /*)*/
-                    ;
+                    let item = core::mem::ManuallyDrop::new(
+                        unsafe { C::item_from_raw(pa, level, prop) },
+                    );
+                    let ghost item_spec = C::item_from_raw_spec(pa, level, prop);
 
                     proof {
                         C::lemma_item_from_raw_well_formed(pa, level, prop);
                         C::lemma_item_into_raw_roundtrip(pa, level, prop);
+                        assert(C::item_into_raw_spec(item_spec) == (pa, level, prop));
                     }
 
                     let ghost old_regions = *regions;
@@ -651,7 +653,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         let idx = frame_to_index(pa);
                         assert(regions.slot_owners.contains_key(idx));
                         assert(owner.cur_entry_owner().inv_base());
-                        if C::tracked(item)
+                        if C::tracked(item_spec)
                             && regions.slot_owners[idx].inner_perms.ref_count.value()
                             >= REF_COUNT_MAX {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
@@ -662,11 +664,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(may_panic());
                         }
                         assert(C::raw_item_well_formed(pa, level, prop));
-                        owner.cur_frame_clone_requires(item, pa, level, prop, *regions);
+                        owner.cur_frame_clone_requires(item_spec, pa, level, prop, *regions);
                     }
 
                     #[verus_spec(with Tracked(regions), Ghost(pa))]
-                    let cloned = Self::clone_item(&item);
+                    let cloned = Self::clone_item(&*item);
 
                     proof {
                         let idx = frame_to_index(pa);
@@ -675,7 +677,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner.path_metaregion_sound(old_regions));
                         assert(owner.cur_entry_owner().metaregion_sound(old_regions));
                         assert(old_regions.slot_owners.contains_key(idx));
-                        if C::tracked(item) {
+                        if C::tracked(item_spec) {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
                             );
@@ -700,7 +702,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         // (non-MMIO conjunct false).
                         assert(owner@ == old(owner)@);
                         assert(owner@.query_mapping().pa_range.start == pa);
-                        if C::tracked(item) {
+                        if C::tracked(item_spec) {
                             assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
                                 == old(regions).slot_owners[idx].inner_perms.ref_count.value());
                             assert(old(regions).slot_owners[idx].inner_perms.ref_count.value()
