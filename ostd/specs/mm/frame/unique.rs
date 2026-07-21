@@ -203,13 +203,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     /// at any moment a slot is in either Frame-SHARED mode (ref_count in
     /// [1, MAX]) or UniqueFrame-UNIQUE mode (ref_count == UNIQUE), never
     /// both, so the multiset semantics are unambiguous.
-    type Key = usize;
+    type Obligation = DropObligation<usize>;
 
-    open spec fn key(self) -> Self::Key {
-        frame_to_index(meta_to_frame(self.ptr.addr()))
-    }
-
-    open spec fn constructor_requires(self, s: Self::State) -> bool {
+    open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s.slot_owners[frame_to_index(
             meta_to_frame(self.ptr.addr()),
@@ -217,11 +213,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         &&& s.inv()
     }
 
-    open spec fn constructor_ensures(
+    open spec fn tracked_redeem_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
+        obl: Self::Obligation,
     ) -> bool {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
@@ -240,13 +236,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         // Linear-drop discipline: minting a UniqueFrame (`MD::new`) adds
         // one entry at the slot index via the paired mint axiom — same
         // ledger Frame uses.
-        &&& s1.frame_obligations =~= s0.frame_obligations.insert(obl_key)
+        &&& s1.frame_obligations =~= s0.frame_obligations.insert(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
+        &&& obl.value() == frame_to_index(meta_to_frame(self.ptr.addr()))
         &&& s1.inv()
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
-        Self::Key,
-    >) {
+    proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
         let index = frame_to_index(meta_to_frame(self.ptr.addr()));
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         s.slot_owners.tracked_insert(index, slot_own);
@@ -256,12 +253,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         s.tracked_mint_frame_obligation(index)
     }
 
-    open spec fn drop_requires(self, s: Self::State) -> bool {
+    open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
         &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s.inv()
+        &&& s.frame_obligations.count(frame_to_index(meta_to_frame(self.ptr.addr()))) > 0
+        &&& obl.value() == frame_to_index(meta_to_frame(self.ptr.addr()))
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn drop_ensures(
+        self,
+        s0: Self::State,
+        s1: Self::State,
+        obl: Self::Obligation,
+    ) -> bool {
         &&& forall|i: usize|
             #![trigger s1.slot_owners[i]]
             i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
@@ -272,36 +276,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         // ledger contribution: one entry at `obl_key` is removed via
         // `consume_obligation`. (`UniqueFrame`'s inherent `drop` exec
         // function is responsible for arranging this in the body.)
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
         &&& s1.inv()
-    }
-
-    /// `ManuallyDrop::new` / `Drop::drop` require the ledger to contain
-    /// at least one entry at this slot — preventing a forged token
-    /// from being used to "consume" a non-existent obligation.
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
-        s.frame_obligations.count(obl_key) > 0
-    }
-
-    open spec fn consume_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-        obl_key: Self::Key,
-    ) -> bool {
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
-        &&& s1.slots =~= s0.slots
-        &&& s1.slot_owners =~= s0.slot_owners
-    }
-
-    proof fn consume_obligation(
-        self,
-        tracked s: &mut Self::State,
-        tracked obl: DropObligation<Self::Key>,
-    ) {
-        // Paired redeem axiom: removes one entry at `obl.value()` from
-        // `frame_obligations`. Leaves `slot_owners` untouched.
-        s.tracked_redeem_frame_obligation(obl);
     }
 }
 

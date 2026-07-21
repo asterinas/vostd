@@ -201,22 +201,18 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     /// (Full per-instance ledger enforcement is a follow-up; for now
     /// `consume_obligation` is a no-op so the token's identity is
     /// documentary rather than gated against a multiset.)
-    type Key = usize;
+    type Obligation = DropObligation<usize>;
 
-    open spec fn key(self) -> Self::Key {
-        self.index()
-    }
-
-    open spec fn constructor_requires(self, s: Self::State) -> bool {
+    open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(self.index())
         &&& s.inv()
     }
 
-    open spec fn constructor_ensures(
+    open spec fn tracked_redeem_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
+        obl: Self::Obligation,
     ) -> bool {
         let slot_own = s0.slot_owners[self.index()];
         &&& s1.slot_owners[self.index()] == slot_own
@@ -230,12 +226,11 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // not affect the segment obligation ledger.
         // Frame-side ledger: `constructor_spec` adds one entry at the
         // slot index via the paired mint axiom (multiset semantics).
-        &&& s1.frame_obligations =~= s0.frame_obligations.insert(obl_key)
+        &&& s1.frame_obligations =~= s0.frame_obligations.insert(self.index())
+        &&& obl.value() == self.index()
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
-        Self::Key,
-    >) {
+    proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
         let meta_addr = self.ptr.addr();
         let index = frame_to_index(meta_to_frame(meta_addr));
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
@@ -250,7 +245,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     // outstanding (`raw_count > 0`), since those raw paddrs could be revived
     // via `from_raw` after the slot has been torn down. Hence the drop is
     // only permitted when `raw_count == 0`.
-    open spec fn drop_requires(self, s: Self::State) -> bool {
+    open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let slot_own = s.slot_owners[idx];
         // Cross-object validity: this Frame is consistent with `s` and
@@ -281,9 +276,16 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         &&& slot_own.inner_perms.ref_count.value() == 1 ==> {
             &&& slot_own.paths_in_pt.is_empty()
         }
+        &&& s.frame_obligations.count(self.index()) > 0
+        &&& obl.value() == self.index()
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn drop_ensures(
+        self,
+        s0: Self::State,
+        s1: Self::State,
+        obl: Self::Obligation,
+    ) -> bool {
         let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let so0 = s0.slot_owners[idx];
         let so1 = s1.slot_owners[idx];
@@ -314,38 +316,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // Frame-side ledger: routed through `consume_obligation` (called
         // by Drop::drop's body first), the count at `obl_key` shrinks
         // by 1.
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
-    }
-
-    /// `ManuallyDrop::new` / `Drop::drop` require the ledger to contain
-    /// at least one entry at this slot — preventing a forged token
-    /// from being used to "consume" a non-existent obligation.
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
-        s.frame_obligations.count(obl_key) > 0
-    }
-
-    open spec fn consume_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-        obl_key: Self::Key,
-    ) -> bool {
-        // Multiset count at the slot shrinks by 1; everything else
-        // (slots, slot_owners, segment ledger) is preserved.
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(obl_key)
-        &&& s1.slots =~= s0.slots
-        &&& s1.slot_owners =~= s0.slot_owners
-    }
-
-    proof fn consume_obligation(
-        self,
-        tracked s: &mut Self::State,
-        tracked obl: DropObligation<Self::Key>,
-    ) {
-        // Paired redeem axiom: removes one entry at `obl.value()` from
-        // `frame_obligations`. Leaves `slot_owners` (including
-        // `raw_count`) untouched — the deliberate-leak semantic.
-        s.tracked_redeem_frame_obligation(obl);
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(self.index())
     }
 }
 

@@ -1364,33 +1364,27 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
     /// added because every live `LinkedList` already has a unique
     /// `LinkedListOwner` in scope — the per-instance discipline is
     /// state-side, not ledger-side.
-    type Key = u64;
+    type Obligation = DropObligation<u64>;
 
-    open spec fn key(self) -> Self::Key {
-        self.list_id
-    }
-
-    open spec fn constructor_requires(self, s: Self::State) -> bool {
+    open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         true
     }
 
-    open spec fn constructor_ensures(
+    open spec fn tracked_redeem_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
+        obl: Self::Obligation,
     ) -> bool {
         &&& s0 =~= s1
-        &&& obl_key == self.list_id
+        &&& obl.value() == self.list_id
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
-        Self::Key,
-    >) {
+    proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
         DropObligation::tracked_mint(self.list_id)
     }
 
-    open spec fn drop_requires(self, s: Self::State) -> bool {
+    open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
         &&& self.wf(s.0)
         &&& s.0.inv()
         &&& s.1.inv()
@@ -1428,9 +1422,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
             0 <= i < j < s.0.list.len() ==> frame_to_index(meta_to_frame(s.0.list[i].paddr))
                 != frame_to_index(meta_to_frame(s.0.list[j].paddr))
         &&& s.0.relate_region(s.1)
+        &&& obl.value() == self.list_id
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn drop_ensures(
+        self,
+        s0: Self::State,
+        s1: Self::State,
+        obl: Self::Obligation,
+    ) -> bool {
         &&& s1.0.list.len() == 0
         &&& forall|i: int|
             #![trigger s0.0.list[i]]
@@ -1453,30 +1453,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         &&& s1.1.slots.dom() =~= s0.1.slots.dom()
         &&& s1.1.inv()
     }
-
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
-        // The token must match this list's identity — prevents a token
-        // forged for a different list from discharging this one.
-        obl_key == self.list_id
-    }
-
-    open spec fn consume_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-        obl_key: Self::Key,
-    ) -> bool {
-        s0 =~= s1
-    }
-
-    proof fn consume_obligation(
-        self,
-        tracked s: &mut Self::State,
-        tracked obl: DropObligation<Self::Key>,
-    ) {
-        // No-op on the ledger; the per-instance discipline lives in
-        // `LinkedListOwner`'s state-side invariants.
-    }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
@@ -1486,12 +1462,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         Tracked(s): Tracked<&mut Self::State>,
         Tracked(obl): Tracked<DropObligation<u64>>,
     ) {
-        // Single redeem path: route through `consume_obligation` before
-        // running the destructor body.
-        proof {
-            self.consume_obligation(s, obl);
-        }
-
         proof_decl! {
             let tracked mut list_own: LinkedListOwner<M>;
         }

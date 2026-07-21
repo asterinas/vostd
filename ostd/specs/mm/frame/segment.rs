@@ -30,7 +30,7 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     /// [`MetaRegionOwners`]. The real per-segment obligation is represented
     /// by one entry per frame in `MetaRegionOwners::frame_obligations`, not
     /// by this `TrackDrop` impl. That keeps
-    /// `ManuallyDrop::new(self, Tracked(regions))` callable in places like
+    /// `ManuallyDrop::new(self)` callable in places like
     /// `Segment::split` / `Segment::into_raw` where the segment is
     /// "temporarily forgotten" without an actual ledger event.
     type State = MetaRegionOwners;
@@ -43,60 +43,38 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     /// discipline: a token forged for one segment can't masquerade as
     /// belonging to another (the `consume_requires`/`drop_requires`
     /// checks would refuse the mismatched key).
-    type Key = Range<Paddr>;
+    type Obligation = DropObligation<Range<Paddr>>;
 
-    open spec fn key(self) -> Self::Key {
-        self.range
-    }
-
-    open spec fn constructor_requires(self, s: Self::State) -> bool {
+    open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         true
     }
 
-    open spec fn constructor_ensures(
+    open spec fn tracked_redeem_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
+        obl: Self::Obligation,
     ) -> bool {
         &&& s0 =~= s1
-        &&& obl_key == self.range
+        &&& obl.value() == self.range
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
-        Self::Key,
-    >) {
+    proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
         DropObligation::tracked_mint(self.range)
     }
 
-    open spec fn drop_requires(self, s: Self::State) -> bool {
-        s.inv()
+    open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
+        &&& s.inv()
+        &&& obl.value() == self.range
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
-        true
-    }
-
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
-        true
-    }
-
-    open spec fn consume_ensures(
+    open spec fn drop_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
+        obl: Self::Obligation,
     ) -> bool {
-        s0 =~= s1
-    }
-
-    proof fn consume_obligation(
-        self,
-        tracked s: &mut Self::State,
-        tracked obl: DropObligation<Self::Key>,
-    ) {
-        // No-op: the token is ledger-less identity. Segment drop accounting is
-        // handled by `Segment::drop` against `frame_obligations` directly.
+        true
     }
 }
 
