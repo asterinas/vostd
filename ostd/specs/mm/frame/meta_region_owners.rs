@@ -23,7 +23,10 @@ use crate::mm::{
     Paddr,
     frame::{
         Link,
-        meta::{AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, mapping::frame_to_meta},
+        meta::{
+            AnyFrameMeta, META_SLOT_SIZE, MetaSlot, REF_COUNT_MAX, REF_COUNT_UNIQUE,
+            REF_COUNT_UNUSED, mapping::frame_to_meta,
+        },
     },
     kspace::FRAME_METADATA_RANGE,
 };
@@ -65,11 +68,20 @@ impl Inv for MetaRegionOwners {
         &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
+                    let slot = self.slots[i].resource();
+                    let ref_count = self.slot_owners[i].inner_perms.ref_count.value();
                     &&& self.slot_owners[i].inv()
-                    &&& self.slots[i].is_init()
-                    &&& self.slots[i].addr() == meta_addr(i)
-                    &&& self.slots[i].value().wf(self.slot_owners[i])
-                    &&& self.slot_owners[i].slot_vaddr == self.slots[i].addr()
+                    &&& self.slots[i].wf()
+                    &&& self.slots[i].not_empty()
+                    &&& slot.is_init()
+                    &&& slot.addr() == meta_addr(i)
+                    &&& slot.value().wf(self.slot_owners[i])
+                    &&& self.slot_owners[i].slot_vaddr == slot.addr()
+                    &&& ref_count <= REF_COUNT_MAX ==> pool.frac() + ref_count as int
+                        == FRAME_PERMISSION_TOTAL as int
+                    &&& ref_count == REF_COUNT_UNIQUE ==> pool.frac() + 1
+                        == FRAME_PERMISSION_TOTAL as int
+                    &&& ref_count == REF_COUNT_UNUSED ==> pool.is_full()
                 }
         }
     }
@@ -126,11 +138,11 @@ impl MetaRegionOwners {
             self.slots.contains_key(i),
             self.slot_owners.contains_key(i),
             vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<M>>::new_spec(
-                self.slots[i],
+                self.slots[i].resource(),
                 self.slot_owners[i].inner_perms,
             ).wf(&self.slot_owners[i].inner_perms),
         ensures
-            res.points_to == self.slots[i],
+            res.points_to == self.slots[i].resource(),
             res.inner_perms == self.slot_owners[i].inner_perms,
             res.wf(&res.inner_perms),
     ;
@@ -150,16 +162,17 @@ impl MetaRegionOwners {
             old(self).slots.contains_key(i),
             old(self).slot_owners.contains_key(i),
             vstd_extra::cast_ptr::PointsTo::<MetaSlot, Metadata<M>>::new_spec(
-                old(self).slots[i],
+                old(self).slots[i].resource(),
                 old(self).slot_owners[i].inner_perms,
             ).wf(&old(self).slot_owners[i].inner_perms),
         ensures
-            res.points_to == old(self).slots[i],
+            res.points_to == old(self).slots[i].resource(),
             res.inner_perms == old(self).slot_owners[i].inner_perms,
             res.wf(&res.inner_perms),
             final(self).slots.dom() == old(self).slots.dom(),
             final(self).slot_owners.dom() == old(self).slot_owners.dom(),
-            final(self).slots[i] == final(res).points_to,
+            final(self).slots[i] == old(self).slots[i],
+            final(res).points_to == old(self).slots[i].resource(),
             final(self).slot_owners[i].inner_perms == final(res).inner_perms,
             forall|k: usize| k != i ==> #[trigger] final(self).slots[k] == old(self).slots[k],
             forall|k: usize|

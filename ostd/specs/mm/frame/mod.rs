@@ -13,6 +13,8 @@ pub mod meta_specs;
 pub mod segment;
 pub mod unique;
 
-pub type FramePermission = Count<simple_pptr::PointsTo<MetaSlot>, REF_COUNT_MAX>;
+pub const FRAME_PERMISSION_TOTAL: u64 = REF_COUNT_MAX + 1;
+
+pub type FramePermission = Count<simple_pptr::PointsTo<MetaSlot>, FRAME_PERMISSION_TOTAL>;
 pub type FramePermissionResource =
-    CountResource<simple_pptr::PointsTo<MetaSlot>, REF_COUNT_MAX>;
+    CountResource<simple_pptr::PointsTo<MetaSlot>, FRAME_PERMISSION_TOTAL>;

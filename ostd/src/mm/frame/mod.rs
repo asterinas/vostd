@@ -122,6 +122,7 @@ fn acquire_fence() {
 /// frame is a untyped frame. Otherwise, it is a typed frame.
 /// # Verification Design
 #[repr(transparent)]
+#[allow(repr_transparent_non_zst_fields)]
 pub struct Frame<M: ?Sized> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,
