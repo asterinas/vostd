@@ -509,7 +509,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         #[verus_spec(with Tracked(perm))]
         let paddr = self.start_paddr();
 
-        let _ = ManuallyDrop::new(self, Tracked(regions));
+        proof_decl! {
+            let tracked redeem_obl = DropObligation::tracked_mint(self.index());
+            regions.tracked_redeem_frame_obligation(redeem_obl);
+            let tracked md_obl = DropObligation::tracked_mint(self.index());
+        }
+        proof_with!(Tracked(md_obl));
+        let _ = ManuallyDrop::new(self);
 
         paddr
     }
@@ -671,13 +677,8 @@ impl<M: ?Sized> Drop for Frame<M> {
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(obl): Tracked<DropObligation<usize>>,
     ) {
-        // Single redeem path: route through `consume_obligation` before
-        // running the destructor body. For Frame's current
-        // ledger-less `Key = usize`, this is a no-op on state; for
-        // future ledger-enforcing variants, this is where the ledger
-        // entry is removed.
         proof {
-            self.consume_obligation(regions, obl);
+            regions.tracked_redeem_frame_obligation(obl);
         }
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let ghost old_regions = *regions;

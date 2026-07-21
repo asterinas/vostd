@@ -435,9 +435,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         #[verus_spec(with Tracked(owner), Tracked(&*regions))]
         let paddr = self.start_paddr();
 
-        // `ManuallyDrop::new` consumes `self`'s pending-Drop obligation; the
-        // caller's `count > 0` precondition guarantees it is outstanding.
-        let _ = ManuallyDrop::new(self, Tracked(regions));
+        proof_decl! {
+            let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+            let tracked redeem_obl = DropObligation::tracked_mint(idx);
+            regions.tracked_redeem_frame_obligation(redeem_obl);
+            let tracked md_obl = DropObligation::tracked_mint(idx);
+        }
+        proof_with!(Tracked(md_obl));
+        let _ = ManuallyDrop::new(self);
 
         paddr
     }

@@ -852,18 +852,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
-        obl_key: usize,
     )
         requires
             self.inv(),
             self.only_current_locked(guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
-                guard,
-                guards0,
-                guards1,
-                obl_key,
-            ),
+            guards0.lock_held(guard.inner.inner@.ptr.addr()),
+            guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
             guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_addr_self(),
@@ -885,18 +879,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
-        obl_key: usize,
     )
         requires
             self.inv(),
             self.nodes_locked(guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
-                guard,
-                guards0,
-                guards1,
-                obl_key,
-            ),
+            guards0.lock_held(guard.inner.inner@.ptr.addr()),
+            guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
             forall|i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS

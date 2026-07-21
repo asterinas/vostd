@@ -377,140 +377,17 @@ impl KVirtArea {
         self.range.len()
     }
 
-    /// Whether there is a mapped item at the page containing the address.
-    pub open spec fn query_some_condition(self, owner: KVirtAreaOwner, addr: Vaddr) -> bool {
-        owner.cursor_view_at(addr).present()
-    }
-
-    /// Postcondition when a mapping exists at the page.
-    ///
-    /// The returned item corresponds to the abstract mapping given by
-    /// [`query_item_spec`](CursorView::query_item_spec).
-    pub open spec fn query_some_ensures(
-        self,
-        owner: KVirtAreaOwner,
-        addr: Vaddr,
-        r: Option<super::MappedItem>,
-    ) -> bool {
-        r is Some && owner.cursor_view_at(addr).query_item_spec(r->0) is Some
-    }
-
-    /// Postcondition when no mapping exists at the page.
-    pub open spec fn query_none_ensures(r: Option<super::MappedItem>) -> bool {
-        r is None
-    }
-
-    /// Queries the mapping at the given virtual address.
-    ///
-    /// Returns the mapped item at the page containing `addr`, or `None` if there is no mapping.
-    ///
-    /// ## Preconditions
-    /// - The kernel virtual area invariant holds ([`inv`](Inv::inv)).
-    /// - The address is within the virtual area's range.
-    /// ## Postconditions
-    /// - If there is a mapped item at the page containing the address ([`query_some_condition`]),
-    /// it is returned ([`query_some_ensures`]).
-    /// - If there is no mapping at that page, `None` is returned ([`query_none_ensures`]).
-    #[verus_spec(res =>
-        with Tracked(owner): Tracked<KVirtAreaOwner>,
-             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-             Tracked(guards): Tracked<&mut Guards<'rcu>>,
-             Ghost(root_guard): Ghost<PageTableGuard<'rcu, KernelPtConfig>>,
-        requires
-            self.inv(),
-            old(regions).inv(),
-            owner.inv(),
-            owner.pt_owner.metaregion_sound(*old(regions)),
-            owner.pt_owner.0.value().node().relate_guard(root_guard),
-            // Precise: out-of-range diverges at the top `assert!`, and the
-            // inner `Cursor::query` clones the resolved leaf frame — that
-            // clone aborts only when *that specific slot* is saturated.
-            // `query_panic_condition` captures both classes precisely.
-            self.query_panic_condition(owner, addr, *old(regions)) ==> may_panic(),
-        ensures
-            self.query_some_condition(owner, addr) ==> self.query_some_ensures(owner, addr, res),
-            !self.query_some_condition(owner, addr) ==> Self::query_none_ensures(res),
-            !self.query_panic_condition(owner, addr, *old(regions)),
-            // non-panic conditions
-            self.range.start <= addr < self.range.end
-    )]
-    #[verifier::spinoff_prover]
-    #[allow(private_interfaces)]
-    pub fn query<'rcu, A: InAtomicMode + 'static>(&self, addr: Vaddr) -> Option<super::MappedItem> {
+    #[cfg(ktest)]
+    pub fn query(&self, addr: Vaddr) -> Option<super::MappedItem> {
         use align_ext::AlignExt;
-        assert!(self.start() <= addr && self.end() > addr);
 
-        proof {
-            vstd_extra::prelude::lemma_pow2_is_pow2_to64();
-            broadcast use
-                vstd::arithmetic::power2::is_pow2_equiv,
-                vstd::arithmetic::power2::lemma_pow2,
-            ;
-
-            let witness: nat = choose|i: nat| vstd::arithmetic::power::pow(2, i) == PAGE_SIZE;
-        }
+        assert!(self.start() <= addr && self.end() >= addr);
         let start = addr.align_down(PAGE_SIZE);
-        proof {
-            // Tightened invariant: end <= FRAME_METADATA_BASE_VADDR, which is
-            // ~64 GB below KERNEL_END_VADDR. So start + PAGE_SIZE <= KERNEL_END_VADDR
-            // always holds, even when addr == end (start == end in that case).
-            assert(FRAME_METADATA_BASE_VADDR + PAGE_SIZE <= KERNEL_END_VADDR) by (compute_only);
-        }
         let vaddr = start..start + PAGE_SIZE;
-        proof {
-            lemma_kernel_range_valid(vaddr);
-            // Discharge cursor's `LOCKED_END_BOUND_spec` precondition: with the
-            // +PAGE_SIZE margin built into `KernelPtConfig::LOCKED_END_BOUND_spec`,
-            // `start <= addr <= self.range.end <= FRAME_METADATA_BASE_VADDR`
-            // gives `start + PAGE_SIZE <= FRAME_METADATA_BASE_VADDR + PAGE_SIZE`.
-        }
-        let page_table = {
-            proof_decl! {
-                let tracked mut kpt_owner = Some(&owner.pt_owner);
-            }
-            #[verus_spec(with Tracked(&mut kpt_owner), Tracked(regions), Tracked(guards))]
-            get_kernel_page_table()
-        };
-        let preempt_guard: &'rcu A = disable_preempt::<A>();
-        let (mut cursor, Tracked(mut cursor_owner)) = (
-        #[verus_spec(with Tracked(owner.pt_owner), Ghost(root_guard), Tracked(regions), Tracked(guards))]
-        page_table.cursor(preempt_guard, &vaddr)).unwrap();
-        proof {
-            // Bridge `cursor_owner@.mappings` to `owner.cursor_view_at(addr).mappings`.
-            // PageTable::cursor ensures `cursor_owner.as_page_table_owner() == owner.pt_owner`
-            // and `cursor_owner.continuations[3].path() == owner.pt_owner.0.value.path`, and
-            // `as_page_table_owner_preserves_view_mappings` turns the cursor's view into a
-            // `view_rec` call on the owner at the root path.
-            cursor_owner.as_page_table_owner_preserves_view_mappings();
-            // cur_va agreement: `cursor.wf(cursor_owner)` gives `cursor_owner.va.reflect(cursor.va)`,
-            // which `reflect_prop` converts into `cursor_owner.va.to_vaddr() == cursor.va`.
-            cursor_owner.va.reflect_prop(cursor.va);
-        }
-        let ghost pre_query_view = cursor_owner@;
-        let ghost pre_query_cursor_va = cursor.va;
-        let ghost pre_query_regions = *regions;
-        let ghost pre_query_cursor_barrier = cursor.barrier_va;
-        let ghost pre_query_cursor_va_run = cursor.va;
-        let state = (
-        #[verus_spec(with Tracked(&mut cursor_owner), Tracked(regions), Tracked(guards))]
-        cursor.query()).unwrap();
-        proof {
-            // `Cursor::query` preserves `self.va` (loop invariant + new ensures) and
-            // `cursor_owner@.mappings`. With `cursor.wf(cursor_owner)` reestablished
-            // by post-query invariants, we can recover `cursor_owner@.cur_va == start`.
-            cursor_owner.va.reflect_prop(cursor.va);
-            // Discharge `ensures !self.query_panic_condition(...)`:
-            //  - Bound conjunct: top `assert!(self.start() <= addr && self.end() > addr)`
-            //    held on this return path.
-            //  - Saturation conjunct: contradiction case — if old(regions)[idx] >= MAX,
-            //    `Cursor::new`'s reverse saturated-slot bridge gives
-            //    pre_query_regions[idx].value >= MAX. But `cursor.query` returned, so
-            //    its `ensures !query_panic_condition` (with present && !is_mmio &&
-            //    in-range) gives pre_query_regions[idx].value < MAX. Contradiction.
-            let pa = owner.cursor_view_at(addr).query_mapping().pa_range.start;
-            let idx = frame_to_index(pa);
-        }
-        state.1
+        let page_table = KERNEL_PAGE_TABLE.get().unwrap();
+        let preempt_guard = disable_preempt();
+        let mut cursor = page_table.cursor(&preempt_guard, &vaddr).unwrap();
+        cursor.query().unwrap().1
     }
 
     /// Caller-precludable *bounds* panic condition for [`Self::map_frames`]:

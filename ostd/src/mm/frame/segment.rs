@@ -395,7 +395,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 },
             };
 
-            let _ = ManuallyDrop::new(frame, Tracked(regions));
+            proof_decl! {
+                let tracked redeem_obl = DropObligation::tracked_mint(frame.index());
+                regions.tracked_redeem_frame_obligation(redeem_obl);
+                let tracked md_obl = DropObligation::tracked_mint(frame.index());
+            }
+            proof_with!(Tracked(md_obl));
+            let _ = ManuallyDrop::new(frame);
             segment.range.end = paddr + PAGE_SIZE;
             proof {
                 broadcast use group_page_meta;
@@ -593,7 +599,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
         let ghost old_regions = *regions;
 
-        let old = ManuallyDrop::new(self, Tracked(regions));
+        proof_decl! {
+            let tracked md_obl = DropObligation::tracked_mint(self.range);
+        }
+        proof_with!(Tracked(md_obl));
+        let old = ManuallyDrop::new(self);
         let at = old.range.start + offset;
 
         let ghost old_start = old@.start_paddr();
@@ -824,7 +834,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     )]
     pub(crate) fn into_raw(self) -> Range<Paddr> {
         let range = self.range.clone();
-        let _ = ManuallyDrop::new(self, Tracked(regions));
+        proof_decl! {
+            let tracked md_obl = DropObligation::tracked_mint(self.range);
+        }
+        proof_with!(Tracked(md_obl));
+        let _ = ManuallyDrop::new(self);
 
         range
     }
