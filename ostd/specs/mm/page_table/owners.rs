@@ -1238,12 +1238,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 1,
             )) as usize);
             let s = 0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2;
+            assert(rec_vaddr(path, 0) == s);
 
             assert(s % 0x20_0000 == 0) by (nonlinear_arith)
                 requires
                     s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1 + 0x20_0000 * i2,
             ;
         } else {
+            assert(path.len() == 4);
             let i0 = path[0];
             let i1 = path[1];
             let i2 = path[2];
@@ -1256,6 +1258,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2 as usize) + rec_vaddr(
                 path,
                 3,
+            )) as usize);
+            assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1 as usize) + rec_vaddr(
+                path,
+                2,
             )) as usize);
             assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0 as usize) + rec_vaddr(
                 path,
