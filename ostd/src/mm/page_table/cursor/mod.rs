@@ -1408,7 +1408,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         assert(cur_entry.idx == cont0.idx);
                         let ghost reconstructed_entry_own = EntryOwner {
-                            kind: EntryOwnerKind::Node(continuation.entry_own.node()),
+                            kind: EntryOwnerKind::Node(
+                                continuation.entry_own.node(),
+                                continuation.entry_own.node_permission(),
+                            ),
                             ..cont0.entry_own
                         };
                         CursorContinuation::<'rcu, C>::rel_children_from_node_matching(
@@ -1850,7 +1853,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             assert(child_cont.inv());
             assert(taken == owner.continuations[owner.level - 1].guard);
             assert(guards.lock_held(
-                owner.continuations[owner.level - 1].guard.inner.inner@.ptr.addr(),
+                owner.continuations[owner.level - 1].guard.inner.frame().ptr.addr(),
             ));
             owner.pop_level_owner_preserves_invs(*guards, *regions);
         }
@@ -1885,11 +1888,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             // matched `taken.key()` (the locked node's address).
             owner.never_drop_restores_children_not_locked(guard, guards0, *guards);
             let ghost pre_pop = *old(owner);
-            let ghost dropped_addr = guard.inner.inner@.ptr.addr();
+            let ghost dropped_addr = guard.inner.frame().ptr.addr();
             assert forall|i: int|
                 #![trigger owner.continuations[i]]
                 owner.level - 1 <= i
-                    < NR_LEVELS implies owner.continuations[i].guard.inner.inner@.ptr.addr()
+                    < NR_LEVELS implies owner.continuations[i].guard.inner.frame().ptr.addr()
                 != dropped_addr by {};
             owner.never_drop_restores_nodes_locked(guard, guards0, *guards);
         }
@@ -1934,7 +1937,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).metaregion_sound(*regions),
             !old(owner).popped_too_high,
             old(owner).in_locked_range(),
-            guards.lock_held(child_pt.inner.inner@.ptr.addr()),
+            guards.lock_held(child_pt.inner.frame().ptr.addr()),
         ensures
             final(owner).inv(),
             final(owner).children_not_locked(*guards),
@@ -2747,7 +2750,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 && child_owner_children[i].unwrap().value().is_absent());
 
                         let ghost reconstructed_entry_own = EntryOwner {
-                            kind: EntryOwnerKind::Node(parent_owner),
+                            kind: EntryOwnerKind::Node(
+                                parent_owner,
+                                cont_pre_alloc.entry_own.node_permission(),
+                            ),
                             ..cont_pre_alloc.entry_own
                         };
                         assert(child_owner.value().match_pte(
@@ -4435,7 +4441,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             < owner.guard_level implies #[trigger] owner.continuations[i].node_locked(
                     *guards) by {
                         let cont = owner.continuations[i];
-                        let cont_addr = cont.guard.inner.inner@.ptr.addr();
+                        let cont_addr = cont.guard.inner.frame().ptr.addr();
                         assert(owner.continuations[i].guard
                             == owner_before_dfs.continuations[i].guard);
                         assert(owner_before_dfs.nodes_locked(guards1));

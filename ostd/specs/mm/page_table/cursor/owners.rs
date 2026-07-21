@@ -345,7 +345,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     pub open spec fn node_locked(self, guards: Guards<'rcu>) -> bool {
-        guards.lock_held(self.guard.inner.inner@.ptr.addr())
+        guards.lock_held(self.guard.inner.frame().ptr.addr())
     }
 
     pub open spec fn view_mappings(self) -> Set<Mapping> {
@@ -717,8 +717,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[2].level() == 3
             &&& self.continuations[2].entry_own.parent_level == 4
             &&& self.in_locked_range() ==> self.va.index[2] == self.continuations[2].idx
-            &&& self.continuations[2].guard.inner.inner@.ptr.addr()
-                != self.continuations[3].guard.inner.inner@.ptr.addr()
+            &&& self.continuations[2].guard.inner.frame().ptr.addr()
+                != self.continuations[3].guard.inner.frame().ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[2].path() == self.continuations[3].path().push_tail(
                 self.continuations[3].idx as int,
@@ -739,10 +739,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[1].level() == 2
             &&& self.continuations[1].entry_own.parent_level == 3
             &&& self.in_locked_range() ==> self.va.index[1] == self.continuations[1].idx
-            &&& self.continuations[1].guard.inner.inner@.ptr.addr()
-                != self.continuations[2].guard.inner.inner@.ptr.addr()
-            &&& self.continuations[1].guard.inner.inner@.ptr.addr()
-                != self.continuations[3].guard.inner.inner@.ptr.addr()
+            &&& self.continuations[1].guard.inner.frame().ptr.addr()
+                != self.continuations[2].guard.inner.frame().ptr.addr()
+            &&& self.continuations[1].guard.inner.frame().ptr.addr()
+                != self.continuations[3].guard.inner.frame().ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[1].path() == self.continuations[2].path().push_tail(
                 self.continuations[2].idx as int,
@@ -763,12 +763,12 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[0].level() == 1
             &&& self.continuations[0].entry_own.parent_level == 2
             &&& self.in_locked_range() ==> self.va.index[0] == self.continuations[0].idx
-            &&& self.continuations[0].guard.inner.inner@.ptr.addr()
-                != self.continuations[1].guard.inner.inner@.ptr.addr()
-            &&& self.continuations[0].guard.inner.inner@.ptr.addr()
-                != self.continuations[2].guard.inner.inner@.ptr.addr()
-            &&& self.continuations[0].guard.inner.inner@.ptr.addr()
-                != self.continuations[3].guard.inner.inner@.ptr.addr()
+            &&& self.continuations[0].guard.inner.frame().ptr.addr()
+                != self.continuations[1].guard.inner.frame().ptr.addr()
+            &&& self.continuations[0].guard.inner.frame().ptr.addr()
+                != self.continuations[2].guard.inner.frame().ptr.addr()
+            &&& self.continuations[0].guard.inner.frame().ptr.addr()
+                != self.continuations[3].guard.inner.frame().ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[0].path() == self.continuations[1].path().push_tail(
                 self.continuations[1].idx as int,
@@ -842,11 +842,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.only_current_locked(guards0),
-            guards0.lock_held(guard.inner.inner@.ptr.addr()),
-            guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
+            guards0.lock_held(guard.inner.frame().ptr.addr()),
+            guards1.guards == guards0.guards.remove(guard.inner.frame().ptr.addr()),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
-            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_addr_self(),
+            guard.inner.frame().ptr.addr() == self.cur_entry_owner().node().meta_addr_self(),
         ensures
             self.children_not_locked(guards1),
     {
@@ -869,13 +869,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.nodes_locked(guards0),
-            guards0.lock_held(guard.inner.inner@.ptr.addr()),
-            guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
+            guards0.lock_held(guard.inner.frame().ptr.addr()),
+            guards1.guards == guards0.guards.remove(guard.inner.frame().ptr.addr()),
             forall|i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS
-                    ==> self.continuations[i].guard.inner.inner@.ptr.addr()
-                    != guard.inner.inner@.ptr.addr(),
+                    ==> self.continuations[i].guard.inner.frame().ptr.addr()
+                    != guard.inner.frame().ptr.addr(),
         ensures
             self.nodes_locked(guards1),
     {

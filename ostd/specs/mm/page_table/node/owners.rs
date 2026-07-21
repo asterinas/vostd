@@ -264,7 +264,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
         regions: MetaRegionOwners,
     ) -> vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>> {
         vstd_extra::cast_ptr::PointsTo::new_spec(
-            regions.slots[self.slot_index],
+            regions.slots[self.slot_index].resource(),
             regions.slot_owners[self.slot_index].inner_perms,
         )
     }
@@ -341,8 +341,8 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.meta_addr_self()
-        &&& guard.inner.inner@.wf(self)
+        &&& guard.inner.frame().ptr.addr() == self.meta_addr_self()
+        &&& guard.inner.frame().wf(self)
     }
 }
 

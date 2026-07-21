@@ -657,7 +657,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         with Tracked(owner): Tracked<&NodeOwner<C>>,
             Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
-            self.inner@.invariants(*owner),
+            self.frame().invariants(*owner),
             old(guards).unlocked(owner.meta_addr_self()),
         ensures
             final(guards).lock_held(owner.meta_addr_self()),
@@ -682,7 +682,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         with Tracked(owner): Tracked<&NodeOwner<C>>,
              Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
-            self.inner@.invariants(*owner),
+            self.frame().invariants(*owner),
             old(guards).unlocked(owner.meta_addr_self()),
         ensures
             final(guards).lock_held(owner.meta_addr_self()),
@@ -758,7 +758,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with Tracked(owner) : Tracked<&NodeOwner<C>>,
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
-            self.inner.inner@.invariants(*owner),
+            self.inner.frame().invariants(*owner),
             regions.inv(),
             owner.metaregion_sound_node(*regions),
         returns
@@ -779,8 +779,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with
             Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>,
         requires
-            old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
-            old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
+            old(self).inner.frame().ptr.addr() == meta_perm.addr(),
+            old(self).inner.frame().ptr.addr() == meta_perm.points_to.addr(),
             meta_perm.is_init(),
             meta_perm.wf(&meta_perm.inner_perms),
         ensures
@@ -807,7 +807,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with Tracked(owner): Tracked<&NodeOwner<C>>,
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
-            self.inner.inner@.invariants(*owner),
+            self.inner.frame().invariants(*owner),
             regions.inv(),
             regions.slots.contains_key(owner.slot_index),
             idx < NR_ENTRIES,
@@ -849,7 +849,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with Tracked(owner): Tracked<&mut NodeOwner<C>>,
              Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
-            old(self).inner.inner@.invariants(*old(owner)),
+            old(self).inner.frame().invariants(*old(owner)),
             regions.inv(),
             regions.slots.contains_key(old(owner).slot_index),
             idx < NR_ENTRIES,
@@ -889,8 +889,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with
             Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>,
         requires
-            old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
-            old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
+            old(self).inner.frame().ptr.addr() == meta_perm.addr(),
+            old(self).inner.frame().ptr.addr() == meta_perm.points_to.addr(),
             meta_perm.is_init(),
             meta_perm.wf(&meta_perm.inner_perms),
         ensures

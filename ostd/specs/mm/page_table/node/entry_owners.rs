@@ -9,6 +9,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
+            FramePermission,
             mapping::{frame_to_index, meta_addr},
             meta_owners::PageUsage,
             meta_region_owners::MetaRegionOwners,
@@ -40,7 +41,7 @@ pub ghost struct FrameEntryState {
 }
 
 pub tracked enum EntryOwnerKind<C: PageTableConfig> {
-    Node(NodeOwner<C>),
+    Node(NodeOwner<C>, Option<FramePermission>),
     Frame(ghost FrameEntryState),
     /// Translation-only / borrowed-sub-tree variant.
     ///
@@ -86,6 +87,15 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.kind->Node_0
     }
 
+    /// Permission owned by the raw node-PTE representation. It is `None`
+    /// while the node is materialized as an owning `Frame` value.
+    pub open spec fn node_permission(self) -> Option<FramePermission>
+        recommends
+            self.is_node(),
+    {
+        self.kind->Node_1
+    }
+
     pub open spec fn frame(self) -> FrameEntryState {
         self.kind->Frame_0
     }
@@ -122,7 +132,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> Self {
         EntryOwner {
-            kind: EntryOwnerKind::Node(node),
+            kind: EntryOwnerKind::Node(node, None),
             path,
             parent_level: (node.level + 1) as PagingLevel,
         }
@@ -135,7 +145,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
         parent_level: PagingLevel,
         mappings: Set<Mapping>,
     ) -> Self {
-        EntryOwner { kind: EntryOwnerKind::Borrowed(mappings), path, parent_level }
+        EntryOwner {
+            kind: EntryOwnerKind::Borrowed(mappings),
+            path,
+            parent_level,
+        }
     }
 
     pub proof fn tracked_new_borrowed(
@@ -162,6 +176,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub proof fn tracked_take_node(tracked &mut self) -> (tracked res: NodeOwner<C>)
         requires
             old(self).kind is Node,
+            old(self).node_permission() is None,
         ensures
             res == old(self).node(),
             *final(self) == (EntryOwner { kind: EntryOwnerKind::Absent, ..*old(self) }),
@@ -169,16 +184,16 @@ impl<C: PageTableConfig> EntryOwner<C> {
         let tracked mut tmp = EntryOwnerKind::Absent;
         tracked_swap(&mut self.kind, &mut tmp);
         match tmp {
-            EntryOwnerKind::Node(node) => node,
+            EntryOwnerKind::Node(node, None) => node,
             _ => { proof_from_false() },
         }
     }
 
     pub proof fn tracked_put_node(tracked &mut self, tracked node: NodeOwner<C>)
         ensures
-            *final(self) == (EntryOwner { kind: EntryOwnerKind::Node(node), ..*old(self) }),
+            *final(self) == (EntryOwner { kind: EntryOwnerKind::Node(node, None), ..*old(self) }),
     {
-        self.kind = EntryOwnerKind::Node(node);
+        self.kind = EntryOwnerKind::Node(node, None);
     }
 
     pub proof fn tracked_borrow_node(tracked &self) -> (tracked res: &NodeOwner<C>)
@@ -188,7 +203,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             *res == self.node(),
     {
         match self.kind {
-            EntryOwnerKind::Node(ref node) => node,
+            EntryOwnerKind::Node(ref node, _) => node,
             _ => { proof_from_false() },
         }
     }
@@ -198,11 +213,71 @@ impl<C: PageTableConfig> EntryOwner<C> {
             old(self).kind is Node,
         ensures
             *res == old(self).node(),
-            *final(self) == (EntryOwner { kind: EntryOwnerKind::Node(*final(res)), ..*old(self) }),
+            *final(self) == (EntryOwner {
+                kind: EntryOwnerKind::Node(*final(res), old(self).node_permission()),
+                ..*old(self)
+            }),
     {
         match self.kind {
-            EntryOwnerKind::Node(ref mut node) => node,
+            EntryOwnerKind::Node(ref mut node, _) => node,
             _ => { proof_from_false() },
+        }
+    }
+
+    #[verifier::inline]
+    pub open spec fn has_permission(self) -> bool {
+        self.is_node() && self.node_permission() is Some
+    }
+
+    pub proof fn tracked_take_permission(tracked &mut self) -> (tracked res: FramePermission)
+        requires
+            old(self).is_node(),
+            old(self).node_permission() is Some,
+        ensures
+            res == old(self).node_permission()->0,
+            *final(self) == (EntryOwner {
+                kind: EntryOwnerKind::Node(old(self).node(), None),
+                ..*old(self)
+            }),
+    {
+        match self.kind {
+            EntryOwnerKind::Node(_, ref mut permission) => {
+                let tracked mut tmp = None;
+                tracked_swap(permission, &mut tmp);
+                tmp.tracked_unwrap()
+            },
+            _ => proof_from_false(),
+        }
+    }
+
+    pub proof fn tracked_put_permission(tracked &mut self, tracked permission: FramePermission)
+        requires
+            old(self).is_node(),
+            old(self).node_permission() is None,
+        ensures
+            *final(self) == (EntryOwner {
+                kind: EntryOwnerKind::Node(old(self).node(), Some(permission)),
+                ..*old(self)
+            }),
+    {
+        match self.kind {
+            EntryOwnerKind::Node(_, ref mut node_permission) => {
+                *node_permission = Some(permission);
+            },
+            _ => proof_from_false(),
+        }
+    }
+
+    pub proof fn tracked_borrow_permission(tracked &self) -> (tracked res: &FramePermission)
+        requires
+            self.is_node(),
+            self.node_permission() is Some,
+        ensures
+            *res == self.node_permission()->0,
+    {
+        match self.kind {
+            EntryOwnerKind::Node(_, Some(ref permission)) => permission,
+            _ => proof_from_false(),
         }
     }
 
@@ -258,7 +333,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         Self {
             parent_level: (node.level + 1) as PagingLevel,
-            kind: EntryOwnerKind::Node(node),
+            kind: EntryOwnerKind::Node(node, None),
             path,
         }
     }
@@ -504,15 +579,15 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
             &&& regions.slot_owners[idx].slot_vaddr == self.node().meta_addr_self()
-            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
+            &&& regions.slots[idx].resource().value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node().metaregion_sound_node(regions)
         } else if self.is_frame() {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slots.contains_key(idx)
-            &&& regions.slots[idx].addr() == meta_addr(idx)
-            &&& regions.slots[idx].is_init()
-            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
+            &&& regions.slots[idx].resource().addr() == meta_addr(idx)
+            &&& regions.slots[idx].resource().is_init()
+            &&& regions.slots[idx].resource().value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].usage
                 != PageUsage::PageTable
             // Tracked vs MMIO discriminator is the slot's `usage`. MMIO slots

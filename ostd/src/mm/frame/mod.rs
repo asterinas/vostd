@@ -492,7 +492,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         requires
             self.wf_with_region(*old(regions)),
             old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-            old(regions).slot_owners[self.index()].usage !is PageTable,
         ensures
             *final(regions) == *old(regions),
             r == self.paddr(),

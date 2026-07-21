@@ -44,6 +44,11 @@ impl<'a, M: AnyFrameMeta + ?Sized> FrameRef<'a, M> {
     pub open spec fn frame(self) -> Frame<M> {
         self.inner@
     }
+
+    /// The owning permission borrowed by this non-owning reference.
+    pub open spec fn permission(self) -> &'a FramePermission {
+        self.tracked_perm@
+    }
 }
 
 #[verus_verify]
