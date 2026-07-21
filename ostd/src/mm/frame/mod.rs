@@ -85,6 +85,7 @@ use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::{
+    FramePermission,
     frame_specs::*,
     mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
 };
@@ -124,6 +125,9 @@ fn acquire_fence() {
 pub struct Frame<M: ?Sized> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,
+    /// The permission to access the raw pointer
+    #[cfg(verus_keep_ghost_body)]
+    pub tracked_perm: Tracked<FramePermission>,
 }
 
 #[verifier::external]
