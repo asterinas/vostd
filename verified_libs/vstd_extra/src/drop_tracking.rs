@@ -73,7 +73,7 @@ pub trait Drop: TrackDrop {
 } // verus!
 #[verus_verify]
 pub struct ManuallyDrop<T: TrackDrop> {
-    value: T,
+    value: core::mem::ManuallyDrop<T>,
     #[cfg(verus_keep_ghost_body)]
     tracked_obligation: Tracked<T::Obligation>,
 }
@@ -89,22 +89,22 @@ impl<T: TrackDrop> ManuallyDrop<T> {
     )]
     pub fn new(t: T) -> Self {
         proof_with! { tracked_obligation: Tracked(obligation) }
-        Self { value: t }
+        Self { value: core::mem::ManuallyDrop::new(t) }
     }
 
     #[verus_spec(res =>
         with
             -> obligation: Tracked<T::Obligation>,
         ensures
-            res == self@,
-            obligation@ == self.obligation(),
+            res == slot@,
+            obligation@ == slot.obligation(),
     )]
-    pub fn into_inner(self) -> T {
+    pub fn into_inner(slot: Self) -> T {
         proof_decl! {
-            let tracked obligation = self.tracked_obligation.get();
+            let tracked obligation = slot.tracked_obligation.get();
         }
         proof_with!(|= Tracked(obligation));
-        self.value
+        std::mem::ManuallyDrop::<T>::into_inner(slot.value)
     }
 }
 
@@ -127,7 +127,7 @@ impl<T: TrackDrop> View for ManuallyDrop<T> {
     type V = T;
 
     closed spec fn view(&self) -> (res: Self::V) {
-        self.value
+        self.value@
     }
 }
 
