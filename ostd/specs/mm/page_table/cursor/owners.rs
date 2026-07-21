@@ -132,19 +132,33 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         (child, cont)
     }
 
-    pub axiom fn tracked_make_cont(
+    pub proof fn tracked_make_cont(
         tracked &mut self,
         idx: usize,
         guard: PageTableGuard<'rcu, C>,
     ) -> (tracked res: Self)
         requires
             old(self).all_some(),
+            old(self).children.len() == NR_ENTRIES,
             old(self).idx < NR_ENTRIES,
             idx < NR_ENTRIES,
         ensures
             res == old(self).make_cont(idx, guard).0,
             *final(self) == old(self).make_cont(idx, guard).1,
-    ;
+    {
+        lemma_update_is_remove_insert(self.children, old(self).idx as int, None);
+        let tracked child = self.children.tracked_remove(old(self).idx as int).tracked_unwrap();
+        self.children.tracked_insert(old(self).idx as int, None);
+        let tracked (entry_own, children) = child.tracked_into_parts();
+        Self {
+            entry_own,
+            tree_level: (old(self).tree_level + 1) as nat,
+            idx,
+            children,
+            path: old(self).path.push_tail(old(self).idx as int),
+            guard,
+        }
+    }
 
     pub open spec fn restore(self, child: Self) -> (Self, PageTableGuard<'rcu, C>) {
         let child_node = OwnerSubtree::new(child.entry_own, child.tree_level, child.children);
@@ -2253,14 +2267,34 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub axiom fn tracked_new(
+    pub proof fn tracked_new(
         tracked owner_subtree: OwnerSubtree<C>,
         idx: usize,
         guard: PageTableGuard<'rcu, C>,
-    ) -> (tracked res: Self)
-        ensures
-            res == Self::new(owner_subtree, idx, guard),
-    ;
+    ) -> tracked Self
+        returns
+            Self::new(owner_subtree, idx, guard),
+    {
+        let ghost va = AbstractVaddr {
+            offset: 0,
+            index: Map::new(Set::<int>::range(0, NR_LEVELS as int), |i: int| 0).insert(
+                NR_LEVELS - 1,
+                idx as int,
+            ),
+            leading_bits: C::LEADING_BITS_spec() as int,
+        };
+        let tracked continuation = CursorContinuation::tracked_new(owner_subtree, idx, guard);
+        let tracked mut continuations = Map::tracked_empty();
+        continuations.tracked_insert(NR_LEVELS - 1, continuation);
+        Self {
+            level: NR_LEVELS as PagingLevel,
+            continuations,
+            va,
+            guard_level: NR_LEVELS as PagingLevel,
+            prefix: va,
+            popped_too_high: false,
+        }
+    }
 
     pub broadcast group group_lemmas {
         CursorOwner::lemma_view_mappings_contains,
