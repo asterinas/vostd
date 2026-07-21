@@ -8,9 +8,9 @@ use crate::mm::{Paddr, Vaddr, tlb::TlbFlushOp};
 
 verus! {
 
-pub ghost struct TlbModel {
-    pub pending: Seq<TlbFlushOp>,
-    pub mappings: Set<Mapping>,
+pub tracked struct TlbModel {
+    pub ghost pending: Seq<TlbFlushOp>,
+    pub ghost mappings: Set<Mapping>,
 }
 
 impl Inv for TlbModel {
@@ -37,27 +37,33 @@ impl TlbModel {
         TlbModel { pending: self.pending, mappings: self.mappings.insert(m) }
     }
 
-    pub axiom fn tracked_update(&mut self, pt: PageTableView, va: Vaddr)
+    pub proof fn tracked_update(tracked &mut self, pt: PageTableView, va: Vaddr)
         requires
             old(self).inv(),
             forall|m: Mapping|
                 old(self).mappings has m ==> !(m.va_range.start <= va < m.va_range.end),
-            exists|m: Mapping| pt.mappings has m ==> m.va_range.start <= va < m.va_range.end,
+            exists|m: Mapping| pt.mappings has m && m.va_range.start <= va < m.va_range.end,
         ensures
             *final(self) == old(self).update(pt, va),
-    ;
+    {
+        let m = pt.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).choose();
+        self.mappings = self.mappings.insert(m);
+    }
 
     pub open spec fn flush(self, va: Vaddr) -> Self {
         let m = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
         TlbModel { pending: self.pending, mappings: self.mappings - m }
     }
 
-    pub axiom fn tracked_flush(&mut self, va: Vaddr)
+    pub proof fn tracked_flush(tracked &mut self, va: Vaddr)
         requires
             old(self).inv(),
         ensures
             *final(self) == old(self).flush(va),
-    ;
+    {
+        let m = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
+        self.mappings = self.mappings - m;
+    }
 
     pub open spec fn consistent_with_pt(self, pt: PageTableView) -> bool {
         self.mappings <= pt.mappings
@@ -115,7 +121,7 @@ impl TlbModel {
             *final(self) == old(self).issue_tlb_flush(op),
             final(self).inv(),
     {
-        self.pending.tracked_push(op);
+        self.pending = self.pending.push(op);
     }
 
     pub open spec fn dispatch_tlb_flush_spec(self) -> Self {
