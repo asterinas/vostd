@@ -810,6 +810,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         };
 
         lemma_page_size_spec_values();
+        lemma_vaddr_strict_bound(path);
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         let pt = path.push_tail(i);
