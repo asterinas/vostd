@@ -11,6 +11,7 @@ use vstd_extra::{cast_ptr::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::frame::{
+        FramePermission,
         mapping::{frame_to_index, index_to_frame, lemma_paddr_to_meta_biinjective, meta_addr},
         meta_owners::MetadataInnerPerms,
         meta_region_owners::MetaRegionOwners,
@@ -79,7 +80,7 @@ impl MetaSlot {
         &&& perms.vtable_ptr.is_init()
     }
 
-    /// The `slot_owners`/`obligations` transition of claiming an unused slot.
+    /// The owner and permission-pool transition of claiming an unused slot.
     pub open spec fn get_from_unused_spec(
         paddr: Paddr,
         as_unique: bool,
@@ -100,7 +101,12 @@ impl MetaSlot {
             &&& post_owner.usage == PageUsage::Frame
             &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
             &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
-            &&& post =~= pre.insert_slot_owner(paddr, post_owner)
+            &&& post.slot_owners =~= pre.slot_owners.insert(idx, post_owner)
+            &&& post.slots.dom() =~= pre.slots.dom()
+            &&& post.slots[idx].id() == pre.slots[idx].id()
+            &&& post.slots[idx].resource() == pre.slots[idx].resource()
+            &&& post.slots[idx].frac() + 1 == pre.slots[idx].frac()
+            &&& forall|i: usize| i != idx ==> #[trigger] post.slots[i] == pre.slots[i]
         }
     }
 
@@ -151,28 +157,6 @@ impl MetaSlot {
             k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
     }
 
-    /// Obligation-ledger effect of producing a fresh live `Frame` handle on
-    /// success (e.g. [`crate::mm::frame::Frame::from_unused`] or
-    /// [`crate::mm::frame::Frame::from_in_use`]): the segment `obligations`
-    /// ledger is untouched, and the new handle mints its pending-Drop entry in
-    /// `frame_obligations` at `paddr`.
-    pub open spec fn live_frame_obligations_ok_spec(
-        paddr: Paddr,
-        pre: MetaRegionOwners,
-        post: MetaRegionOwners,
-    ) -> bool {
-        &&& post.frame_obligations =~= pre.frame_obligations.insert(frame_to_index(paddr))
-    }
-
-    /// Obligation-ledger effect on failure: both the segment and frame ledgers
-    /// are left untouched.
-    pub open spec fn live_frame_obligations_err_spec(
-        pre: MetaRegionOwners,
-        post: MetaRegionOwners,
-    ) -> bool {
-        &&& post.frame_obligations =~= pre.frame_obligations
-    }
-
     pub open spec fn get_from_unused_perm_spec<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         paddr: Paddr,
         metadata: M,
@@ -209,6 +193,11 @@ impl MetaSlot {
         let pre_perms = pre.slot_owners[idx].inner_perms.ref_count.value();
         {
             &&& post.slot_owners[idx].inner_perms.ref_count.value() == pre_perms + 1
+            &&& post.slots[idx].id() == pre.slots[idx].id()
+            &&& post.slots[idx].resource() == pre.slots[idx].resource()
+            &&& post.slots[idx].frac() + 1 == pre.slots[idx].frac()
+            &&& post.slots.dom() =~= pre.slots.dom()
+            &&& forall|i: usize| i != idx ==> #[trigger] post.slots[i] == pre.slots[i]
             &&& post.slot_owners[idx].inner_perms.ref_count.id()
                 == pre.slot_owners[idx].inner_perms.ref_count.id()
             &&& post.slot_owners[idx].inner_perms.storage

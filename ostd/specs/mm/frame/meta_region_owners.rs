@@ -77,11 +77,11 @@ impl Inv for MetaRegionOwners {
                     &&& slot.addr() == meta_addr(i)
                     &&& slot.value().wf(self.slot_owners[i])
                     &&& self.slot_owners[i].slot_vaddr == slot.addr()
-                    &&& ref_count <= REF_COUNT_MAX ==> pool.frac() + ref_count as int
-                        == FRAME_PERMISSION_TOTAL as int
-                    &&& ref_count == REF_COUNT_UNIQUE ==> pool.frac() + 1
-                        == FRAME_PERMISSION_TOTAL as int
-                    &&& ref_count == REF_COUNT_UNUSED ==> pool.is_full()
+                    &&& (ref_count <= REF_COUNT_MAX ==> self.slots[i].frac()
+                        + ref_count as int == FRAME_PERMISSION_TOTAL as int)
+                    &&& (ref_count == REF_COUNT_UNIQUE ==> self.slots[i].frac() + 1
+                        == FRAME_PERMISSION_TOTAL as int)
+                    &&& (ref_count == REF_COUNT_UNUSED ==> self.slots[i].is_full())
                 }
         }
     }
