@@ -382,12 +382,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         let pa = self.frame().mapped_pa;
         let child_pa = (pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr;
-        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
         vstd::arithmetic::power2::lemma2_to64();
         if self.parent_level == 2 {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(1, 2);
+            assert(child_pa + page_size(1) <= MAX_PADDR) by {
+                assert(idx * 4096 + 4096 <= 2097152);
+            };
         } else {
             crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size(pa, 2);
             vstd::arithmetic::div_mod::lemma_mod_multiples_basic(idx as int, page_size(2) as int);
