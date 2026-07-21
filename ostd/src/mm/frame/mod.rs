@@ -127,7 +127,7 @@ pub struct Frame<M: ?Sized> {
     pub _marker: PhantomData<M>,
     /// The permission to access the raw pointer
     #[cfg(verus_keep_ghost_body)]
-    pub tracked_perm: Tracked<FramePermission>,
+    pub tracked_perm: Tracked<Option<FramePermission>>,
 }
 
 #[verifier::external]
@@ -235,7 +235,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         match from_unused {
-            Ok((ptr, tracked_perm)) => Ok(Self { ptr, _marker: PhantomData, tracked_perm }),
+            Ok((ptr, tracked_perm)) => {
+                let tracked frame_permission = tracked_perm.get();
+                Ok(Self {
+                    ptr,
+                    _marker: PhantomData,
+                    tracked_perm: Tracked(Some(frame_permission)),
+                })
+            },
             Err(err) => Err(err),
         }
     }
@@ -315,7 +322,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         let res = #[verus_spec(with Tracked(regions))]
         MetaSlot::get_from_in_use(paddr);
         match res {
-            Ok((ptr, tracked_perm)) => Ok(Self { ptr, _marker: PhantomData, tracked_perm }),
+            Ok((ptr, tracked_perm)) => {
+                let tracked frame_permission = tracked_perm.get();
+                Ok(Self {
+                    ptr,
+                    _marker: PhantomData,
+                    tracked_perm: Tracked(Some(frame_permission)),
+                })
+            },
             Err(e) => Err(e),
         }
     }
@@ -430,19 +444,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             self.wf_with_region(*old(regions)),
         ensures
             final(regions).inv(),
-            res.inner@.ptr.addr() == self.ptr.addr(),
+            res.frame().ptr.addr() == self.ptr.addr(),
             *final(regions) == *old(regions),
     )]
-    pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
+    pub fn borrow<'a>(&'a self) -> FrameRef<'a, M> {
         proof {
             regions.inv_implies_correct_addr(self.paddr());
         }
         let tracked slot_pool = regions.slots.tracked_borrow(self.index());
         let tracked slot_perm = slot_pool.tracked_borrow();
+        let tracked frame_permission = self.tracked_perm.tracked_borrow();
 
         // SAFETY: Both the lifetime and the type matches `self`.
         unsafe {
-            #[verus_spec(with Tracked(regions))]
+            #[verus_spec(with Tracked(regions), Tracked(frame_permission))]
             FrameRef::borrow_paddr(
                 #[verus_spec(with Tracked(slot_perm))]
                 self.start_paddr(),
@@ -481,7 +496,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         ensures
             *final(regions) == *old(regions),
             r == self.paddr(),
-            permission@ == self.tracked_perm@,
+            permission@ == self.tracked_perm@->0,
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
         broadcast use group_page_meta;
@@ -490,7 +505,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             regions.inv_implies_correct_addr(self.paddr());
         }
 
-        let tracked frame_permission = self.tracked_perm.get();
+        let tracked frame_permission_opt = self.tracked_perm.get();
+        let tracked frame_permission = frame_permission_opt.tracked_unwrap();
         let tracked perm = frame_permission.borrow();
 
         #[verus_spec(with Tracked(perm))]
@@ -529,14 +545,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
 
 #[verus_verify]
 impl<M> Frame<M> {
-    /// Restores a forgotten [`Frame`] from a physical address.
+    /// Reconstructs a [`Frame`] representation from a physical address.
     ///
     /// # Safety
     ///
-    /// The caller should only restore a `Frame` that was previously forgotten using
-    /// [`Frame::into_raw`].
+    /// Passing `Some(permission)` restores an owning `Frame` previously
+    /// forgotten using [`Frame::into_raw`]. Passing `None` constructs the
+    /// non-owning proxy used only inside [`FrameRef`].
     ///
-    /// And the restoring operation should only be done once for a forgotten
+    /// An owning restoring operation should only be done once for a forgotten
     /// [`Frame`]. Otherwise double-free will happen.
     ///
     /// Also, the caller ensures that the usage of the frame is correct. There's
@@ -544,7 +561,7 @@ impl<M> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(permission): Tracked<FramePermission>,
+            Tracked(permission): Tracked<Option<FramePermission>>,
         requires
             Self::from_raw_requires_safety(*old(regions), paddr, permission),
             old(regions).slots.contains_key(frame_to_index(paddr)),
@@ -613,7 +630,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         &&& forall|i: usize| i != idx ==> #[trigger] new_perm.slots[i] == old_perm.slots[i]
         &&& res.inv()
         &&& res.ptr == self.ptr
-        &&& res.tracked_perm@.id() == new_perm.slots[idx].id()
+        &&& res.tracked_perm@->0.id() == new_perm.slots[idx].id()
         &&& forall|i: usize|
             i != idx ==> (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
         &&& new_perm.slot_owners.dom() == old_perm.slot_owners.dom()
@@ -631,11 +648,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
             #[verus_spec(with Tracked(perm))]
             inc_frame_ref_count(paddr)
         };
+        let tracked frame_permission = tracked_perm.get();
 
         Self {
             ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0),
             _marker: PhantomData,
-            tracked_perm,
+            tracked_perm: Tracked(Some(frame_permission)),
         }
     }
 }
@@ -658,7 +676,8 @@ impl<M: ?Sized> Frame<M> {
         let ghost old_regions = *regions;
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
-        let tracked frame_permission = self.tracked_perm.get();
+        let tracked frame_permission_opt = self.tracked_perm.get();
+        let tracked frame_permission = frame_permission_opt.tracked_unwrap();
         let tracked slot_pool = regions.slots.tracked_borrow_mut(idx);
         slot_pool.combine(frame_permission);
         let tracked perm = slot_pool.tracked_borrow();

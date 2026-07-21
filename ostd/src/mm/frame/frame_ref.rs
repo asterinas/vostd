@@ -1,22 +1,23 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::{marker::PhantomData, ops::Deref, ptr::NonNull};
+use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref};
 
 use vstd::prelude::*;
 use vstd::simple_pptr::PPtr;
 use vstd_extra::cast_ptr::Repr;
-use vstd_extra::drop_tracking::*;
-use vstd_extra::prelude::*;
-
-use crate::mm::frame::MetaPerm;
+use vstd_extra::ownership::*;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 
-use crate::specs::mm::frame::{
-    mapping::frame_to_index, meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners,
+use crate::specs::{
+    arch::*,
+    mm::frame::{
+        FramePermission, mapping::frame_to_index, meta_owners::MetaSlotStorage,
+        meta_region_owners::MetaRegionOwners,
+    },
 };
 
 use super::{
     Frame,
-    meta::{AnyFrameMeta, MetaSlot},
+    meta::{AnyFrameMeta, MetaSlot, REF_COUNT_UNUSED},
 };
 use crate::mm::Paddr;
 
@@ -24,144 +25,155 @@ verus! {
 
 /// A struct that can work as `&'a Frame<M>`.
 // FIXME: field visibility
-pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> {
-    pub inner: ManuallyDrop<Frame<M>>,
-    pub _marker: PhantomData<&'a Frame<M>>,
+pub struct FrameRef<'a, M: AnyFrameMeta + ?Sized> {
+    inner: ManuallyDrop<Frame<M>>,
+    tracked_perm: Tracked<&'a FramePermission>,
+    _marker: PhantomData<&'a Frame<M>>,
+}
+
+impl<'a, M: AnyFrameMeta + ?Sized> Inv for FrameRef<'a, M> {
+    open spec fn inv(self) -> bool {
+        &&& self.frame().tracked_perm@ is None
+        &&& self.tracked_perm@.frac() == 1
+        &&& self.tracked_perm@.resource().pptr() == self.frame().ptr
+    }
+}
+
+impl<'a, M: AnyFrameMeta + ?Sized> FrameRef<'a, M> {
+    /// The non-owning `Frame` proxy wrapped by this reference.
+    pub open spec fn frame(self) -> Frame<M> {
+        self.inner@
+    }
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'a, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
-    /// Under the borrow-protocol redesign, `from_raw` mints one
-    /// `frame_obligations` entry at the slot index and `MD::new`
-    /// immediately consumes it — net-zero on the ledger across this
-    /// borrow. The slot's `ref_count` is unchanged (the existing live
-    /// reference covers the borrow's lifetime via the `'a` lifetime).
+    /// This is a non-owning proxy. Its inner `Frame` therefore carries
+    /// `None` instead of an owning [`FramePermission`](crate::specs::mm::frame::FramePermission).
+    /// The slot's reference count and central permission pool are unchanged.
     ///
     /// # Safety
-    /// By providing a borrowed `MetaPerm` of the appropriate type, the
-    /// caller ensures that the frame has that type and that the
-    /// `FrameRef` will be useless if it outlives the frame.
+    /// By providing a borrowed `FramePermission`, the caller ensures that
+    /// the metadata slot stays alive for the whole lifetime of the reference.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(frame_permission): Tracked<&'a FramePermission>,
         requires
-            Frame::<M>::from_raw_requires_safety(*old(regions), raw),
+            old(regions).inv(),
+            has_safe_slot(raw),
+            old(regions).slot_owners[frame_to_index(raw)].inner_perms.ref_count.value()
+                != REF_COUNT_UNUSED,
+            frame_permission.frac() == 1,
+            frame_permission.id() == old(regions).slots[frame_to_index(raw)].id(),
+            frame_permission.resource().pptr().addr() == frame_to_meta(raw),
         ensures
-            final(regions).inv(),
-            r.inner@.ptr.addr() == frame_to_meta(raw),
-            final(regions).slot_owners == old(regions).slot_owners,
-            final(regions).slots == old(regions).slots,
-            final(regions).frame_obligations == old(regions).frame_obligations,
+            *final(regions) == *old(regions),
+            r.frame().ptr.addr() == frame_to_meta(raw),
+            r.frame().tracked_perm@ is None,
+            r.tracked_perm@ == frame_permission,
+            r.inv(),
     )]
     pub(in crate::mm) unsafe fn borrow_paddr(raw: Paddr) -> Self {
         proof {
             old(regions).inv_implies_correct_addr(raw);
         }
 
-        proof_decl! {
-            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
-        }
-        // `from_raw` mints one `frame_obligations` entry at the slot and
-        // hands back the token; the token is dropped affinely (the ledger
-        // entry is what matters). `MD::new` then consumes that entry. Net
-        // effect on the ledger: zero.
         let frame = unsafe {
-            #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
+            #[verus_spec(with Tracked(regions), Tracked(None))]
             Frame::from_raw(raw)
         };
-
-        proof_decl! {
-            regions.tracked_redeem_frame_obligation(from_raw_obl);
-            let tracked md_obl = DropObligation::tracked_mint(frame.index());
-        }
-        proof_with!(Tracked(md_obl));
         let inner = ManuallyDrop::new(frame);
 
-        Self { inner, _marker: PhantomData }
+        Self { inner, tracked_perm: Tracked(frame_permission), _marker: PhantomData }
     }
 }
 
 impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
     type Target = Frame<M>;
 
-    #[verus_spec(r => ensures *r == self.inner@)]
+    #[verus_spec(r => ensures *r == self.frame())]
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-// TODO: I moved this here to avoid having to pull the rest of `sync` into the verification.
-// Once it is pulled in, we should delete this one.
-/// A trait that abstracts non-null pointers.
-///
-/// All common smart pointer types such as `Box<T>`,  `Arc<T>`, and `Weak<T>`
-/// implement this trait as they can be converted to and from the raw pointer
-/// type of `*const T`.
-///
-/// # Safety
-///
-/// This trait must be implemented correctly (according to the doc comments for
-/// each method). Types like [`Rcu`] rely on this assumption to safely use the
-/// raw pointers.
-///
-/// [`Rcu`]: super::Rcu
-pub unsafe trait NonNullPtr: 'static + Sized + TrackDrop<State = MetaRegionOwners> {
-    /// The target type that this pointer refers to.
-    // TODO: Support `Target: ?Sized`.
+/// A local non-null smart-pointer abstraction used while verifying `mm` in
+/// isolation. Raw ownership is represented by the returned
+/// [`FramePermission`], rather than by the removed drop-obligation ledger.
+pub unsafe trait NonNullPtr: 'static + Sized {
     type Target;
 
-    /// A type that behaves just like a shared reference to the `NonNullPtr`.
     type Ref<'a>;
 
-    /// The power of two of the pointer alignment.
+    spec fn raw_wf(self, regions: MetaRegionOwners) -> bool;
+
+    spec fn ptr_perm_match(ptr: PPtr<Self::Target>, permission: FramePermission) -> bool;
+
+    spec fn ref_perm_match<'a>(
+        ptr_ref: Self::Ref<'a>,
+        permission: &'a FramePermission,
+    ) -> bool;
+
     fn ALIGN_BITS() -> u32;
 
-    /// Converts to a raw pointer.
-    ///
-    /// Each call to `into_raw` must be paired with a call to `from_raw`
-    /// in order to avoid memory leakage.
-    ///
-    /// The lower [`Self::ALIGN_BITS`] of the raw pointer is guaranteed to
-    /// be zero. In other words, the pointer is guaranteed to be aligned to
-    /// `1 << Self::ALIGN_BITS`.
-    fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target>
+    fn into_raw(
+        self,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+    ) -> ((ptr, permission): (PPtr<Self::Target>, Tracked<FramePermission>))
         requires
-            self.tracked_redeem_requires(*old(regions)),
+            self.raw_wf(*old(regions)),
+        ensures
+            *final(regions) == *old(regions),
+            Self::ptr_perm_match(ptr, permission@),
+            permission@.frac() == 1,
     ;
 
-    /// Converts back from a raw pointer.
-    ///
-    /// # Safety
-    ///
-    /// 1. The raw pointer must have been previously returned by a call to
-    ///    `into_raw`.
-    /// 2. The raw pointer must not be used after calling `from_raw`.
-    ///
-    /// Note that the second point is a hard requirement: Even if the
-    /// resulting value has not (yet) been dropped, the pointer cannot be
-    /// used because it may break Rust aliasing rules (e.g., `Box<T>`
-    /// requires the pointer to be unique and thus _never_ aliased).
-    unsafe fn from_raw(ptr: PPtr<Self::Target>) -> Self;
-
-    /// Obtains a shared reference to the original pointer.
-    ///
-    /// # Safety
-    ///
-    /// The original pointer must outlive the lifetime parameter `'a`, and during `'a`
-    /// no mutable references to the pointer will exist.
-    unsafe fn raw_as_ref<'a>(
-        raw: PPtr<Self::Target>,
+    unsafe fn from_raw(
+        ptr: PPtr<Self::Target>,
+        permission: Tracked<FramePermission>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
-    ) -> Self::Ref<'a>
+    ) -> (res: Self)
         requires
             old(regions).inv(),
-            old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
+            Self::ptr_perm_match(ptr, permission@),
+            permission@.frac() == 1,
+            old(regions).slots[frame_to_index(meta_to_frame(ptr.addr()))].id()
+                == permission@.id(),
+            old(regions).slot_owners[frame_to_index(meta_to_frame(ptr.addr()))]
+                .inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+        ensures
+            *final(regions) == *old(regions),
+            res.raw_wf(*final(regions)),
     ;
 
-    /// Converts a shared reference to a raw pointer.
-    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target>;
+    unsafe fn raw_as_ref<'a>(
+        raw: PPtr<Self::Target>,
+        permission: Tracked<&'a FramePermission>,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+    ) -> (res: Self::Ref<'a>)
+        requires
+            old(regions).inv(),
+            Self::ptr_perm_match(raw, *permission@),
+            permission@.frac() == 1,
+            old(regions).slots[frame_to_index(meta_to_frame(raw.addr()))].id()
+                == permission@.id(),
+            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))]
+                .inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+        ensures
+            *final(regions) == *old(regions),
+            Self::ref_perm_match(res, permission@),
+    ;
+
+    fn ref_as_raw<'a>(
+        ptr_ref: Self::Ref<'a>,
+    ) -> ((ptr, permission): (PPtr<Self::Target>, Tracked<&'a FramePermission>))
+        ensures
+            Self::ptr_perm_match(ptr, *permission@),
+            Self::ref_perm_match(ptr_ref, permission@),
+    ;
 }
 
 pub assume_specification[ usize::trailing_zeros ](_0: usize) -> u32
@@ -174,51 +186,70 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
 
     type Ref<'a> = FrameRef<'a, M>;
 
+    open spec fn raw_wf(self, regions: MetaRegionOwners) -> bool {
+        self.wf_with_region(regions)
+    }
+
+    open spec fn ptr_perm_match(
+        ptr: PPtr<Self::Target>,
+        permission: FramePermission,
+    ) -> bool {
+        permission.resource().pptr().addr() == ptr.addr()
+    }
+
+    open spec fn ref_perm_match<'a>(
+        ptr_ref: Self::Ref<'a>,
+        permission: &'a FramePermission,
+    ) -> bool {
+        &&& ptr_ref.inv()
+        &&& ptr_ref.tracked_perm@ == permission
+    }
+
     fn ALIGN_BITS() -> u32 {
         core::mem::align_of::<MetaSlot>().trailing_zeros()
     }
 
-    fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target> {
-        let ptr = self.ptr;
+    fn into_raw(
+        self,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+    ) -> (PPtr<Self::Target>, Tracked<FramePermission>) {
+        let raw = PPtr::<Self::Target>::from_addr(self.ptr.addr());
         proof_decl! {
-            // Mint the obligation that `MD::new` will immediately
-            // consume — net-zero on the ledger; the Frame value is
-            // forgotten inside the wrapper, and `ref_count` (set by the
-            // original producer) stays elevated to balance the eventual
-            // `from_raw + drop`.
-            let tracked redeem_obl = regions.tracked_mint_frame_obligation(self.index());
-            regions.tracked_redeem_frame_obligation(redeem_obl);
-            let tracked md_obl = DropObligation::tracked_mint(self.index());
+            let tracked permission: FramePermission;
         }
-        #[verus_spec(with Tracked(md_obl))]
-        let _ = ManuallyDrop::new(self);
-        PPtr::<Self::Target>::from_addr(ptr.addr())
+        let _ = #[verus_spec(with Tracked(regions) => Tracked(permission))]
+        Frame::into_raw(self);
+        (raw, Tracked(permission))
     }
 
-    unsafe fn from_raw(raw: PPtr<Self::Target>) -> Self {
-        Self { ptr: PPtr::<MetaSlot>::from_addr(raw.addr()), _marker: PhantomData }
+    unsafe fn from_raw(
+        raw: PPtr<Self::Target>,
+        Tracked(permission): Tracked<FramePermission>,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+    ) -> Self {
+        unsafe {
+            #[verus_spec(with Tracked(regions), Tracked(Some(permission)))]
+            Frame::from_raw(meta_to_frame(raw.addr()))
+        }
     }
 
     unsafe fn raw_as_ref<'a>(
         raw: PPtr<Self::Target>,
+        Tracked(permission): Tracked<&'a FramePermission>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
     ) -> Self::Ref<'a> {
-        let frame = Frame::<M> {
-            ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
-            _marker: PhantomData,
-        };
-        proof_decl! {
-            let tracked redeem_obl = regions.tracked_mint_frame_obligation(frame.index());
-            regions.tracked_redeem_frame_obligation(redeem_obl);
-            let tracked md_obl = DropObligation::tracked_mint(frame.index());
+        unsafe {
+            #[verus_spec(with Tracked(regions), Tracked(permission))]
+            FrameRef::borrow_paddr(meta_to_frame(raw.addr()))
         }
-        #[verus_spec(with Tracked(md_obl))]
-        let dropped = ManuallyDrop::<Frame<M>>::new(frame);
-        Self::Ref { inner: dropped, _marker: PhantomData }
     }
 
-    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target> {
-        PPtr::from_addr(ptr_ref.inner.ptr.addr())
+    fn ref_as_raw<'a>(
+        ptr_ref: Self::Ref<'a>,
+    ) -> (PPtr<Self::Target>, Tracked<&'a FramePermission>) {
+        let raw = PPtr::from_addr(ptr_ref.inner.ptr.addr());
+        let tracked permission = ptr_ref.tracked_perm.get();
+        (raw, Tracked(permission))
     }
 }
 

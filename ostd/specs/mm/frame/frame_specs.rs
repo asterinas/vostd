@@ -40,7 +40,7 @@ impl<'a, M: ?Sized> Frame<M> {
     pub open spec fn from_raw_requires_safety(
         regions: MetaRegionOwners,
         paddr: Paddr,
-        permission: FramePermission,
+        permission: Option<FramePermission>,
     ) -> bool {
         let idx = frame_to_index(paddr);
         &&& regions.slot_owners.contains_key(frame_to_index(paddr))
@@ -49,24 +49,26 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& regions.inv()
         &&& regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED
-        &&& permission.frac() == 1
-        &&& permission.id() == regions.slots[idx].id()
-        &&& permission.resource().pptr()
-            == vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(frame_to_meta(paddr))
+        &&& permission is Some ==> {
+            &&& permission->0.frac() == 1
+            &&& permission->0.id() == regions.slots[idx].id()
+            &&& permission->0.resource().pptr()
+                == vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(frame_to_meta(paddr))
+        }
     }
 
     pub open spec fn from_raw_ensures(
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
         paddr: Paddr,
-        permission: FramePermission,
+        permission: Option<FramePermission>,
         r: Self,
     ) -> bool {
         &&& new_regions == old_regions
         &&& r.ptr.addr() == frame_to_meta(paddr)
         &&& r.paddr() == paddr
-        &&& r.inv()
         &&& r.tracked_perm@ == permission
+        &&& permission is Some ==> r.inv()
     }
 
     // ── into_raw precondition predicates ──
@@ -103,8 +105,9 @@ impl<M: ?Sized> Inv for Frame<M> {
         &&& self.ptr.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= self.ptr.addr() < FRAME_METADATA_RANGE.start
             + MAX_NR_PAGES * META_SLOT_SIZE
-        &&& self.tracked_perm@.frac() == 1
-        &&& self.tracked_perm@.resource().pptr() == self.ptr
+        &&& self.tracked_perm@ is Some
+        &&& self.tracked_perm@->0.frac() == 1
+        &&& self.tracked_perm@->0.resource().pptr() == self.ptr
     }
 }
 
@@ -178,7 +181,7 @@ impl<M: ?Sized> Frame<M> {
         &&& s.inv()
         &&& s.slots.contains_key(idx)
         &&& s.slots[idx].resource().pptr() == self.ptr
-        &&& self.tracked_perm@.id() == s.slots[idx].id()
+        &&& self.tracked_perm@->0.id() == s.slots[idx].id()
         &&& s.slot_owners.contains_key(idx)
         &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
         &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
