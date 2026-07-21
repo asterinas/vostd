@@ -205,21 +205,6 @@ pub proof fn tracked_vm_reader_read_embedded(
     dest_owner.split(0)
 }
 
-/// Mirror of [`crate::mm::io::VmWriter::fill_zeros`].
-///
-/// Exec body writes through `self.cursor` and then advances the
-/// handle's cursor; the owner's `mem_view` shape is preserved (write
-/// view stays a write view).
-pub proof fn lemma_vm_writer_fill_zeros_embedded(tracked owner: &mut VmIoOwner, len: usize)
-    requires
-        old(owner).inv(),
-    ensures
-        final(owner).inv(),
-        final(owner).mem_view == old(owner).mem_view,
-        final(owner).range == old(owner).range,
-{
-}
-
 /// Mirror of [`crate::mm::io::VmWriter::limit`].
 pub proof fn lemma_vm_writer_limit_embedded(tracked owner: &mut VmIoOwner, max_avail: usize)
     requires
@@ -330,9 +315,7 @@ pub(super) proof fn vm_io_method_step(tracked entry: &mut VmIoEntry, method: VmI
     match method {
         VmIoMethod::ReaderLimit(_) => {},
         VmIoMethod::ReaderSkip(_) => {},
-        VmIoMethod::WriterFillZeros(len) => {
-            lemma_vm_writer_fill_zeros_embedded(&mut entry.owner, len)
-        },
+        VmIoMethod::WriterFillZeros(_) => {},
         VmIoMethod::WriterLimit(max) => lemma_vm_writer_limit_embedded(&mut entry.owner, max),
         VmIoMethod::WriterSkip(n) => lemma_vm_writer_skip_embedded(&mut entry.owner, n),
     }
