@@ -1109,7 +1109,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
             let item = (frame, Tracked(from_raw_obl));
             proof {
                 remaining.resolve_cons(item);
-                broadcast use vstd::seq::group_seq_lemmas;
+                broadcast use vstd::seq::group_seq_axioms;
 
                 assert(remaining.seq() == old_remaining.drop_first());
                 assert(item == old_remaining[0]);

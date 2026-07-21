@@ -19,7 +19,7 @@ pub const PREEMPT_SESSION_FRACTIONS: u64 = 1 << 31;
 /// guard. This token only records that the guard was created while preemption
 /// was already disabled.
 pub tracked struct NestedPreemptToken {
-    ghost depth_before: nat,
+    depth_before: Ghost<nat>,
 }
 
 impl NestedPreemptToken {
@@ -30,11 +30,11 @@ impl NestedPreemptToken {
             res.depth_before() == depth_before,
             res.wf(),
     {
-        NestedPreemptToken { depth_before }
+        NestedPreemptToken { depth_before: Ghost(depth_before) }
     }
 
     pub closed spec fn depth_before(self) -> nat {
-        self.depth_before
+        self.depth_before@
     }
 
     pub closed spec fn wf(self) -> bool {
@@ -104,8 +104,8 @@ impl PreemptSessionToken {
 /// `ThreadView` per running task while still allowing nested RCU code to
 /// perform weak atomic operations.
 pub tracked struct PreemptThreadViewSession {
-    tracked task_view: TaskThreadView,
-    tracked tokens: CountGhostResource<Loc, PREEMPT_SESSION_FRACTIONS>,
+    task_view: TaskThreadView,
+    tokens: CountGhostResource<Loc, PREEMPT_SESSION_FRACTIONS>,
 }
 
 impl PreemptThreadViewSession {
@@ -114,6 +114,7 @@ impl PreemptThreadViewSession {
         requires
             task_view.wf(sched_view),
         ensures
+            res.scheduler() == task_view.scheduler(),
             res.task() == task_view.task(),
             res.view() == task_view.view(),
             res.session_task() == task_view.task(),
@@ -137,6 +138,10 @@ impl PreemptThreadViewSession {
 
     pub closed spec fn task(self) -> Loc {
         self.task_view.task()
+    }
+
+    pub closed spec fn scheduler(self) -> Loc {
+        self.task_view.scheduler()
     }
 
     pub closed spec fn view(self) -> WmView {
@@ -183,6 +188,7 @@ impl PreemptThreadViewSession {
             old(self).available_fractions() > 1,
         ensures
             final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
             final(self).session_task() == old(self).session_task(),
@@ -202,6 +208,7 @@ impl PreemptThreadViewSession {
             old(self).token_matches(token),
         ensures
             final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
             final(self).session_task() == old(self).session_task(),
@@ -232,6 +239,7 @@ impl PreemptThreadViewSession {
         ensures
             (*tv)@ == old(self).view(),
             final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
             final(self).session_id() == old(self).session_id(),
             final(self).session_task() == old(self).session_task(),
             final(self).available_fractions() == old(self).available_fractions(),
@@ -246,12 +254,13 @@ impl PreemptThreadViewSession {
     /// This is the proof-side counterpart of dropping the outermost
     /// preemption-disable scope: the session stops owning the task view, and
     /// the caller can write it back with
-    /// `SchedulerThreadViews::tracked_put_checked_out_thread_view`.
+    /// `SchedulerGhostState::tracked_schedule_out`.
     pub proof fn tracked_into_task_view(tracked self) -> (tracked res: TaskThreadView)
         requires
             self.wf_session_resource(),
             self.available_fractions() == PREEMPT_SESSION_FRACTIONS,
         ensures
+            res.scheduler() == self.scheduler(),
             res.task() == self.task(),
             res.view() == self.view(),
     {
@@ -267,6 +276,7 @@ impl PreemptThreadViewSession {
             self.wf(sched_view),
             self.available_fractions() == PREEMPT_SESSION_FRACTIONS,
         ensures
+            res.scheduler() == self.scheduler(),
             res.task() == self.task(),
             res.view() == self.view(),
             res.wf(sched_view),
@@ -283,8 +293,8 @@ impl PreemptThreadViewSession {
 /// the inverse transition. Consequently the context can only be returned to
 /// the scheduler when no guard remains live.
 pub tracked struct RunningTaskContext {
-    tracked session: PreemptThreadViewSession,
-    ghost preempt_depth: nat,
+    session: PreemptThreadViewSession,
+    preempt_depth: Ghost<nat>,
 }
 
 impl RunningTaskContext {
@@ -294,6 +304,7 @@ impl RunningTaskContext {
         requires
             task_view.wf(sched_view),
         ensures
+            res.scheduler() == task_view.scheduler(),
             res.task() == task_view.task(),
             res.view() == task_view.view(),
             res.preempt_depth() == 0,
@@ -303,7 +314,7 @@ impl RunningTaskContext {
             res.wf_scheduler(sched_view),
     {
         let tracked session = PreemptThreadViewSession::new(task_view, sched_view);
-        let tracked res = RunningTaskContext { session, preempt_depth: 0 };
+        let tracked res = RunningTaskContext { session, preempt_depth: Ghost(0) };
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(res.wf());
         assert(res.session.wf(sched_view));
@@ -313,6 +324,10 @@ impl RunningTaskContext {
 
     pub closed spec fn task(self) -> Loc {
         self.session.task()
+    }
+
+    pub closed spec fn scheduler(self) -> Loc {
+        self.session.scheduler()
     }
 
     pub closed spec fn view(self) -> WmView {
@@ -328,7 +343,7 @@ impl RunningTaskContext {
     }
 
     pub closed spec fn preempt_depth(self) -> nat {
-        self.preempt_depth
+        self.preempt_depth@
     }
 
     pub closed spec fn wf(self) -> bool {
@@ -349,6 +364,7 @@ impl RunningTaskContext {
         requires
             self.wf(),
             sched_view.wf(),
+            sched_view.id == self.scheduler(),
             sched_view.task_view_is_checked_out(self.task()),
             sched_view.checked_out_views[self.task()] == self.view(),
             sched_view.task_views.contains_key(self.task()),
@@ -372,6 +388,7 @@ impl RunningTaskContext {
         ensures
             (*tv)@ == old(self).view(),
             final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() == old(self).available_fractions(),
             final(self).preempt_depth() == old(self).preempt_depth(),
@@ -388,6 +405,7 @@ impl RunningTaskContext {
             self.wf(),
             self.preempt_depth() == 0,
         ensures
+            res.scheduler() == self.scheduler(),
             res.task() == self.task(),
             res.view() == self.view(),
     {
@@ -405,6 +423,7 @@ impl RunningTaskContext {
             self.wf_scheduler(sched_view),
             self.is_quiescent(),
         ensures
+            res.scheduler() == self.scheduler(),
             res.task() == self.task(),
             res.view() == self.view(),
             res.wf(sched_view),
@@ -496,6 +515,7 @@ impl PreemptGuardResource {
         ensures
             final(session).wf_session_resource(),
             final(session).task() == old(session).task(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).view() == old(session).view(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
@@ -522,6 +542,7 @@ impl RunningTaskContext {
         ensures
             final(self).wf(),
             final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() + 1 == old(self).available_fractions(),
@@ -530,7 +551,7 @@ impl RunningTaskContext {
             resource.is_outermost() <==> old(self).preempt_depth() == 0,
             resource.is_nested() <==> old(self).preempt_depth() > 0,
     {
-        let ghost depth_before = self.preempt_depth;
+        let ghost depth_before = self.preempt_depth@;
         let tracked token = self.session.tracked_split_guard_token();
         let tracked resource = if depth_before == 0 {
             PreemptGuardResource::Outermost(token)
@@ -538,7 +559,7 @@ impl RunningTaskContext {
             let tracked nested = NestedPreemptToken::new(depth_before);
             PreemptGuardResource::Nested { session: token, nested }
         };
-        self.preempt_depth = depth_before + 1;
+        self.preempt_depth = Ghost(depth_before + 1);
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(self.wf());
         resource
@@ -554,14 +575,15 @@ impl RunningTaskContext {
         ensures
             final(self).wf(),
             final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() == old(self).available_fractions() + 1,
             final(self).preempt_depth() + 1 == old(self).preempt_depth(),
     {
-        let ghost old_depth = self.preempt_depth;
+        let ghost old_depth = self.preempt_depth@;
         resource.tracked_return_to_session(&mut self.session);
-        self.preempt_depth = (old_depth - 1) as nat;
+        self.preempt_depth = Ghost((old_depth - 1) as nat);
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(self.wf());
     }
@@ -645,6 +667,7 @@ impl DisabledPreemptGuard {
             self.matches_context(before),
             after.wf(),
             after.task() == before.task(),
+            after.scheduler() == before.scheduler(),
             after.session_id() == before.session_id(),
             after.available_fractions() == before.available_fractions(),
             after.preempt_depth() == before.preempt_depth(),
@@ -671,6 +694,7 @@ impl DisabledPreemptGuard {
         ensures
             (*tv)@ == old(context).view(),
             final(context).task() == old(context).task(),
+            final(context).scheduler() == old(context).scheduler(),
             final(context).session_id() == old(context).session_id(),
             final(context).available_fractions() == old(context).available_fractions(),
             final(context).preempt_depth() == old(context).preempt_depth(),
@@ -691,6 +715,7 @@ impl DisabledPreemptGuard {
         ensures
             final(context).wf(),
             final(context).task() == old(context).task(),
+            final(context).scheduler() == old(context).scheduler(),
             final(context).view() == old(context).view(),
             final(context).session_id() == old(context).session_id(),
             final(context).available_fractions() == old(context).available_fractions() + 1,
@@ -743,6 +768,7 @@ pub(crate) fn disable_preempt_in_context(
     ensures
         final(context).wf(),
         final(context).task() == old(context).task(),
+        final(context).scheduler() == old(context).scheduler(),
         final(context).view() == old(context).view(),
         final(context).session_id() == old(context).session_id(),
         final(context).available_fractions() + 1 == old(context).available_fractions(),

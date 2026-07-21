@@ -33,7 +33,7 @@ use vstd::seq::Seq;
 
 verus! {
 
-// The "global" memory is defined wihtin the invariant we need to preserve and,
+// The "global" memory is defined within the invariant we need to preserve and,
 // by the definition of Iris operations, invariant can be opened by a thread
 // provided that the invariant holds and it can close afterwards provided that
 // the invariant holds as well.
@@ -117,7 +117,7 @@ impl WmView {
     }
 
     /// Partial ordering two threads' views.
-    pub open spec fn le(self, other: Self) -> bool {
+    pub open spec fn spec_le(self, other: Self) -> bool {
         forall|id: AtomicId| #[trigger] self.seen_at(id) <= other.seen_at(id)
     }
 }
@@ -1230,9 +1230,11 @@ impl ThreadView {
     /// through release stores, so executable code should thread one token per
     /// logical operation or critical section, and eventually one per task.
     ///
-    /// TODO: This API should not be exposed as a public because the only way
-    /// to create this is via critical section markers such as `disable_preempt`.
-    pub proof fn new() -> (tracked res: Self)
+    /// This constructor is crate-private so clients cannot discard an
+    /// established task view and restart from the empty view. Production code
+    /// creates one view when the scheduler registers a task, then moves that
+    /// same linear token through schedule-in and schedule-out.
+    pub(crate) proof fn new() -> (tracked res: Self)
         ensures
             res@ == WmView::empty(),
     {

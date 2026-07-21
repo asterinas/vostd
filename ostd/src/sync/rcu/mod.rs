@@ -395,6 +395,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         ensures
             final(session).wf(),
             final(session).task() == old(session).task(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
@@ -445,6 +446,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.type_inv(),
             res.rcu.is_nullable() == self.is_nullable(),
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
@@ -471,6 +473,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             old(session).wf(),
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     {
@@ -514,6 +517,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             new_ptr is Some && res is Err ==> res->Err_0 is Some,
             final(session).wf(),
             final(session).task() == old(session).task(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
@@ -609,6 +613,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         ensures
             final(session).wf(),
             final(session).task() == old(session).task(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).view() == old(session).view(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
@@ -649,6 +654,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
             old(session).wf(),
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -669,6 +675,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
             old(session).available_fractions() > 1,
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
@@ -711,6 +718,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
             old(session).wf(),
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -731,6 +739,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
             old(session).available_fractions() > 1,
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
@@ -750,6 +759,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
             old(session).wf(),
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -774,6 +784,7 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
             self.matches_context(*old(session)),
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -800,6 +811,7 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
             self.matches_context(*old(session)),
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -824,6 +836,7 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
             self.matches_context(*old(session)),
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -851,6 +864,7 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
             self.matches_context(*old(session)),
         ensures
             final(session).wf(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -919,6 +933,7 @@ impl<T: Send + 'static> Deref for RcuDrop<T> {
         final(session).wf(),
         final(session).is_quiescent(),
         final(session).task() == old(session).task(),
+        final(session).scheduler() == old(session).scheduler(),
         final(session).session_id() == old(session).session_id(),
         final(session).available_fractions() == old(session).available_fractions(),
         final(session).preempt_depth() == old(session).preempt_depth(),

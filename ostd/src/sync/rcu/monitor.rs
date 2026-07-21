@@ -103,17 +103,17 @@ impl RcuCallback {
 /// certify that a callback is safe to enqueue, but cannot manufacture the
 /// completion fact needed to execute the callback.
 tracked struct CompletedGracePeriod {
-    ghost epoch: nat,
-    ghost callbacks: Seq<rcu_spec::RcuCallbackSummary>,
+    epoch: Ghost<nat>,
+    callbacks: Ghost<Seq<rcu_spec::RcuCallbackSummary>>,
 }
 
 impl CompletedGracePeriod {
     closed spec fn callbacks(self) -> Seq<rcu_spec::RcuCallbackSummary> {
-        self.callbacks
+        self.callbacks@
     }
 
     closed spec fn epoch(self) -> nat {
-        self.epoch
+        self.epoch@
     }
 
     closed spec fn covers(self, callback: rcu_spec::RcuCallbackSummary) -> bool {
@@ -495,8 +495,8 @@ impl State {
         }
         proof_decl! {
             let tracked completed = CompletedGracePeriod {
-                epoch: if completed_gp { initial_current_epoch } else { 0 },
-                callbacks: callback_summaries(completed_callbacks),
+                epoch: Ghost(if completed_gp { initial_current_epoch } else { 0 }),
+                callbacks: Ghost(callback_summaries(completed_callbacks)),
             };
         }
         proof {
@@ -710,6 +710,7 @@ impl RcuMonitor {
         ensures
             final(session).wf(),
             final(session).task() == old(session).task(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
@@ -760,6 +761,7 @@ impl RcuMonitor {
             final(session).wf(),
             final(session).is_quiescent(),
             final(session).task() == old(session).task(),
+            final(session).scheduler() == old(session).scheduler(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
