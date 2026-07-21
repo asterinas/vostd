@@ -1043,8 +1043,8 @@ pub tracked struct GlobalMemView {
 impl Inv for GlobalMemView {
     open spec fn inv(self) -> bool {
         &&& forall|m: Mapping|
-            #![auto]
-            self.tlb_mappings.contains(m) ==> {
+            #![trigger self.pt_mappings.contains(m)]
+            self.pt_mappings.contains(m) ==> {
                 &&& m.inv()
                 &&& forall|pa: Paddr|
                     m.pa_range.start <= pa < m.pa_range.end ==> {
@@ -1054,6 +1054,19 @@ impl Inv for GlobalMemView {
                 &&& self.memory[m.pa_range.start].size == m.page_size
                 &&& self.memory[m.pa_range.start].inv()
             }
+        &&& forall|m: Mapping|
+            #![auto]
+            self.tlb_mappings.contains(m) ==> self.pt_mappings.contains(m)
+        &&& forall|m: Mapping|
+            forall|n: Mapping|
+                #![auto]
+                self.pt_mappings.contains(m) ==> self.pt_mappings.contains(n) ==> m != n
+                    ==> #[trigger] m.va_range.end <= n.va_range.start || n.va_range.end
+                    <= m.va_range.start
+        &&& forall|m1: Mapping, m2: Mapping|
+            #![trigger self.pt_mappings.contains(m1), self.pt_mappings.contains(m2)]
+            self.pt_mappings.contains(m1) && self.pt_mappings.contains(m2) && m1 != m2
+                ==> m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
         &&& forall|m: Mapping|
             forall|n: Mapping|
                 #![auto]
@@ -1081,7 +1094,7 @@ impl GlobalMemView {
     }
 
     pub open spec fn is_mapped(self, pa: usize) -> bool {
-        exists|m: Mapping| self.tlb_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
+        exists|m: Mapping| self.pt_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
     }
 
     pub open spec fn all_pas_accounted_for(self) -> bool {
@@ -1174,13 +1187,18 @@ impl GlobalMemView {
         GlobalMemView { tlb_mappings, ..self }
     }
 
-    pub axiom fn tracked_tlb_flush_vaddr(&mut self, vaddr: Vaddr)
+    pub proof fn tracked_tlb_flush_vaddr(tracked &mut self, vaddr: Vaddr)
         requires
             old(self).inv(),
         ensures
             *final(self) == old(self).tlb_flush_vaddr(vaddr),
             final(self).inv(),
-    ;
+    {
+        self.tlb_mappings = old(self).tlb_flush_vaddr(vaddr).tlb_mappings;
+
+        assert(self.pt_mappings == old(self).pt_mappings);
+        assert(forall|pa: Paddr| #[trigger] self.is_mapped(pa) == old(self).is_mapped(pa));
+    }
 
     pub open spec fn tlb_soft_fault(self, vaddr: Vaddr) -> Self {
         let mapping = self.pt_mappings.filter(
@@ -1189,14 +1207,30 @@ impl GlobalMemView {
         GlobalMemView { tlb_mappings: self.tlb_mappings.insert(mapping), ..self }
     }
 
-    pub axiom fn tracked_tlb_soft_fault(tracked &mut self, vaddr: Vaddr)
+    pub proof fn tracked_tlb_soft_fault(tracked &mut self, vaddr: Vaddr)
         requires
             old(self).inv(),
             old(self).addr_transl(vaddr) is None,
+            exists|m: Mapping|
+                old(self).pt_mappings.contains(m) && m.va_range.start <= vaddr < m.va_range.end,
         ensures
             *final(self) == old(self).tlb_soft_fault(vaddr),
             final(self).inv(),
-    ;
+    {
+        let ghost pt_candidates = old(self).pt_mappings.filter(
+            |m: Mapping| m.va_range.start <= vaddr < m.va_range.end,
+        );
+        assert(pt_candidates.len() > 0) by {
+            let m = choose|m: Mapping|
+                old(self).pt_mappings.contains(m) && m.va_range.start <= vaddr < m.va_range.end;
+            assert(pt_candidates.contains(m));
+        };
+        assert(pt_candidates.contains(pt_candidates.choose()));
+        self.tlb_mappings = old(self).tlb_soft_fault(vaddr).tlb_mappings;
+
+        assert(self.pt_mappings == old(self).pt_mappings);
+        assert(forall|pa: Paddr| #[trigger] self.is_mapped(pa) == old(self).is_mapped(pa));
+    }
 
     pub open spec fn pt_map(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.insert(m);
@@ -1231,8 +1265,7 @@ impl GlobalMemView {
     pub proof fn tracked_pt_unmap(tracked &mut self, m: Mapping)
         requires
             old(self).pt_mappings.contains(m),
-            forall|pa: Paddr|
-                m.pa_range.start <= pa < m.pa_range.end ==> old(self).unmapped_pas.contains(pa),
+            !old(self).tlb_mappings.contains(m),
             old(self).inv(),
         ensures
             *final(self) == old(self).pt_unmap(m),
@@ -1243,15 +1276,18 @@ impl GlobalMemView {
             Set::<usize>::range(m.pa_range.start, m.pa_range.end),
         );
 
-        assert(self.tlb_mappings == old(self).tlb_mappings);
-
-        assert(self.unmapped_correct()) by {
-            assert forall|pa: Paddr| #[trigger]
-                self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa) by {
-                assert(self.is_mapped(pa) == old(self).is_mapped(pa));
-            };
+        assert forall|pa: Paddr| #[trigger]
+            self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa) by {
+            if m.pa_range.start <= pa < m.pa_range.end {
+                if self.is_mapped(pa) {
+                    let n = choose|n: Mapping|
+                        self.pt_mappings.contains(n) && n.pa_range.start <= pa < n.pa_range.end;
+                }
+            } else if old(self).is_mapped(pa) {
+                let n = choose|n: Mapping|
+                    old(self).pt_mappings.contains(n) && n.pa_range.start <= pa < n.pa_range.end;
+            }
         };
-
     }
 
     pub proof fn lemma_va_mapping_unique(self, va: usize)
