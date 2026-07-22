@@ -205,14 +205,14 @@ fn collect_largest_pages(va: Vaddr, pa: Paddr, len: usize) -> alloc::vec::Vec<(P
         final(kernel_owner)@ is Some,
         final(kernel_owner)@->0.inv(),
         (final(kernel_owner)@->0).0.value().is_node(),
-        res.root.ptr.addr() == (final(kernel_owner)@->0).0.value().node().meta_addr_self(),
+        res.root.ptr.addr() == (final(kernel_owner)@->0).0.value().node().meta_vaddr(),
         old(kernel_owner)@ is Some ==> final(kernel_owner)@ == old(kernel_owner)@,
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
             (final(kernel_owner)@->0).0.value().node(),
         ),
         (final(kernel_owner)@->0).0.value().metaregion_sound(*regions),
         final(kernel_owner)@->0.metaregion_sound(*regions),
-        guards.unlocked((final(kernel_owner)@->0).0.value().node().meta_addr_self()),
+        guards.unlocked((final(kernel_owner)@->0).0.value().node().meta_vaddr()),
 )]
 pub(crate) fn get_kernel_page_table<'rcu>() -> &'static PageTable<KernelPtConfig> {
     KERNEL_PAGE_TABLE.get().unwrap()

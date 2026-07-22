@@ -226,9 +226,9 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
-    pub level: PagingLevel,
-    pub tree_level: int,
-    pub slot_index: usize,
+    pub ghost level: PagingLevel,
+    pub ghost tree_level: int,
+    pub ghost slot_index: usize,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
@@ -253,7 +253,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 impl<C: PageTableConfig> NodeOwner<C> {
     /// The meta address of this node's slot, computed from `slot_index`.
     /// Always equals `self.meta_perm.addr()` under `inv()`.
-    pub open spec fn meta_addr_self(self) -> Vaddr {
+    pub open spec fn meta_vaddr(self) -> Vaddr {
         meta_addr(self.slot_index)
     }
 
@@ -341,7 +341,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.meta_addr_self()
+        &&& guard.inner.inner@.ptr.addr() == self.meta_vaddr()
         &&& guard.inner.inner@.wf(self)
     }
 }
@@ -374,7 +374,7 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
     type Owner = NodeOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.ptr.addr() == owner.meta_addr_self()
+        &&& self.ptr.addr() == owner.meta_vaddr()
     }
 }
 

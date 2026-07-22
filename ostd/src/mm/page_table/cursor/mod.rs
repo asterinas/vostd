@@ -601,7 +601,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                         owner.map_children_implies(
                             CursorOwner::node_unlocked(guards0),
-                            CursorOwner::node_unlocked_except(*guards, child_node.meta_addr_self()),
+                            CursorOwner::node_unlocked_except(*guards, child_node.meta_vaddr()),
                         );
                         owner.cur_entry_node_implies_level_gt_1();
                     }
@@ -1130,7 +1130,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             CursorOwner::node_unlocked(guards0),
                             CursorOwner::node_unlocked_except(
                                 *guards,
-                                child_node_owner.meta_addr_self(),
+                                child_node_owner.meta_vaddr(),
                             ),
                         );
                     }
@@ -1146,7 +1146,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         self.push_level(pt_guard);
                     } else {
                         let ghost guards_before_drop = *guards;
-                        let ghost locked_addr = child_node_owner.meta_addr_self();
+                        let ghost locked_addr = child_node_owner.meta_vaddr();
 
                         proof_decl! {
                             let tracked guard_obl = pt_guard.tracked_redeem(guards);
@@ -2026,7 +2026,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let tracked child = parent_continuation.tracked_take_child();
         let tracked parent_own = parent_continuation.entry_own.tracked_take_node();
 
-        let ghost index = frame_to_index(meta_to_frame(parent_own.meta_addr_self()));
+        let ghost index = frame_to_index(meta_to_frame(parent_own.meta_vaddr()));
 
         let ghost ptei = AbstractVaddr::from_vaddr(self.va).index[owner.level - 1];
 
@@ -2517,7 +2517,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             owner.map_children_implies(
                 CursorOwner::node_unlocked(guards0),
-                CursorOwner::node_unlocked_except(*guards, child_node.meta_addr_self()),
+                CursorOwner::node_unlocked_except(*guards, child_node.meta_vaddr()),
             );
 
             owner.cur_entry_node_implies_level_gt_1();
@@ -2733,7 +2733,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         node.alloc_absent_child(entry_idx, rcu_guard)
                     };
 
-                    let ghost new_node_addr = child_owner.value().node().meta_addr_self();
+                    let ghost new_node_addr = child_owner.value().node().meta_vaddr();
                     let ghost new_child_value = child_owner.value();
 
                     let ghost new_pt_idx = frame_to_index(
@@ -2766,7 +2766,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         continuation.tracked_put_child(child_owner);
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
 
-                        assert(owner.cur_entry_owner().node().meta_addr_self() == new_node_addr);
+                        assert(owner.cur_entry_owner().node().meta_vaddr() == new_node_addr);
 
                         assert forall|i: int|
                             owner_pre_none.level <= i
@@ -4397,12 +4397,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 proof {
                     owner.map_children_implies(
                         CursorOwner::node_unlocked(guards0),
-                        CursorOwner::node_unlocked_except(*guards, old_node_owner.meta_addr_self()),
+                        CursorOwner::node_unlocked_except(*guards, old_node_owner.meta_vaddr()),
                     );
                 }
 
                 let ghost guards1 = *guards;
-                let ghost locked_addr = old_node_owner.meta_addr_self();
+                let ghost locked_addr = old_node_owner.meta_vaddr();
                 let ghost owner_before_dfs = *owner;
 
                 // SAFETY:

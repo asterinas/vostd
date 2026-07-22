@@ -74,7 +74,7 @@ impl<C: PageTableConfig> Child<C> {
             *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
             *final(owner) == old(owner).into_pte_owner_spec(),
             old(owner).is_node() ==> res == C::E::new_pt_spec(
-                meta_to_frame(old(owner).node().meta_addr_self()),
+                meta_to_frame(old(owner).node().meta_vaddr()),
             ),
     )]
     pub fn into_pte(self) -> C::E {

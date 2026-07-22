@@ -806,7 +806,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         TreePath<NR_ENTRIES>,
     ) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner.is_node() ==> guards.unlocked(owner.node().meta_addr_self())
+            owner.is_node() ==> guards.unlocked(owner.node().meta_vaddr())
     }
 
     pub open spec fn node_unlocked_except(guards: Guards<'rcu>, addr: usize) -> (spec_fn(
@@ -814,8 +814,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         TreePath<NR_ENTRIES>,
     ) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner.is_node() ==> owner.node().meta_addr_self() != addr ==> guards.unlocked(
-                owner.node().meta_addr_self(),
+            owner.is_node() ==> owner.node().meta_vaddr() != addr ==> guards.unlocked(
+                owner.node().meta_vaddr(),
             )
     }
 
@@ -843,7 +843,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn only_current_locked(self, guards: Guards<'rcu>) -> bool {
         self.map_only_children(
-            Self::node_unlocked_except(guards, self.cur_entry_owner().node().meta_addr_self()),
+            Self::node_unlocked_except(guards, self.cur_entry_owner().node().meta_vaddr()),
         )
     }
 
@@ -860,11 +860,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
-            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_addr_self(),
+            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_vaddr(),
         ensures
             self.children_not_locked(guards1),
     {
-        let current_addr = self.cur_entry_owner().node().meta_addr_self();
+        let current_addr = self.cur_entry_owner().node().meta_vaddr();
         let f = Self::node_unlocked_except(guards0, current_addr);
         let g = Self::node_unlocked(guards1);
 

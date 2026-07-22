@@ -310,7 +310,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
         &&& pte.is_present() && !pte.is_last(parent_level) ==> {
             &&& self.is_node()
-            &&& meta_to_frame(self.node().meta_addr_self()) == pte.paddr()
+            &&& meta_to_frame(self.node().meta_vaddr()) == pte.paddr()
         }
         &&& pte.is_present() && pte.is_last(parent_level) ==> {
             &&& self.is_frame()
@@ -504,7 +504,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
-            &&& regions.slot_owners[idx].slot_vaddr == self.node().meta_addr_self()
+            &&& regions.slot_owners[idx].slot_vaddr == self.node().meta_vaddr()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node().metaregion_sound_node(regions)
@@ -562,7 +562,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn meta_slot_paddr(self) -> Option<Paddr> {
         if self.is_node() {
-            Some(meta_to_frame(self.node().meta_addr_self()))
+            Some(meta_to_frame(self.node().meta_vaddr()))
         } else if self.is_frame() {
             Some(self.frame().mapped_pa)
         } else {
@@ -811,10 +811,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             )].paths_in_pt == set![other.path],
             self.path != other.path,
         ensures
-            self.node().meta_addr_self() != other.node().meta_addr_self(),
+            self.node().meta_vaddr() != other.node().meta_vaddr(),
     {
-        let slot_vaddr = self.node().meta_addr_self();
-        let other_addr = other.node().meta_addr_self();
+        let slot_vaddr = self.node().meta_vaddr();
+        let other_addr = other.node().meta_vaddr();
         let self_idx = frame_to_index(meta_to_frame(slot_vaddr));
         let other_idx = frame_to_index(meta_to_frame(other_addr));
 
@@ -908,7 +908,7 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                     map_va: vaddr(self.path) as int,
                     //                    frame_pa: self.base_addr as int,
                     //                    in_frame_index: self.index as int,
-                    map_to_pa: meta_to_frame(node.meta_addr_self()) as int,
+                    map_to_pa: meta_to_frame(node.meta_vaddr()) as int,
                     level: self.path.len() as u8,
                     phantom: PhantomData,
                 },
