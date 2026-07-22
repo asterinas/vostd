@@ -28,20 +28,6 @@ pub open spec fn index_to_meta(i: usize) -> (res: Vaddr)
     (FRAME_METADATA_RANGE.start + i * META_SLOT_SIZE) as usize
 }
 
-pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_page_aligned()
-    ensures
-        #[trigger] FRAME_METADATA_RANGE.start % PAGE_SIZE == 0,
-        FRAME_METADATA_RANGE.end % PAGE_SIZE == 0,
-{
-}
-
-pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_large_enough()
-    ensures
-        #[trigger] FRAME_METADATA_RANGE.end >= FRAME_METADATA_RANGE.start + MAX_NR_PAGES
-            * META_SLOT_SIZE,
-{
-}
-
 #[verifier::inline]
 pub open spec fn frame_to_index(paddr: Paddr) -> usize
     recommends
@@ -121,8 +107,6 @@ pub broadcast proof fn lemma_meta_to_frame_alignment(meta: Vaddr)
 }
 
 pub broadcast group group_page_meta {
-    lemma_FRAME_METADATA_RANGE_is_page_aligned,
-    lemma_FRAME_METADATA_RANGE_is_large_enough,
     lemma_paddr_to_meta_biinjective,
     lemma_meta_to_paddr_biinjective,
     lemma_meta_to_frame_soundness,
