@@ -13,14 +13,6 @@ use crate::mm::{
 
 verus! {
 
-pub open spec fn level_is_in_range(level: int) -> bool {
-    1 <= level <= NR_LEVELS as int
-}
-
-pub open spec fn index_is_in_range(index: int) -> bool {
-    0 <= index < NR_ENTRIES
-}
-
 pub open spec fn pa_is_valid_pt_address(pa: int) -> bool {
     &&& pa_is_valid_kernel_address(pa as int)
     &&& pa % PAGE_SIZE as int == 0
@@ -47,14 +39,11 @@ pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for LeafPageTableEntryView<C> {
     open spec fn inv(self) -> bool {
         //        &&& pa_is_valid_pt_address(self.frame_pa)
-        //        &&& index_is_in_range(self.in_frame_index)
         &&& pa_is_valid_kernel_address(
             self.map_to_pa,
         )
         // We assume that all level PTEs can be leaf. Thus they can map to huge pages.
-        &&& level_is_in_range(
-            self.level as int,
-        )
+        &&& 1 <= self.level <= NR_LEVELS
         // The corresponding virtual address must be aligned to the page size.
         &&& self.map_va % (page_size(self.level) as int) == 0
     }
@@ -78,9 +67,8 @@ pub ghost struct IntermediatePageTableEntryView<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for IntermediatePageTableEntryView<C> {
     open spec fn inv(self) -> bool {
         //        &&& pa_is_valid_pt_address(self.frame_pa)
-        //        &&& index_is_in_range(self.in_frame_index)
         &&& pa_is_valid_pt_address(self.map_to_pa)
-        &&& level_is_in_range(self.level as int)
+        &&& 1 <= self.level <= NR_LEVELS
         // No self-loop.
         //        &&& self.map_to_pa != self.frame_pa
         // The corresponding virtual address must be aligned to the page size.
