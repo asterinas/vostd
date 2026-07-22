@@ -71,7 +71,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
             old(regions).inv(),
         ensures
-            !has_safe_slot(paddr) ==> res is Err,
+            !valid_frame_paddr(paddr) ==> res is Err,
             res is Ok ==> {
                 &&& res.unwrap().wf(owner@->0)
                 &&& final(regions).frame_obligations == old(regions).frame_obligations.insert(frame_to_index(paddr))
@@ -457,8 +457,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(meta_own): Tracked<M::Owner>,
         requires
-            paddr < MAX_PADDR,
-            paddr % PAGE_SIZE == 0,
+            valid_frame_paddr(paddr),
             old(regions).inv(),
             old(regions).slot_owners.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,

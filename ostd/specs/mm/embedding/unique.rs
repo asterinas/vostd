@@ -46,7 +46,7 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::specs::{
-    arch::has_safe_slot,
+    arch::valid_frame_paddr,
     mm::{
         frame::{
             mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
@@ -83,7 +83,7 @@ verus! {
 pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners, paddr: Paddr)
     requires
         old(regions).inv(),
-        has_safe_slot(paddr),
+        valid_frame_paddr(paddr),
         old(regions).slots.contains_key(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()

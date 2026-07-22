@@ -87,8 +87,7 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
@@ -117,8 +116,7 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
@@ -201,8 +199,7 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);

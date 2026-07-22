@@ -104,7 +104,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             (self.start_paddr() <= pa < self.end_paddr() && pa % PAGE_SIZE == 0) ==> {
                 let idx = frame_to_index(pa);
                 &&& perm.slots.contains_key(idx)
-                &&& has_safe_slot(pa)
+                &&& valid_frame_paddr(pa)
                 &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
                     < super::meta::REF_COUNT_MAX
@@ -147,7 +147,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                     (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
                         let idx = frame_to_index(pa);
                         &&& perm.slots.contains_key(idx)
-                        &&& has_safe_slot(pa)
+                        &&& valid_frame_paddr(pa)
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
                             < super::meta::REF_COUNT_MAX
@@ -1412,7 +1412,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
                         let idx = frame_to_index(pa);
                         &&& perm.slots.contains_key(idx)
-                        &&& has_safe_slot(pa)
+                        &&& valid_frame_paddr(pa)
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
                             < super::meta::REF_COUNT_MAX

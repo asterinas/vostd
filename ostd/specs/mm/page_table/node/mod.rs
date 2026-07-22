@@ -28,10 +28,6 @@ pub tracked struct Guards<'rcu> {
 }
 
 impl<'rcu> Guards<'rcu> {
-    pub open spec fn locked(self, addr: usize) -> bool {
-        self.guards.contains(addr)
-    }
-
     pub open spec fn unlocked(self, addr: usize) -> bool {
         !self.guards.contains(addr)
     }

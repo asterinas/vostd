@@ -210,7 +210,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_well_formed(item),
         ensures
             1 <= level <= NR_LEVELS,
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             paddr % page_size(level) == 0,
             paddr + page_size(level) <= MAX_PADDR,
             Self::raw_item_well_formed(paddr, level, prop),
@@ -249,7 +249,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res:
         Self::Item)
         requires
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             Self::raw_item_well_formed(paddr, level, prop),
         ensures
             Self::item_well_formed(res),
@@ -279,7 +279,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         new_prop: PageProperty,
     )
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::raw_item_well_formed(pa, level, old_prop),
             Self::tracked(Self::item_from_raw(pa, level, new_prop)) == Self::tracked(
                 Self::item_from_raw(pa, level, old_prop),
@@ -297,7 +297,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         child_idx: usize,
     )
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::raw_item_well_formed(pa, level, prop),
             Self::E::new_page_req(pa, level, prop),
             level > 1,
@@ -311,7 +311,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// The item produced by [`PageTableConfig::item_from_raw`] is well-formed.
     proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::raw_item_well_formed(pa, level, prop),
         ensures
             Self::item_well_formed(Self::item_from_raw(pa, level, prop)),
@@ -320,7 +320,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// Re-encoding a canonical raw item preserves the complete raw representation.
     proof fn lemma_item_into_raw_roundtrip(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::raw_item_well_formed(pa, level, prop),
         ensures
             Self::item_into_raw(Self::item_from_raw(pa, level, prop)) == (pa, level, prop),
@@ -334,7 +334,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         prop: PageProperty,
     )
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::item_well_formed(item),
             Self::item_into_raw(item) == (pa, level, prop),
         ensures
@@ -411,7 +411,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             regions.inv(),
             Self::item_from_raw_spec(pa, level, prop) == item,
             Self::raw_item_well_formed(pa, level, prop),
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             regions.slots.contains_key(frame_to_index(pa)),
             regions.slot_owners.contains_key(frame_to_index(pa)),
             Self::tracked(item) ==> regions.slot_owners[frame_to_index(
@@ -1622,8 +1622,7 @@ pub trait PageTableEntryTrait:
     #[verifier(when_used_as_spec(new_absent_spec))]
     fn new_absent() -> (res: Self)
         ensures
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            valid_frame_paddr(res.paddr()),
             !res.is_present(),
         returns
             Self::new_absent(),
@@ -1656,8 +1655,7 @@ pub trait PageTableEntryTrait:
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            valid_frame_paddr(res.paddr()),
             res.is_present(),
             res.is_last(level),
             res.prop() == prop,
@@ -1675,8 +1673,7 @@ pub trait PageTableEntryTrait:
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            valid_frame_paddr(res.paddr()),
             res.is_present(),
             forall|level: PagingLevel| !res.is_last(level),
         returns
@@ -1693,7 +1690,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            has_safe_slot(res),
+            valid_frame_paddr(res),
         returns
             self.paddr(),
     ;
@@ -1768,8 +1765,7 @@ pub trait PageTableEntryTrait:
             core::mem::size_of::<Self>() == core::mem::size_of::<usize>(),
             core::mem::size_of::<Self>() % core::mem::align_of::<Self>() == 0,
             core::mem::align_of::<Self>() > 0,
-            Self::new_absent().paddr() % PAGE_SIZE == 0,
-            Self::new_absent().paddr() < MAX_PADDR,
+            valid_frame_paddr(Self::new_absent().paddr()),
             !Self::new_absent().is_present(),
             forall|level: PagingLevel|
                 #![trigger Self::new_absent().is_last(level)]

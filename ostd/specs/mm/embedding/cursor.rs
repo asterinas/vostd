@@ -236,7 +236,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
         // slots fully preserved. The cloned leaf must be a tracked
         // (non-MMIO) data Frame whose slot is in-bound and active.
         res matches Some(paddr) ==> {
-            &&& has_safe_slot(paddr)
+            &&& valid_frame_paddr(paddr)
             &&& old(regions).slot_owners[frame_to_index(paddr)].usage is Frame
             &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == (
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
@@ -348,9 +348,9 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
         !old(owner).popped_too_high,
         old(tlb_model).inv(),
         // The mapped paddr is page-aligned and in-bounds (these come
-        // from a consumed `FrameEntry`'s paddr; `has_safe_slot` is
+        // from a consumed `FrameEntry`'s paddr; `valid_frame_paddr` is
         // guaranteed by the embedding's structural_inv `frames` clause).
-        has_safe_slot(
+        valid_frame_paddr(
             paddr,
         ),
 // MODEL GAP: `item_wf(frame, prop, entry_owner, regions)`
@@ -732,7 +732,7 @@ pub(super) proof fn cursor_query_step<'rcu>(
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
         res matches Some(paddr) ==> {
-            &&& has_safe_slot(paddr)
+            &&& valid_frame_paddr(paddr)
             &&& old(regions).slot_owners[frame_to_index(paddr)].usage is Frame
             &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == (
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
@@ -961,7 +961,7 @@ pub(super) proof fn map_step<'rcu>(
         old(regions).inv(),
         old(entry).owner.metaregion_sound(*old(regions)),
         old(tlb_model).inv(),
-        has_safe_slot(paddr),
+        valid_frame_paddr(paddr),
     ensures
         final(entry).vm_space == old(entry).vm_space,
         final(entry).kind == old(entry).kind,

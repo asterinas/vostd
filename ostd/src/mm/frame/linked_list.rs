@@ -397,7 +397,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         };
 
         proof {
-            // `get_slot` returned `Ok`, so `has_safe_slot(frame)` holds; with
+            // `get_slot` returned `Ok`, so `valid_frame_paddr(frame)` holds; with
             // `regions.inv()` that pins the slot in the region maps, its
             // metadata as init, and its `in_list` permission as governing the
             // slot's atomic — the same facts `cursor_mut_at` derives in-body.
@@ -456,7 +456,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         requires
             old(regions).inv(),
         ensures
-            !has_safe_slot(frame) ==> r is None,
+            !valid_frame_paddr(frame) ==> r is None,
             final(regions).inv(),
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
@@ -505,7 +505,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 None
             }
         } else {
-            assert(!has_safe_slot(frame));
+            assert(!valid_frame_paddr(frame));
             proof_with!(|= Tracked(None));
             None
         }

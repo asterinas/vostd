@@ -75,17 +75,17 @@ pub axiom fn frame_from_unused_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        // `has_safe_slot`-guarded, mirroring the relaxed exec
+        // `valid_frame_paddr`-guarded, mirroring the relaxed exec
         // `Frame::from_unused` `requires`: an out-of-bound / misaligned
         // `paddr` is not a precondition violation — it returns `Err`
         // (here `None`) without touching `regions`.
-        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
+        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
-        // Liveness, mirroring exec `!has_safe_slot(paddr) ==> r is Err`:
+        // Liveness, mirroring exec `!valid_frame_paddr(paddr) ==> r is Err`:
         // a bad `paddr` always fails (and leaves `regions` unchanged via
         // the `None` branch below).
-        !has_safe_slot(paddr) ==> res is None,
+        !valid_frame_paddr(paddr) ==> res is None,
         // Success branch is conditioned on the slot being unused
         // (per `get_from_unused_spec` recommends + the body's
         // `MetaSlot::get_from_unused` failing otherwise). The reparked
@@ -114,10 +114,10 @@ pub axiom fn frame_from_in_use_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        // `has_safe_slot`-guarded, mirroring the relaxed exec
+        // `valid_frame_paddr`-guarded, mirroring the relaxed exec
         // `Frame::from_in_use` `requires`: a bad `paddr` returns `Err`
         // (here `None`) without touching `regions`.
-        has_safe_slot(paddr) ==> old(regions).slots.contains_key(
+        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(
             frame_to_index(paddr),
         ),
 // Refcount saturation is NOT required: exec
@@ -127,8 +127,8 @@ pub axiom fn frame_from_in_use_embedded(
 
     ensures
         final(regions).inv(),
-        // Liveness, mirroring exec `!has_safe_slot(paddr) ==> res is Err`.
-        !has_safe_slot(paddr) ==> res is None,
+        // Liveness, mirroring exec `!valid_frame_paddr(paddr) ==> res is Err`.
+        !valid_frame_paddr(paddr) ==> res is None,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         // 2b: faithful axiom-strengthening. The exec `get_from_in_use`
@@ -280,10 +280,10 @@ pub(super) proof fn from_unused_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
+        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
-        !has_safe_slot(paddr) ==> res is None,
+        !valid_frame_paddr(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_unused_spec(
             paddr,
@@ -313,14 +313,14 @@ pub(super) proof fn from_in_use_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        has_safe_slot(paddr) ==> old(regions).slots.contains_key(
+        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(
             frame_to_index(paddr),
         ),
 // Saturation `panic_diverge`s in exec — not a precondition.
 
     ensures
         final(regions).inv(),
-        !has_safe_slot(paddr) ==> res is None,
+        !valid_frame_paddr(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
