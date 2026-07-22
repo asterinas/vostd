@@ -43,7 +43,7 @@ verus! {
 )]
 pub fn demo_honored(slot_idx: usize) {
     proof {
-        let tracked obl = regions.tracked_mint_frame_obligation(slot_idx);
+        let tracked obl = regions.tracked_mint_frame_obligation(slot_idx as int);
         // ... here a real caller would construct a Frame/Segment, hand it
         // around, etc. — for the demo we just immediately redeem.
         regions.tracked_redeem_frame_obligation(obl);
@@ -84,7 +84,7 @@ pub fn demo_leaked_when_enabled(slot_idx: usize) {
         // or a single segment frame. No matching `Drop::drop` /
         // `ManuallyDrop::new` follows, so the multiset entry persists and
         // `clean_inv` fails on `frame_obligations.len() == 0` at function exit.
-        let tracked _obl = regions.tracked_mint_frame_obligation(slot_idx);
+        let tracked _obl = regions.tracked_mint_frame_obligation(slot_idx as int);
     }
 }
 

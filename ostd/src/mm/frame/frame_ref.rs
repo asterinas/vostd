@@ -61,7 +61,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
         }
 
         proof_decl! {
-            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
         }
         // `from_raw` mints one `frame_obligations` entry at the slot and
         // hands back the token; the token is dropped affinely (the ledger

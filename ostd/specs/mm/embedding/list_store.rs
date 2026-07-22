@@ -111,7 +111,7 @@ pub open spec fn list_registry_ok<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         0 <= i < lo.list.len() ==> regions.slot_owners[lo.slot_index_at(
             i,
         )].inner_perms.in_list.value() == lo.list_id
-    &&& lo.list_id != 0 ==> forall|idx: usize|
+    &&& lo.list_id != 0 ==> forall|idx: int|
         #![trigger regions.slot_owners[idx]]
         regions.slot_owners.contains_key(idx)
             && regions.slot_owners[idx].inner_perms.in_list.value() == lo.list_id ==> exists|i: int|
@@ -311,7 +311,7 @@ pub proof fn push_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         final(regions).frame_obligations =~= old(regions).frame_obligations.remove(
             old(frame_own).slot_index,
         ),
-        forall|k: usize|
+        forall|k: int|
             #![trigger final(regions).slots[k]]
             #![trigger final(regions).slot_owners[k]]
             k != old(frame_own).slot_index && (old(owner).list.len() > 0 ==> k != old(
@@ -409,7 +409,7 @@ pub proof fn tracked_pop_front_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         ),
         // Outside-the-list slot preservation (front specialisation:
         // popped slot + the new front at `slot_index_at(1)`).
-        forall|j: usize|
+        forall|j: int|
             #![trigger final(regions).slots[j]]
             #![trigger final(regions).slot_owners[j]]
             j != old(owner).slot_index_at(0) && (old(owner).list.len() > 1 ==> j != old(
@@ -487,7 +487,7 @@ pub proof fn lemma_push_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         final(regions).frame_obligations =~= old(regions).frame_obligations.remove(
             old(frame_own).slot_index,
         ),
-        forall|k: usize|
+        forall|k: int|
             #![trigger final(regions).slots[k]]
             #![trigger final(regions).slot_owners[k]]
             k != old(frame_own).slot_index && (old(owner).list.len() > 1 ==> k != old(
@@ -557,7 +557,7 @@ pub proof fn tracked_pop_back_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
             old(owner).slot_index_at(old(owner).list.len() - 1),
         ),
-        forall|j: usize|
+        forall|j: int|
             #![trigger final(regions).slots[j]]
             #![trigger final(regions).slot_owners[j]]
             j != old(owner).slot_index_at(old(owner).list.len() - 1) && (old(owner).list.len() > 1
@@ -629,7 +629,7 @@ pub axiom fn insert_before_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         final(regions).frame_obligations =~= old(regions).frame_obligations.remove(
             old(frame_own).slot_index,
         ),
-        forall|k: usize|
+        forall|k: int|
             #![trigger final(regions).slots[k]]
             #![trigger final(regions).slot_owners[k]]
             k != old(frame_own).slot_index && (n > 0 ==> k != old(owner).slot_index_at(n - 1)) && (n
@@ -691,7 +691,7 @@ pub axiom fn take_at_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         final(regions).frame_obligations =~= old(regions).frame_obligations.insert(
             old(owner).slot_index_at(n),
         ),
-        forall|j: usize|
+        forall|j: int|
             #![trigger final(regions).slots[j]]
             #![trigger final(regions).slot_owners[j]]
             j != old(owner).slot_index_at(n) && (n > 0 ==> j != old(owner).slot_index_at(n - 1))
@@ -781,7 +781,7 @@ pub axiom fn list_drop_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
                 &&& final(regions).slot_owners[idx].inner_perms.in_list.value() == 0
             },
         // Every slot outside the dropped list is fully preserved.
-        forall|idx: usize|
+        forall|idx: int|
             #![trigger final(regions).slot_owners[idx]]
             (forall|i: int| 0 <= i < owner.list.len() ==> idx != owner.slot_index_at(i))
                 ==> final(regions).slot_owners[idx] == old(regions).slot_owners[idx]
@@ -977,7 +977,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             self.lists[id].relate_region_at_facts(self.regions, i);
             assert(self.regions.slot_owners.contains_key(idx));
             assert(self.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
-            assert(self.regions.slot_owners[idx].usage == PageUsage::Frame);
+            assert(self.regions.slot_owners[idx].usage is Frame);
         };
 
         let tracked owner = self.lists.tracked_remove(id);

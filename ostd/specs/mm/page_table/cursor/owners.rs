@@ -16,7 +16,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, meta_addr},
+            mapping::{frame_to_index, index_to_meta},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
@@ -806,7 +806,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         TreePath<NR_ENTRIES>,
     ) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner.is_node() ==> guards.unlocked(owner.node().meta_addr_self())
+            owner.is_node() ==> guards.unlocked(owner.node().meta_vaddr())
     }
 
     pub open spec fn node_unlocked_except(guards: Guards<'rcu>, addr: usize) -> (spec_fn(
@@ -814,8 +814,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         TreePath<NR_ENTRIES>,
     ) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner.is_node() ==> owner.node().meta_addr_self() != addr ==> guards.unlocked(
-                owner.node().meta_addr_self(),
+            owner.is_node() ==> owner.node().meta_vaddr() != addr ==> guards.unlocked(
+                owner.node().meta_vaddr(),
             )
     }
 
@@ -843,7 +843,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn only_current_locked(self, guards: Guards<'rcu>) -> bool {
         self.map_only_children(
-            Self::node_unlocked_except(guards, self.cur_entry_owner().node().meta_addr_self()),
+            Self::node_unlocked_except(guards, self.cur_entry_owner().node().meta_vaddr()),
         )
     }
 
@@ -860,11 +860,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
-            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_addr_self(),
+            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_vaddr(),
         ensures
             self.children_not_locked(guards1),
     {
-        let current_addr = self.cur_entry_owner().node().meta_addr_self();
+        let current_addr = self.cur_entry_owner().node().meta_vaddr();
         let f = Self::node_unlocked_except(guards0, current_addr);
         let g = Self::node_unlocked(guards1);
 
@@ -1121,7 +1121,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
-        idx: usize,
+        idx: int,
     )
         requires
             self.inv(),
@@ -1149,7 +1149,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             new_regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage,
             // All other slot_owners unchanged
             new_regions.slot_owners.dom() == old_regions.slot_owners.dom(),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger new_regions.slot_owners[i]]
                 i != idx && old_regions.slot_owners.contains_key(i) ==> new_regions.slot_owners[i]
                     == old_regions.slot_owners[i],
@@ -2089,9 +2089,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.metaregion_sound(regions0),
             regions0.slot_owners =~= regions1.slot_owners,
-            forall|k: usize|
+            forall|k: int|
                 regions0.slots.contains_key(k) ==> #[trigger] regions1.slots.contains_key(k),
-            forall|k: usize|
+            forall|k: int|
                 regions0.slots.contains_key(k) ==> regions0.slots[k]
                     == #[trigger] regions1.slots[k],
         ensures
@@ -2106,7 +2106,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
-        idx: usize,
+        idx: int,
     )
         requires
             self.inv(),
@@ -2130,7 +2130,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             // Bumped rc stays in the SHARED range (needed for the node branch).
             regions1.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX,
-            forall|i: usize|
+            forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != idx && regions0.slot_owners.contains_key(i) ==> regions1.slot_owners[i]
                     == regions0.slot_owners[i],
@@ -2148,13 +2148,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
     )
         requires
             self.inv(),
             self.metaregion_sound(regions0),
             regions1.inv(),
-            forall|k: usize|
+            forall|k: int|
                 regions0.slots.contains_key(k) ==> #[trigger] regions1.slots.contains_key(k),
             // Borrow-protocol transition: `raw_count` is dormant, so the
             // borrow is net-zero on `regions` — the slot perm at
@@ -2162,7 +2162,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // `Frame::borrow`, which leaves `slots` unchanged). With
             // `raw_count` no longer in `metaregion_sound`, full slot
             // preservation is what carries soundness across the borrow.
-            forall|k: usize|
+            forall|k: int|
                 regions0.slots.contains_key(k) ==> regions0.slots[k]
                     == #[trigger] regions1.slots[k],
             // All other fields at changed_idx preserved
@@ -2174,7 +2174,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt,
             // All other slots unchanged
-            forall|i: usize|
+            forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions0.slot_owners.dom() =~= regions1.slot_owners.dom(),

@@ -20,7 +20,7 @@
 //! - **Generic `M: AnyFrameMeta`**: `Frame::from_unused` takes a
 //!   `metadata: M` parameter and threads it through `PointsTo<MetaSlot, Metadata<M>>`.
 //!   We don't model the metadata type — `get_from_unused_spec` itself
-//!   ignores `M` and just commits to `usage == PageUsage::Frame`.
+//!   ignores `M` and just commits to `usage is Frame`.
 //! - **Drop-last-in-place teardown**: when `ref_count == 1`, dropping
 //!   the handle invokes the metadata destructor (which may require
 //!   `storage.is_init`, `in_list.value() == 0`). We model this by
@@ -150,7 +150,7 @@ pub axiom fn frame_from_in_use_embedded(
             // is Frame-usage. This matches `VmStore::structural_inv`'s
             // FrameId⟹Frame-usage clause and lets [`from_in_use_step`]
             // discharge `insert_frame`'s usage precondition.
-            &&& so.usage == PageUsage::Frame
+            &&& so.usage is Frame
         },
         // `from_in_use` only `inc_ref_count`s — it never touches the
         // slot-perm map, so the `slots` domain is preserved on *both*
@@ -209,7 +209,7 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
 // ---- mirrors strengthened `Frame::drop_ensures` ----
 
         final(regions).inv(),
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -331,7 +331,7 @@ pub(super) proof fn from_in_use_step(
             &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
             &&& so.inner_perms.storage.is_init()
-            &&& so.usage == PageUsage::Frame
+            &&& so.usage is Frame
         },
         final(regions).slots == old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>|
@@ -374,7 +374,7 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
     ensures
         final(regions).inv(),
         final(regions).slots == old(regions).slots,
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(entry.paddr) ==> final(regions).slot_owners[i] == old(
                 regions,

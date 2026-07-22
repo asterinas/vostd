@@ -56,10 +56,10 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& new_regions.slot_owners[frame_to_index(paddr)]
             =~= old_regions.slot_owners[frame_to_index(paddr)]
         &&& new_regions.slot_owners[frame_to_index(paddr)].slot_vaddr == r.ptr.addr()
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
-        &&& forall|i: usize|
+        &&& forall|i: int|
             i != frame_to_index(paddr) ==> new_regions.slots.contains_key(i)
                 == old_regions.slots.contains_key(i)
         &&& r.ptr.addr() == frame_to_meta(paddr)
@@ -93,12 +93,12 @@ impl<'a, M: ?Sized> Frame<M> {
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
     ) -> bool {
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger new_regions.slots[i], old_regions.slots[i]]
             i != self.index() && old_regions.slots.contains_key(i)
                 ==> new_regions.slots.contains_key(i) && new_regions.slots[i]
                 == old_regions.slots[i]
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != self.index() ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& new_regions.slot_owners.dom() =~= old_regions.slot_owners.dom()
@@ -114,11 +114,11 @@ impl<M: ?Sized> Inv for Frame<M> {
 }
 
 impl<M: ?Sized> Frame<M> {
-    pub open spec fn paddr(self) -> usize {
+    pub open spec fn paddr(self) -> Paddr {
         meta_to_frame(self.ptr.addr())
     }
 
-    pub open spec fn index(self) -> usize {
+    pub open spec fn index(self) -> int {
         frame_to_index(self.paddr())
     }
 
@@ -138,7 +138,7 @@ impl<M: ?Sized> Frame<M> {
         {
             &&& pre_owner.inner_perms.ref_count.value() == REF_COUNT_UNUSED
             &&& MetaSlot::get_from_unused_inner_perms_spec(false, post_owner.inner_perms)
-            &&& post_owner.usage == PageUsage::Frame
+            &&& post_owner.usage is Frame
             &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
             &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
             &&& post =~= pre.insert_slot_owner(paddr, post_owner).mint_frame_obligation(idx)
@@ -201,7 +201,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     /// (Full per-instance ledger enforcement is a follow-up; for now
     /// `consume_obligation` is a no-op so the token's identity is
     /// documentary rather than gated against a multiset.)
-    type Obligation = DropObligation<usize>;
+    type Obligation = DropObligation<int>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(self.index())
@@ -216,7 +216,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     ) -> bool {
         let slot_own = s0.slot_owners[self.index()];
         &&& s1.slot_owners[self.index()] == slot_own
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger s1.slot_owners[i]]
             i != self.index() ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
@@ -246,7 +246,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     // via `from_raw` after the slot has been torn down. Hence the drop is
     // only permitted when `raw_count == 0`.
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let idx = self.index();
         let slot_own = s.slot_owners[idx];
         // Cross-object validity: this Frame is consistent with `s` and
         // the slot is in the SHARED rc range. `wf_with_region` carries the
@@ -286,11 +286,11 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let idx = self.index();
         let so0 = s0.slot_owners[idx];
         let so1 = s1.slot_owners[idx];
         &&& s1.inv()
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger s1.slot_owners[i]]
             i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots

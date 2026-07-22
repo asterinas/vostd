@@ -86,7 +86,7 @@ use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::{
     frame_specs::*,
-    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
 };
 
 verus! {
@@ -563,7 +563,7 @@ impl<M> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            -> obl: Tracked<vstd_extra::drop_tracking::DropObligation<usize>>,
+            -> obl: Tracked<vstd_extra::drop_tracking::DropObligation<int>>,
         requires
             Self::from_raw_requires_safety(*old(regions), paddr),
             old(regions).slots.contains_key(frame_to_index(paddr)),
@@ -587,7 +587,7 @@ impl<M> Frame<M> {
         let ghost idx = frame_to_index(paddr);
 
         proof_decl! {
-            let tracked obl_minted: vstd_extra::drop_tracking::DropObligation<usize>;
+            let tracked obl_minted: vstd_extra::drop_tracking::DropObligation<int>;
         }
         proof {
             // Mint the obligation that will be consumed by either
@@ -622,7 +622,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         new_perm: MetaRegionOwners,
         res: Self,
     ) -> bool {
-        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let idx = self.index();
         &&& new_perm.inv()
         // ref_count incremented
         &&& new_perm.slot_owners[idx].inner_perms.ref_count.value()
@@ -642,7 +642,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
             == old_perm.slot_owners[idx].usage
         // Other slot_owners unchanged
         &&& new_perm.slots == old_perm.slots
-        &&& forall|i: usize|
+        &&& forall|i: int|
             i != idx ==> (#[trigger] new_perm.slot_owners[i] == old_perm.slot_owners[i])
         &&& new_perm.slot_owners.dom() == old_perm.slot_owners.dom()
         &&& new_perm.frame_obligations == old_perm.frame_obligations.insert(idx)
@@ -654,7 +654,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         }
 
         let paddr = meta_to_frame(self.ptr.addr());
-        let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let ghost idx = self.index();
 
         unsafe {
             #[verus_spec(with Tracked(perm))]
@@ -675,12 +675,12 @@ impl<M: ?Sized> Drop for Frame<M> {
     fn drop(
         self,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        Tracked(obl): Tracked<DropObligation<usize>>,
+        Tracked(obl): Tracked<DropObligation<int>>,
     ) {
         proof {
             regions.tracked_redeem_frame_obligation(obl);
         }
-        let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let ghost idx = self.index();
         let ghost old_regions = *regions;
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
@@ -714,7 +714,7 @@ impl<M: ?Sized> Drop for Frame<M> {
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);
 
-            assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i]
+            assert forall|i: int| i != idx implies #[trigger] regions.slot_owners[i]
                 == old_regions.slot_owners[i] by {}
             assert(regions.slots == old_regions.slots);
             assert(regions.slot_owners.dom() == old_regions.slot_owners.dom());
@@ -724,33 +724,33 @@ impl<M: ?Sized> Drop for Frame<M> {
             // indices, the invariant carries over from `old_regions.inv()`.
             // For `idx`, `slot_own.inv()` and the perm/slot agreement at
             // `idx` are already asserted above.
-            assert forall|i: usize|
-                i < max_meta_slots() <==> #[trigger] regions.slot_owners.contains_key(i) by {}
+            assert forall|i: int|
+                0 <= i < max_meta_slots() <==> #[trigger] regions.slot_owners.contains_key(i) by {}
 
-            assert forall|i: usize| #[trigger] regions.slots.contains_key(i) implies i
+            assert forall|i: int| #[trigger] regions.slots.contains_key(i) implies i
                 < max_meta_slots() by {
                 if i == idx {
                     assert(regions.slot_owners.contains_key(idx));
                 }
             }
 
-            assert forall|i: usize| #[trigger] regions.slots.contains_key(i) implies ({
+            assert forall|i: int| #[trigger] regions.slots.contains_key(i) implies ({
                 &&& regions.slot_owners.contains_key(i)
                 &&& regions.slot_owners[i].inv()
                 &&& regions.slots[i].is_init()
-                &&& regions.slots[i].addr() == meta_addr(i)
+                &&& regions.slots[i].addr() == index_to_meta(i)
                 &&& regions.slots[i].value().wf(regions.slot_owners[i])
                 &&& regions.slot_owners[i].slot_vaddr == regions.slots[i].addr()
             }) by {
                 if i == idx {
                     assert(regions.slots[i].is_init());
-                    assert(regions.slots[i].addr() == meta_addr(i));
+                    assert(regions.slots[i].addr() == index_to_meta(i));
                     assert(regions.slots[i].value().wf(regions.slot_owners[i]));
                     assert(regions.slot_owners[i].slot_vaddr == regions.slots[i].addr());
                 }
             }
 
-            assert forall|i: usize| #[trigger]
+            assert forall|i: int| #[trigger]
                 regions.slot_owners.contains_key(i) implies regions.slot_owners[i].inv() by {
                 if i == idx {
                     assert(slot_own.inv());
@@ -879,7 +879,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
             regions,
         ).slot_owners[frame_to_index(paddr)].usage,
         final(regions).slots == old(regions).slots,
-        forall|i: usize|
+        forall|i: int|
             i != frame_to_index(paddr) ==> (#[trigger] final(regions).slot_owners[i] == old(
                 regions,
             ).slot_owners[i]),

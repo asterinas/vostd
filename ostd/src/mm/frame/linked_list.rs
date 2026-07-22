@@ -20,7 +20,7 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
     linked_list::linked_list_owners::*,
-    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
     meta_owners::{MetaSlotOwner, Metadata},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
@@ -857,12 +857,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& final(regions).slot_owners[idx].inner_perms.in_list.value() == 0
                 &&& final(regions).slot_owners[idx].inner_perms.storage.is_init()
                 &&& final(regions).slot_owners[idx].inner_perms.vtable_ptr.is_init()
-                &&& final(regions).slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& final(regions).slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& final(regions).slot_owners[idx].paths_in_pt == old(
                     regions,
                 ).slot_owners[idx].paths_in_pt
             },
-            res.is_some() ==> forall|j: usize|
+            res.is_some() ==> forall|j: int|
                 #![trigger final(regions).slot_owners[j]]
                 j != frame_to_index(meta_to_frame(old(self).current->0.addr())) ==> {
                     &&& final(regions).slot_owners[j].usage == old(regions).slot_owners[j].usage
@@ -919,7 +919,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             assert(regions.slots.dom() == regions0.slots.dom());
-            assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+            assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                 &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -953,7 +953,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+                assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -967,7 +967,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             self.list.front = next_ptr;
             proof {
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+                assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -995,7 +995,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+                assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1012,7 +1012,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             self.current = None;
             proof {
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+                assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1038,7 +1038,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(regions.inv());
             assert(regions.slots.dom() == regions0.slots.dom());
             assert(regions.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt);
-            assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+            assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                 &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1169,7 +1169,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let frame_ptr = ReprPtr::<MetaSlot, Metadata<Link<M>>>::from_pptr(frame.ptr);
         let frame_ptr_as_link = MetadataAsLink::cast_from_metadata(frame_ptr);
 
-        let ghost frame_idx_g: usize = frame_own.slot_index;
+        let ghost frame_idx_g: int = frame_own.slot_index;
 
         if let Some(current) = self.current {
             let current_md = MetadataAsLink::cast_to_metadata(current);
@@ -1438,7 +1438,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
                 let idx = frame_to_index(meta_to_frame(s0.0.list[i].paddr));
                 s1.1.frame_obligations.count(idx) == s0.1.frame_obligations.count(idx)
             }
-        &&& forall|idx: usize|
+        &&& forall|idx: int|
             #![trigger s1.1.slot_owners[idx]]
             (forall|i: int|
                 #![trigger s0.0.list[i]]
@@ -1511,7 +1511,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         regions.frame_obligations.count(idx) == 0
                     },
                 // slots values inside the original_list.
-                forall|idx: usize|
+                forall|idx: int|
                     #![trigger regions.slot_owners[idx]]
                     (forall|j: int|
                         #![trigger original_list[j]]

@@ -22,7 +22,7 @@
 //!
 //! - **Generic `M: AnyFrameMeta`** + the `metadata_fn` closure: the
 //!   embedding doesn't carry the per-frame metadata. The axioms commit
-//!   only to `usage == PageUsage::Frame` (matching the exec
+//!   only to `usage is Frame` (matching the exec
 //!   `Segment::from_unused` contract).
 //! - **Split / slice / next / clone / into_raw / from_raw**: deferred
 //!   to follow-up; the base `from_unused` + drop pair is enough to
@@ -37,7 +37,9 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+            mapping::{frame_to_index, index_to_frame, max_meta_slots},
+            meta_owners::PageUsage,
+            meta_region_owners::MetaRegionOwners,
         },
         page_table::cursor::owners::CursorOwner,
     },
@@ -105,24 +107,24 @@ pub axiom fn segment_from_unused_embedded(
                 ==> {
                     let idx = frame_to_index(paddr);
                     let so = final(regions).slot_owners[idx];
-                    &&& so.usage == PageUsage::Frame
+                    &&& so.usage is Frame
                     &&& so.inner_perms.ref_count.value() == 1
                     &&& so.paths_in_pt.is_empty()
                     &&& so.inner_perms.in_list.value() == 0
                     &&& so.inner_perms.storage.is_init()
                 },
         // Slots OUTSIDE the range are fully preserved.
-        res is Some ==> forall|i: usize|
+        res is Some ==> forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Unparked (page-table-node) slots are untouched: allocation only
         // transitions the (previously UNUSED, parked) covered slots, never
         // a PT root whose perm is not parked in `regions.slots`. Preserves
         // the embedding's slot-perm coverage exception.
-        res is Some ==> forall|i: usize|
+        res is Some ==> forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -172,7 +174,7 @@ pub proof fn lemma_segment_drop_embedded(
                     &&& so.inner_perms.ref_count.value() >= 1
                     &&& so.inner_perms.ref_count.value()
                             <= REF_COUNT_MAX
-                    &&& so.usage == PageUsage::Frame
+                    &&& so.usage is Frame
                     // At rc==1 (sole reference being dropped), no PTE
                     // points to this frame — required for the
                     // teardown's `drop_last_in_place_safety_cond`.
@@ -202,17 +204,17 @@ pub proof fn lemma_segment_drop_embedded(
                                 == (so_old.inner_perms.ref_count.value() - 1) as u64
                 },
         // Slots OUTSIDE the range are fully preserved.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Unparked (page-table-node) slots are untouched: drop only frees
         // the segment's covered (Frame) slots, never a PT root whose perm
         // is not parked in `regions.slots`. Preserves the embedding's
         // slot-perm coverage exception.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -263,7 +265,7 @@ pub proof fn segment_next_embedded(
                 .inner_perms.ref_count.value()
             <= REF_COUNT_MAX,
         old(regions).slot_owners[frame_to_index(paddr)].usage
-            == PageUsage::Frame,
+            is Frame,
     ensures
         final(regions).inv(),
         final(regions).slots == old(regions).slots,
@@ -281,7 +283,7 @@ pub proof fn segment_next_embedded(
             &&& so_new.inner_perms.vtable_ptr == so_old.inner_perms.vtable_ptr
         },
         // All other slots fully preserved.
-        forall|i: usize| #![trigger final(regions).slot_owners[i]]
+        forall|i: int| #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]
@@ -325,18 +327,18 @@ pub(super) proof fn from_unused_step(
                 ==> {
                     let idx = frame_to_index(paddr);
                     let so = final(regions).slot_owners[idx];
-                    &&& so.usage == PageUsage::Frame
+                    &&& so.usage is Frame
                     &&& so.inner_perms.ref_count.value() == 1
                     &&& so.paths_in_pt.is_empty()
                 },
-        res is Some ==> forall|i: usize|
+        res is Some ==> forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Unparked (page-table-node) slots untouched (see axiom).
-        res is Some ==> forall|i: usize|
+        res is Some ==> forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -373,7 +375,7 @@ pub(super) proof fn drop_step(
                 &&& so.inner_perms.ref_count.value() >= 1
                 &&& so.inner_perms.ref_count.value()
                         <= REF_COUNT_MAX
-                &&& so.usage == PageUsage::Frame
+                &&& so.usage is Frame
                 &&& so.inner_perms.ref_count.value() == 1
                     ==> so.paths_in_pt.is_empty()
             },
@@ -397,14 +399,14 @@ pub(super) proof fn drop_step(
                     ==> so_new.inner_perms.ref_count.value()
                             == (so_old.inner_perms.ref_count.value() - 1) as u64
             },
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(entry.range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(entry.range.start <= index_to_frame(i)
                     < entry.range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Unparked (page-table-node) slots untouched (see axiom).
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -432,7 +434,7 @@ pub axiom fn segment_clone_embedded(
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
                     let so = old(regions).slot_owners[frame_to_index(paddr)];
-                    &&& so.usage == PageUsage::Frame
+                    &&& so.usage is Frame
                     &&& so.inner_perms.ref_count.value() >= 1
                     &&& so.inner_perms.ref_count.value() + 1 <= REF_COUNT_MAX
                 },
@@ -457,10 +459,10 @@ pub axiom fn segment_clone_embedded(
                     &&& so_new.inner_perms.vtable_ptr == so_old.inner_perms.vtable_ptr
                 },
         // Slots OUTSIDE the range are fully preserved.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]

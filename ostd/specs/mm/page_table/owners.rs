@@ -1450,8 +1450,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.inv(),
             self.metaregion_sound(r0),
             r0.slot_owners == r1.slot_owners,
-            forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
         ensures
             self.metaregion_sound(r1),
     {
@@ -1474,8 +1474,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             subtree.inv(),
             subtree.subtree_satisfies(path, Self::metaregion_sound_pred(r0)),
             r0.slot_owners == r1.slot_owners,
-            forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
         ensures
             subtree.subtree_satisfies(path, Self::metaregion_sound_pred(r1)),
         decreases INC_LEVELS - subtree.level(),
@@ -1506,17 +1506,17 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
     )
         requires
             self.inv(),
             self.metaregion_sound(r0),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
             r0.slot_owners.dom() == r1.slot_owners.dom(),
-            forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
             // No tree entry's primary slot is at changed_idx.
             self.0.subtree_satisfies(
                 self.0.value().path,
@@ -1564,17 +1564,17 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         path: TreePath<NR_ENTRIES>,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
     )
         requires
             subtree.inv(),
             subtree.subtree_satisfies(path, Self::metaregion_sound_pred(r0)),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
             r0.slot_owners.dom() == r1.slot_owners.dom(),
-            forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
             subtree.subtree_satisfies(
                 path,
                 |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|

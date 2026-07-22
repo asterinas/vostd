@@ -10,7 +10,7 @@ use crate::specs::{
     arch::PAGE_SIZE,
     mm::{
         frame::{
-            mapping::{frame_to_index, meta_addr},
+            mapping::{frame_to_index, index_to_meta},
             meta_region_owners::MetaRegionOwners,
         },
         virt_mem::MemView,
@@ -109,7 +109,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
                 &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
                 // Segment frames are shared (never `UNIQUE`).
@@ -146,7 +146,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                     idx,
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
-                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
@@ -230,7 +230,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 /// treats opaquely under SMT), a `spec fn` is auto-unfolded so equalities
 /// between `frame_idx_at(...)` and `frame_to_index(...)` are derivable.
 #[verifier::inline]
-pub open spec fn frame_idx_at(range_start: usize, j: int) -> usize {
+pub open spec fn frame_idx_at(range_start: usize, j: int) -> int {
     frame_to_index((range_start + j * PAGE_SIZE) as usize)
 }
 
@@ -261,7 +261,7 @@ pub open spec fn seg_obligations_minted(
         ) >= pre.frame_obligations.count(frame_to_index((range_start + i * PAGE_SIZE) as usize))
             + 1
         // Frame condition: every slot that is NOT a segment frame is untouched.
-    &&& forall|jdx: usize|
+    &&& forall|jdx: int|
         #![trigger post.frame_obligations.count(jdx)]
         (forall|i: int|
             #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
@@ -299,7 +299,7 @@ pub proof fn tracked_mint_seg_obligations(
         final(regions).slots == old(regions).slots,
         final(regions).slot_owners == old(regions).slot_owners,
         // Counts only grow.
-        forall|idx: usize|
+        forall|idx: int|
             #![trigger final(regions).frame_obligations.count(idx)]
             final(regions).frame_obligations.count(idx) >= old(regions).frame_obligations.count(
                 idx,
@@ -319,7 +319,7 @@ pub proof fn tracked_mint_seg_obligations(
         // first `n-1` frames against `g0`. Bridge each ensures to `n`.
         // Frame condition: a non-segment slot is untouched by the recursion
         // (it omits the slot from `[0, n-1)`) and is not the mint target.
-        assert forall|jdx: usize|
+        assert forall|jdx: int|
             #![trigger regions.frame_obligations.count(jdx)]
             (forall|i: int|
                 #![trigger frame_to_index((range_start + i * PAGE_SIZE) as usize)]
