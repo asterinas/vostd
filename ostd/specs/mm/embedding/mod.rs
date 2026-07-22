@@ -4223,7 +4223,9 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
         };
         // --- structural: unique valid_frame_paddr ---
         assert forall|u: UniqueId| #[trigger]
-            s.unique_frames.dom().contains(u) implies valid_frame_paddr(s.unique_frames[u].paddr) by {
+            s.unique_frames.dom().contains(u) implies valid_frame_paddr(
+            s.unique_frames[u].paddr,
+        ) by {
             if u != uid {
                 assert(old_unique.dom().contains(u));
             }
@@ -4432,9 +4434,8 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
         assert(s.regions.slot_owners[u_idx] == old_regions.slot_owners[u_idx]);
     };
     // --- structural: unique valid_frame_paddr / injectivity (subset of old) ---
-    assert forall|u: UniqueId| #[trigger] s.unique_frames.dom().contains(u) implies valid_frame_paddr(
-        s.unique_frames[u].paddr,
-    ) by {
+    assert forall|u: UniqueId| #[trigger]
+        s.unique_frames.dom().contains(u) implies valid_frame_paddr(s.unique_frames[u].paddr) by {
         assert(old_unique.dom().contains(u));
     };
     assert forall|u1: UniqueId, u2: UniqueId|
@@ -4628,9 +4629,8 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
         }
         assert(s.regions.slot_owners[u_idx] == old_regions.slot_owners[u_idx]);
     };
-    assert forall|u: UniqueId| #[trigger] s.unique_frames.dom().contains(u) implies valid_frame_paddr(
-        s.unique_frames[u].paddr,
-    ) by {
+    assert forall|u: UniqueId| #[trigger]
+        s.unique_frames.dom().contains(u) implies valid_frame_paddr(s.unique_frames[u].paddr) by {
         assert(old_unique.dom().contains(u));
     };
     assert forall|u1: UniqueId, u2: UniqueId|
@@ -4824,7 +4824,9 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
             }
         };
         assert forall|u: UniqueId| #[trigger]
-            s.unique_frames.dom().contains(u) implies valid_frame_paddr(s.unique_frames[u].paddr) by {
+            s.unique_frames.dom().contains(u) implies valid_frame_paddr(
+            s.unique_frames[u].paddr,
+        ) by {
             if u != uid {
                 assert(old_unique.dom().contains(u));
             }
