@@ -39,7 +39,7 @@ impl<'a, M: ?Sized> Frame<M> {
     pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& regions.slot_owners.contains_key(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].slot_vaddr == frame_to_meta(paddr)
-        &&& has_safe_slot(paddr)
+        &&& valid_frame_paddr(paddr)
         &&& regions.inv()
         &&& regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED
@@ -128,7 +128,7 @@ impl<M: ?Sized> Frame<M> {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);

@@ -222,7 +222,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
                 &&& res.ptr.addr() == frame_to_meta(paddr)
                 &&& Self::from_unused_spec(paddr, *old(regions), *final(regions))
             },
-            !has_safe_slot(paddr) ==> r is Err,
+            !valid_frame_paddr(paddr) ==> r is Err,
             r is Err ==> *final(regions) == *old(regions)
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
@@ -302,7 +302,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
         requires
             old(regions).inv(),
-            has_safe_slot(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+            valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
         ensures
             final(regions).inv(),
             res matches Ok(res) ==> {
@@ -311,7 +311,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Frame<M> {
                 &&& res.ptr == old(regions).slots[frame_to_index(paddr)].pptr()
                 &&& MetaSlot::live_frame_obligations_ok_spec(paddr, *old(regions), *final(regions))
             },
-            !has_safe_slot(paddr) ==> res is Err,
+            !valid_frame_paddr(paddr) ==> res is Err,
             old(regions).slot_owners_agree_except(*final(regions), frame_to_index(paddr)),
             res is Err ==> *old(regions) == *final(regions),
     )]
@@ -613,7 +613,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
             != REF_COUNT_UNUSED
         // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
         &&& perm.slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX ==> may_panic()
-        &&& has_safe_slot(self.paddr())
+        &&& valid_frame_paddr(self.paddr())
     }
 
     open spec fn clone_ensures(
@@ -843,7 +843,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
     requires
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index(paddr)),
-        has_safe_slot(paddr),
+        valid_frame_paddr(paddr),
         // The caller holds a reference, so rc > 0, and the slot must be live
         // (not the UNUSED sentinel). Saturation is caught at runtime by
         // `inc_ref_count`'s Arc-style abort.

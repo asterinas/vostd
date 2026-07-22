@@ -87,7 +87,7 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
@@ -116,7 +116,7 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
@@ -199,7 +199,7 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);

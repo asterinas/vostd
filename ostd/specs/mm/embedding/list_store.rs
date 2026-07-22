@@ -58,7 +58,7 @@ use vstd::prelude::*;
 use vstd_extra::{cast_ptr::Repr, ownership::*, set_extra::lemma_finite_int_set_has_unused};
 
 use crate::specs::{
-    arch::has_safe_slot,
+    arch::valid_frame_paddr,
     mm::frame::{
         linked_list::linked_list_owners::{CursorOwner, LinkOwner, LinkedListOwner, MetaSlotSmall},
         mapping::frame_to_index,
@@ -851,12 +851,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             self.inv(),
             self.lists.dom().contains(id),
         ensures
-            res <==> (has_safe_slot(frame) && exists|i: int|
+            res <==> (valid_frame_paddr(frame) && exists|i: int|
                 0 <= i < self.lists[id].list.len() && self.lists[id].slot_index_at(i)
                     == frame_to_index(frame)),
     {
         let idx = frame_to_index(frame);
-        if has_safe_slot(frame) {
+        if valid_frame_paddr(frame) {
             // A safe slot is a managed region key.
             self.regions.inv_implies_correct_addr(frame);
             assert(self.regions.slot_owners.contains_key(idx));
@@ -889,7 +889,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 false
             }
         } else {
-            // `!has_safe_slot(frame)`: exec `get_slot` rejects it, so the
+            // `!valid_frame_paddr(frame)`: exec `get_slot` rejects it, so the
             // guarded membership is vacuously false.
             false
         }

@@ -277,7 +277,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         prop: PageProperty,
     ) -> (tracked res: Self)
         requires
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             1 <= parent_level < NR_LEVELS,
             paddr % page_size(parent_level) == 0,
             paddr + page_size(parent_level) <= MAX_PADDR,
@@ -302,7 +302,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
-        &&& has_safe_slot(pte.paddr())
+        &&& valid_frame_paddr(pte.paddr())
         &&& !pte.is_present() ==> {
             &&& self.is_absent()
             &&& parent_level > 1 ==> !pte.is_last(parent_level)
@@ -327,7 +327,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// address here.
     pub open spec fn borrowed_match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& self.is_borrowed()
-        &&& has_safe_slot(pte.paddr())
+        &&& valid_frame_paddr(pte.paddr())
         &&& pte.is_present()
         &&& !pte.is_last(parent_level)
     }
@@ -337,7 +337,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             owner.is_absent(),
             pte == C::E::new_absent_spec(),
-            has_safe_slot(pte.paddr()),
+            valid_frame_paddr(pte.paddr()),
         ensures
             owner.match_pte(pte, parent_level),
     {
@@ -859,7 +859,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // == NR_LEVELS` would be a 512 GiB huge page, which no current arch
             // permits — and `Mapping::inv` would reject its page_size.
             &&& 1 <= self.parent_level < NR_LEVELS
-            &&& has_safe_slot(self.frame().mapped_pa)
+            &&& valid_frame_paddr(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
             &&& C::raw_item_well_formed(
@@ -929,7 +929,7 @@ impl<'a, 'rcu, C: PageTableConfig> OwnerOf for Entry<'a, 'rcu, C> {
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.idx < NR_ENTRIES
         &&& owner.match_pte(self.pte, owner.parent_level)
-        &&& has_safe_slot(self.pte.paddr())
+        &&& valid_frame_paddr(self.pte.paddr())
     }
 }
 

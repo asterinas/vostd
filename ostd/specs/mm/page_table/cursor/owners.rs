@@ -570,7 +570,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.inv(),
             self.level() < NR_LEVELS,
             old(regions).slots.contains_key(frame_to_index(paddr)),
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             paddr % page_size(self.level()) == 0,
             paddr + page_size(self.level()) <= MAX_PADDR,
             C::raw_item_well_formed(paddr, self.level(), prop),
@@ -1096,7 +1096,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_frame(),
             pa == self.cur_entry_owner().frame().mapped_pa,
             C::item_from_raw_spec(pa, level, prop) == item,
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             C::raw_item_well_formed(pa, level, prop),
             // The recorded entry trackedness matches the item being cloned.
             C::tracked(item) == self.cur_entry_owner().frame_is_tracked(),
