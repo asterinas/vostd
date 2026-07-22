@@ -39,8 +39,7 @@ pub(crate) mod mapping {
     #[verifier::when_used_as_spec(frame_to_meta_spec)]
     pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
         requires
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            has_safe_slot(paddr),
         ensures
             res % META_SLOT_SIZE == 0,
         returns

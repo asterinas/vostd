@@ -68,8 +68,7 @@ pub broadcast proof fn lemma_frame_to_index_injective(p1: Paddr, p2: Paddr)
 
 pub broadcast proof fn lemma_paddr_to_meta_biinjective(paddr: Paddr)
     requires
-        paddr % PAGE_SIZE == 0,
-        paddr < MAX_PADDR,
+        has_safe_slot(paddr),
     ensures
         #[trigger] meta_to_frame(frame_to_meta(paddr)) == paddr,
 {
@@ -97,8 +96,7 @@ pub broadcast proof fn lemma_meta_to_frame_soundness(meta: Vaddr)
 
 pub broadcast proof fn lemma_frame_to_meta_soundness(page: Paddr)
     requires
-        page % PAGE_SIZE == 0,
-        page < MAX_PADDR,
+        has_safe_slot(page),
     ensures
         #[trigger] frame_to_meta(page) % META_SLOT_SIZE == 0,
         FRAME_METADATA_RANGE.start <= frame_to_meta(page) && frame_to_meta(page)

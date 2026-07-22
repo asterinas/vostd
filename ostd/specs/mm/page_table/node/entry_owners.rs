@@ -302,8 +302,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
-        &&& pte.paddr() % PAGE_SIZE == 0
-        &&& pte.paddr() < MAX_PADDR
+        &&& has_safe_slot(pte.paddr())
         &&& !pte.is_present() ==> {
             &&& self.is_absent()
             &&& parent_level > 1 ==> !pte.is_last(parent_level)
@@ -328,8 +327,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// address here.
     pub open spec fn borrowed_match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& self.is_borrowed()
-        &&& pte.paddr() % PAGE_SIZE == 0
-        &&& pte.paddr() < MAX_PADDR
+        &&& has_safe_slot(pte.paddr())
         &&& pte.is_present()
         &&& !pte.is_last(parent_level)
     }
@@ -339,8 +337,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             owner.is_absent(),
             pte == C::E::new_absent_spec(),
-            pte.paddr() % PAGE_SIZE == 0,
-            pte.paddr() < MAX_PADDR,
+            has_safe_slot(pte.paddr()),
         ensures
             owner.match_pte(pte, parent_level),
     {
@@ -932,8 +929,7 @@ impl<'a, 'rcu, C: PageTableConfig> OwnerOf for Entry<'a, 'rcu, C> {
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.idx < NR_ENTRIES
         &&& owner.match_pte(self.pte, owner.parent_level)
-        &&& self.pte.paddr() % PAGE_SIZE == 0
-        &&& self.pte.paddr() < MAX_PADDR
+        &&& has_safe_slot(self.pte.paddr())
     }
 }
 

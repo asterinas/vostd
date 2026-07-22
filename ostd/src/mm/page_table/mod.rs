@@ -1622,8 +1622,7 @@ pub trait PageTableEntryTrait:
     #[verifier(when_used_as_spec(new_absent_spec))]
     fn new_absent() -> (res: Self)
         ensures
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            has_safe_slot(res.paddr()),
             !res.is_present(),
         returns
             Self::new_absent(),
@@ -1656,8 +1655,7 @@ pub trait PageTableEntryTrait:
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            has_safe_slot(res.paddr()),
             res.is_present(),
             res.is_last(level),
             res.prop() == prop,
@@ -1675,8 +1673,7 @@ pub trait PageTableEntryTrait:
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            has_safe_slot(res.paddr()),
             res.is_present(),
             forall|level: PagingLevel| !res.is_last(level),
         returns
@@ -1768,8 +1765,7 @@ pub trait PageTableEntryTrait:
             core::mem::size_of::<Self>() == core::mem::size_of::<usize>(),
             core::mem::size_of::<Self>() % core::mem::align_of::<Self>() == 0,
             core::mem::align_of::<Self>() > 0,
-            Self::new_absent().paddr() % PAGE_SIZE == 0,
-            Self::new_absent().paddr() < MAX_PADDR,
+            has_safe_slot(Self::new_absent().paddr()),
             !Self::new_absent().is_present(),
             forall|level: PagingLevel|
                 #![trigger Self::new_absent().is_last(level)]

@@ -43,7 +43,8 @@ impl<C: PageTableConfig> Inv for LeafPageTableEntryView<C> {
             self.map_to_pa,
         )
         // We assume that all level PTEs can be leaf. Thus they can map to huge pages.
-        &&& 1 <= self.level <= NR_LEVELS
+        &&& 1 <= self.level
+            <= NR_LEVELS
         // The corresponding virtual address must be aligned to the page size.
         &&& self.map_va % (page_size(self.level) as int) == 0
     }

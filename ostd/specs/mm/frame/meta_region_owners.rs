@@ -12,6 +12,7 @@ use vstd_extra::{
     ownership::*,
 };
 
+use crate::specs::arch::has_safe_slot;
 use crate::specs::{
     arch::{MAX_PADDR, PAGE_SIZE},
     mm::frame::{
@@ -239,8 +240,7 @@ impl MetaRegionOwners {
 
     pub proof fn inv_implies_correct_addr(self, paddr: usize)
         requires
-            paddr < MAX_PADDR,
-            paddr % PAGE_SIZE == 0,
+            has_safe_slot(paddr),
             self.inv(),
         ensures
             self.slot_owners.contains_key(frame_to_index(paddr)),

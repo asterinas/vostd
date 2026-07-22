@@ -128,8 +128,7 @@ impl<M: ?Sized> Frame<M> {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            has_safe_slot(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
