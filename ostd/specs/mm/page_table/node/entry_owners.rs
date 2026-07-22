@@ -734,6 +734,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r0.slots == r1.slots,
             ({
                 let idx = frame_to_index(self.meta_slot_paddr()->0);
+                &&& r1.slot_owners.contains_key(idx)
                 &&& r1.slot_owners[idx].inner_perms.ref_count.id()
                     == r0.slot_owners[idx].inner_perms.ref_count.id()
                 &&& r1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED

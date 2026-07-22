@@ -225,6 +225,7 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 ///   Carried here for convenience, though it can be computed from `level`.
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
+    pub repr_perm: (),
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub ghost level: PagingLevel,
     pub ghost tree_level: int,
@@ -253,20 +254,37 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
+    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> TypedMetaView<
+        PageTablePageMeta<C>,
+    > {
+        typed_meta_view::<PageTablePageMeta<C>>(
+            regions.slots[self.slot_index],
+            regions.slot_owners[self.slot_index].inner_perms.storage,
+            self.repr_perm,
+        )
+    }
+
     /// The meta address of this node's slot, computed from `slot_index`.
     /// Always equals `self.meta_perm.addr()` under `inv()`.
     pub open spec fn meta_vaddr(self) -> Vaddr {
         index_to_meta(self.slot_index)
     }
 
-    /// Reconstructs the node's typed storage permission from `regions` at
-    /// `self.slot_index`.
-    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> MetaPerm<
-        PageTablePageMeta<C>,
-    > {
-        typed_meta_perm::<PageTablePageMeta<C>>(
+    pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
+        typed_meta_wf::<PageTablePageMeta<C>>(
             regions.slots[self.slot_index],
-            regions.slot_owners[self.slot_index].inner_perms,
+            regions.slot_owners[self.slot_index].inner_perms.storage,
+            self.repr_perm,
+        )
+    }
+
+    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C>
+        recommends
+            self.meta_wf(regions),
+    {
+        typed_meta_value::<PageTablePageMeta<C>>(
+            regions.slot_owners[self.slot_index].inner_perms.storage,
+            self.repr_perm,
         )
     }
 
@@ -276,13 +294,13 @@ impl<C: PageTableConfig> NodeOwner<C> {
     pub open spec fn metaregion_sound_node(self, regions: MetaRegionOwners) -> bool {
         let idx = self.slot_index;
         &&& regions.slots.contains_key(idx)
-        &&& self.meta_perm_of(regions).is_init()
-        &&& self.meta_perm_of(regions).wf()
-        &&& self.meta_perm_of(regions).value().wf(self.meta_own)
-        &&& self.level == self.meta_perm_of(regions).value().level
-        &&& self.meta_own.nr_children.id() == self.meta_perm_of(
+        &&& regions.slot_owners.contains_key(idx)
+        &&& self.meta_wf(regions)
+        &&& self.meta_value(regions).wf(self.meta_own)
+        &&& self.level == self.meta_value(regions).level
+        &&& self.meta_own.nr_children.id() == self.meta_value(
             regions,
-        ).value().nr_children.id()
+        ).nr_children.id()
         // A page-table node's slot is tracked with `PageTable` usage (set at
         // allocation via `get_node_from_unused_spec`). This discriminates node
         // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a

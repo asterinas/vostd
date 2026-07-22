@@ -11,10 +11,7 @@ use vstd_extra::{cast_ptr::Repr, drop_tracking::DropObligation, ownership::*};
 use crate::specs::arch::valid_frame_paddr;
 use crate::specs::{
     arch::{MAX_PADDR, PAGE_SIZE},
-    mm::frame::{
-        mapping::{frame_to_index, index_to_meta, max_meta_slots},
-        meta_owners::typed_meta_perm,
-    },
+    mm::frame::mapping::{frame_to_index, index_to_meta, max_meta_slots},
 };
 
 use crate::mm::{
@@ -27,7 +24,7 @@ use crate::mm::{
 };
 
 use super::{
-    meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage},
+    meta_owners::{MetaSlotModel, MetaSlotOwner},
     *,
 };
 
@@ -134,59 +131,6 @@ impl MetaRegionOwners {
             #![trigger other.slot_owners[i]]
             i != idx ==> other.slot_owners[i] == self.slot_owners[i]
     }
-
-    pub axiom fn borrow_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        &self,
-        i: int,
-    ) -> (tracked res: &MetaPerm<M>)
-        requires
-            self.slots.contains_key(i),
-            self.slot_owners.contains_key(i),
-            typed_meta_perm::<M>(self.slots[i], self.slot_owners[i].inner_perms).wf(),
-        ensures
-            *res == typed_meta_perm::<M>(self.slots[i], self.slot_owners[i].inner_perms),
-            res.wf(),
-    ;
-
-    /// Mutable analog of [`borrow_typed_perm`]. Lends out the typed storage
-    /// permission reconstructed from `slots[i]` and
-    /// `slot_owners[i].inner_perms`. While the returned reference is live,
-    /// `self` is mutably borrowed; on borrow-end both permission components are
-    /// restored from its final state.
-    /// Every other slot/slot_owner is fully preserved, and the other fields of
-    /// `slot_owners[i]` (raw_count/usage/slot_vaddr/paths_in_pt) are unchanged.
-    pub axiom fn borrow_mut_typed_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        &mut self,
-        i: int,
-    ) -> (tracked res: &mut MetaPerm<M>)
-        requires
-            old(self).slots.contains_key(i),
-            old(self).slot_owners.contains_key(i),
-            typed_meta_perm::<M>(old(self).slots[i], old(self).slot_owners[i].inner_perms).wf(),
-        ensures
-            *res == typed_meta_perm::<M>(old(self).slots[i], old(self).slot_owners[i].inner_perms),
-            res.wf(),
-            final(res).points_to == old(self).slots[i],
-            final(res).ref_count == old(self).slot_owners[i].inner_perms.ref_count,
-            final(res).vtable_ptr == old(self).slot_owners[i].inner_perms.vtable_ptr,
-            final(res).in_list == old(self).slot_owners[i].inner_perms.in_list,
-            final(self).slots.dom() == old(self).slots.dom(),
-            final(self).slot_owners.dom() == old(self).slot_owners.dom(),
-            final(self).slots[i] == final(res).points_to,
-            final(self).slot_owners[i].inner_perms.storage == final(res).storage,
-            forall|k: int| k != i ==> #[trigger] final(self).slots[k] == old(self).slots[k],
-            forall|k: int|
-                k != i ==> #[trigger] final(self).slot_owners[k] == old(self).slot_owners[k],
-            final(self).slot_owners[i].usage == old(self).slot_owners[i].usage,
-            final(self).slot_owners[i].slot_vaddr == old(self).slot_owners[i].slot_vaddr,
-            final(self).slot_owners[i].paths_in_pt == old(self).slot_owners[i].paths_in_pt,
-            final(self).slot_owners[i].inner_perms.ref_count == final(res).ref_count,
-            final(self).slot_owners[i].inner_perms.vtable_ptr == final(res).vtable_ptr,
-            final(self).slot_owners[i].inner_perms.in_list == final(res).in_list,
-            typed_meta_perm::<M>(final(self).slots[i], final(self).slot_owners[i].inner_perms)
-                == *final(res),
-            final(self).frame_obligations == old(self).frame_obligations,
-    ;
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
         recommends

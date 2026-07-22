@@ -200,49 +200,45 @@ pub tracked struct MetadataInnerPerms {
     pub in_list: PermissionU64,
 }
 
-/// Reconstructs the representation permission paired with a concrete view of
-/// the type-erased metadata storage.
-pub uninterp spec fn repr_perm_from_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-) -> M::Perm;
+/// Well-formedness of a concrete metadata representation. The permissions for
+/// the outer slot and its storage remain owned by `MetaRegionOwners`; only the
+/// representation-specific permission is supplied by the concrete metadata
+/// owner.
+pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+    points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
+    storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
+    repr_perm: M::Perm,
+) -> bool {
+    &&& points_to.is_init()
+    &&& storage.is_init()
+    &&& storage.id() == points_to.value().storage.id()
+    &&& M::wf(storage.value(), repr_perm)
+}
 
-/// Typed ownership of the payload at the beginning of one metadata slot.
-/// The outer slot permission is retained only so executable code can reach
-/// `MetaSlot::storage`; the interpreted value is directly `M`, not a synthetic
-/// value representing the whole `MetaSlot`.
-#[verifier::accept_recursive_types(M)]
-pub tracked struct MetaPerm<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
+pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+    storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
+    repr_perm: M::Perm,
+) -> M
+    recommends
+        storage.is_init(),
+        M::wf(storage.value(), repr_perm),
+{
+    M::from_repr_spec(storage.value(), repr_perm)
+}
+
+/// A non-owning specification projection of the three independently-owned
+/// permissions involved in interpreting a metadata slot. This is deliberately
+/// `ghost`, not `tracked`: it cannot be used to borrow memory or manufacture a
+/// permission token.
+pub ghost struct TypedMetaView<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
     pub points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
     pub storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     pub repr_perm: M::Perm,
-    pub ref_count: PermissionU64,
-    pub vtable_ptr: vstd::simple_pptr::PointsTo<usize>,
-    pub in_list: PermissionU64,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> MetaPerm<M> {
-    pub open spec fn new_spec(
-        points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
-        inner: MetadataInnerPerms,
-    ) -> Self {
-        Self {
-            points_to,
-            storage: inner.storage,
-            repr_perm: repr_perm_from_storage::<M>(inner.storage),
-            ref_count: inner.ref_count,
-            vtable_ptr: inner.vtable_ptr,
-            in_list: inner.in_list,
-        }
-    }
-
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> TypedMetaView<M> {
     pub open spec fn wf(self) -> bool {
-        &&& self.points_to.is_init()
-        &&& self.storage.is_init()
-        &&& M::wf(self.storage.value(), self.repr_perm)
-        &&& self.storage.id() == self.points_to.value().storage.id()
-        &&& self.ref_count.id() == self.points_to.value().ref_count.id()
-        &&& self.vtable_ptr.pptr() == self.points_to.value().vtable_ptr
-        &&& self.in_list.id() == self.points_to.value().in_list.id()
+        typed_meta_wf::<M>(self.points_to, self.storage, self.repr_perm)
     }
 
     pub open spec fn addr(self) -> usize {
@@ -270,81 +266,68 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> MetaPerm<M> {
         recommends
             self.wf(),
     {
-        M::from_repr_spec(self.storage.value(), self.repr_perm)
+        typed_meta_value::<M>(self.storage, self.repr_perm)
     }
+}
 
-    pub fn borrow<'a>(ptr: PPtr<MetaSlot>, Tracked(perm): Tracked<&'a Self>) -> (res: &'a M)
-        requires
-            perm.wf(),
-            ptr == perm.points_to.pptr(),
-        ensures
-            *res == perm.value(),
-    {
-        let slot = ptr.borrow(Tracked(&perm.points_to));
-        M::from_borrowed(slot.storage.borrow(Tracked(&perm.storage)), Tracked(&perm.repr_perm))
-    }
-
-    #[verifier::external_body]
-    pub fn borrow_mut<'a>(ptr: PPtr<MetaSlot>, Tracked(perm): Tracked<&'a mut Self>) -> (res:
-        &'a mut M)
-        requires
-            old(perm).wf(),
-            ptr == old(perm).points_to.pptr(),
-        ensures
-            *res == old(perm).value(),
-            final(perm).wf(),
-            final(perm).value() == *final(res),
-            final(perm).points_to == old(perm).points_to,
-            final(perm).ref_count == old(perm).ref_count,
-            final(perm).vtable_ptr == old(perm).vtable_ptr,
-            final(perm).in_list == old(perm).in_list,
-    {
-        let slot = ptr.borrow(Tracked(&perm.points_to));
-        M::from_borrowed_mut(
-            slot.storage.borrow_mut(Tracked(&mut perm.storage)),
-            Tracked(&mut perm.repr_perm),
-        )
-    }
+pub open spec fn typed_meta_view<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+    points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
+    storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
+    repr_perm: M::Perm,
+) -> TypedMetaView<M> {
+    TypedMetaView { points_to, storage, repr_perm }
 }
 
 pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
-    Tracked(perm): Tracked<&'a MetaPerm<M>>,
+    Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
+    Tracked(storage): Tracked<&'a pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+    Tracked(repr_perm): Tracked<&'a M::Perm>,
 ) -> (res: &'a M)
     requires
-        perm.wf(),
-        ptr.addr() == perm.points_to.addr(),
+        typed_meta_wf::<M>(*points_to, *storage, *repr_perm),
+        ptr.addr() == points_to.addr(),
     ensures
-        *res == perm.value(),
+        *res == typed_meta_value::<M>(*storage, *repr_perm),
 {
-    MetaPerm::borrow(PPtr::<MetaSlot>::from_addr(ptr.addr()), Tracked(perm))
+    let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(points_to));
+    M::from_borrowed(slot.storage.borrow(Tracked(storage)), Tracked(repr_perm))
 }
 
+#[verifier::external_body]
 pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
-    Tracked(perm): Tracked<&'a mut MetaPerm<M>>,
+    Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
+    Tracked(slot_owner): Tracked<&'a mut MetaSlotOwner>,
+    Tracked(repr_perm): Tracked<&'a mut M::Perm>,
 ) -> (res: &'a mut M)
     requires
-        old(perm).wf(),
-        ptr.addr() == old(perm).points_to.addr(),
+        old(slot_owner).inv(),
+        points_to.value().wf(*old(slot_owner)),
+        typed_meta_wf::<M>(*points_to, old(slot_owner).inner_perms.storage, *old(repr_perm)),
+        ptr.addr() == points_to.addr(),
     ensures
-        *res == old(perm).value(),
-        final(perm).wf(),
-        final(perm).value() == *final(res),
-        final(perm).points_to == old(perm).points_to,
-        final(perm).ref_count == old(perm).ref_count,
-        final(perm).vtable_ptr == old(perm).vtable_ptr,
-        final(perm).in_list == old(perm).in_list,
+        *res == typed_meta_value::<M>(old(slot_owner).inner_perms.storage, *old(repr_perm)),
+        final(slot_owner).inv(),
+        points_to.value().wf(*final(slot_owner)),
+        final(slot_owner).slot_vaddr == old(slot_owner).slot_vaddr,
+        final(slot_owner).usage == old(slot_owner).usage,
+        final(slot_owner).paths_in_pt == old(slot_owner).paths_in_pt,
+        final(slot_owner).inner_perms.ref_count == old(slot_owner).inner_perms.ref_count,
+        final(slot_owner).inner_perms.vtable_ptr == old(slot_owner).inner_perms.vtable_ptr,
+        final(slot_owner).inner_perms.in_list == old(slot_owner).inner_perms.in_list,
+        typed_meta_wf::<M>(*points_to, final(slot_owner).inner_perms.storage, *final(repr_perm)),
+        *final(res) == typed_meta_value::<M>(
+            final(slot_owner).inner_perms.storage,
+            *final(repr_perm),
+        ),
 {
-    MetaPerm::borrow_mut(PPtr::<MetaSlot>::from_addr(ptr.addr()), Tracked(perm))
-}
-
-/// Reconstructs the typed view parked in a type-erased region owner.
-pub open spec fn typed_meta_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
-    inner: MetadataInnerPerms,
-) -> MetaPerm<M> {
-    MetaPerm::new_spec(points_to, inner)
+    let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(points_to));
+    let tracked inner_perms = slot_owner.tracked_borrow_mut_inner_perms();
+    M::from_borrowed_mut(
+        slot.storage.borrow_mut(Tracked(&mut inner_perms.storage)),
+        Tracked(repr_perm),
+    )
 }
 
 pub tracked struct MetaSlotOwner {
@@ -483,66 +466,28 @@ impl MetaSlotOwner {
     }
 }
 
-/// Permission state produced after writing a concrete metadata value into the
-/// type-erased storage cell.
-pub uninterp spec fn storage_perm_after_write<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    metadata: M,
-    base: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-) -> pcell_maybe_uninit::PointsTo<MetaSlotStorage>;
-
-/// The write keeps the cell allocation and makes its contents directly
-/// interpretable as the supplied `M`.
-pub axiom fn storage_perm_after_write_properties<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    metadata: M,
-    base: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-)
-    ensures
-        storage_perm_after_write(metadata, base).id() == base.id(),
-        storage_perm_after_write(metadata, base).is_init(),
-        M::wf(
-            storage_perm_after_write(metadata, base).value(),
-            repr_perm_from_storage::<M>(storage_perm_after_write(metadata, base)),
-        ),
-        M::from_repr_spec(
-            storage_perm_after_write(metadata, base).value(),
-            repr_perm_from_storage::<M>(storage_perm_after_write(metadata, base)),
-        ) == metadata,
-;
-
-#[verifier::external_body]
-pub proof fn tracked_set_storage_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    tracked perm: &mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-    metadata: M,
-)
-    requires
-        old(perm).is_init(),
-    ensures
-        *final(perm) == storage_perm_after_write(metadata, *old(perm)),
-{
-}
-
 /// Writes `metadata` into the byte storage and establishes its direct
 /// `Repr<MetaSlotStorage>` interpretation.
 pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
-    Tracked(perm): Tracked<&mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+    Tracked(storage): Tracked<&mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+    Tracked(repr_perm): Tracked<&mut M::Perm>,
     metadata: M,
 )
     requires
-        cell.id() == old(perm).id(),
+        cell.id() == old(storage).id(),
     ensures
-        final(perm).id() == old(perm).id(),
-        final(perm).is_init(),
-        M::wf(final(perm).value(), repr_perm_from_storage::<M>(*final(perm))),
-        M::from_repr_spec(final(perm).value(), repr_perm_from_storage::<M>(*final(perm)))
-            == metadata,
+        final(storage).id() == old(storage).id(),
+        final(storage).is_init(),
+        M::wf(final(storage).value(), *final(repr_perm)),
+        M::from_repr_spec(final(storage).value(), *final(repr_perm)) == metadata,
 {
-    cell.write(Tracked(perm), MetaSlotStorage::Untyped);
     proof {
-        let ghost base = *perm;
-        tracked_set_storage_perm(perm, metadata);
-        storage_perm_after_write_properties(metadata, base);
+        M::from_to_repr(metadata, *repr_perm);
+        M::to_repr_wf(metadata, *repr_perm);
     }
+    let repr = metadata.to_repr(Tracked(repr_perm));
+    cell.write(Tracked(storage), repr);
 }
 
 } // verus!

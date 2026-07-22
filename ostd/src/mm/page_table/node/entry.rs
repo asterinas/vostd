@@ -132,11 +132,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             owner.is_node(),
     )]
     pub(in crate::mm) fn is_node(&self) -> bool {
-        let tracked parent_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
         self.pte.is_present() && !self.pte.is_last(
-            #[verus_spec(with Tracked(parent_meta_perm))]
+            #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
             self.node.level(),
         )
     }
@@ -163,10 +160,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(regions).inv(),
     )]
     pub(in crate::mm) fn to_ref(&self) -> ChildRef<'rcu, C> {
-        let tracked parent_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
-        #[verus_spec(with Tracked(parent_meta_perm))]
+        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
         let level = self.node.level();
 
         // SAFETY:
@@ -392,10 +386,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         // SAFETY:
         //  - The PTE is not referenced by other `ChildRef`s (since we have `&mut self`).
         //  - The level matches the current node.
-        let tracked parent_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
-        #[verus_spec(with Tracked(parent_meta_perm))]
+        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
         let level = self.node.level();
 
         let old_child = unsafe {
@@ -404,10 +395,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         };
 
         if old_child.is_none() && !new_child.is_none() {
-            let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
+            let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(
                 parent_owner.slot_index,
             );
-            #[verus_spec(with Tracked(parent_meta_perm2))]
+            #[verus_spec(with
+                Tracked(meta_points_to),
+                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&parent_owner.repr_perm),
+                Ghost(parent_owner.meta_own.nr_children.id())
+            )]
             let nr_children = self.node.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             proof {
@@ -415,10 +412,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
-            let tracked parent_meta_perm3 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
+            let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(
                 parent_owner.slot_index,
             );
-            #[verus_spec(with Tracked(parent_meta_perm3))]
+            #[verus_spec(with
+                Tracked(meta_points_to),
+                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&parent_owner.repr_perm),
+                Ghost(parent_owner.meta_own.nr_children.id())
+            )]
             let nr_children = self.node.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             proof {
@@ -594,10 +597,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         // For restoring `count_consistent` after adding the child below.
         let ghost cp0 = parent_owner.children_perm.value();
 
-        let tracked parent_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
-        #[verus_spec(with Tracked(parent_meta_perm))]
+        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
         let level = self.node.level();
 
         if entry_is_present || level <= 1 {
@@ -677,10 +677,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 self.node.write_pte(self.idx, self.pte)
             };
 
-            let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
+            let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(
                 parent_owner.slot_index,
             );
-            #[verus_spec(with Tracked(parent_meta_perm2))]
+            #[verus_spec(with
+                Tracked(meta_points_to),
+                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&parent_owner.repr_perm),
+                Ghost(parent_owner.meta_own.nr_children.id())
+            )]
             let nr_children = self.node.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
@@ -881,10 +887,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> Option<
         PageTableGuard<'rcu, C>,
     > {
-        let tracked parent_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
-        #[verus_spec(with Tracked(parent_meta_perm))]
+        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
         let level = self.node.level();
 
         if !(self.pte.is_last(level) && level > 1) {
@@ -1650,10 +1653,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.read_pte(idx)
         };
 
-        let tracked parent_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
-        #[verus_spec(with Tracked(parent_meta_perm))]
+        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
         let level = self.level();
 
         let old_child = unsafe {
@@ -1665,10 +1665,16 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let ghost cp0 = parent_owner.children_perm.value();
 
         if old_child.is_none() && !new_child.is_none() {
-            let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
+            let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(
                 parent_owner.slot_index,
             );
-            #[verus_spec(with Tracked(parent_meta_perm2))]
+            #[verus_spec(with
+                Tracked(meta_points_to),
+                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&parent_owner.repr_perm),
+                Ghost(parent_owner.meta_own.nr_children.id())
+            )]
             let nr_children = self.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             proof {
@@ -1676,10 +1682,16 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
-            let tracked parent_meta_perm3 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
+            let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
+            let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(
                 parent_owner.slot_index,
             );
-            #[verus_spec(with Tracked(parent_meta_perm3))]
+            #[verus_spec(with
+                Tracked(meta_points_to),
+                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&parent_owner.repr_perm),
+                Ghost(parent_owner.meta_own.nr_children.id())
+            )]
             let nr_children = self.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             proof {
@@ -1827,10 +1839,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         idx: usize,
         guard: &'rcu A,
     ) -> PageTableGuard<'rcu, C> {
-        let tracked parent_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
-        #[verus_spec(with Tracked(parent_meta_perm))]
+        #[verus_spec(with Tracked(&*parent_owner), Tracked(&*regions))]
         let level = self.level();
 
         let ghost old_path = owner.value().path;
@@ -1913,10 +1922,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // (`alloc` allocates a different slot, `write_pte` leaves regions
         // immutable).
 
-        let tracked parent_meta_perm2 = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
-        #[verus_spec(with Tracked(parent_meta_perm2))]
+        let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
+        let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(parent_owner.slot_index);
+        #[verus_spec(with
+            Tracked(meta_points_to),
+            Tracked(&meta_slot_owner.inner_perms.storage),
+            Tracked(&parent_owner.repr_perm),
+            Ghost(parent_owner.meta_own.nr_children.id())
+        )]
         let nr_children = self.nr_children_mut();
         let old_nr_children = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
         nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), old_nr_children + 1);
@@ -2046,10 +2059,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     ) {
         // For restoring `count_consistent` after the absent→frame install.
         let ghost cp0 = parent_owner.children_perm.value();
-        let tracked parent_meta_perm = regions.borrow_typed_perm::<PageTablePageMeta<C>>(
-            parent_owner.slot_index,
-        );
-        #[verus_spec(with Tracked(parent_meta_perm))]
+        let tracked meta_points_to = regions.slots.tracked_borrow(parent_owner.slot_index);
+        let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(parent_owner.slot_index);
+        #[verus_spec(with
+            Tracked(meta_points_to),
+            Tracked(&meta_slot_owner.inner_perms.storage),
+            Tracked(&parent_owner.repr_perm),
+            Ghost(parent_owner.meta_own.nr_children.id())
+        )]
         let nr_children = self.nr_children_mut();
         let old_nr_children = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
         proof {

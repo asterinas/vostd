@@ -213,7 +213,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// - This function returns an error if `paddr` does not correspond to a valid slot or the slot is in use.
     #[verus_spec(r =>
         with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(repr_perm): Tracked<&mut M::Perm>
         requires
             old(regions).inv(),
         ensures
@@ -226,7 +227,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             r is Err ==> *final(regions) == *old(regions)
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
-        #[verus_spec(with Tracked(regions))]
+        #[verus_spec(with Tracked(regions), Tracked(repr_perm))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
             Err(err)
@@ -256,17 +257,23 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// return an appropriate permission.
     #[verus_spec(
         with
-            Tracked(perm) : Tracked<&'a MetaPerm<M>>,
+            Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
+            Tracked(storage): Tracked<&'a vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+            Tracked(repr_perm): Tracked<&'a M::Perm>,
         requires
-            self.ptr == perm.points_to.pptr(),
-            perm.is_init(),
-            perm.wf(),
+            self.ptr == points_to.pptr(),
+            typed_meta_wf::<M>(*points_to, *storage, *repr_perm),
         returns
-            perm.value(),
+            typed_meta_value::<M>(*storage, *repr_perm),
     )]
     pub fn meta<'a>(&'a self) -> &'a M {
         // SAFETY: The type is tracked by the typed storage permission.
-        MetaPerm::borrow(self.ptr, Tracked(perm))
+        borrow_meta(
+            ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
+            Tracked(points_to),
+            Tracked(storage),
+            Tracked(repr_perm),
+        )
     }
 }
 
@@ -402,17 +409,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     #[verus_spec(
         with
             Tracked(slot_own): Tracked<&MetaSlotOwner>,
-            Tracked(perm) : Tracked<&MetaPerm<M>>,
+            Tracked(points_to): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
         requires
-            perm.points_to.pptr() == self.ptr,
-            perm.is_init(),
-            perm.wf(),
+            points_to.pptr() == self.ptr,
+            points_to.is_init(),
+            points_to.value().wf(*slot_own),
         returns
-            perm.ref_count.value(),
+            slot_own.inner_perms.ref_count.value(),
     )]
     pub fn reference_count(&self) -> u64 {
-        let refcnt = (#[verus_spec(with Tracked(&perm.points_to))]
-        self.slot()).ref_count.load(Tracked(&perm.ref_count));
+        let refcnt = (#[verus_spec(with Tracked(points_to))]
+        self.slot()).ref_count.load(Tracked(&slot_own.inner_perms.ref_count));
         refcnt
     }
 

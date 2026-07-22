@@ -208,6 +208,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(repr_perm): Tracked<&mut M::Perm>,
         requires
             old(regions).inv(),
             forall|paddr_in: Paddr|
@@ -313,7 +314,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             let (paddr, meta) = metadata_fn(paddr_in);
 
             let ghost regions_pre = *regions;
-            let res = #[verus_spec(with Tracked(regions))]
+            let res = #[verus_spec(with Tracked(regions), Tracked(repr_perm))]
             Frame::<M>::from_unused(paddr, meta);
             let frame = match res {
                 Ok(f) => f,
