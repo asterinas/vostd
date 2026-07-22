@@ -9,7 +9,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, meta_addr},
+            mapping::{frame_to_index, index_to_meta},
             meta_owners::PageUsage,
             meta_region_owners::MetaRegionOwners,
         },
@@ -511,7 +511,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         } else if self.is_frame() {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slots.contains_key(idx)
-            &&& regions.slots[idx].addr() == meta_addr(idx)
+            &&& regions.slots[idx].addr() == index_to_meta(idx)
             &&& regions.slots[idx].is_init()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].usage

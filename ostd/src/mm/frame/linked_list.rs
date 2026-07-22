@@ -20,7 +20,7 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
     linked_list::linked_list_owners::*,
-    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+    mapping::{frame_to_index, group_page_meta, max_meta_slots, index_to_meta},
     meta_owners::{MetaSlotOwner, Metadata},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
@@ -857,7 +857,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& final(regions).slot_owners[idx].inner_perms.in_list.value() == 0
                 &&& final(regions).slot_owners[idx].inner_perms.storage.is_init()
                 &&& final(regions).slot_owners[idx].inner_perms.vtable_ptr.is_init()
-                &&& final(regions).slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& final(regions).slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& final(regions).slot_owners[idx].paths_in_pt == old(
                     regions,
                 ).slot_owners[idx].paths_in_pt

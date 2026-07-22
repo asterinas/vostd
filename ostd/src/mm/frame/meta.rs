@@ -104,7 +104,7 @@ use self::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, meta_addr},
+    mapping::{frame_to_index, index_to_meta},
     meta_owners::*,
     meta_region_owners::MetaRegionOwners,
 };

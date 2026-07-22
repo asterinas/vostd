@@ -47,7 +47,7 @@ use crate::mm::frame::meta::{
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
 use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
-use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, meta_addr};
+use crate::specs::mm::frame::mapping::{frame_to_index, max_meta_slots, index_to_meta};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage, is_mmio_paddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
@@ -3261,7 +3261,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     &&& regions.slot_owners.contains_key(i)
                     &&& regions.slot_owners[i].inv()
                     &&& regions.slots[i].is_init()
-                    &&& regions.slots[i].addr() == meta_addr(i)
+                    &&& regions.slots[i].addr() == index_to_meta(i)
                     &&& regions.slots[i].value().wf(regions.slot_owners[i])
                     &&& regions.slot_owners[i].slot_vaddr == regions.slots[i].addr()
                 } by {

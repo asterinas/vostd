@@ -86,7 +86,7 @@ use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::{
     frame_specs::*,
-    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+    mapping::{frame_to_index, group_page_meta, max_meta_slots, index_to_meta},
 };
 
 verus! {
@@ -738,13 +738,13 @@ impl<M: ?Sized> Drop for Frame<M> {
                 &&& regions.slot_owners.contains_key(i)
                 &&& regions.slot_owners[i].inv()
                 &&& regions.slots[i].is_init()
-                &&& regions.slots[i].addr() == meta_addr(i)
+                &&& regions.slots[i].addr() == index_to_meta(i)
                 &&& regions.slots[i].value().wf(regions.slot_owners[i])
                 &&& regions.slot_owners[i].slot_vaddr == regions.slots[i].addr()
             }) by {
                 if i == idx {
                     assert(regions.slots[i].is_init());
-                    assert(regions.slots[i].addr() == meta_addr(i));
+                    assert(regions.slots[i].addr() == index_to_meta(i));
                     assert(regions.slots[i].value().wf(regions.slot_owners[i]));
                     assert(regions.slot_owners[i].slot_vaddr == regions.slots[i].addr());
                 }

@@ -16,7 +16,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, meta_addr},
+            mapping::{frame_to_index, index_to_meta},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{

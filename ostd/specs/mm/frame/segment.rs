@@ -10,7 +10,7 @@ use crate::specs::{
     arch::PAGE_SIZE,
     mm::{
         frame::{
-            mapping::{frame_to_index, meta_addr},
+            mapping::{frame_to_index, index_to_meta},
             meta_region_owners::MetaRegionOwners,
         },
         virt_mem::MemView,
@@ -109,7 +109,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
                 &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
                 // Segment frames are shared (never `UNIQUE`).
@@ -146,7 +146,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                     idx,
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
-                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX

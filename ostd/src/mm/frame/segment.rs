@@ -16,7 +16,7 @@ use crate::mm::page_table::RCClone;
 use crate::mm::{PagingLevel, Vaddr, frame::MetaSlot, paddr_to_vaddr};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, meta_addr},
+    mapping::{frame_to_index, group_page_meta, index_to_meta},
     meta_owners::*,
     meta_region_owners::MetaRegionOwners,
     segment::*,
@@ -290,7 +290,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         let idx = frame_to_index(addrs[j]);
                         &&& regions.slots.contains_key(idx)
                         &&& regions.slot_owners.contains_key(idx)
-                        &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                        &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                             <= crate::mm::frame::meta::REF_COUNT_MAX
@@ -339,7 +339,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                                     let idx = frame_to_index(addrs[j]);
                                     &&& regions.slots.contains_key(idx)
                                     &&& regions.slot_owners.contains_key(idx)
-                                    &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                                    &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                                     &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                                     &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                                         <= crate::mm::frame::meta::REF_COUNT_MAX
@@ -357,7 +357,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             broadcast use group_page_meta;
 
                             assert(addrs[k] == p);
-                            assert(meta_addr(idx_k) == frame_to_meta(p));
+                            assert(index_to_meta(idx_k) == frame_to_meta(p));
                             assert(regions.slots.contains_key(idx_k));
                         }
                         proof_decl! {
@@ -455,7 +455,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
                 &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
@@ -619,7 +619,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
                 &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
@@ -635,7 +635,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.frame_obligations.count(idx) >= 1
                 &&& regions.slot_owners.contains_key(idx)
                 &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     <= crate::mm::frame::meta::REF_COUNT_MAX
@@ -1094,7 +1094,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
                     &&& (**regions_ref).frame_obligations.count(idx) >= 1
                     &&& (**regions_ref).slot_owners.contains_key(idx)
                     &&& (**regions_ref).slots.contains_key(idx)
-                    &&& (**regions_ref).slot_owners[idx].slot_vaddr == meta_addr(idx)
+                    &&& (**regions_ref).slot_owners[idx].slot_vaddr == index_to_meta(idx)
                     &&& (**regions_ref).slot_owners[idx].inner_perms.ref_count.value() > 0
                     &&& (**regions_ref).slot_owners[idx].inner_perms.ref_count.value()
                         <= crate::mm::frame::meta::REF_COUNT_MAX

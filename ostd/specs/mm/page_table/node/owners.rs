@@ -10,7 +10,7 @@ use crate::specs::{
     arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
     mm::{
         frame::{
-            mapping::{frame_to_index, max_meta_slots, meta_addr},
+            mapping::{frame_to_index, max_meta_slots, index_to_meta},
             meta_owners::*,
             meta_region_owners::MetaRegionOwners,
         },
@@ -237,16 +237,16 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.children_perm.is_init_all()
-        &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(meta_addr(self.slot_index)))
+        &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(index_to_meta(self.slot_index)))
         &&& self.tree_level == INC_LEVELS - self.level - 1
         &&& self.slot_index < max_meta_slots() as usize
-        &&& FRAME_METADATA_RANGE.start <= meta_addr(self.slot_index) < FRAME_METADATA_RANGE.end
-        &&& meta_addr(self.slot_index) % META_SLOT_SIZE == 0
-        &&& meta_to_frame(meta_addr(self.slot_index)) < VMALLOC_BASE_VADDR
+        &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
+        &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
+        &&& meta_to_frame(index_to_meta(self.slot_index)) < VMALLOC_BASE_VADDR
             - LINEAR_MAPPING_BASE_VADDR
-        &&& meta_to_frame(meta_addr(self.slot_index)) < MAX_PADDR
-        &&& meta_to_frame(meta_addr(self.slot_index)) == self.children_perm.addr()
-        &&& self.slot_index == frame_to_index(meta_to_frame(meta_addr(self.slot_index)))
+        &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
+        &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
+        &&& self.slot_index == frame_to_index(meta_to_frame(index_to_meta(self.slot_index)))
     }
 }
 
@@ -254,7 +254,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     /// The meta address of this node's slot, computed from `slot_index`.
     /// Always equals `self.meta_perm.addr()` under `inv()`.
     pub open spec fn meta_vaddr(self) -> Vaddr {
-        meta_addr(self.slot_index)
+        index_to_meta(self.slot_index)
     }
 
     /// Reconstructs a metadata cast_ptr from `regions` at `self.slot_index`.

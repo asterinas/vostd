@@ -21,7 +21,7 @@ pub open spec fn max_meta_slots() -> int {
     (FRAME_METADATA_RANGE.end - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int
 }
 
-pub open spec fn meta_addr(i: usize) -> (res: usize)
+pub open spec fn index_to_meta(i: usize) -> (res: Vaddr)
     recommends
         0 <= i < max_meta_slots() as usize,
 {

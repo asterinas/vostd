@@ -15,7 +15,7 @@ use vstd_extra::{
 use crate::specs::{
     arch::{MAX_PADDR, PAGE_SIZE},
     mm::frame::{
-        mapping::{frame_to_index, max_meta_slots, meta_addr},
+        mapping::{frame_to_index, max_meta_slots, index_to_meta},
         meta_owners::Metadata,
     },
 };
@@ -86,7 +86,7 @@ impl Inv for MetaRegionOwners {
                 self.slots.contains_key(i) ==> {
                     &&& self.slot_owners[i].inv()
                     &&& self.slots[i].is_init()
-                    &&& self.slots[i].addr() == meta_addr(i)
+                    &&& self.slots[i].addr() == index_to_meta(i)
                     &&& self.slots[i].value().wf(self.slot_owners[i])
                     &&& self.slot_owners[i].slot_vaddr == self.slots[i].addr()
                 }
