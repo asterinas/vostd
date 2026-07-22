@@ -622,7 +622,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         new_perm: MetaRegionOwners,
         res: Self,
     ) -> bool {
-        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let idx = self.index();
         &&& new_perm.inv()
         // ref_count incremented
         &&& new_perm.slot_owners[idx].inner_perms.ref_count.value()
@@ -654,7 +654,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         }
 
         let paddr = meta_to_frame(self.ptr.addr());
-        let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let ghost idx = self.index();
 
         unsafe {
             #[verus_spec(with Tracked(perm))]
@@ -680,7 +680,7 @@ impl<M: ?Sized> Drop for Frame<M> {
         proof {
             regions.tracked_redeem_frame_obligation(obl);
         }
-        let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let ghost idx = self.index();
         let ghost old_regions = *regions;
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);

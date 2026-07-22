@@ -114,7 +114,7 @@ impl<M: ?Sized> Inv for Frame<M> {
 }
 
 impl<M: ?Sized> Frame<M> {
-    pub open spec fn paddr(self) -> usize {
+    pub open spec fn paddr(self) -> Paddr {
         meta_to_frame(self.ptr.addr())
     }
 
@@ -246,7 +246,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     // via `from_raw` after the slot has been torn down. Hence the drop is
     // only permitted when `raw_count == 0`.
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let idx = self.index();
         let slot_own = s.slot_owners[idx];
         // Cross-object validity: this Frame is consistent with `s` and
         // the slot is in the SHARED rc range. `wf_with_region` carries the
@@ -286,7 +286,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        let idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let idx = self.index();
         let so0 = s0.slot_owners[idx];
         let so1 = s1.slot_owners[idx];
         &&& s1.inv()

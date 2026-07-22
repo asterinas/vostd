@@ -28,6 +28,16 @@ use super::meta_owners::*;
 
 verus! {
 
+impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+    pub open spec fn paddr(self) -> Paddr {
+        meta_to_frame(self.ptr.addr())
+    }
+
+    pub open spec fn index(self) -> int {
+        frame_to_index(self.paddr())
+    }
+}
+
 //FIXME: why do we need a index here?
 pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
     pub meta_own: M::Owner,
@@ -206,7 +216,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     type Obligation = DropObligation<int>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.slot_owners.contains_key(self.index())
         &&& s.slot_owners[frame_to_index(
             meta_to_frame(self.ptr.addr()),
         )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
@@ -219,32 +229,25 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
-            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].slot_vaddr
-            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].slot_vaddr
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
-            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt
-            == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt
+        &&& s1.slot_owners[self.index()].inner_perms == s0.slot_owners[self.index()].inner_perms
+        &&& s1.slot_owners[self.index()].slot_vaddr == s0.slot_owners[self.index()].slot_vaddr
+        &&& s1.slot_owners[self.index()].usage == s0.slot_owners[self.index()].usage
+        &&& s1.slot_owners[self.index()].paths_in_pt == s0.slot_owners[self.index()].paths_in_pt
         &&& forall|i: int|
             #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+            i != self.index() ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots
             =~= s0.slots
         // Linear-drop discipline: minting a UniqueFrame (`MD::new`) adds
         // one entry at the slot index via the paired mint axiom — same
         // ledger Frame uses.
-        &&& s1.frame_obligations =~= s0.frame_obligations.insert(
-            frame_to_index(meta_to_frame(self.ptr.addr())),
-        )
-        &&& obl.value() == frame_to_index(meta_to_frame(self.ptr.addr()))
+        &&& s1.frame_obligations =~= s0.frame_obligations.insert(self.index())
+        &&& obl.value() == self.index()
         &&& s1.inv()
     }
 
     proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
-        let index = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let index = self.index();
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         s.slot_owners.tracked_insert(index, slot_own);
         // Paired mint axiom: produces the token AND adds its Loc to
@@ -254,10 +257,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     }
 
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.slot_owners.contains_key(self.index())
         &&& s.inv()
-        &&& s.frame_obligations.count(frame_to_index(meta_to_frame(self.ptr.addr()))) > 0
-        &&& obl.value() == frame_to_index(meta_to_frame(self.ptr.addr()))
+        &&& s.frame_obligations.count(self.index()) > 0
+        &&& obl.value() == self.index()
     }
 
     open spec fn drop_ensures(
@@ -268,17 +271,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     ) -> bool {
         &&& forall|i: int|
             #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+            i != self.index() ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots
             =~= s0.slots
         // The trait-level `drop_ensures` records the per-instance
         // ledger contribution: one entry at `obl_key` is removed via
         // `consume_obligation`. (`UniqueFrame`'s inherent `drop` exec
         // function is responsible for arranging this in the body.)
-        &&& s1.frame_obligations =~= s0.frame_obligations.remove(
-            frame_to_index(meta_to_frame(self.ptr.addr())),
-        )
+        &&& s1.frame_obligations =~= s0.frame_obligations.remove(self.index())
         &&& s1.inv()
     }
 }
