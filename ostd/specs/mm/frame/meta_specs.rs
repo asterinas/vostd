@@ -30,7 +30,7 @@ use crate::mm::{
 };
 
 use super::meta_owners::{
-    MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, Metadata, PageUsage,
+    MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, PageUsage,
 };
 
 verus! {
@@ -45,24 +45,6 @@ impl MetaSlot {
     {
         broadcast use VERUS_layout_of_MetaSlot;
 
-    }
-
-    /// A helper function that casts a `MetaSlot` pointer to a `Metadata` pointer of type `M`.
-    #[verus_spec(res =>
-        with
-            Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
-        requires
-            perm.value() == self,
-            addr == perm.addr(),
-        ensures
-            res.ptr.addr() == addr,
-            res.addr() == addr,
-    )]
-    pub fn cast_slot<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self, addr: usize) -> ReprPtr<
-        MetaSlot,
-        Metadata<M>,
-    > {
-        ReprPtr::<MetaSlot, Metadata<M>> { ptr: PPtr::from_addr(addr), _T: PhantomData }
     }
 
     pub open spec fn get_from_unused_inner_perms_spec(

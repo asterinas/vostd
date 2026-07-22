@@ -259,13 +259,12 @@ impl<C: PageTableConfig> NodeOwner<C> {
         index_to_meta(self.slot_index)
     }
 
-    /// Reconstructs a metadata cast_ptr from `regions` at `self.slot_index`.
-    /// The borrow-model home of the node's metadata perm.
-    pub open spec fn meta_perm_of(
-        self,
-        regions: MetaRegionOwners,
-    ) -> vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>> {
-        vstd_extra::cast_ptr::PointsTo::new_spec(
+    /// Reconstructs the node's typed storage permission from `regions` at
+    /// `self.slot_index`.
+    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> MetaPerm<
+        PageTablePageMeta<C>,
+    > {
+        typed_meta_perm::<PageTablePageMeta<C>>(
             regions.slots[self.slot_index],
             regions.slot_owners[self.slot_index].inner_perms,
         )
@@ -278,12 +277,12 @@ impl<C: PageTableConfig> NodeOwner<C> {
         let idx = self.slot_index;
         &&& regions.slots.contains_key(idx)
         &&& self.meta_perm_of(regions).is_init()
-        &&& self.meta_perm_of(regions).wf(&self.meta_perm_of(regions).inner_perms)
-        &&& self.meta_perm_of(regions).value().metadata.wf(self.meta_own)
-        &&& self.level == self.meta_perm_of(regions).value().metadata.level
+        &&& self.meta_perm_of(regions).wf()
+        &&& self.meta_perm_of(regions).value().wf(self.meta_own)
+        &&& self.level == self.meta_perm_of(regions).value().level
         &&& self.meta_own.nr_children.id() == self.meta_perm_of(
             regions,
-        ).value().metadata.nr_children.id()
+        ).value().nr_children.id()
         // A page-table node's slot is tracked with `PageTable` usage (set at
         // allocation via `get_node_from_unused_spec`). This discriminates node
         // slots from data-frame slots (`Frame`/MMIO) by `usage` alone, so a

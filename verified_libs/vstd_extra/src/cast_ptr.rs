@@ -39,6 +39,20 @@ pub trait Repr<R: Sized>: Sized {
             *res == Self::from_repr_spec(*r, *perm),
     ;
 
+    /// Mutable counterpart of [`Self::from_borrowed`]. Implementations must
+    /// project the same in-place representation as `from_borrowed` and keep
+    /// the representation permission synchronized with mutations through the
+    /// returned reference.
+    fn from_borrowed_mut<'a>(r: &'a mut R, Tracked(perm): Tracked<&'a mut Self::Perm>) -> (res:
+        &'a mut Self)
+        requires
+            Self::wf(*old(r), *old(perm)),
+        ensures
+            *res == Self::from_repr_spec(*old(r), *old(perm)),
+            Self::wf(*final(r), *final(perm)),
+            *final(res) == Self::from_repr_spec(*final(r), *final(perm)),
+    ;
+
     proof fn from_to_repr(self, perm: Self::Perm)
         ensures
             Self::from_repr_spec(self.to_repr_spec(perm).0, self.to_repr_spec(perm).1) == self,
@@ -59,12 +73,13 @@ pub trait Repr<R: Sized>: Sized {
 
 /// Concrete representation of a pointer to an object of type T with representation type R
 /// The length of the array is not stored in the pointer
-pub struct ReprPtr<R, T: Repr<R>> {
+#[verifier::accept_recursive_types(T)]
+pub struct ReprPtr<R, T> {
     pub ptr: PPtr<R>,
     pub _T: PhantomData<T>,
 }
 
-impl<R, T: Repr<R>> Clone for ReprPtr<R, T> {
+impl<R, T> Clone for ReprPtr<R, T> {
     fn clone(&self) -> Self
         returns
             self,
@@ -73,11 +88,11 @@ impl<R, T: Repr<R>> Clone for ReprPtr<R, T> {
     }
 }
 
-impl<R, T: Repr<R>> Copy for ReprPtr<R, T> {
+impl<R, T> Copy for ReprPtr<R, T> {
 
 }
 
-impl<R, T: Repr<R>> FromSpecImpl<PPtr<R>> for ReprPtr<R, T> {
+impl<R, T> FromSpecImpl<PPtr<R>> for ReprPtr<R, T> {
     open spec fn obeys_from_spec() -> bool {
         true
     }
@@ -87,13 +102,13 @@ impl<R, T: Repr<R>> FromSpecImpl<PPtr<R>> for ReprPtr<R, T> {
     }
 }
 
-impl<R, T: Repr<R>> From<PPtr<R>> for ReprPtr<R, T> {
+impl<R, T> From<PPtr<R>> for ReprPtr<R, T> {
     fn from(ptr: PPtr<R>) -> Self {
         Self { ptr, _T: PhantomData }
     }
 }
 
-impl<R, T: Repr<R>> FromSpecImpl<ReprPtr<R, T>> for PPtr<R> {
+impl<R, T> FromSpecImpl<ReprPtr<R, T>> for PPtr<R> {
     open spec fn obeys_from_spec() -> bool {
         true
     }
@@ -103,13 +118,13 @@ impl<R, T: Repr<R>> FromSpecImpl<ReprPtr<R, T>> for PPtr<R> {
     }
 }
 
-impl<R, T: Repr<R>> From<ReprPtr<R, T>> for PPtr<R> {
+impl<R, T> From<ReprPtr<R, T>> for PPtr<R> {
     fn from(ptr: ReprPtr<R, T>) -> Self {
         ptr.ptr
     }
 }
 
-impl<R, T: Repr<R>> ReprPtr<R, T> {
+impl<R, T> ReprPtr<R, T> {
     pub open spec fn new_spec(ptr: PPtr<R>) -> Self {
         Self { ptr, _T: PhantomData }
     }
@@ -138,7 +153,9 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
     {
         self.ptr.addr()
     }
+}
 
+impl<R, T: Repr<R>> ReprPtr<R, T> {
     pub fn take(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>) -> (v: T)
         requires
             old(perm).pptr() == self,

@@ -115,11 +115,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     /// outer pointer-perm `regions.slots[slot_index]` paired with the inner
     /// perms `regions.slot_owners[slot_index].inner_perms`. Borrow-model analog
     /// of the owned `meta_perm` field; meaningful where `slots.contains_key`.
-    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> PointsTo<
-        MetaSlot,
-        Metadata<M>,
-    > {
-        PointsTo::new_spec(
+    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> MetaPerm<M> {
+        typed_meta_perm::<M>(
             regions.slots[self.slot_index],
             regions.slot_owners[self.slot_index].inner_perms,
         )
@@ -144,10 +141,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slots.contains_key(self.slot_index)
         &&& regions.slot_owners.contains_key(self.slot_index)
         &&& perm.is_init()
-        &&& perm.wf(&perm.inner_perms)
+        &&& perm.wf()
         &&& perm.addr() == index_to_meta(self.slot_index)
-        &&& perm.addr() == perm.points_to.addr()
-        &&& perm.value().metadata.wf(self.meta_own)
+        &&& perm.value().wf(self.meta_own)
         &&& regions.slot_owners[self.slot_index].slot_vaddr == index_to_meta(self.slot_index)
         &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value()
             == REF_COUNT_UNIQUE
@@ -173,7 +169,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& <M as OwnerOf>::wf(metadata, res.meta_own)
         &&& res.slot_index == frame_to_index(paddr)
         &&& res.meta_perm_of(regions).addr() == frame_to_meta(paddr)
-        &&& res.meta_perm_of(regions).value().metadata == metadata
+        &&& res.meta_perm_of(regions).value() == metadata
         &&& regions.slots == old_regions.slots
         &&& regions.slot_owners[frame_to_index(paddr)].inner_perms
             == old_regions.slot_owners[frame_to_index(paddr)].inner_perms
@@ -198,7 +194,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
             Self::from_unused_owner(
                 *old(regions),
                 paddr,
-                res.meta_perm_of(*final(regions)).value().metadata,
+                res.meta_perm_of(*final(regions)).value(),
                 res,
                 *final(regions),
             ),

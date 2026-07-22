@@ -58,7 +58,7 @@ use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::{
     frame::{
         mapping::{frame_to_index, lemma_frame_to_index_injective},
-        meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata},
+        meta_owners::{MetaPerm, MetaSlotOwner, MetaSlotStorage},
         meta_region_owners::MetaRegionOwners,
     },
     page_table::node::owners::*,
@@ -494,16 +494,16 @@ impl<C: PageTableConfig> PageTableNode<C> {
     /// ## Safety
     /// - We require the caller to provide a permission token to ensure that this function is only called on a valid page table node.
     #[verus_spec(
-        with Tracked(perm) : Tracked<&PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
+        with Tracked(perm) : Tracked<&MetaPerm<PageTablePageMeta<C>>>
     )]
     pub(super) fn level(&self) -> PagingLevel
         requires
             self.ptr.addr() == perm.addr(),
             self.ptr.addr() == perm.points_to.addr(),
             perm.is_init(),
-            perm.wf(&perm.inner_perms),
+            perm.wf(),
         returns
-            perm.value().metadata.level,
+            perm.value().level,
     {
         #[verus_spec(with Tracked(perm))]
         let meta = self.meta();
@@ -775,14 +775,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// Returns if the page table node is detached from its parent.
     #[verus_spec(res =>
         with
-            Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>,
+            Tracked(meta_perm): Tracked<&'a MetaPerm<PageTablePageMeta<C>>>,
         requires
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
             meta_perm.is_init(),
-            meta_perm.wf(&meta_perm.inner_perms),
+            meta_perm.wf(),
         ensures
-            res.id() == meta_perm.value().metadata.stray.id(),
+            res.id() == meta_perm.value().stray.id(),
             *final(self) == *old(self),
     )]
     pub(super) fn stray_mut<'a>(&'a mut self) -> &'a pcell_maybe_uninit::PCell<bool> {
@@ -885,14 +885,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// Gets the mutable reference to the number of valid PTEs in the node.
     #[verus_spec(res =>
         with
-            Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>,
+            Tracked(meta_perm): Tracked<&'a MetaPerm<PageTablePageMeta<C>>>,
         requires
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
             meta_perm.is_init(),
-            meta_perm.wf(&meta_perm.inner_perms),
+            meta_perm.wf(),
         ensures
-            res.id() == meta_perm.value().metadata.nr_children.id(),
+            res.id() == meta_perm.value().nr_children.id(),
             *final(self) == *old(self),
     )]
     fn nr_children_mut<'a>(&'a mut self) -> &'a pcell_maybe_uninit::PCell<u16> {

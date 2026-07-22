@@ -10,7 +10,7 @@ use vstd_extra::ownership::*;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
     mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
-    meta_owners::{MetaSlotStorage, Metadata},
+    meta_owners::{MetaPerm, MetaSlotStorage},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
 };
@@ -144,7 +144,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             old(regions).inv(),
         ensures
             res.wf(new_owner@),
-            new_owner@.meta_perm_of(*final(regions)).value().metadata == metadata,
+            new_owner@.meta_perm_of(*final(regions)).value() == metadata,
             final(regions).inv(),
     )]
     pub fn repurpose<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -205,9 +205,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     }
 
     /// Gets the metadata of this page.
-    /// Note that this function body differs from the original, because `as_meta_ptr` returns
-    /// a `ReprPtr<MetaSlot, Metadata<M>>` instead of a `*M`. So in order to keep the immutable borrow, we
-    /// borrow the metadata value from that pointer.
     /// # Verified Properties
     /// ## Preconditions
     /// The caller must provide a valid owner for the frame.
@@ -225,19 +222,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             self.wf(*owner),
             owner.global_inv(*regions),
         ensures
-            owner.meta_perm_of(*regions).mem_contents().value().metadata == l,
+            owner.meta_perm_of(*regions).mem_contents().value() == l,
     )]
     pub fn meta<'a>(&self) -> &'a M {
-        let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
-        // SAFETY: The type is tracked by the type system.
-        #[verus_spec(with Tracked(outer))]
-        let slot = self.slot();
-
-        #[verus_spec(with Tracked(outer))]
-        let ptr = slot.as_meta_ptr();
-
         let tracked tp = regions.borrow_typed_perm::<M>(owner.slot_index);
-        &ptr.borrow(Tracked(tp)).metadata
+        MetaPerm::borrow(self.ptr, Tracked(tp))
     }
 
     /// Gets the mutable metadata of this page.
@@ -263,20 +252,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn meta_mut<'a>(&'a mut self) -> &'a mut M {
-        let ptr = {
-            let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
-            // SAFETY: The type is tracked by the type system.
-            // And we have the exclusive access to the metadata.
-            #[verus_spec(with Tracked(outer))]
-            let slot = self.slot();
-
-            #[verus_spec(with Tracked(outer))]
-            slot.as_meta_ptr()
-        };
-
         let tracked perm = regions.borrow_mut_typed_perm::<M>(owner.slot_index);
-        let metadata = ptr.borrow_mut(Tracked(perm));
-        &mut metadata.metadata
+        MetaPerm::borrow_mut(self.ptr, Tracked(perm))
     }
 }
 

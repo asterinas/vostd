@@ -19,7 +19,7 @@ use crate::mm::{
 use vstd_extra::array_ptr::*;
 
 use crate::mm::page_table::*;
-use crate::specs::mm::frame::{meta_owners::Metadata, meta_region_owners::MetaRegionOwners};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::Guards;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::task::InAtomicMode;

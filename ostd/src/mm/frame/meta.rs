@@ -637,47 +637,6 @@ impl MetaSlot {
 
         meta_ptr
     }*/
-    /// Gets the stored metadata as type `M`.
-    ///
-    /// Calling the method should be safe, but using the returned pointer would
-    /// be unsafe. Specifically, the derefernecer should ensure that:
-    ///  - the stored metadata is initialized (by [`Self::write_meta`]) and
-    ///    valid;
-    ///  - the initialized metadata is of type `M`;
-    ///  - the returned pointer should not be dereferenced as mutable unless
-    ///    having exclusive access to the metadata slot.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety**: The caller must provide an existing permission that matches the contents of the metadata slot.
-    /// ## Postconditions
-    /// - **Correctness**: The function returns a pointer to the stored metadata, of type `M`.
-    /// ## Safety
-    /// - Calling the method is always safe, but using the returned pointer could
-    /// be unsafe. Specifically, the dereferencer should ensure that:
-    ///  - the stored metadata is initialized (by [`Self::write_meta`]) and valid;
-    ///  - the initialized metadata is of type `M` (`Repr<M>::wf`);
-    ///  - the returned pointer should not be dereferenced as mutable unless having exclusive access to the metadata slot.
-    #[verus_spec(res =>
-        with
-            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
-        requires
-            self == perm.value(),
-        ensures
-            res.ptr.addr() == perm.addr(),
-            res.addr() == perm.addr(),
-    )]
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> ReprPtr<
-        MetaSlot,
-        Metadata<M>,
-    > {
-        proof_with!(Tracked(perm));
-        let addr = self.addr_of();
-
-        proof_with!(Tracked(perm));
-        self.cast_slot(addr)
-    }
-
     /// Writes the metadata to the slot without reading or dropping the previous value.
     ///
     /// # Safety
@@ -705,7 +664,14 @@ impl MetaSlot {
             final(meta_perm).is_init(),
             final(vtable_perm).pptr() == old(vtable_perm).pptr(),
             final(vtable_perm).is_init(),
-            Metadata::<M>::metadata_from_inner_perms(*final(meta_perm)) == metadata,
+            <M as Repr<MetaSlotStorage>>::wf(
+                final(meta_perm).value(),
+                repr_perm_from_storage::<M>(*final(meta_perm)),
+            ),
+            M::from_repr_spec(
+                final(meta_perm).value(),
+                repr_perm_from_storage::<M>(*final(meta_perm)),
+            ) == metadata,
     )]
     pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         &self,
@@ -721,7 +687,7 @@ impl MetaSlot {
         // 2. The size and the alignment of the metadata storage is large enough to hold `M`
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
-        Metadata::<M>::write_metadata_into_storage(&self.storage, Tracked(meta_perm), metadata);
+        write_metadata_into_storage(&self.storage, Tracked(meta_perm), metadata);
     }
 
     /// Drops the metadata and deallocates the frame.

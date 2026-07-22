@@ -169,6 +169,14 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
         unimplemented!()
     }
 
+    #[verifier::external_body]
+    fn from_borrowed_mut<'a>(
+        r: &'a mut MetaSlotStorage,
+        Tracked(perm): Tracked<&'a mut ()>,
+    ) -> &'a mut Self {
+        unimplemented!()
+    }
+
     proof fn from_to_repr(self, perm: ()) {
     }
 

@@ -256,24 +256,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// return an appropriate permission.
     #[verus_spec(
         with
-            Tracked(perm) : Tracked<&'a PointsTo<MetaSlot, Metadata<M>>>,
+            Tracked(perm) : Tracked<&'a MetaPerm<M>>,
         requires
             self.ptr == perm.points_to.pptr(),
             perm.is_init(),
-            perm.wf(&perm.inner_perms),
+            perm.wf(),
         returns
-            perm.value().metadata,
+            perm.value(),
     )]
     pub fn meta<'a>(&'a self) -> &'a M {
-        // SAFETY: The type is tracked by the type system.
-        // unsafe { &*self.slot().as_meta_ptr::<M>() }
-        #[verus_spec(with Tracked(&perm.points_to))]
-        let slot = self.slot();
-
-        #[verus_spec(with Tracked(&perm.points_to))]
-        let ptr = slot.as_meta_ptr();
-
-        &ptr.borrow(Tracked(perm)).metadata
+        // SAFETY: The type is tracked by the typed storage permission.
+        MetaPerm::borrow(self.ptr, Tracked(perm))
     }
 }
 
@@ -409,18 +402,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     #[verus_spec(
         with
             Tracked(slot_own): Tracked<&MetaSlotOwner>,
-            Tracked(perm) : Tracked<&PointsTo<MetaSlot, Metadata<M>>>,
+            Tracked(perm) : Tracked<&MetaPerm<M>>,
         requires
             perm.points_to.pptr() == self.ptr,
             perm.is_init(),
-            perm.wf(&perm.inner_perms),
-            perm.inner_perms.ref_count.id() == perm.points_to.value().ref_count.id(),
+            perm.wf(),
         returns
-            perm.value().ref_count,
+            perm.ref_count.value(),
     )]
     pub fn reference_count(&self) -> u64 {
         let refcnt = (#[verus_spec(with Tracked(&perm.points_to))]
-        self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
+        self.slot()).ref_count.load(Tracked(&perm.ref_count));
         refcnt
     }
 
