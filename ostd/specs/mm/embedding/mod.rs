@@ -189,9 +189,11 @@ use crate::mm::{
 
 verus! {
 
+broadcast use crate::specs::mm::frame::mapping::lemma_index_to_frame_biinjective;
 // =============================================================================
 // Types
 // =============================================================================
+
 /// Logical identifier for a [`VmSpaceOwner`] in the store.
 pub type VmSpaceId = int;
 
@@ -293,7 +295,7 @@ pub proof fn lemma_segment_cover_witness(
 /// `idx` — i.e. the `#handles(idx)` term of the exact reference-count
 /// accounting `ref_count(idx) == #handles(idx) + paths_in_pt(idx).len()`
 /// (Stage 5 / full #4).
-pub open spec fn handle_count(frames: Map<FrameId, FrameEntry>, idx: usize) -> nat {
+pub open spec fn handle_count(frames: Map<FrameId, FrameEntry>, idx: int) -> nat {
     frames.dom().filter(|fid: FrameId| frame_to_index(frames[fid].paddr) == idx).len()
 }
 
@@ -305,7 +307,7 @@ pub proof fn lemma_handle_count_insert_fresh(
     frames: Map<FrameId, FrameEntry>,
     id: FrameId,
     entry: FrameEntry,
-    idx: usize,
+    idx: int,
 )
     requires
         !frames.dom().contains(id),
@@ -365,7 +367,7 @@ pub proof fn lemma_handle_count_insert_fresh(
 /// Handle-count delta under [`Map::remove`]: -1 at the removed entry's
 /// slot if it was the only one present (or generally `-1` if the entry
 /// at `fid` mapped to `idx`), unchanged elsewhere.
-pub proof fn lemma_handle_count_remove(frames: Map<FrameId, FrameEntry>, fid: FrameId, idx: usize)
+pub proof fn lemma_handle_count_remove(frames: Map<FrameId, FrameEntry>, fid: FrameId, idx: int)
     requires
         frames.dom().contains(fid),
     ensures
@@ -610,7 +612,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // Slot-perm coverage (Design B). Every in-region slot keeps its
         // `simple_pptr::PointsTo<MetaSlot>` parked in `regions.slots`.
         // `MetaRegionOwners::inv` only gives the *forward* direction
-        // (`slots.contains_key(i) ==> i < max_meta_slots()`); the reverse
+        // (`slots.contains_key(i) ==> 0 <= i < max_meta_slots()`); the reverse
         // is NOT globally true (`UniqueFrame` / `into_raw` / linked-list
         // permanently extract a slot perm). It IS true here because the
         // embedding's `Op` surface contains *no* perm-extracting
@@ -639,8 +641,8 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // parked; ops on possibly-unparked slots (frame/segment
         // `from_unused`, `from_in_use`) instead guard on
         // `slots.contains_key` directly.
-        &&& forall|idx: usize|
-            idx < max_meta_slots() ==> #[trigger] self.regions.slots.contains_key(idx) || (
+        &&& forall|idx: int|
+            0 <= idx < max_meta_slots() ==> #[trigger] self.regions.slots.contains_key(idx) || (
             self.regions.slot_owners[idx].usage == PageUsage::PageTable
                 && self.regions.slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED)
@@ -648,8 +650,8 @@ impl<'a, 'rcu> VmStore<'rcu> {
             // via `segment_cover_count` (see `accounting_inv`'s rc equation).
             // The per-slot `raw_count` cache that previously mirrored it has
             // been retired.
-        &&& forall|idx: usize|
-            idx < max_meta_slots()
+        &&& forall|idx: int|
+            0 <= idx < max_meta_slots()
                 ==> #[trigger] self.regions.slot_owners[idx].inner_perms.in_list.value() == 0
         &&& self.tlb_model.inv()
         &&& forall|id: VmSpaceId| #[trigger]
@@ -825,10 +827,11 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // (Shape B), reaching UNUSED also requires no segment covers
         // the slot — each segment contributes 1 to rc via its
         // forgotten Frame handle.
-        &&& forall|idx: usize|
+        &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
-            idx < max_meta_slots() && self.regions.slot_owners[idx].inner_perms.ref_count.value()
-                == REF_COUNT_UNUSED ==> handle_count(self.frames, idx) == 0
+            0 <= idx < max_meta_slots()
+                && self.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                ==> handle_count(self.frames, idx) == 0
                 && self.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
                 self.segments,
                 index_to_frame(idx),
@@ -838,9 +841,9 @@ impl<'a, 'rcu> VmStore<'rcu> {
             // active-head guard below — absorbs the pre-active-head assume
             // in `step_frame_from_in_use`. With segments, "active" includes
             // the segment-cover contribution.
-        &&& forall|idx: usize|
+        &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
-            idx < max_meta_slots() && self.regions.slot_owners[idx].usage == PageUsage::Frame
+            0 <= idx < max_meta_slots() && self.regions.slot_owners[idx].usage == PageUsage::Frame
                 && self.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 && self.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNIQUE
                 ==> handle_count(self.frames, idx) > 0
@@ -856,11 +859,14 @@ impl<'a, 'rcu> VmStore<'rcu> {
             // handle); user-held handles contribute via `H`; live PTEs
             // contribute via `P`. With `segments` empty (pre-activation),
             // `cover_count == 0` and the equation reduces to `rc == H + P`.
-        &&& forall|idx: usize|
+        &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
-            idx < max_meta_slots() && self.regions.slot_owners[idx].usage == PageUsage::Frame && (
-            handle_count(self.frames, idx) > 0 || self.regions.slot_owners[idx].paths_in_pt.len()
-                > 0 || segment_cover_count(self.segments, index_to_frame(idx)) > 0) ==> {
+            0 <= idx < max_meta_slots() && self.regions.slot_owners[idx].usage == PageUsage::Frame
+                && (handle_count(self.frames, idx) > 0
+                || self.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
+                self.segments,
+                index_to_frame(idx),
+            ) > 0) ==> {
                 let so = self.regions.slot_owners[idx];
                 let rc = so.inner_perms.ref_count.value();
                 &&& rc != REF_COUNT_UNUSED
@@ -1544,7 +1550,7 @@ proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(s_old: VmStore<'rcu>, s_ne
         s_new.frames == s_old.frames,
         // Segments unchanged ⟹ `segment_cover_count` unchanged.
         s_new.segments == s_old.segments,
-        forall|i: usize|
+        forall|i: int|
             #![trigger s_new.regions.slot_owners[i]]
             s_new.regions.slot_owners[i] != s_old.regions.slot_owners[i] ==> {
                 &&& s_old.regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
@@ -1572,9 +1578,9 @@ proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(s_old: VmStore<'rcu>, s_ne
 {
     // Clause 2 — UNUSED ⟹ no users. An UNUSED slot in `s_new` is
     // unchanged (a transitioned slot is non-UNUSED in `s_new`).
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s_new.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s_new.regions.slot_owners[idx].inner_perms.ref_count.value()
+        0 <= idx < max_meta_slots() && s_new.regions.slot_owners[idx].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s_new.frames, idx) == 0
         && s_new.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
         s_new.segments,
@@ -1584,9 +1590,9 @@ proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(s_old: VmStore<'rcu>, s_ne
     };
     // Clause 3 — Frame ∧ non-sentinel ⟹ active head. A Frame-usage slot
     // in `s_new` is unchanged (a transitioned slot is non-Frame).
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s_new.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s_new.regions.slot_owners[idx].usage == PageUsage::Frame
+        0 <= idx < max_meta_slots() && s_new.regions.slot_owners[idx].usage == PageUsage::Frame
             && s_new.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s_new.regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s_new.frames, idx) > 0
@@ -1598,9 +1604,9 @@ proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(s_old: VmStore<'rcu>, s_ne
     };
     // Clause 4 — the accounting equation. Same: a Frame-usage slot in
     // `s_new` is unchanged, so the old equation carries.
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s_new.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s_new.regions.slot_owners[idx].usage == PageUsage::Frame && (
+        0 <= idx < max_meta_slots() && s_new.regions.slot_owners[idx].usage == PageUsage::Frame && (
         handle_count(s_new.frames, idx) > 0 || s_new.regions.slot_owners[idx].paths_in_pt.len() > 0
             || segment_cover_count(s_new.segments, index_to_frame(idx)) > 0) implies {
         let so = s_new.regions.slot_owners[idx];
@@ -1672,19 +1678,19 @@ proof fn lemma_coverage_preserved_slots_eq<'rcu>(s_old: VmStore<'rcu>, s_new: Vm
     requires
         s_old.structural_inv(),
         s_new.regions.slots == s_old.regions.slots,
-        forall|idx: usize|
+        forall|idx: int|
             #![trigger s_new.regions.slot_owners[idx]]
             !s_old.regions.slots.contains_key(idx) ==> s_new.regions.slot_owners[idx]
                 == s_old.regions.slot_owners[idx],
     ensures
-        forall|idx: usize|
-            idx < max_meta_slots() ==> #[trigger] s_new.regions.slots.contains_key(idx) || (
+        forall|idx: int|
+            0 <= idx < max_meta_slots() ==> #[trigger] s_new.regions.slots.contains_key(idx) || (
             s_new.regions.slot_owners[idx].usage == PageUsage::PageTable
                 && s_new.regions.slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED),
 {
-    assert forall|idx: usize|
-        idx < max_meta_slots() implies #[trigger] s_new.regions.slots.contains_key(idx) || (
+    assert forall|idx: int|
+        0 <= idx < max_meta_slots() implies #[trigger] s_new.regions.slots.contains_key(idx) || (
     s_new.regions.slot_owners[idx].usage == PageUsage::PageTable
         && s_new.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED) by {
         if !s_new.regions.slots.contains_key(idx) {
@@ -1715,8 +1721,8 @@ proof fn step_new_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>)
     // the axiom); every OTHER slot kept its `slots` membership (only the
     // root was removed), so its coverage carries from the old store.
     let ghost root_idx = vm_space::vm_space_root_idx(owner);
-    assert forall|idx: usize|
-        idx < max_meta_slots() implies #[trigger] s.regions.slots.contains_key(idx) || (
+    assert forall|idx: int|
+        0 <= idx < max_meta_slots() implies #[trigger] s.regions.slots.contains_key(idx) || (
     s.regions.slot_owners[idx].usage == PageUsage::PageTable
         && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED) by {
         if idx == root_idx {
@@ -1847,9 +1853,10 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
             // preserves all other slots fully.
             assert(s.regions.slot_owners[target_idx].usage == PageUsage::Frame);
             // Discharge accounting_inv on (new regions, new frames).
-            assert forall|idx: usize|
+            assert forall|idx: int|
                 #![trigger s.regions.slot_owners[idx]]
-                idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
+                0 <= idx < max_meta_slots()
+                    && s.regions.slot_owners[idx].inner_perms.ref_count.value()
                     == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
                 && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
                 s.segments,
@@ -1868,9 +1875,9 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
                     assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
                 }
             };
-            assert forall|idx: usize|
+            assert forall|idx: int|
                 #![trigger s.regions.slot_owners[idx]]
-                idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+                0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
                     && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                     && s.regions.slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
@@ -1886,11 +1893,14 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
                     assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
                 }
             };
-            assert forall|idx: usize|
+            assert forall|idx: int|
                 #![trigger s.regions.slot_owners[idx]]
-                idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
-                handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0
-                    || segment_cover_count(s.segments, index_to_frame(idx)) > 0) implies {
+                0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+                    && (handle_count(s.frames, idx) > 0
+                    || s.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
+                    s.segments,
+                    index_to_frame(idx),
+                ) > 0) implies {
                 let so = s.regions.slot_owners[idx];
                 let rc = so.inner_perms.ref_count.value();
                 &&& rc != REF_COUNT_UNUSED
@@ -2033,9 +2043,9 @@ proof fn step_map<'rcu>(
     // target_idx; non-mapped pre-non-UNUSED slots fully preserved;
     // post-UNUSED slots fully preserved; newly-non-UNUSED slots are
     // non-Frame (PT nodes). `s.segments` is unchanged across map.
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
         && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -2051,9 +2061,9 @@ proof fn step_map<'rcu>(
             assert(false);
         }
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
             && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
@@ -2074,9 +2084,9 @@ proof fn step_map<'rcu>(
             assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
         }
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
         handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0
             || segment_cover_count(s.segments, index_to_frame(idx)) > 0) implies {
         let so = s.regions.slot_owners[idx];
@@ -2198,9 +2208,9 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
     // universally; rc doesn't bump to UNIQUE; storage preserved at
     // post-non-UNUSED; at Frame slots, `rc - paths.len` is invariant
     // with both monotonically non-increasing. `s.frames` is unchanged.
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
         && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -2275,9 +2285,9 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
             };
         }
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
             && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
@@ -2323,9 +2333,9 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
             assert(s.regions.slot_owners[idx].paths_in_pt.len() > 0);
         }
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
         handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len()
             > 0) implies {
         let so = s.regions.slot_owners[idx];
@@ -2557,9 +2567,9 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
 
                 // 5.5c new clause: "UNUSED ⟹ no users". Other idx unchanged
                 // (lemma + slot_owner preservation); target_idx is now rc=1.
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots()
+                    0 <= idx < max_meta_slots()
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
                         == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
                     && s.regions.slot_owners[idx].paths_in_pt.is_empty() by {
@@ -2575,9 +2585,10 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
                 // 5.5c new clause: "Frame ∧ non-sentinel ⟹ active". Other
                 // idx unchanged (so old clause carries); target post is
                 // active (H=1).
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+                    0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage
+                        == PageUsage::Frame
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -2595,10 +2606,10 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
                 };
 
                 // Per-slot accounting (forall covers active heads only).
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
-                        && (handle_count(s.frames, idx) > 0
+                    0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage
+                        == PageUsage::Frame && (handle_count(s.frames, idx) > 0
                         || s.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
                         s.segments,
                         index_to_frame(idx),
@@ -2659,9 +2670,9 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
 
                 // 5.5c new clause: "UNUSED ⟹ no users". For target: post
                 // rc = pre rc + 1 != UNUSED. For other idx: unchanged.
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots()
+                    0 <= idx < max_meta_slots()
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
                         == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
                     && s.regions.slot_owners[idx].paths_in_pt.is_empty() by {
@@ -2675,9 +2686,10 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
 
                 // 5.5c new clause: "Frame ∧ non-sentinel ⟹ active". For
                 // target post: H = pre + 1 ≥ 1 → active. For other: unchanged.
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+                    0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage
+                        == PageUsage::Frame
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -2695,10 +2707,10 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
                 };
 
                 // Per-slot accounting (forall covers active heads only).
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
-                        && (handle_count(s.frames, idx) > 0
+                    0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage
+                        == PageUsage::Frame && (handle_count(s.frames, idx) > 0
                         || s.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
                         s.segments,
                         index_to_frame(idx),
@@ -2769,9 +2781,9 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     // For target: if drop teardown (rc 1→UNUSED), need post H==0 and
     // paths empty. Both hold: pre eqn 1==H+P with H>=1 ⟹ H==1, P==0
     // ⟹ post H==0 (fid removed) and post paths == pre paths == empty.
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
         && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -2796,9 +2808,9 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     // post in rc>1 case: rc-1 in [1,MAX-1] non-sentinel; H-=1 or P
     // preserved. Pre H+P=pre rc; if post H>=1, active; else pre H=1
     // so pre P=pre rc-1 >= 1 (rc>1), post P >= 1, active. ✓
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
             && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
@@ -2818,9 +2830,9 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
         }
     };
 
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
         handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0
             || segment_cover_count(s.segments, index_to_frame(idx)) > 0) implies {
         let so = s.regions.slot_owners[idx];
@@ -2933,9 +2945,9 @@ proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Ra
                 //   - Slot outside `range`: fully preserved (axiom); segments
                 //     gained one entry whose range doesn't cover this paddr,
                 //     so cover unchanged. Accounting carries from pre.
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots()
+                    0 <= idx < max_meta_slots()
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
                         == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
                     && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
@@ -2959,9 +2971,10 @@ proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Ra
                         lemma_segment_cover_insert_outside(old_segments, id, entry, paddr);
                     }
                 };
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+                    0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage
+                        == PageUsage::Frame
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED
                         && s.regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -2983,10 +2996,10 @@ proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Ra
                         lemma_segment_cover_insert_outside(old_segments, id, entry, paddr);
                     }
                 };
-                assert forall|idx: usize|
+                assert forall|idx: int|
                     #![trigger s.regions.slot_owners[idx]]
-                    idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
-                        && (handle_count(s.frames, idx) > 0
+                    0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage
+                        == PageUsage::Frame && (handle_count(s.frames, idx) > 0
                         || s.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
                         s.segments,
                         index_to_frame(idx),
@@ -3016,8 +3029,8 @@ proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Ra
                     }
                 };
                 // Discharge structural_inv's `in_list == 0` clause.
-                assert forall|idx: usize|
-                    idx
+                assert forall|idx: int|
+                    0 <= idx
                         < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value()
                     == 0 by {
                     let paddr = index_to_frame(idx);
@@ -3163,8 +3176,8 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     //   - Slot outside `range`: fully preserved (axiom + segment removal
     //     leaves cover unchanged at outside paddrs).
 
-    assert forall|idx: usize|
-        idx
+    assert forall|idx: int|
+        0 <= idx
             < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value()
         == 0 by {
         let paddr = index_to_frame(idx);
@@ -3178,9 +3191,9 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         }
     };
     // Discharge accounting_inv clauses.
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
         && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -3209,9 +3222,9 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             lemma_segment_cover_remove_outside(old_segments, sid, paddr);
         }
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
             && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
@@ -3236,9 +3249,9 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             lemma_segment_cover_remove_outside(old_segments, sid, paddr);
         }
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
         handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0
             || segment_cover_count(s.segments, index_to_frame(idx)) > 0) implies {
         let so = s.regions.slot_owners[idx];
@@ -3462,9 +3475,9 @@ proof fn step_segment_split<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId,
     // every per-slot value (rc, paths, usage, etc.) preserved; frames
     // unchanged ⟹ handle_count preserved; cover_count preserved
     // per-paddr via lemma_segment_cover_split.
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
         && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -3483,9 +3496,9 @@ proof fn step_segment_split<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId,
             paddr,
         );
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
             && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
@@ -3506,9 +3519,9 @@ proof fn step_segment_split<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId,
             paddr,
         );
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
         handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0
             || segment_cover_count(s.segments, index_to_frame(idx)) > 0) implies {
         let so = s.regions.slot_owners[idx];
@@ -3654,8 +3667,8 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     };
 
     // Structural in_list == 0.
-    assert forall|idx: usize|
-        idx
+    assert forall|idx: int|
+        0 <= idx
             < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value()
         == 0 by {
         let paddr_c = index_to_frame(idx);
@@ -3711,9 +3724,9 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     }
     // Accounting clauses.
 
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
         && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -3730,9 +3743,9 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             lemma_handle_count_insert_fresh(old_frames, fid, frame_entry, idx);
         }
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
             && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
@@ -3751,9 +3764,9 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             lemma_handle_count_insert_fresh(old_frames, fid, frame_entry, idx);
         }
     };
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
         handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0
             || segment_cover_count(s.segments, index_to_frame(idx)) > 0) implies {
         let so = s.regions.slot_owners[idx];
@@ -3890,8 +3903,8 @@ proof fn step_segment_clone_range<'rcu>(
     // --- per-slot regions delta: usage / in_list preserved everywhere ---
     // `usage` is preserved at every slot (inside: usage clause of the
     // axiom; outside: full slot preservation).
-    assert forall|idx: usize|
-        idx < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].usage
+    assert forall|idx: int|
+        0 <= idx < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].usage
         == old_regions.slot_owners[idx].usage by {
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
@@ -3903,8 +3916,8 @@ proof fn step_segment_clone_range<'rcu>(
         }
     };
     // `in_list == 0` at every slot (preserved by the axiom both ways).
-    assert forall|idx: usize|
-        idx
+    assert forall|idx: int|
+        0 <= idx
             < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value()
         == 0 by {
         let aligned = index_to_frame(idx);
@@ -3938,7 +3951,7 @@ proof fn step_segment_clone_range<'rcu>(
             assert(old_segments[sid_other] == s.segments[sid_other]);
             assert(old_regions.slot_owners[cov_idx].usage == PageUsage::Frame);
         }
-        // `cov_idx < max_meta_slots()` via `inv_implies_correct_addr`
+        // `cov_0 <= idx < max_meta_slots()` via `inv_implies_correct_addr`
         // (`slot_owners.contains_key`) + `MetaRegionOwners::inv`'s
         // biimplication. Then the universal usage-preservation above
         // gives `s.regions` usage == old usage == Frame at cov_idx.
@@ -3958,14 +3971,14 @@ proof fn step_segment_clone_range<'rcu>(
         assert(has_safe_slot(s.frames[fid_other].paddr));
         s.regions.inv_implies_correct_addr(s.frames[fid_other].paddr);
         assert(s.regions.slot_owners.contains_key(other_idx));
-        // `other_idx < max_meta_slots()` (biimplication) ⟹ universal
+        // `other_0 <= idx < max_meta_slots()` (biimplication) ⟹ universal
         // usage-preservation above gives Frame-usage at other_idx.
     };
 
     // --- accounting clause 1: UNUSED ⟹ no users ---
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
         && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -3982,9 +3995,9 @@ proof fn step_segment_clone_range<'rcu>(
         }
     };
     // --- accounting clause 2: valid rc ⟹ active head ---
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame
             && s.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
@@ -4002,9 +4015,9 @@ proof fn step_segment_clone_range<'rcu>(
         }
     };
     // --- accounting clause 3: the rc equation ---
-    assert forall|idx: usize|
+    assert forall|idx: int|
         #![trigger s.regions.slot_owners[idx]]
-        idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
+        0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage == PageUsage::Frame && (
         handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len() > 0
             || segment_cover_count(s.segments, index_to_frame(idx)) > 0) implies {
         let so = s.regions.slot_owners[idx];
@@ -4152,8 +4165,8 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
         assert(s.segments == old_segments);
 
         // --- structural: in_list == 0 everywhere ---
-        assert forall|i: usize|
-            i
+        assert forall|i: int|
+            0 <= i
                 < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].inner_perms.in_list.value()
             == 0 by {
             if i != idx {
@@ -4241,9 +4254,9 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
         };
 
         // --- accounting clause 1: UNUSED ⟹ no users ---
-        assert forall|i: usize|
+        assert forall|i: int|
             #![trigger s.regions.slot_owners[i]]
-            i < max_meta_slots() && s.regions.slot_owners[i].inner_perms.ref_count.value()
+            0 <= i < max_meta_slots() && s.regions.slot_owners[i].inner_perms.ref_count.value()
                 == REF_COUNT_UNUSED implies handle_count(s.frames, i) == 0
             && s.regions.slot_owners[i].paths_in_pt.is_empty() && segment_cover_count(
             s.segments,
@@ -4257,9 +4270,9 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
             }
         };
         // --- accounting clause 2: valid rc ⟹ active head ---
-        assert forall|i: usize|
+        assert forall|i: int|
             #![trigger s.regions.slot_owners[i]]
-            i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame
+            0 <= i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame
                 && s.regions.slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 && s.regions.slot_owners[i].inner_perms.ref_count.value()
                 != REF_COUNT_UNIQUE implies handle_count(s.frames, i) > 0
@@ -4275,9 +4288,9 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
             }
         };
         // --- accounting clause 3: the rc equation ---
-        assert forall|i: usize|
+        assert forall|i: int|
             #![trigger s.regions.slot_owners[i]]
-            i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame && (
+            0 <= i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame && (
             handle_count(s.frames, i) > 0 || s.regions.slot_owners[i].paths_in_pt.len() > 0
                 || segment_cover_count(s.segments, index_to_frame(i)) > 0) implies {
             let so = s.regions.slot_owners[i];
@@ -4360,8 +4373,9 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     assert(s.segments == old_segments);
 
     // --- structural: in_list == 0 everywhere ---
-    assert forall|i: usize|
-        i < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].inner_perms.in_list.value()
+    assert forall|i: int|
+        0 <= i
+            < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].inner_perms.in_list.value()
         == 0 by {
         if i != idx {
             assert(s.regions.slot_owners[i] == old_regions.slot_owners[i]);
@@ -4429,9 +4443,9 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     };
 
     // --- accounting clause 1: UNUSED ⟹ no users ---
-    assert forall|i: usize|
+    assert forall|i: int|
         #![trigger s.regions.slot_owners[i]]
-        i < max_meta_slots() && s.regions.slot_owners[i].inner_perms.ref_count.value()
+        0 <= i < max_meta_slots() && s.regions.slot_owners[i].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, i) == 0
         && s.regions.slot_owners[i].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -4448,9 +4462,9 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
         }
     };
     // --- accounting clause 2: valid rc ⟹ active head ---
-    assert forall|i: usize|
+    assert forall|i: int|
         #![trigger s.regions.slot_owners[i]]
-        i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame
+        0 <= i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame
             && s.regions.slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[i].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, i) > 0
@@ -4466,15 +4480,11 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
         }
     };
     // --- accounting clause 3: the rc equation ---
-    assert forall|i: usize|
+    assert forall|i: int|
         #![trigger s.regions.slot_owners[i]]
-        i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame && (handle_count(
-            s.frames,
-            i,
-        ) > 0 || s.regions.slot_owners[i].paths_in_pt.len() > 0 || segment_cover_count(
-            s.segments,
-            index_to_frame(i),
-        ) > 0) implies {
+        0 <= i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame && (
+        handle_count(s.frames, i) > 0 || s.regions.slot_owners[i].paths_in_pt.len() > 0
+            || segment_cover_count(s.segments, index_to_frame(i)) > 0) implies {
         let so = s.regions.slot_owners[i];
         let rc = so.inner_perms.ref_count.value();
         &&& rc != REF_COUNT_UNUSED
@@ -4554,8 +4564,9 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     assert(s.frames[fid].paddr == paddr);
 
     // --- structural: in_list == 0 everywhere ---
-    assert forall|i: usize|
-        i < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].inner_perms.in_list.value()
+    assert forall|i: int|
+        0 <= i
+            < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].inner_perms.in_list.value()
         == 0 by {
         if i != idx {
             assert(s.regions.slot_owners[i] == old_regions.slot_owners[i]);
@@ -4625,9 +4636,9 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     };
 
     // --- accounting clause 1: UNUSED ⟹ no users ---
-    assert forall|i: usize|
+    assert forall|i: int|
         #![trigger s.regions.slot_owners[i]]
-        i < max_meta_slots() && s.regions.slot_owners[i].inner_perms.ref_count.value()
+        0 <= i < max_meta_slots() && s.regions.slot_owners[i].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED implies handle_count(s.frames, i) == 0
         && s.regions.slot_owners[i].paths_in_pt.is_empty() && segment_cover_count(
         s.segments,
@@ -4641,9 +4652,9 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
         }
     };
     // --- accounting clause 2: valid rc ⟹ active head ---
-    assert forall|i: usize|
+    assert forall|i: int|
         #![trigger s.regions.slot_owners[i]]
-        i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame
+        0 <= i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame
             && s.regions.slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             && s.regions.slot_owners[i].inner_perms.ref_count.value()
             != REF_COUNT_UNIQUE implies handle_count(s.frames, i) > 0
@@ -4659,15 +4670,11 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
         }
     };
     // --- accounting clause 3: the rc equation ---
-    assert forall|i: usize|
+    assert forall|i: int|
         #![trigger s.regions.slot_owners[i]]
-        i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame && (handle_count(
-            s.frames,
-            i,
-        ) > 0 || s.regions.slot_owners[i].paths_in_pt.len() > 0 || segment_cover_count(
-            s.segments,
-            index_to_frame(i),
-        ) > 0) implies {
+        0 <= i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame && (
+        handle_count(s.frames, i) > 0 || s.regions.slot_owners[i].paths_in_pt.len() > 0
+            || segment_cover_count(s.segments, index_to_frame(i)) > 0) implies {
         let so = s.regions.slot_owners[i];
         let rc = so.inner_perms.ref_count.value();
         &&& rc != REF_COUNT_UNUSED
@@ -4749,8 +4756,8 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
         };
 
         // --- structural: in_list == 0 everywhere ---
-        assert forall|i: usize|
-            i
+        assert forall|i: int|
+            0 <= i
                 < max_meta_slots() implies #[trigger] s.regions.slot_owners[i].inner_perms.in_list.value()
             == 0 by {
             if i != idx {
@@ -4838,9 +4845,9 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
         };
 
         // --- accounting clause 1: UNUSED ⟹ no users ---
-        assert forall|i: usize|
+        assert forall|i: int|
             #![trigger s.regions.slot_owners[i]]
-            i < max_meta_slots() && s.regions.slot_owners[i].inner_perms.ref_count.value()
+            0 <= i < max_meta_slots() && s.regions.slot_owners[i].inner_perms.ref_count.value()
                 == REF_COUNT_UNUSED implies handle_count(s.frames, i) == 0
             && s.regions.slot_owners[i].paths_in_pt.is_empty() && segment_cover_count(
             s.segments,
@@ -4855,9 +4862,9 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
             }
         };
         // --- accounting clause 2: valid rc ⟹ active head ---
-        assert forall|i: usize|
+        assert forall|i: int|
             #![trigger s.regions.slot_owners[i]]
-            i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame
+            0 <= i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame
                 && s.regions.slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 && s.regions.slot_owners[i].inner_perms.ref_count.value()
                 != REF_COUNT_UNIQUE implies handle_count(s.frames, i) > 0
@@ -4874,9 +4881,9 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
             }
         };
         // --- accounting clause 3: the rc equation ---
-        assert forall|i: usize|
+        assert forall|i: int|
             #![trigger s.regions.slot_owners[i]]
-            i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame && (
+            0 <= i < max_meta_slots() && s.regions.slot_owners[i].usage == PageUsage::Frame && (
             handle_count(s.frames, i) > 0 || s.regions.slot_owners[i].paths_in_pt.len() > 0
                 || segment_cover_count(s.segments, index_to_frame(i)) > 0) implies {
             let so = s.regions.slot_owners[i];

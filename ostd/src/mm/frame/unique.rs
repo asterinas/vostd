@@ -9,7 +9,7 @@ use vstd_extra::ownership::*;
 
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, max_meta_slots, index_to_meta},
+    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
     meta_owners::{MetaSlotStorage, Metadata},
     meta_region_owners::MetaRegionOwners,
     meta_specs::lemma_index_to_meta_to_index,
@@ -530,7 +530,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         ensures
             final(regions).inv(),
             final(regions).slots == old(regions).slots,
-            forall|i: usize| #![trigger final(regions).slot_owners[i]]
+            forall|i: int| #![trigger final(regions).slot_owners[i]]
                 i != owner.slot_index ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
             final(regions).frame_obligations == old(regions).frame_obligations.remove(

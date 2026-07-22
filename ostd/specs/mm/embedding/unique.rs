@@ -105,7 +105,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         // All other slots fully preserved.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -150,7 +150,7 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         // All other slots fully preserved.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -187,7 +187,7 @@ pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             &&& so_new.inner_perms.storage == so_old.inner_perms.storage
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -224,7 +224,7 @@ pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, pa
             &&& so_new.inner_perms.storage == so_old.inner_perms.storage
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,

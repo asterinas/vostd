@@ -10,7 +10,7 @@ use crate::specs::{
     arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
     mm::{
         frame::{
-            mapping::{frame_to_index, max_meta_slots, index_to_meta},
+            mapping::{frame_to_index, index_to_meta, max_meta_slots},
             meta_owners::*,
             meta_region_owners::MetaRegionOwners,
         },
@@ -228,7 +228,7 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub ghost level: PagingLevel,
     pub ghost tree_level: int,
-    pub ghost slot_index: usize,
+    pub ghost slot_index: int,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
@@ -237,9 +237,11 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.children_perm.is_init_all()
-        &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(index_to_meta(self.slot_index)))
+        &&& self.children_perm.addr() == paddr_to_vaddr(
+            meta_to_frame(index_to_meta(self.slot_index)),
+        )
         &&& self.tree_level == INC_LEVELS - self.level - 1
-        &&& self.slot_index < max_meta_slots() as usize
+        &&& 0 <= self.slot_index < max_meta_slots()
         &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
         &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
         &&& meta_to_frame(index_to_meta(self.slot_index)) < VMALLOC_BASE_VADDR

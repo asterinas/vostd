@@ -7,7 +7,7 @@ use crate::specs::{
     mm::{
         Paddr,
         frame::{
-            mapping::{frame_to_index, max_meta_slots, index_to_meta},
+            mapping::{frame_to_index, index_to_meta, max_meta_slots},
             meta_region_owners::MetaRegionOwners,
         },
     },
@@ -31,7 +31,7 @@ verus! {
 //FIXME: why do we need a index here?
 pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
     pub meta_own: M::Owner,
-    pub ghost slot_index: usize,
+    pub ghost slot_index: int,
 }
 
 pub ghost struct UniqueFrameModel<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
@@ -40,7 +40,7 @@ pub ghost struct UniqueFrameModel<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorag
 
 impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
     open spec fn inv(self) -> bool {
-        &&& self.slot_index < MAX_NR_PAGES
+        &&& 0 <= self.slot_index < MAX_NR_PAGES
         &&& self.slot_index < max_meta_slots()
     }
 }
@@ -149,7 +149,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
 
-    pub proof fn from_raw_owner(owner: M::Owner, index: Ghost<usize>) -> Self {
+    pub proof fn from_raw_owner(owner: M::Owner, index: Ghost<int>) -> Self {
         UniqueFrameOwner::<M> { meta_own: owner, slot_index: index@ }
     }
 
@@ -171,7 +171,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
             == old_regions.slot_owners[frame_to_index(paddr)].usage
         &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt
             == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
-        &&& forall|i: usize|
+        &&& forall|i: int|
             i != frame_to_index(paddr) ==> regions.slot_owners[i]
                 == old_regions.slot_owners[i]
         // Setting up the owner does not touch the per-frame ledger; the
@@ -203,7 +203,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     /// at any moment a slot is in either Frame-SHARED mode (ref_count in
     /// [1, MAX]) or UniqueFrame-UNIQUE mode (ref_count == UNIQUE), never
     /// both, so the multiset semantics are unambiguous.
-    type Obligation = DropObligation<usize>;
+    type Obligation = DropObligation<int>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
@@ -227,7 +227,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].usage
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt
             == s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].paths_in_pt
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger s1.slot_owners[i]]
             i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
                 == s0.slot_owners[i]
@@ -266,7 +266,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger s1.slot_owners[i]]
             i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
                 == s0.slot_owners[i]

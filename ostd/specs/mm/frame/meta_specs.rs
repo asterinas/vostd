@@ -11,7 +11,7 @@ use vstd_extra::{cast_ptr::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::frame::{
-        mapping::{frame_to_index, index_to_frame, lemma_paddr_to_meta_biinjective, index_to_meta},
+        mapping::{frame_to_index, index_to_frame, index_to_meta, lemma_paddr_to_meta_biinjective},
         meta_owners::MetadataInnerPerms,
         meta_region_owners::MetaRegionOwners,
     },
@@ -128,7 +128,7 @@ impl MetaSlot {
             &&& post.slot_owners[idx].usage == PageUsage::PageTable
             &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
-            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
+            &&& forall|i: int| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
             &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
         }
     }
@@ -146,7 +146,7 @@ impl MetaSlot {
     ) -> bool {
         let idx = frame_to_index(paddr);
         &&& post.slots.dom() =~= pre.slots.dom()
-        &&& forall|k: usize|
+        &&& forall|k: int|
             #![trigger post.slots[k]]
             k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
     }
@@ -220,7 +220,7 @@ impl MetaSlot {
             &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].usage == pre.slot_owners[idx].usage
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
-            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
+            &&& forall|i: int| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
         }
     }
 
@@ -264,9 +264,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
 /// region facts phrased over `frame_to_index(meta_to_frame(ptr.addr))` at
 /// `slot_index` (e.g. recovering `ref_count == REF_COUNT_UNIQUE` from
 /// `global_inv`).
-pub broadcast proof fn lemma_index_to_meta_to_index(i: usize)
+pub broadcast proof fn lemma_index_to_meta_to_index(i: int)
     requires
-        i < MAX_NR_PAGES,
+        0 <= i < MAX_NR_PAGES,
     ensures
         #[trigger] frame_to_index(meta_to_frame(index_to_meta(i))) == i,
 {

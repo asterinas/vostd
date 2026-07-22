@@ -25,7 +25,7 @@ verus! {
 /// is the slot whose perm `VmSpace::new` (`empty_with_owner`) permanently
 /// extracts from `regions.slots` (the root is owned by the page table,
 /// not parked in the free pool).
-pub open spec fn vm_space_root_idx(owner: VmSpaceOwner) -> usize {
+pub open spec fn vm_space_root_idx(owner: VmSpaceOwner) -> int {
     frame_to_index(owner.page_table_owner.value().meta_slot_paddr()->0)
 }
 
@@ -58,7 +58,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         final(regions).slot_owners[vm_space_root_idx(res)].usage == PageUsage::PageTable,
         final(regions).slot_owners[vm_space_root_idx(res)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED,
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
@@ -68,7 +68,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         // non-UNUSED PT node (`usage == PageTable`). `accounting_inv`
         // chains from this; the `usage == PageTable` strengthening also
         // feeds `structural_inv`'s slot-perm coverage exception.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
@@ -108,7 +108,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         final(regions).slot_owners[vm_space_root_idx(res)].usage == PageUsage::PageTable,
         final(regions).slot_owners[vm_space_root_idx(res)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED,
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i].inner_perms.in_list == old(
                 regions,
@@ -118,7 +118,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         // non-UNUSED PT node (`usage == PageTable`). `accounting_inv`
         // chains from this; the `usage == PageTable` strengthening also
         // feeds `structural_inv`'s slot-perm coverage exception.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED

@@ -21,27 +21,38 @@ pub open spec fn max_meta_slots() -> int {
     (FRAME_METADATA_RANGE.end - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int
 }
 
-pub open spec fn index_to_meta(i: usize) -> (res: Vaddr)
+pub open spec fn index_to_meta(i: int) -> (res: Vaddr)
     recommends
-        0 <= i < max_meta_slots() as usize,
+        0 <= i < max_meta_slots(),
 {
-    (FRAME_METADATA_RANGE.start + i * META_SLOT_SIZE) as usize
+    (FRAME_METADATA_RANGE.start + i * META_SLOT_SIZE) as Vaddr
 }
 
 #[verifier::inline]
-pub open spec fn frame_to_index(paddr: Paddr) -> usize
+pub open spec fn frame_to_index(paddr: Paddr) -> int
     recommends
         paddr % PAGE_SIZE == 0,
 {
-    paddr / PAGE_SIZE
+    (paddr / PAGE_SIZE) as int
 }
 
 #[verifier::inline]
-pub open spec fn index_to_frame(index: usize) -> Paddr
+pub open spec fn index_to_frame(index: int) -> Paddr
     recommends
-        index < max_meta_slots(),
+        0 <= index < max_meta_slots(),
 {
-    (index * PAGE_SIZE) as usize
+    (index * PAGE_SIZE) as Paddr
+}
+
+/// Converting an in-range metadata-slot index to its frame address and back
+/// preserves the index, and the resulting address is page aligned.
+pub broadcast proof fn lemma_index_to_frame_biinjective(index: int)
+    requires
+        0 <= index < max_meta_slots(),
+    ensures
+        #[trigger] index_to_frame(index) % PAGE_SIZE == 0,
+        frame_to_index(index_to_frame(index)) == index,
+{
 }
 
 /// `frame_to_index` is injective on page-aligned paddrs.
@@ -107,6 +118,7 @@ pub broadcast proof fn lemma_meta_to_frame_alignment(meta: Vaddr)
 }
 
 pub broadcast group group_page_meta {
+    lemma_index_to_frame_biinjective,
     lemma_paddr_to_meta_biinjective,
     lemma_meta_to_paddr_biinjective,
     lemma_meta_to_frame_soundness,

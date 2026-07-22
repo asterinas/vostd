@@ -361,9 +361,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                             assert(regions.slots.contains_key(idx_k));
                         }
                         proof_decl! {
-                            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<
-                                usize,
-                            >;
+                            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
                         }
                         let frame = unsafe {
                             #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
@@ -869,7 +867,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 }
 
 /// A frame yielded from a [`SegmentIterator`] together with its drop obligation.
-pub type SegmentIteratorItem<M> = (Frame<M>, Tracked<DropObligation<usize>>);
+pub type SegmentIteratorItem<M> = (Frame<M>, Tracked<DropObligation<int>>);
 
 /// Prophetic sequence state used to specify the frames that a segment iterator will yield.
 /// FIXME: Do we need another iterator struct?
@@ -1068,7 +1066,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
             }
 
             proof_decl! {
-                let tracked from_raw_obl: DropObligation<usize>;
+                let tracked from_raw_obl: DropObligation<int>;
             }
             let frame = unsafe {
                 #[verus_spec(with Tracked(*regions_ref) => Tracked(from_raw_obl))]
@@ -1341,7 +1339,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
             }
 
             proof_decl! {
-                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
             }
 
             // SAFETY: each segment frame holds a forgotten reference;

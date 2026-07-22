@@ -56,10 +56,10 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& new_regions.slot_owners[frame_to_index(paddr)]
             =~= old_regions.slot_owners[frame_to_index(paddr)]
         &&& new_regions.slot_owners[frame_to_index(paddr)].slot_vaddr == r.ptr.addr()
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
-        &&& forall|i: usize|
+        &&& forall|i: int|
             i != frame_to_index(paddr) ==> new_regions.slots.contains_key(i)
                 == old_regions.slots.contains_key(i)
         &&& r.ptr.addr() == frame_to_meta(paddr)
@@ -93,12 +93,12 @@ impl<'a, M: ?Sized> Frame<M> {
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
     ) -> bool {
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger new_regions.slots[i], old_regions.slots[i]]
             i != self.index() && old_regions.slots.contains_key(i)
                 ==> new_regions.slots.contains_key(i) && new_regions.slots[i]
                 == old_regions.slots[i]
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != self.index() ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& new_regions.slot_owners.dom() =~= old_regions.slot_owners.dom()
@@ -118,7 +118,7 @@ impl<M: ?Sized> Frame<M> {
         meta_to_frame(self.ptr.addr())
     }
 
-    pub open spec fn index(self) -> usize {
+    pub open spec fn index(self) -> int {
         frame_to_index(self.paddr())
     }
 
@@ -201,7 +201,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     /// (Full per-instance ledger enforcement is a follow-up; for now
     /// `consume_obligation` is a no-op so the token's identity is
     /// documentary rather than gated against a multiset.)
-    type Obligation = DropObligation<usize>;
+    type Obligation = DropObligation<int>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(self.index())
@@ -216,7 +216,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     ) -> bool {
         let slot_own = s0.slot_owners[self.index()];
         &&& s1.slot_owners[self.index()] == slot_own
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger s1.slot_owners[i]]
             i != self.index() ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
@@ -290,7 +290,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         let so0 = s0.slot_owners[idx];
         let so1 = s1.slot_owners[idx];
         &&& s1.inv()
-        &&& forall|i: usize|
+        &&& forall|i: int|
             #![trigger s1.slot_owners[i]]
             i != idx ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots

@@ -417,7 +417,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.frame_sub_pages_valid(r0),
             r0.slots == r1.slots,
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
                     ==> r0.slot_owners[i] == r1.slot_owners[i],
@@ -542,7 +542,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub proof fn lemma_active_entry_not_in_free_pool(
         entry: Self,
         regions: MetaRegionOwners,
-        free_idx: usize,
+        free_idx: int,
     )
         requires
             regions.inv(),
@@ -583,8 +583,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.inv(),
             self.metaregion_sound(r0),
             r0.slot_owners == r1.slot_owners,
-            forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
         ensures
             self.metaregion_sound(r1),
     {
@@ -596,18 +596,18 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
     )
         requires
             self.inv(),
             self.metaregion_sound(r0),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
             // slots preserved at the entry's index (frames read from slots)
-            forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
             self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr()->0)
                 != changed_idx,
             // Huge frames: if changed_idx is one of this frame's 4KB sub-page slots and
@@ -639,7 +639,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
     )
         requires
             self.inv(),
@@ -648,7 +648,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r0.slots == r1.slots,
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
             // All slots other than changed_idx are entirely unchanged.
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
             // At changed_idx, only paths_in_pt differs.
@@ -668,7 +668,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.is_frame() && self.parent_level > 1 ==> {
                 let pa = self.frame().mapped_pa;
                 let sub_level = (self.parent_level - 1) as PagingLevel;
-                forall|j: usize|
+                forall|j: int|
                     0 < j < NR_ENTRIES ==> {
                         let sub_idx = #[trigger] frame_to_index(
                             (pa + j * page_size(sub_level)) as usize,
@@ -759,7 +759,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 &&& r1.slot_owners[idx].usage == r0.slot_owners[idx].usage
             }),
             // All other slot_owners unchanged: preserves sub-page validity for huge frames.
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
                     ==> r0.slot_owners[i] == r1.slot_owners[i],

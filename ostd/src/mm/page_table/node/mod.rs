@@ -185,7 +185,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost pre_skip_cursor: int = reader.cursor.vaddr as int;
 
         let ghost initial_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
-        let ghost initial_dom: vstd::set::Set<usize> = regions.slots.dom();
+        let ghost initial_dom: vstd::set::Set<int> = regions.slots.dom();
         let ghost initial_reader: crate::mm::VmReader<'_, crate::mm::Infallible> = *reader;
 
         #[verus_spec(with Tracked(vm_io_owner))]
@@ -210,7 +210,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost range_end: int = range.end as int;
         let n_iters: usize = range.end - range.start;
         let mut iter_count: usize = 0;
-        let ghost mut removed_indices: vstd::set::Set<usize> = vstd::set::Set::empty();
+        let ghost mut removed_indices: vstd::set::Set<int> = vstd::set::Set::empty();
 
         proof {
             C::lemma_page_table_config_constant_properties();
@@ -280,7 +280,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 // Witness past iter for each removed idx — the discharge
                 // proof picks it up via `choose|j|` and invokes
                 // `walk_uniqueness` at (current_cursor, witness_cursor).
-                forall|idx: usize| #[trigger]
+                forall|idx: int| #[trigger]
                     removed_indices.contains(idx) ==> exists|j: int|
                         #![trigger Self::walk_pte_at_view(
                             initial_view,
@@ -350,10 +350,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         );
                         broadcast use lemma_frame_to_index_injective;
 
-                        assert forall|idx: usize| #[trigger]
-                            removed_indices.contains(idx) implies idx != frame_to_index(
-                            pte.paddr(),
-                        ) by {
+                        assert forall|idx: int| #[trigger] removed_indices.contains(idx) implies idx
+                            != frame_to_index(pte.paddr()) by {
                             let j = choose|j: int|
                                 #![trigger Self::walk_pte_at_view(
                                     initial_view,
@@ -426,7 +424,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         });
                     }
                     proof_decl! {
-                        let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+                        let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
                     }
                     let frame = unsafe {
                         #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
@@ -541,7 +539,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 meta_to_frame(owner@.value().node().meta_vaddr())),
             owner@.value().metaregion_sound(*final(regions)),
-            forall|i: usize|
+            forall|i: int|
                 #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 ==> i != frame_to_index(meta_to_frame(owner@.value().node().meta_vaddr())),
             owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())), level as PagingLevel),
@@ -937,7 +935,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     pub open spec fn walk_coverage_at(
         self,
         view: crate::specs::mm::virt_mem::MemView,
-        dom: vstd::set::Set<usize>,
+        dom: vstd::set::Set<int>,
         c: usize,
     ) -> bool {
         let pte = Self::walk_pte_at_view(view, c);
@@ -949,7 +947,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
         view: crate::specs::mm::virt_mem::MemView,
-        dom: vstd::set::Set<usize>,
+        dom: vstd::set::Set<int>,
         c: usize,
     )
         requires
@@ -1021,7 +1019,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
         view: crate::specs::mm::virt_mem::MemView,
-        dom: vstd::set::Set<usize>,
+        dom: vstd::set::Set<int>,
     ) -> bool {
         forall|c: usize|
             #![trigger Self::walk_pte_at_view(view, c)]
@@ -1086,7 +1084,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// shape when refcount == 1).
     pub open spec fn child_perms_embedding(
         regions: crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
-        excluded: vstd::set::Set<usize>,
+        excluded: vstd::set::Set<int>,
     ) -> bool {
         forall|paddr: crate::mm::Paddr|
             #![trigger regions.slot_owners[frame_to_index(paddr)]]

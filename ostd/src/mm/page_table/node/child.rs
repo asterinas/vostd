@@ -154,7 +154,7 @@ impl<C: PageTableConfig> Child<C> {
             }
 
             proof_decl! {
-                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
             }
 
             let node = unsafe {
@@ -221,11 +221,11 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         ensures
             res.invariants(*entry_owner, *final(regions)),
             final(regions).slot_owners == old(regions).slot_owners,
-            forall|k: usize|
+            forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
                     k,
                 ),
-            forall|k: usize|
+            forall|k: int|
                 old(regions).slots.contains_key(k) ==> old(regions).slots[k]
                     == #[trigger] final(regions).slots[k],
     )]
@@ -250,7 +250,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             proof {
                 // `borrow_paddr` preserves the region maps, so every old slot key keeps
                 // the same permission value.
-                assert forall|k: usize| old(regions).slots.contains_key(k) implies old(
+                assert forall|k: int| old(regions).slots.contains_key(k) implies old(
                     regions,
                 ).slots[k] == #[trigger] regions.slots[k] by {};
             }

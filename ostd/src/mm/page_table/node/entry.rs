@@ -153,11 +153,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         ensures
             res.invariants(*owner, *final(regions)),
             final(regions).slot_owners == old(regions).slot_owners,
-            forall|k: usize|
+            forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
                     k,
                 ),
-            forall|k: usize|
+            forall|k: int|
                 old(regions).slots.contains_key(k) ==> old(regions).slots[k]
                     == #[trigger] final(regions).slots[k],
             final(regions).inv(),
@@ -318,7 +318,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(self).parent_perms_preserved(*old(parent_owner), *final(parent_owner)),
             final(parent_owner).metaregion_sound_node(*final(regions)),
             // paths_in_pt changes when new owner is a node; preserved otherwise.
-            forall|idx: usize|
+            forall|idx: int|
                 #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 (!final(new_owner).is_node() || final(new_owner).is_absent() || idx
                     != frame_to_index(final(new_owner).meta_slot_paddr()->0))
@@ -326,7 +326,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     regions,
                 ).slot_owners[idx].paths_in_pt,
             // slots: monotonic (from_pte may add; into_pte doesn't remove for non-nodes).
-            forall|k: usize|
+            forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
                     k,
                 ),
@@ -335,12 +335,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // ghost `paths_in_pt` is touched by the surrounding body, never
             // `inner_perms`); both use the `..old_slot` struct-update form
             // so `inner_perms.ref_count` is preserved across the rewrite.
-            forall|idx: usize|
+            forall|idx: int|
                 #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 final(regions).slot_owners[idx].inner_perms.ref_count.value() == old(
                     regions,
                 ).slot_owners[idx].inner_perms.ref_count.value(),
-            forall|idx: usize|
+            forall|idx: int|
                 #![trigger final(regions).slot_owners[idx].inner_perms]
                 final(regions).slot_owners[idx].inner_perms == old(
                     regions,
@@ -349,7 +349,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
                 &&& final(regions).slots == old(regions).slots
-                &&& forall|i: usize|
+                &&& forall|i: int|
                     #![trigger final(regions).slot_owners[i]]
                     final(regions).slot_owners[i] == old(
                         regions,
@@ -362,7 +362,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& final(regions).frame_obligations == old(regions).frame_obligations
             },
             // When old child is absent and new child is not a node: slots values unchanged.
-            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: usize|
+            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: int|
                 old(regions).slots.contains_key(k) ==> old(regions).slots[k]
                     == #[trigger] final(regions).slots[k],
             Self::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
@@ -560,12 +560,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         final(owner).value().node().children_perm.value()[i],
                         final(owner).child(i).value().parent_level)
                 // slot_owners unchanged for all indices except the new PT node's index.
-                &&& forall|i: usize| i != frame_to_index(final(owner).value().meta_slot_paddr()->0) ==>
+                &&& forall|i: int| i != frame_to_index(final(owner).value().meta_slot_paddr()->0) ==>
                     (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i]
                 // slots keys: the new PT node was removed then re-inserted, so all old keys preserved.
-                &&& forall|i: usize| old(regions).slots.contains_key(i)
+                &&& forall|i: int| old(regions).slots.contains_key(i)
                     ==> (#[trigger] final(regions).slots.contains_key(i))
-                &&& forall|i: usize| #![trigger final(regions).slots[i]]
+                &&& forall|i: int| #![trigger final(regions).slots[i]]
                     i != frame_to_index(final(owner).value().meta_slot_paddr()->0)
                         && old(regions).slots.contains_key(i)
                     ==> final(regions).slots[i] == old(regions).slots[i]
@@ -857,10 +857,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).unlocked(i) ==> final(guards).unlocked(i),
             // slot_owners unchanged for all indices except the new PT node's index.
             old(owner).value().is_frame() && old(parent_owner).level > 1 ==> {
-                &&& forall|i: usize| i != frame_to_index(meta_to_frame(final(owner).value().node().meta_vaddr())) ==>
+                &&& forall|i: int| i != frame_to_index(meta_to_frame(final(owner).value().node().meta_vaddr())) ==>
                     (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i]
                 // slots keys preserved (alloc removes then borrow re-inserts).
-                &&& forall|i: usize| old(regions).slots.contains_key(i)
+                &&& forall|i: int| old(regions).slots.contains_key(i)
                     ==> (#[trigger] final(regions).slots.contains_key(i))
                 // The new PT node's ref_count is not UNUSED.
                 &&& final(regions).slot_owners[frame_to_index(meta_to_frame(final(owner).value().node().meta_vaddr()))]
@@ -1592,23 +1592,23 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             forall|j: int| 0 <= j < NR_ENTRIES && j != idx ==>
                 #[trigger] final(parent_owner).children_perm.value()[j]
                     == old(parent_owner).children_perm.value()[j],
-            forall|slot: usize|
+            forall|slot: int|
                 #![trigger final(regions).slot_owners[slot].paths_in_pt]
                 (!final(new_owner).is_node() || final(new_owner).is_absent() || slot
                     != frame_to_index(final(new_owner).meta_slot_paddr()->0))
                     ==> final(regions).slot_owners[slot].paths_in_pt == old(
                     regions,
                 ).slot_owners[slot].paths_in_pt,
-            forall|k: usize|
+            forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
                     k,
                 ),
-            forall|slot: usize|
+            forall|slot: int|
                 #![trigger final(regions).slot_owners[slot].inner_perms.ref_count.value()]
                 final(regions).slot_owners[slot].inner_perms.ref_count.value() == old(
                     regions,
                 ).slot_owners[slot].inner_perms.ref_count.value(),
-            forall|slot: usize|
+            forall|slot: int|
                 #![trigger final(regions).slot_owners[slot].inner_perms]
                 final(regions).slot_owners[slot].inner_perms == old(
                     regions,
@@ -1616,14 +1616,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             final(regions).slots == old(regions).slots,
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
                 &&& final(regions).slots == old(regions).slots
-                &&& forall|i: usize|
+                &&& forall|i: int|
                     #![trigger final(regions).slot_owners[i]]
                     final(regions).slot_owners[i] == old(
                         regions,
                     ).slot_owners[i]
                 &&& final(regions).frame_obligations == old(regions).frame_obligations
             },
-            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: usize|
+            (old(owner).is_absent() && !final(new_owner).is_node()) ==> forall|k: int|
                 old(regions).slots.contains_key(k) ==> old(regions).slots[k]
                     == #[trigger] final(regions).slots[k],
             Entry::<C>::replace_nonpanic_condition(*old(parent_owner), *old(new_owner)),
@@ -1796,11 +1796,11 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 (#[trigger] final(owner).children()[i])->0.value().match_pte(
                     final(owner).value().node().children_perm.value()[i],
                     final(owner).children()[i]->0.value().parent_level),
-            forall|i: usize| i != frame_to_index(final(owner).value().meta_slot_paddr()->0) ==>
+            forall|i: int| i != frame_to_index(final(owner).value().meta_slot_paddr()->0) ==>
                 (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i],
-            forall|i: usize| old(regions).slots.contains_key(i)
+            forall|i: int| old(regions).slots.contains_key(i)
                 ==> (#[trigger] final(regions).slots.contains_key(i)),
-            forall|i: usize| #![trigger final(regions).slots[i]]
+            forall|i: int| #![trigger final(regions).slots[i]]
                 i != frame_to_index(final(owner).value().meta_slot_paddr()->0)
                     && old(regions).slots.contains_key(i)
                 ==> final(regions).slots[i] == old(regions).slots[i],
@@ -1870,9 +1870,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         }
 
         proof {
-            let pte = C::E::new_pt_spec(
-                meta_to_frame(new_node_owner.value().node().meta_vaddr()),
-            );
+            let pte = C::E::new_pt_spec(meta_to_frame(new_node_owner.value().node().meta_vaddr()));
             C::E::lemma_page_table_entry_properties();
         }
 

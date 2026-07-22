@@ -209,7 +209,7 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
 // ---- mirrors strengthened `Frame::drop_ensures` ----
 
         final(regions).inv(),
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -374,7 +374,7 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
     ensures
         final(regions).inv(),
         final(regions).slots == old(regions).slots,
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(entry.paddr) ==> final(regions).slot_owners[i] == old(
                 regions,

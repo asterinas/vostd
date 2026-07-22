@@ -364,7 +364,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
     // Other slots always unchanged.
 
-            forall|i: usize|
+            forall|i: int|
                 i != frame_to_index(pa) ==> (#[trigger] new_regions.slot_owners[i]
                     == old_regions.slot_owners[i]),
             // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
@@ -966,7 +966,7 @@ impl PageTable<KernelPtConfig> {
         PageTable::empty_with_owner());
         let new_root = new_pt.root;
         // Capture new_idx as a ghost BEFORE the tracked_take below empties new_pt_owner.
-        let ghost new_idx_g: usize = crate::specs::mm::frame::mapping::frame_to_index(
+        let ghost new_idx_g: int = crate::specs::mm::frame::mapping::frame_to_index(
             new_pt_owner@.unwrap().0.value().meta_slot_paddr().unwrap(),
         );
         let ghost new_pt_owner_snap = new_pt_owner@.unwrap();
@@ -1026,7 +1026,7 @@ impl PageTable<KernelPtConfig> {
             );
             assert(regions_before_self_borrow.slot_owners
                 == regions_after_kroot_borrow.slot_owners);
-            assert forall|k: usize|
+            assert forall|k: int|
                 regions_before_self_borrow.slots.contains_key(
                     k,
                 ) implies regions_before_self_borrow.slots[k]
@@ -1060,7 +1060,7 @@ impl PageTable<KernelPtConfig> {
 
             assert(!regions_before_self_borrow.slots.contains_key(new_idx));
             assert(!regions_after_kroot_borrow.slots.contains_key(new_idx));
-            assert forall|k: usize|
+            assert forall|k: int|
                 regions_after_kroot_borrow.slots.contains_key(
                     k,
                 ) implies regions_after_kroot_borrow.slots[k] == #[trigger] regions.slots[k] by {
@@ -1318,12 +1318,12 @@ impl<C: PageTableConfig> PageTable<C> {
                 crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
             // Other slots and lock state are preserved.
-            forall |i: usize| #![trigger final(regions).slot_owners[i]]
+            forall |i: int| #![trigger final(regions).slot_owners[i]]
                 i != crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
             forall |a: usize| old(guards).lock_held(a) ==> final(guards).lock_held(a),
-            forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+            forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
             // Allocation preserves the soundness of the kernel page-table tree:
@@ -1449,12 +1449,12 @@ impl<C: PageTableConfig> PageTable<C> {
             // CursorMut::new inherits Cursor::new's weakened preservation:
             // PT-node allocations come from UNUSED slots, so any slot that
             // was already in use keeps its paths_in_pt.
-            forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+            forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
-            forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx]]
                 old(regions).slot_owners.contains_key(idx)
                 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
@@ -1500,20 +1500,20 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().1@.continuations[3].path() == owner.0.value().path
             },
             !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
-            forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             // Non-saturation preservation.
-            (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+            (forall |i: int| #![trigger old(regions).slot_owners[i]]
                 old(regions).slot_owners.contains_key(i)
                 && old(regions).slot_owners[i].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
                     < REF_COUNT_MAX)
             ==>
-            (forall |i: usize| #![trigger final(regions).slot_owners[i]]
+            (forall |i: int| #![trigger final(regions).slot_owners[i]]
                 final(regions).slot_owners.contains_key(i)
                 && final(regions).slot_owners[i].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
@@ -1523,12 +1523,12 @@ impl<C: PageTableConfig> PageTable<C> {
             // a slot at `>= REF_COUNT_MAX` before iff after, with the same
             // value. Used by `KVirtArea::query` to bridge inner-cursor
             // saturation back to the caller's snapshot.
-            forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     >= REF_COUNT_MAX
                 ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
-            forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            forall|idx: int| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     >= REF_COUNT_MAX
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()

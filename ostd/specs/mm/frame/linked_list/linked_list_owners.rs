@@ -264,7 +264,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     }
 
     /// The region slot index keyed by the `i`-th link's meta-slot address.
-    pub open spec fn slot_index_at(self, i: int) -> usize {
+    pub open spec fn slot_index_at(self, i: int) -> int {
         frame_to_index(meta_to_frame(self.list[i].paddr))
     }
 
@@ -355,7 +355,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         ensures
             self.list.len() <= max_meta_slots(),
     {
-        let idxs = Seq::new(self.list.len(), |i: int| self.slot_index_at(i) as int);
+        let idxs = Seq::new(self.list.len(), |i: int| self.slot_index_at(i));
 
         idxs.unique_seq_to_set();
 
