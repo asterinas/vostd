@@ -97,7 +97,7 @@ impl MetaSlot {
         {
             &&& pre_owner.inner_perms.ref_count.value() == REF_COUNT_UNUSED
             &&& MetaSlot::get_from_unused_inner_perms_spec(as_unique, post_owner.inner_perms)
-            &&& post_owner.usage == PageUsage::Frame
+            &&& post_owner.usage is Frame
             &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
             &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
             &&& post =~= pre.insert_slot_owner(paddr, post_owner)
@@ -125,7 +125,7 @@ impl MetaSlot {
         {
             &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
             &&& MetaSlot::get_from_unused_inner_perms_spec(false, post.slot_owners[idx].inner_perms)
-            &&& post.slot_owners[idx].usage == PageUsage::PageTable
+            &&& post.slot_owners[idx].usage is PageTable
             &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: int| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])

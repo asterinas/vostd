@@ -121,7 +121,7 @@ pub axiom fn vm_space_cursor_embedded<'a, 'rcu>(
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+                &&& final(regions).slot_owners[i].usage !is Frame
             },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
@@ -168,7 +168,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+                &&& final(regions).slot_owners[i].usage !is Frame
             },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
@@ -237,7 +237,7 @@ pub axiom fn cursor_query_embedded<'rcu>(
         // (non-MMIO) data Frame whose slot is in-bound and active.
         res matches Some(paddr) ==> {
             &&& has_safe_slot(paddr)
-            &&& old(regions).slot_owners[frame_to_index(paddr)].usage == PageUsage::Frame
+            &&& old(regions).slot_owners[frame_to_index(paddr)].usage is Frame
             &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == (
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
                 + 1) as nat
@@ -438,7 +438,7 @@ pub axiom fn cursor_mut_map_embedded<'rcu>(
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) && old(regions).slot_owners[i].inner_perms.ref_count.value()
                 == REF_COUNT_UNUSED && final(regions).slot_owners[i].inner_perms.ref_count.value()
-                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i].usage != PageUsage::Frame,
+                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i].usage !is Frame,
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
@@ -528,7 +528,7 @@ pub axiom fn cursor_mut_unmap_embedded<'rcu>(
         // atomically; the embedding sees the post-teardown state.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            old(regions).slot_owners[i].usage == PageUsage::Frame ==> {
+            old(regions).slot_owners[i].usage is Frame ==> {
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() + old(
                     regions,
                 ).slot_owners[i].paths_in_pt.len() == old(
@@ -614,7 +614,7 @@ pub(super) proof fn open_cursor_step<'a, 'rcu>(
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+                &&& final(regions).slot_owners[i].usage !is Frame
             },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
@@ -666,7 +666,7 @@ pub(super) proof fn open_cursor_mut_step<'a, 'rcu>(
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].usage != PageUsage::Frame
+                &&& final(regions).slot_owners[i].usage !is Frame
             },
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
@@ -733,7 +733,7 @@ pub(super) proof fn cursor_query_step<'rcu>(
             final(regions).slot_owners[i] == old(regions).slot_owners[i],
         res matches Some(paddr) ==> {
             &&& has_safe_slot(paddr)
-            &&& old(regions).slot_owners[frame_to_index(paddr)].usage == PageUsage::Frame
+            &&& old(regions).slot_owners[frame_to_index(paddr)].usage is Frame
             &&& final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == (
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
                 + 1) as nat
@@ -911,7 +911,7 @@ pub(super) proof fn cursor_mut_regions_step<'rcu>(
             ).slot_owners[i],
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            old(regions).slot_owners[i].usage == PageUsage::Frame ==> {
+            old(regions).slot_owners[i].usage is Frame ==> {
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() + old(
                     regions,
                 ).slot_owners[i].paths_in_pt.len() == old(
@@ -1007,7 +1007,7 @@ pub(super) proof fn map_step<'rcu>(
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) && old(regions).slot_owners[i].inner_perms.ref_count.value()
                 == REF_COUNT_UNUSED && final(regions).slot_owners[i].inner_perms.ref_count.value()
-                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i].usage != PageUsage::Frame,
+                != REF_COUNT_UNUSED ==> final(regions).slot_owners[i].usage !is Frame,
         forall|c: CursorOwner<'rcu, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),

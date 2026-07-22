@@ -138,7 +138,7 @@ impl<M: ?Sized> Frame<M> {
         {
             &&& pre_owner.inner_perms.ref_count.value() == REF_COUNT_UNUSED
             &&& MetaSlot::get_from_unused_inner_perms_spec(false, post_owner.inner_perms)
-            &&& post_owner.usage == PageUsage::Frame
+            &&& post_owner.usage is Frame
             &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
             &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
             &&& post =~= pre.insert_slot_owner(paddr, post_owner).mint_frame_obligation(idx)

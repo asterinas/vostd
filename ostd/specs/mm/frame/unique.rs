@@ -155,7 +155,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         // slot is tracked with `Frame` usage, distinguishing it from page-table
         // node slots (`PageTable`) and letting linked-list/list-store consumers
         // derive `usage == Frame` (e.g. for the empty-`paths_in_pt` argument).
-        &&& regions.slot_owners[self.slot_index].usage == PageUsage::Frame
+        &&& regions.slot_owners[self.slot_index].usage is Frame
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
 

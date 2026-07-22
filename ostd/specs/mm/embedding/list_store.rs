@@ -977,7 +977,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             self.lists[id].relate_region_at_facts(self.regions, i);
             assert(self.regions.slot_owners.contains_key(idx));
             assert(self.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
-            assert(self.regions.slot_owners[idx].usage == PageUsage::Frame);
+            assert(self.regions.slot_owners[idx].usage is Frame);
         };
 
         let tracked owner = self.lists.tracked_remove(id);

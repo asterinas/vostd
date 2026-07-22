@@ -97,7 +97,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
             let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
-            &&& so_new.usage == PageUsage::Frame
+            &&& so_new.usage is Frame
             &&& so_new.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
             &&& so_new.inner_perms.in_list.value() == 0
             &&& so_new.inner_perms.storage.is_init()
@@ -208,7 +208,7 @@ pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, pa
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == 1,
-        old(regions).slot_owners[frame_to_index(paddr)].usage == PageUsage::Frame,
+        old(regions).slot_owners[frame_to_index(paddr)].usage is Frame,
         old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
     ensures
         final(regions).inv(),

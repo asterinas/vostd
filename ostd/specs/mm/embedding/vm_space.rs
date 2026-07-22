@@ -55,7 +55,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         // removes `frame_to_index(root_paddr)` from `regions.slots`.)
         old(regions).slots.contains_key(vm_space_root_idx(res)),
         final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
-        final(regions).slot_owners[vm_space_root_idx(res)].usage == PageUsage::PageTable,
+        final(regions).slot_owners[vm_space_root_idx(res)].usage is PageTable,
         final(regions).slot_owners[vm_space_root_idx(res)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED,
         forall|i: int|
@@ -73,7 +73,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].usage == PageUsage::PageTable
+                &&& final(regions).slot_owners[i].usage is PageTable
             },
         forall|c: CursorOwner<'a, UserPtConfig>|
             #![auto]
@@ -105,7 +105,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         // removes `frame_to_index(root_paddr)` from `regions.slots`.)
         old(regions).slots.contains_key(vm_space_root_idx(res)),
         final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
-        final(regions).slot_owners[vm_space_root_idx(res)].usage == PageUsage::PageTable,
+        final(regions).slot_owners[vm_space_root_idx(res)].usage is PageTable,
         final(regions).slot_owners[vm_space_root_idx(res)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED,
         forall|i: int|
@@ -123,7 +123,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
             final(regions).slot_owners[i] != old(regions).slot_owners[i] ==> {
                 &&& old(regions).slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& final(regions).slot_owners[i].usage == PageUsage::PageTable
+                &&& final(regions).slot_owners[i].usage is PageTable
             },
         forall|c: CursorOwner<'a, UserPtConfig>|
             #![auto]

@@ -119,7 +119,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions.inv(),
             self.metaregion_sound(regions),
             regions.slots.contains_key(changed_idx),
-            regions.slot_owners[changed_idx].usage != PageUsage::PageTable,
+            regions.slot_owners[changed_idx].usage !is PageTable,
         ensures
             self.no_node_at_idx(changed_idx),
     {
@@ -463,7 +463,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.inv(),
             regions0.slot_owners.contains_key(removed_idx),
             regions0.slots.contains_key(removed_idx),
-            regions0.slot_owners[removed_idx].usage != PageUsage::PageTable,
+            regions0.slot_owners[removed_idx].usage !is PageTable,
             self@.mappings == owner_before_replace@.mappings - PageTableOwner(
                 owner_before_replace.cur_subtree(),
             )@.mappings,

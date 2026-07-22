@@ -22,7 +22,7 @@
 //!
 //! - **Generic `M: AnyFrameMeta`** + the `metadata_fn` closure: the
 //!   embedding doesn't carry the per-frame metadata. The axioms commit
-//!   only to `usage == PageUsage::Frame` (matching the exec
+//!   only to `usage is Frame` (matching the exec
 //!   `Segment::from_unused` contract).
 //! - **Split / slice / next / clone / into_raw / from_raw**: deferred
 //!   to follow-up; the base `from_unused` + drop pair is enough to
@@ -107,7 +107,7 @@ pub axiom fn segment_from_unused_embedded(
                 ==> {
                     let idx = frame_to_index(paddr);
                     let so = final(regions).slot_owners[idx];
-                    &&& so.usage == PageUsage::Frame
+                    &&& so.usage is Frame
                     &&& so.inner_perms.ref_count.value() == 1
                     &&& so.paths_in_pt.is_empty()
                     &&& so.inner_perms.in_list.value() == 0
@@ -174,7 +174,7 @@ pub proof fn lemma_segment_drop_embedded(
                     &&& so.inner_perms.ref_count.value() >= 1
                     &&& so.inner_perms.ref_count.value()
                             <= REF_COUNT_MAX
-                    &&& so.usage == PageUsage::Frame
+                    &&& so.usage is Frame
                     // At rc==1 (sole reference being dropped), no PTE
                     // points to this frame — required for the
                     // teardown's `drop_last_in_place_safety_cond`.
@@ -265,7 +265,7 @@ pub proof fn segment_next_embedded(
                 .inner_perms.ref_count.value()
             <= REF_COUNT_MAX,
         old(regions).slot_owners[frame_to_index(paddr)].usage
-            == PageUsage::Frame,
+            is Frame,
     ensures
         final(regions).inv(),
         final(regions).slots == old(regions).slots,
@@ -327,7 +327,7 @@ pub(super) proof fn from_unused_step(
                 ==> {
                     let idx = frame_to_index(paddr);
                     let so = final(regions).slot_owners[idx];
-                    &&& so.usage == PageUsage::Frame
+                    &&& so.usage is Frame
                     &&& so.inner_perms.ref_count.value() == 1
                     &&& so.paths_in_pt.is_empty()
                 },
@@ -375,7 +375,7 @@ pub(super) proof fn drop_step(
                 &&& so.inner_perms.ref_count.value() >= 1
                 &&& so.inner_perms.ref_count.value()
                         <= REF_COUNT_MAX
-                &&& so.usage == PageUsage::Frame
+                &&& so.usage is Frame
                 &&& so.inner_perms.ref_count.value() == 1
                     ==> so.paths_in_pt.is_empty()
             },
@@ -434,7 +434,7 @@ pub axiom fn segment_clone_embedded(
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
                     let so = old(regions).slot_owners[frame_to_index(paddr)];
-                    &&& so.usage == PageUsage::Frame
+                    &&& so.usage is Frame
                     &&& so.inner_perms.ref_count.value() >= 1
                     &&& so.inner_perms.ref_count.value() + 1 <= REF_COUNT_MAX
                 },

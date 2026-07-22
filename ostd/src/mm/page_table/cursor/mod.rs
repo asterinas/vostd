@@ -3215,8 +3215,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(regions_before_new_child.slots.contains_key(pa_idx_install)) by {
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
             };
-            assert(regions_before_new_child.slot_owners[pa_idx_install].usage
-                != PageUsage::PageTable) by {
+            assert(regions_before_new_child.slot_owners[pa_idx_install].usage !is PageTable) by {
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
             };
             owner1.no_node_at_idx_from_slot_key(regions_before_new_child, pa_idx_install);

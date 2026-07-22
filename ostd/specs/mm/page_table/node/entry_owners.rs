@@ -514,8 +514,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slots[idx].addr() == index_to_meta(idx)
             &&& regions.slots[idx].is_init()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
-            &&& regions.slot_owners[idx].usage
-                != PageUsage::PageTable
+            &&& regions.slot_owners[idx].usage !is PageTable
             // Tracked vs MMIO discriminator is the slot's `usage`. MMIO slots
             // stay in the free pool with `rc == UNUSED`; tracked slots have
             // `rc > 0`. The slot's `usage == MMIO` is pinned by the paddr's
