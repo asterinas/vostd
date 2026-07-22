@@ -37,7 +37,9 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+            mapping::{frame_to_index, index_to_frame, max_meta_slots},
+            meta_owners::PageUsage,
+            meta_region_owners::MetaRegionOwners,
         },
         page_table::cursor::owners::CursorOwner,
     },
@@ -114,8 +116,8 @@ pub axiom fn segment_from_unused_embedded(
         // Slots OUTSIDE the range are fully preserved.
         res is Some ==> forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Unparked (page-table-node) slots are untouched: allocation only
@@ -204,8 +206,8 @@ pub proof fn lemma_segment_drop_embedded(
         // Slots OUTSIDE the range are fully preserved.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Unparked (page-table-node) slots are untouched: drop only frees
@@ -331,8 +333,8 @@ pub(super) proof fn from_unused_step(
                 },
         res is Some ==> forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Unparked (page-table-node) slots untouched (see axiom).
@@ -399,8 +401,8 @@ pub(super) proof fn drop_step(
             },
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(entry.range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(entry.range.start <= index_to_frame(i)
                     < entry.range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         // Unparked (page-table-node) slots untouched (see axiom).
@@ -459,8 +461,8 @@ pub axiom fn segment_clone_embedded(
         // Slots OUTSIDE the range are fully preserved.
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            i < crate::specs::mm::frame::mapping::max_meta_slots()
-            && !(range.start <= crate::specs::mm::frame::mapping::index_to_frame(i)
+            i < max_meta_slots()
+            && !(range.start <= index_to_frame(i)
                     < range.end)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
         forall|c: CursorOwner<'_, UserPtConfig>| #![auto]

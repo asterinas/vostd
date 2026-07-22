@@ -12,7 +12,6 @@ use crate::specs::mm::frame::{
     mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
     meta_owners::{MetaSlotStorage, Metadata},
     meta_region_owners::MetaRegionOwners,
-    meta_specs::lemma_index_to_meta_to_index,
     unique::UniqueFrameOwner,
 };
 
@@ -154,7 +153,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     ) -> UniqueFrame<M1> {
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         proof {
-            lemma_index_to_meta_to_index(owner.slot_index);
+            broadcast use group_page_meta;
+
+            assert(idx == owner.slot_index);
         }
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked perm_ref = regions.slots.tracked_borrow(idx);
@@ -600,7 +601,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         proof {
             broadcast use group_page_meta;
 
-            lemma_index_to_meta_to_index(owner.slot_index);
             regions.inv_implies_correct_addr(meta_to_frame(unique.ptr.addr()));
             assert(idx == owner.slot_index);
             assert(regions.slots[idx].addr() == unique.ptr.addr());

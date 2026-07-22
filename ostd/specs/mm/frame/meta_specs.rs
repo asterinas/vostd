@@ -11,7 +11,7 @@ use vstd_extra::{cast_ptr::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::frame::{
-        mapping::{frame_to_index, index_to_frame, index_to_meta, lemma_paddr_to_meta_biinjective},
+        mapping::{frame_to_index, index_to_meta},
         meta_owners::MetadataInnerPerms,
         meta_region_owners::MetaRegionOwners,
     },
@@ -256,25 +256,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             _marker: PhantomData,
         }
     }
-}
-
-/// Index round-trip: the slot index recovered from a slot's metadata address
-/// is the original index. Callers holding `ptr.addr() == index_to_meta(slot_index)`
-/// (via [`crate::mm::frame::unique::UniqueFrame::wf`]) use this to re-derive
-/// region facts phrased over `frame_to_index(meta_to_frame(ptr.addr))` at
-/// `slot_index` (e.g. recovering `ref_count == REF_COUNT_UNIQUE` from
-/// `global_inv`).
-pub broadcast proof fn lemma_index_to_meta_to_index(i: int)
-    requires
-        0 <= i < MAX_NR_PAGES,
-    ensures
-        #[trigger] frame_to_index(meta_to_frame(index_to_meta(i))) == i,
-{
-    let p = index_to_frame(i);
-
-    // `index_to_meta(i)` is exactly the metadata address of physical page `p`.
-    // Existing biinjectivity closes `meta_to_frame(frame_to_meta(p)) == p`.
-    lemma_paddr_to_meta_biinjective(p);
 }
 
 } // verus!
