@@ -419,7 +419,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         #[verus_spec(with
             Tracked(meta_points_to),
             Tracked(&meta_slot_owner.inner_perms.storage),
-            Tracked(&node_owner.repr_perm),
+            Tracked(&()),
             Ghost(node_owner.meta_own.stray.id())
         )]
         let stray = pt_guard.stray_mut();
@@ -501,7 +501,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     #[verus_spec(with
         Tracked(meta_points_to),
         Tracked(&meta_slot_owner.inner_perms.storage),
-        Tracked(&node_owner.repr_perm),
+        Tracked(&()),
         Ghost(node_owner.meta_own.stray.id())
     )]
     let stray = pt_guard.stray_mut();

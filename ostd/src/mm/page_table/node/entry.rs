@@ -402,7 +402,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             #[verus_spec(with
                 Tracked(meta_points_to),
                 Tracked(&meta_slot_owner.inner_perms.storage),
-                Tracked(&parent_owner.repr_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.node.nr_children_mut();
@@ -419,7 +418,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             #[verus_spec(with
                 Tracked(meta_points_to),
                 Tracked(&meta_slot_owner.inner_perms.storage),
-                Tracked(&parent_owner.repr_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.node.nr_children_mut();
@@ -675,7 +673,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             #[verus_spec(with
                 Tracked(meta_points_to),
                 Tracked(&meta_slot_owner.inner_perms.storage),
-                Tracked(&parent_owner.repr_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.node.nr_children_mut();
@@ -1663,7 +1660,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             #[verus_spec(with
                 Tracked(meta_points_to),
                 Tracked(&meta_slot_owner.inner_perms.storage),
-                Tracked(&parent_owner.repr_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.nr_children_mut();
@@ -1680,7 +1676,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             #[verus_spec(with
                 Tracked(meta_points_to),
                 Tracked(&meta_slot_owner.inner_perms.storage),
-                Tracked(&parent_owner.repr_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.nr_children_mut();
@@ -1918,7 +1913,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         #[verus_spec(with
             Tracked(meta_points_to),
             Tracked(&meta_slot_owner.inner_perms.storage),
-            Tracked(&parent_owner.repr_perm),
             Ghost(parent_owner.meta_own.nr_children.id())
         )]
         let nr_children = self.nr_children_mut();
@@ -2055,7 +2049,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         #[verus_spec(with
             Tracked(meta_points_to),
             Tracked(&meta_slot_owner.inner_perms.storage),
-            Tracked(&parent_owner.repr_perm),
             Ghost(parent_owner.meta_own.nr_children.id())
         )]
         let nr_children = self.nr_children_mut();

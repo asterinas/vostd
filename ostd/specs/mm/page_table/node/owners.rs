@@ -225,7 +225,6 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 ///   Carried here for convenience, though it can be computed from `level`.
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
-    pub repr_perm: (),
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub ghost level: PagingLevel,
     pub ghost tree_level: int,
@@ -255,7 +254,6 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 
 impl<C: PageTableConfig> NodeOwner<C> {
     /// The meta address of this node's slot, computed from `slot_index`.
-    /// Always equals the address of its region slot under the region invariant.
     pub open spec fn meta_vaddr(self) -> Vaddr {
         index_to_meta(self.slot_index)
     }
@@ -264,7 +262,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
         typed_meta_wf::<PageTablePageMeta<C>>(
             regions.slots[self.slot_index],
             regions.slot_owners[self.slot_index].inner_perms.storage,
-            self.repr_perm,
+            (),
         )
     }
 
@@ -274,7 +272,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     {
         typed_meta_value::<PageTablePageMeta<C>>(
             regions.slot_owners[self.slot_index].inner_perms.storage,
-            self.repr_perm,
+            (),
         )
     }
 

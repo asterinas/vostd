@@ -510,7 +510,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         #[verus_spec(with
             Tracked(points_to),
             Tracked(&slot_owner.inner_perms.storage),
-            Tracked(&owner.repr_perm)
+            Tracked(&())
         )]
         let meta = self.meta();
         meta.level
@@ -774,7 +774,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         #[verus_spec(with
             Tracked(points_to),
             Tracked(&slot_owner.inner_perms.storage),
-            Tracked(&owner.repr_perm)
+            Tracked(&())
         )]
         let meta = self.meta();
 
@@ -903,12 +903,11 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         with
             Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
             Tracked(storage): Tracked<&'a pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
-            Tracked(repr_perm): Tracked<&'a ()>,
             Ghost(nr_children_id): Ghost<vstd::cell::CellId>,
         requires
             old(self).inner.inner@.ptr.addr() == points_to.addr(),
-            typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *storage, *repr_perm),
-            typed_meta_value::<PageTablePageMeta<C>>(*storage, *repr_perm).nr_children.id()
+            typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *storage, ()),
+            typed_meta_value::<PageTablePageMeta<C>>(*storage, ()).nr_children.id()
                 == nr_children_id,
         ensures
             res.id() == nr_children_id,
@@ -919,7 +918,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         #[verus_spec(with
             Tracked(points_to),
             Tracked(storage),
-            Tracked(repr_perm)
+            Tracked(&())
         )]
         let meta = self.meta();
         &meta.nr_children
