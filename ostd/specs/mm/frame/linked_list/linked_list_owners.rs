@@ -308,7 +308,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         let value = self.meta_value_at(regions, i);
         &&& regions.slots.contains_key(idx)
         &&& regions.slot_owners.contains_key(idx)
-        &&& self.repr_perms.len() == self.list.len()
         &&& regions.slots[idx].addr() == self.list[i].paddr
         &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
         &&& regions.slot_owners[idx].usage is Frame
@@ -406,7 +405,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 let value = self.meta_value_at(regions, i);
                 &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners.contains_key(idx)
-                &&& self.repr_perms.len() == self.list.len()
                 &&& regions.slots[idx].addr() == self.list[i].paddr
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[idx].usage is Frame
