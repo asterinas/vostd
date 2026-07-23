@@ -105,7 +105,7 @@ verus! {
 /// ```
 /// The raw slot and storage permissions for each link are parked in the global
 /// [`MetaRegionOwners`], while [`LinkedListOwner`] owns the corresponding
-/// type-specific `Link<M>::Perm`. Cursor accessors borrow these independent
+/// type-specific `Link<M>::ReprPerm`. Cursor accessors borrow these independent
 /// components together when projecting a `Link<M>`.
 /// ## Invariant
 /// The linked list uniquely owns the raw frames that it contains, so they cannot be used by other
@@ -1054,7 +1054,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
             proof {
                 assert(frame_own.slot_index != frame_to_index(meta_to_frame(prev.addr())));
-                //frame_own.global_inv_preserved_by_slot_equality(regions_before_prev, *regions);
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
                 assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
@@ -1098,7 +1097,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
             proof {
                 assert(frame_own.slot_index != frame_to_index(meta_to_frame(next.addr())));
-                //frame_own.global_inv_preserved_by_slot_equality(regions_before_next, *regions);
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
                 assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {

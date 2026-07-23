@@ -376,7 +376,7 @@ impl MetaSlot {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>
+            Tracked(repr_perm): Tracked<&mut M::Perm>
         requires
             old(regions).inv(),
         ensures
@@ -650,7 +650,23 @@ impl MetaSlot {
             core::ptr::from_raw_parts_mut(self as *const MetaSlot as *mut MetaSlot, vtable_ptr);
 
         meta_ptr
-    }*/
+    }
+    
+    /// Gets the stored metadata as type `M`.
+    ///
+    /// Calling the method should be safe, but using the returned pointer would
+    /// be unsafe. Specifically, the derefernecer should ensure that:
+    ///  - the stored metadata is initialized (by [`Self::write_meta`]) and
+    ///    valid;
+    ///  - the initialized metadata is of type `M`;
+    ///  - the returned pointer should not be dereferenced as mutable unless
+    ///    having exclusive access to the metadata slot.
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta>(&self) -> *mut M {
+        self.storage.get() as *mut M
+    }
+
+    */
+
     /// Writes the metadata to the slot without reading or dropping the previous value.
     ///
     /// # Safety
@@ -668,7 +684,7 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(meta_perm): Tracked<&mut vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
-            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
+            Tracked(repr_perm): Tracked<&mut M::Perm>,
             Tracked(vtable_perm): Tracked<&mut PointsTo<usize>>,
         requires
             self.storage.id() == old(meta_perm).id(),
