@@ -1013,9 +1013,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let next_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]frame.meta()).next;
         let prev_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]frame.meta()).prev;
 
-        if let Some(prev_link) = prev_ptr {
-            let prev = prev_link;
-            let ghost regions_before_prev = *regions;
+        if let Some(prev) = prev_ptr {
             proof {
                 assert(prev.addr() == owner0.list_own.list[owner0.index - 1].paddr);
                 assert(frame_to_index(meta_to_frame(prev.addr())) == owner0.list_own.slot_index_at(
@@ -1056,9 +1054,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         }
 
-        if let Some(next_link) = next_ptr {
-            let next = next_link;
-            let ghost regions_before_next = *regions;
+        if let Some(next) = next_ptr {
             proof {
                 assert(next.addr() == owner0.list_own.list[owner0.index + 1].paddr);
                 assert(frame_to_index(meta_to_frame(next.addr())) == owner0.list_own.slot_index_at(
@@ -1087,7 +1083,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
             }
 
-            self.current = Some(next_link);
+            self.current = Some(next);
         } else {
             self.list.back = prev_ptr;
 
@@ -1313,7 +1309,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     assert(frame_own.global_inv(*regions));
                 }
 
-                let ghost regions_before_prev = *regions;
                 #[verus_spec(with Ghost(nn - 1), Tracked(regions), Tracked(&mut owner.list_own))]
                 let prev_meta = borrow_link_mut(prev);
                 prev_meta.next = Some(frame_ptr_as_link);
