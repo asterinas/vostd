@@ -242,7 +242,6 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     M::from_borrowed(slot.storage.borrow(Tracked(storage)), Tracked(repr_perm))
 }
 
-#[verifier::external_body]
 pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
