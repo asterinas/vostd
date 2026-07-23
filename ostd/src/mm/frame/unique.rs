@@ -235,6 +235,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             owner.meta_value(*regions) == l,
     )]
     pub fn meta<'a>(&self) -> &'a M {
+        // SAFETY: The type is tracked by the type system.
+        // unsafe { &*self.slot().as_meta_ptr::<M>() }
         let tracked points_to = regions.slots.tracked_borrow(owner.slot_index);
         let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         borrow_meta(

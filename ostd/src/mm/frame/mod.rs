@@ -268,6 +268,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     )]
     pub fn meta<'a>(&'a self) -> &'a M {
         // SAFETY: The type is tracked by the typed storage permission.
+        //  unsafe { &*self.slot().as_meta_ptr::<M>() }
         borrow_meta(
             ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
             Tracked(points_to),
