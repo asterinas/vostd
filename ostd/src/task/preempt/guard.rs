@@ -295,18 +295,25 @@ impl PreemptThreadViewSession {
 pub tracked struct RunningTaskContext {
     session: PreemptThreadViewSession,
     preempt_depth: Ghost<nat>,
+    cpu: Ghost<crate::specs::mm::cpu::CpuId>,
 }
 
 impl RunningTaskContext {
     /// Starts a running interval for a checked-out task view.
-    pub proof fn new(tracked task_view: TaskThreadView, sched_view: SchedulerView) -> (tracked res:
-        Self)
+    pub proof fn new(
+        tracked task_view: TaskThreadView,
+        sched_view: SchedulerView,
+        cpu: crate::specs::mm::cpu::CpuId,
+    ) -> (tracked res: Self)
         requires
             task_view.wf(sched_view),
+            sched_view.current.contains_key(cpu),
+            sched_view.current[cpu] == Some(task_view.task()),
         ensures
             res.scheduler() == task_view.scheduler(),
             res.task() == task_view.task(),
             res.view() == task_view.view(),
+            res.cpu() == cpu,
             res.preempt_depth() == 0,
             res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
             res.wf(),
@@ -314,7 +321,7 @@ impl RunningTaskContext {
             res.wf_scheduler(sched_view),
     {
         let tracked session = PreemptThreadViewSession::new(task_view, sched_view);
-        let tracked res = RunningTaskContext { session, preempt_depth: Ghost(0) };
+        let tracked res = RunningTaskContext { session, preempt_depth: Ghost(0), cpu: Ghost(cpu) };
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(res.wf());
         assert(res.session.wf(sched_view));
@@ -332,6 +339,10 @@ impl RunningTaskContext {
 
     pub closed spec fn view(self) -> WmView {
         self.session.view()
+    }
+
+    pub closed spec fn cpu(self) -> crate::specs::mm::cpu::CpuId {
+        self.cpu@
     }
 
     pub closed spec fn session_id(self) -> Loc {
@@ -356,6 +367,8 @@ impl RunningTaskContext {
     pub closed spec fn wf_scheduler(self, sched_view: SchedulerView) -> bool {
         &&& self.wf()
         &&& self.session.wf(sched_view)
+        &&& sched_view.current.contains_key(self.cpu())
+        &&& sched_view.current[self.cpu()] == Some(self.task())
     }
 
     /// Re-establishes the scheduler relation after the checked-out task view
@@ -369,6 +382,8 @@ impl RunningTaskContext {
             sched_view.checked_out_views[self.task()] == self.view(),
             sched_view.task_views.contains_key(self.task()),
             sched_view.task_views[self.task()] == self.view(),
+            sched_view.current.contains_key(self.cpu()),
+            sched_view.current[self.cpu()] == Some(self.task()),
         ensures
             self.wf_scheduler(sched_view),
     {
@@ -389,6 +404,7 @@ impl RunningTaskContext {
             (*tv)@ == old(self).view(),
             final(self).task() == old(self).task(),
             final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() == old(self).available_fractions(),
             final(self).preempt_depth() == old(self).preempt_depth(),
@@ -543,6 +559,7 @@ impl RunningTaskContext {
             final(self).wf(),
             final(self).task() == old(self).task(),
             final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() + 1 == old(self).available_fractions(),
@@ -576,6 +593,7 @@ impl RunningTaskContext {
             final(self).wf(),
             final(self).task() == old(self).task(),
             final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() == old(self).available_fractions() + 1,
@@ -695,6 +713,7 @@ impl DisabledPreemptGuard {
             (*tv)@ == old(context).view(),
             final(context).task() == old(context).task(),
             final(context).scheduler() == old(context).scheduler(),
+            final(context).cpu() == old(context).cpu(),
             final(context).session_id() == old(context).session_id(),
             final(context).available_fractions() == old(context).available_fractions(),
             final(context).preempt_depth() == old(context).preempt_depth(),
@@ -716,6 +735,7 @@ impl DisabledPreemptGuard {
             final(context).wf(),
             final(context).task() == old(context).task(),
             final(context).scheduler() == old(context).scheduler(),
+            final(context).cpu() == old(context).cpu(),
             final(context).view() == old(context).view(),
             final(context).session_id() == old(context).session_id(),
             final(context).available_fractions() == old(context).available_fractions() + 1,
@@ -769,6 +789,7 @@ pub(crate) fn disable_preempt_in_context(
         final(context).wf(),
         final(context).task() == old(context).task(),
         final(context).scheduler() == old(context).scheduler(),
+        final(context).cpu() == old(context).cpu(),
         final(context).view() == old(context).view(),
         final(context).session_id() == old(context).session_id(),
         final(context).available_fractions() + 1 == old(context).available_fractions(),

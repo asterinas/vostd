@@ -120,6 +120,27 @@ impl WmView {
     pub open spec fn spec_le(self, other: Self) -> bool {
         forall|id: AtomicId| #[trigger] self.seen_at(id) <= other.seen_at(id)
     }
+
+    pub proof fn lemma_join_left(self, other: Self)
+        ensures
+            self.spec_le(self.join(other)),
+    {
+    }
+
+    pub proof fn lemma_join_right(self, other: Self)
+        ensures
+            other.spec_le(self.join(other)),
+    {
+    }
+
+    pub proof fn lemma_spec_le_transitive(self, middle: Self, upper: Self)
+        requires
+            self.spec_le(middle),
+            middle.spec_le(upper),
+        ensures
+            self.spec_le(upper),
+    {
+    }
 }
 
 /// One message in an atomic object's modification history.
@@ -514,8 +535,13 @@ impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> {
         self.atomic_inv@.constant().0
     }
 
+    /// Logical modification-history identity of this atomic pointer.
+    pub closed spec fn id(&self) -> AtomicId {
+        self.atomic_inv@.constant().1
+    }
+
     pub closed spec fn well_formed(&self) -> bool {
-        self.atomic_inv@.constant().1 == self.atomic.id()
+        self.id() == self.atomic.id()
     }
 
     #[verifier::type_invariant]
@@ -660,7 +686,7 @@ impl<T, K> WeakAtomicPtr<T, K, (), TrueWeakAtomicInv> {
 
 impl<T, O, OwnPred> WeakAtomicPtr<
     T,
-    bool,
+    rcu_spec::RcuRootKey,
     rcu_spec::RcuRootOwnedGhost<T, O>,
     rcu_spec::RcuOwnedWeakAtomicInv<OwnPred>,
 > where OwnPred: rcu_spec::RcuRootOwnershipPredicate<T, O> {
@@ -670,17 +696,24 @@ impl<T, O, OwnPred> WeakAtomicPtr<
         *mut T,
         Ghost<Timestamp>,
         Ghost<Option<rcu_spec::RcuPublishedObject>>,
+        Tracked<Option<rcu_spec::RcuBlockInfo<T>>>,
     ))
         requires
             self.well_formed(),
         ensures
-            !self.constant() ==> !res.0.is_null(),
-            match res.2@ {
-                None => res.0.addr() == 0,
-                Some(object) => {
+            !self.constant().nullable ==> !res.0.is_null(),
+            match (res.2@, res.3@) {
+                (None, None) => res.0.addr() == 0,
+                (Some(object), Some(info)) => {
                     &&& res.0.addr() != 0
                     &&& object.addr == res.0.addr()
+                    &&& info.wf()
+                    &&& info.domain() == object.domain
+                    &&& info.obj() == object.obj
+                    &&& info.addr() == object.addr
+                    &&& equal(info.ptr(), res.0)
                 },
+                _ => false,
             },
     {
         let result;
@@ -695,30 +728,174 @@ impl<T, O, OwnPred> WeakAtomicPtr<
                 assert(hist.id() == self.atomic.id());
             }
             let loaded = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
+            proof {
+                assert(hist.valid_ts(loaded.1@));
+                assert(loaded.1@ < hist.history().len());
+                assert(rcu_spec::rcu_owned_root_history_inv(hist.history(), g));
+            }
             proof_decl! {
                 let ghost published = g.published_at(loaded.1@);
+                let tracked loaded_info;
             }
             proof {
-                assert(rcu_spec::rcu_history_inv(self.constant(), hist.history()));
-                match published {
-                    Some(object) => {
-                        assert(object.addr == loaded.0.addr());
+                assert(rcu_spec::rcu_history_inv(self.constant().nullable, hist.history()));
+                assert(rcu_spec::rcu_owned_root_history_inv(hist.history(), g));
+                loaded_info = g.tracked_info_at(hist.history(), loaded.1@);
+                match (published, &loaded_info) {
+                    (Some(object), Some(info)) => {
+                        assert(equal(hist.history()[loaded.1@ as int].value, loaded.0));
+                        assert(equal(info.ptr(), loaded.0));
                     },
-                    None => {
+                    (None, None) => {
                         assert(loaded.0.addr() == 0);
                     },
-                }
-                if !self.constant() {
+                    _ => assert(false),
+                };
+                if !self.constant().nullable {
                     rcu_spec::rcu_history_inv_read_nonnull::<T>(hist.history(), loaded.1@);
                     assert(!loaded.0.is_null());
                 }
             }
-            result = (loaded.0, loaded.1, Ghost(published));
+            result = (loaded.0, loaded.1, Ghost(published), Tracked(loaded_info));
             proof {
                 pair = (hist, g);
             }
         });
         result
+    }
+
+    /// Acquire-load an RCU root while starting a paper read-side guard.
+    ///
+    /// The ghost reader transition occurs in the same invariant opening as the
+    /// real acquire load. Executably this is identical to `load_acquire_rcu`.
+    #[inline(always)]
+    pub fn load_acquire_rcu_guarded(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+        *mut T,
+        Ghost<Timestamp>,
+        Ghost<Option<rcu_spec::RcuPublishedObject>>,
+        Tracked<Option<rcu_spec::RcuBlockInfo<T>>>,
+        Tracked<rcu_spec::RcuReadGuardToken<T>>,
+    ))
+        requires
+            self.well_formed(),
+        ensures
+            !self.constant().nullable ==> !res.0.is_null(),
+            res.4@.wf(),
+            res.4@.domain() == self.constant().domain,
+            res.4@.reader_registry() == self.constant().reader_registry,
+            match (res.2@, res.3@) {
+                (None, None) => res.0.addr() == 0,
+                (Some(object), Some(info)) => {
+                    &&& res.0.addr() != 0
+                    &&& object.addr == res.0.addr()
+                    &&& info.wf()
+                    &&& info.domain() == object.domain
+                    &&& info.domain() == res.4@.domain()
+                    &&& info.obj() == object.obj
+                    &&& info.addr() == object.addr
+                    &&& equal(info.ptr(), res.0)
+                },
+                _ => false,
+            },
+    {
+        let result;
+        proof {
+            use_type_invariant(self);
+        }
+        vstd::invariant::open_atomic_invariant!(self.atomic_inv.borrow() => pair => {
+            let tracked (hist, mut g) = pair;
+            proof {
+                assert(hist.id() == self.atomic_inv@.constant().1);
+                assert(self.atomic_inv@.constant().1 == self.atomic.id());
+                assert(hist.id() == self.atomic.id());
+            }
+            proof_decl! {
+                let tracked base_guard = g.tracked_start_reader(hist.history());
+            }
+            let loaded = self.atomic.load_acquire(Tracked(&hist), Tracked(tv));
+            proof {
+                assert(hist.valid_ts(loaded.1@));
+                assert(loaded.1@ < hist.history().len());
+                assert(rcu_spec::rcu_owned_root_history_inv(hist.history(), g));
+            }
+            proof_decl! {
+                let tracked loaded_info;
+            }
+            proof {
+                assert(rcu_spec::rcu_history_inv(
+                    self.constant().nullable,
+                    hist.history(),
+                ));
+                loaded_info = g.tracked_info_at(hist.history(), loaded.1@);
+                assert(loaded.1@ < g.publications().len());
+            }
+            proof_decl! {
+                let ghost published = g.published_at(loaded.1@);
+            }
+            proof {
+                match (published, &loaded_info) {
+                    (Some(object), Some(info)) => {
+                        assert(equal(hist.history()[loaded.1@ as int].value, loaded.0));
+                        assert(equal(info.ptr(), loaded.0));
+                        assert(info.domain() == g.domain());
+                        assert(info.domain() == base_guard.domain());
+                    },
+                    (None, None) => {
+                        assert(loaded.0.addr() == 0);
+                    },
+                    _ => assert(false),
+                };
+                if !self.constant().nullable {
+                    rcu_spec::rcu_history_inv_read_nonnull::<T>(hist.history(), loaded.1@);
+                    assert(!loaded.0.is_null());
+                }
+                assert(base_guard.domain() == self.constant().domain);
+                assert(base_guard.reader_registry() == self.constant().reader_registry);
+                assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
+            }
+            proof_decl! {
+                let tracked guard = rcu_spec::RcuReadGuardToken::tracked_from_base(base_guard);
+            }
+            result = (
+                loaded.0,
+                loaded.1,
+                Ghost(published),
+                Tracked(loaded_info),
+                Tracked(guard),
+            );
+            proof {
+                pair = (hist, g);
+            }
+        });
+        result
+    }
+
+    /// End a paper read-side guard without executing another atomic operation.
+    #[inline(always)]
+    pub fn stop_rcu_reader(&self, Tracked(guard): Tracked<rcu_spec::RcuReadGuardToken<T>>)
+        requires
+            self.well_formed(),
+            guard.wf(),
+            guard.domain() == self.constant().domain,
+            guard.reader_registry() == self.constant().reader_registry,
+    {
+        proof_decl! {
+            let tracked base_guard = guard.tracked_into_base();
+        }
+        let credit = vstd::invariant::create_open_invariant_credit();
+        proof {
+            use_type_invariant(self);
+            vstd::invariant::open_atomic_invariant_in_proof!(
+                credit.get() => self.atomic_inv.borrow() => pair => {
+                    let tracked (hist, mut g) = pair;
+                    assert(g.domain() == self.constant().domain);
+                    assert(g.reader_registry() == self.constant().reader_registry);
+                    g.tracked_stop_reader(hist.history(), base_guard);
+                    assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
+                    pair = (hist, g);
+                }
+            );
+        }
     }
 
     /// Release-swap helper for a freshly introduced RCU root pointer.
@@ -736,7 +913,7 @@ impl<T, O, OwnPred> WeakAtomicPtr<
     ) -> (res: (*mut T, Tracked<Option<rcu_spec::RcuRetiredOwnedObject<T, O>>>))
         requires
             self.well_formed(),
-            self.constant() || !value.is_null(),
+            self.constant().nullable || !value.is_null(),
             match ownership {
                 Some(ownership) => {
                     &&& !value.is_null()
@@ -749,6 +926,8 @@ impl<T, O, OwnPred> WeakAtomicPtr<
             res.1@ is Some ==> res.1@->Some_0.object().wf(),
             res.1@ is Some ==> equal(res.1@->Some_0.ptr(), res.0),
             res.1@ is Some ==> res.1@->Some_0.retired().obj() == res.1@->Some_0.obj(),
+            res.1@ is Some ==> res.1@->Some_0.retired().removal().root == self.id(),
+            res.1@ is Some ==> res.1@->Some_0.retired().removal().observed_by(final(tv)@),
             res.1@ is Some ==> OwnPred::owns(res.0, res.1@->Some_0.ownership()),
     {
         let result;
@@ -774,12 +953,12 @@ impl<T, O, OwnPred> WeakAtomicPtr<
                 assert(rcu_spec::rcu_owned_root_history_inv(prev, g));
                 assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
                 rcu_spec::lemma_current_owned_resources::<T, O, OwnPred>(prev, &g);
-                if !self.constant() {
+                if !self.constant().nullable {
                     assert(!value.is_null());
                     assert(snap@.msg().value.addr() != 0);
                 }
                 rcu_spec::preserve_rcu_history_inv_on_push(
-                    self.constant(),
+                    self.constant().nullable,
                     prev,
                     next,
                     snap@.msg(),
@@ -788,6 +967,7 @@ impl<T, O, OwnPred> WeakAtomicPtr<
                     prev,
                     next,
                     snap@.msg(),
+                    self.atomic.id(),
                     ownership,
                 );
                 assert(detached is Some ==> detached->Some_0.object().wf());
@@ -795,6 +975,13 @@ impl<T, O, OwnPred> WeakAtomicPtr<
                 assert(detached is Some ==> OwnPred::owns(
                     result,
                     detached->Some_0.ownership(),
+                ));
+                assert(detached is Some ==> detached->Some_0.retired().removal().root
+                    == self.atomic.id());
+                assert(detached is Some ==> detached->Some_0.retired().removal().timestamp
+                    == prev.len());
+                assert(detached is Some ==> detached->Some_0.retired().removal().observed_by(
+                    tv@,
                 ));
                 assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g)) by {
                     match g.current_owned() {
@@ -831,7 +1018,7 @@ impl<T, O, OwnPred> WeakAtomicPtr<
     ))
         requires
             self.well_formed(),
-            self.constant() || !new.is_null(),
+            self.constant().nullable || !new.is_null(),
             match new_ownership {
                 Some(ownership) => {
                     &&& !new.is_null()
@@ -847,6 +1034,8 @@ impl<T, O, OwnPred> WeakAtomicPtr<
             res.2@.0 is Some ==> res.2@.0->Some_0.object().wf(),
             res.2@.0 is Some ==> equal(res.2@.0->Some_0.ptr(), res.0->Ok_0),
             res.2@.0 is Some ==> res.2@.0->Some_0.retired().obj() == res.2@.0->Some_0.obj(),
+            res.2@.0 is Some ==> res.2@.0->Some_0.retired().removal().root == self.id(),
+            res.2@.0 is Some ==> res.2@.0->Some_0.retired().removal().observed_by(final(tv)@),
             res.2@.0 is Some ==> OwnPred::owns(res.0->Ok_0, res.2@.0->Some_0.ownership()),
     {
         let result;
@@ -881,12 +1070,12 @@ impl<T, O, OwnPred> WeakAtomicPtr<
                         let tracked snap_opt = cas_result.2.get();
                         match snap_opt {
                             Option::Some(snap) => {
-                                if !self.constant() {
+                                if !self.constant().nullable {
                                     assert(!new.is_null());
                                     assert(snap.msg().value.addr() != 0);
                                 }
                                 rcu_spec::preserve_rcu_history_inv_on_push(
-                                    self.constant(),
+                                    self.constant().nullable,
                                     prev,
                                     next,
                                     snap.msg(),
@@ -895,6 +1084,7 @@ impl<T, O, OwnPred> WeakAtomicPtr<
                                     prev,
                                     next,
                                     snap.msg(),
+                                    self.atomic.id(),
                                     new_ownership,
                                 );
                                 assert(detached is Some ==> detached->Some_0.object().wf());
@@ -906,6 +1096,12 @@ impl<T, O, OwnPred> WeakAtomicPtr<
                                     cas_result.0->Ok_0,
                                     detached->Some_0.ownership(),
                                 ));
+                                assert(detached is Some ==> detached->Some_0.retired().removal().root
+                                    == self.atomic.id());
+                                assert(detached is Some ==>
+                                    detached->Some_0.retired().removal().timestamp == prev.len());
+                                assert(detached is Some ==>
+                                    detached->Some_0.retired().removal().observed_by(tv@));
                                 assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g)) by {
                                     match g.current_owned() {
                                         Some(owned) => {
@@ -926,7 +1122,7 @@ impl<T, O, OwnPred> WeakAtomicPtr<
                     Result::Err(_) => {
                         retired_ownership = (None, new_ownership);
                         assert(next == prev);
-                        assert(rcu_spec::rcu_history_inv(self.constant(), next));
+                        assert(rcu_spec::rcu_history_inv(self.constant().nullable, next));
                     },
                 }
                 pair = (hist, g);
@@ -1239,6 +1435,19 @@ impl ThreadView {
             res@ == WmView::empty(),
     {
         ThreadView { view: WmView::empty() }
+    }
+
+    /// Imports observations from another genuine thread/CPU view.
+    ///
+    /// Unlike a raw ghost mutator, this operation cannot introduce an
+    /// unwritten timestamp: both operands are tracked `ThreadView` values that
+    /// originated from the weak-memory TCB. Scheduler context switches use it
+    /// to transfer observations between a CPU view and a task view.
+    pub(crate) proof fn tracked_join(tracked &mut self, tracked other: &Self)
+        ensures
+            final(self)@ == old(self)@.join(other@),
+    {
+        self.view = self.view.join(other.view);
     }
 }
 

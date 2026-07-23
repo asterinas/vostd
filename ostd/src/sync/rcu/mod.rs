@@ -21,10 +21,14 @@
 //! stale messages remain distinguishable even if a physical address is later
 //! reused. Multiple messages may refer to one registration and therefore carry
 //! the same allocation ID; an atomic timestamp is never used as an allocation
-//! identity. `Rcu` roots are non-null in every message, while `RcuOption` roots
-//! may contain null messages without allocation IDs. Physical `P::Permission`,
-//! reader permissions, traversal snapshots, and reclamation are modeled
-//! separately in [`specs::sync::rcu`] and are being connected incrementally.
+//! identity. The owned root invariant retains a persistent typed `BlockInfo`
+//! for every registered AId, including retired historical entries. An acquire
+//! load therefore returns proof of the exact typed pointer and AId it observed,
+//! rather than reconstructing identity from the address. `Rcu` roots are
+//! non-null in every message, while `RcuOption` roots may contain null messages
+//! without allocation IDs. Physical `P::Permission`, reader permissions,
+//! traversal snapshots, and reclamation are modeled separately in
+//! [`specs::sync::rcu`] and are being connected incrementally.
 //!
 //! The traversal layer follows the paper's shape:
 //!
@@ -37,8 +41,13 @@
 //!   removed set. The domain's base `rcu-retire` transition then records it in
 //!   `RcuState.R` as `RcuRetired<T>`.
 //! - `RcuCallbackSafety` compresses that recorded retire proof into an erased
-//!   `RcuCallbackSummary { domain, obj, retire_epoch }`, which is what the
-//!   monitor stores next to a type-erased executable callback.
+//!   `RcuCallbackSummary { domain, obj, removal, retire_epoch, retire_view }`,
+//!   which is what the monitor stores next to a type-erased executable
+//!   callback. `removal` is the paper's `Retired(a, Q)` detachment observation:
+//!   it records the root atomic and the first timestamp after the object was
+//!   removed. The retire view observes that timestamp and records the
+//!   observations that every quiescent report must cover before physical
+//!   reclamation.
 //!
 //! # Callback boundary
 //!
@@ -54,8 +63,14 @@
 //! lock-protected monitor state (`specs::sync::rcu::MonitorStateView`), and a
 //! `false` message certifies that its snapshot has no pending callbacks and no
 //! incomplete grace period. `finish_grace_period` removes the completed batch
-//! under the monitor lock, produces a `CompletedGracePeriod` certificate, and
-//! executes exactly that batch outside the lock.
+//! under the monitor lock and produces a private `CompletedGracePeriod`
+//! certificate. For each callback, the monitor combines that certificate with
+//! the callback's traversal-retire safety token to produce a linear
+//! object-level reclaim permit, then executes exactly that batch outside the
+//! lock. The monitor lock carries a linear release view: enqueue publishes the
+//! callback's `retire_view`, and each CPU report is created only after an
+//! acquire imports that view. A completed certificate therefore proves that
+//! every online CPU's report view covers every callback in the batch.
 //!
 //! # Usage outline
 //!
@@ -74,13 +89,34 @@
 //! updated view back in only after the context is quiescent.
 //!
 //! Delayed reclamation is still being wired into the weak-memory proof. The
-//! remaining boundary is concrete: executable preemption guards do not yet own
-//! the domain's `Inactive/Guard` reader token. The weak atomic invariant now
-//! retains the current registration together with `P::Permission`; Release
-//! swap and successful CAS return the old raw pointer and matching owned
-//! resource. `RcuInner` does not yet establish traversal removal or route that
-//! detached ownership into the monitor. For now, `RcuDrop<T>` preserves the
-//! public wrapper API.
+//! weak atomic invariant retains the current registration together with
+//! `P::Permission`; release swap and successful CAS establish root removal,
+//! return the old raw pointer and matching ownership, and route a certified
+//! callback into the monitor. Scheduler handoff now preserves a per-CPU
+//! `ThreadView`: schedule-out joins the departing task's observations into the
+//! CPU view, and schedule-in imports that view into the incoming task.
+//! `RunningTaskContext` retains the CPU identity, so a quiescent report is tied
+//! to the CPU whose persistent view it reports.
+//!
+//! An executable `read()` now performs the paper's `Inactive -> Guard`
+//! transition while opening the root weak-atomic invariant. The resulting
+//! `RcuReadGuardToken` and exact historical `BlockInfo` remain in the
+//! executable read guard until destruction or consuming CAS performs
+//! `Guard -> Inactive`.
+//!
+//! Two boundaries remain. First, the loaded root's `BlockInfo` is not yet
+//! installed in the guard's protection map. That step requires connecting
+//! expired-object completion to the root atomic's timestamp and the task's
+//! `ThreadView`; consequently `assume_shared_ref` still stands in for the final
+//! traversal argument that grants the client pointer's reference permission.
+//! Second, the unsafe
+//! quiescent-report entrypoint is not yet owned by the executable scheduler's
+//! context-switch path. The scheduler ghost API proves the per-CPU view
+//! handoff, but the real hook still has to carry that ghost state, perform the
+//! domain expired-set transition, and connect it to monitor grace-period
+//! completion. Until both boundaries are closed, the reclaim permit is a
+//! monitor-level authorization rather than the final end-to-end memory-safety
+//! authority.
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
@@ -152,7 +188,7 @@ type RcuAtomicGhost<P> = rcu_spec::RcuRootOwnedGhost<
 
 type RcuAtomicPtr<P> = WeakAtomicPtr<
     <P as NonNullPtr>::Target,
-    bool,
+    rcu_spec::RcuRootKey,
     RcuAtomicGhost<P>,
     rcu_spec::RcuOwnedWeakAtomicInv<RcuPointerOwnership<P>>,
 >;
@@ -183,6 +219,8 @@ struct RcuReadGuardInner<'a, P: NonNullPtr> {
     obj_ptr: *mut <P as NonNullPtr>::Target,
     rcu: &'a RcuInner<P>,
     _inner_guard: DisabledPreemptGuard,
+    tracked_info: Tracked<Option<rcu_spec::RcuBlockInfo<<P as NonNullPtr>::Target>>>,
+    tracked_guard: Tracked<rcu_spec::RcuReadGuardToken<<P as NonNullPtr>::Target>>,
 }
 
 /// Sized callback payload that retains the physical ownership of one detached
@@ -234,6 +272,8 @@ fn callback_from_detached<P: NonNullPtr + Send>(
         equal(owned.ptr(), pointer),
         P::ptr_perm_match(pointer, owned.ownership()),
         owned.ownership().inv(),
+    ensures
+        res.1@.removal() == owned.retired().removal(),
 {
     proof {
         use_type_invariant(&owned);
@@ -257,7 +297,7 @@ impl<P: NonNullPtr> RcuInner<P> {
 
     closed spec fn wf(self) -> bool {
         &&& self.ptr.well_formed()
-        &&& self.ptr.constant() == self.ghost_nullable@
+        &&& self.ptr.constant().nullable == self.ghost_nullable@
     }
 }
 
@@ -286,11 +326,16 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         proof_decl! {
             let tracked root_ghost: RcuAtomicGhost<P> =
                 rcu_spec::RcuRootOwnedGhost::tracked_initial(
-                core::ptr::null_mut::<<P as NonNullPtr>::Target>(),
-                None,
-            );
+                    core::ptr::null_mut::<<P as NonNullPtr>::Target>(),
+                    None,
+                );
+            let ghost key = rcu_spec::RcuRootKey {
+                nullable: true,
+                domain: root_ghost.domain(),
+                reader_registry: root_ghost.reader_registry(),
+            };
         }
-        let ptr = WeakAtomicPtr::new(Ghost(true), core::ptr::null_mut(), Tracked(root_ghost));
+        let ptr = WeakAtomicPtr::new(Ghost(key), core::ptr::null_mut(), Tracked(root_ghost));
         Self {
             ptr,
             ghost_nullable: Ghost(true),
@@ -315,8 +360,13 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         proof_decl! {
             let tracked root_ghost =
                 rcu_spec::RcuRootOwnedGhost::tracked_initial(raw_ptr, Some(perm));
+            let ghost key = rcu_spec::RcuRootKey {
+                nullable,
+                domain: root_ghost.domain(),
+                reader_registry: root_ghost.reader_registry(),
+            };
         }
-        let ptr = WeakAtomicPtr::new(Ghost(nullable), raw_ptr, Tracked(root_ghost));
+        let ptr = WeakAtomicPtr::new(Ghost(key), raw_ptr, Tracked(root_ghost));
         Self {
             ptr,
             ghost_nullable: Ghost(nullable),
@@ -325,24 +375,70 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     }
 
     #[inline(always)]
-    fn load_ptr_acquire(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res:
-        *mut <P as NonNullPtr>::Target)
+    fn load_ptr_acquire(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+        *mut <P as NonNullPtr>::Target,
+        Tracked<Option<rcu_spec::RcuBlockInfo<<P as NonNullPtr>::Target>>>,
+    ))
         requires
             self.type_inv(),
         ensures
-            !self.is_nullable() ==> !res.is_null(),
+            !self.is_nullable() ==> !res.0.is_null(),
+            match res.1@ {
+                None => res.0.is_null(),
+                Some(info) => {
+                    &&& !res.0.is_null()
+                    &&& info.wf()
+                    &&& equal(info.ptr(), res.0)
+                },
+            },
     {
         proof {
-            assert(self.ptr.constant() == self.is_nullable());
+            assert(self.ptr.constant().nullable == self.is_nullable());
         }
         let res = self.ptr.load_acquire_rcu(Tracked(tv));
         proof {
             if !self.is_nullable() {
-                assert(!self.ptr.constant());
+                assert(!self.ptr.constant().nullable);
                 assert(!res.0.is_null());
             }
         }
-        res.0
+        (res.0, res.3)
+    }
+
+    #[inline(always)]
+    fn load_ptr_acquire_guarded(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+        *mut <P as NonNullPtr>::Target,
+        Tracked<Option<rcu_spec::RcuBlockInfo<<P as NonNullPtr>::Target>>>,
+        Tracked<rcu_spec::RcuReadGuardToken<<P as NonNullPtr>::Target>>,
+    ))
+        requires
+            self.type_inv(),
+        ensures
+            !self.is_nullable() ==> !res.0.is_null(),
+            res.2@.wf(),
+            res.2@.domain() == self.ptr.constant().domain,
+            res.2@.reader_registry() == self.ptr.constant().reader_registry,
+            match res.1@ {
+                None => res.0.is_null(),
+                Some(info) => {
+                    &&& !res.0.is_null()
+                    &&& info.wf()
+                    &&& info.domain() == res.2@.domain()
+                    &&& equal(info.ptr(), res.0)
+                },
+            },
+    {
+        proof {
+            assert(self.ptr.constant().nullable == self.is_nullable());
+        }
+        let res = self.ptr.load_acquire_rcu_guarded(Tracked(tv));
+        proof {
+            if !self.is_nullable() {
+                assert(!self.ptr.constant().nullable);
+                assert(!res.0.is_null());
+            }
+        }
+        (res.0, res.3, res.4)
     }
 
     #[inline(always)]
@@ -377,12 +473,13 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             (res.1@ is Some) == !res.0.is_null(),
             res.1@ is Some ==> res.1@->Some_0.object().wf(),
             res.1@ is Some ==> equal(res.1@->Some_0.ptr(), res.0),
+            res.1@ is Some ==> res.1@->Some_0.retired().removal().observed_by(final(tv)@),
             res.1@ is Some ==> P::ptr_perm_match(res.0, res.1@->Some_0.ownership()),
             res.1@ is Some ==> res.1@->Some_0.ownership().inv(),
     {
         proof {
-            assert(self.ptr.constant() == self.is_nullable());
-            assert(self.ptr.constant() || !new_ptr.is_null());
+            assert(self.ptr.constant().nullable == self.is_nullable());
+            assert(self.ptr.constant().nullable || !new_ptr.is_null());
         }
         self.ptr.swap_release_rcu(new_ptr, Tracked(ownership), Tracked(tv))
     }
@@ -396,6 +493,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             final(session).wf(),
             final(session).task() == old(session).task(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
@@ -447,6 +545,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.rcu.is_nullable() == self.is_nullable(),
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
@@ -458,8 +557,14 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                 &inner_guard,
             );
         }
-        let obj_ptr = self.load_ptr_acquire(Tracked(tv));
-        RcuReadGuardInner { obj_ptr, rcu: self, _inner_guard: inner_guard }
+        let (obj_ptr, tracked_info, tracked_guard) = self.load_ptr_acquire_guarded(Tracked(tv));
+        RcuReadGuardInner {
+            obj_ptr,
+            rcu: self,
+            _inner_guard: inner_guard,
+            tracked_info,
+            tracked_guard,
+        }
     }
 
     #[inline]
@@ -474,13 +579,14 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     {
         proof_decl! {
             let tracked tv = session.tracked_borrow_thread_view_mut();
         }
-        let obj_ptr = self.load_ptr_acquire(Tracked(tv));
+        let (obj_ptr, _tracked_info) = self.load_ptr_acquire(Tracked(tv));
         NonNull::new(obj_ptr).map(|ptr| unsafe { assume_shared_ref::<P>(ptr) })
     }
 }
@@ -518,6 +624,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             final(session).wf(),
             final(session).task() == old(session).task(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
@@ -547,8 +654,8 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         }
 
         proof {
-            assert(rcu.ptr.constant() == rcu.is_nullable());
-            assert(rcu.ptr.constant() || !new_raw.is_null());
+            assert(rcu.ptr.constant().nullable == rcu.is_nullable());
+            assert(rcu.ptr.constant().nullable || !new_raw.is_null());
         }
         let cas_res = {
             proof_decl! {
@@ -601,6 +708,10 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             self._inner_guard.lemma_matches_context_preserved(context_before_enqueue, session);
             self._inner_guard.lemma_matches_context_depth(session);
         }
+        proof_decl! {
+            let tracked guard = self.tracked_guard.get();
+        }
+        rcu.ptr.stop_rcu_reader(Tracked(guard));
         self._inner_guard.release_to_context(Tracked(session));
         res
     }
@@ -614,14 +725,20 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             final(session).wf(),
             final(session).task() == old(session).task(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).view() == old(session).view(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     {
         proof {
+            use_type_invariant(&self);
             self._inner_guard.lemma_matches_context_depth(session);
         }
+        proof_decl! {
+            let tracked guard = self.tracked_guard.get();
+        }
+        self.rcu.ptr.stop_rcu_reader(Tracked(guard));
         self._inner_guard.release_to_context(Tracked(session));
     }
 }
@@ -655,6 +772,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -676,6 +794,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
@@ -719,6 +838,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -740,6 +860,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
@@ -760,6 +881,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -785,6 +907,7 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -812,6 +935,7 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -837,6 +961,7 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -865,6 +990,7 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
         ensures
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -934,6 +1060,7 @@ impl<T: Send + 'static> Deref for RcuDrop<T> {
         final(session).is_quiescent(),
         final(session).task() == old(session).task(),
         final(session).scheduler() == old(session).scheduler(),
+        final(session).cpu() == old(session).cpu(),
         final(session).session_id() == old(session).session_id(),
         final(session).available_fractions() == old(session).available_fractions(),
         final(session).preempt_depth() == old(session).preempt_depth(),
@@ -1013,7 +1140,20 @@ impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         &&& self.rcu.type_inv()
+        &&& self.tracked_guard@.wf()
+        &&& self.tracked_guard@.domain() == self.rcu.ptr.constant().domain
+        &&& self.tracked_guard@.reader_registry()
+            == self.rcu.ptr.constant().reader_registry
         &&& !self.rcu.is_nullable() ==> !self.obj_ptr.is_null()
+        &&& match self.tracked_info@ {
+            None => self.obj_ptr.is_null(),
+            Some(info) => {
+                &&& !self.obj_ptr.is_null()
+                &&& info.wf()
+                &&& info.domain() == self.tracked_guard@.domain()
+                &&& equal(info.ptr(), self.obj_ptr)
+            },
+        }
     }
 }
 

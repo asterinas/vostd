@@ -2,15 +2,15 @@
 use alloc::collections::VecDeque;
 use core::sync::atomic::Ordering;
 
-use vstd::{predicate::Predicate as DataPredicate, prelude::*};
+use vstd::{predicate::Predicate as DataPredicate, prelude::*, resource::Loc};
 use vstd_extra::raw_callback::RawCallback;
 
 use crate::specs::{
-    mm::cpu::{AtomicCpuSet, CpuId, CpuSet},
+    mm::cpu::{AtomicCpuSet, AtomicCpuSetToken, CpuId, CpuSet, online_cpus},
     sync::{
         rcu as rcu_spec,
         rcu::{GracePeriodView, MonitorStateView},
-        weak_memory::{History, ThreadView, WeakAtomicBool},
+        weak_memory::{History, ThreadView, WeakAtomicBool, WmView},
     },
 };
 use crate::sync::{
@@ -27,6 +27,53 @@ type MonitorAtomicBool = WeakAtomicBool<
     rcu_spec::RcuMonitorFlagGhost,
     rcu_spec::RcuMonitorFlagInv,
 >;
+
+/// Evidence captured at a call site where the current task is quiescent.
+///
+/// This token deliberately does not claim that a complete RCU grace period has
+/// elapsed. It records the task and weak-memory view at one CPU-local
+/// observation; the monitor binds it to the currently active generation below.
+/// A later scheduler proof must additionally show that this unsafe entrypoint
+/// is reached by the required context-switch path.
+tracked struct RcuQuiescentContext {
+    ghost cpu: CpuId,
+    ghost task: Loc,
+    ghost scheduler: Loc,
+    ghost view: WmView,
+}
+
+impl RcuQuiescentContext {
+    proof fn tracked_from_running_context(
+        tracked context: &RunningTaskContext,
+        cpu: CpuId,
+    ) -> (tracked res: Self)
+        requires
+            context.wf(),
+            context.is_quiescent(),
+            cpu == context.cpu(),
+        ensures
+            res.cpu == cpu,
+            res.task == context.task(),
+            res.scheduler == context.scheduler(),
+            res.view == context.view(),
+    {
+        RcuQuiescentContext {
+            cpu,
+            task: context.task(),
+            scheduler: context.scheduler(),
+            view: context.view(),
+        }
+    }
+}
+
+/// Historical record of one quiescent context bound to a monitor generation.
+ghost struct RcuCpuQuiescentReport {
+    cpu: CpuId,
+    task: Loc,
+    scheduler: Loc,
+    view: WmView,
+    epoch: nat,
+}
 
 /// RCU-specific wrapper around a type-erased executable callback.
 ///
@@ -56,20 +103,30 @@ impl RcuCallback {
         raw: RawCallback,
         Tracked(cert): Tracked<rcu_spec::RcuCallbackSafety>,
         Ghost(retire_epoch): Ghost<nat>,
+        Ghost(retire_view): Ghost<WmView>,
     ) -> (res: Self)
+        requires
+            cert.removal().observed_by(retire_view),
         ensures
             res.wf(),
             res@ == (rcu_spec::RcuCallbackSummary {
                 domain: cert.domain(),
                 obj: cert.obj(),
+                removal: cert.removal(),
                 retire_epoch,
+                retire_view,
             }),
     {
         let ghost summary = rcu_spec::RcuCallbackSummary {
             domain: cert.domain(),
             obj: cert.obj(),
+            removal: cert.removal(),
             retire_epoch,
+            retire_view,
         };
+        proof {
+            cert.lemma_matches(summary);
+        }
         Self { raw, summary: Ghost(summary), safety: Tracked(cert) }
     }
 
@@ -77,10 +134,10 @@ impl RcuCallback {
     /// period that contained this callback's retire summary.
     #[inline]
     #[verifier::external_body]
-    unsafe fn call_once(self, Tracked(completed): Tracked<&CompletedGracePeriod>)
+    unsafe fn call_once(self, Tracked(permit): Tracked<RcuReclaimPermit>)
         requires
             self.wf(),
-            completed.covers(self@),
+            permit.authorizes(self@),
     {
         unsafe {
             self.raw.call_once();
@@ -105,6 +162,35 @@ impl RcuCallback {
 tracked struct CompletedGracePeriod {
     epoch: Ghost<nat>,
     callbacks: Ghost<Seq<rcu_spec::RcuCallbackSummary>>,
+    reported_cpus: Ghost<Set<CpuId>>,
+    reports: Ghost<Map<CpuId, RcuCpuQuiescentReport>>,
+}
+
+/// Object-level authorization to execute one reclamation callback.
+///
+/// Unlike [`CompletedGracePeriod`], this token is specific to one callback.
+/// It combines the callback's traversal-retirement certificate with monitor
+/// completion of the batch containing that callback. Keeping its constructor
+/// private prevents executable callback code from treating batch membership
+/// alone as proof that an arbitrary object was retired safely.
+tracked struct RcuReclaimPermit {
+    summary: Ghost<rcu_spec::RcuCallbackSummary>,
+    retired: rcu_spec::RcuRetiredFact,
+    reports: Ghost<Map<CpuId, RcuCpuQuiescentReport>>,
+}
+
+impl RcuReclaimPermit {
+    closed spec fn authorizes(self, callback: rcu_spec::RcuCallbackSummary) -> bool {
+        &&& self.summary@ == callback
+        &&& self.retired.matches(callback)
+        &&& self.reports@.dom() == online_cpus()
+        &&& forall|cpu: CpuId| #[trigger]
+            self.reports@.contains_key(cpu) ==> {
+                &&& self.reports@[cpu].cpu == cpu
+                &&& self.reports@[cpu].epoch == callback.retire_epoch
+                &&& callback.retire_view.spec_le(self.reports@[cpu].view)
+            }
+    }
 }
 
 impl CompletedGracePeriod {
@@ -116,9 +202,54 @@ impl CompletedGracePeriod {
         self.epoch@
     }
 
+    closed spec fn reported_cpus(self) -> Set<CpuId> {
+        self.reported_cpus@
+    }
+
+    closed spec fn reports(self) -> Map<CpuId, RcuCpuQuiescentReport> {
+        self.reports@
+    }
+
+    closed spec fn reports_wf(self) -> bool {
+        &&& self.reports().dom() == self.reported_cpus()
+        &&& forall|cpu: CpuId| #[trigger]
+            self.reports().contains_key(cpu) ==> {
+                &&& self.reports()[cpu].cpu == cpu
+                &&& self.reports()[cpu].epoch == self.epoch()
+            }
+    }
+
+    closed spec fn callbacks_covered(self) -> bool {
+        forall|i: int, cpu: CpuId|
+            0 <= i < self.callbacks().len() && #[trigger] self.reports().contains_key(cpu) ==> (
+            #[trigger] self.callbacks()[i]).retire_view.spec_le(self.reports()[cpu].view)
+    }
+
     closed spec fn covers(self, callback: rcu_spec::RcuCallbackSummary) -> bool {
         &&& self.callbacks().contains(callback)
         &&& callback.retire_epoch == self.epoch()
+        &&& self.reported_cpus() == online_cpus()
+        &&& self.reports_wf()
+        &&& forall|cpu: CpuId| #[trigger]
+            self.reports().contains_key(cpu) ==> callback.retire_view.spec_le(
+                self.reports()[cpu].view,
+            )
+    }
+
+    /// Combines traversal retirement with monitor completion for one callback.
+    proof fn tracked_authorize_callback(
+        tracked &self,
+        tracked safety: &rcu_spec::RcuCallbackSafety,
+        callback: rcu_spec::RcuCallbackSummary,
+    ) -> (tracked permit: RcuReclaimPermit)
+        requires
+            safety.matches(callback),
+            self.covers(callback),
+        ensures
+            permit.authorizes(callback),
+    {
+        let tracked retired = safety.tracked_retired_fact(callback);
+        RcuReclaimPermit { summary: Ghost(callback), retired, reports: Ghost(self.reports()) }
     }
 }
 
@@ -132,6 +263,9 @@ fn run_completed_callbacks(
 )
     requires
         completed.callbacks() == callback_summaries(callbacks),
+        completed.reported_cpus() == online_cpus(),
+        completed.reports_wf(),
+        completed.callbacks_covered(),
         forall|i: int|
             0 <= i < callback_summaries(callbacks).len() ==> (#[trigger] callback_summaries(
                 callbacks,
@@ -142,6 +276,12 @@ fn run_completed_callbacks(
             (#[trigger] callbacks@[i])@,
         ) by {
             callback_summaries(callbacks).lemma_index_contains(i);
+            assert forall|cpu: CpuId| #[trigger]
+                completed.reports().contains_key(cpu) implies callbacks@[i]@.retire_view.spec_le(
+                completed.reports()[cpu].view,
+            ) by {
+                assert(callback_summaries(callbacks)[i] == callbacks@[i]@);
+            };
         }
     }
 
@@ -168,7 +308,13 @@ fn run_completed_callbacks(
             proof {
                 use_type_invariant(&callback);
             }
-            callback.call_once(Tracked(&completed));
+            proof_decl! {
+                let tracked permit = completed.tracked_authorize_callback(
+                    callback.safety.borrow(),
+                    callback@,
+                );
+            }
+            callback.call_once(Tracked(permit));
         }
     }
 }
@@ -222,6 +368,8 @@ fn push_callback(callbacks: &mut Callbacks, callback: RcuCallback)
 pub(super) struct GracePeriod {
     callbacks: Callbacks,
     cpu_mask: AtomicCpuSet,
+    tracked_cpu_mask: Tracked<AtomicCpuSetToken>,
+    ghost_reports: Ghost<Map<CpuId, RcuCpuQuiescentReport>>,
     is_complete: bool,
     ghost_epoch: Ghost<nat>,
 }
@@ -245,12 +393,30 @@ impl GracePeriod {
     pub(super) fn new() -> (res: Self)
         ensures
             res@ == GracePeriodView::initial(),
+            res.wf(),
     {
         let callbacks = Callbacks::new();
-        let cpu_mask = AtomicCpuSet::new(CpuSet::new_empty());
-        let res = Self { callbacks, cpu_mask, is_complete: true, ghost_epoch: Ghost(0) };
+        let empty_cpu_set = CpuSet::new_empty();
+        proof {
+            assert(empty_cpu_set.cpus == Set::<CpuId>::empty());
+        }
+        let mut cpu_mask = AtomicCpuSet::new(empty_cpu_set);
+        proof_decl! {
+            let tracked cpu_mask_token = cpu_mask.tracked_take_token();
+        }
+        let res = Self {
+            callbacks,
+            cpu_mask,
+            tracked_cpu_mask: Tracked(cpu_mask_token),
+            ghost_reports: Ghost(Map::empty()),
+            is_complete: true,
+            ghost_epoch: Ghost(0),
+        };
         proof {
             callback_summaries_empty(res.callbacks);
+            assert(res.cpu_mask.initial_cpus() == Set::<CpuId>::empty());
+            assert(res.ghost_reports@.dom() == Set::<CpuId>::empty());
+            assert(res.tracked_cpu_mask@.cpus() == Set::<CpuId>::empty());
         }
         res
     }
@@ -261,6 +427,7 @@ impl GracePeriod {
     /// later weak-memory ghost state can attach stable identity to this mask.
     fn restart(&mut self, callbacks: Callbacks, Ghost(epoch): Ghost<nat>)
         requires
+            old(self).wf(),
             forall|i: int|
                 0 <= i < callback_summaries(callbacks).len() ==> (#[trigger] callback_summaries(
                     callbacks,
@@ -275,20 +442,86 @@ impl GracePeriod {
         self.is_complete = false;
         self.callbacks = callbacks;
         self.ghost_epoch = Ghost(epoch);
+        self.ghost_reports = Ghost(Map::empty());
+        proof_decl! {
+            let tracked cpu_mask_token = self.tracked_cpu_mask.borrow_mut();
+        }
+        #[verus_spec(with Tracked(cpu_mask_token))]
         self.cpu_mask.store(&CpuSet::new_empty(), Ordering::Relaxed);
     }
 
-    /// Records that `this_cpu` has passed a quiescent state for this grace
-    /// period and returns whether the executable CPU mask now covers all CPUs.
-    ///
-    /// The CPU-mask contents are not part of the current proof view, so this
-    /// method refines only the executable monitor protocol. The higher-level
-    /// proof still treats the returned completion bit abstractly.
-    fn record_quiescent_state(&self, this_cpu: CpuId) -> (complete: bool)
+    /// Records one generation-bound quiescent context and updates the
+    /// executable CPU mask in the same invariant-preserving transition.
+    fn record_quiescent_state(
+        &mut self,
+        this_cpu: CpuId,
+        Tracked(context): Tracked<RcuQuiescentContext>,
+    ) -> (complete: bool)
+        requires
+            old(self).wf(),
+            online_cpus().contains(this_cpu),
+            context.cpu == this_cpu,
+            forall|i: int|
+                0 <= i < old(self).callback_summaries().len() ==> (#[trigger] old(
+                    self,
+                ).callback_summaries()[i]).retire_view.spec_le(context.view),
+        ensures
+            final(self).wf(),
+            final(self)@ == old(self)@,
+            complete == (final(self).tracked_cpu_mask@.cpus() == online_cpus()),
         no_unwind
     {
+        let ghost old_reports = self.ghost_reports@;
+        let ghost report = RcuCpuQuiescentReport {
+            cpu: this_cpu,
+            task: context.task,
+            scheduler: context.scheduler,
+            view: context.view,
+            epoch: self@.epoch,
+        };
+        proof {
+            self.ghost_reports = Ghost(self.ghost_reports@.insert(this_cpu, report));
+        }
+        #[verus_spec(with Tracked(self.tracked_cpu_mask.borrow_mut()))]
         self.cpu_mask.add(this_cpu, Ordering::Relaxed);
-        self.cpu_mask.load(Ordering::Relaxed).is_full()
+        let cpu_mask = #[verus_spec(with Tracked(self.tracked_cpu_mask.borrow()))]
+        self.cpu_mask.load(Ordering::Relaxed);
+        let complete = cpu_mask.is_full();
+        proof {
+            assert(self.ghost_reports@ == old_reports.insert(this_cpu, report));
+            assert(self.callback_summaries() == old(self).callback_summaries());
+            assert forall|cpu: CpuId| #[trigger] self.ghost_reports@.contains_key(cpu) implies {
+                &&& self.ghost_reports@[cpu].cpu == cpu
+                &&& self.ghost_reports@[cpu].epoch == self@.epoch
+                &&& forall|i: int|
+                    0 <= i < self.callback_summaries().len() ==> (
+                    #[trigger] self.callback_summaries()[i]).retire_view.spec_le(
+                        self.ghost_reports@[cpu].view,
+                    )
+            } by {
+                if cpu == this_cpu {
+                    assert(self.ghost_reports@[cpu] == report);
+                    assert forall|i: int| 0 <= i < self.callback_summaries().len() implies (
+                    #[trigger] self.callback_summaries()[i]).retire_view.spec_le(
+                        self.ghost_reports@[cpu].view,
+                    ) by {
+                        assert(self.callback_summaries()[i] == old(self).callback_summaries()[i]);
+                    };
+                } else {
+                    assert(self.ghost_reports@[cpu] == old_reports[cpu]);
+                    assert(old(self).ghost_reports@.contains_key(cpu));
+                    assert(self.ghost_reports@[cpu] == old(self).ghost_reports@[cpu]);
+                    assert forall|i: int| 0 <= i < self.callback_summaries().len() implies (
+                    #[trigger] self.callback_summaries()[i]).retire_view.spec_le(
+                        self.ghost_reports@[cpu].view,
+                    ) by {
+                        assert(self.callback_summaries()[i] == old(self).callback_summaries()[i]);
+                    };
+                }
+            };
+            assert(self.wf());
+        }
+        complete
     }
 
     closed spec fn callback_summaries(self) -> Seq<rcu_spec::RcuCallbackSummary> {
@@ -303,14 +536,33 @@ impl GracePeriod {
     /// callbacks taken. Monitor methods may break this transiently inside a
     /// critical section (between completing a grace period and taking its
     /// callbacks), but must restore it before releasing the monitor lock.
-    closed spec fn wf(self) -> bool {
-        self@.wf()
+    pub(super) closed spec fn wf(self) -> bool {
+        &&& self@.wf()
+        &&& self.tracked_cpu_mask@.id() == self.cpu_mask.id()
+        &&& self.tracked_cpu_mask@.wf()
+        &&& self.ghost_reports@.dom() == self.tracked_cpu_mask@.cpus()
+        &&& forall|cpu: CpuId| #[trigger]
+            self.ghost_reports@.contains_key(cpu) ==> {
+                &&& self.ghost_reports@[cpu].cpu == cpu
+                &&& self.ghost_reports@[cpu].epoch == self@.epoch
+                &&& forall|i: int|
+                    0 <= i < self.callback_summaries().len() ==> (
+                    #[trigger] self.callback_summaries()[i]).retire_view.spec_le(
+                        self.ghost_reports@[cpu].view,
+                    )
+            }
     }
 }
 
 pub(super) struct State {
     current_gp: GracePeriod,
     next_callbacks: Callbacks,
+    /// Release view of the monitor lock.
+    ///
+    /// This proof-only token is updated before unlocking and imported after
+    /// locking. It gives the existing executable spin lock the release/acquire
+    /// semantics needed by the RCU proof without changing its runtime layout.
+    tracked_lock_view: Tracked<ThreadView>,
 }
 
 impl View for State {
@@ -325,8 +577,80 @@ impl View for State {
 }
 
 impl State {
+    closed spec fn lock_view(self) -> WmView {
+        self.tracked_lock_view@@
+    }
+
     closed spec fn next_callback_epoch(self) -> nat {
         self@.current_gp.epoch + 1
+    }
+
+    /// Imports the view published by the previous monitor-lock holder.
+    fn tracked_acquire_lock_view(&self, Tracked(thread_view): Tracked<&mut ThreadView>)
+        ensures
+            self.wf(),
+            final(thread_view)@ == old(thread_view)@.join(self.lock_view()),
+            old(thread_view)@.spec_le(final(thread_view)@),
+            self.lock_view().spec_le(final(thread_view)@),
+    {
+        proof {
+            use_type_invariant(self);
+        }
+        proof_decl! {
+            let tracked published_view = self.tracked_lock_view.borrow();
+        }
+        proof {
+            let ghost before = thread_view@;
+            let ghost lock_view = self.lock_view();
+            thread_view.tracked_join(published_view);
+            before.lemma_join_left(lock_view);
+            before.lemma_join_right(lock_view);
+        }
+    }
+
+    /// Publishes the current holder's observations to the next lock acquirer.
+    fn tracked_publish_lock_view(&mut self, Tracked(thread_view): Tracked<&ThreadView>)
+        requires
+            old(self).wf(),
+        ensures
+            final(self).wf(),
+            final(self)@ == old(self)@,
+            final(self).lock_view() == old(self).lock_view().join(thread_view@),
+            old(self).lock_view().spec_le(final(self).lock_view()),
+            thread_view@.spec_le(final(self).lock_view()),
+    {
+        proof {
+            let ghost old_lock_view = old(self).lock_view();
+            let ghost holder_view = thread_view@;
+            self.tracked_lock_view.borrow_mut().tracked_join(thread_view);
+            old_lock_view.lemma_join_left(holder_view);
+            old_lock_view.lemma_join_right(holder_view);
+            assert forall|i: int|
+                0 <= i < final(self).current_gp.callback_summaries().len() implies (
+            #[trigger] final(self).current_gp.callback_summaries()[i]).retire_view.spec_le(
+                final(self).lock_view(),
+            ) by {
+                assert(final(self).current_gp.callback_summaries()[i] == old(
+                    self,
+                ).current_gp.callback_summaries()[i]);
+                old(self).current_gp.callback_summaries()[i].retire_view.lemma_spec_le_transitive(
+                    old_lock_view,
+                    final(self).lock_view(),
+                );
+            };
+            assert forall|i: int|
+                0 <= i < callback_summaries(final(self).next_callbacks).len() implies (
+            #[trigger] callback_summaries(final(self).next_callbacks)[i]).retire_view.spec_le(
+                final(self).lock_view(),
+            ) by {
+                assert(callback_summaries(final(self).next_callbacks)[i] == callback_summaries(
+                    old(self).next_callbacks,
+                )[i]);
+                callback_summaries(
+                    old(self).next_callbacks,
+                )[i].retire_view.lemma_spec_le_transitive(old_lock_view, final(self).lock_view());
+            };
+        }
     }
 
     /// Creates the lock-protected initial monitor state: there is no active
@@ -338,7 +662,10 @@ impl State {
     {
         let current_gp = GracePeriod::new();
         let next_callbacks = Callbacks::new();
-        let res = Self { current_gp, next_callbacks };
+        proof_decl! {
+            let tracked lock_view = ThreadView::new();
+        }
+        let res = Self { current_gp, next_callbacks, tracked_lock_view: Tracked(lock_view) };
         proof {
             callback_summaries_empty(res.next_callbacks);
         }
@@ -359,6 +686,7 @@ impl State {
         requires
             callback.wf(),
             callback@.retire_epoch == old(self).next_callback_epoch(),
+            callback@.retire_view.spec_le(old(self).lock_view()),
         ensures
             final(self).wf(),
             final(self).has_pending_work(),
@@ -413,6 +741,31 @@ impl State {
         }
     }
 
+    /// Records one CPU report while preserving the lock-protected callback
+    /// state. The linear mask token makes the executable `is_full` result
+    /// equivalent to coverage of the fixed online-CPU set.
+    fn record_quiescent_state(
+        &mut self,
+        this_cpu: CpuId,
+        Tracked(context): Tracked<RcuQuiescentContext>,
+    ) -> (complete: bool)
+        requires
+            old(self).wf(),
+            online_cpus().contains(this_cpu),
+            context.cpu == this_cpu,
+            forall|i: int|
+                0 <= i < old(self).current_gp.callback_summaries().len() ==> (#[trigger] old(
+                    self,
+                ).current_gp.callback_summaries()[i]).retire_view.spec_le(context.view),
+        ensures
+            final(self).wf(),
+            final(self)@ == old(self)@,
+            complete == (final(self).current_gp.tracked_cpu_mask@.cpus() == online_cpus()),
+        no_unwind
+    {
+        self.current_gp.record_quiescent_state(this_cpu, Tracked(context))
+    }
+
     /// Records a quiescent state for the current CPU, returns the callbacks
     /// that become reclaimable if this completes the grace period, and
     /// immediately starts the next grace period if callbacks accumulated while
@@ -420,19 +773,33 @@ impl State {
     ///
     /// This mirrors the upstream state machine: an incomplete CPU mask leaves
     /// the current grace period running and returns no completed callbacks.
-    /// The exact CPU-mask contents are still outside the proof view; the proof
-    /// treats `record_quiescent_state`'s boolean result as the completion cut.
-    fn finish_grace_period(&mut self, this_cpu: CpuId) -> ((
-        completed_gp,
-        completed_callbacks,
-        completed_token,
-    ): (bool, Callbacks, Tracked<CompletedGracePeriod>))
+    /// The mask's linear shadow token records the exact reported-CPU set, so a
+    /// completed batch also carries proof that every online CPU reported.
+    fn finish_grace_period(
+        &mut self,
+        this_cpu: CpuId,
+        Tracked(context): Tracked<RcuQuiescentContext>,
+    ) -> ((completed_gp, completed_callbacks, completed_token): (
+        bool,
+        Callbacks,
+        Tracked<CompletedGracePeriod>,
+    ))
+        requires
+            online_cpus().contains(this_cpu),
+            context.cpu == this_cpu,
+            forall|i: int|
+                0 <= i < old(self).current_gp.callback_summaries().len() ==> (#[trigger] old(
+                    self,
+                ).current_gp.callback_summaries()[i]).retire_view.spec_le(context.view),
         ensures
             final(self).wf(),
             completed_token@.callbacks() == callback_summaries(completed_callbacks),
             completed_gp ==> !old(self)@.current_gp.is_complete,
             completed_gp ==> completed_token@.callbacks() == old(self)@.current_gp.callbacks,
             completed_gp ==> completed_token@.epoch() == old(self)@.current_gp.epoch,
+            completed_gp ==> completed_token@.reported_cpus() == online_cpus(),
+            completed_gp ==> completed_token@.reports_wf(),
+            completed_token@.callbacks_covered(),
             !completed_gp ==> completed_token@.callbacks() == Seq::<
                 rcu_spec::RcuCallbackSummary,
             >::empty(),
@@ -465,10 +832,26 @@ impl State {
         }
         let mut completed_callbacks = Callbacks::new();
         let mut completed_gp = false;
+        let ghost mut completed_cpu_mask = Set::<CpuId>::empty();
+        let ghost mut completed_reports = Map::<CpuId, RcuCpuQuiescentReport>::empty();
         if !self.current_gp.is_complete {
-            let is_complete = self.current_gp.record_quiescent_state(this_cpu);
+            let is_complete = self.record_quiescent_state(this_cpu, Tracked(context));
             if is_complete {
                 completed_gp = true;
+                proof {
+                    completed_cpu_mask = self.current_gp.tracked_cpu_mask@.cpus();
+                    completed_reports = self.current_gp.ghost_reports@;
+                    assert(completed_cpu_mask == online_cpus());
+                    assert(self.current_gp.callback_summaries() == initial_current_callbacks);
+                    assert forall|i: int, cpu: CpuId|
+                        0 <= i < initial_current_callbacks.len()
+                            && #[trigger] completed_reports.contains_key(cpu) implies (
+                    #[trigger] initial_current_callbacks[i]).retire_view.spec_le(
+                        completed_reports[cpu].view,
+                    ) by {
+                        assert(self.current_gp.wf());
+                    };
+                }
                 core::mem::swap(&mut completed_callbacks, &mut self.current_gp.callbacks);
                 proof {
                     assert(callback_summaries(completed_callbacks) == initial_current_callbacks);
@@ -497,6 +880,8 @@ impl State {
             let tracked completed = CompletedGracePeriod {
                 epoch: Ghost(if completed_gp { initial_current_epoch } else { 0 }),
                 callbacks: Ghost(callback_summaries(completed_callbacks)),
+                reported_cpus: Ghost(completed_cpu_mask),
+                reports: Ghost(completed_reports),
             };
         }
         proof {
@@ -505,9 +890,23 @@ impl State {
             assert(completed.callbacks() == callback_summaries(completed_callbacks));
             if !completed_gp {
                 callback_summaries_empty(completed_callbacks);
+                assert(completed.callbacks_covered());
             } else {
                 assert(!initially_complete);
+                assert(completed.reported_cpus() == online_cpus());
+                assert(completed.reports_wf());
                 assert(callback_summaries(completed_callbacks) == initial_current_callbacks);
+                assert(completed.callbacks_covered()) by {
+                    assert forall|i: int, cpu: CpuId|
+                        0 <= i < completed.callbacks().len()
+                            && #[trigger] completed.reports().contains_key(cpu) implies (
+                    #[trigger] completed.callbacks()[i]).retire_view.spec_le(
+                        completed.reports()[cpu].view,
+                    ) by {
+                        assert(completed.callbacks()[i] == initial_current_callbacks[i]);
+                        assert(completed.reports() == completed_reports);
+                    };
+                };
                 assert forall|i: int|
                     0 <= i < callback_summaries(completed_callbacks).len() implies (
                 #[trigger] callback_summaries(completed_callbacks)[i]).retire_epoch
@@ -554,7 +953,18 @@ impl State {
     /// the queued callbacks or stopped monitoring). Holds whenever the monitor
     /// lock is free.
     closed spec fn wf(self) -> bool {
-        self@.wf()
+        &&& self@.wf()
+        &&& self.current_gp.wf()
+        &&& forall|i: int|
+            0 <= i < self.current_gp.callback_summaries().len() ==> (
+            #[trigger] self.current_gp.callback_summaries()[i]).retire_view.spec_le(
+                self.lock_view(),
+            )
+        &&& forall|i: int|
+            0 <= i < callback_summaries(self.next_callbacks).len() ==> (
+            #[trigger] callback_summaries(self.next_callbacks)[i]).retire_view.spec_le(
+                self.lock_view(),
+            )
     }
 
     #[verifier::type_invariant]
@@ -707,10 +1117,12 @@ impl RcuMonitor {
             Tracked(session): Tracked<&mut RunningTaskContext>,
         requires
             old(session).wf(),
+            cert@.removal().observed_by(old(session).view()),
         ensures
             final(session).wf(),
             final(session).task() == old(session).task(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
@@ -723,12 +1135,33 @@ impl RcuMonitor {
         proof {
             use_type_invariant(self);
         }
+        let ghost retire_view = session.view();
         let mut state = self.state.lock();
+        let ghost before_acquire = session.view();
+        proof_decl! {
+            let tracked acquire_view = session.tracked_borrow_thread_view_mut();
+        }
+        state.tracked_acquire_lock_view(Tracked(acquire_view));
+        proof {
+            retire_view.lemma_spec_le_transitive(before_acquire, session.view());
+        }
+        proof_decl! {
+            let tracked publish_view = session.tracked_borrow_thread_view_mut();
+        }
+        state.tracked_publish_lock_view(Tracked(&*publish_view));
+        proof {
+            retire_view.lemma_spec_le_transitive(session.view(), state.value().lock_view());
+        }
         let ghost retire_epoch = state.view()@.current_gp.epoch + 1;
         proof_decl! {
             let tracked cert = cert.get();
         }
-        let callback = RcuCallback::from_raw(raw, Tracked(cert), Ghost(retire_epoch));
+        let callback = RcuCallback::from_raw(
+            raw,
+            Tracked(cert),
+            Ghost(retire_epoch),
+            Ghost(retire_view),
+        );
         let started_gp = state.enqueue_after_grace_period(callback);
         if started_gp {
             proof {
@@ -741,6 +1174,10 @@ impl RcuMonitor {
             }
             self.set_monitoring(true, Ghost(state.view()@), Tracked(tv));
         }
+        proof_decl! {
+            let tracked publish_view = session.tracked_borrow_thread_view_mut();
+        }
+        state.tracked_publish_lock_view(Tracked(&*publish_view));
         state.drop();
     }
 
@@ -762,6 +1199,7 @@ impl RcuMonitor {
             final(session).is_quiescent(),
             final(session).task() == old(session).task(),
             final(session).scheduler() == old(session).scheduler(),
+            final(session).cpu() == old(session).cpu(),
             final(session).session_id() == old(session).session_id(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
@@ -778,15 +1216,45 @@ impl RcuMonitor {
             return;
         }
         let mut state = self.state.lock();
+        proof_decl! {
+            let tracked acquire_view = session.tracked_borrow_thread_view_mut();
+        }
+        state.tracked_acquire_lock_view(Tracked(acquire_view));
         if state.current_gp.is_complete {
+            proof_decl! {
+                let tracked publish_view = session.tracked_borrow_thread_view_mut();
+            }
+            state.tracked_publish_lock_view(Tracked(&*publish_view));
             state.drop();
             return;
         }
-        let this_cpu = CpuId::current();
+        let this_cpu = CpuId::current(Tracked(&*session));
+        proof_decl! {
+            let tracked quiescent_context =
+                RcuQuiescentContext::tracked_from_running_context(session, this_cpu);
+        }
+        proof {
+            assert forall|i: int|
+                0 <= i < state.value().current_gp.callback_summaries().len() implies (
+            #[trigger] state.value().current_gp.callback_summaries()[i]).retire_view.spec_le(
+                quiescent_context.view,
+            ) by {
+                let ghost callback = state.value().current_gp.callback_summaries()[i];
+                callback.retire_view.lemma_spec_le_transitive(
+                    state.value().lock_view(),
+                    session.view(),
+                );
+            };
+        }
         let (completed_gp, completed_callbacks, Tracked(completed)) = state.finish_grace_period(
             this_cpu,
+            Tracked(quiescent_context),
         );
         if !completed_gp {
+            proof_decl! {
+                let tracked publish_view = session.tracked_borrow_thread_view_mut();
+            }
+            state.tracked_publish_lock_view(Tracked(&*publish_view));
             state.drop();
             return;
         }
@@ -802,6 +1270,10 @@ impl RcuMonitor {
             }
             self.set_monitoring(false, Ghost(state.view()@), Tracked(tv));
         }
+        proof_decl! {
+            let tracked publish_view = session.tracked_borrow_thread_view_mut();
+        }
+        state.tracked_publish_lock_view(Tracked(&*publish_view));
         state.drop();
         run_completed_callbacks(completed_callbacks, Tracked(completed));
     }

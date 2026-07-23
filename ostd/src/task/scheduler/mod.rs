@@ -112,9 +112,13 @@ pub ghost enum TaskSchedState {
 /// `ThreadView`; the scheduler view must be updated with
 /// `update_checked_out_task_view` to keep the logical snapshot synchronized.
 /// A quiescent schedule-out checks the updated token back into `stored_views`.
+/// It also joins the outgoing task view into the persistent view of that CPU.
+/// The next task scheduled on the CPU joins that CPU view into its checked-out
+/// task view. Thus observations survive both task migration and context
+/// switches without minting a fresh `ThreadView`.
 ///
 /// In short, the resource flow is:
-/// `stored_views -> RunningTaskContext -> checked_out_views update -> stored_views`.
+/// `stored task view + CPU view -> RunningTaskContext -> stored task view + CPU view`.
 /// Scheduler-policy transitions may change runqueues, current tasks, and task
 /// states only through `same_thread_view_ownership`, which frames all three
 /// weak-memory ownership maps.
@@ -126,6 +130,7 @@ pub ghost enum TaskSchedState {
 /// state for every known task. `task_views` is the logical per-task
 /// weak-memory view. `stored_views` records views still owned by the scheduler
 /// resource; `checked_out_views` records views temporarily held by guards.
+/// `cpu_views` persists observations across context switches on each CPU.
 pub ghost struct SchedulerView {
     pub id: Loc,
     pub runqueues: Map<CpuId, Seq<Loc>>,
@@ -134,6 +139,7 @@ pub ghost struct SchedulerView {
     pub task_views: Map<Loc, WmView>,
     pub stored_views: Map<Loc, WmView>,
     pub checked_out_views: Map<Loc, WmView>,
+    pub cpu_views: Map<CpuId, WmView>,
 }
 
 impl SchedulerView {
@@ -147,6 +153,7 @@ impl SchedulerView {
             task_views: Map::empty(),
             stored_views: Map::empty(),
             checked_out_views: Map::empty(),
+            cpu_views: Map::empty(),
         }
     }
 
@@ -179,6 +186,17 @@ impl SchedulerView {
         self.checked_out_views.contains_key(task)
     }
 
+    pub open spec fn cpu_has_thread_view(self, cpu: CpuId) -> bool {
+        self.cpu_views.contains_key(cpu)
+    }
+
+    pub open spec fn cpu_thread_view(self, cpu: CpuId) -> WmView
+        recommends
+            self.cpu_has_thread_view(cpu),
+    {
+        self.cpu_views[cpu]
+    }
+
     /// The scheduling policy changed no weak-memory ownership state.
     ///
     /// This relation deliberately ignores runqueues, current tasks, and task
@@ -190,6 +208,7 @@ impl SchedulerView {
         &&& self.task_views == other.task_views
         &&& self.stored_views == other.stored_views
         &&& self.checked_out_views == other.checked_out_views
+        &&& self.cpu_views == other.cpu_views
     }
 
     pub open spec fn task_in_runqueue(self, task: Loc) -> bool {
@@ -251,6 +270,30 @@ impl SchedulerView {
         }
     }
 
+    /// Registers the persistent weak-memory view for one CPU.
+    ///
+    /// Scheduler policy may populate that CPU's runqueue/current slot only
+    /// after this transition. The initial empty view carries no observations.
+    pub open spec fn register_cpu(self, cpu: CpuId) -> SchedulerView
+        recommends
+            !self.cpu_views.contains_key(cpu),
+            valid_cpu(cpu),
+    {
+        SchedulerView { cpu_views: self.cpu_views.insert(cpu, WmView::empty()), ..self }
+    }
+
+    pub proof fn lemma_register_cpu_preserves_wf(self, cpu: CpuId)
+        requires
+            self.wf(),
+            !self.cpu_views.contains_key(cpu),
+            valid_cpu(cpu),
+        ensures
+            self.register_cpu(cpu).wf(),
+            self.register_cpu(cpu).cpu_has_thread_view(cpu),
+            self.register_cpu(cpu).cpu_thread_view(cpu) == WmView::empty(),
+    {
+    }
+
     /// Task registration preserves the scheduler ownership partition.
     pub proof fn lemma_register_task_preserves_wf(self, task: Loc)
         requires
@@ -274,13 +317,16 @@ impl SchedulerView {
         recommends
             self.current.contains_key(cpu),
             self.current[cpu] is Some,
+            self.cpu_has_thread_view(cpu),
             self.task_view_is_stored(self.current[cpu]->0),
             !self.task_view_is_checked_out(self.current[cpu]->0),
     {
         let task = self.current[cpu]->0;
+        let joined = self.stored_views[task].join(self.cpu_views[cpu]);
         SchedulerView {
+            task_views: self.task_views.insert(task, joined),
             stored_views: self.stored_views.remove(task),
-            checked_out_views: self.checked_out_views.insert(task, self.stored_views[task]),
+            checked_out_views: self.checked_out_views.insert(task, joined),
             ..self
         }
     }
@@ -335,11 +381,46 @@ impl SchedulerView {
         }
     }
 
+    /// Publishes the outgoing task's observations into the persistent CPU
+    /// view. A subsequent task scheduled on this CPU imports the result in
+    /// `checkout_task_view`.
+    pub open spec fn publish_cpu_view(self, cpu: CpuId, view: WmView) -> SchedulerView
+        recommends
+            self.cpu_has_thread_view(cpu),
+    {
+        SchedulerView {
+            cpu_views: self.cpu_views.insert(cpu, self.cpu_views[cpu].join(view)),
+            ..self
+        }
+    }
+
+    pub proof fn lemma_publish_cpu_view_preserves_wf(self, cpu: CpuId, view: WmView)
+        requires
+            self.wf(),
+            self.cpu_has_thread_view(cpu),
+        ensures
+            self.publish_cpu_view(cpu, view).wf(),
+            self.publish_cpu_view(cpu, view).cpu_thread_view(cpu) == self.cpu_thread_view(cpu).join(
+                view,
+            ),
+            self.cpu_thread_view(cpu).spec_le(
+                self.publish_cpu_view(cpu, view).cpu_thread_view(cpu),
+            ),
+            view.spec_le(self.publish_cpu_view(cpu, view).cpu_thread_view(cpu)),
+    {
+        self.cpu_thread_view(cpu).lemma_join_left(view);
+        self.cpu_thread_view(cpu).lemma_join_right(view);
+    }
+
     pub open spec fn wf(self) -> bool {
         // CPU-indexed maps may only mention valid CPUs.
         &&& forall|cpu: CpuId| #[trigger] self.runqueues.contains_key(cpu) ==> valid_cpu(cpu)
         &&& forall|cpu: CpuId| #[trigger]
-            self.current.contains_key(cpu) ==> valid_cpu(
+            self.current.contains_key(cpu) ==> valid_cpu(cpu) && self.cpu_views.contains_key(cpu)
+        &&& forall|cpu: CpuId| #[trigger]
+            self.runqueues.contains_key(cpu) ==> self.cpu_views.contains_key(cpu)
+        &&& forall|cpu: CpuId| #[trigger]
+            self.cpu_views.contains_key(cpu) ==> valid_cpu(
                 cpu,
             )
         // Runqueues contain exactly runnable tasks; current slots contain
@@ -402,6 +483,7 @@ impl SchedulerView {
 tracked struct SchedulerThreadViews {
     scheduler: Ghost<Loc>,
     views: Map<Loc, ThreadView>,
+    cpu_views: Map<CpuId, ThreadView>,
 }
 
 /// A checked-out per-task `ThreadView`.
@@ -486,9 +568,11 @@ impl SchedulerThreadViews {
         ensures
             res.scheduler() == scheduler,
             res.view() == Map::<Loc, WmView>::empty(),
+            res.cpu_view_map() == Map::<CpuId, WmView>::empty(),
     {
         let tracked views = Map::<Loc, ThreadView>::tracked_empty();
-        SchedulerThreadViews { scheduler: Ghost(scheduler), views }
+        let tracked cpu_views = Map::<CpuId, ThreadView>::tracked_empty();
+        SchedulerThreadViews { scheduler: Ghost(scheduler), views, cpu_views }
     }
 
     closed spec fn scheduler(self) -> Loc {
@@ -497,6 +581,10 @@ impl SchedulerThreadViews {
 
     pub closed spec fn view(self) -> Map<Loc, WmView> {
         Map::new(self.views.dom(), |task: Loc| self.views[task]@)
+    }
+
+    pub closed spec fn cpu_view_map(self) -> Map<CpuId, WmView> {
+        Map::new(self.cpu_views.dom(), |cpu: CpuId| self.cpu_views[cpu]@)
     }
 
     pub closed spec fn contains(self, task: Loc) -> bool {
@@ -510,12 +598,45 @@ impl SchedulerThreadViews {
         self.views[task]@
     }
 
+    pub closed spec fn contains_cpu(self, cpu: CpuId) -> bool {
+        self.cpu_views.contains_key(cpu)
+    }
+
+    pub closed spec fn cpu_thread_view(self, cpu: CpuId) -> WmView
+        recommends
+            self.contains_cpu(cpu),
+    {
+        self.cpu_views[cpu]@
+    }
+
     /// The tracked owner contains exactly the views still stored in scheduler
     /// state. Checked-out views are represented by `TaskThreadView` tokens
     /// instead, so they are intentionally absent here.
     pub closed spec fn wf(self, sched_view: SchedulerView) -> bool {
         &&& self.scheduler() == sched_view.id
         &&& self.view() == sched_view.stored_views
+        &&& self.cpu_view_map() == sched_view.cpu_views
+    }
+
+    proof fn tracked_register_cpu(tracked &mut self, sched_view: SchedulerView, cpu: CpuId)
+        requires
+            old(self).wf(sched_view),
+            sched_view.wf(),
+            !sched_view.cpu_has_thread_view(cpu),
+            valid_cpu(cpu),
+        ensures
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).view() == old(self).view(),
+            final(self).cpu_view_map() == sched_view.register_cpu(cpu).cpu_views,
+            final(self).wf(sched_view.register_cpu(cpu)),
+            final(self).contains_cpu(cpu),
+            final(self).cpu_thread_view(cpu) == WmView::empty(),
+    {
+        sched_view.lemma_register_cpu_preserves_wf(cpu);
+        let tracked cpu_view = ThreadView::new();
+        self.cpu_views.tracked_insert(cpu, cpu_view);
+        assert(final(self).cpu_view_map() == sched_view.register_cpu(cpu).cpu_views);
+        assert(final(self).wf(sched_view.register_cpu(cpu)));
     }
 
     /// Inserts a task view created during task registration.
@@ -529,6 +650,7 @@ impl SchedulerThreadViews {
         ensures
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view().insert(token.task(), token.view()),
+            final(self).cpu_view_map() == old(self).cpu_view_map(),
     {
         let tracked TaskThreadView { scheduler: _, task: Ghost(task), thread_view } = token;
         self.views.tracked_insert(task, thread_view);
@@ -547,6 +669,7 @@ impl SchedulerThreadViews {
         ensures
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == sched_view.register_task(task).stored_views,
+            final(self).cpu_view_map() == old(self).cpu_view_map(),
             final(self).wf(sched_view.register_task(task)),
             final(self).contains(task),
             final(self).thread_view(task) == WmView::empty(),
@@ -573,20 +696,27 @@ impl SchedulerThreadViews {
             sched_view.wf(),
             sched_view.current.contains_key(cpu),
             sched_view.current[cpu] is Some,
+            sched_view.cpu_has_thread_view(cpu),
             sched_view.task_view_is_stored(sched_view.current[cpu]->0),
             old(self).contains(sched_view.current[cpu]->0),
+            old(self).contains_cpu(cpu),
         ensures
             token.task() == sched_view.current[cpu]->0,
             token.scheduler() == sched_view.id,
-            token.view() == old(self).thread_view(sched_view.current[cpu]->0),
+            token.view() == old(self).thread_view(sched_view.current[cpu]->0).join(
+                old(self).cpu_thread_view(cpu),
+            ),
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view().remove(sched_view.current[cpu]->0),
+            final(self).cpu_view_map() == old(self).cpu_view_map(),
             final(self).view() == sched_view.checkout_task_view(cpu).stored_views,
             final(self).wf(sched_view.checkout_task_view(cpu)),
             token.wf(sched_view.checkout_task_view(cpu)),
     {
         let task = sched_view.current[cpu]->0;
-        let tracked thread_view = self.views.tracked_remove(task);
+        let tracked mut thread_view = self.views.tracked_remove(task);
+        let tracked cpu_view = self.cpu_views.tracked_borrow(cpu);
+        thread_view.tracked_join(cpu_view);
         let tracked token = TaskThreadView {
             scheduler: Ghost(self.scheduler()),
             task: Ghost(task),
@@ -611,12 +741,17 @@ impl SchedulerThreadViews {
             sched_view.wf(),
             sched_view.current.contains_key(cpu),
             sched_view.current[cpu] is Some,
+            sched_view.cpu_has_thread_view(cpu),
             sched_view.task_view_is_stored(sched_view.current[cpu]->0),
             old(self).contains(sched_view.current[cpu]->0),
+            old(self).contains_cpu(cpu),
         ensures
             context.task() == sched_view.current[cpu]->0,
             context.scheduler() == sched_view.id,
-            context.view() == old(self).thread_view(sched_view.current[cpu]->0),
+            context.view() == old(self).thread_view(sched_view.current[cpu]->0).join(
+                old(self).cpu_thread_view(cpu),
+            ),
+            context.cpu() == cpu,
             context.is_quiescent(),
             context.wf_scheduler(sched_view.checkout_task_view(cpu)),
             final(self).view() == sched_view.checkout_task_view(cpu).stored_views,
@@ -625,7 +760,7 @@ impl SchedulerThreadViews {
     {
         let ghost next = sched_view.checkout_task_view(cpu);
         let tracked task_view = self.tracked_take_current_thread_view(sched_view, cpu);
-        let tracked context = RunningTaskContext::new(task_view, next);
+        let tracked context = RunningTaskContext::new(task_view, next, cpu);
         context
     }
 
@@ -646,6 +781,7 @@ impl SchedulerThreadViews {
         ensures
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view().insert(token.task(), token.view()),
+            final(self).cpu_view_map() == old(self).cpu_view_map(),
             final(self).view() == sched_view.checkin_task_view(
                 token.task(),
                 token.view(),
@@ -672,30 +808,47 @@ impl SchedulerThreadViews {
             sched_view.wf(),
             sched_view.task_view_is_checked_out(context.task()),
             context.scheduler() == sched_view.id,
+            sched_view.current.contains_key(context.cpu()),
+            sched_view.current[context.cpu()] == Some(context.task()),
+            sched_view.cpu_has_thread_view(context.cpu()),
             context.wf(),
             context.is_quiescent(),
             !old(self).contains(context.task()),
+            old(self).contains_cpu(context.cpu()),
         ensures
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view().insert(context.task(), context.view()),
-            final(self).view() == sched_view.update_checked_out_task_view(
-                context.task(),
-                context.view(),
-            ).checkin_task_view(context.task(), context.view()).stored_views,
+            final(self).cpu_view_map() == old(self).cpu_view_map().insert(
+                context.cpu(),
+                old(self).cpu_thread_view(context.cpu()).join(context.view()),
+            ),
             final(self).wf(
                 sched_view.update_checked_out_task_view(
                     context.task(),
                     context.view(),
-                ).checkin_task_view(context.task(), context.view()),
+                ).checkin_task_view(context.task(), context.view()).publish_cpu_view(
+                    context.cpu(),
+                    context.view(),
+                ),
             ),
     {
         let ghost task = context.task();
         let ghost view = context.view();
+        let ghost cpu = context.cpu();
         sched_view.lemma_update_checked_out_task_view_preserves_wf(task, view);
         let ghost updated = sched_view.update_checked_out_task_view(task, view);
         context.lemma_wf_scheduler(updated);
         let tracked task_view = context.tracked_into_task_view_for_scheduler(updated);
-        self.tracked_put_checked_out_thread_view(updated, task_view);
+        let tracked TaskThreadView { scheduler: _, task: Ghost(task), thread_view } = task_view;
+        let tracked cpu_view = self.cpu_views.tracked_borrow_mut(cpu);
+        cpu_view.tracked_join(&thread_view);
+        self.views.tracked_insert(task, thread_view);
+        let ghost checked = updated.checkin_task_view(task, view);
+        checked.lemma_publish_cpu_view_preserves_wf(cpu, view);
+        let ghost next = checked.publish_cpu_view(cpu, view);
+        assert(final(self).view() == next.stored_views);
+        assert(final(self).cpu_view_map() == next.cpu_views);
+        assert(final(self).wf(next));
     }
 }
 
@@ -766,6 +919,26 @@ impl SchedulerGhostState {
         assert(self.wf());
     }
 
+    /// Registers one persistent CPU view before scheduler policy installs a
+    /// runqueue or current-task slot for that CPU.
+    pub proof fn tracked_register_cpu(tracked &mut self, cpu: CpuId)
+        requires
+            old(self).wf(),
+            !old(self).view().cpu_has_thread_view(cpu),
+            valid_cpu(cpu),
+        ensures
+            final(self).wf(),
+            final(self).id() == old(self).id(),
+            final(self).view() == old(self).view().register_cpu(cpu),
+            final(self).view().cpu_has_thread_view(cpu),
+            final(self).view().cpu_thread_view(cpu) == WmView::empty(),
+    {
+        let ghost old_view = self.view@;
+        self.thread_views.tracked_register_cpu(old_view, cpu);
+        self.view = Ghost(old_view.register_cpu(cpu));
+        assert(self.wf());
+    }
+
     /// Registers a new task with one empty weak-memory view.
     pub proof fn tracked_register_task(tracked &mut self, task: Loc)
         requires
@@ -792,6 +965,7 @@ impl SchedulerGhostState {
             old(self).wf(),
             old(self).view().current.contains_key(cpu),
             old(self).view().current[cpu] is Some,
+            old(self).view().cpu_has_thread_view(cpu),
             old(self).view().task_view_is_stored(old(self).view().current[cpu]->0),
         ensures
             final(self).wf(),
@@ -799,12 +973,19 @@ impl SchedulerGhostState {
             final(self).view() == old(self).view().checkout_task_view(cpu),
             context.task() == old(self).view().current[cpu]->0,
             context.scheduler() == old(self).id(),
-            context.view() == old(self).view().task_thread_view(context.task()),
+            context.cpu() == cpu,
+            context.view() == old(self).view().task_thread_view(context.task()).join(
+                old(self).view().cpu_thread_view(cpu),
+            ),
+            old(self).view().task_thread_view(context.task()).spec_le(context.view()),
+            old(self).view().cpu_thread_view(cpu).spec_le(context.view()),
             context.is_quiescent(),
             context.wf_scheduler(final(self).view()),
     {
         let ghost old_view = self.view@;
         let tracked context = self.thread_views.tracked_take_current_running_context(old_view, cpu);
+        old_view.task_thread_view(context.task()).lemma_join_left(old_view.cpu_thread_view(cpu));
+        old_view.task_thread_view(context.task()).lemma_join_right(old_view.cpu_thread_view(cpu));
         self.view = Ghost(old_view.checkout_task_view(cpu));
         assert(self.wf());
         context
@@ -816,6 +997,9 @@ impl SchedulerGhostState {
             old(self).wf(),
             old(self).view().task_view_is_checked_out(context.task()),
             context.scheduler() == old(self).id(),
+            old(self).view().current.contains_key(context.cpu()),
+            old(self).view().current[context.cpu()] == Some(context.task()),
+            old(self).view().cpu_has_thread_view(context.cpu()),
             context.wf(),
             context.is_quiescent(),
         ensures
@@ -824,18 +1008,26 @@ impl SchedulerGhostState {
             final(self).view() == old(self).view().update_checked_out_task_view(
                 context.task(),
                 context.view(),
-            ).checkin_task_view(context.task(), context.view()),
+            ).checkin_task_view(context.task(), context.view()).publish_cpu_view(
+                context.cpu(),
+                context.view(),
+            ),
             final(self).view().task_view_is_stored(context.task()),
             final(self).view().task_thread_view(context.task()) == context.view(),
             !final(self).view().task_view_is_checked_out(context.task()),
+            context.view().spec_le(final(self).view().cpu_thread_view(context.cpu())),
     {
         let ghost old_view = self.view@;
+        let ghost cpu = context.cpu();
+        let ghost task = context.task();
+        let ghost context_view = context.view();
         let ghost next = old_view.update_checked_out_task_view(
-            context.task(),
-            context.view(),
-        ).checkin_task_view(context.task(), context.view());
+            task,
+            context_view,
+        ).checkin_task_view(task, context_view).publish_cpu_view(cpu, context_view);
         self.thread_views.tracked_put_running_context(old_view, context);
         self.view = Ghost(next);
+        old_view.cpu_thread_view(cpu).lemma_join_right(context_view);
         assert(self.wf());
     }
 }

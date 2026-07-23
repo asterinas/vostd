@@ -15,12 +15,17 @@
 //! `BlockInfo` and the guard's `address -> AId` protection map. This distinction
 //! is required to handle stale weak-memory messages after address reuse.
 //!
-//! The module remains proof-only. The executable RCU must still connect its
-//! preemption guard to the same domain's reader token and route the retire
-//! permission released by pointer replacement into the callback monitor.
+//! The module remains proof-only. Pointer replacement turns the detached
+//! traversal-retire permission and its root-history removal observation into
+//! the callback monitor's erased safety certificate. The remaining executable
+//! connection is the paper's `Guard-seen-retired` rule: reader guards must
+//! retain persistent removal observations for their start snapshot so a
+//! readable atomic timestamp can be proved inconsistent with an already
+//! observed removal. Grace-period synchronization must then make those
+//! observations available to later readers before physical reclamation.
 use core::marker::PhantomData;
 
-use super::weak_memory::{History, Msg, WeakAtomicInvariantPredicate, WmView};
+use super::weak_memory::{History, Msg, Timestamp, WeakAtomicInvariantPredicate, WmView};
 use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo, GhostPointsTo};
@@ -37,14 +42,36 @@ pub type LinkEdge = (nat, LinkIndex);
 /// proof only needs to know which logical object it will reclaim and which
 /// grace-period generation retired that object. `domain` identifies the RCU
 /// protection domain, and `obj` identifies the reclaimed allocation/object
-/// inside that domain.
+/// inside that domain. `retire_view` is the retiring task's weak-memory view
+/// after unlink and before the callback is enqueued; completion must eventually
+/// prove that every CPU report has advanced beyond this view.
 pub ghost struct RcuCallbackSummary {
     /// The RCU protection domain whose grace period governs this callback.
     pub domain: Loc,
     /// Logical identity of the retired object inside `domain`.
     pub obj: nat,
+    /// Root-atomic removal observation retained from `Retired(a, Q)`.
+    pub removal: RcuRemovalObservation,
     /// The domain-local epoch in which `obj` was retired.
     pub retire_epoch: nat,
+    /// Weak-memory observations that must precede safe reclamation.
+    pub retire_view: WmView,
+}
+
+/// The paper's detachment observation `Q` for a root publication.
+///
+/// A view observes this fact once it has advanced to at least `timestamp` in
+/// the root atomic's modification history. The message at `timestamp` is the
+/// first publication after the retired object ceased to be the root.
+pub ghost struct RcuRemovalObservation {
+    pub root: Loc,
+    pub timestamp: nat,
+}
+
+impl RcuRemovalObservation {
+    pub open spec fn observed_by(self, view: WmView) -> bool {
+        self.timestamp <= view.seen_at(self.root)
+    }
 }
 
 /// Logical identity attached to one non-null publication in an RCU root.
@@ -274,6 +301,13 @@ impl RcuRootGhost {
             res.1 is Some ==> res.1->Some_0.0.domain() == res.0.domain(),
             res.1 is Some ==> res.0.publications()[0] == Some(res.1->Some_0.0.obj()),
             res.1 is Some ==> res.1->Some_0.0.wf(),
+            match res.1 {
+                Some(registration) => res.0.objects() == Map::empty().insert(
+                    registration.0.obj(),
+                    ptr.addr(),
+                ),
+                None => res.0.objects() == Map::empty(),
+            },
             current_registration_matches(res.0, res.1),
     {
         let tracked mut domain = RcuDomainAuth::tracked_new();
@@ -311,9 +345,26 @@ impl RcuRootGhost {
             final(self).domain_auth().retire_registry() == old(
                 self,
             ).domain_auth().retire_registry(),
+            final(self).domain_auth().reader_registry() == old(
+                self,
+            ).domain_auth().reader_registry(),
             (res is Some) == (msg.value.addr() != 0),
             res is Some ==> res->Some_0.0.ptr() == msg.value,
             res is Some ==> res->Some_0.0.obj() == res->Some_0.1.obj(),
+            res is Some ==> !old(self).objects().contains_key(res->Some_0.0.obj()),
+            final(self).publications() == old(self).publications().push(
+                match res {
+                    Some(registration) => Some(registration.0.obj()),
+                    None => None,
+                },
+            ),
+            match res {
+                Some(registration) => final(self).objects() == old(self).objects().insert(
+                    registration.0.obj(),
+                    msg.value.addr(),
+                ),
+                None => final(self).objects() == old(self).objects(),
+            },
             current_registration_matches(*final(self), res),
     {
         let ghost ts = prev.len();
@@ -380,6 +431,9 @@ impl RcuRootGhost {
             final(self).domain_auth().retire_registry() == old(
                 self,
             ).domain_auth().retire_registry(),
+            final(self).domain_auth().reader_registry() == old(
+                self,
+            ).domain_auth().reader_registry(),
             final(self).objects() == old(self).objects(),
             final(self).publications() == old(self).publications().push(Some(info.obj())),
     {
@@ -460,6 +514,17 @@ impl<T> WeakAtomicInvariantPredicate<bool, *mut T, RcuRootGhost> for RcuWeakAtom
     }
 }
 
+/// Immutable identity carried by an executable RCU root atomic.
+///
+/// Besides nullability, the key records the two resource locations needed to
+/// associate read-side guard tokens with the same root invariant after the
+/// invariant has been closed.
+pub ghost struct RcuRootKey {
+    pub nullable: bool,
+    pub domain: Loc,
+    pub reader_registry: Loc,
+}
+
 /// Typed ownership state paired with one executable RCU root atomic.
 ///
 /// `root` owns the append-only publication registry. `current` owns the unique
@@ -470,6 +535,8 @@ impl<T> WeakAtomicInvariantPredicate<bool, *mut T, RcuRootGhost> for RcuWeakAtom
 pub tracked struct RcuRootOwnedGhost<T, O = ()> {
     root: RcuRootGhost,
     current: Option<RcuOwnedObject<T, O>>,
+    infos: Map<nat, RcuBlockInfo<T>>,
+    ghost removals: Map<nat, Timestamp>,
 }
 
 impl<T, O> RcuRootOwnedGhost<T, O> {
@@ -483,6 +550,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
 
     pub closed spec fn publications(self) -> Seq<Option<nat>> {
         self.root().publications()
+    }
+
+    pub closed spec fn reader_registry(self) -> Loc {
+        self.root().domain_auth().reader_registry()
     }
 
     pub open spec fn published_at(self, ts: nat) -> Option<RcuPublishedObject>
@@ -510,8 +581,167 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         }
     }
 
+    pub closed spec fn infos(self) -> Map<nat, RcuBlockInfo<T>> {
+        self.infos
+    }
+
+    pub closed spec fn removals(self) -> Map<nat, Timestamp> {
+        self.removals
+    }
+
     pub open spec fn ownership_wf(self) -> bool {
         current_registration_matches(self.root(), self.current_registration())
+    }
+
+    /// Every registered allocation retains a persistent typed identity token.
+    ///
+    /// Entries are append-only. Retiring an object moves its unique ownership
+    /// and retire permission out of `current`, but leaves this persistent
+    /// `BlockInfo` available to justify stale weak-memory history reads.
+    pub open spec fn infos_wf(self) -> bool {
+        &&& self.infos().dom() == self.root().objects().dom()
+        &&& forall|obj: nat|
+            self.infos().contains_key(obj) ==> {
+                let info = #[trigger] self.infos()[obj];
+                &&& info.wf()
+                &&& info.domain() == self.domain()
+                &&& info.obj() == obj
+                &&& self.root().objects().contains_pair(obj, info.addr())
+            }
+    }
+
+    /// Root-history interpretation of the paper's detachment observations.
+    ///
+    /// Once `removals[obj] = ts`, no message at or after `ts` may publish that
+    /// allocation ID again. The currently owned registration is therefore
+    /// never in the removed domain.
+    pub open spec fn removals_wf(self, history: History<*mut T>) -> bool {
+        &&& self.removals().dom().subset_of(self.infos().dom())
+        &&& match self.current_registration() {
+            Some(registration) => !self.removals().contains_key(registration.0.obj()),
+            None => true,
+        }
+        &&& forall|obj: nat|
+            self.removals().contains_key(obj) ==> {
+                let ts = #[trigger] self.removals()[obj];
+                &&& 0 < ts < history.len()
+                &&& forall|i: int|
+                    ts <= i < history.len() ==> #[trigger] self.publications()[i] != Some(obj)
+            }
+    }
+
+    /// Copies the persistent identity corresponding to one published message.
+    pub proof fn tracked_info_for(tracked &self, object: RcuPublishedObject) -> (tracked res:
+        RcuBlockInfo<T>)
+        requires
+            self.infos_wf(),
+            object.domain == self.domain(),
+            self.root().objects().contains_pair(object.obj, object.addr),
+        ensures
+            res.wf(),
+            res.domain() == object.domain,
+            res.obj() == object.obj,
+            res.addr() == object.addr,
+            equal(res.ptr(), self.infos()[object.obj].ptr()),
+    {
+        let tracked info = self.infos.tracked_borrow(object.obj);
+        info.tracked_duplicate()
+    }
+
+    /// Resolves one atomic-history timestamp to its persistent typed identity.
+    ///
+    /// This is the proof interface used by weak atomic loads. It keeps the
+    /// root's internal publication and identity maps opaque to the atomic
+    /// wrapper while exporting exact pointer provenance, not just an address.
+    pub proof fn tracked_info_at(tracked &self, history: History<*mut T>, ts: nat) -> (tracked res:
+        Option<RcuBlockInfo<T>>)
+        requires
+            rcu_owned_root_history_inv(history, *self),
+            ts < history.len(),
+        ensures
+            ts < self.publications().len(),
+            match (self.published_at(ts), res) {
+                (None, None) => history[ts as int].value.addr() == 0,
+                (Some(object), Some(info)) => {
+                    &&& object.domain == self.domain()
+                    &&& object.addr == history[ts as int].value.addr()
+                    &&& info.wf()
+                    &&& info.domain() == object.domain
+                    &&& info.obj() == object.obj
+                    &&& info.addr() == object.addr
+                    &&& equal(info.ptr(), history[ts as int].value)
+                },
+                _ => false,
+            },
+    {
+        assert(ts < self.publications().len());
+        match self.publications()[ts as int] {
+            Some(obj) => {
+                let ghost object = RcuPublishedObject {
+                    domain: self.domain(),
+                    obj,
+                    addr: self.root().objects()[obj],
+                };
+                assert(self.published_at(ts) == Some(object));
+                let tracked info = self.tracked_info_for(object);
+                assert(equal(info.ptr(), history[ts as int].value));
+                Some(info)
+            },
+            None => {
+                assert(self.published_at(ts) is None);
+                None
+            },
+        }
+    }
+
+    /// Registers and starts one fresh paper reader while preserving root state.
+    ///
+    /// Reader slots are proof-only and currently allocated per critical
+    /// section. `tracked_stop_reader` consumes the live slot again; no runtime
+    /// reader counter is introduced.
+    pub proof fn tracked_start_reader(
+        tracked &mut self,
+        history: History<*mut T>,
+    ) -> (tracked res: RcuBaseGuard)
+        requires
+            rcu_owned_root_history_inv(history, *old(self)),
+        ensures
+            rcu_owned_root_history_inv(history, *final(self)),
+            final(self).domain() == old(self).domain(),
+            final(self).reader_registry() == old(self).reader_registry(),
+            final(self).current_owned() == old(self).current_owned(),
+            res.wf(),
+            res.domain() == final(self).domain(),
+            res.reader_registry() == final(self).reader_registry(),
+    {
+        let tracked inactive = self.root.domain.tracked_register_reader();
+        let tracked guard = self.root.domain.tracked_guard_start(inactive);
+        assert(current_registration_matches(self.root(), self.current_registration()));
+        assert(self.infos_wf());
+        guard
+    }
+
+    /// Ends a reader started by `tracked_start_reader`.
+    pub proof fn tracked_stop_reader(
+        tracked &mut self,
+        history: History<*mut T>,
+        tracked guard: RcuBaseGuard,
+    )
+        requires
+            rcu_owned_root_history_inv(history, *old(self)),
+            guard.wf(),
+            guard.domain() == old(self).domain(),
+            guard.reader_registry() == old(self).reader_registry(),
+        ensures
+            rcu_owned_root_history_inv(history, *final(self)),
+            final(self).domain() == old(self).domain(),
+            final(self).reader_registry() == old(self).reader_registry(),
+            final(self).current_owned() == old(self).current_owned(),
+    {
+        assert(guard.belongs_to(self.root.domain));
+        let tracked _inactive = self.root.domain.tracked_guard_stop(guard);
+        assert(current_registration_matches(self.root(), self.current_registration()));
+        assert(self.infos_wf());
     }
 
     /// Initializes root history and retains the initial registration as the
@@ -538,13 +768,38 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             },
     {
         let tracked (root, registration) = RcuRootGhost::tracked_initial(ptr);
+        let tracked mut infos = Map::<nat, RcuBlockInfo<T>>::tracked_empty();
         let tracked current = match registration {
             Some(registration) => {
+                let ghost obj = registration.0.obj();
+                let tracked info = registration.0.tracked_duplicate();
+                infos.tracked_insert(obj, info);
+                assert(infos.dom() == root.objects().dom());
+                assert forall|registered: nat| infos.contains_key(registered) implies {
+                    let saved = #[trigger] infos[registered];
+                    &&& saved.wf()
+                    &&& saved.domain() == root.domain()
+                    &&& saved.obj() == registered
+                    &&& root.objects().contains_pair(registered, saved.addr())
+                } by {
+                    assert(registered == obj);
+                };
                 Some(RcuOwnedObject { registration, ownership: ownership.tracked_unwrap() })
             },
-            None => None,
+            None => {
+                assert(infos.dom() == root.objects().dom());
+                None
+            },
         };
-        RcuRootOwnedGhost { root, current }
+        let tracked res = RcuRootOwnedGhost {
+            root,
+            current,
+            infos,
+            removals: Map::empty(),
+        };
+        assert(res.infos_wf());
+        assert(res.removals_wf(seq![Msg { value: ptr, view: WmView::empty() }]));
+        res
     }
 
     /// Publishes a fresh allocation and retires the previously current root.
@@ -558,6 +813,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         prev: History<*mut T>,
         next: History<*mut T>,
         msg: Msg<*mut T>,
+        root: Loc,
         tracked ownership: Option<O>,
     ) -> (tracked detached: Option<RcuRetiredOwnedObject<T, O>>) where
         OwnPred: RcuRootOwnershipPredicate<T, O>,
@@ -570,6 +826,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         ensures
             rcu_owned_root_history_inv(next, *final(self)),
             final(self).domain() == old(self).domain(),
+            final(self).reader_registry() == old(self).reader_registry(),
             match detached {
                 Some(detached) => {
                     &&& old(self).current_registration() is Some
@@ -577,6 +834,8 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                     &&& detached.retired().domain() == detached.domain()
                     &&& detached.retired().obj() == detached.obj()
                     &&& detached.retired().ptr() == detached.ptr()
+                    &&& detached.retired().removal()
+                        == (RcuRemovalObservation { root, timestamp: prev.len() })
                     &&& old(self).current_ownership() == Some(detached.ownership())
                     &&& equal(detached.ptr(), prev[(prev.len() - 1) as int].value)
                     &&& OwnPred::owns(detached.ptr(), detached.ownership())
@@ -600,6 +859,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             },
     {
         assert(current_registration_matches(self.root(), self.current_registration()));
+        let ghost removed_obj = match self.current_registration() {
+            Some(registration) => Some(registration.0.obj()),
+            None => None,
+        };
         let tracked old_current = if self.current is Some {
             Some(self.current.tracked_take())
         } else {
@@ -608,9 +871,32 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         let tracked new_registration = self.root.tracked_push_fresh(prev, next, msg);
         let tracked new_current = match new_registration {
             Some(registration) => {
+                let ghost obj = registration.0.obj();
+                let tracked info = registration.0.tracked_duplicate();
+                self.infos.tracked_insert(obj, info);
+                assert(self.infos.dom() == self.root.objects().dom());
+                assert forall|registered: nat| self.infos.contains_key(registered) implies {
+                    let saved = #[trigger] self.infos[registered];
+                    &&& saved.wf()
+                    &&& saved.domain() == self.root.domain()
+                    &&& saved.obj() == registered
+                    &&& self.root.objects().contains_pair(registered, saved.addr())
+                } by {
+                    if registered != obj {
+                        assert(old(self).infos().contains_key(registered));
+                        assert(self.infos[registered] == old(self).infos()[registered]);
+                        assert(old(self).root().objects().contains_pair(
+                            registered,
+                            self.infos[registered].addr(),
+                        ));
+                    }
+                };
                 Some(RcuOwnedObject { registration, ownership: ownership.tracked_unwrap() })
             },
-            None => None,
+            None => {
+                assert(self.infos_wf());
+                None
+            },
         };
         let tracked detached = match old_current {
             Some(owned) => {
@@ -622,13 +908,61 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                     link_view: RcuLinkView::empty(),
                 };
                 let tracked retire = lift_retire_perm(base, seen_removed);
-                let tracked retired = self.root.domain.tracked_retire(retire);
+                let ghost removal = RcuRemovalObservation { root, timestamp: prev.len() };
+                let tracked retired = self.root.domain.tracked_retire(retire, removal);
                 Some(RcuRetiredOwnedObject { object, retired, ownership: old_ownership })
             },
             None => None,
         };
         self.current = new_current;
+        self.removals = match removed_obj {
+            Some(obj) => self.removals.insert(obj, prev.len()),
+            None => self.removals,
+        };
         assert(current_registration_matches(self.root(), self.current_registration()));
+        assert(self.infos_wf());
+        assert(self.removals_wf(next)) by {
+            assert forall|obj: nat| self.removals().contains_key(obj) implies {
+                let ts = #[trigger] self.removals()[obj];
+                &&& 0 < ts < next.len()
+                &&& forall|i: int|
+                    ts <= i < next.len() ==> #[trigger] self.publications()[i] != Some(obj)
+            } by {
+                if removed_obj == Some(obj) {
+                    assert(self.removals()[obj] == prev.len());
+                    assert(next.len() == prev.len() + 1);
+                    assert(self.publications()[prev.len() as int]
+                        == match new_registration {
+                            Some(registration) => Some(registration.0.obj()),
+                            None => None,
+                        });
+                    if new_registration is Some {
+                        assert(!old(self).root().objects().contains_key(
+                            new_registration->Some_0.0.obj(),
+                        ));
+                        assert(old(self).infos().contains_key(obj));
+                    }
+                } else {
+                    assert(old(self).removals().contains_key(obj));
+                    assert(self.removals()[obj] == old(self).removals()[obj]);
+                    assert forall|i: int|
+                        self.removals()[obj] <= i < next.len() implies
+                            #[trigger] self.publications()[i] != Some(obj) by {
+                        if i < prev.len() {
+                            assert(self.publications()[i] == old(self).publications()[i]);
+                        } else {
+                            assert(i == prev.len());
+                            if new_registration is Some {
+                                assert(!old(self).root().objects().contains_key(
+                                    new_registration->Some_0.0.obj(),
+                                ));
+                                assert(old(self).infos().contains_key(obj));
+                            }
+                        }
+                    };
+                }
+            };
+        }
         detached
     }
 
@@ -648,12 +982,34 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         ensures
             rcu_owned_root_history_inv(next, *final(self)),
             final(self).domain() == old(self).domain(),
+            final(self).reader_registry() == old(self).reader_registry(),
             final(self).current_registration() == old(self).current_registration(),
     {
         let tracked owned = self.current.tracked_take();
         self.root.tracked_push_registered(prev, next, msg, &owned.registration.0);
         self.current = Some(owned);
         assert(current_registration_matches(self.root(), self.current_registration()));
+        assert(self.removals_wf(next)) by {
+            assert forall|obj: nat| self.removals().contains_key(obj) implies {
+                let ts = #[trigger] self.removals()[obj];
+                &&& 0 < ts < next.len()
+                &&& forall|i: int|
+                    ts <= i < next.len() ==> #[trigger] self.publications()[i] != Some(obj)
+            } by {
+                assert(old(self).removals().contains_key(obj));
+                assert(!old(self).removals().contains_key(owned.registration.0.obj()));
+                assert(obj != owned.registration.0.obj());
+                assert forall|i: int|
+                    self.removals()[obj] <= i < next.len() implies
+                        #[trigger] self.publications()[i] != Some(obj) by {
+                    if i < prev.len() {
+                        assert(self.publications()[i] == old(self).publications()[i]);
+                    } else {
+                        assert(i == prev.len());
+                    }
+                };
+            };
+        }
     }
 }
 
@@ -665,6 +1021,15 @@ pub open spec fn rcu_owned_root_history_inv<T, O>(
 ) -> bool {
     &&& rcu_root_history_inv(history, ghost.root())
     &&& ghost.ownership_wf()
+    &&& ghost.infos_wf()
+    &&& ghost.removals_wf(history)
+    &&& forall|i: int|
+        0 <= i < history.len() ==> {
+            match #[trigger] ghost.publications()[i] {
+                Some(obj) => equal(ghost.infos()[obj].ptr(), history[i].value),
+                None => true,
+            }
+        }
     &&& match ghost.current_registration() {
         Some(registration) => equal(
             registration.0.ptr(),
@@ -729,16 +1094,18 @@ pub struct RcuOwnedWeakAtomicInv<OwnPred> {
 }
 
 impl<T, O, OwnPred> WeakAtomicInvariantPredicate<
-    bool,
+    RcuRootKey,
     *mut T,
     RcuRootOwnedGhost<T, O>,
 > for RcuOwnedWeakAtomicInv<OwnPred> where OwnPred: RcuRootOwnershipPredicate<T, O> {
     open spec fn atomic_inv(
-        nullable: bool,
+        key: RcuRootKey,
         history: History<*mut T>,
         g: RcuRootOwnedGhost<T, O>,
     ) -> bool {
-        &&& rcu_history_inv(nullable, history)
+        &&& key.domain == g.domain()
+        &&& key.reader_registry == g.reader_registry()
+        &&& rcu_history_inv(key.nullable, history)
         &&& rcu_owned_root_history_inv(history, g)
         &&& rcu_current_ownership_inv::<T, O, OwnPred>(g)
     }
@@ -1367,10 +1734,12 @@ impl RcuDomainAuth {
     pub proof fn tracked_retire<T>(
         tracked &mut self,
         tracked retire: RcuRetirePerm<T>,
+        removal: RcuRemovalObservation,
     ) -> (tracked res: RcuRetired<T>)
         requires
             old(self).wf(),
             retire.belongs_to(*old(self)),
+            retire.wf(),
             retire.ready_to_retire(),
         ensures
             final(self).wf(),
@@ -1383,13 +1752,19 @@ impl RcuDomainAuth {
             res.domain() == final(self).id(),
             res.obj() == retire.obj(),
             res.ptr() == retire.ptr(),
+            res.removal() == removal,
+            res.wf(),
     {
+        let ghost domain = retire.domain();
+        let ghost obj = retire.obj();
+        let ghost ptr = retire.ptr();
         retire.base.perm.agree(&self.retire_perms);
-        assert(self.objects().contains_key(retire.obj()));
-        self.retired = self.retired.insert(retire.obj());
+        assert(self.objects().contains_key(obj));
+        self.retired = self.retired.insert(obj);
         assert(self.retired().subset_of(self.objects().dom()));
         assert(self.expired().subset_of(self.retired()));
-        RcuRetired { retire }
+        let tracked fact = retire.base.perm.persist();
+        RcuRetired { fact: RcuRetiredFact { domain, fact, removal }, ptr }
     }
 }
 
@@ -1436,6 +1811,10 @@ impl RcuBaseGuard {
 
     pub closed spec fn tid(self) -> nat {
         self.state.key()
+    }
+
+    pub closed spec fn reader_registry(self) -> Loc {
+        self.state.id()
     }
 
     pub closed spec fn expired(self) -> Set<nat> {
@@ -1620,6 +1999,7 @@ pub proof fn owned_root_replacement_retires_previous_registration<T>(
         initial,
         next_history,
         next_msg,
+        root.domain(),
         Some(()),
     );
     let tracked detached = detached.tracked_unwrap();
@@ -1697,6 +2077,10 @@ impl<T> RcuRetirePerm<T> {
         self.seen_removed
     }
 
+    pub open spec fn wf(self) -> bool {
+        self.base().wf()
+    }
+
     /// The traversal layer has established that this object may be retired.
     /// Reclamation still requires a completed base-RCU grace period.
     pub open spec fn ready_to_retire(self) -> bool {
@@ -1715,6 +2099,7 @@ pub proof fn lift_retire_perm<T>(
     seen_removed: RcuSeenRemoved<T>,
 ) -> (tracked perm: RcuRetirePerm<T>)
     requires
+        base.wf(),
         seen_removed.removed.contains(base.obj()),
     ensures
         perm.base() == base,
@@ -1722,30 +2107,111 @@ pub proof fn lift_retire_perm<T>(
         perm.ptr() == base.ptr(),
         perm.obj() == base.obj(),
         perm.seen_removed() == seen_removed,
+        perm.wf(),
         perm.ready_to_retire(),
 {
     RcuRetirePerm { base, seen_removed }
 }
 
-/// Objective record that an allocation has passed the base `rcu-retire`
-/// transition. It is safe to enqueue its callback, but not yet safe to execute
-/// it; execution additionally needs monitor grace-period completion.
+/// Persistent, type-erased evidence that one allocation passed the base
+/// `rcu-retire` transition.
+///
+/// The points-to fact comes from consuming the allocation's unique
+/// `BaseRetirePerm`. Its fields are private, so clients cannot manufacture a
+/// retirement fact from a `(domain, obj)` pair. The fact remains duplicable
+/// after callback type erasure and can therefore be retained in the final
+/// reclaim permit.
+pub tracked struct RcuRetiredFact {
+    ghost domain: Loc,
+    fact: GhostPersistentPointsTo<nat, usize>,
+    ghost removal: RcuRemovalObservation,
+}
+
+impl RcuRetiredFact {
+    pub closed spec fn domain(self) -> Loc {
+        self.domain
+    }
+
+    pub closed spec fn obj(self) -> nat {
+        self.fact.key()
+    }
+
+    pub closed spec fn addr(self) -> usize {
+        self.fact.value()
+    }
+
+    pub closed spec fn removal(self) -> RcuRemovalObservation {
+        self.removal
+    }
+
+    pub closed spec fn matches(self, summary: RcuCallbackSummary) -> bool {
+        &&& summary.domain == self.domain()
+        &&& summary.obj == self.obj()
+        &&& summary.removal == self.removal()
+    }
+
+    pub proof fn tracked_duplicate(tracked &self) -> (tracked res: Self)
+        ensures
+            res.domain() == self.domain(),
+            res.obj() == self.obj(),
+            res.addr() == self.addr(),
+            res.removal() == self.removal(),
+    {
+        let tracked fact = self.fact.duplicate();
+        RcuRetiredFact { domain: self.domain, fact, removal: self.removal }
+    }
+}
+
+/// Typed objective record that an allocation has passed the base
+/// `rcu-retire` transition. It is safe to enqueue its callback, but not yet
+/// safe to execute it; execution additionally needs monitor grace-period
+/// completion.
 #[verifier::reject_recursive_types(T)]
 pub tracked struct RcuRetired<T> {
-    retire: RcuRetirePerm<T>,
+    fact: RcuRetiredFact,
+    ghost ptr: *mut T,
 }
 
 impl<T> RcuRetired<T> {
     pub closed spec fn domain(self) -> Loc {
-        self.retire.domain()
+        self.fact.domain()
     }
 
     pub closed spec fn obj(self) -> nat {
-        self.retire.obj()
+        self.fact.obj()
     }
 
     pub closed spec fn ptr(self) -> *mut T {
-        self.retire.ptr()
+        self.ptr
+    }
+
+    pub closed spec fn addr(self) -> usize {
+        self.fact.addr()
+    }
+
+    pub closed spec fn removal(self) -> RcuRemovalObservation {
+        self.fact.removal()
+    }
+
+    pub open spec fn wf(self) -> bool {
+        self.addr() == self.ptr().addr()
+    }
+
+    proof fn tracked_into_fact(tracked self) -> (tracked res: RcuRetiredFact)
+        requires
+            self.wf(),
+        ensures
+            res.domain() == self.domain(),
+            res.obj() == self.obj(),
+            res.addr() == self.ptr().addr(),
+            res.removal() == self.removal(),
+    {
+        self.fact
+    }
+
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
     }
 }
 
@@ -1773,7 +2239,8 @@ pub proof fn retired_but_unexpired_object_remains_protectable<T>(ptr: *mut T) ->
         link_view: RcuLinkView::empty(),
     };
     let tracked retire = lift_retire_perm(base, seen_removed);
-    let tracked _retired = domain.tracked_retire(retire);
+    let ghost removal = RcuRemovalObservation { root: domain.id(), timestamp: 0 };
+    let tracked _retired = domain.tracked_retire(retire, removal);
 
     let tracked inactive = domain.tracked_register_reader();
     let tracked mut guard = domain.tracked_guard_start(inactive);
@@ -1788,24 +2255,53 @@ pub proof fn retired_but_unexpired_object_remains_protectable<T>(ptr: *mut T) ->
 /// A certificate can only be produced from a typed traversal retire permission,
 /// but after that point the monitor only needs the erased callback summary.
 pub tracked struct RcuCallbackSafety {
-    ghost domain: Loc,
-    ghost obj: nat,
+    retired: RcuRetiredFact,
 }
 
 impl RcuCallbackSafety {
     pub closed spec fn domain(self) -> Loc {
-        self.domain
+        self.retired.domain()
     }
 
     pub closed spec fn obj(self) -> nat {
-        self.obj
+        self.retired.obj()
+    }
+
+    pub closed spec fn removal(self) -> RcuRemovalObservation {
+        self.retired.removal()
     }
 
     /// The monitor may assign any future batch generation, but it cannot
     /// change the retired object's domain or allocation identity.
-    pub open spec fn matches(self, summary: RcuCallbackSummary) -> bool {
-        &&& summary.domain == self.domain()
-        &&& summary.obj == self.obj()
+    pub closed spec fn matches(self, summary: RcuCallbackSummary) -> bool {
+        self.retired.matches(summary)
+    }
+
+    /// Establishes the abstract matching predicate without exposing the
+    /// persistent retirement resource to callback-monitor clients.
+    pub proof fn lemma_matches(tracked &self, summary: RcuCallbackSummary)
+        requires
+            summary.domain == self.domain(),
+            summary.obj == self.obj(),
+            summary.removal == self.removal(),
+        ensures
+            self.matches(summary),
+    {
+    }
+
+    /// Duplicates the persistent base-retirement fact for an object-level
+    /// reclaim permit.
+    pub proof fn tracked_retired_fact(tracked &self, summary: RcuCallbackSummary) -> (tracked res:
+        RcuRetiredFact)
+        requires
+            self.matches(summary),
+        ensures
+            res.domain() == self.domain(),
+            res.obj() == self.obj(),
+            res.removal() == self.removal(),
+            res.matches(summary),
+    {
+        self.retired.tracked_duplicate()
     }
 }
 
@@ -1830,9 +2326,12 @@ pub proof fn certify_callback_from_retired<T>(
     ensures
         cert.domain() == retired.domain(),
         cert.obj() == object.obj(),
+        cert.removal() == retired.removal(),
         callback_safety_from_traversal(cert, *object),
 {
-    RcuCallbackSafety { domain: retired.domain(), obj: object.obj() }
+    use_type_invariant(&retired);
+    let tracked fact = retired.tracked_into_fact();
+    RcuCallbackSafety { retired: fact }
 }
 
 /// Read-side guard token for one critical section.
@@ -1852,6 +2351,10 @@ impl<T> RcuReadGuardToken<T> {
 
     pub closed spec fn tid(self) -> nat {
         self.base.tid()
+    }
+
+    pub closed spec fn reader_registry(self) -> Loc {
+        self.base.reader_registry()
     }
 
     pub closed spec fn expired(self) -> Set<nat> {
@@ -1887,11 +2390,23 @@ impl<T> RcuReadGuardToken<T> {
         self.base.belongs_to(domain)
     }
 
-    pub open spec fn can_protect(self, info: RcuBlockInfo<T>) -> bool {
+    /// Preconditions of the paper's base `Guard-protect` rule.
+    ///
+    /// This deliberately says only that the allocation was not already
+    /// expired when the critical section started. Whether a stale traversal
+    /// may still reach the allocation is proved separately from
+    /// `SeenRemoved` and the link history.
+    pub open spec fn can_base_protect(self, info: RcuBlockInfo<T>) -> bool {
         &&& self.wf()
         &&& info.wf()
         &&& info.domain() == self.domain()
         &&& !self.expired().contains(info.obj())
+    }
+
+    /// A base-protectable allocation that traversal has also proved is not in
+    /// the guard's observed removed set.
+    pub open spec fn can_protect(self, info: RcuBlockInfo<T>) -> bool {
+        &&& self.can_base_protect(info)
         &&& !self.seen_removed().removed.contains(info.obj())
     }
 
@@ -1907,9 +2422,51 @@ impl<T> RcuReadGuardToken<T> {
             res.wf(),
             res.domain() == base.domain(),
             res.tid() == base.tid(),
+            res.reader_registry() == base.reader_registry(),
+            res.expired() == base.expired(),
+            res.protected() == base.protected(),
             res.seen_removed() == seen_removed,
     {
         RcuReadGuardToken { base, seen_removed }
+    }
+
+    /// Lift a base guard using its start-time expired set as the initial
+    /// traversal observation.
+    pub proof fn tracked_from_base(
+        tracked base: RcuBaseGuard,
+    ) -> (tracked res: Self)
+        requires
+            base.wf(),
+        ensures
+            res.wf(),
+            res.domain() == base.domain(),
+            res.tid() == base.tid(),
+            res.reader_registry() == base.reader_registry(),
+            res.expired() == base.expired(),
+            res.seen_removed().removed == base.expired(),
+            res.link_view() == RcuLinkView::<T>::empty(),
+    {
+        let ghost seen_removed = RcuSeenRemoved {
+            removed: base.expired(),
+            link_view: RcuLinkView::empty(),
+        };
+        RcuReadGuardToken::tracked_new(base, seen_removed)
+    }
+
+    /// Consume the traversal wrapper when ending the read-side critical
+    /// section.
+    pub proof fn tracked_into_base(tracked self) -> (tracked res: RcuBaseGuard)
+        requires
+            self.wf(),
+        ensures
+            res.wf(),
+            res.domain() == self.domain(),
+            res.tid() == self.tid(),
+            res.reader_registry() == self.reader_registry(),
+            res.expired() == self.expired(),
+            res.protected() == self.protected(),
+    {
+        self.base
     }
 
     /// Records one successful base `Guard-protect` operation in `G`.
@@ -2023,21 +2580,19 @@ pub trait RcuTraversalSafety: Sized {
 
 /// Protect a freshly acquired root pointer.
 pub proof fn protect_root<S: RcuTraversalSafety>(
-    tracked domain: &RcuDomainAuth,
     tracked guard: &mut RcuReadGuardToken<S::Node>,
     tracked info: &RcuBlockInfo<S::Node>,
     p: *mut S::Node,
     g: S::Ghost,
 ) -> (tracked root: RcuProtectedPtr<S::Node>)
     requires
-        old(guard).is_for(*domain),
         old(guard).can_protect(*info),
         info.ptr() == p,
         S::root_inv(p, info.obj(), g),
     ensures
         root.ptr() == p,
         root.obj() == info.obj(),
-        root.domain() == domain.id(),
+        root.domain() == old(guard).domain(),
         root.protected_by(*final(guard)),
         final(guard).wf(),
         final(guard).domain() == old(guard).domain(),
@@ -2048,7 +2603,7 @@ pub proof fn protect_root<S: RcuTraversalSafety>(
     S::root_is_node_inv(p, info.obj(), g);
     guard.tracked_protect(info);
     RcuProtectedPtr {
-        domain: domain.id(),
+        domain: guard.domain(),
         obj: info.obj(),
         ptr: p,
         seen_removed: guard.seen_removed(),
@@ -2066,7 +2621,7 @@ pub proof fn protect_link<S: RcuTraversalSafety>(
 ) -> (tracked to_protected: RcuProtectedPtr<S::Node>)
     requires
         from.protected_by(*old(guard)),
-        old(guard).can_protect(*to_info),
+        old(guard).can_base_protect(*to_info),
         to_info.ptr() == to,
         S::node_inv(from.ptr(), from.obj(), g),
         S::link_inv(from.ptr(), from.obj(), n, to, to_info.obj(), g),
@@ -2092,6 +2647,7 @@ pub proof fn protect_link<S: RcuTraversalSafety>(
         guard.seen_removed(),
         g,
     );
+    assert(old(guard).can_protect(*to_info));
     guard.tracked_protect(to_info);
     RcuProtectedPtr {
         domain: from.domain(),
@@ -2198,7 +2754,6 @@ impl RcuTraversalSafety for LinkedListTraversalSpec {
 /// Example: after protecting the root, following a non-stale successor-history
 /// event protects the next node under the same guard.
 pub proof fn linked_list_protect_next_example(
-    tracked domain: &RcuDomainAuth,
     tracked guard: &mut RcuReadGuardToken<LinkedListNode>,
     tracked root_info: &RcuBlockInfo<LinkedListNode>,
     tracked next_info: &RcuBlockInfo<LinkedListNode>,
@@ -2208,9 +2763,8 @@ pub proof fn linked_list_protect_next_example(
     g: LinkedListGhost,
 ) -> (tracked next_protected: RcuProtectedPtr<LinkedListNode>)
     requires
-        old(guard).is_for(*domain),
         old(guard).can_protect(*root_info),
-        old(guard).can_protect(*next_info),
+        old(guard).can_base_protect(*next_info),
         root_info.ptr() == root,
         next_info.ptr() == next,
         LinkedListTraversalSpec::root_inv(root, root_info.obj(), g),
@@ -2220,18 +2774,12 @@ pub proof fn linked_list_protect_next_example(
     ensures
         next_protected.ptr() == next,
         next_protected.obj() == next_info.obj(),
-        next_protected.domain() == domain.id(),
+        next_protected.domain() == old(guard).domain(),
         next_protected.protected_by(*final(guard)),
         final(guard).wf(),
         LinkedListTraversalSpec::node_inv(next, next_info.obj(), g),
 {
-    let tracked root_protected = protect_root::<LinkedListTraversalSpec>(
-        domain,
-        guard,
-        root_info,
-        root,
-        g,
-    );
+    let tracked root_protected = protect_root::<LinkedListTraversalSpec>(guard, root_info, root, g);
     protect_link::<LinkedListTraversalSpec>(guard, &root_protected, next_info, n, next, g)
 }
 
