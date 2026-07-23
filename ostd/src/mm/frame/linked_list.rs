@@ -997,11 +997,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let tracked mut cur_own = owner.list_own.list.tracked_remove(owner.index);
         let tracked cur_repr_perm = owner.list_own.repr_perms.tracked_remove(owner.index);
 
-        let (frame, frame_own) = unsafe {
+        let (mut frame, frame_own) = unsafe {
             #[verus_spec(with Tracked(regions), Tracked(cur_own), Tracked(cur_repr_perm))]
             UniqueFrame::<Link<M>>::from_raw(paddr)
         };
-        let mut frame = frame;
         let tracked mut frame_own = frame_own.get();
 
         proof {
@@ -1013,12 +1012,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             } by {}
         }
 
-        #[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]
-        let frame_meta = frame.meta();
-        let next_ptr = frame_meta.next;
-        #[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]
-        let frame_meta = frame.meta();
-        let prev_ptr = frame_meta.prev;
+        let next_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]frame.meta()).next;
+        let prev_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]frame.meta()).prev;
 
         #[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]
         let frame_meta = frame.meta_mut();
