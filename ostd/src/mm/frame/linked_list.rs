@@ -987,21 +987,19 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         }
 
+        
         let meta_ptr = current.addr();
         let paddr = meta_to_frame(meta_ptr);
         let ghost idx = frame_to_index(paddr);
 
-        assert(current.addr() == owner.list_own.list[owner.index].paddr);
-        assert(idx == owner.list_own.slot_index_at(owner.index));
-
         let tracked mut cur_own = owner.list_own.list.tracked_remove(owner.index);
         let tracked cur_repr_perm = owner.list_own.repr_perms.tracked_remove(owner.index);
 
-        let (mut frame, frame_own) = unsafe {
+        let (mut frame, Tracked(mut frame_own)) = unsafe {
+            // SAFETY: The frame was forgotten when inserted into the linked list.
             #[verus_spec(with Tracked(regions), Tracked(cur_own), Tracked(cur_repr_perm))]
             UniqueFrame::<Link<M>>::from_raw(paddr)
         };
-        let tracked mut frame_own = frame_own.get();
 
         proof {
             assert(regions.slots.dom() == regions0.slots.dom());
@@ -1014,21 +1012,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         let next_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]frame.meta()).next;
         let prev_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]frame.meta()).prev;
-
-        #[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]
-        let frame_meta = frame.meta_mut();
-        frame_meta.next = None;
-        proof {
-            assert(<Link<M> as OwnerOf>::wf(frame_own.meta_value(*regions), frame_own.meta_own));
-            assert(frame_own.global_inv(*regions));
-        }
-        #[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]
-        let frame_meta = frame.meta_mut();
-        frame_meta.prev = None;
-        proof {
-            assert(<Link<M> as OwnerOf>::wf(frame_own.meta_value(*regions), frame_own.meta_own));
-            assert(frame_own.global_inv(*regions));
-        }
 
         if let Some(prev_link) = prev_ptr {
             let prev = prev_link;
@@ -1118,6 +1101,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 } by {}
             }
         }
+
+        (#[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]frame.meta_mut()).next = None;
+        (#[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]frame.meta_mut()).prev = None;
 
         let tracked frame_outer = regions.slots.tracked_remove(idx);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
