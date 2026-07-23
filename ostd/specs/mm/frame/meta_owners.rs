@@ -112,7 +112,7 @@ unsafe impl AnyFrameMeta for MetaSlotStorage {
 }
 
 impl Repr<MetaSlotStorage> for MetaSlotStorage {
-    type Perm = ();
+    type ReprPerm = ();
 
     open spec fn wf(slot: MetaSlotStorage, perm: ()) -> bool {
         true
@@ -207,7 +207,7 @@ pub tracked struct MetadataInnerPerms {
 pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
     storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-    repr_perm: M::Perm,
+    repr_perm: M::ReprPerm,
 ) -> bool {
     &&& points_to.is_init()
     &&& storage.is_init()
@@ -217,7 +217,7 @@ pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
 
 pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-    repr_perm: M::Perm,
+    repr_perm: M::ReprPerm,
 ) -> M
     recommends
         storage.is_init(),
@@ -230,7 +230,7 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
     Tracked(storage): Tracked<&'a pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
-    Tracked(repr_perm): Tracked<&'a M::Perm>,
+    Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
 ) -> (res: &'a M)
     requires
         typed_meta_wf::<M>(*points_to, *storage, *repr_perm),
@@ -247,7 +247,7 @@ pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
     Tracked(slot_owner): Tracked<&'a mut MetaSlotOwner>,
-    Tracked(repr_perm): Tracked<&'a mut M::Perm>,
+    Tracked(repr_perm): Tracked<&'a mut M::ReprPerm>,
 ) -> (res: &'a mut M)
     requires
         old(slot_owner).inv(),
@@ -419,7 +419,7 @@ impl MetaSlotOwner {
 pub exec fn write_metadata_into_storage<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     cell: &pcell_maybe_uninit::PCell<MetaSlotStorage>,
     Tracked(storage): Tracked<&mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
-    Tracked(repr_perm): Tracked<&mut M::Perm>,
+    Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
     metadata: M,
 )
     requires

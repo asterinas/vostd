@@ -208,7 +208,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::Perm>,
+            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
         requires
             old(regions).inv(),
             forall|paddr_in: Paddr|

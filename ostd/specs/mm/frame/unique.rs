@@ -41,7 +41,7 @@ impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> 
 //FIXME: why do we need a index here?
 pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage> + OwnerOf> {
     pub meta_own: M::Owner,
-    pub repr_perm: Option<M::Perm>,
+    pub repr_perm: Option<M::ReprPerm>,
     pub ghost slot_index: int,
 }
 
@@ -180,7 +180,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     {
     }
 
-    pub proof fn from_raw_owner(owner: M::Owner, repr_perm: M::Perm, index: Ghost<int>) -> Self {
+    pub proof fn from_raw_owner(owner: M::Owner, repr_perm: M::ReprPerm, index: Ghost<int>) -> Self {
         UniqueFrameOwner::<M> { meta_own: owner, repr_perm: Some(repr_perm), slot_index: index@ }
     }
 
@@ -214,7 +214,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
 
     pub axiom fn tracked_from_unused_owner(
         tracked regions: &mut MetaRegionOwners,
-        tracked repr_perm: M::Perm,
+        tracked repr_perm: M::ReprPerm,
         paddr: Paddr,
     ) -> (tracked res: Self)
         ensures
@@ -228,7 +228,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
             res.repr_perm == Some(repr_perm),
     ;
 
-    pub proof fn tracked_borrow_repr_perm(tracked &self) -> (tracked res: &M::Perm)
+    pub proof fn tracked_borrow_repr_perm(tracked &self) -> (tracked res: &M::ReprPerm)
         requires
             self.repr_perm is Some,
         ensures
@@ -237,7 +237,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         self.repr_perm.tracked_borrow()
     }
 
-    pub proof fn tracked_borrow_mut_repr_perm(tracked &mut self) -> (tracked res: &mut M::Perm)
+    pub proof fn tracked_borrow_mut_repr_perm(tracked &mut self) -> (tracked res: &mut M::ReprPerm)
         requires
             old(self).inv(),
         ensures

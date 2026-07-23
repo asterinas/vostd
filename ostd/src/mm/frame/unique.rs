@@ -65,7 +65,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm_in): Tracked<M::Perm>,
+            Tracked(repr_perm_in): Tracked<M::ReprPerm>,
                 -> owner: Tracked<Option<UniqueFrameOwner<M>>>,
         requires
             old(regions).slot_owners.contains_key(frame_to_index(paddr)),
@@ -141,7 +141,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         with
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm_in): Tracked<M1::Perm>,
+            Tracked(repr_perm_in): Tracked<M1::ReprPerm>,
                 -> new_owner: Tracked<UniqueFrameOwner<M1>>,
         requires
             self.wf(owner),
@@ -482,7 +482,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(meta_own): Tracked<M::Owner>,
-            Tracked(repr_perm): Tracked<M::Perm>,
+            Tracked(repr_perm): Tracked<M::ReprPerm>,
         requires
             valid_frame_paddr(paddr),
             old(regions).inv(),

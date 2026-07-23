@@ -11,28 +11,28 @@ verus! {
 /// A trait for types that have a concrete representation type `R`.
 pub trait Repr<R: Sized>: Sized {
     /// If the underlying representation contains cells, the translation may require permission objects that access them.
-    type Perm;
+    type ReprPerm;
 
-    spec fn wf(r: R, perm: Self::Perm) -> bool;
+    spec fn wf(r: R, perm: Self::ReprPerm) -> bool;
 
-    spec fn to_repr_spec(self, perm: Self::Perm) -> (R, Self::Perm);
+    spec fn to_repr_spec(self, perm: Self::ReprPerm) -> (R, Self::ReprPerm);
 
-    fn to_repr(self, Tracked(perm): Tracked<&mut Self::Perm>) -> (res: R)
+    fn to_repr(self, Tracked(perm): Tracked<&mut Self::ReprPerm>) -> (res: R)
         ensures
             res == self.to_repr_spec(*old(perm)).0,
             *final(perm) == self.to_repr_spec(*old(perm)).1,
     ;
 
-    spec fn from_repr_spec(r: R, perm: Self::Perm) -> Self;
+    spec fn from_repr_spec(r: R, perm: Self::ReprPerm) -> Self;
 
-    fn from_repr(r: R, Tracked(perm): Tracked<&Self::Perm>) -> (res: Self)
+    fn from_repr(r: R, Tracked(perm): Tracked<&Self::ReprPerm>) -> (res: Self)
         requires
             Self::wf(r, *perm),
         returns
             Self::from_repr_spec(r, *perm),
     ;
 
-    fn from_borrowed<'a>(r: &'a R, Tracked(perm): Tracked<&'a Self::Perm>) -> (res: &'a Self)
+    fn from_borrowed<'a>(r: &'a R, Tracked(perm): Tracked<&'a Self::ReprPerm>) -> (res: &'a Self)
         requires
             Self::wf(*r, *perm),
         ensures
@@ -43,7 +43,7 @@ pub trait Repr<R: Sized>: Sized {
     /// project the same in-place representation as `from_borrowed` and keep
     /// the representation permission synchronized with mutations through the
     /// returned reference.
-    fn from_borrowed_mut<'a>(r: &'a mut R, Tracked(perm): Tracked<&'a mut Self::Perm>) -> (res:
+    fn from_borrowed_mut<'a>(r: &'a mut R, Tracked(perm): Tracked<&'a mut Self::ReprPerm>) -> (res:
         &'a mut Self)
         requires
             Self::wf(*old(r), *old(perm)),
@@ -53,19 +53,19 @@ pub trait Repr<R: Sized>: Sized {
             *final(res) == Self::from_repr_spec(*final(r), *final(perm)),
     ;
 
-    proof fn from_to_repr(self, perm: Self::Perm)
+    proof fn from_to_repr(self, perm: Self::ReprPerm)
         ensures
             Self::from_repr_spec(self.to_repr_spec(perm).0, self.to_repr_spec(perm).1) == self,
     ;
 
-    proof fn to_from_repr(r: R, perm: Self::Perm)
+    proof fn to_from_repr(r: R, perm: Self::ReprPerm)
         requires
             Self::wf(r, perm),
         ensures
             Self::from_repr_spec(r, perm).to_repr_spec(perm) == (r, perm),
     ;
 
-    proof fn to_repr_wf(self, perm: Self::Perm)
+    proof fn to_repr_wf(self, perm: Self::ReprPerm)
         ensures
             Self::wf(self.to_repr_spec(perm).0, self.to_repr_spec(perm).1),
     ;
@@ -234,18 +234,18 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
 #[verifier::accept_recursive_types(T)]
 pub tracked struct PointsTo<R, T: Repr<R>> {
     pub points_to: simple_pptr::PointsTo<R>,
-    pub inner_perms: T::Perm,
+    pub inner_perms: T::ReprPerm,
     pub _T: PhantomData<T>,
 }
 
 impl<R, T: Repr<R>> PointsTo<R, T> {
-    pub open spec fn new_spec(points_to: simple_pptr::PointsTo<R>, inner_perms: T::Perm) -> Self {
+    pub open spec fn new_spec(points_to: simple_pptr::PointsTo<R>, inner_perms: T::ReprPerm) -> Self {
         Self { points_to, inner_perms, _T: PhantomData }
     }
 
     pub proof fn new(
         tracked points_to: simple_pptr::PointsTo<R>,
-        tracked inner_perms: T::Perm,
+        tracked inner_perms: T::ReprPerm,
     ) -> (tracked res: Self)
         returns
             Self::new_spec(points_to, inner_perms),
@@ -253,7 +253,7 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
         Self { points_to, inner_perms, _T: PhantomData }
     }
 
-    pub open spec fn wf(self, perm: &T::Perm) -> bool {
+    pub open spec fn wf(self, perm: &T::ReprPerm) -> bool {
         &&& T::wf(self.points_to.value(), *perm)
     }
 

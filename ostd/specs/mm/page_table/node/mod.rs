@@ -137,7 +137,7 @@ pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(
 ) -> Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
-    type Perm = ();
+    type ReprPerm = ();
 
     open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
         matches!(r, MetaSlotStorage::PTNode(_))

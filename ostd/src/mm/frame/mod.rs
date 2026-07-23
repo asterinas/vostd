@@ -214,7 +214,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::Perm>
+            Tracked(repr_perm): Tracked<&mut M::ReprPerm>
         requires
             old(regions).inv(),
         ensures
@@ -259,7 +259,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         with
             Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
             Tracked(storage): Tracked<&'a vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
-            Tracked(repr_perm): Tracked<&'a M::Perm>,
+            Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
         requires
             self.ptr == points_to.pptr(),
             typed_meta_wf::<M>(*points_to, *storage, *repr_perm),

@@ -376,7 +376,7 @@ impl MetaSlot {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(repr_perm): Tracked<&mut M::Perm>
+            Tracked(repr_perm): Tracked<&mut M::ReprPerm>
         requires
             old(regions).inv(),
         ensures
@@ -668,7 +668,7 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(meta_perm): Tracked<&mut vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
-            Tracked(repr_perm): Tracked<&mut M::Perm>,
+            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
             Tracked(vtable_perm): Tracked<&mut PointsTo<usize>>,
         requires
             self.storage.id() == old(meta_perm).id(),

@@ -44,13 +44,13 @@ pub struct StoredLink {
 }
 
 pub tracked struct LinkInnerPerms<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
-    pub storage: <M as Repr<MetaSlotSmall>>::Perm,
+    pub storage: <M as Repr<MetaSlotSmall>>::ReprPerm,
     pub ghost next_ptr: Option<PPtr<MetaSlotStorage>>,
     pub ghost prev_ptr: Option<PPtr<MetaSlotStorage>>,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
-    type Perm = LinkInnerPerms<M>;
+    type ReprPerm = LinkInnerPerms<M>;
 
     open spec fn wf(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> bool {
         match r {
