@@ -1316,16 +1316,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         == regions0.slots[owner0.list_own.slot_index_at(nn)].pptr().addr());
                 }
             } else {
-                #[verus_spec(with Tracked(frame_own), Tracked(regions))]
-                let frame_meta = frame.meta_mut();
-                frame_meta.next = Some(current);
-                proof {
-                    assert(<Link<M> as OwnerOf>::wf(
-                        frame_own.meta_value(*regions),
-                        frame_own.meta_own,
-                    ));
-                    assert(frame_own.global_inv(*regions));
-                }
+                (#[verus_spec(with Tracked(frame_own), Tracked(regions))]frame.meta_mut()).next = Some(current);
 
                 let ghost regions_before_current = *regions;
                 proof {
