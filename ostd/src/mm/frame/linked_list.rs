@@ -729,30 +729,29 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             owner.move_next_owner_spec().wf_with_region(*regions),
             final(self).wf_region(owner.move_next_owner_spec(), *regions),
     {
-        let ghost old_self = *self;
-
         proof {
-            if self.current is Some {
-                owner.list_own.relate_region_at_facts(*regions, owner.index);
-            }
-            if owner.index < owner.length() - 1 {
-                owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
-            }
+            reveal(LinkedListOwner::relate_region_at);
         }
 
         self.current = match self.current {
             // SAFETY: The cursor is pointing to a valid element.
             Some(current) => {
-                let ghost idx = frame_to_index(meta_to_frame(current.addr()));
-
+                proof_decl!{
+                    let ghost idx = frame_to_index(meta_to_frame(current.addr()));
+                    let tracked points_to = regions.slots.tracked_borrow(idx);
+                    let tracked slot_owner = regions.slot_owners.tracked_borrow(idx);
+                    let tracked repr_perm = owner.list_own.repr_perms.tracked_borrow(owner.index);
+                }
                 proof {
-                    assert(idx == owner.list_own.slot_index_at(owner.index));
                     assert(regions.slots.contains_key(idx));
                     assert(regions.slot_owners.contains_key(idx));
                 }
-
-                #[verus_spec(with Ghost(owner.index), Tracked(regions), Tracked(&owner.list_own))]
-                let link = borrow_link(current);
+                let link = borrow_meta(
+                    current,
+                    Tracked(points_to),
+                    Tracked(&slot_owner.inner_perms.storage),
+                    Tracked(repr_perm),
+                );
                 link.next
             },
             None => self.list.front,
