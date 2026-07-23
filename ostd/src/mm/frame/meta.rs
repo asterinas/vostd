@@ -651,7 +651,7 @@ impl MetaSlot {
 
         meta_ptr
     }
-    
+
     /// Gets the stored metadata as type `M`.
     ///
     /// Calling the method should be safe, but using the returned pointer would
@@ -666,7 +666,6 @@ impl MetaSlot {
     }
 
     */
-
     /// Writes the metadata to the slot without reading or dropping the previous value.
     ///
     /// # Safety

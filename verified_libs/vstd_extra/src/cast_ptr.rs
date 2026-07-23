@@ -239,7 +239,10 @@ pub tracked struct PointsTo<R, T: Repr<R>> {
 }
 
 impl<R, T: Repr<R>> PointsTo<R, T> {
-    pub open spec fn new_spec(points_to: simple_pptr::PointsTo<R>, inner_perms: T::ReprPerm) -> Self {
+    pub open spec fn new_spec(
+        points_to: simple_pptr::PointsTo<R>,
+        inner_perms: T::ReprPerm,
+    ) -> Self {
         Self { points_to, inner_perms, _T: PhantomData }
     }
 

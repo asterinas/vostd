@@ -987,7 +987,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         }
 
-        
         let meta_ptr = current.addr();
         let paddr = meta_to_frame(meta_ptr);
         let ghost idx = frame_to_index(paddr);
@@ -1010,8 +1009,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             } by {}
         }
 
-        let next_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]frame.meta()).next;
-        let prev_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]frame.meta()).prev;
+        let next_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]
+        frame.meta()).next;
+        let prev_ptr = (#[verus_spec(with Tracked(&frame_own), Tracked(&*regions))]
+        frame.meta()).prev;
 
         if let Some(prev) = prev_ptr {
             proof {
@@ -1098,8 +1099,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         }
 
-        (#[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]frame.meta_mut()).next = None;
-        (#[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]frame.meta_mut()).prev = None;
+        (#[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]
+        frame.meta_mut()).next = None;
+        (#[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]
+        frame.meta_mut()).prev = None;
 
         let tracked frame_outer = regions.slots.tracked_remove(idx);
         let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
@@ -1312,7 +1315,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                         == regions0.slots[owner0.list_own.slot_index_at(nn)].pptr().addr());
                 }
             } else {
-                (#[verus_spec(with Tracked(frame_own), Tracked(regions))]frame.meta_mut()).next = Some(current);
+                (#[verus_spec(with Tracked(frame_own), Tracked(regions))]
+                frame.meta_mut()).next = Some(current);
 
                 #[verus_spec(with Ghost(nn), Tracked(regions), Tracked(&mut owner.list_own))]
                 let current_meta = borrow_link_mut(current);
@@ -1325,8 +1329,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         } else {
             if let Some(back) = self.list.back {
-                (#[verus_spec(with Tracked(frame_own), Tracked(regions))]frame.meta_mut()).prev = Some(back);
-                
+                (#[verus_spec(with Tracked(frame_own), Tracked(regions))]
+                frame.meta_mut()).prev = Some(back);
+
                 #[verus_spec(with Ghost(nn - 1), Tracked(regions), Tracked(&mut owner.list_own))]
                 let back_meta = borrow_link_mut(back);
                 back_meta.next = Some(frame_ptr);
