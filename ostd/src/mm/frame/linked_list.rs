@@ -1054,7 +1054,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
             proof {
                 assert(frame_own.slot_index != frame_to_index(meta_to_frame(prev.addr())));
-                frame_own.global_inv_preserved_by_slot_equality(regions_before_prev, *regions);
+                //frame_own.global_inv_preserved_by_slot_equality(regions_before_prev, *regions);
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
                 assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
@@ -1098,7 +1098,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
             proof {
                 assert(frame_own.slot_index != frame_to_index(meta_to_frame(next.addr())));
-                frame_own.global_inv_preserved_by_slot_equality(regions_before_next, *regions);
+                //frame_own.global_inv_preserved_by_slot_equality(regions_before_next, *regions);
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
                 assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
@@ -1340,7 +1340,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 prev_meta.next = Some(frame_ptr_as_link);
                 proof {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn - 1));
-                    frame_own.global_inv_preserved_by_slot_equality(regions_before_prev, *regions);
                 }
 
                 let ghost regions_before_current = *regions;
@@ -1352,10 +1351,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 current_meta.prev = Some(frame_ptr_as_link);
                 proof {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn));
-                    frame_own.global_inv_preserved_by_slot_equality(
-                        regions_before_current,
-                        *regions,
-                    );
                 }
 
                 proof {
@@ -1388,10 +1383,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 current_meta.prev = Some(frame_ptr_as_link);
                 proof {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn));
-                    frame_own.global_inv_preserved_by_slot_equality(
-                        regions_before_current,
-                        *regions,
-                    );
                 }
 
                 self.list.front = Some(frame_ptr_as_link);
@@ -1418,7 +1409,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 back_meta.next = Some(frame_ptr_as_link);
                 proof {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn - 1));
-                    frame_own.global_inv_preserved_by_slot_equality(regions_before_back, *regions);
                 }
 
                 self.list.back = Some(frame_ptr_as_link);

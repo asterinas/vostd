@@ -161,25 +161,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slot_owners[self.slot_index].usage is Frame
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
-
-    pub proof fn global_inv_preserved_by_slot_equality(
-        self,
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-    )
-        requires
-            self.global_inv(old_regions),
-            new_regions.inv(),
-            new_regions.slots.contains_key(self.slot_index),
-            new_regions.slot_owners.contains_key(self.slot_index),
-            new_regions.slots[self.slot_index] == old_regions.slots[self.slot_index],
-            new_regions.slot_owners[self.slot_index] == old_regions.slot_owners[self.slot_index],
-            new_regions.frame_obligations == old_regions.frame_obligations,
-        ensures
-            self.global_inv(new_regions),
-    {
-    }
-
+    
     pub proof fn from_raw_owner(owner: M::Owner, repr_perm: M::ReprPerm, index: Ghost<int>) -> Self {
         UniqueFrameOwner::<M> { meta_own: owner, repr_perm: Some(repr_perm), slot_index: index@ }
     }
