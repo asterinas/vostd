@@ -31,6 +31,7 @@ pub mod trans_macros;
 pub mod map_extra;
 
 pub mod prelude;
+pub mod raw_callback;
 pub mod raw_ptr_extra;
 pub mod seq_extra;
 pub mod set_extra;

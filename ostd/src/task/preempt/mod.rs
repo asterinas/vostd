@@ -2,7 +2,11 @@
 // pub(super) mod cpu_local;
 mod guard;
 
-pub use self::guard::{DisabledPreemptGuard, disable_preempt};
+pub(crate) use self::guard::disable_preempt_in_context;
+pub use self::guard::{
+    DisabledPreemptGuard, PreemptSessionToken, PreemptThreadViewSession, RunningTaskContext,
+    disable_preempt,
+};
 /*
 /// Halts the CPU until interrupts if no preemption is required.
 ///
