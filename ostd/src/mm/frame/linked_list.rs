@@ -1163,23 +1163,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 oldl.relate_region_at_facts(regions0, nn);
                 assert(regions.slots.contains_key(i));
                 assert(regions.slot_owners.contains_key(i));
-                assert(regions.slots[i].addr() == oldl.list[p].paddr);
-                assert(regions.slots[i].pptr() == regions0.slots[i].pptr());
-                assert(regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
-                assert(regions.slot_owners[i].usage is Frame);
-                assert(regions.slot_owners[i].inner_perms.in_list.value()
-                    == owner.list_own.list_id);
-                assert(owner.list_own.meta_wf_at(*regions, np));
-                if p == nn - 1 {
-                    assert(fp.next == oldl.meta_value_at(regions0, nn).next);
-                } else {
-                    assert(fp.next == oldl.meta_value_at(regions0, p).next);
-                }
-                if p == nn + 1 {
-                    assert(fp.prev == oldl.meta_value_at(regions0, nn).prev);
-                } else {
-                    assert(fp.prev == oldl.meta_value_at(regions0, p).prev);
-                }
             }
             LinkedListOwner::pop_preserves_relate_region(
                 oldl,
