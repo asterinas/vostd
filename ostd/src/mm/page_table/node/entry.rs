@@ -610,15 +610,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 parent_owner.nr_children_absent_slot_bound(self.idx);
             }
 
-            // Snapshot the parent's slot perm + nr_children-id clause while
-            // `metaregion_sound_node` still fully holds (count consistent,
-            // nothing mutated). The `+ 1`'s `read` below needs the id clause,
-            // but by then `count_consistent` is momentarily broken; we frame
-            // the clause forward instead of re-deriving it from a false
-            // predicate.
-            let ghost regions_pre = *regions;
-            let ghost pre_meta_perm = parent_owner.meta_perm_of(*regions);
-
             proof_decl! {
                 let tracked mut new_node_owner: Tracked<OwnerSubtree<C>>;
             }

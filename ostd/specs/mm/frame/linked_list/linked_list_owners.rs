@@ -258,15 +258,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Inv for LinkedListOwner<M> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
-    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners, i: int) -> TypedMetaView<
-        Link<M>,
-    > {
-        let idx = self.slot_index_at(i);
-        typed_meta_view::<Link<M>>(
-            regions.slots[idx],
-            regions.slot_owners[idx].inner_perms.storage,
-            self.repr_perms[i],
-        )
+    pub open spec fn meta_addr_at(self, regions: MetaRegionOwners, i: int) -> usize {
+        regions.slots[self.slot_index_at(i)].addr()
+    }
+
+    pub open spec fn meta_pptr_at(self, regions: MetaRegionOwners, i: int) -> PPtr<MetaSlot> {
+        regions.slots[self.slot_index_at(i)].pptr()
     }
 
     /// Per-link structural invariant: the link's own `inv()` holds and its
@@ -303,39 +300,33 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         )
     }
 
-    /// The per-link invariant expressed over the *region* permission
-    /// (`meta_perm_of`) rather than the list's owned `perms[i]`. This is the
-    /// `inv_at` analog that connects each list element to its region slot, so
-    /// accessors can reason about the link's metadata without bringing the
-    /// list's `perms[i]` into scope (which would conflict — two permissions at
-    /// the same address).
+    /// The per-link invariant expressed directly over the region-owned slot and
+    /// storage permissions plus the list-owned representation permission.
     #[verifier::opaque]
     pub open spec fn relate_region_at(self, regions: MetaRegionOwners, i: int) -> bool {
         let idx = self.slot_index_at(i);
-        let perm = self.meta_perm_of(regions, i);
+        let value = self.meta_value_at(regions, i);
         &&& regions.slots.contains_key(idx)
         &&& regions.slot_owners.contains_key(idx)
         &&& self.repr_perms.len() == self.list.len()
-        &&& perm.addr() == self.list[i].paddr
-        &&& perm.points_to.addr() == self.list[i].paddr
+        &&& regions.slots[idx].addr() == self.list[i].paddr
         &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
         &&& regions.slot_owners[idx].usage is Frame
         &&& regions.slot_owners[idx].inner_perms.in_list.value() == self.list_id
-        &&& perm.wf()
-        &&& perm.addr() % META_SLOT_SIZE == 0
-        &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start + MAX_NR_PAGES
-            * META_SLOT_SIZE
-        &&& perm.is_init()
-        &&& perm.value().wf(self.list[i])
-        &&& i == 0 <==> perm.value().prev is None
-        &&& i == self.list.len() - 1 <==> perm.value().next is None
+        &&& self.meta_wf_at(regions, i)
+        &&& regions.slots[idx].addr() % META_SLOT_SIZE == 0
+        &&& FRAME_METADATA_RANGE.start <= regions.slots[idx].addr() < FRAME_METADATA_RANGE.start
+            + MAX_NR_PAGES * META_SLOT_SIZE
+        &&& value.wf(self.list[i])
+        &&& i == 0 <==> value.prev is None
+        &&& i == self.list.len() - 1 <==> value.next is None
         &&& 0 < i ==> {
-            &&& perm.value().prev is Some
-            &&& perm.value().prev->0.addr() == self.meta_perm_of(regions, i - 1).addr()
+            &&& value.prev is Some
+            &&& value.prev->0.addr() == self.meta_addr_at(regions, i - 1)
         }
         &&& i < self.list.len() - 1 ==> {
-            &&& perm.value().next is Some
-            &&& perm.value().next->0.addr() == self.meta_perm_of(regions, i + 1).addr()
+            &&& value.next is Some
+            &&& value.next->0.addr() == self.meta_addr_at(regions, i + 1)
         }
         &&& self.list[i].inv()
         &&& self.list[i].in_list == self.list_id
@@ -403,8 +394,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     }
 
     /// Unfolds the opaque `relate_region_at` ONCE and exposes its clauses.
-    /// `relate_region_at` is opaque to avoid `meta_perm_of` quantifier
-    /// explosion at use sites; this lemma localizes the reveal so callers get
+    /// `relate_region_at` is opaque to avoid quantifier explosion at use sites;
+    /// this lemma localizes the reveal so callers get
     /// the facts at a single index without re-exploding the SMT context.
     pub proof fn relate_region_at_facts(self, regions: MetaRegionOwners, i: int)
         requires
@@ -412,30 +403,28 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         ensures
             ({
                 let idx = self.slot_index_at(i);
-                let perm = self.meta_perm_of(regions, i);
+                let value = self.meta_value_at(regions, i);
                 &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners.contains_key(idx)
                 &&& self.repr_perms.len() == self.list.len()
-                &&& perm.addr() == self.list[i].paddr
-                &&& perm.points_to.addr() == self.list[i].paddr
+                &&& regions.slots[idx].addr() == self.list[i].paddr
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[idx].usage is Frame
                 &&& regions.slot_owners[idx].inner_perms.in_list.value() == self.list_id
-                &&& perm.wf()
-                &&& perm.addr() % META_SLOT_SIZE == 0
-                &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
-                    + MAX_NR_PAGES * META_SLOT_SIZE
-                &&& perm.is_init()
-                &&& perm.value().wf(self.list[i])
-                &&& (i == 0 <==> perm.value().prev is None)
-                &&& (i == self.list.len() - 1 <==> perm.value().next is None)
+                &&& self.meta_wf_at(regions, i)
+                &&& regions.slots[idx].addr() % META_SLOT_SIZE == 0
+                &&& FRAME_METADATA_RANGE.start <= regions.slots[idx].addr()
+                    < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
+                &&& value.wf(self.list[i])
+                &&& (i == 0 <==> value.prev is None)
+                &&& (i == self.list.len() - 1 <==> value.next is None)
                 &&& (0 < i ==> {
-                    &&& perm.value().prev is Some
-                    &&& perm.value().prev->0.addr() == self.meta_perm_of(regions, i - 1).addr()
+                    &&& value.prev is Some
+                    &&& value.prev->0.addr() == self.meta_addr_at(regions, i - 1)
                 })
                 &&& (i < self.list.len() - 1 ==> {
-                    &&& perm.value().next is Some
-                    &&& perm.value().next->0.addr() == self.meta_perm_of(regions, i + 1).addr()
+                    &&& value.next is Some
+                    &&& value.next->0.addr() == self.meta_addr_at(regions, i + 1)
                 })
                 &&& self.list[i].inv()
                 &&& self.list[i].in_list == self.list_id
@@ -452,30 +441,28 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         requires
             ({
                 let idx = self.slot_index_at(i);
-                let perm = self.meta_perm_of(regions, i);
+                let value = self.meta_value_at(regions, i);
                 &&& regions.slots.contains_key(idx)
                 &&& regions.slot_owners.contains_key(idx)
                 &&& self.repr_perms.len() == self.list.len()
-                &&& perm.addr() == self.list[i].paddr
-                &&& perm.points_to.addr() == self.list[i].paddr
+                &&& regions.slots[idx].addr() == self.list[i].paddr
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[idx].usage is Frame
                 &&& regions.slot_owners[idx].inner_perms.in_list.value() == self.list_id
-                &&& perm.wf()
-                &&& perm.addr() % META_SLOT_SIZE == 0
-                &&& FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.start
-                    + MAX_NR_PAGES * META_SLOT_SIZE
-                &&& perm.is_init()
-                &&& perm.value().wf(self.list[i])
-                &&& (i == 0 <==> perm.value().prev is None)
-                &&& (i == self.list.len() - 1 <==> perm.value().next is None)
+                &&& self.meta_wf_at(regions, i)
+                &&& regions.slots[idx].addr() % META_SLOT_SIZE == 0
+                &&& FRAME_METADATA_RANGE.start <= regions.slots[idx].addr()
+                    < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
+                &&& value.wf(self.list[i])
+                &&& (i == 0 <==> value.prev is None)
+                &&& (i == self.list.len() - 1 <==> value.next is None)
                 &&& (0 < i ==> {
-                    &&& perm.value().prev is Some
-                    &&& perm.value().prev->0.addr() == self.meta_perm_of(regions, i - 1).addr()
+                    &&& value.prev is Some
+                    &&& value.prev->0.addr() == self.meta_addr_at(regions, i - 1)
                 })
                 &&& (i < self.list.len() - 1 ==> {
-                    &&& perm.value().next is Some
-                    &&& perm.value().next->0.addr() == self.meta_perm_of(regions, i + 1).addr()
+                    &&& value.next is Some
+                    &&& value.next->0.addr() == self.meta_addr_at(regions, i + 1)
                 })
                 &&& self.list[i].inv()
                 &&& self.list[i].in_list == self.list_id
@@ -610,17 +597,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             };
         }
 
-        assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies {
+        assert forall|m: int| #![trigger new.meta_addr_at(fr, m)] 0 <= m < nlen implies {
             let pm = if m < n {
                 m
             } else {
                 m + 1
             };
-            &&& new.meta_perm_of(fr, m).addr() == old.meta_perm_of(r0, pm).addr()
-            &&& new.meta_perm_of(fr, m).points_to.pptr() == old.meta_perm_of(
-                r0,
-                pm,
-            ).points_to.pptr()
+            &&& new.meta_addr_at(fr, m) == old.meta_addr_at(r0, pm)
+            &&& new.meta_pptr_at(fr, m) == old.meta_pptr_at(r0, pm)
         } by {
             let pm = if m < n {
                 m
@@ -776,17 +760,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             0 <= a < nlen && 0 <= b < nlen && a != b implies new.slot_index_at(a)
             != new.slot_index_at(b) by {}
 
-        assert forall|m: int| #![trigger new.meta_perm_of(fr, m)] 0 <= m < nlen implies ({
-            &&& (m < n ==> new.meta_perm_of(fr, m).addr() == old.meta_perm_of(r0, m).addr()
-                && new.meta_perm_of(fr, m).points_to.pptr() == old.meta_perm_of(
-                r0,
+        assert forall|m: int| #![trigger new.meta_addr_at(fr, m)] 0 <= m < nlen implies ({
+            &&& (m < n ==> new.meta_addr_at(fr, m) == old.meta_addr_at(r0, m) && new.meta_pptr_at(
+                fr,
                 m,
-            ).points_to.pptr())
-            &&& (m > n ==> new.meta_perm_of(fr, m).addr() == old.meta_perm_of(r0, m - 1).addr()
-                && new.meta_perm_of(fr, m).points_to.pptr() == old.meta_perm_of(
-                r0,
-                m - 1,
-            ).points_to.pptr())
+            ) == old.meta_pptr_at(r0, m))
+            &&& (m > n ==> new.meta_addr_at(fr, m) == old.meta_addr_at(r0, m - 1)
+                && new.meta_pptr_at(fr, m) == old.meta_pptr_at(r0, m - 1))
         }) by {
             if m < n {
                 let _ = old.list[m];
@@ -1015,7 +995,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for CursorMut<'a, M> {
 
     /// Structural well-formedness: `current` matches the link at `index`'s
     /// address. Pointer-permission facts (pptr/ptr equality) are stated in
-    /// `wf_region` over `meta_perm_of(regions, _)`.
+    /// `wf_region` over the region-owned slot pointers.
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& 0 <= owner.index < owner.length() ==> self.current.is_some() && self.current->0.addr()
             == owner.list_own.list[owner.index].paddr
@@ -1026,19 +1006,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> OwnerOf for CursorMut<'a, M> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     /// Region-based analog of [`LinkedList::wf`]: the front/back pointer facts
-    /// are stated over `owner.meta_perm_of(regions, _)` instead of the list's
-    /// owned `perms`. Used by accessors that source link permissions from
-    /// `regions` and so must not bring `perms[i]` into scope.
+    /// are stated directly over the region-owned slot pointers.
     pub open spec fn wf_region(self, owner: LinkedListOwner<M>, regions: MetaRegionOwners) -> bool {
         &&& self.front is None <==> owner.list.len() == 0
         &&& self.back is None <==> owner.list.len() == 0
         &&& owner.list.len() > 0 ==> self.front is Some && self.front->0.addr()
-            == owner.list[0].paddr && owner.meta_perm_of(regions, 0).pptr().addr()
-            == self.front->0.addr() && self.back is Some && self.back->0.addr()
-            == owner.list[owner.list.len() - 1].paddr && owner.meta_perm_of(
-            regions,
-            owner.list.len() - 1,
-        ).pptr().addr() == self.back->0.addr()
+            == owner.list[0].paddr && owner.meta_pptr_at(regions, 0).addr() == self.front->0.addr()
+            && self.back is Some && self.back->0.addr() == owner.list[owner.list.len() - 1].paddr
+            && owner.meta_pptr_at(regions, owner.list.len() - 1).addr() == self.back->0.addr()
         &&& self.size == owner.list.len()
         &&& self.list_id == owner.list_id
     }
@@ -1046,13 +1021,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     /// Region-based analog of [`CursorMut::wf`]: the current-link pointer facts
-    /// are stated over `owner.list_own.meta_perm_of(regions, index)`.
+    /// are stated over the corresponding region-owned slot pointer.
     pub open spec fn wf_region(self, owner: CursorOwner<M>, regions: MetaRegionOwners) -> bool {
         &&& 0 <= owner.index < owner.length() ==> self.current.is_some() && self.current->0.addr()
-            == owner.list_own.list[owner.index].paddr && owner.list_own.meta_perm_of(
+            == owner.list_own.list[owner.index].paddr && owner.list_own.meta_pptr_at(
             regions,
             owner.index,
-        ).pptr().addr() == self.current->0.addr()
+        ).addr() == self.current->0.addr()
         &&& owner.index == owner.list_own.list.len() ==> self.current.is_none()
         &&& (*self.list).wf_region(owner.list_own, regions)
     }
@@ -1222,9 +1197,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> UniqueFrameOwner<Link<M>> {
     pub open spec fn frame_link_inv(&self, regions: MetaRegionOwners) -> bool {
-        &&& self.meta_perm_of(regions).value().prev is None
-        &&& self.meta_perm_of(regions).value().next is None
-        &&& self.meta_own.paddr == self.meta_perm_of(regions).addr()
+        &&& self.meta_value(regions).prev is None
+        &&& self.meta_value(regions).next is None
+        &&& self.meta_own.paddr == regions.slots[self.slot_index].addr()
         &&& regions.slot_owners[self.slot_index].inner_perms.in_list.value() == 0
     }
 }

@@ -23,7 +23,7 @@ use crate::specs::mm::frame::{
     mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
     meta_owners::{
         MetaSlotOwner, MetaSlotStorage, borrow_meta, borrow_meta_mut, typed_meta_value,
-        typed_meta_view, typed_meta_wf,
+        typed_meta_wf,
     },
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
@@ -1160,34 +1160,22 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 } else {
                     p - 1
                 };
-                let fp = typed_meta_view::<Link<M>>(
-                    regions.slots[i],
-                    regions.slot_owners[i].inner_perms.storage,
-                    owner.list_own.repr_perms[np],
-                );
+                let fp = owner.list_own.meta_value_at(*regions, np);
                 &&& regions.slots.contains_key(i)
                 &&& regions.slot_owners.contains_key(i)
-                &&& fp.addr() == oldl.list[p].paddr
-                &&& fp.points_to.addr() == oldl.list[p].paddr
-                &&& fp.points_to.pptr() == regions0.slots[i].pptr()
+                &&& regions.slots[i].addr() == oldl.list[p].paddr
+                &&& regions.slots[i].pptr() == regions0.slots[i].pptr()
                 &&& regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[i].usage is Frame
                 &&& regions.slot_owners[i].inner_perms.in_list.value() == owner.list_own.list_id
-                &&& fp.wf()
-                &&& fp.addr() % META_SLOT_SIZE == 0
-                &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
-                    + MAX_NR_PAGES * META_SLOT_SIZE
-                &&& fp.is_init()
-                &&& (p == nn - 1 ==> fp.value().next == oldl.meta_perm_of(
-                    regions0,
-                    nn,
-                ).value().next)
-                &&& (p != nn - 1 ==> fp.value().next == oldl.meta_perm_of(regions0, p).value().next)
-                &&& (p == nn + 1 ==> fp.value().prev == oldl.meta_perm_of(
-                    regions0,
-                    nn,
-                ).value().prev)
-                &&& (p != nn + 1 ==> fp.value().prev == oldl.meta_perm_of(regions0, p).value().prev)
+                &&& owner.list_own.meta_wf_at(*regions, np)
+                &&& regions.slots[i].addr() % META_SLOT_SIZE == 0
+                &&& FRAME_METADATA_RANGE.start <= regions.slots[i].addr()
+                    < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
+                &&& (p == nn - 1 ==> fp.next == oldl.meta_value_at(regions0, nn).next)
+                &&& (p != nn - 1 ==> fp.next == oldl.meta_value_at(regions0, p).next)
+                &&& (p == nn + 1 ==> fp.prev == oldl.meta_value_at(regions0, nn).prev)
+                &&& (p != nn + 1 ==> fp.prev == oldl.meta_value_at(regions0, p).prev)
             }) by {
                 let i = oldl.slot_index_at(p);
                 let np = if p < nn {
@@ -1195,33 +1183,27 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 } else {
                     p - 1
                 };
-                let fp = typed_meta_view::<Link<M>>(
-                    regions.slots[i],
-                    regions.slot_owners[i].inner_perms.storage,
-                    owner.list_own.repr_perms[np],
-                );
+                let fp = owner.list_own.meta_value_at(*regions, np);
                 oldl.relate_region_at_facts(regions0, p);
                 oldl.relate_region_at_facts(regions0, nn);
                 assert(regions.slots.contains_key(i));
                 assert(regions.slot_owners.contains_key(i));
-                assert(fp.addr() == oldl.list[p].paddr);
-                assert(fp.points_to.addr() == oldl.list[p].paddr);
-                assert(fp.points_to.pptr() == regions0.slots[i].pptr());
+                assert(regions.slots[i].addr() == oldl.list[p].paddr);
+                assert(regions.slots[i].pptr() == regions0.slots[i].pptr());
                 assert(regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
                 assert(regions.slot_owners[i].usage is Frame);
                 assert(regions.slot_owners[i].inner_perms.in_list.value()
                     == owner.list_own.list_id);
-                assert(fp.wf());
-                assert(fp.is_init());
+                assert(owner.list_own.meta_wf_at(*regions, np));
                 if p == nn - 1 {
-                    assert(fp.value().next == oldl.meta_perm_of(regions0, nn).value().next);
+                    assert(fp.next == oldl.meta_value_at(regions0, nn).next);
                 } else {
-                    assert(fp.value().next == oldl.meta_perm_of(regions0, p).value().next);
+                    assert(fp.next == oldl.meta_value_at(regions0, p).next);
                 }
                 if p == nn + 1 {
-                    assert(fp.value().prev == oldl.meta_perm_of(regions0, nn).value().prev);
+                    assert(fp.prev == oldl.meta_value_at(regions0, nn).prev);
                 } else {
-                    assert(fp.value().prev == oldl.meta_perm_of(regions0, p).value().prev);
+                    assert(fp.prev == oldl.meta_value_at(regions0, p).prev);
                 }
             }
             LinkedListOwner::pop_preserves_relate_region(
@@ -1377,18 +1359,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
 
                 proof {
-                    let fpn_local = typed_meta_view::<Link<M>>(
-                        regions.slots[frame_idx_g],
-                        regions.slot_owners[frame_idx_g].inner_perms.storage,
-                        frame_own.repr_perm->0,
-                    );
-                    assert(fpn_local.value().prev.unwrap().addr() == owner0.list_own.list[nn
-                        - 1].paddr);
-                    assert(fpn_local.value().prev.unwrap().ptr.addr()
+                    let fpn_local = frame_own.meta_value(*regions);
+                    assert(fpn_local.prev.unwrap().addr() == owner0.list_own.list[nn - 1].paddr);
+                    assert(fpn_local.prev.unwrap().ptr.addr()
                         == regions0.slots[owner0.list_own.slot_index_at(nn - 1)].pptr().addr());
-                    assert(fpn_local.value().next.unwrap().addr()
-                        == owner0.list_own.list[nn].paddr);
-                    assert(fpn_local.value().next.unwrap().ptr.addr()
+                    assert(fpn_local.next.unwrap().addr() == owner0.list_own.list[nn].paddr);
+                    assert(fpn_local.next.unwrap().ptr.addr()
                         == regions0.slots[owner0.list_own.slot_index_at(nn)].pptr().addr());
                 }
             } else {
@@ -1500,36 +1476,30 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 } else {
                     p + 1
                 };
-                let fp = typed_meta_view::<Link<M>>(
-                    regions.slots[i],
-                    regions.slot_owners[i].inner_perms.storage,
-                    owner.list_own.repr_perms[np],
-                );
+                let fp = owner.list_own.meta_value_at(*regions, np);
                 &&& regions.slots.contains_key(i)
                 &&& regions.slot_owners.contains_key(i)
-                &&& fp.addr() == oldl.list[p].paddr
-                &&& fp.points_to.addr() == oldl.list[p].paddr
-                &&& fp.points_to.pptr() == regions0.slots[i].pptr()
+                &&& regions.slots[i].addr() == oldl.list[p].paddr
+                &&& regions.slots[i].pptr() == regions0.slots[i].pptr()
                 &&& regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[i].usage is Frame
                 &&& regions.slot_owners[i].inner_perms.in_list.value() == owner.list_own.list_id
-                &&& fp.wf()
-                &&& fp.addr() % META_SLOT_SIZE == 0
-                &&& FRAME_METADATA_RANGE.start <= fp.addr() < FRAME_METADATA_RANGE.start
-                    + MAX_NR_PAGES * META_SLOT_SIZE
-                &&& fp.is_init()
+                &&& owner.list_own.meta_wf_at(*regions, np)
+                &&& regions.slots[i].addr() % META_SLOT_SIZE == 0
+                &&& FRAME_METADATA_RANGE.start <= regions.slots[i].addr()
+                    < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
                 &&& (p == nn - 1 ==> {
-                    &&& fp.value().next is Some
-                    &&& fp.value().next.unwrap().addr() == flink.paddr
-                    &&& fp.value().next.unwrap().ptr.addr() == regions.slots[ins].pptr().addr()
+                    &&& fp.next is Some
+                    &&& fp.next.unwrap().addr() == flink.paddr
+                    &&& fp.next.unwrap().ptr.addr() == regions.slots[ins].pptr().addr()
                 })
-                &&& (p != nn - 1 ==> fp.value().next == oldl.meta_perm_of(regions0, p).value().next)
+                &&& (p != nn - 1 ==> fp.next == oldl.meta_value_at(regions0, p).next)
                 &&& (p == nn ==> {
-                    &&& fp.value().prev is Some
-                    &&& fp.value().prev.unwrap().addr() == flink.paddr
-                    &&& fp.value().prev.unwrap().ptr.addr() == regions.slots[ins].pptr().addr()
+                    &&& fp.prev is Some
+                    &&& fp.prev.unwrap().addr() == flink.paddr
+                    &&& fp.prev.unwrap().ptr.addr() == regions.slots[ins].pptr().addr()
                 })
-                &&& (p != nn ==> fp.value().prev == oldl.meta_perm_of(regions0, p).value().prev)
+                &&& (p != nn ==> fp.prev == oldl.meta_value_at(regions0, p).prev)
             }) by {
                 let i = oldl.slot_index_at(p);
                 let np = if p < nn {
@@ -1537,11 +1507,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 } else {
                     p + 1
                 };
-                let fp = typed_meta_view::<Link<M>>(
-                    regions.slots[i],
-                    regions.slot_owners[i].inner_perms.storage,
-                    owner.list_own.repr_perms[np],
-                );
+                let fp = owner.list_own.meta_value_at(*regions, np);
                 oldl.relate_region_at_facts(regions0, p);
                 if nn - 1 >= 0 && nn - 1 < oldl.list.len() {
                     oldl.relate_region_at_facts(regions0, nn - 1);
@@ -1551,32 +1517,29 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
                 assert(regions.slots.contains_key(i));
                 assert(regions.slot_owners.contains_key(i));
-                assert(fp.addr() == oldl.list[p].paddr);
-                assert(fp.points_to.addr() == oldl.list[p].paddr);
-                assert(fp.points_to.pptr() == regions0.slots[i].pptr());
+                assert(regions.slots[i].addr() == oldl.list[p].paddr);
+                assert(regions.slots[i].pptr() == regions0.slots[i].pptr());
                 assert(regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
                 assert(regions.slot_owners[i].usage is Frame);
                 assert(regions.slot_owners[i].inner_perms.in_list.value()
                     == owner.list_own.list_id);
-                assert(fp.wf());
-                assert(fp.is_init());
+                assert(owner.list_own.meta_wf_at(*regions, np));
                 if p == nn - 1 {
-                    assert(fp.value().next is Some);
-                    assert(fp.value().next.unwrap().addr() == flink.paddr);
-                    assert(fp.value().next.unwrap().ptr.addr() == regions.slots[ins].pptr().addr());
+                    assert(fp.next is Some);
+                    assert(fp.next.unwrap().addr() == flink.paddr);
+                    assert(fp.next.unwrap().ptr.addr() == regions.slots[ins].pptr().addr());
                 } else {
-                    assert(fp.value().next == oldl.meta_perm_of(regions0, p).value().next);
+                    assert(fp.next == oldl.meta_value_at(regions0, p).next);
                 }
                 if p == nn {
-                    assert(fp.value().prev is Some);
-                    assert(fp.value().prev.unwrap().addr() == flink.paddr);
-                    assert(fp.value().prev.unwrap().ptr.addr() == regions.slots[ins].pptr().addr());
+                    assert(fp.prev is Some);
+                    assert(fp.prev.unwrap().addr() == flink.paddr);
+                    assert(fp.prev.unwrap().ptr.addr() == regions.slots[ins].pptr().addr());
                 } else {
-                    assert(fp.value().prev == oldl.meta_perm_of(regions0, p).value().prev);
+                    assert(fp.prev == oldl.meta_value_at(regions0, p).prev);
                 }
             }
 
-            let fpn = owner.list_own.meta_perm_of(*regions, nn);
             assert(regions.slots.contains_key(ins));
             assert(regions.slot_owners.contains_key(ins));
 

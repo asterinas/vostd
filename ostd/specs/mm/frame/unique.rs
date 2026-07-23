@@ -113,14 +113,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
-    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> TypedMetaView<M> {
-        typed_meta_view::<M>(
-            regions.slots[self.slot_index],
-            regions.slot_owners[self.slot_index].inner_perms.storage,
-            self.repr_perm->0,
-        )
-    }
-
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<M>(
             regions.slots[self.slot_index],
@@ -146,7 +138,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
 
     /// Borrow-model global invariant: the frame's permission is parked in
     /// `regions.slots[slot_index]` (NOT owned by the frame), and the
-    /// reconstructed `meta_perm_of` is well-formed and decodes to metadata
+    /// concrete storage and representation permissions decode to metadata
     /// matching `meta_own`. A `UniqueFrame` is the sole live reference to its
     /// slot, so the slot sits at `REF_COUNT_UNIQUE` — the unique-frame analog
     /// of the segment's `0 < ref_count <= REF_COUNT_MAX` regime in

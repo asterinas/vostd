@@ -226,58 +226,6 @@ pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     M::from_repr_spec(storage.value(), repr_perm)
 }
 
-/// A non-owning specification projection of the three independently-owned
-/// permissions involved in interpreting a metadata slot. This is deliberately
-/// `ghost`, not `tracked`: it cannot be used to borrow memory or manufacture a
-/// permission token.
-pub ghost struct TypedMetaView<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
-    pub points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
-    pub storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-    pub repr_perm: M::Perm,
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> TypedMetaView<M> {
-    pub open spec fn wf(self) -> bool {
-        typed_meta_wf::<M>(self.points_to, self.storage, self.repr_perm)
-    }
-
-    pub open spec fn addr(self) -> usize {
-        self.points_to.addr()
-    }
-
-    pub open spec fn pptr(self) -> PPtr<MetaSlot> {
-        self.points_to.pptr()
-    }
-
-    pub open spec fn is_init(self) -> bool {
-        self.points_to.is_init() && self.storage.is_init()
-    }
-
-    pub open spec fn mem_contents(self) -> MemContents<M> {
-        match self.storage.mem_contents() {
-            MemContents::<MetaSlotStorage>::Uninit => MemContents::<M>::Uninit,
-            MemContents::<MetaSlotStorage>::Init(storage) => {
-                MemContents::<M>::Init(M::from_repr_spec(storage, self.repr_perm))
-            },
-        }
-    }
-
-    pub open spec fn value(self) -> M
-        recommends
-            self.wf(),
-    {
-        typed_meta_value::<M>(self.storage, self.repr_perm)
-    }
-}
-
-pub open spec fn typed_meta_view<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
-    storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
-    repr_perm: M::Perm,
-) -> TypedMetaView<M> {
-    TypedMetaView { points_to, storage, repr_perm }
-}
-
 pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,

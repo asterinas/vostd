@@ -254,18 +254,8 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
-    pub open spec fn meta_perm_of(self, regions: MetaRegionOwners) -> TypedMetaView<
-        PageTablePageMeta<C>,
-    > {
-        typed_meta_view::<PageTablePageMeta<C>>(
-            regions.slots[self.slot_index],
-            regions.slot_owners[self.slot_index].inner_perms.storage,
-            self.repr_perm,
-        )
-    }
-
     /// The meta address of this node's slot, computed from `slot_index`.
-    /// Always equals `self.meta_perm.addr()` under `inv()`.
+    /// Always equals the address of its region slot under the region invariant.
     pub open spec fn meta_vaddr(self) -> Vaddr {
         index_to_meta(self.slot_index)
     }
