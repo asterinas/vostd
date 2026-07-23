@@ -1430,27 +1430,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
                 assert(regions.slots.contains_key(i));
                 assert(regions.slot_owners.contains_key(i));
-                assert(regions.slots[i].addr() == oldl.list[p].paddr);
-                assert(regions.slots[i].pptr() == regions0.slots[i].pptr());
-                assert(regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
-                assert(regions.slot_owners[i].usage is Frame);
-                assert(regions.slot_owners[i].inner_perms.in_list.value()
-                    == owner.list_own.list_id);
-                assert(owner.list_own.meta_wf_at(*regions, np));
-                if p == nn - 1 {
-                    assert(fp.next is Some);
-                    assert(fp.next.unwrap().addr() == flink.paddr);
-                    assert(fp.next.unwrap().ptr.addr() == regions.slots[ins].pptr().addr());
-                } else {
-                    assert(fp.next == oldl.meta_value_at(regions0, p).next);
-                }
-                if p == nn {
-                    assert(fp.prev is Some);
-                    assert(fp.prev.unwrap().addr() == flink.paddr);
-                    assert(fp.prev.unwrap().ptr.addr() == regions.slots[ins].pptr().addr());
-                } else {
-                    assert(fp.prev == oldl.meta_value_at(regions0, p).prev);
-                }
             }
 
             assert(regions.slots.contains_key(ins));
