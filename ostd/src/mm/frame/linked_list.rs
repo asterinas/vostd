@@ -1298,10 +1298,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn - 1));
                 }
 
-                let ghost regions_before_current = *regions;
-                proof {
-                    assert(owner.list_own.meta_wf_at(*regions, nn));
-                }
                 #[verus_spec(with Ghost(nn), Tracked(regions), Tracked(&mut owner.list_own))]
                 let current_meta = borrow_link_mut(current);
                 current_meta.prev = Some(frame_ptr);
@@ -1318,10 +1314,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             } else {
                 (#[verus_spec(with Tracked(frame_own), Tracked(regions))]frame.meta_mut()).next = Some(current);
 
-                let ghost regions_before_current = *regions;
-                proof {
-                    assert(owner.list_own.meta_wf_at(*regions, nn));
-                }
                 #[verus_spec(with Ghost(nn), Tracked(regions), Tracked(&mut owner.list_own))]
                 let current_meta = borrow_link_mut(current);
                 current_meta.prev = Some(frame_ptr);
@@ -1333,21 +1325,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             }
         } else {
             if let Some(back) = self.list.back {
-                #[verus_spec(with Tracked(frame_own), Tracked(regions))]
-                let frame_meta = frame.meta_mut();
-                frame_meta.prev = Some(back);
-                proof {
-                    assert(<Link<M> as OwnerOf>::wf(
-                        frame_own.meta_value(*regions),
-                        frame_own.meta_own,
-                    ));
-                    assert(frame_own.global_inv(*regions));
-                }
-
-                let ghost regions_before_back = *regions;
-                proof {
-                    assert(owner.list_own.meta_wf_at(*regions, nn - 1));
-                }
+                (#[verus_spec(with Tracked(frame_own), Tracked(regions))]frame.meta_mut()).prev = Some(back);
+                
                 #[verus_spec(with Ghost(nn - 1), Tracked(regions), Tracked(&mut owner.list_own))]
                 let back_meta = borrow_link_mut(back);
                 back_meta.next = Some(frame_ptr);
