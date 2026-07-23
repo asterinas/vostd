@@ -43,7 +43,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// frame. Callers satisfy it by observing that page-table node metadata
     /// lives in `FRAME_METADATA_RANGE`, which is disjoint from any data-frame
     /// paddr (where `paths_in_pt` inserts happen).
-    pub open spec fn no_node_at_idx(self, idx: usize) -> bool {
+    pub open spec fn no_node_at_idx(self, idx: int) -> bool {
         &&& self.map_full_tree(
             |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
                 e.is_node() && e.meta_slot_paddr() is Some ==> frame_to_index(
@@ -113,13 +113,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// (e.g., `map` and the huge-page split) use this helper to
     /// satisfy the precondition of
     /// [`Self::metaregion_preserved_under_path_insert`].
-    pub proof fn no_node_at_idx_from_slot_key(self, regions: MetaRegionOwners, changed_idx: usize)
+    pub proof fn no_node_at_idx_from_slot_key(self, regions: MetaRegionOwners, changed_idx: int)
         requires
             self.inv(),
             regions.inv(),
             self.metaregion_sound(regions),
             regions.slots.contains_key(changed_idx),
-            regions.slot_owners[changed_idx].usage != PageUsage::PageTable,
+            regions.slot_owners[changed_idx].usage !is PageTable,
         ensures
             self.no_node_at_idx(changed_idx),
     {
@@ -156,7 +156,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
         new_path: TreePath<NR_ENTRIES>,
     )
         requires
@@ -166,7 +166,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.slot_owners.contains_key(changed_idx),
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[changed_idx].inner_perms
@@ -215,7 +215,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// being removed has just left the cursor tree.
     pub open spec fn path_removable_at_idx(
         self,
-        idx: usize,
+        idx: int,
         removed_path: TreePath<NR_ENTRIES>,
     ) -> bool {
         &&& self.map_full_tree(
@@ -337,7 +337,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// `path_removable_at_idx` conjunction.
     pub proof fn path_removable_from_no_node_and_no_frame_path(
         self,
-        idx: usize,
+        idx: int,
         removed_path: TreePath<NR_ENTRIES>,
     )
         requires
@@ -390,7 +390,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
         removed_path: TreePath<NR_ENTRIES>,
     )
         requires
@@ -400,7 +400,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.slot_owners.contains_key(changed_idx),
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[changed_idx].inner_perms
@@ -451,7 +451,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         owner_before_replace: Self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
-        removed_idx: usize,
+        removed_idx: int,
         removed_path: TreePath<NR_ENTRIES>,
         target: Mapping,
     )
@@ -463,7 +463,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.inv(),
             regions0.slot_owners.contains_key(removed_idx),
             regions0.slots.contains_key(removed_idx),
-            regions0.slot_owners[removed_idx].usage != PageUsage::PageTable,
+            regions0.slot_owners[removed_idx].usage !is PageTable,
             self@.mappings == owner_before_replace@.mappings - PageTableOwner(
                 owner_before_replace.cur_subtree(),
             )@.mappings,
@@ -471,7 +471,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             owner_before_replace.cur_subtree().value().path == removed_path,
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != removed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions1.slot_owners[removed_idx].inner_perms

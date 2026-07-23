@@ -67,14 +67,14 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // locking, the same bound holds after. Locking may allocate new PT
         // nodes (bumping some parent ref counts), but ref counts stay within
         // safe bounds during a single lock_range call.
-        (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+        (forall |i: int| #![trigger old(regions).slot_owners[i]]
             old(regions).slot_owners.contains_key(i)
             && old(regions).slot_owners[i].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
             ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
                 < REF_COUNT_MAX)
         ==>
-        (forall |i: usize| #![trigger final(regions).slot_owners[i]]
+        (forall |i: int| #![trigger final(regions).slot_owners[i]]
             final(regions).slot_owners.contains_key(i)
             && final(regions).slot_owners[i].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
@@ -82,7 +82,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
                 < REF_COUNT_MAX),
         // Locking only allocates page-table nodes from UNUSED slots, so any
         // slot that was already in use keeps its paths_in_pt intact.
-        forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+        forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
@@ -91,7 +91,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // preserved across `lock_range` — composes
         // `try_traverse_and_lock_subtree_root`'s in-use preservation with
         // `dfs_acquire_lock`'s `slot_owners ==` preservation.
-        forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+        forall|idx: int| #![trigger final(regions).slot_owners[idx]]
             old(regions).slot_owners.contains_key(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
@@ -102,12 +102,12 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // Saturated-slot bridge (bidirectional): a slot is at
         // `>= REF_COUNT_MAX` before iff after, with the same value.
         // Composes helpers' clauses (see their ensures).
-        forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+        forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
             final(regions).slot_owners[idx].inner_perms.ref_count.value()
                 >= REF_COUNT_MAX
             ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
-        forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
+        forall|idx: int| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 >= REF_COUNT_MAX
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
@@ -165,7 +165,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
                 )
                 &&& guards.lock_held(
                     cursor_own.continuations[cursor_own.level - 1]
-                        .entry_own.node().meta_addr_self(),
+                        .entry_own.node().meta_vaddr(),
                 )
             },
     )]
@@ -222,15 +222,13 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             && res.0.level == res.0.guard_level && res.0.va < res.0.barrier_va.end && (
         *res.1).as_page_table_owner() == pt_own && (*res.1).continuations[3].path()
             == pt_own.0.value().path);
-        assume((forall|i: usize|
+        assume((forall|i: int|
             #![trigger old(regions).slot_owners[i]]
             old(regions).slot_owners.contains_key(i) && old(
                 regions,
             ).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==> old(
                 regions,
-            ).slot_owners[i].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX) ==> (forall|
-            i: usize,
-        |
+            ).slot_owners[i].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX) ==> (forall|i: int|
             #![trigger regions.slot_owners[i]]
             regions.slot_owners.contains_key(i)
                 && regions.slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
@@ -304,12 +302,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // The subtree root is lock_held in guards.
         r is Some ==> final(guards).lock_held(
             final(cursor_own).continuations[final(cursor_own).level - 1]
-                .entry_own.node().meta_addr_self()),
+                .entry_own.node().meta_vaddr()),
         // regions invariant preserved
         final(regions).inv(),
         // Locking only allocates fresh page-table nodes from UNUSED slots;
         // it does not mutate any slot that was already in use.
-        forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+        forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].paths_in_pt
@@ -317,7 +315,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // For *in-use* slots (non-UNUSED refcount), the refcount value and
         // usage are exactly preserved — locking only allocates fresh PT
         // nodes from UNUSED slots; it never mutates a slot already in use.
-        forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+        forall|idx: int| #![trigger final(regions).slot_owners[idx]]
             old(regions).slot_owners.contains_key(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
@@ -332,12 +330,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // already-saturated slots. Used by `KVirtArea::query` to bridge
         // the inner `Cursor::query`'s per-specific-slot saturation
         // condition back to the caller's `*old(regions)` snapshot.
-        forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+        forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
             final(regions).slot_owners[idx].inner_perms.ref_count.value()
                 >= REF_COUNT_MAX
             ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
-        forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
+        forall|idx: int| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
             old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 >= REF_COUNT_MAX
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
@@ -523,16 +521,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         entry_own.is_node(),
         entry_own.inv(),
         entry_own.node().relate_guard(*cur_node),
-        old(guards).lock_held(entry_own.node().meta_addr_self()),
+        old(guards).lock_held(entry_own.node().meta_vaddr()),
         cur_node_va <= va_range.start,
         va_range.start < va_range.end,
         old(regions).inv(),
     ensures
         // The root node is still lock_held (not ManuallyDrop'd by this fn).
-        final(guards).lock_held(entry_own.node().meta_addr_self()),
+        final(guards).lock_held(entry_own.node().meta_vaddr()),
         // All other locks are preserved: addresses not in this subtree are unchanged.
         forall |addr: usize|
-            addr != entry_own.node().meta_addr_self()
+            addr != entry_own.node().meta_vaddr()
             && old(guards).guards.contains(addr) ==>
             #[trigger] final(guards).guards.contains(addr),
         // Addresses not in old guards don't appear in final guards

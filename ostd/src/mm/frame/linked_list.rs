@@ -20,7 +20,7 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
     linked_list::linked_list_owners::*,
-    mapping::{frame_to_index, group_page_meta, max_meta_slots, meta_addr},
+    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
     meta_owners::{MetaSlotOwner, Metadata},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
@@ -397,7 +397,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         };
 
         proof {
-            // `get_slot` returned `Ok`, so `has_safe_slot(frame)` holds; with
+            // `get_slot` returned `Ok`, so `valid_frame_paddr(frame)` holds; with
             // `regions.inv()` that pins the slot in the region maps, its
             // metadata as init, and its `in_list` permission as governing the
             // slot's atomic — the same facts `cursor_mut_at` derives in-body.
@@ -456,7 +456,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         requires
             old(regions).inv(),
         ensures
-            !has_safe_slot(frame) ==> r is None,
+            !valid_frame_paddr(frame) ==> r is None,
             final(regions).inv(),
             final(regions).slots == old(regions).slots,
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
@@ -505,7 +505,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 None
             }
         } else {
-            assert(!has_safe_slot(frame));
+            assert(!valid_frame_paddr(frame));
             proof_with!(|= Tracked(None));
             None
         }
@@ -857,12 +857,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 &&& final(regions).slot_owners[idx].inner_perms.in_list.value() == 0
                 &&& final(regions).slot_owners[idx].inner_perms.storage.is_init()
                 &&& final(regions).slot_owners[idx].inner_perms.vtable_ptr.is_init()
-                &&& final(regions).slot_owners[idx].slot_vaddr == meta_addr(idx)
+                &&& final(regions).slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& final(regions).slot_owners[idx].paths_in_pt == old(
                     regions,
                 ).slot_owners[idx].paths_in_pt
             },
-            res.is_some() ==> forall|j: usize|
+            res.is_some() ==> forall|j: int|
                 #![trigger final(regions).slot_owners[j]]
                 j != frame_to_index(meta_to_frame(old(self).current->0.addr())) ==> {
                     &&& final(regions).slot_owners[j].usage == old(regions).slot_owners[j].usage
@@ -919,7 +919,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             assert(regions.slots.dom() == regions0.slots.dom());
-            assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+            assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                 &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -953,7 +953,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+                assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -967,7 +967,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             self.list.front = next_ptr;
             proof {
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+                assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -995,7 +995,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             proof {
                 assert(regions.inv());
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+                assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1012,7 +1012,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             self.current = None;
             proof {
                 assert(regions.slots.dom() == regions0.slots.dom());
-                assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+                assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                     &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                     &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                     &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1038,7 +1038,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(regions.inv());
             assert(regions.slots.dom() == regions0.slots.dom());
             assert(regions.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt);
-            assert forall|j: usize| #![trigger regions0.slot_owners[j]] j != idx implies {
+            assert forall|j: int| #![trigger regions0.slot_owners[j]] j != idx implies {
                 &&& regions.slot_owners[j].usage == regions0.slot_owners[j].usage
                 &&& regions.slot_owners[j].slot_vaddr == regions0.slot_owners[j].slot_vaddr
                 &&& regions.slot_owners[j].paths_in_pt == regions0.slot_owners[j].paths_in_pt
@@ -1169,7 +1169,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let frame_ptr = ReprPtr::<MetaSlot, Metadata<Link<M>>>::from_pptr(frame.ptr);
         let frame_ptr_as_link = MetadataAsLink::cast_from_metadata(frame_ptr);
 
-        let ghost frame_idx_g: usize = frame_own.slot_index;
+        let ghost frame_idx_g: int = frame_own.slot_index;
 
         if let Some(current) = self.current {
             let current_md = MetadataAsLink::cast_to_metadata(current);
@@ -1364,33 +1364,27 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
     /// added because every live `LinkedList` already has a unique
     /// `LinkedListOwner` in scope — the per-instance discipline is
     /// state-side, not ledger-side.
-    type Key = u64;
+    type Obligation = DropObligation<u64>;
 
-    open spec fn key(self) -> Self::Key {
-        self.list_id
-    }
-
-    open spec fn constructor_requires(self, s: Self::State) -> bool {
+    open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         true
     }
 
-    open spec fn constructor_ensures(
+    open spec fn tracked_redeem_ensures(
         self,
         s0: Self::State,
         s1: Self::State,
-        obl_key: Self::Key,
+        obl: Self::Obligation,
     ) -> bool {
         &&& s0 =~= s1
-        &&& obl_key == self.list_id
+        &&& obl.value() == self.list_id
     }
 
-    proof fn constructor_spec(self, tracked s: &mut Self::State) -> (tracked obl: DropObligation<
-        Self::Key,
-    >) {
+    proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
         DropObligation::tracked_mint(self.list_id)
     }
 
-    open spec fn drop_requires(self, s: Self::State) -> bool {
+    open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
         &&& self.wf(s.0)
         &&& s.0.inv()
         &&& s.1.inv()
@@ -1428,9 +1422,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
             0 <= i < j < s.0.list.len() ==> frame_to_index(meta_to_frame(s.0.list[i].paddr))
                 != frame_to_index(meta_to_frame(s.0.list[j].paddr))
         &&& s.0.relate_region(s.1)
+        &&& obl.value() == self.list_id
     }
 
-    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State, obl_key: Self::Key) -> bool {
+    open spec fn drop_ensures(
+        self,
+        s0: Self::State,
+        s1: Self::State,
+        obl: Self::Obligation,
+    ) -> bool {
         &&& s1.0.list.len() == 0
         &&& forall|i: int|
             #![trigger s0.0.list[i]]
@@ -1438,7 +1438,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
                 let idx = frame_to_index(meta_to_frame(s0.0.list[i].paddr));
                 s1.1.frame_obligations.count(idx) == s0.1.frame_obligations.count(idx)
             }
-        &&& forall|idx: usize|
+        &&& forall|idx: int|
             #![trigger s1.1.slot_owners[idx]]
             (forall|i: int|
                 #![trigger s0.0.list[i]]
@@ -1453,30 +1453,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         &&& s1.1.slots.dom() =~= s0.1.slots.dom()
         &&& s1.1.inv()
     }
-
-    open spec fn consume_requires(self, s: Self::State, obl_key: Self::Key) -> bool {
-        // The token must match this list's identity — prevents a token
-        // forged for a different list from discharging this one.
-        obl_key == self.list_id
-    }
-
-    open spec fn consume_ensures(
-        self,
-        s0: Self::State,
-        s1: Self::State,
-        obl_key: Self::Key,
-    ) -> bool {
-        s0 =~= s1
-    }
-
-    proof fn consume_obligation(
-        self,
-        tracked s: &mut Self::State,
-        tracked obl: DropObligation<Self::Key>,
-    ) {
-        // No-op on the ledger; the per-instance discipline lives in
-        // `LinkedListOwner`'s state-side invariants.
-    }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
@@ -1486,12 +1462,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
         Tracked(s): Tracked<&mut Self::State>,
         Tracked(obl): Tracked<DropObligation<u64>>,
     ) {
-        // Single redeem path: route through `consume_obligation` before
-        // running the destructor body.
-        proof {
-            self.consume_obligation(s, obl);
-        }
-
         proof_decl! {
             let tracked mut list_own: LinkedListOwner<M>;
         }
@@ -1541,7 +1511,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         regions.frame_obligations.count(idx) == 0
                     },
                 // slots values inside the original_list.
-                forall|idx: usize|
+                forall|idx: int|
                     #![trigger regions.slot_owners[idx]]
                     (forall|j: int|
                         #![trigger original_list[j]]

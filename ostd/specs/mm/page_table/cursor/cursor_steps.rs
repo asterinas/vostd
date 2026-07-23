@@ -109,7 +109,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     let h = CursorOwner::<'rcu, C>::node_unlocked(guards);
 
     if subtree.value().is_node() {
-        if subtree.value().node().meta_addr_self() == excepted_addr {
+        if subtree.value().node().meta_vaddr() == excepted_addr {
             // addr == excepted_addr contradicts path != excepted_path
             // via metaregion_sound's singleton paths_in_pt.
             let idx = frame_to_index(meta_to_frame(excepted_addr));
@@ -447,7 +447,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         );
 
         let cur_entry = self.cur_entry_owner();
-        let cur_entry_addr = cur_entry.node().meta_addr_self();
+        let cur_entry_addr = cur_entry.node().meta_vaddr();
         let cur_entry_path = old_cont.path().push_tail(old_cont.idx as int);
 
         assert forall|i: int|
@@ -458,8 +458,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let cont_i = self.continuations[i];
 
             if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
-                let addr = cont_i.entry_own.node().meta_addr_self();
-                assert(addr == cur_entry.node().meta_addr_self());
+                let addr = cont_i.entry_own.node().meta_vaddr();
+                assert(addr == cur_entry.node().meta_vaddr());
                 let idx = frame_to_index(meta_to_frame(addr));
                 assert(regions.slot_owners[idx].paths_in_pt == set![cont_i.path()]);
                 assert(regions.slot_owners[idx].paths_in_pt == set![cur_entry_path]);
@@ -640,7 +640,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner().0.metaregion_sound(regions),
     {
         let child = self.continuations[self.level - 1];
-        let child_addr = child.entry_own.node().meta_addr_self();
+        let child_addr = child.entry_own.node().meta_vaddr();
 
         self.map_children_implies(
             CursorOwner::<'rcu, C>::node_unlocked(guards),

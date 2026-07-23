@@ -169,7 +169,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let (pa, level, prop) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
         &&& regions.slots.contains_key(idx)
-        &&& regions.slot_owners[idx].usage != PageUsage::PageTable
+        &&& regions.slot_owners[idx].usage !is PageTable
         &&& regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED
         // Tracked items hold a refcount; untracked (MMIO) don't.

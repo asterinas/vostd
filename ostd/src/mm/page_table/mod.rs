@@ -210,7 +210,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_well_formed(item),
         ensures
             1 <= level <= NR_LEVELS,
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             paddr % page_size(level) == 0,
             paddr + page_size(level) <= MAX_PADDR,
             Self::raw_item_well_formed(paddr, level, prop),
@@ -249,7 +249,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res:
         Self::Item)
         requires
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             Self::raw_item_well_formed(paddr, level, prop),
         ensures
             Self::item_well_formed(res),
@@ -279,7 +279,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         new_prop: PageProperty,
     )
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::raw_item_well_formed(pa, level, old_prop),
             Self::tracked(Self::item_from_raw(pa, level, new_prop)) == Self::tracked(
                 Self::item_from_raw(pa, level, old_prop),
@@ -297,7 +297,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         child_idx: usize,
     )
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::raw_item_well_formed(pa, level, prop),
             Self::E::new_page_req(pa, level, prop),
             level > 1,
@@ -311,7 +311,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// The item produced by [`PageTableConfig::item_from_raw`] is well-formed.
     proof fn lemma_item_from_raw_well_formed(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::raw_item_well_formed(pa, level, prop),
         ensures
             Self::item_well_formed(Self::item_from_raw(pa, level, prop)),
@@ -320,7 +320,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// Re-encoding a canonical raw item preserves the complete raw representation.
     proof fn lemma_item_into_raw_roundtrip(pa: Paddr, level: PagingLevel, prop: PageProperty)
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::raw_item_well_formed(pa, level, prop),
         ensures
             Self::item_into_raw(Self::item_from_raw(pa, level, prop)) == (pa, level, prop),
@@ -334,7 +334,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         prop: PageProperty,
     )
         requires
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             Self::item_well_formed(item),
             Self::item_into_raw(item) == (pa, level, prop),
         ensures
@@ -364,7 +364,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
     // Other slots always unchanged.
 
-            forall|i: usize|
+            forall|i: int|
                 i != frame_to_index(pa) ==> (#[trigger] new_regions.slot_owners[i]
                     == old_regions.slot_owners[i]),
             // The frame's slot: bumped if the item is ref-counted, otherwise unchanged.
@@ -411,7 +411,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             regions.inv(),
             Self::item_from_raw_spec(pa, level, prop) == item,
             Self::raw_item_well_formed(pa, level, prop),
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             regions.slots.contains_key(frame_to_index(pa)),
             regions.slot_owners.contains_key(frame_to_index(pa)),
             Self::tracked(item) ==> regions.slot_owners[frame_to_index(
@@ -940,7 +940,7 @@ impl PageTable<KernelPtConfig> {
             kernel_owner.0.value().is_node(),
             !Self::create_user_pt_panic_condition(kernel_owner.0.value().node()),
             // The kernel page table's root frame matches the tracked owner.
-            self.root.ptr.addr() == kernel_owner.0.value().node().meta_addr_self(),
+            self.root.ptr.addr() == kernel_owner.0.value().node().meta_vaddr(),
             // The kernel root entry is sound with respect to the meta regions.
             kernel_owner.0.value().metaregion_sound(*old(regions)),
             // The whole kernel page-table tree is sound: every entry's metaregion
@@ -948,7 +948,7 @@ impl PageTable<KernelPtConfig> {
             // soundness inside the loop body.
             kernel_owner.metaregion_sound(*old(regions)),
             // The kernel root is not currently locked.
-            old(guards).unlocked(kernel_owner.0.value().node().meta_addr_self()),
+            old(guards).unlocked(kernel_owner.0.value().node().meta_vaddr()),
         ensures
             final(regions).inv(),
     )]
@@ -966,7 +966,7 @@ impl PageTable<KernelPtConfig> {
         PageTable::empty_with_owner());
         let new_root = new_pt.root;
         // Capture new_idx as a ghost BEFORE the tracked_take below empties new_pt_owner.
-        let ghost new_idx_g: usize = crate::specs::mm::frame::mapping::frame_to_index(
+        let ghost new_idx_g: int = crate::specs::mm::frame::mapping::frame_to_index(
             new_pt_owner@.unwrap().0.value().meta_slot_paddr().unwrap(),
         );
         let ghost new_pt_owner_snap = new_pt_owner@.unwrap();
@@ -1026,7 +1026,7 @@ impl PageTable<KernelPtConfig> {
             );
             assert(regions_before_self_borrow.slot_owners
                 == regions_after_kroot_borrow.slot_owners);
-            assert forall|k: usize|
+            assert forall|k: int|
                 regions_before_self_borrow.slots.contains_key(
                     k,
                 ) implies regions_before_self_borrow.slots[k]
@@ -1060,7 +1060,7 @@ impl PageTable<KernelPtConfig> {
 
             assert(!regions_before_self_borrow.slots.contains_key(new_idx));
             assert(!regions_after_kroot_borrow.slots.contains_key(new_idx));
-            assert forall|k: usize|
+            assert forall|k: int|
                 regions_after_kroot_borrow.slots.contains_key(
                     k,
                 ) implies regions_after_kroot_borrow.slots[k] == #[trigger] regions.slots[k] by {
@@ -1276,7 +1276,7 @@ impl<C: PageTableConfig> PageTable<C> {
         regions: MetaRegionOwners,
     ) -> bool {
         &&& owner.inv()
-        &&& self.root.ptr.addr() == owner.0.value().node().meta_addr_self()
+        &&& self.root.ptr.addr() == owner.0.value().node().meta_vaddr()
         &&& owner.metaregion_sound(regions)
     }
 
@@ -1301,10 +1301,10 @@ impl<C: PageTableConfig> PageTable<C> {
             final(owner)@->0.inv(),
             (final(owner)@->0).0.value().is_node(),
             (final(owner)@->0).0.value().is_node(),
-            r.root.ptr.addr() == (final(owner)@->0).0.value().node().meta_addr_self(),
+            r.root.ptr.addr() == (final(owner)@->0).0.value().node().meta_vaddr(),
             (final(owner)@->0).0.value().metaregion_sound(*final(regions)),
             final(regions).inv(),
-            final(guards).unlocked((final(owner)@->0).0.value().node().meta_addr_self()),
+            final(guards).unlocked((final(owner)@->0).0.value().node().meta_vaddr()),
             // Allocating a fresh node does not change the lock set, so any node
             // that was (un)locked before remains so.
             final(guards).guards == old(guards).guards,
@@ -1318,12 +1318,12 @@ impl<C: PageTableConfig> PageTable<C> {
                 crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
             // Other slots and lock state are preserved.
-            forall |i: usize| #![trigger final(regions).slot_owners[i]]
+            forall |i: int| #![trigger final(regions).slot_owners[i]]
                 i != crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
             forall |a: usize| old(guards).lock_held(a) ==> final(guards).lock_held(a),
-            forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+            forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 final(regions).slot_owners[idx].paths_in_pt
                     == old(regions).slot_owners[idx].paths_in_pt,
             // Allocation preserves the soundness of the kernel page-table tree:
@@ -1449,12 +1449,12 @@ impl<C: PageTableConfig> PageTable<C> {
             // CursorMut::new inherits Cursor::new's weakened preservation:
             // PT-node allocations come from UNUSED slots, so any slot that
             // was already in use keeps its paths_in_pt.
-            forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+            forall |idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
-            forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx]]
                 old(regions).slot_owners.contains_key(idx)
                 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
@@ -1500,20 +1500,20 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().1@.continuations[3].path() == owner.0.value().path
             },
             !Cursor::<C, G>::cursor_new_success_conditions(*va) ==> r is Err,
-            forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].paths_in_pt]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             // Non-saturation preservation.
-            (forall |i: usize| #![trigger old(regions).slot_owners[i]]
+            (forall |i: int| #![trigger old(regions).slot_owners[i]]
                 old(regions).slot_owners.contains_key(i)
                 && old(regions).slot_owners[i].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
                     < REF_COUNT_MAX)
             ==>
-            (forall |i: usize| #![trigger final(regions).slot_owners[i]]
+            (forall |i: int| #![trigger final(regions).slot_owners[i]]
                 final(regions).slot_owners.contains_key(i)
                 && final(regions).slot_owners[i].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
@@ -1523,12 +1523,12 @@ impl<C: PageTableConfig> PageTable<C> {
             // a slot at `>= REF_COUNT_MAX` before iff after, with the same
             // value. Used by `KVirtArea::query` to bridge inner-cursor
             // saturation back to the caller's snapshot.
-            forall|idx: usize| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            forall|idx: int| #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 final(regions).slot_owners[idx].inner_perms.ref_count.value()
                     >= REF_COUNT_MAX
                 ==> old(regions).slot_owners[idx].inner_perms.ref_count.value()
                         == final(regions).slot_owners[idx].inner_perms.ref_count.value(),
-            forall|idx: usize| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
+            forall|idx: int| #![trigger old(regions).slot_owners[idx].inner_perms.ref_count.value()]
                 old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     >= REF_COUNT_MAX
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
@@ -1622,8 +1622,7 @@ pub trait PageTableEntryTrait:
     #[verifier(when_used_as_spec(new_absent_spec))]
     fn new_absent() -> (res: Self)
         ensures
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            valid_frame_paddr(res.paddr()),
             !res.is_present(),
         returns
             Self::new_absent(),
@@ -1656,8 +1655,7 @@ pub trait PageTableEntryTrait:
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            valid_frame_paddr(res.paddr()),
             res.is_present(),
             res.is_last(level),
             res.prop() == prop,
@@ -1675,8 +1673,7 @@ pub trait PageTableEntryTrait:
         ensures
             res.paddr() == paddr & !((PAGE_SIZE - 1) as usize),
             paddr % PAGE_SIZE == 0 ==> res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE == 0,
-            res.paddr() < MAX_PADDR,
+            valid_frame_paddr(res.paddr()),
             res.is_present(),
             forall|level: PagingLevel| !res.is_last(level),
         returns
@@ -1693,7 +1690,7 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures
-            has_safe_slot(res),
+            valid_frame_paddr(res),
         returns
             self.paddr(),
     ;
@@ -1768,8 +1765,7 @@ pub trait PageTableEntryTrait:
             core::mem::size_of::<Self>() == core::mem::size_of::<usize>(),
             core::mem::size_of::<Self>() % core::mem::align_of::<Self>() == 0,
             core::mem::align_of::<Self>() > 0,
-            Self::new_absent().paddr() % PAGE_SIZE == 0,
-            Self::new_absent().paddr() < MAX_PADDR,
+            valid_frame_paddr(Self::new_absent().paddr()),
             !Self::new_absent().is_present(),
             forall|level: PagingLevel|
                 #![trigger Self::new_absent().is_last(level)]

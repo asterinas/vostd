@@ -10,7 +10,7 @@ use crate::specs::{
     arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
     mm::{
         frame::{
-            mapping::{frame_to_index, max_meta_slots, meta_addr},
+            mapping::{frame_to_index, index_to_meta, max_meta_slots},
             meta_owners::*,
             meta_region_owners::MetaRegionOwners,
         },
@@ -226,9 +226,9 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
-    pub level: PagingLevel,
-    pub tree_level: int,
-    pub slot_index: usize,
+    pub ghost level: PagingLevel,
+    pub ghost tree_level: int,
+    pub ghost slot_index: int,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
@@ -237,24 +237,26 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.children_perm.is_init_all()
-        &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(meta_addr(self.slot_index)))
+        &&& self.children_perm.addr() == paddr_to_vaddr(
+            meta_to_frame(index_to_meta(self.slot_index)),
+        )
         &&& self.tree_level == INC_LEVELS - self.level - 1
-        &&& self.slot_index < max_meta_slots() as usize
-        &&& FRAME_METADATA_RANGE.start <= meta_addr(self.slot_index) < FRAME_METADATA_RANGE.end
-        &&& meta_addr(self.slot_index) % META_SLOT_SIZE == 0
-        &&& meta_to_frame(meta_addr(self.slot_index)) < VMALLOC_BASE_VADDR
+        &&& 0 <= self.slot_index < max_meta_slots()
+        &&& FRAME_METADATA_RANGE.start <= index_to_meta(self.slot_index) < FRAME_METADATA_RANGE.end
+        &&& index_to_meta(self.slot_index) % META_SLOT_SIZE == 0
+        &&& meta_to_frame(index_to_meta(self.slot_index)) < VMALLOC_BASE_VADDR
             - LINEAR_MAPPING_BASE_VADDR
-        &&& meta_to_frame(meta_addr(self.slot_index)) < MAX_PADDR
-        &&& meta_to_frame(meta_addr(self.slot_index)) == self.children_perm.addr()
-        &&& self.slot_index == frame_to_index(meta_to_frame(meta_addr(self.slot_index)))
+        &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
+        &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
+        &&& self.slot_index == frame_to_index(meta_to_frame(index_to_meta(self.slot_index)))
     }
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
     /// The meta address of this node's slot, computed from `slot_index`.
     /// Always equals `self.meta_perm.addr()` under `inv()`.
-    pub open spec fn meta_addr_self(self) -> Vaddr {
-        meta_addr(self.slot_index)
+    pub open spec fn meta_vaddr(self) -> Vaddr {
+        index_to_meta(self.slot_index)
     }
 
     /// Reconstructs a metadata cast_ptr from `regions` at `self.slot_index`.
@@ -288,8 +290,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
         // freshly-allocated node (whose slot was `UNUSED`) can't collide with an
         // existing live node — giving `alloc_if_none`/`split` the parent≠child
         // slot distinctness without a PointsTo-linearity axiom.
-        &&& regions.slot_owners[self.slot_index].usage
-            == PageUsage::PageTable
+        &&& regions.slot_owners[self.slot_index].usage is PageTable
         // `nr_children` counts the present PTEs in `children_perm`. A settled-node
         // invariant (it is momentarily broken mid-`replace`/`alloc_if_none`, between
         // the PTE write and the counter update, which is why it lives here rather
@@ -341,7 +342,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.meta_addr_self()
+        &&& guard.inner.inner@.ptr.addr() == self.meta_vaddr()
         &&& guard.inner.inner@.wf(self)
     }
 }
@@ -374,7 +375,7 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
     type Owner = NodeOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.ptr.addr() == owner.meta_addr_self()
+        &&& self.ptr.addr() == owner.meta_vaddr()
     }
 }
 

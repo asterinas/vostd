@@ -74,7 +74,7 @@ impl<C: PageTableConfig> Child<C> {
             *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
             *final(owner) == old(owner).into_pte_owner_spec(),
             old(owner).is_node() ==> res == C::E::new_pt_spec(
-                meta_to_frame(old(owner).node().meta_addr_self()),
+                meta_to_frame(old(owner).node().meta_vaddr()),
             ),
     )]
     pub fn into_pte(self) -> C::E {
@@ -93,7 +93,13 @@ impl<C: PageTableConfig> Child<C> {
 
                 let ghost fo0 = regions.frame_obligations;
 
-                let _ = ManuallyDrop::new(node, Tracked(regions));
+                proof_decl! {
+                    let tracked redeem_obl = DropObligation::tracked_mint(node_index);
+                    regions.tracked_redeem_frame_obligation(redeem_obl);
+                    let tracked md_obl = DropObligation::tracked_mint(node_index);
+                }
+                proof_with!(Tracked(md_obl));
+                let _ = ManuallyDrop::new(node);
 
                 proof {
                     // `MD::new` removed one entry at `node_index`, matching
@@ -148,7 +154,7 @@ impl<C: PageTableConfig> Child<C> {
             }
 
             proof_decl! {
-                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+                let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
             }
 
             let node = unsafe {
@@ -215,11 +221,11 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         ensures
             res.invariants(*entry_owner, *final(regions)),
             final(regions).slot_owners == old(regions).slot_owners,
-            forall|k: usize|
+            forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
                     k,
                 ),
-            forall|k: usize|
+            forall|k: int|
                 old(regions).slots.contains_key(k) ==> old(regions).slots[k]
                     == #[trigger] final(regions).slots[k],
     )]
@@ -244,7 +250,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             proof {
                 // `borrow_paddr` preserves the region maps, so every old slot key keeps
                 // the same permission value.
-                assert forall|k: usize| old(regions).slots.contains_key(k) implies old(
+                assert forall|k: int| old(regions).slots.contains_key(k) implies old(
                     regions,
                 ).slots[k] == #[trigger] regions.slots[k] by {};
             }

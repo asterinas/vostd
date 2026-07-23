@@ -46,7 +46,7 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
 use crate::specs::{
-    arch::has_safe_slot,
+    arch::valid_frame_paddr,
     mm::{
         frame::{
             mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
@@ -83,7 +83,7 @@ verus! {
 pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners, paddr: Paddr)
     requires
         old(regions).inv(),
-        has_safe_slot(paddr),
+        valid_frame_paddr(paddr),
         old(regions).slots.contains_key(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
@@ -97,7 +97,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
             let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
-            &&& so_new.usage == PageUsage::Frame
+            &&& so_new.usage is Frame
             &&& so_new.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
             &&& so_new.inner_perms.in_list.value() == 0
             &&& so_new.inner_perms.storage.is_init()
@@ -105,7 +105,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         // All other slots fully preserved.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -150,7 +150,7 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
         // All other slots fully preserved.
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -187,7 +187,7 @@ pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr:
             &&& so_new.inner_perms.storage == so_old.inner_perms.storage
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -208,7 +208,7 @@ pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, pa
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == 1,
-        old(regions).slot_owners[frame_to_index(paddr)].usage == PageUsage::Frame,
+        old(regions).slot_owners[frame_to_index(paddr)].usage is Frame,
         old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
     ensures
         final(regions).inv(),
@@ -224,7 +224,7 @@ pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, pa
             &&& so_new.inner_perms.storage == so_old.inner_perms.storage
             &&& so_new.slot_vaddr == so_old.slot_vaddr
         },
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,

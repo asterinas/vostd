@@ -20,7 +20,7 @@
 //! - **Generic `M: AnyFrameMeta`**: `Frame::from_unused` takes a
 //!   `metadata: M` parameter and threads it through `PointsTo<MetaSlot, Metadata<M>>`.
 //!   We don't model the metadata type — `get_from_unused_spec` itself
-//!   ignores `M` and just commits to `usage == PageUsage::Frame`.
+//!   ignores `M` and just commits to `usage is Frame`.
 //! - **Drop-last-in-place teardown**: when `ref_count == 1`, dropping
 //!   the handle invokes the metadata destructor (which may require
 //!   `storage.is_init`, `in_list.value() == 0`). We model this by
@@ -75,17 +75,17 @@ pub axiom fn frame_from_unused_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        // `has_safe_slot`-guarded, mirroring the relaxed exec
+        // `valid_frame_paddr`-guarded, mirroring the relaxed exec
         // `Frame::from_unused` `requires`: an out-of-bound / misaligned
         // `paddr` is not a precondition violation — it returns `Err`
         // (here `None`) without touching `regions`.
-        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
+        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
-        // Liveness, mirroring exec `!has_safe_slot(paddr) ==> r is Err`:
+        // Liveness, mirroring exec `!valid_frame_paddr(paddr) ==> r is Err`:
         // a bad `paddr` always fails (and leaves `regions` unchanged via
         // the `None` branch below).
-        !has_safe_slot(paddr) ==> res is None,
+        !valid_frame_paddr(paddr) ==> res is None,
         // Success branch is conditioned on the slot being unused
         // (per `get_from_unused_spec` recommends + the body's
         // `MetaSlot::get_from_unused` failing otherwise). The reparked
@@ -114,10 +114,10 @@ pub axiom fn frame_from_in_use_embedded(
 ) -> (tracked res: Option<()>)
     requires
         old(regions).inv(),
-        // `has_safe_slot`-guarded, mirroring the relaxed exec
+        // `valid_frame_paddr`-guarded, mirroring the relaxed exec
         // `Frame::from_in_use` `requires`: a bad `paddr` returns `Err`
         // (here `None`) without touching `regions`.
-        has_safe_slot(paddr) ==> old(regions).slots.contains_key(
+        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(
             frame_to_index(paddr),
         ),
 // Refcount saturation is NOT required: exec
@@ -127,8 +127,8 @@ pub axiom fn frame_from_in_use_embedded(
 
     ensures
         final(regions).inv(),
-        // Liveness, mirroring exec `!has_safe_slot(paddr) ==> res is Err`.
-        !has_safe_slot(paddr) ==> res is None,
+        // Liveness, mirroring exec `!valid_frame_paddr(paddr) ==> res is Err`.
+        !valid_frame_paddr(paddr) ==> res is None,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
         // 2b: faithful axiom-strengthening. The exec `get_from_in_use`
@@ -150,7 +150,7 @@ pub axiom fn frame_from_in_use_embedded(
             // is Frame-usage. This matches `VmStore::structural_inv`'s
             // FrameId⟹Frame-usage clause and lets [`from_in_use_step`]
             // discharge `insert_frame`'s usage precondition.
-            &&& so.usage == PageUsage::Frame
+            &&& so.usage is Frame
         },
         // `from_in_use` only `inc_ref_count`s — it never touches the
         // slot-perm map, so the `slots` domain is preserved on *both*
@@ -209,7 +209,7 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
 // ---- mirrors strengthened `Frame::drop_ensures` ----
 
         final(regions).inv(),
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(
                 regions,
@@ -280,10 +280,10 @@ pub(super) proof fn from_unused_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        has_safe_slot(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
+        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
-        !has_safe_slot(paddr) ==> res is None,
+        !valid_frame_paddr(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_unused_spec(
             paddr,
@@ -313,14 +313,14 @@ pub(super) proof fn from_in_use_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        has_safe_slot(paddr) ==> old(regions).slots.contains_key(
+        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(
             frame_to_index(paddr),
         ),
 // Saturation `panic_diverge`s in exec — not a precondition.
 
     ensures
         final(regions).inv(),
-        !has_safe_slot(paddr) ==> res is None,
+        !valid_frame_paddr(paddr) ==> res is None,
         res matches Some(e) ==> e.paddr == paddr,
         res is Some ==> MetaSlot::get_from_in_use_success(paddr, *old(regions), *final(regions)),
         res is None ==> *final(regions) == *old(regions),
@@ -331,7 +331,7 @@ pub(super) proof fn from_in_use_step(
             &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
             &&& so.inner_perms.storage.is_init()
-            &&& so.usage == PageUsage::Frame
+            &&& so.usage is Frame
         },
         final(regions).slots == old(regions).slots,
         forall|c: CursorOwner<'_, UserPtConfig>|
@@ -374,7 +374,7 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
     ensures
         final(regions).inv(),
         final(regions).slots == old(regions).slots,
-        forall|i: usize|
+        forall|i: int|
             #![trigger final(regions).slot_owners[i]]
             i != frame_to_index(entry.paddr) ==> final(regions).slot_owners[i] == old(
                 regions,

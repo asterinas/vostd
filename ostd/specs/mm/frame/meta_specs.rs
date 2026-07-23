@@ -11,7 +11,7 @@ use vstd_extra::{cast_ptr::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::frame::{
-        mapping::{frame_to_index, index_to_frame, lemma_paddr_to_meta_biinjective, meta_addr},
+        mapping::{frame_to_index, index_to_meta},
         meta_owners::MetadataInnerPerms,
         meta_region_owners::MetaRegionOwners,
     },
@@ -87,8 +87,7 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
@@ -97,7 +96,7 @@ impl MetaSlot {
         {
             &&& pre_owner.inner_perms.ref_count.value() == REF_COUNT_UNUSED
             &&& MetaSlot::get_from_unused_inner_perms_spec(as_unique, post_owner.inner_perms)
-            &&& post_owner.usage == PageUsage::Frame
+            &&& post_owner.usage is Frame
             &&& post_owner.slot_vaddr == pre_owner.slot_vaddr
             &&& post_owner.paths_in_pt == pre_owner.paths_in_pt
             &&& post =~= pre.insert_slot_owner(paddr, post_owner)
@@ -117,18 +116,17 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
         {
             &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
             &&& MetaSlot::get_from_unused_inner_perms_spec(false, post.slot_owners[idx].inner_perms)
-            &&& post.slot_owners[idx].usage == PageUsage::PageTable
+            &&& post.slot_owners[idx].usage is PageTable
             &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
-            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
+            &&& forall|i: int| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
             &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
         }
     }
@@ -146,7 +144,7 @@ impl MetaSlot {
     ) -> bool {
         let idx = frame_to_index(paddr);
         &&& post.slots.dom() =~= pre.slots.dom()
-        &&& forall|k: usize|
+        &&& forall|k: int|
             #![trigger post.slots[k]]
             k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
     }
@@ -201,8 +199,7 @@ impl MetaSlot {
         post: MetaRegionOwners,
     ) -> bool
         recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            valid_frame_paddr(paddr),
             pre.inv(),
     {
         let idx = frame_to_index(paddr);
@@ -220,7 +217,7 @@ impl MetaSlot {
             &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].usage == pre.slot_owners[idx].usage
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
-            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
+            &&& forall|i: int| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
         }
     }
 
@@ -256,25 +253,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             _marker: PhantomData,
         }
     }
-}
-
-/// Index round-trip: the slot index recovered from a slot's metadata address
-/// is the original index. Callers holding `ptr.addr() == meta_addr(slot_index)`
-/// (via [`crate::mm::frame::unique::UniqueFrame::wf`]) use this to re-derive
-/// region facts phrased over `frame_to_index(meta_to_frame(ptr.addr))` at
-/// `slot_index` (e.g. recovering `ref_count == REF_COUNT_UNIQUE` from
-/// `global_inv`).
-pub broadcast proof fn lemma_meta_addr_to_index(i: usize)
-    requires
-        i < MAX_NR_PAGES,
-    ensures
-        #[trigger] frame_to_index(meta_to_frame(meta_addr(i))) == i,
-{
-    let p = index_to_frame(i);
-
-    // `meta_addr(i)` is exactly the metadata address of physical page `p`.
-    // Existing biinjectivity closes `meta_to_frame(frame_to_meta(p)) == p`.
-    lemma_paddr_to_meta_biinjective(p);
 }
 
 } // verus!

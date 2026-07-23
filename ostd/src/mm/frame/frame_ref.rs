@@ -50,7 +50,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
         ensures
             final(regions).inv(),
-            r.inner.0.ptr.addr() == frame_to_meta(raw),
+            r.inner@.ptr.addr() == frame_to_meta(raw),
             final(regions).slot_owners == old(regions).slot_owners,
             final(regions).slots == old(regions).slots,
             final(regions).frame_obligations == old(regions).frame_obligations,
@@ -61,7 +61,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
         }
 
         proof_decl! {
-            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+            let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
         }
         // `from_raw` mints one `frame_obligations` entry at the slot and
         // hands back the token; the token is dropped affinely (the ledger
@@ -72,7 +72,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
             Frame::from_raw(raw)
         };
 
-        let inner = ManuallyDrop::new(frame, Tracked(regions));
+        proof_decl! {
+            regions.tracked_redeem_frame_obligation(from_raw_obl);
+            let tracked md_obl = DropObligation::tracked_mint(frame.index());
+        }
+        proof_with!(Tracked(md_obl));
+        let inner = ManuallyDrop::new(frame);
 
         Self { inner, _marker: PhantomData }
     }
@@ -81,7 +86,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
 impl<M: AnyFrameMeta + ?Sized + Repr<MetaSlotStorage>> Deref for FrameRef<'_, M> {
     type Target = Frame<M>;
 
-    #[verus_spec(ensures returns &self.inner.0)]
+    #[verus_spec(r => ensures *r == self.inner@)]
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
@@ -123,7 +128,7 @@ pub unsafe trait NonNullPtr: 'static + Sized + TrackDrop<State = MetaRegionOwner
     /// `1 << Self::ALIGN_BITS`.
     fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target>
         requires
-            self.constructor_requires(*old(regions)),
+            self.tracked_redeem_requires(*old(regions)),
     ;
 
     /// Converts back from a raw pointer.
@@ -175,15 +180,18 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
 
     fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target> {
         let ptr = self.ptr;
-        proof {
+        proof_decl! {
             // Mint the obligation that `MD::new` will immediately
             // consume — net-zero on the ledger; the Frame value is
             // forgotten inside the wrapper, and `ref_count` (set by the
             // original producer) stays elevated to balance the eventual
             // `from_raw + drop`.
-            let tracked _ = regions.tracked_mint_frame_obligation(self.index());
+            let tracked redeem_obl = regions.tracked_mint_frame_obligation(self.index());
+            regions.tracked_redeem_frame_obligation(redeem_obl);
+            let tracked md_obl = DropObligation::tracked_mint(self.index());
         }
-        let _ = ManuallyDrop::new(self, Tracked(regions));
+        #[verus_spec(with Tracked(md_obl))]
+        let _ = ManuallyDrop::new(self);
         PPtr::<Self::Target>::from_addr(ptr.addr())
     }
 
@@ -199,10 +207,13 @@ unsafe impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + 'static> NonNullPtr for Fr
             ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
             _marker: PhantomData,
         };
-        proof {
-            let tracked _ = regions.tracked_mint_frame_obligation(frame.index());
+        proof_decl! {
+            let tracked redeem_obl = regions.tracked_mint_frame_obligation(frame.index());
+            regions.tracked_redeem_frame_obligation(redeem_obl);
+            let tracked md_obl = DropObligation::tracked_mint(frame.index());
         }
-        let dropped = ManuallyDrop::<Frame<M>>::new(frame, Tracked(regions));
+        #[verus_spec(with Tracked(md_obl))]
+        let dropped = ManuallyDrop::<Frame<M>>::new(frame);
         Self::Ref { inner: dropped, _marker: PhantomData }
     }
 

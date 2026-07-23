@@ -39,8 +39,7 @@ pub(crate) mod mapping {
     #[verifier::when_used_as_spec(frame_to_meta_spec)]
     pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
         requires
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
+            valid_frame_paddr(paddr),
         ensures
             res % META_SLOT_SIZE == 0,
         returns
@@ -104,7 +103,7 @@ use self::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, meta_addr},
+    mapping::{frame_to_index, index_to_meta},
     meta_owners::*,
     meta_region_owners::MetaRegionOwners,
 };
@@ -315,7 +314,7 @@ pub enum GetFrameError {
 /// Verus ensures that the pointer will only be used when we have a permission object, so creating it is safe.
 #[verus_spec(res =>
     ensures
-        has_safe_slot(paddr) == res is Ok,
+        valid_frame_paddr(paddr) == res is Ok,
         res is Ok ==> res->Ok_0.addr() == frame_to_meta(paddr),
 )]
 pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
@@ -385,7 +384,7 @@ impl MetaSlot {
                 &&& final(regions).inv()
                 &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
             },
-            !has_safe_slot(paddr) ==> res is Err,
+            !valid_frame_paddr(paddr) ==> res is Err,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         paddr: Paddr,
@@ -481,10 +480,10 @@ impl MetaSlot {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         requires
             old(regions).inv(),
-            has_safe_slot(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
+            valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
         ensures
             final(regions).inv(),
-            !has_safe_slot(paddr) ==> res is Err,
+            !valid_frame_paddr(paddr) ==> res is Err,
             res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *final(regions)),
             res matches Ok(ptr) ==> ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
             res is Err ==> *final(regions) == *old(regions),

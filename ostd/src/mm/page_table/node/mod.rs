@@ -185,7 +185,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost pre_skip_cursor: int = reader.cursor.vaddr as int;
 
         let ghost initial_view: crate::specs::mm::virt_mem::MemView = vm_io_owner.read_view_of();
-        let ghost initial_dom: vstd::set::Set<usize> = regions.slots.dom();
+        let ghost initial_dom: vstd::set::Set<int> = regions.slots.dom();
         let ghost initial_reader: crate::mm::VmReader<'_, crate::mm::Infallible> = *reader;
 
         #[verus_spec(with Tracked(vm_io_owner))]
@@ -210,7 +210,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         let ghost range_end: int = range.end as int;
         let n_iters: usize = range.end - range.start;
         let mut iter_count: usize = 0;
-        let ghost mut removed_indices: vstd::set::Set<usize> = vstd::set::Set::empty();
+        let ghost mut removed_indices: vstd::set::Set<int> = vstd::set::Set::empty();
 
         proof {
             C::lemma_page_table_config_constant_properties();
@@ -280,7 +280,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                 // Witness past iter for each removed idx — the discharge
                 // proof picks it up via `choose|j|` and invokes
                 // `walk_uniqueness` at (current_cursor, witness_cursor).
-                forall|idx: usize| #[trigger]
+                forall|idx: int| #[trigger]
                     removed_indices.contains(idx) ==> exists|j: int|
                         #![trigger Self::walk_pte_at_view(
                             initial_view,
@@ -350,10 +350,8 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         );
                         broadcast use lemma_frame_to_index_injective;
 
-                        assert forall|idx: usize| #[trigger]
-                            removed_indices.contains(idx) implies idx != frame_to_index(
-                            pte.paddr(),
-                        ) by {
+                        assert forall|idx: int| #[trigger] removed_indices.contains(idx) implies idx
+                            != frame_to_index(pte.paddr()) by {
                             let j = choose|j: int|
                                 #![trigger Self::walk_pte_at_view(
                                     initial_view,
@@ -426,7 +424,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
                         });
                     }
                     proof_decl! {
-                        let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<usize>;
+                        let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
                     }
                     let frame = unsafe {
                         #[verus_spec(with Tracked(regions) => Tracked(from_raw_obl))]
@@ -529,22 +527,22 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).inv(),
             allocated_empty_node_owner(owner@, level),
             allocated_empty_node_grandchildren_none(owner@),
-            res.ptr.addr() == owner@.value().node().meta_addr_self(),
-            guards.unlocked(owner@.value().node().meta_addr_self()),
-            MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value().node().meta_addr_self()), *old(regions), *final(regions)),
-            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().meta_addr_self()), *old(regions), *final(regions)),
+            res.ptr.addr() == owner@.value().node().meta_vaddr(),
+            guards.unlocked(owner@.value().node().meta_vaddr()),
+            MetaSlot::get_node_from_unused_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
+            MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
 
             final(regions).frame_obligations == old(regions).frame_obligations.insert(
-                frame_to_index(meta_to_frame(owner@.value().node().meta_addr_self()))),
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value().node().meta_addr_self()))),
+                frame_to_index(meta_to_frame(owner@.value().node().meta_vaddr()))),
+            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value().node().meta_vaddr()))),
 
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
-                meta_to_frame(owner@.value().node().meta_addr_self())),
+                meta_to_frame(owner@.value().node().meta_vaddr())),
             owner@.value().metaregion_sound(*final(regions)),
-            forall|i: usize|
+            forall|i: int|
                 #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> i != frame_to_index(meta_to_frame(owner@.value().node().meta_addr_self())),
-            owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_addr_self())), level as PagingLevel),
+                ==> i != frame_to_index(meta_to_frame(owner@.value().node().meta_vaddr())),
+            owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())), level as PagingLevel),
             final(parent_owner).meta_own == old(parent_owner).meta_own,
             final(parent_owner).slot_index == old(parent_owner).slot_index,
             final(parent_owner).level == old(parent_owner).level,
@@ -552,7 +550,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             final(parent_owner).children_perm.addr() == old(parent_owner).children_perm.addr(),
             final(parent_owner).children_perm.value() == old(parent_owner).children_perm.value().update(
                 idx as int,
-                C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_addr_self())),
+                C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())),
             ),
             final(regions).slots.contains_key(owner@.value().node().slot_index),
             owner@.value().node().metaregion_sound_node(*final(regions)),
@@ -658,10 +656,10 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Tracked(guards): Tracked<&mut Guards<'rcu>>
         requires
             self.inner@.invariants(*owner),
-            old(guards).unlocked(owner.meta_addr_self()),
+            old(guards).unlocked(owner.meta_vaddr()),
         ensures
-            final(guards).lock_held(owner.meta_addr_self()),
-            Self::locks_preserved_except(owner.meta_addr_self(), *old(guards), *final(guards)),
+            final(guards).lock_held(owner.meta_vaddr()),
+            Self::locks_preserved_except(owner.meta_vaddr(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
     pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PageTableGuard<'rcu, C> where
@@ -683,10 +681,10 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
              Tracked(guards): Tracked<&mut Guards<'rcu>>,
         requires
             self.inner@.invariants(*owner),
-            old(guards).unlocked(owner.meta_addr_self()),
+            old(guards).unlocked(owner.meta_vaddr()),
         ensures
-            final(guards).lock_held(owner.meta_addr_self()),
-            Self::locks_preserved_except(owner.meta_addr_self(), *old(guards), *final(guards)),
+            final(guards).lock_held(owner.meta_vaddr()),
+            Self::locks_preserved_except(owner.meta_vaddr(), *old(guards), *final(guards)),
             owner.relate_guard(res),
     )]
     pub unsafe fn make_guard_unchecked<'rcu, A: InAtomicMode>(
@@ -697,7 +695,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
         proof {
             let ghost guards0 = *guards;
-            guards.guards = guards.guards.insert(owner.meta_addr_self());
+            guards.guards = guards.guards.insert(owner.meta_vaddr());
 
         }
 
@@ -937,7 +935,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     pub open spec fn walk_coverage_at(
         self,
         view: crate::specs::mm::virt_mem::MemView,
-        dom: vstd::set::Set<usize>,
+        dom: vstd::set::Set<int>,
         c: usize,
     ) -> bool {
         let pte = Self::walk_pte_at_view(view, c);
@@ -949,7 +947,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
         view: crate::specs::mm::virt_mem::MemView,
-        dom: vstd::set::Set<usize>,
+        dom: vstd::set::Set<int>,
         c: usize,
     )
         requires
@@ -1021,7 +1019,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         self,
         reader: crate::mm::VmReader<'_, crate::mm::Infallible>,
         view: crate::specs::mm::virt_mem::MemView,
-        dom: vstd::set::Set<usize>,
+        dom: vstd::set::Set<int>,
     ) -> bool {
         forall|c: usize|
             #![trigger Self::walk_pte_at_view(view, c)]
@@ -1086,7 +1084,7 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     /// shape when refcount == 1).
     pub open spec fn child_perms_embedding(
         regions: crate::specs::mm::frame::meta_region_owners::MetaRegionOwners,
-        excluded: vstd::set::Set<usize>,
+        excluded: vstd::set::Set<int>,
     ) -> bool {
         forall|paddr: crate::mm::Paddr|
             #![trigger regions.slot_owners[frame_to_index(paddr)]]

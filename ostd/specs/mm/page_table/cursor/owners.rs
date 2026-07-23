@@ -16,7 +16,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, meta_addr},
+            mapping::{frame_to_index, index_to_meta},
             meta_region_owners::MetaRegionOwners,
         },
         page_table::{
@@ -132,19 +132,33 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         (child, cont)
     }
 
-    pub axiom fn tracked_make_cont(
+    pub proof fn tracked_make_cont(
         tracked &mut self,
         idx: usize,
         guard: PageTableGuard<'rcu, C>,
     ) -> (tracked res: Self)
         requires
             old(self).all_some(),
+            old(self).children.len() == NR_ENTRIES,
             old(self).idx < NR_ENTRIES,
             idx < NR_ENTRIES,
         ensures
             res == old(self).make_cont(idx, guard).0,
             *final(self) == old(self).make_cont(idx, guard).1,
-    ;
+    {
+        lemma_update_is_remove_insert(self.children, old(self).idx as int, None);
+        let tracked child = self.children.tracked_remove(old(self).idx as int).tracked_unwrap();
+        self.children.tracked_insert(old(self).idx as int, None);
+        let tracked (entry_own, children) = child.tracked_into_parts();
+        Self {
+            entry_own,
+            tree_level: (old(self).tree_level + 1) as nat,
+            idx,
+            children,
+            path: old(self).path.push_tail(old(self).idx as int),
+            guard,
+        }
+    }
 
     pub open spec fn restore(self, child: Self) -> (Self, PageTableGuard<'rcu, C>) {
         let child_node = OwnerSubtree::new(child.entry_own, child.tree_level, child.children);
@@ -556,7 +570,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.inv(),
             self.level() < NR_LEVELS,
             old(regions).slots.contains_key(frame_to_index(paddr)),
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             paddr % page_size(self.level()) == 0,
             paddr + page_size(self.level()) <= MAX_PADDR,
             C::raw_item_well_formed(paddr, self.level(), prop),
@@ -792,7 +806,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         TreePath<NR_ENTRIES>,
     ) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner.is_node() ==> guards.unlocked(owner.node().meta_addr_self())
+            owner.is_node() ==> guards.unlocked(owner.node().meta_vaddr())
     }
 
     pub open spec fn node_unlocked_except(guards: Guards<'rcu>, addr: usize) -> (spec_fn(
@@ -800,8 +814,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         TreePath<NR_ENTRIES>,
     ) -> bool) {
         |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            owner.is_node() ==> owner.node().meta_addr_self() != addr ==> guards.unlocked(
-                owner.node().meta_addr_self(),
+            owner.is_node() ==> owner.node().meta_vaddr() != addr ==> guards.unlocked(
+                owner.node().meta_vaddr(),
             )
     }
 
@@ -829,7 +843,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn only_current_locked(self, guards: Guards<'rcu>) -> bool {
         self.map_only_children(
-            Self::node_unlocked_except(guards, self.cur_entry_owner().node().meta_addr_self()),
+            Self::node_unlocked_except(guards, self.cur_entry_owner().node().meta_vaddr()),
         )
     }
 
@@ -838,25 +852,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
-        obl_key: usize,
     )
         requires
             self.inv(),
             self.only_current_locked(guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
-                guard,
-                guards0,
-                guards1,
-                obl_key,
-            ),
+            guards0.lock_held(guard.inner.inner@.ptr.addr()),
+            guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
             // The dropped guard is for the current entry's node (from pop_level).
             self.cur_entry_owner().is_node(),
-            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_addr_self(),
+            guard.inner.inner@.ptr.addr() == self.cur_entry_owner().node().meta_vaddr(),
         ensures
             self.children_not_locked(guards1),
     {
-        let current_addr = self.cur_entry_owner().node().meta_addr_self();
+        let current_addr = self.cur_entry_owner().node().meta_vaddr();
         let f = Self::node_unlocked_except(guards0, current_addr);
         let g = Self::node_unlocked(guards1);
 
@@ -871,18 +879,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu>,
         guards1: Guards<'rcu>,
-        obl_key: usize,
     )
         requires
             self.inv(),
             self.nodes_locked(guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(
-                guard,
-                guards0,
-                guards1,
-                obl_key,
-            ),
+            guards0.lock_held(guard.inner.inner@.ptr.addr()),
+            guards1.guards == guards0.guards.remove(guard.inner.inner@.ptr.addr()),
             forall|i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS
@@ -1094,7 +1096,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_frame(),
             pa == self.cur_entry_owner().frame().mapped_pa,
             C::item_from_raw_spec(pa, level, prop) == item,
-            has_safe_slot(pa),
+            valid_frame_paddr(pa),
             C::raw_item_well_formed(pa, level, prop),
             // The recorded entry trackedness matches the item being cloned.
             C::tracked(item) == self.cur_entry_owner().frame_is_tracked(),
@@ -1119,7 +1121,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
-        idx: usize,
+        idx: int,
     )
         requires
             self.inv(),
@@ -1147,7 +1149,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             new_regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage,
             // All other slot_owners unchanged
             new_regions.slot_owners.dom() == old_regions.slot_owners.dom(),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger new_regions.slot_owners[i]]
                 i != idx && old_regions.slot_owners.contains_key(i) ==> new_regions.slot_owners[i]
                     == old_regions.slot_owners[i],
@@ -2087,9 +2089,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.metaregion_sound(regions0),
             regions0.slot_owners =~= regions1.slot_owners,
-            forall|k: usize|
+            forall|k: int|
                 regions0.slots.contains_key(k) ==> #[trigger] regions1.slots.contains_key(k),
-            forall|k: usize|
+            forall|k: int|
                 regions0.slots.contains_key(k) ==> regions0.slots[k]
                     == #[trigger] regions1.slots[k],
         ensures
@@ -2104,7 +2106,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
-        idx: usize,
+        idx: int,
     )
         requires
             self.inv(),
@@ -2128,7 +2130,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             // Bumped rc stays in the SHARED range (needed for the node branch).
             regions1.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX,
-            forall|i: usize|
+            forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != idx && regions0.slot_owners.contains_key(i) ==> regions1.slot_owners[i]
                     == regions0.slot_owners[i],
@@ -2146,13 +2148,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self,
         regions0: MetaRegionOwners,
         regions1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
     )
         requires
             self.inv(),
             self.metaregion_sound(regions0),
             regions1.inv(),
-            forall|k: usize|
+            forall|k: int|
                 regions0.slots.contains_key(k) ==> #[trigger] regions1.slots.contains_key(k),
             // Borrow-protocol transition: `raw_count` is dormant, so the
             // borrow is net-zero on `regions` — the slot perm at
@@ -2160,7 +2162,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // `Frame::borrow`, which leaves `slots` unchanged). With
             // `raw_count` no longer in `metaregion_sound`, full slot
             // preservation is what carries soundness across the borrow.
-            forall|k: usize|
+            forall|k: int|
                 regions0.slots.contains_key(k) ==> regions0.slots[k]
                     == #[trigger] regions1.slots[k],
             // All other fields at changed_idx preserved
@@ -2172,7 +2174,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[changed_idx].paths_in_pt
                 == regions0.slot_owners[changed_idx].paths_in_pt,
             // All other slots unchanged
-            forall|i: usize|
+            forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
             regions0.slot_owners.dom() =~= regions1.slot_owners.dom(),
@@ -2265,14 +2267,34 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub axiom fn tracked_new(
+    pub proof fn tracked_new(
         tracked owner_subtree: OwnerSubtree<C>,
         idx: usize,
         guard: PageTableGuard<'rcu, C>,
-    ) -> (tracked res: Self)
-        ensures
-            res == Self::new(owner_subtree, idx, guard),
-    ;
+    ) -> tracked Self
+        returns
+            Self::new(owner_subtree, idx, guard),
+    {
+        let ghost va = AbstractVaddr {
+            offset: 0,
+            index: Map::new(Set::<int>::range(0, NR_LEVELS as int), |i: int| 0).insert(
+                NR_LEVELS - 1,
+                idx as int,
+            ),
+            leading_bits: C::LEADING_BITS_spec() as int,
+        };
+        let tracked continuation = CursorContinuation::tracked_new(owner_subtree, idx, guard);
+        let tracked mut continuations = Map::tracked_empty();
+        continuations.tracked_insert(NR_LEVELS - 1, continuation);
+        Self {
+            level: NR_LEVELS as PagingLevel,
+            continuations,
+            va,
+            guard_level: NR_LEVELS as PagingLevel,
+            prefix: va,
+            popped_too_high: false,
+        }
+    }
 
     pub broadcast group group_lemmas {
         CursorOwner::lemma_view_mappings_contains,

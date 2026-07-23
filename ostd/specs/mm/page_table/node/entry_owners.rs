@@ -9,7 +9,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, meta_addr},
+            mapping::{frame_to_index, index_to_meta},
             meta_owners::PageUsage,
             meta_region_owners::MetaRegionOwners,
         },
@@ -277,7 +277,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         prop: PageProperty,
     ) -> (tracked res: Self)
         requires
-            has_safe_slot(paddr),
+            valid_frame_paddr(paddr),
             1 <= parent_level < NR_LEVELS,
             paddr % page_size(parent_level) == 0,
             paddr + page_size(parent_level) <= MAX_PADDR,
@@ -302,15 +302,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
-        &&& pte.paddr() % PAGE_SIZE == 0
-        &&& pte.paddr() < MAX_PADDR
+        &&& valid_frame_paddr(pte.paddr())
         &&& !pte.is_present() ==> {
             &&& self.is_absent()
             &&& parent_level > 1 ==> !pte.is_last(parent_level)
         }
         &&& pte.is_present() && !pte.is_last(parent_level) ==> {
             &&& self.is_node()
-            &&& meta_to_frame(self.node().meta_addr_self()) == pte.paddr()
+            &&& meta_to_frame(self.node().meta_vaddr()) == pte.paddr()
         }
         &&& pte.is_present() && pte.is_last(parent_level) ==> {
             &&& self.is_frame()
@@ -328,8 +327,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// address here.
     pub open spec fn borrowed_match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& self.is_borrowed()
-        &&& pte.paddr() % PAGE_SIZE == 0
-        &&& pte.paddr() < MAX_PADDR
+        &&& valid_frame_paddr(pte.paddr())
         &&& pte.is_present()
         &&& !pte.is_last(parent_level)
     }
@@ -339,8 +337,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             owner.is_absent(),
             pte == C::E::new_absent_spec(),
-            pte.paddr() % PAGE_SIZE == 0,
-            pte.paddr() < MAX_PADDR,
+            valid_frame_paddr(pte.paddr()),
         ensures
             owner.match_pte(pte, parent_level),
     {
@@ -382,6 +379,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         let pa = self.frame().mapped_pa;
         let child_pa = (pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr;
+        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_values();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
         vstd::arithmetic::power2::lemma2_to64();
@@ -416,7 +414,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.frame_sub_pages_valid(r0),
             r0.slots == r1.slots,
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
                     ==> r0.slot_owners[i] == r1.slot_owners[i],
@@ -503,18 +501,17 @@ impl<C: PageTableConfig> EntryOwner<C> {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& 0 < regions.slot_owners[idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
-            &&& regions.slot_owners[idx].slot_vaddr == self.node().meta_addr_self()
+            &&& regions.slot_owners[idx].slot_vaddr == self.node().meta_vaddr()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].paths_in_pt == set![self.path]
             &&& self.node().metaregion_sound_node(regions)
         } else if self.is_frame() {
             let idx = frame_to_index(self.meta_slot_paddr()->0);
             &&& regions.slots.contains_key(idx)
-            &&& regions.slots[idx].addr() == meta_addr(idx)
+            &&& regions.slots[idx].addr() == index_to_meta(idx)
             &&& regions.slots[idx].is_init()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
-            &&& regions.slot_owners[idx].usage
-                != PageUsage::PageTable
+            &&& regions.slot_owners[idx].usage !is PageTable
             // Tracked vs MMIO discriminator is the slot's `usage`. MMIO slots
             // stay in the free pool with `rc == UNUSED`; tracked slots have
             // `rc > 0`. The slot's `usage == MMIO` is pinned by the paddr's
@@ -541,7 +538,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub proof fn lemma_active_entry_not_in_free_pool(
         entry: Self,
         regions: MetaRegionOwners,
-        free_idx: usize,
+        free_idx: int,
     )
         requires
             regions.inv(),
@@ -561,7 +558,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn meta_slot_paddr(self) -> Option<Paddr> {
         if self.is_node() {
-            Some(meta_to_frame(self.node().meta_addr_self()))
+            Some(meta_to_frame(self.node().meta_vaddr()))
         } else if self.is_frame() {
             Some(self.frame().mapped_pa)
         } else {
@@ -582,8 +579,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.inv(),
             self.metaregion_sound(r0),
             r0.slot_owners == r1.slot_owners,
-            forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
         ensures
             self.metaregion_sound(r1),
     {
@@ -595,18 +592,18 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
     )
         requires
             self.inv(),
             self.metaregion_sound(r0),
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
             // slots preserved at the entry's index (frames read from slots)
-            forall|k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
-            forall|k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            forall|k: int| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall|k: int| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
             self.meta_slot_paddr() is Some ==> frame_to_index(self.meta_slot_paddr()->0)
                 != changed_idx,
             // Huge frames: if changed_idx is one of this frame's 4KB sub-page slots and
@@ -638,7 +635,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self,
         r0: MetaRegionOwners,
         r1: MetaRegionOwners,
-        changed_idx: usize,
+        changed_idx: int,
     )
         requires
             self.inv(),
@@ -647,7 +644,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r0.slots == r1.slots,
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
             // All slots other than changed_idx are entirely unchanged.
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
             // At changed_idx, only paths_in_pt differs.
@@ -667,7 +664,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.is_frame() && self.parent_level > 1 ==> {
                 let pa = self.frame().mapped_pa;
                 let sub_level = (self.parent_level - 1) as PagingLevel;
-                forall|j: usize|
+                forall|j: int|
                     0 < j < NR_ENTRIES ==> {
                         let sub_idx = #[trigger] frame_to_index(
                             (pa + j * page_size(sub_level)) as usize,
@@ -758,7 +755,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                 &&& r1.slot_owners[idx].usage == r0.slot_owners[idx].usage
             }),
             // All other slot_owners unchanged: preserves sub-page validity for huge frames.
-            forall|i: usize|
+            forall|i: int|
                 #![trigger r1.slot_owners[i]]
                 i != frame_to_index(self.meta_slot_paddr()->0) && r0.slot_owners.contains_key(i)
                     ==> r0.slot_owners[i] == r1.slot_owners[i],
@@ -810,10 +807,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             )].paths_in_pt == set![other.path],
             self.path != other.path,
         ensures
-            self.node().meta_addr_self() != other.node().meta_addr_self(),
+            self.node().meta_vaddr() != other.node().meta_vaddr(),
     {
-        let slot_vaddr = self.node().meta_addr_self();
-        let other_addr = other.node().meta_addr_self();
+        let slot_vaddr = self.node().meta_vaddr();
+        let other_addr = other.node().meta_vaddr();
         let self_idx = frame_to_index(meta_to_frame(slot_vaddr));
         let other_idx = frame_to_index(meta_to_frame(other_addr));
 
@@ -862,7 +859,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             // == NR_LEVELS` would be a 512 GiB huge page, which no current arch
             // permits — and `Mapping::inv` would reject its page_size.
             &&& 1 <= self.parent_level < NR_LEVELS
-            &&& has_safe_slot(self.frame().mapped_pa)
+            &&& valid_frame_paddr(self.frame().mapped_pa)
             &&& self.frame().mapped_pa % page_size(self.parent_level) == 0
             &&& self.frame().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
             &&& C::raw_item_well_formed(
@@ -907,7 +904,7 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                     map_va: vaddr(self.path) as int,
                     //                    frame_pa: self.base_addr as int,
                     //                    in_frame_index: self.index as int,
-                    map_to_pa: meta_to_frame(node.meta_addr_self()) as int,
+                    map_to_pa: meta_to_frame(node.meta_vaddr()) as int,
                     level: self.path.len() as u8,
                     phantom: PhantomData,
                 },
@@ -932,8 +929,7 @@ impl<'a, 'rcu, C: PageTableConfig> OwnerOf for Entry<'a, 'rcu, C> {
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.idx < NR_ENTRIES
         &&& owner.match_pte(self.pte, owner.parent_level)
-        &&& self.pte.paddr() % PAGE_SIZE == 0
-        &&& self.pte.paddr() < MAX_PADDR
+        &&& valid_frame_paddr(self.pte.paddr())
     }
 }
 
