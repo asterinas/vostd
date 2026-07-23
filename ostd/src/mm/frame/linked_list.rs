@@ -414,20 +414,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             ));
         }
 
-        let tracked mut slot_perm = regions.slots.tracked_remove(frame_to_index(frame));
-        let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(frame));
+        let tracked mut slot_perm = regions.slots.tracked_borrow_mut(frame_to_index(frame));
+        let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(frame_to_index(frame));
 
-        let slot = slot_ptr.take(Tracked(&mut slot_perm));
+        let slot = slot_ptr.take(Tracked(slot_perm));
 
         let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         let in_list = slot.in_list.load(Tracked(&mut inner_perms.in_list));
-        slot_ptr.put(Tracked(&mut slot_perm), slot);
-
-        proof {
-            regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
-            regions.slots.tracked_insert(frame_to_index(frame), slot_perm);
-        }
+        slot_ptr.put(Tracked(slot_perm), slot);
 
         in_list == #[verus_spec(with Tracked(owner))]
         self.lazy_get_id()
@@ -473,7 +468,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 assert(regions.slots.contains_key(idx));
             }
             let tracked slot_perm = regions.slots.tracked_borrow(idx);
-            let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+            let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
             let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
             let slot = slot_ptr.borrow(Tracked(slot_perm));
@@ -486,10 +481,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             let meta_ptr = ReprPtr::<MetaSlotStorage, Link<M>>::from_pptr(
                 PPtr::<MetaSlotStorage>::from_addr(slot_ptr.addr()),
             );
-
-            proof {
-                regions.slot_owners.tracked_insert(idx, slot_own);
-            }
 
             if contains {
                 let ghost link = owner.list.filter(|link: LinkOwner| link.paddr == frame).first();
@@ -639,7 +630,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             final(self).wf_region(owner.move_next_owner_spec(), *regions),
     {
         proof {
-            reveal(LinkedListOwner::relate_region_at);
+            if self.current is Some {
+                owner.list_own.relate_region_at_facts(*regions, owner.index);
+            }
+            if owner.index < owner.length() - 1 {
+                owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
+            }
         }
 
         self.current = match self.current {
@@ -1019,15 +1015,13 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         (#[verus_spec(with Tracked(&mut frame_own), Tracked(regions))]
         frame.meta_mut()).prev = None;
 
-        let tracked frame_outer = regions.slots.tracked_remove(idx);
-        let tracked mut frame_so = regions.slot_owners.tracked_remove(idx);
+        let tracked frame_outer = regions.slots.tracked_borrow(idx);
+        let tracked mut frame_so = regions.slot_owners.tracked_borrow_mut(idx);
         let tracked mut fip = frame_so.tracked_borrow_mut_inner_perms();
         #[verus_spec(with Tracked(&frame_outer))]
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list), 0);
         proof {
-            regions.slots.tracked_insert(idx, frame_outer);
-            regions.slot_owners.tracked_insert(idx, frame_so);
             assert(regions.inv());
             assert(regions.slots.dom() == regions0.slots.dom());
             assert(regions.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt);
@@ -1282,15 +1276,13 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         proof {
             assert(regions.slots.contains_key(frame_own.slot_index));
         }
-        let tracked frame_outer = regions.slots.tracked_remove(frame_own.slot_index);
-        let tracked mut frame_so = regions.slot_owners.tracked_remove(frame_own.slot_index);
+        let tracked frame_outer = regions.slots.tracked_borrow_mut(frame_own.slot_index);
+        let tracked mut frame_so = regions.slot_owners.tracked_borrow_mut(frame_own.slot_index);
         let tracked mut fip = frame_so.tracked_borrow_mut_inner_perms();
-        #[verus_spec(with Tracked(&frame_outer))]
+        #[verus_spec(with Tracked(frame_outer))]
         let slot = frame.slot();
         slot.in_list.store(Tracked(&mut fip.in_list), list_id);
         proof {
-            regions.slots.tracked_insert(frame_own.slot_index, frame_outer);
-            regions.slot_owners.tracked_insert(frame_own.slot_index, frame_so);
             assert(regions.inv());
         }
 
