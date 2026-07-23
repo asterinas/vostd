@@ -1142,8 +1142,7 @@ impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
         &&& self.rcu.type_inv()
         &&& self.tracked_guard@.wf()
         &&& self.tracked_guard@.domain() == self.rcu.ptr.constant().domain
-        &&& self.tracked_guard@.reader_registry()
-            == self.rcu.ptr.constant().reader_registry
+        &&& self.tracked_guard@.reader_registry() == self.rcu.ptr.constant().reader_registry
         &&& !self.rcu.is_nullable() ==> !self.obj_ptr.is_null()
         &&& match self.tracked_info@ {
             None => self.obj_ptr.is_null(),

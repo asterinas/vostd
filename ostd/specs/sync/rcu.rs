@@ -699,10 +699,8 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// Reader slots are proof-only and currently allocated per critical
     /// section. `tracked_stop_reader` consumes the live slot again; no runtime
     /// reader counter is introduced.
-    pub proof fn tracked_start_reader(
-        tracked &mut self,
-        history: History<*mut T>,
-    ) -> (tracked res: RcuBaseGuard)
+    pub proof fn tracked_start_reader(tracked &mut self, history: History<*mut T>) -> (tracked res:
+        RcuBaseGuard)
         requires
             rcu_owned_root_history_inv(history, *old(self)),
         ensures
@@ -791,12 +789,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 None
             },
         };
-        let tracked res = RcuRootOwnedGhost {
-            root,
-            current,
-            infos,
-            removals: Map::empty(),
-        };
+        let tracked res = RcuRootOwnedGhost { root, current, infos, removals: Map::empty() };
         assert(res.infos_wf());
         assert(res.removals_wf(seq![Msg { value: ptr, view: WmView::empty() }]));
         res
@@ -834,8 +827,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                     &&& detached.retired().domain() == detached.domain()
                     &&& detached.retired().obj() == detached.obj()
                     &&& detached.retired().ptr() == detached.ptr()
-                    &&& detached.retired().removal()
-                        == (RcuRemovalObservation { root, timestamp: prev.len() })
+                    &&& detached.retired().removal() == (RcuRemovalObservation {
+                        root,
+                        timestamp: prev.len(),
+                    })
                     &&& old(self).current_ownership() == Some(detached.ownership())
                     &&& equal(detached.ptr(), prev[(prev.len() - 1) as int].value)
                     &&& OwnPred::owns(detached.ptr(), detached.ownership())
@@ -931,11 +926,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 if removed_obj == Some(obj) {
                     assert(self.removals()[obj] == prev.len());
                     assert(next.len() == prev.len() + 1);
-                    assert(self.publications()[prev.len() as int]
-                        == match new_registration {
-                            Some(registration) => Some(registration.0.obj()),
-                            None => None,
-                        });
+                    assert(self.publications()[prev.len() as int] == match new_registration {
+                        Some(registration) => Some(registration.0.obj()),
+                        None => None,
+                    });
                     if new_registration is Some {
                         assert(!old(self).root().objects().contains_key(
                             new_registration->Some_0.0.obj(),
@@ -946,8 +940,8 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                     assert(old(self).removals().contains_key(obj));
                     assert(self.removals()[obj] == old(self).removals()[obj]);
                     assert forall|i: int|
-                        self.removals()[obj] <= i < next.len() implies
-                            #[trigger] self.publications()[i] != Some(obj) by {
+                        self.removals()[obj] <= i
+                            < next.len() implies #[trigger] self.publications()[i] != Some(obj) by {
                         if i < prev.len() {
                             assert(self.publications()[i] == old(self).publications()[i]);
                         } else {
@@ -1000,8 +994,8 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 assert(!old(self).removals().contains_key(owned.registration.0.obj()));
                 assert(obj != owned.registration.0.obj());
                 assert forall|i: int|
-                    self.removals()[obj] <= i < next.len() implies
-                        #[trigger] self.publications()[i] != Some(obj) by {
+                    self.removals()[obj] <= i < next.len() implies #[trigger] self.publications()[i]
+                    != Some(obj) by {
                     if i < prev.len() {
                         assert(self.publications()[i] == old(self).publications()[i]);
                     } else {
@@ -2432,9 +2426,7 @@ impl<T> RcuReadGuardToken<T> {
 
     /// Lift a base guard using its start-time expired set as the initial
     /// traversal observation.
-    pub proof fn tracked_from_base(
-        tracked base: RcuBaseGuard,
-    ) -> (tracked res: Self)
+    pub proof fn tracked_from_base(tracked base: RcuBaseGuard) -> (tracked res: Self)
         requires
             base.wf(),
         ensures
