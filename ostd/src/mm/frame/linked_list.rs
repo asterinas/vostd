@@ -1255,7 +1255,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let frame_ptr = ReprPtr::<MetaSlotStorage, Link<M>>::from_pptr(
             PPtr::<MetaSlotStorage>::from_addr(frame.ptr.addr()),
         );
-        let frame_ptr_as_link = frame_ptr;
 
         let ghost frame_idx_g: int = frame_own.slot_index;
 
@@ -1294,7 +1293,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
                 #[verus_spec(with Ghost(nn - 1), Tracked(regions), Tracked(&mut owner.list_own))]
                 let prev_meta = borrow_link_mut(prev);
-                prev_meta.next = Some(frame_ptr_as_link);
+                prev_meta.next = Some(frame_ptr);
                 proof {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn - 1));
                 }
@@ -1305,12 +1304,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
                 #[verus_spec(with Ghost(nn), Tracked(regions), Tracked(&mut owner.list_own))]
                 let current_meta = borrow_link_mut(current);
-                current_meta.prev = Some(frame_ptr_as_link);
+                current_meta.prev = Some(frame_ptr);
                 proof {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn));
-                }
-
-                proof {
                     let fpn_local = frame_own.meta_value(*regions);
                     assert(fpn_local.prev.unwrap().addr() == owner0.list_own.list[nn - 1].paddr);
                     assert(fpn_local.prev.unwrap().ptr.addr()
@@ -1337,12 +1333,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
                 #[verus_spec(with Ghost(nn), Tracked(regions), Tracked(&mut owner.list_own))]
                 let current_meta = borrow_link_mut(current);
-                current_meta.prev = Some(frame_ptr_as_link);
+                current_meta.prev = Some(frame_ptr);
                 proof {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn));
                 }
 
-                self.list.front = Some(frame_ptr_as_link);
+                self.list.front = Some(frame_ptr);
             }
         } else {
             if let Some(back) = self.list.back {
@@ -1363,16 +1359,16 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
                 #[verus_spec(with Ghost(nn - 1), Tracked(regions), Tracked(&mut owner.list_own))]
                 let back_meta = borrow_link_mut(back);
-                back_meta.next = Some(frame_ptr_as_link);
+                back_meta.next = Some(frame_ptr);
                 proof {
                     assert(frame_own.slot_index != owner0.list_own.slot_index_at(nn - 1));
                 }
 
-                self.list.back = Some(frame_ptr_as_link);
+                self.list.back = Some(frame_ptr);
             } else {
                 // EMPTY list: just point both ends at the inserted frame.
-                self.list.front = Some(frame_ptr_as_link);
-                self.list.back = Some(frame_ptr_as_link);
+                self.list.front = Some(frame_ptr);
+                self.list.back = Some(frame_ptr);
             }
         }
 
