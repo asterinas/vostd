@@ -161,10 +161,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slot_owners[self.slot_index].usage is Frame
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
-    
-    pub proof fn from_raw_owner(owner: M::Owner, repr_perm: M::ReprPerm, index: Ghost<int>) -> Self {
-        UniqueFrameOwner::<M> { meta_own: owner, repr_perm: Some(repr_perm), slot_index: index@ }
-    }
 
     pub open spec fn from_unused_owner(
         old_regions: MetaRegionOwners,
