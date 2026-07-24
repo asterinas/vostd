@@ -374,7 +374,9 @@ impl MetaSlot {
     /// - This function returns an error if `paddr` does not correspond to a valid slot or the slot is in use.
     /// - Accesses to the slot itself are gated by atomic checks, avoiding data races.
     #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(repr_perm): Tracked<&mut M::ReprPerm>
         requires
             old(regions).inv(),
         ensures
@@ -383,6 +385,14 @@ impl MetaSlot {
                 &&& res.addr() == frame_to_meta(paddr)
                 &&& final(regions).inv()
                 &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
+                &&& <M as Repr<MetaSlotStorage>>::wf(
+                    final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage.value(),
+                    *final(repr_perm),
+                )
+                &&& M::from_repr_spec(
+                    final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage.value(),
+                    *final(repr_perm),
+                ) == metadata
             },
             !valid_frame_paddr(paddr) ==> res is Err,
     )]
@@ -434,7 +444,11 @@ impl MetaSlot {
         // not access the metadata slot so it is safe to have a mutable reference.
 
         unsafe {
-            #[verus_spec(with Tracked(&mut slot_own.inner_perms.storage), Tracked(&mut slot_own.inner_perms.vtable_ptr))]
+            #[verus_spec(with
+                Tracked(&mut slot_own.inner_perms.storage),
+                Tracked(repr_perm),
+                Tracked(&mut slot_own.inner_perms.vtable_ptr)
+            )]
             slot.borrow(Tracked(&slot_perm)).write_meta(metadata)
         };
 
@@ -636,7 +650,8 @@ impl MetaSlot {
             core::ptr::from_raw_parts_mut(self as *const MetaSlot as *mut MetaSlot, vtable_ptr);
 
         meta_ptr
-    }*/
+    }
+
     /// Gets the stored metadata as type `M`.
     ///
     /// Calling the method should be safe, but using the returned pointer would
@@ -646,38 +661,11 @@ impl MetaSlot {
     ///  - the initialized metadata is of type `M`;
     ///  - the returned pointer should not be dereferenced as mutable unless
     ///    having exclusive access to the metadata slot.
-    ///
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - **Safety**: The caller must provide an existing permission that matches the contents of the metadata slot.
-    /// ## Postconditions
-    /// - **Correctness**: The function returns a pointer to the stored metadata, of type `M`.
-    /// ## Safety
-    /// - Calling the method is always safe, but using the returned pointer could
-    /// be unsafe. Specifically, the dereferencer should ensure that:
-    ///  - the stored metadata is initialized (by [`Self::write_meta`]) and valid;
-    ///  - the initialized metadata is of type `M` (`Repr<M>::wf`);
-    ///  - the returned pointer should not be dereferenced as mutable unless having exclusive access to the metadata slot.
-    #[verus_spec(res =>
-        with
-            Tracked(perm): Tracked<&PointsTo<MetaSlot>>,
-        requires
-            self == perm.value(),
-        ensures
-            res.ptr.addr() == perm.addr(),
-            res.addr() == perm.addr(),
-    )]
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> ReprPtr<
-        MetaSlot,
-        Metadata<M>,
-    > {
-        proof_with!(Tracked(perm));
-        let addr = self.addr_of();
-
-        proof_with!(Tracked(perm));
-        self.cast_slot(addr)
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta>(&self) -> *mut M {
+        self.storage.get() as *mut M
     }
 
+    */
     /// Writes the metadata to the slot without reading or dropping the previous value.
     ///
     /// # Safety
@@ -695,6 +683,7 @@ impl MetaSlot {
     #[verus_spec(
         with
             Tracked(meta_perm): Tracked<&mut vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+            Tracked(repr_perm): Tracked<&mut M::ReprPerm>,
             Tracked(vtable_perm): Tracked<&mut PointsTo<usize>>,
         requires
             self.storage.id() == old(meta_perm).id(),
@@ -705,7 +694,14 @@ impl MetaSlot {
             final(meta_perm).is_init(),
             final(vtable_perm).pptr() == old(vtable_perm).pptr(),
             final(vtable_perm).is_init(),
-            Metadata::<M>::metadata_from_inner_perms(*final(meta_perm)) == metadata,
+            <M as Repr<MetaSlotStorage>>::wf(
+                final(meta_perm).value(),
+                *final(repr_perm),
+            ),
+            M::from_repr_spec(
+                final(meta_perm).value(),
+                *final(repr_perm),
+            ) == metadata,
     )]
     pub(super) unsafe fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         &self,
@@ -721,7 +717,13 @@ impl MetaSlot {
         // 2. The size and the alignment of the metadata storage is large enough to hold `M`
         //    (guaranteed by the const assertions above).
         // 3. We have exclusive access to the metadata storage (guaranteed by the caller).
-        Metadata::<M>::write_metadata_into_storage(&self.storage, Tracked(meta_perm), metadata);
+        // unsafe { ptr.cast::<M>().write(metadata) };
+        write_metadata_into_storage(
+            &self.storage,
+            Tracked(meta_perm),
+            Tracked(repr_perm),
+            metadata,
+        );
     }
 
     /// Drops the metadata and deallocates the frame.

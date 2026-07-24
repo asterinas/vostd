@@ -137,7 +137,7 @@ pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(
 ) -> Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
-    type Perm = ();
+    type ReprPerm = ();
 
     open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
         matches!(r, MetaSlotStorage::PTNode(_))
@@ -166,6 +166,14 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
 
     #[verifier::external_body]
     fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
+        unimplemented!()
+    }
+
+    #[verifier::external_body]
+    fn from_borrowed_mut<'a>(
+        r: &'a mut MetaSlotStorage,
+        Tracked(perm): Tracked<&'a mut ()>,
+    ) -> &'a mut Self {
         unimplemented!()
     }
 

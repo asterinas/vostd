@@ -14,7 +14,7 @@ use crate::specs::task::InAtomicMode;
 use crate::mm::frame::meta::{REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::specs::mm::{
-    frame::{mapping::frame_to_index, meta_owners::MetaPerm, meta_region_owners::MetaRegionOwners},
+    frame::{mapping::frame_to_index, meta_region_owners::MetaRegionOwners},
     page_table::{
         is_valid_range_spec, nr_pte_index_bits_spec, pte_index_bit_offset_spec,
         top_level_index_width_spec, vaddr_range_spec,

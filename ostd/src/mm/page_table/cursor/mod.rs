@@ -2841,9 +2841,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 assert(regions.slot_owners[eo_idx]
                                     == regions_after_ref.slot_owners[eo_idx]);
                                 assert(regions.slots[eo_idx] == regions_after_ref.slots[eo_idx]);
-                                assert(eo.node().meta_perm_of(*regions) == eo.node().meta_perm_of(
-                                    regions_after_ref,
-                                ));
                             };
                         };
 
@@ -4306,7 +4303,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
                     assert(eo_idx == eo.node().slot_index);
-                    assert(eo.node().meta_perm_of(*regions) == eo.node().meta_perm_of(regions0));
                 };
             };
 

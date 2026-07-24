@@ -18,7 +18,7 @@
 //! # Model gaps
 //!
 //! - **Generic `M: AnyFrameMeta`**: `Frame::from_unused` takes a
-//!   `metadata: M` parameter and threads it through `PointsTo<MetaSlot, Metadata<M>>`.
+//!   `metadata: M` parameter and threads it through the slot's typed storage permission.
 //!   We don't model the metadata type — `get_from_unused_spec` itself
 //!   ignores `M` and just commits to `usage is Frame`.
 //! - **Drop-last-in-place teardown**: when `ref_count == 1`, dropping
