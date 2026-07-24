@@ -57,7 +57,7 @@ use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::{
     frame::{
-        mapping::{frame_to_index, lemma_frame_to_index_injective},
+        mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
         meta_owners::{MetaSlotOwner, MetaSlotStorage, typed_meta_value, typed_meta_wf},
         meta_region_owners::MetaRegionOwners,
     },
@@ -539,15 +539,15 @@ impl<C: PageTableConfig> PageTableNode<C> {
             MetaSlot::slot_perm_reparked_spec(meta_to_frame(owner@.value().node().meta_vaddr()), *old(regions), *final(regions)),
 
             final(regions).frame_obligations == old(regions).frame_obligations.insert(
-                frame_to_index(meta_to_frame(owner@.value().node().meta_vaddr()))),
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value().node().meta_vaddr()))),
+                meta_to_index(owner@.value().node().meta_vaddr())),
+            old(regions).slots.contains_key(meta_to_index(owner@.value().node().meta_vaddr())),
 
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 meta_to_frame(owner@.value().node().meta_vaddr())),
             owner@.value().metaregion_sound(*final(regions)),
             forall|i: int|
                 #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> i != frame_to_index(meta_to_frame(owner@.value().node().meta_vaddr())),
+                ==> i != meta_to_index(owner@.value().node().meta_vaddr()),
             owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())), level as PagingLevel),
             final(parent_owner).meta_own == old(parent_owner).meta_own,
             final(parent_owner).slot_index == old(parent_owner).slot_index,

@@ -6,7 +6,9 @@ use vstd_extra::{cast_ptr::*, drop_tracking::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::frame::{
-        mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+        mapping::{frame_to_index, meta_to_index},
+        meta_owners::PageUsage,
+        meta_region_owners::MetaRegionOwners,
     },
 };
 
@@ -231,7 +233,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
 
     proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
         let meta_addr = self.ptr.addr();
-        let index = frame_to_index(meta_to_frame(meta_addr));
+        let index = meta_to_index(meta_addr);
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         s.slot_owners.tracked_insert(index, slot_own);
         // Paired mint axiom: produces the token AND adds its Loc to

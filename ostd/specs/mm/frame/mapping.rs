@@ -21,6 +21,14 @@ pub open spec fn max_meta_slots() -> int {
     (FRAME_METADATA_RANGE.end - FRAME_METADATA_RANGE.start) / META_SLOT_SIZE as int
 }
 
+#[verifier::inline]
+pub open spec fn frame_to_index(paddr: Paddr) -> int
+    recommends
+        paddr % PAGE_SIZE == 0,
+{
+    (paddr / PAGE_SIZE) as int
+}
+
 pub open spec fn index_to_meta(i: int) -> (res: Vaddr)
     recommends
         0 <= i < max_meta_slots(),
@@ -28,12 +36,9 @@ pub open spec fn index_to_meta(i: int) -> (res: Vaddr)
     (FRAME_METADATA_RANGE.start + i * META_SLOT_SIZE) as Vaddr
 }
 
-#[verifier::inline]
-pub open spec fn frame_to_index(paddr: Paddr) -> int
-    recommends
-        paddr % PAGE_SIZE == 0,
-{
-    (paddr / PAGE_SIZE) as int
+/// Converts a frame metadata-slot virtual address to its frame index.
+pub open spec fn meta_to_index(vaddr: Vaddr) -> int {
+    frame_to_index(meta_to_frame(vaddr))
 }
 
 #[verifier::inline]

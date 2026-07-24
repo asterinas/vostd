@@ -10,7 +10,7 @@ use crate::specs::{
     arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
     mm::{
         frame::{
-            mapping::{frame_to_index, index_to_meta, max_meta_slots},
+            mapping::{index_to_meta, max_meta_slots, meta_to_index},
             meta_owners::*,
             meta_region_owners::MetaRegionOwners,
         },
@@ -248,7 +248,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
             - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
-        &&& self.slot_index == frame_to_index(meta_to_frame(index_to_meta(self.slot_index)))
+        &&& self.slot_index == meta_to_index(index_to_meta(self.slot_index))
     }
 }
 

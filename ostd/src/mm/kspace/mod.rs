@@ -371,12 +371,11 @@ unsafe impl PageTableConfig for KernelPtConfig {
         new_regions: MetaRegionOwners,
         res: Self::Item,
     ) {
-        use crate::mm::frame::meta::mapping::meta_to_frame;
-        use crate::specs::mm::frame::mapping::frame_to_index;
+        use crate::specs::mm::frame::mapping::meta_to_index;
 
         match item {
             MappedItem::Tracked(frame, _) => {
-                let frame_idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
+                let frame_idx = meta_to_index(frame.ptr.addr());
                 assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
             },
             MappedItem::Untracked(_, _, _) => {},

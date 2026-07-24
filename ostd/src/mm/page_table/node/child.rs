@@ -9,7 +9,7 @@ use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::page_table::*;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta},
+    mapping::{group_page_meta, meta_to_index},
     meta_region_owners::MetaRegionOwners,
 };
 
@@ -67,7 +67,7 @@ impl<C: PageTableConfig> Child<C> {
         requires
             self.invariants(*old(owner), *old(regions)),
             self matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
-                frame_to_index(meta_to_frame(node.ptr.addr())),
+                meta_to_index(node.ptr.addr()),
             ) > 0,
         ensures
             final(owner).pte_invariants(res, *final(regions)),
@@ -85,7 +85,7 @@ impl<C: PageTableConfig> Child<C> {
         match self {
             Child::PageTable(node) => {
                 let ghost node_owner = owner.node();
-                let ghost node_index = frame_to_index(meta_to_frame(node.ptr.addr()));
+                let ghost node_index = meta_to_index(node.ptr.addr());
 
                 let tracked node_slot_perm = regions.slots.tracked_borrow(node_index);
                 #[verus_spec(with Tracked(node_slot_perm))]

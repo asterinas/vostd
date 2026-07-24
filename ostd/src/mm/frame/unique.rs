@@ -9,7 +9,7 @@ use vstd_extra::ownership::*;
 
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
+    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
     meta_owners::{MetaSlotStorage, borrow_meta, borrow_meta_mut},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
@@ -217,7 +217,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         let tracked mut new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
             meta_own_in,
             repr_perm,
-            frame_to_index(meta_to_frame(self.ptr.addr())),
+            meta_to_index(self.ptr.addr()),
         );
 
         // SAFETY: The metadata is initialized with type `M1`.
@@ -639,7 +639,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn from_unique(unique: UniqueFrame<M>) -> Self {
-        let ghost idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
+        let ghost idx = meta_to_index(unique.ptr.addr());
         proof {
             broadcast use group_page_meta;
 
@@ -682,7 +682,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn try_from_shared(frame: Frame<M>) -> Result<Self, Frame<M>> {
-        let ghost idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
+        let ghost idx = meta_to_index(frame.ptr.addr());
         proof {
             broadcast use group_page_meta;
 

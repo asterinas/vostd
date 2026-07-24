@@ -41,13 +41,14 @@ use vstd_extra::panic::*;
 use vstd_extra::{assert, assert_eq};
 
 use crate::mm::frame::meta::{
-    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED,
-    mapping::{frame_to_meta, meta_to_frame},
+    META_SLOT_SIZE, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED, mapping::frame_to_meta,
 };
 use crate::mm::frame::{AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
 use crate::mm::{MAX_PADDR, Paddr, Vaddr, page_size};
-use crate::specs::mm::frame::mapping::{frame_to_index, index_to_meta, max_meta_slots};
+use crate::specs::mm::frame::mapping::{
+    frame_to_index, index_to_meta, max_meta_slots, meta_to_index,
+};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage, is_mmio_paddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
@@ -2026,7 +2027,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let tracked child = parent_continuation.tracked_take_child();
         let tracked parent_own = parent_continuation.entry_own.tracked_take_node();
 
-        let ghost index = frame_to_index(meta_to_frame(parent_own.meta_vaddr()));
+        let ghost index = meta_to_index(parent_own.meta_vaddr());
 
         let ghost ptei = AbstractVaddr::from_vaddr(self.va).index[owner.level - 1];
 
@@ -4353,11 +4354,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         // per-frame ledger; mint the entry that `MD::new`
                         // consumes (net-zero), mirroring `into_pte`.
                         let tracked redeem_obl = regions.tracked_mint_frame_obligation(
-                            frame_to_index(meta_to_frame(pt.ptr.addr())),
+                            meta_to_index(pt.ptr.addr()),
                         );
                         regions.tracked_redeem_frame_obligation(redeem_obl);
                         let tracked md_obl = DropObligation::tracked_mint(
-                            frame_to_index(meta_to_frame(pt.ptr.addr())),
+                            meta_to_index(pt.ptr.addr()),
                         );
                     }
                     proof_with!(Tracked(md_obl));

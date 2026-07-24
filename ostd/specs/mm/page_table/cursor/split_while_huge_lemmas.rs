@@ -141,6 +141,8 @@ impl<C: PageTableConfig> CursorView<C> {
     /// Requires: `v.inv()`, `v.present()`, the mapping at `cur_va` has
     /// `page_size > new_size`, `page_size % new_size == 0`, and `new_size`
     /// is itself a valid page size.
+    #[verifier::rlimit(80)]
+    #[verifier::spinoff_prover]
     pub proof fn split_if_mapped_huge_spec_preserves_inv(v: Self, new_size: usize)
         requires
             v.inv(),
