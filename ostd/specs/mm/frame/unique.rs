@@ -162,10 +162,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
 
-    /// Mathematical value constructed when an unused metadata slot is claimed.
-    ///
-    /// The tracked counterpart below consumes the same permissions, so this
-    /// specification does not synthesize an [`OwnerOf::Owner`].
     pub open spec fn from_unused_owner(
         meta_own: M::Owner,
         repr_perm: M::ReprPerm,
