@@ -162,49 +162,28 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.frame_obligations.count(self.slot_index) > 0
     }
 
+    /// Mathematical value constructed when an unused metadata slot is claimed.
+    ///
+    /// The tracked counterpart below consumes the same permissions, so this
+    /// specification does not synthesize an [`OwnerOf::Owner`].
     pub open spec fn from_unused_owner(
-        old_regions: MetaRegionOwners,
-        paddr: Paddr,
-        metadata: M,
-        res: Self,
-        regions: MetaRegionOwners,
-    ) -> bool {
-        &&& <M as OwnerOf>::wf(metadata, res.meta_own)
-        &&& res.slot_index == frame_to_index(paddr)
-        &&& regions.slots[res.slot_index].addr() == frame_to_meta(paddr)
-        &&& res.meta_wf(regions)
-        &&& res.meta_value(regions) == metadata
-        &&& regions.slots == old_regions.slots
-        &&& regions.slot_owners[frame_to_index(paddr)].inner_perms
-            == old_regions.slot_owners[frame_to_index(paddr)].inner_perms
-        &&& regions.slot_owners[frame_to_index(paddr)].usage
-            == old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt
-            == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
-        &&& forall|i: int|
-            i != frame_to_index(paddr) ==> regions.slot_owners[i]
-                == old_regions.slot_owners[i]
-        // Setting up the owner does not touch the per-frame ledger; the
-        // pending-Drop obligation is minted by `from_unused` itself.
-        &&& regions.frame_obligations == old_regions.frame_obligations
-        &&& regions.inv()
+        meta_own: M::Owner,
+        repr_perm: M::ReprPerm,
+        slot_index: int,
+    ) -> Self {
+        Self { meta_own, repr_perm: Some(repr_perm), slot_index }
     }
 
-    pub axiom fn tracked_from_unused_owner(
-        tracked regions: &mut MetaRegionOwners,
+    pub proof fn tracked_from_unused_owner(
+        tracked meta_own: M::Owner,
         tracked repr_perm: M::ReprPerm,
-        paddr: Paddr,
+        slot_index: int,
     ) -> (tracked res: Self)
-        ensures
-            Self::from_unused_owner(
-                *old(regions),
-                paddr,
-                res.meta_value(*final(regions)),
-                res,
-                *final(regions),
-            ),
-            res.repr_perm == Some(repr_perm),
-    ;
+        returns
+            Self::from_unused_owner(meta_own, repr_perm, slot_index),
+    {
+        Self { meta_own, repr_perm: Some(repr_perm), slot_index }
+    }
 
     pub proof fn tracked_borrow_repr_perm(tracked &self) -> (tracked res: &M::ReprPerm)
         requires

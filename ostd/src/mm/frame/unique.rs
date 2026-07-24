@@ -65,19 +65,27 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(meta_own_in): Tracked<M::Owner>,
             Tracked(repr_perm_in): Tracked<M::ReprPerm>,
                 -> owner: Tracked<Option<UniqueFrameOwner<M>>>,
         requires
             old(regions).slot_owners.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
             old(regions).inv(),
+            <M as OwnerOf>::wf(metadata, meta_own_in),
         ensures
             !valid_frame_paddr(paddr) ==> res is Err,
             res is Ok ==> {
+                &&& owner@ is Some
                 &&& res.unwrap().wf(owner@->0)
+                &&& owner@->0.meta_own == meta_own_in
+                &&& owner@->0.meta_value(*final(regions)) == metadata
                 &&& final(regions).frame_obligations == old(regions).frame_obligations.insert(frame_to_index(paddr))
             },
-            res is Err ==> final(regions).frame_obligations == old(regions).frame_obligations,
+            res is Err ==> {
+                &&& owner@ is None
+                &&& final(regions).frame_obligations == old(regions).frame_obligations
+            },
             final(regions).inv(),
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
@@ -93,9 +101,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 
             proof_decl! {
                 let tracked owner = UniqueFrameOwner::<M>::tracked_from_unused_owner(
-                    regions,
+                    meta_own_in,
                     repr_perm,
-                    paddr,
+                    frame_to_index(paddr),
                 );
                 let ghost idx = frame_to_index(paddr);
             }
@@ -141,6 +149,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         with
             Tracked(owner): Tracked<UniqueFrameOwner<M>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(meta_own_in): Tracked<M1::Owner>,
             Tracked(repr_perm_in): Tracked<M1::ReprPerm>,
                 -> new_owner: Tracked<UniqueFrameOwner<M1>>,
         requires
@@ -149,8 +158,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             owner.global_inv(*old(regions)),
             old(regions).slot_owners[self.index()].inner_perms.in_list.value() == 0,
             old(regions).inv(),
+            <M1 as OwnerOf>::wf(metadata, meta_own_in),
         ensures
             res.wf(new_owner@),
+            new_owner@.meta_own == meta_own_in,
             new_owner@.meta_value(*final(regions)) == metadata,
             final(regions).inv(),
     )]
@@ -204,9 +215,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
 
         let tracked mut new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
-            regions,
+            meta_own_in,
             repr_perm,
-            meta_to_frame(self.ptr.addr()),
+            frame_to_index(meta_to_frame(self.ptr.addr())),
         );
 
         // SAFETY: The metadata is initialized with type `M1`.
