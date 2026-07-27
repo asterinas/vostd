@@ -104,24 +104,36 @@
 //! executable read guard until destruction or consuming CAS performs
 //! `Guard -> Inactive`.
 //!
-//! Two boundaries remain. First, the loaded root's `BlockInfo` is not yet
-//! installed in the guard's protection map. That step requires connecting
-//! expired-object completion to the root atomic's timestamp and the task's
-//! `ThreadView`; consequently `assume_shared_ref` still stands in for the final
-//! traversal argument that grants the client pointer's reference permission.
-//! Second, the unsafe
-//! quiescent-report entrypoint is not yet owned by the executable scheduler's
-//! context-switch path. The scheduler ghost API proves the per-CPU view
-//! handoff, but the real hook still has to carry that ghost state, perform the
-//! domain expired-set transition, and connect it to monitor grace-period
-//! completion. Until both boundaries are closed, the reclaim permit is a
-//! monitor-level authorization rather than the final end-to-end memory-safety
-//! authority.
+//! A guarded weak load now installs the loaded root's exact `BlockInfo` in the
+//! guard's protection map. The proof derives the guard's expired set from the
+//! entering task's view and the recorded root-removal observations. If the
+//! loaded AId were expired, weak-memory coherence and the root history's
+//! removal invariant would contradict the load timestamp. The remaining
+//! traversal boundary is converting that abstract protection into the client
+//! pointer's physical reference permission; `assume_shared_ref` still stands
+//! in for that final argument.
+//!
+//! Each reader token now records its scheduler, task, CPU, preemption-session
+//! identity, and quiescent generation. The generation is part of the
+//! fractional preemption resource. A monitor report advances it only while the
+//! running context owns the full resource, so a live preemption-disabled
+//! reader from the reported generation makes that transition impossible. New
+//! readers in the same session carry the next generation and retain the
+//! report's weak-memory view; schedule-out similarly requires full ownership
+//! and publishes that view to the CPU view imported by the next session.
+//!
+//! The remaining scheduler boundary is to verify the executable
+//! `processor::switch_to_task` call site against this tracked transition and
+//! package the per-session argument into a global theorem over every CPU
+//! report. Until that and the physical-reference boundary are closed, the
+//! reclaim permit remains a monitor-level authorization rather than the final
+//! end-to-end memory-safety authority.
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 use vstd_extra::raw_callback::{RawCallback, RawCallbackContext};
+use vstd_extra::rcu_read_pool::RcuReadLease;
 
 use crate::{
     specs::{
@@ -132,7 +144,7 @@ use crate::{
         task::InAtomicMode,
     },
     sync::Once,
-    task::{DisabledPreemptGuard, RunningTaskContext, disable_preempt_in_context},
+    task::{disable_preempt_in_context, DisabledPreemptGuard, RunningTaskContext},
 };
 
 use non_null::{NonNullPtr, NonNullPtrRef};
@@ -405,7 +417,11 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     }
 
     #[inline(always)]
-    fn load_ptr_acquire_guarded(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+    fn load_ptr_acquire_guarded(
+        &self,
+        Ghost(reader): Ghost<rcu_spec::RcuReaderContext>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (
         *mut <P as NonNullPtr>::Target,
         Tracked<Option<rcu_spec::RcuBlockInfo<<P as NonNullPtr>::Target>>>,
         Tracked<rcu_spec::RcuReadGuardToken<<P as NonNullPtr>::Target>>,
@@ -417,6 +433,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.2@.wf(),
             res.2@.domain() == self.ptr.constant().domain,
             res.2@.reader_registry() == self.ptr.constant().reader_registry,
+            res.2@.reader() == reader,
             match res.1@ {
                 None => res.0.is_null(),
                 Some(info) => {
@@ -424,13 +441,15 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                     &&& info.wf()
                     &&& info.domain() == res.2@.domain()
                     &&& equal(info.ptr(), res.0)
+                    &&& !res.2@.expired().contains(info.obj())
+                    &&& res.2@.protects(info.addr(), info.obj())
                 },
             },
     {
         proof {
             assert(self.ptr.constant().nullable == self.is_nullable());
         }
-        let res = self.ptr.load_acquire_rcu_guarded(Tracked(tv));
+        let res = self.ptr.load_acquire_rcu_guarded(Ghost(reader), Tracked(tv));
         proof {
             if !self.is_nullable() {
                 assert(!self.ptr.constant().nullable);
@@ -494,6 +513,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
             final(session).session_id() == old(session).session_id(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     {
@@ -545,18 +565,29 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
     {
         let inner_guard = disable_preempt_in_context(Tracked(session));
+        let ghost reader = rcu_spec::RcuReaderContext {
+            scheduler: session.scheduler(),
+            task: session.task(),
+            session: session.session_id(),
+            cpu: session.cpu(),
+            generation: session.quiescent_generation(),
+        };
         proof_decl! {
             let tracked tv = DisabledPreemptGuard::tracked_borrow_thread_view_mut_from_context(
                 session,
                 &inner_guard,
             );
         }
-        let (obj_ptr, tracked_info, tracked_guard) = self.load_ptr_acquire_guarded(Tracked(tv));
+        let (obj_ptr, tracked_info, tracked_guard) = self.load_ptr_acquire_guarded(
+            Ghost(reader),
+            Tracked(tv),
+        );
         RcuReadGuardInner {
             obj_ptr,
             rcu: self,
@@ -579,6 +610,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     {
@@ -625,6 +657,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
             final(session).session_id() == old(session).session_id(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     {
@@ -727,6 +760,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             final(session).cpu() == old(session).cpu(),
             final(session).view() == old(session).view(),
             final(session).session_id() == old(session).session_id(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     {
@@ -748,6 +782,23 @@ unsafe fn assume_shared_ref<'a, P: NonNullPtrRef<'a>>(ptr: NonNull<P::Target>) -
         let tracked perm: P::RefPermission = Tracked::<P::RefPermission>::assume_new().get();
     }
     unsafe { P::raw_as_ref(ptr, Tracked(perm)) }
+}
+
+/// Converts an RCU storage-protocol lease into the pointer implementation's
+/// reusable shared-reference permission.
+///
+/// Once guarded loads carry this lease, `RcuReadGuardInner::get` can pass the
+/// result directly to `P::raw_as_ref` without manufacturing a permission.
+proof fn borrow_lease_as_ref_permission<'a, P: NonNullPtrRef<'a>>(
+    tracked lease: &'a RcuReadLease<P::Permission>,
+) -> (tracked res: P::RefPermission)
+    requires
+        lease.resource().inv(),
+    ensures
+        res.inv(),
+        P::ref_perm_view_permission(res) == lease.resource(),
+{
+    P::borrow_perm_as_ref_perm(lease.borrow())
 }
 
 #[verus_verify]
@@ -772,6 +823,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -794,6 +846,7 @@ impl<P: NonNullPtr + Send> Rcu<P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
@@ -838,6 +891,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -860,6 +914,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() + 1 == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth() + 1,
             res.matches_context(*final(session)),
@@ -881,6 +936,7 @@ impl<P: NonNullPtr + Send> RcuOption<P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -907,6 +963,7 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -935,6 +992,7 @@ impl<P: NonNullPtr + Send> RcuReadGuard<'_, P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -961,6 +1019,7 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -990,6 +1049,7 @@ impl<P: NonNullPtr + Send> RcuOptionReadGuard<'_, P> {
             final(session).wf(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
             final(session).preempt_depth() + 1 == old(session).preempt_depth(),
     )]
@@ -1061,6 +1121,8 @@ impl<T: Send + 'static> Deref for RcuDrop<T> {
         final(session).scheduler() == old(session).scheduler(),
         final(session).cpu() == old(session).cpu(),
         final(session).session_id() == old(session).session_id(),
+        old(session).quiescent_generation() <= final(session).quiescent_generation(),
+        final(session).quiescent_generation() <= old(session).quiescent_generation() + 1,
         final(session).available_fractions() == old(session).available_fractions(),
         final(session).preempt_depth() == old(session).preempt_depth(),
 )]
@@ -1133,7 +1195,14 @@ impl<'a, P: NonNullPtr> RcuOptionReadGuard<'a, P> {
 
 impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
     closed spec fn matches_context(self, session: RunningTaskContext) -> bool {
-        self._inner_guard.matches_context(session)
+        &&& self._inner_guard.matches_context(session)
+        &&& self.tracked_guard@.reader() == (rcu_spec::RcuReaderContext {
+            scheduler: session.scheduler(),
+            task: session.task(),
+            session: session.session_id(),
+            cpu: session.cpu(),
+            generation: session.quiescent_generation(),
+        })
     }
 
     #[verifier::type_invariant]
@@ -1150,6 +1219,8 @@ impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
                 &&& info.wf()
                 &&& info.domain() == self.tracked_guard@.domain()
                 &&& equal(info.ptr(), self.obj_ptr)
+                &&& !self.tracked_guard@.expired().contains(info.obj())
+                &&& self.tracked_guard@.protects(info.addr(), info.obj())
             },
         }
     }

@@ -25,6 +25,8 @@
 //! observations available to later readers before physical reclamation.
 use core::marker::PhantomData;
 
+use crate::specs::mm::cpu::CpuId;
+
 use super::weak_memory::{History, Msg, Timestamp, WeakAtomicInvariantPredicate, WmView};
 use vstd::prelude::*;
 use vstd::resource::Loc;
@@ -35,6 +37,21 @@ verus! {
 pub type LinkIndex = nat;
 
 pub type LinkEdge = (nat, LinkIndex);
+
+/// Scheduler identity of the execution context that owns one RCU reader.
+///
+/// `session` is the fresh preemption-session resource identity created when
+/// the scheduler checks a task in on `cpu`. Recording the full tuple prevents
+/// an RCU guard from being detached, in the proof, from the preemption guard
+/// that keeps its task on that CPU.
+pub ghost struct RcuReaderContext {
+    pub scheduler: Loc,
+    pub task: Loc,
+    pub session: Loc,
+    pub cpu: CpuId,
+    /// Quiescent interval in which this reader started.
+    pub generation: nat,
+}
 
 /// Proof summary for a type-erased RCU callback.
 ///
@@ -309,6 +326,8 @@ impl RcuRootGhost {
                 None => res.0.objects() == Map::empty(),
             },
             current_registration_matches(res.0, res.1),
+            res.0.domain_auth().retired() == Set::<nat>::empty(),
+            res.0.domain_auth().retire_observations() == Map::<nat, RcuRemovalObservation>::empty(),
     {
         let tracked mut domain = RcuDomainAuth::tracked_new();
         if ptr.addr() == 0 {
@@ -348,6 +367,10 @@ impl RcuRootGhost {
             final(self).domain_auth().reader_registry() == old(
                 self,
             ).domain_auth().reader_registry(),
+            final(self).domain_auth().retired() == old(self).domain_auth().retired(),
+            final(self).domain_auth().retire_observations() == old(
+                self,
+            ).domain_auth().retire_observations(),
             (res is Some) == (msg.value.addr() != 0),
             res is Some ==> res->Some_0.0.ptr() == msg.value,
             res is Some ==> res->Some_0.0.obj() == res->Some_0.1.obj(),
@@ -434,6 +457,10 @@ impl RcuRootGhost {
             final(self).domain_auth().reader_registry() == old(
                 self,
             ).domain_auth().reader_registry(),
+            final(self).domain_auth().retired() == old(self).domain_auth().retired(),
+            final(self).domain_auth().retire_observations() == old(
+                self,
+            ).domain_auth().retire_observations(),
             final(self).objects() == old(self).objects(),
             final(self).publications() == old(self).publications().push(Some(info.obj())),
     {
@@ -536,7 +563,7 @@ pub tracked struct RcuRootOwnedGhost<T, O = ()> {
     root: RcuRootGhost,
     current: Option<RcuOwnedObject<T, O>>,
     infos: Map<nat, RcuBlockInfo<T>>,
-    ghost removals: Map<nat, Timestamp>,
+    ghost removals: Map<nat, RcuRemovalObservation>,
 }
 
 impl<T, O> RcuRootOwnedGhost<T, O> {
@@ -585,7 +612,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         self.infos
     }
 
-    pub closed spec fn removals(self) -> Map<nat, Timestamp> {
+    pub closed spec fn removals(self) -> Map<nat, RcuRemovalObservation> {
         self.removals
     }
 
@@ -623,7 +650,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         }
         &&& forall|obj: nat|
             self.removals().contains_key(obj) ==> {
-                let ts = #[trigger] self.removals()[obj];
+                let ts = (#[trigger] self.removals()[obj]).timestamp;
                 &&& 0 < ts < history.len()
                 &&& forall|i: int|
                     ts <= i < history.len() ==> #[trigger] self.publications()[i] != Some(obj)
@@ -694,13 +721,74 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         }
     }
 
+    /// Extracts the allocation ID stored in a non-null root publication.
+    pub proof fn lemma_published_object_id(
+        tracked &self,
+        history: History<*mut T>,
+        ts: nat,
+        object: RcuPublishedObject,
+    )
+        requires
+            rcu_owned_root_history_inv(history, *self),
+            ts < history.len(),
+            self.published_at(ts) == Some(object),
+        ensures
+            self.publications()[ts as int] == Some(object.obj),
+    {
+        match self.publications()[ts as int] {
+            Some(obj) => {
+                assert(self.root().objects().contains_pair(obj, history[ts as int].value.addr()));
+                assert(self.published_at(ts) == Some(
+                    RcuPublishedObject {
+                        domain: self.domain(),
+                        obj,
+                        addr: self.root().objects()[obj],
+                    },
+                ));
+            },
+            None => {
+                assert(self.published_at(ts) is None);
+            },
+        }
+    }
+
+    /// Opens the paper's entry-time expired-set membership into the recorded
+    /// root-removal observation for that allocation.
+    pub proof fn lemma_observed_retired(
+        tracked &self,
+        history: History<*mut T>,
+        root: Loc,
+        view: WmView,
+        obj: nat,
+    )
+        requires
+            rcu_owned_root_history_inv(history, *self),
+            self.root().domain_auth().observed_retired(root, view).contains(obj),
+        ensures
+            self.removals().contains_key(obj),
+            self.removals()[obj].root == root,
+            self.removals()[obj].observed_by(view),
+    {
+        assert(self.root().domain_auth().wf());
+        assert(self.root().domain_auth().retired().contains(obj));
+        assert(self.root().domain_auth().retire_observations().dom()
+            == self.root().domain_auth().retired());
+        assert(self.root().domain_auth().retire_observations().dom().contains(obj));
+        assert(self.root().domain_auth().retire_observations().contains_key(obj));
+    }
+
     /// Registers and starts one fresh paper reader while preserving root state.
     ///
     /// Reader slots are proof-only and currently allocated per critical
     /// section. `tracked_stop_reader` consumes the live slot again; no runtime
     /// reader counter is introduced.
-    pub proof fn tracked_start_reader(tracked &mut self, history: History<*mut T>) -> (tracked res:
-        RcuBaseGuard)
+    pub proof fn tracked_start_reader(
+        tracked &mut self,
+        history: History<*mut T>,
+        root: Loc,
+        start_view: WmView,
+        reader: RcuReaderContext,
+    ) -> (tracked res: RcuBaseGuard)
         requires
             rcu_owned_root_history_inv(history, *old(self)),
         ensures
@@ -708,12 +796,21 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             final(self).domain() == old(self).domain(),
             final(self).reader_registry() == old(self).reader_registry(),
             final(self).current_owned() == old(self).current_owned(),
+            final(self).publications() == old(self).publications(),
+            final(self).infos() == old(self).infos(),
+            final(self).removals() == old(self).removals(),
+            final(self).root().domain_auth().retired() == old(self).root().domain_auth().retired(),
+            final(self).root().domain_auth().retire_observations() == old(
+                self,
+            ).root().domain_auth().retire_observations(),
             res.wf(),
             res.domain() == final(self).domain(),
             res.reader_registry() == final(self).reader_registry(),
+            res.reader() == reader,
+            res.expired() == final(self).root().domain_auth().observed_retired(root, start_view),
     {
-        let tracked inactive = self.root.domain.tracked_register_reader();
-        let tracked guard = self.root.domain.tracked_guard_start(inactive);
+        let tracked inactive = self.root.domain.tracked_register_reader(reader);
+        let tracked guard = self.root.domain.tracked_guard_start(inactive, root, start_view);
         assert(current_registration_matches(self.root(), self.current_registration()));
         assert(self.infos_wf());
         guard
@@ -792,6 +889,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         let tracked res = RcuRootOwnedGhost { root, current, infos, removals: Map::empty() };
         assert(res.infos_wf());
         assert(res.removals_wf(seq![Msg { value: ptr, view: WmView::empty() }]));
+        assert(res.removals() == res.root().domain_auth().retire_observations());
         res
     }
 
@@ -831,8 +929,8 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                         root,
                         timestamp: prev.len(),
                     })
-                    &&& old(self).current_ownership() == Some(detached.ownership())
                     &&& equal(detached.ptr(), prev[(prev.len() - 1) as int].value)
+                    &&& old(self).current_ownership() == Some(detached.ownership())
                     &&& OwnPred::owns(detached.ptr(), detached.ownership())
                 },
                 None => old(self).current_registration() is None,
@@ -893,6 +991,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 None
             },
         };
+        let ghost removal = RcuRemovalObservation { root, timestamp: prev.len() };
         let tracked detached = match old_current {
             Some(owned) => {
                 let tracked (registration, old_ownership) = owned.tracked_into_parts();
@@ -903,7 +1002,6 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                     link_view: RcuLinkView::empty(),
                 };
                 let tracked retire = lift_retire_perm(base, seen_removed);
-                let ghost removal = RcuRemovalObservation { root, timestamp: prev.len() };
                 let tracked retired = self.root.domain.tracked_retire(retire, removal);
                 Some(RcuRetiredOwnedObject { object, retired, ownership: old_ownership })
             },
@@ -911,20 +1009,43 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         };
         self.current = new_current;
         self.removals = match removed_obj {
-            Some(obj) => self.removals.insert(obj, prev.len()),
+            Some(obj) => self.removals.insert(obj, removal),
             None => self.removals,
+        };
+        assert(self.removals() == self.root().domain_auth().retire_observations()) by {
+            match removed_obj {
+                Some(obj) => {
+                    assert(old(self).removals() == old(
+                        self,
+                    ).root().domain_auth().retire_observations());
+                    assert(self.removals() == old(self).removals().insert(obj, removal));
+                    assert(self.root().domain_auth().retire_observations() == old(
+                        self,
+                    ).root().domain_auth().retire_observations().insert(obj, removal));
+                },
+                None => {
+                    assert(old(self).removals() == old(
+                        self,
+                    ).root().domain_auth().retire_observations());
+                    assert(self.removals() == old(self).removals());
+                    assert(self.root().domain_auth().retire_observations() == old(
+                        self,
+                    ).root().domain_auth().retire_observations());
+                },
+            }
         };
         assert(current_registration_matches(self.root(), self.current_registration()));
         assert(self.infos_wf());
         assert(self.removals_wf(next)) by {
             assert forall|obj: nat| self.removals().contains_key(obj) implies {
-                let ts = #[trigger] self.removals()[obj];
+                let ts = (#[trigger] self.removals()[obj]).timestamp;
                 &&& 0 < ts < next.len()
                 &&& forall|i: int|
                     ts <= i < next.len() ==> #[trigger] self.publications()[i] != Some(obj)
             } by {
                 if removed_obj == Some(obj) {
-                    assert(self.removals()[obj] == prev.len());
+                    assert(self.removals()[obj] == removal);
+                    assert(self.removals()[obj].timestamp == prev.len());
                     assert(next.len() == prev.len() + 1);
                     assert(self.publications()[prev.len() as int] == match new_registration {
                         Some(registration) => Some(registration.0.obj()),
@@ -940,7 +1061,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                     assert(old(self).removals().contains_key(obj));
                     assert(self.removals()[obj] == old(self).removals()[obj]);
                     assert forall|i: int|
-                        self.removals()[obj] <= i
+                        self.removals()[obj].timestamp <= i
                             < next.len() implies #[trigger] self.publications()[i] != Some(obj) by {
                         if i < prev.len() {
                             assert(self.publications()[i] == old(self).publications()[i]);
@@ -983,9 +1104,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         self.root.tracked_push_registered(prev, next, msg, &owned.registration.0);
         self.current = Some(owned);
         assert(current_registration_matches(self.root(), self.current_registration()));
+        assert(self.removals() == self.root().domain_auth().retire_observations());
         assert(self.removals_wf(next)) by {
             assert forall|obj: nat| self.removals().contains_key(obj) implies {
-                let ts = #[trigger] self.removals()[obj];
+                let ts = (#[trigger] self.removals()[obj]).timestamp;
                 &&& 0 < ts < next.len()
                 &&& forall|i: int|
                     ts <= i < next.len() ==> #[trigger] self.publications()[i] != Some(obj)
@@ -994,8 +1116,8 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 assert(!old(self).removals().contains_key(owned.registration.0.obj()));
                 assert(obj != owned.registration.0.obj());
                 assert forall|i: int|
-                    self.removals()[obj] <= i < next.len() implies #[trigger] self.publications()[i]
-                    != Some(obj) by {
+                    self.removals()[obj].timestamp <= i
+                        < next.len() implies #[trigger] self.publications()[i] != Some(obj) by {
                     if i < prev.len() {
                         assert(self.publications()[i] == old(self).publications()[i]);
                     } else {
@@ -1017,6 +1139,7 @@ pub open spec fn rcu_owned_root_history_inv<T, O>(
     &&& ghost.ownership_wf()
     &&& ghost.infos_wf()
     &&& ghost.removals_wf(history)
+    &&& ghost.removals() == ghost.root().domain_auth().retire_observations()
     &&& forall|i: int|
         0 <= i < history.len() ==> {
             match #[trigger] ghost.publications()[i] {
@@ -1465,7 +1588,7 @@ pub tracked struct RcuDomainAuth {
     ghost next_obj: nat,
     ghost next_reader: nat,
     ghost retired: Set<nat>,
-    ghost expired: Set<nat>,
+    ghost retire_observations: Map<nat, RcuRemovalObservation>,
 }
 
 impl RcuDomainAuth {
@@ -1487,13 +1610,22 @@ impl RcuDomainAuth {
         self.retired
     }
 
-    /// Allocations whose retirement is covered by a completed grace period.
+    /// Physical detachment observation recorded for each retired allocation.
     ///
-    /// This is the paper's implementation-specific expired set. It is kept
-    /// separate from `retired`: a newly retired allocation remains protected
-    /// by critical sections until monitor completion moves it here.
-    pub closed spec fn expired(self) -> Set<nat> {
-        self.expired
+    /// A guard's implementation-specific expired set `X` is derived from this
+    /// map at critical-section entry: it contains exactly the retired
+    /// allocations whose detachment observation is already covered by the
+    /// entering thread's weak-memory view.
+    pub closed spec fn retire_observations(self) -> Map<nat, RcuRemovalObservation> {
+        self.retire_observations
+    }
+
+    pub open spec fn observed_retired(self, root: Loc, view: WmView) -> Set<nat> {
+        self.retired().filter(
+            |obj: nat|
+                self.retire_observations()[obj].root == root
+                    && self.retire_observations()[obj].observed_by(view),
+        )
     }
 
     pub closed spec fn reader_registry(self) -> Loc {
@@ -1516,7 +1648,7 @@ impl RcuDomainAuth {
         &&& forall|obj: nat| #[trigger] self.objects@.contains_key(obj) ==> obj < self.next_obj()
         &&& forall|tid: nat| #[trigger] self.readers@.contains_key(tid) ==> tid < self.next_reader()
         &&& self.retired().subset_of(self.objects().dom())
-        &&& self.expired().subset_of(self.retired())
+        &&& self.retire_observations().dom() == self.retired()
     }
 
     /// Allocates a fresh RCU protection domain.
@@ -1525,6 +1657,8 @@ impl RcuDomainAuth {
             res.wf(),
             res.objects() == Map::<nat, usize>::empty(),
             res.next_obj() == 0,
+            res.retired() == Set::<nat>::empty(),
+            res.retire_observations() == Map::<nat, RcuRemovalObservation>::empty(),
     {
         let tracked (objects, _objects_entries) = GhostMapAuth::new(Map::empty());
         let tracked (retire_perms, _retire_entries) = GhostMapAuth::new(Map::empty());
@@ -1536,7 +1670,7 @@ impl RcuDomainAuth {
             next_obj: 0,
             next_reader: 0,
             retired: Set::empty(),
-            expired: Set::empty(),
+            retire_observations: Map::empty(),
         }
     }
 
@@ -1559,7 +1693,7 @@ impl RcuDomainAuth {
             final(self).reader_registry() == old(self).reader_registry(),
             final(self).next_obj() == old(self).next_obj() + 1,
             final(self).retired() == old(self).retired(),
-            final(self).expired() == old(self).expired(),
+            final(self).retire_observations() == old(self).retire_observations(),
             final(self).objects() == old(self).objects().insert(old(self).next_obj(), ptr.addr()),
             res.0.domain() == final(self).id(),
             res.0.obj() == old(self).next_obj(),
@@ -1608,7 +1742,10 @@ impl RcuDomainAuth {
 
     /// Registers one reader slot and returns the paper's `Inactive(tid)`
     /// resource for it.
-    pub proof fn tracked_register_reader(tracked &mut self) -> (tracked res: RcuInactive)
+    pub proof fn tracked_register_reader(
+        tracked &mut self,
+        reader: RcuReaderContext,
+    ) -> (tracked res: RcuInactive)
         requires
             old(self).wf(),
         ensures
@@ -1618,9 +1755,10 @@ impl RcuDomainAuth {
             final(self).reader_registry() == old(self).reader_registry(),
             final(self).objects() == old(self).objects(),
             final(self).retired() == old(self).retired(),
-            final(self).expired() == old(self).expired(),
+            final(self).retire_observations() == old(self).retire_observations(),
             res.domain() == final(self).id(),
             res.tid() == old(self).next_reader(),
+            res.reader() == reader,
             res.belongs_to(*final(self)),
             res.wf(),
     {
@@ -1634,11 +1772,12 @@ impl RcuDomainAuth {
                 assert(old(self).readers@.contains_key(registered));
             }
         };
-        RcuInactive { domain: self.id(), state }
+        RcuInactive { domain: self.id(), state, reader }
     }
 
     /// Starts a read-side critical section, snapshotting the set `X` of AIds
-    /// whose grace period had already completed.
+    /// whose root-removal observation is covered by the entering thread's
+    /// weak-memory view.
     ///
     /// The paper only requires `X` to be a subset of all retired allocations.
     /// Using `retired` itself here would be too strong: a reader may safely
@@ -1647,6 +1786,8 @@ impl RcuDomainAuth {
     pub proof fn tracked_guard_start(
         tracked &mut self,
         tracked mut inactive: RcuInactive,
+        root: Loc,
+        start_view: WmView,
     ) -> (tracked res: RcuBaseGuard)
         requires
             old(self).wf(),
@@ -1659,10 +1800,11 @@ impl RcuDomainAuth {
             final(self).reader_registry() == old(self).reader_registry(),
             final(self).objects() == old(self).objects(),
             final(self).retired() == old(self).retired(),
-            final(self).expired() == old(self).expired(),
+            final(self).retire_observations() == old(self).retire_observations(),
             res.belongs_to(*final(self)),
             res.tid() == inactive.tid(),
-            res.expired() == old(self).expired(),
+            res.reader() == inactive.reader(),
+            res.expired() == old(self).observed_retired(root, start_view),
             res.protected() == Map::<usize, nat>::empty(),
             res.wf(),
     {
@@ -1681,7 +1823,8 @@ impl RcuDomainAuth {
         RcuBaseGuard {
             domain: self.id(),
             state: inactive.state,
-            expired: self.expired,
+            reader: inactive.reader,
+            expired: self.observed_retired(root, start_view),
             protected: Map::empty(),
         }
     }
@@ -1703,9 +1846,10 @@ impl RcuDomainAuth {
             final(self).reader_registry() == old(self).reader_registry(),
             final(self).objects() == old(self).objects(),
             final(self).retired() == old(self).retired(),
-            final(self).expired() == old(self).expired(),
+            final(self).retire_observations() == old(self).retire_observations(),
             res.belongs_to(*final(self)),
             res.tid() == guard.tid(),
+            res.reader() == guard.reader(),
             res.wf(),
     {
         let ghost tid = guard.tid();
@@ -1720,7 +1864,7 @@ impl RcuDomainAuth {
                 assert(old(self).readers@.contains_key(registered));
             }
         };
-        RcuInactive { domain: self.id(), state: guard.state }
+        RcuInactive { domain: self.id(), state: guard.state, reader: guard.reader }
     }
 
     /// Implements the base `rcu-retire` transition by adding the detached AId
@@ -1742,7 +1886,10 @@ impl RcuDomainAuth {
             final(self).reader_registry() == old(self).reader_registry(),
             final(self).objects() == old(self).objects(),
             final(self).retired() == old(self).retired().insert(retire.obj()),
-            final(self).expired() == old(self).expired(),
+            final(self).retire_observations() == old(self).retire_observations().insert(
+                retire.obj(),
+                removal,
+            ),
             res.domain() == final(self).id(),
             res.obj() == retire.obj(),
             res.ptr() == retire.ptr(),
@@ -1755,8 +1902,9 @@ impl RcuDomainAuth {
         retire.base.perm.agree(&self.retire_perms);
         assert(self.objects().contains_key(obj));
         self.retired = self.retired.insert(obj);
+        self.retire_observations = self.retire_observations.insert(obj, removal);
         assert(self.retired().subset_of(self.objects().dom()));
-        assert(self.expired().subset_of(self.retired()));
+        assert(self.retire_observations().dom() == self.retired());
         let tracked fact = retire.base.perm.persist();
         RcuRetired { fact: RcuRetiredFact { domain, fact, removal }, ptr }
     }
@@ -1766,6 +1914,7 @@ impl RcuDomainAuth {
 pub tracked struct RcuInactive {
     ghost domain: Loc,
     state: GhostPointsTo<nat, bool>,
+    ghost reader: RcuReaderContext,
 }
 
 impl RcuInactive {
@@ -1775,6 +1924,10 @@ impl RcuInactive {
 
     pub closed spec fn tid(self) -> nat {
         self.state.key()
+    }
+
+    pub closed spec fn reader(self) -> RcuReaderContext {
+        self.reader
     }
 
     pub closed spec fn wf(self) -> bool {
@@ -1794,6 +1947,7 @@ impl RcuInactive {
 pub tracked struct RcuBaseGuard {
     ghost domain: Loc,
     state: GhostPointsTo<nat, bool>,
+    ghost reader: RcuReaderContext,
     ghost expired: Set<nat>,
     ghost protected: Map<usize, nat>,
 }
@@ -1809,6 +1963,10 @@ impl RcuBaseGuard {
 
     pub closed spec fn reader_registry(self) -> Loc {
         self.state.id()
+    }
+
+    pub closed spec fn reader(self) -> RcuReaderContext {
+        self.reader
     }
 
     pub closed spec fn expired(self) -> Set<nat> {
@@ -1844,6 +2002,8 @@ impl RcuBaseGuard {
             final(self).wf(),
             final(self).domain() == old(self).domain(),
             final(self).tid() == old(self).tid(),
+            final(self).reader_registry() == old(self).reader_registry(),
+            final(self).reader() == old(self).reader(),
             final(self).expired() == old(self).expired(),
             final(self).protected() == old(self).protected().insert(info.addr(), info.obj()),
             final(self).protects(info.addr(), info.obj()),
@@ -2233,14 +2393,50 @@ pub proof fn retired_but_unexpired_object_remains_protectable<T>(ptr: *mut T) ->
         link_view: RcuLinkView::empty(),
     };
     let tracked retire = lift_retire_perm(base, seen_removed);
-    let ghost removal = RcuRemovalObservation { root: domain.id(), timestamp: 0 };
+    let ghost removal = RcuRemovalObservation { root: domain.id(), timestamp: 1 };
     let tracked _retired = domain.tracked_retire(retire, removal);
 
-    let tracked inactive = domain.tracked_register_reader();
-    let tracked mut guard = domain.tracked_guard_start(inactive);
+    let ghost reader = arbitrary();
+    let tracked inactive = domain.tracked_register_reader(reader);
+    let tracked mut guard = domain.tracked_guard_start(inactive, domain.id(), WmView::empty());
     assert(guard.expired() == Set::<nat>::empty());
     assert(!guard.expired().contains(info.obj()));
     guard.tracked_protect(&info);
+    (guard, info)
+}
+
+/// Regression proof that observing a retirement makes it expired for a new
+/// guard.
+///
+/// Timestamp zero is covered by an empty weak-memory view. Consequently the
+/// retired allocation enters the new guard's `X` snapshot and cannot be added
+/// to its protection map.
+pub proof fn observed_retired_object_enters_guard_expired<T>(ptr: *mut T) -> (tracked res: (
+    RcuBaseGuard,
+    RcuBlockInfo<T>,
+))
+    requires
+        ptr.addr() != 0,
+    ensures
+        res.1.ptr() == ptr,
+        res.0.domain() == res.1.domain(),
+        res.0.expired().contains(res.1.obj()),
+{
+    let tracked mut domain = RcuDomainAuth::tracked_new();
+    let tracked (info, base) = domain.tracked_register(ptr);
+    let ghost seen_removed = RcuSeenRemoved {
+        removed: Set::empty().insert(info.obj()),
+        link_view: RcuLinkView::empty(),
+    };
+    let tracked retire = lift_retire_perm(base, seen_removed);
+    let ghost removal = RcuRemovalObservation { root: domain.id(), timestamp: 0 };
+    let tracked _retired = domain.tracked_retire(retire, removal);
+
+    let ghost reader = arbitrary();
+    let tracked inactive = domain.tracked_register_reader(reader);
+    let tracked guard = domain.tracked_guard_start(inactive, domain.id(), WmView::empty());
+    assert(removal.observed_by(WmView::empty()));
+    assert(guard.expired().contains(info.obj()));
     (guard, info)
 }
 
@@ -2351,6 +2547,10 @@ impl<T> RcuReadGuardToken<T> {
         self.base.reader_registry()
     }
 
+    pub closed spec fn reader(self) -> RcuReaderContext {
+        self.base.reader()
+    }
+
     pub closed spec fn expired(self) -> Set<nat> {
         self.base.expired()
     }
@@ -2417,6 +2617,7 @@ impl<T> RcuReadGuardToken<T> {
             res.domain() == base.domain(),
             res.tid() == base.tid(),
             res.reader_registry() == base.reader_registry(),
+            res.reader() == base.reader(),
             res.expired() == base.expired(),
             res.protected() == base.protected(),
             res.seen_removed() == seen_removed,
@@ -2434,6 +2635,7 @@ impl<T> RcuReadGuardToken<T> {
             res.domain() == base.domain(),
             res.tid() == base.tid(),
             res.reader_registry() == base.reader_registry(),
+            res.reader() == base.reader(),
             res.expired() == base.expired(),
             res.seen_removed().removed == base.expired(),
             res.link_view() == RcuLinkView::<T>::empty(),
@@ -2455,6 +2657,7 @@ impl<T> RcuReadGuardToken<T> {
             res.domain() == self.domain(),
             res.tid() == self.tid(),
             res.reader_registry() == self.reader_registry(),
+            res.reader() == self.reader(),
             res.expired() == self.expired(),
             res.protected() == self.protected(),
     {
@@ -2469,6 +2672,8 @@ impl<T> RcuReadGuardToken<T> {
             final(self).wf(),
             final(self).domain() == old(self).domain(),
             final(self).tid() == old(self).tid(),
+            final(self).reader_registry() == old(self).reader_registry(),
+            final(self).reader() == old(self).reader(),
             final(self).expired() == old(self).expired(),
             final(self).seen_removed() == old(self).seen_removed(),
             final(self).protected() == old(self).protected().insert(info.addr(), info.obj()),

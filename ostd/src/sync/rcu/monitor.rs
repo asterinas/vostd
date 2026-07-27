@@ -35,30 +35,42 @@ tracked struct RcuQuiescentContext {
     ghost cpu: CpuId,
     ghost task: Loc,
     ghost scheduler: Loc,
+    ghost session: Loc,
+    ghost generation: nat,
     ghost view: WmView,
 }
 
 impl RcuQuiescentContext {
     proof fn tracked_from_running_context(
-        tracked context: &RunningTaskContext,
+        tracked context: &mut RunningTaskContext,
         cpu: CpuId,
     ) -> (tracked res: Self)
         requires
-            context.wf(),
-            context.is_quiescent(),
-            cpu == context.cpu(),
+            old(context).wf(),
+            old(context).is_quiescent(),
+            cpu == old(context).cpu(),
         ensures
             res.cpu == cpu,
-            res.task == context.task(),
-            res.scheduler == context.scheduler(),
-            res.view == context.view(),
+            res.task == old(context).task(),
+            res.scheduler == old(context).scheduler(),
+            res.session == old(context).session_id(),
+            res.generation == old(context).quiescent_generation(),
+            res.view == old(context).view(),
+            final(context).wf(),
+            final(context).is_quiescent(),
+            final(context).task() == old(context).task(),
+            final(context).scheduler() == old(context).scheduler(),
+            final(context).cpu() == old(context).cpu(),
+            final(context).session_id() == old(context).session_id(),
+            final(context).quiescent_generation() == res.generation + 1,
+            final(context).view() == old(context).view(),
     {
-        RcuQuiescentContext {
-            cpu,
-            task: context.task(),
-            scheduler: context.scheduler(),
-            view: context.view(),
-        }
+        let ghost task = context.task();
+        let ghost scheduler = context.scheduler();
+        let ghost session = context.session_id();
+        let ghost view = context.view();
+        let ghost generation = context.tracked_record_quiescent();
+        RcuQuiescentContext { cpu, task, scheduler, session, generation, view }
     }
 }
 
@@ -67,8 +79,25 @@ ghost struct RcuCpuQuiescentReport {
     cpu: CpuId,
     task: Loc,
     scheduler: Loc,
+    session: Loc,
+    /// Last reader generation closed by this quiescent transition.
+    generation: nat,
     view: WmView,
     epoch: nat,
+}
+
+impl RcuCpuQuiescentReport {
+    /// Whether this report is the quiescent boundary immediately following a
+    /// reader generation in the same scheduler session.
+    closed spec fn closes_same_session_generation(
+        self,
+        reader: rcu_spec::RcuReaderContext,
+    ) -> bool {
+        &&& self.cpu == reader.cpu
+        &&& self.scheduler == reader.scheduler
+        &&& self.session == reader.session
+        &&& reader.generation <= self.generation
+    }
 }
 
 /// RCU-specific wrapper around a type-erased executable callback.
@@ -141,7 +170,8 @@ impl RcuCallback {
     }
 
     closed spec fn wf(self) -> bool {
-        self.safety@.matches(self@)
+        &&& self.safety@.matches(self@)
+        &&& self@.removal.observed_by(self@.retire_view)
     }
 
     #[verifier::type_invariant]
@@ -185,6 +215,7 @@ impl RcuReclaimPermit {
                 &&& self.reports@[cpu].cpu == cpu
                 &&& self.reports@[cpu].epoch == callback.retire_epoch
                 &&& callback.retire_view.spec_le(self.reports@[cpu].view)
+                &&& callback.removal.observed_by(self.reports@[cpu].view)
             }
     }
 }
@@ -241,10 +272,17 @@ impl CompletedGracePeriod {
         requires
             safety.matches(callback),
             self.covers(callback),
+            callback.removal.observed_by(callback.retire_view),
         ensures
             permit.authorizes(callback),
     {
         let tracked retired = safety.tracked_retired_fact(callback);
+        assert forall|cpu: CpuId| #[trigger]
+            self.reports().contains_key(cpu) implies callback.removal.observed_by(
+            self.reports()[cpu].view,
+        ) by {
+            assert(callback.retire_view.spec_le(self.reports()[cpu].view));
+        };
         RcuReclaimPermit { summary: Ghost(callback), retired, reports: Ghost(self.reports()) }
     }
 }
@@ -472,6 +510,8 @@ impl GracePeriod {
             cpu: this_cpu,
             task: context.task,
             scheduler: context.scheduler,
+            session: context.session,
+            generation: context.generation,
             view: context.view,
             epoch: self@.epoch,
         };
@@ -1120,6 +1160,7 @@ impl RcuMonitor {
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
             final(session).session_id() == old(session).session_id(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]
@@ -1197,6 +1238,8 @@ impl RcuMonitor {
             final(session).scheduler() == old(session).scheduler(),
             final(session).cpu() == old(session).cpu(),
             final(session).session_id() == old(session).session_id(),
+            old(session).quiescent_generation() <= final(session).quiescent_generation(),
+            final(session).quiescent_generation() <= old(session).quiescent_generation() + 1,
             final(session).available_fractions() == old(session).available_fractions(),
             final(session).preempt_depth() == old(session).preempt_depth(),
     )]

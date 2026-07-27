@@ -44,12 +44,16 @@ impl NestedPreemptToken {
 
 /// A shareable proof token tying a guard to the active preemption session.
 ///
-/// The token is a fractional resource-algebra fragment. It records only stable
-/// session identity, currently the running task id. The mutable weak-memory
-/// view is intentionally not stored here because weak atomic operations update
-/// that view while guard fragments may be outstanding.
+/// The token is a fractional resource-algebra fragment. Its generation changes
+/// only while the session owns the full fraction, which is exactly the
+/// quiescent state in which no preemption-disabled reader can remain live.
+pub ghost struct PreemptSessionState {
+    task: Loc,
+    quiescent_generation: nat,
+}
+
 pub tracked struct PreemptSessionToken {
-    token: CountGhost<Loc, PREEMPT_SESSION_FRACTIONS>,
+    token: CountGhost<PreemptSessionState, PREEMPT_SESSION_FRACTIONS>,
 }
 
 impl PreemptSessionToken {
@@ -59,9 +63,10 @@ impl PreemptSessionToken {
     {
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(PREEMPT_SESSION_FRACTIONS > 1) by (compute);
-        let tracked mut tokens = CountGhostResource::<Loc, PREEMPT_SESSION_FRACTIONS>::alloc(
-            arbitrary(),
-        );
+        let tracked mut tokens = CountGhostResource::<
+            PreemptSessionState,
+            PREEMPT_SESSION_FRACTIONS,
+        >::alloc(arbitrary());
         let tracked token = tokens.split_one();
         assert(token.frac() == 1);
         let tracked res = PreemptSessionToken { token };
@@ -74,7 +79,11 @@ impl PreemptSessionToken {
     }
 
     pub closed spec fn task(self) -> Loc {
-        self.token@
+        self.token@.task
+    }
+
+    pub closed spec fn quiescent_generation(self) -> nat {
+        self.token@.quiescent_generation
     }
 
     pub closed spec fn frac(self) -> int {
@@ -91,6 +100,7 @@ impl PreemptSessionToken {
             self.id() == other.id(),
         ensures
             self.task() == other.task(),
+            self.quiescent_generation() == other.quiescent_generation(),
     {
         self.token.agree(&other.token);
     }
@@ -105,7 +115,7 @@ impl PreemptSessionToken {
 /// perform weak atomic operations.
 pub tracked struct PreemptThreadViewSession {
     task_view: TaskThreadView,
-    tokens: CountGhostResource<Loc, PREEMPT_SESSION_FRACTIONS>,
+    tokens: CountGhostResource<PreemptSessionState, PREEMPT_SESSION_FRACTIONS>,
 }
 
 impl PreemptThreadViewSession {
@@ -118,6 +128,7 @@ impl PreemptThreadViewSession {
             res.task() == task_view.task(),
             res.view() == task_view.view(),
             res.session_task() == task_view.task(),
+            res.quiescent_generation() == 0,
             res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
             res.wf_session_resource(),
             res.wf(sched_view),
@@ -125,7 +136,11 @@ impl PreemptThreadViewSession {
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(PREEMPT_SESSION_FRACTIONS > 1) by (compute);
         let task = task_view.task();
-        let tracked tokens = CountGhostResource::<Loc, PREEMPT_SESSION_FRACTIONS>::alloc(task);
+        let ghost state = PreemptSessionState { task, quiescent_generation: 0 };
+        let tracked tokens = CountGhostResource::<
+            PreemptSessionState,
+            PREEMPT_SESSION_FRACTIONS,
+        >::alloc(state);
         assert(tokens.is_full());
         tokens.validate_full();
         assert(tokens.frac() == PREEMPT_SESSION_FRACTIONS);
@@ -153,11 +168,19 @@ impl PreemptThreadViewSession {
     }
 
     pub closed spec fn session_task(self) -> Loc {
-        self.tokens@
+        self.tokens@.task
+    }
+
+    pub closed spec fn quiescent_generation(self) -> nat {
+        self.tokens@.quiescent_generation
     }
 
     pub closed spec fn available_fractions(self) -> int {
         self.tokens.frac()
+    }
+
+    pub closed spec fn has_full_authority(self) -> bool {
+        self.tokens.is_full()
     }
 
     pub closed spec fn wf_session_resource(self) -> bool {
@@ -175,6 +198,7 @@ impl PreemptThreadViewSession {
         &&& token.wf()
         &&& token.id() == self.session_id()
         &&& token.task() == self.session_task()
+        &&& token.quiescent_generation() == self.quiescent_generation()
     }
 
     /// Splits one guard fragment from the active session.
@@ -192,6 +216,7 @@ impl PreemptThreadViewSession {
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
             final(self).session_task() == old(self).session_task(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() + 1 == old(self).available_fractions(),
             final(self).wf_session_resource(),
             token.wf(),
@@ -212,6 +237,7 @@ impl PreemptThreadViewSession {
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
             final(self).session_task() == old(self).session_task(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions() + token.frac(),
             final(self).wf_session_resource(),
     {
@@ -226,7 +252,7 @@ impl PreemptThreadViewSession {
         self.tokens.validate();
         assert(self.tokens.frac() == old_frac + returned_frac);
         assert(0 < self.tokens.frac() <= PREEMPT_SESSION_FRACTIONS);
-        assert(self.tokens@ == self.task_view.task());
+        assert(self.tokens@.task == self.task_view.task());
         assert(self.wf_session_resource());
     }
 
@@ -242,11 +268,45 @@ impl PreemptThreadViewSession {
             final(self).scheduler() == old(self).scheduler(),
             final(self).session_id() == old(self).session_id(),
             final(self).session_task() == old(self).session_task(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions(),
+            final(self).has_full_authority() == old(self).has_full_authority(),
             final(self).wf_session_resource() == old(self).wf_session_resource(),
             final(self).view() == (*final(tv))@,
     {
         self.task_view.tracked_borrow_thread_view_mut()
+    }
+
+    /// Advances the session's quiescent boundary.
+    ///
+    /// Updating the fractional resource requires full ownership. Therefore no
+    /// `PreemptSessionToken` from the previous generation can coexist with
+    /// this transition. Tokens split afterwards carry the new generation.
+    proof fn tracked_advance_quiescent_generation(tracked &mut self) -> (generation: nat)
+        requires
+            old(self).wf_session_resource(),
+            old(self).available_fractions() == PREEMPT_SESSION_FRACTIONS,
+            old(self).has_full_authority(),
+        ensures
+            generation == old(self).quiescent_generation(),
+            final(self).quiescent_generation() == generation + 1,
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).view() == old(self).view(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).wf_session_resource(),
+    {
+        let ghost generation = self.quiescent_generation();
+        let ghost state = PreemptSessionState {
+            task: self.task(),
+            quiescent_generation: generation + 1,
+        };
+        self.tokens.update(state);
+        self.tokens.validate_full();
+        assert(self.tokens.frac() == PREEMPT_SESSION_FRACTIONS);
+        assert(self.tokens@.task == self.task_view.task());
+        generation
     }
 
     /// Returns the checked-out view to the caller for scheduler check-in.
@@ -315,6 +375,7 @@ impl RunningTaskContext {
             res.view() == task_view.view(),
             res.cpu() == cpu,
             res.preempt_depth() == 0,
+            res.quiescent_generation() == 0,
             res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
             res.wf(),
             res.is_quiescent(),
@@ -349,8 +410,16 @@ impl RunningTaskContext {
         self.session.session_id()
     }
 
+    pub closed spec fn quiescent_generation(self) -> nat {
+        self.session.quiescent_generation()
+    }
+
     pub closed spec fn available_fractions(self) -> int {
         self.session.available_fractions()
+    }
+
+    pub closed spec fn has_full_authority(self) -> bool {
+        self.session.has_full_authority()
     }
 
     pub closed spec fn preempt_depth(self) -> nat {
@@ -394,6 +463,7 @@ impl RunningTaskContext {
     pub open spec fn is_quiescent(self) -> bool {
         &&& self.preempt_depth() == 0
         &&& self.available_fractions() == PREEMPT_SESSION_FRACTIONS
+        &&& self.has_full_authority()
     }
 
     /// Borrows the running task's persistent weak-memory view.
@@ -406,12 +476,39 @@ impl RunningTaskContext {
             final(self).scheduler() == old(self).scheduler(),
             final(self).cpu() == old(self).cpu(),
             final(self).session_id() == old(self).session_id(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions(),
+            final(self).has_full_authority() == old(self).has_full_authority(),
             final(self).preempt_depth() == old(self).preempt_depth(),
             final(self).wf(),
             final(self).view() == (*final(tv))@,
     {
         self.session.tracked_borrow_thread_view_mut()
+    }
+
+    /// Records one quiescent boundary for this running session.
+    ///
+    /// The returned generation names the interval that has just ended. The
+    /// context advances to the next generation before another RCU reader can
+    /// split a preemption-session fragment.
+    pub proof fn tracked_record_quiescent(tracked &mut self) -> (generation: nat)
+        requires
+            old(self).wf(),
+            old(self).is_quiescent(),
+        ensures
+            generation == old(self).quiescent_generation(),
+            final(self).quiescent_generation() == generation + 1,
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).view() == old(self).view(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).preempt_depth() == old(self).preempt_depth(),
+            final(self).wf(),
+            final(self).is_quiescent(),
+    {
+        self.session.tracked_advance_quiescent_generation()
     }
 
     /// Ends a running interval and returns the updated task view to scheduler
@@ -499,6 +596,10 @@ impl PreemptGuardResource {
         self.session_token().task()
     }
 
+    pub closed spec fn quiescent_generation(self) -> nat {
+        self.session_token().quiescent_generation()
+    }
+
     pub closed spec fn wf(self, _sched_view: SchedulerView) -> bool {
         match self {
             PreemptGuardResource::Outermost(token) => token.wf(),
@@ -534,6 +635,7 @@ impl PreemptGuardResource {
             final(session).scheduler() == old(session).scheduler(),
             final(session).view() == old(session).view(),
             final(session).session_id() == old(session).session_id(),
+            final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
     {
         match self {
@@ -562,6 +664,7 @@ impl RunningTaskContext {
             final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() + 1 == old(self).available_fractions(),
             final(self).preempt_depth() == old(self).preempt_depth() + 1,
             resource.matches_context(*final(self)),
@@ -596,6 +699,7 @@ impl RunningTaskContext {
             final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
             final(self).session_id() == old(self).session_id(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions() + 1,
             final(self).preempt_depth() + 1 == old(self).preempt_depth(),
     {
@@ -636,10 +740,11 @@ impl DisabledPreemptGuard {
             res.wf(arbitrary()),
             res.tracked_resource@ == tracked_resource,
     {
-        // The current verification slice does not include the CPU-local
-        // runtime preemption counter backend. This body verifies construction
-        // of the guard resource; wiring the real counter increment back in
-        // should happen when that backend is part of this dependency closure.
+        // The CPU-local backend is outside the current Verus dependency
+        // closure, but executable builds must still perform the real
+        // preemption-disable transition.
+        #[cfg(not(verus_keep_ghost))]
+        super::cpu_local::inc_guard_count();
         Self { _private: (), tracked_resource: Tracked(tracked_resource) }
     }
 }
@@ -665,13 +770,30 @@ impl DisabledPreemptGuard {
         self.tracked_resource@.matches_context(context)
     }
 
+    pub closed spec fn quiescent_generation(&self) -> nat {
+        self.tracked_resource@.quiescent_generation()
+    }
+
     /// Extracts the positive preemption depth witnessed by this guard.
     pub proof fn lemma_matches_context_depth(&self, tracked context: &RunningTaskContext)
         requires
             self.matches_context(*context),
         ensures
             context.preempt_depth() > 0,
+            self.quiescent_generation() == context.quiescent_generation(),
     {
+    }
+
+    /// A live preemption guard rules out a quiescent report from the same
+    /// running context. Returning every session fraction is therefore a
+    /// necessary proof step before the monitor can close this generation.
+    pub proof fn lemma_blocks_quiescent_report(&self, tracked context: &RunningTaskContext)
+        requires
+            self.matches_context(*context),
+        ensures
+            !context.is_quiescent(),
+    {
+        self.lemma_matches_context_depth(context);
     }
 
     /// Changing only the task's weak-memory view preserves this guard's
@@ -687,6 +809,7 @@ impl DisabledPreemptGuard {
             after.task() == before.task(),
             after.scheduler() == before.scheduler(),
             after.session_id() == before.session_id(),
+            after.quiescent_generation() == before.quiescent_generation(),
             after.available_fractions() == before.available_fractions(),
             after.preempt_depth() == before.preempt_depth(),
         ensures
@@ -696,6 +819,10 @@ impl DisabledPreemptGuard {
         assert(after.session.session_task() == after.task());
         assert(self.tracked_resource@.session_token().task() == before.task());
         assert(self.tracked_resource@.session_token().task() == after.task());
+        assert(self.tracked_resource@.session_token().quiescent_generation()
+            == before.quiescent_generation());
+        assert(self.tracked_resource@.session_token().quiescent_generation()
+            == after.quiescent_generation());
         assert(after.session.token_matches(self.tracked_resource@.session_token()));
     }
 
@@ -715,7 +842,9 @@ impl DisabledPreemptGuard {
             final(context).scheduler() == old(context).scheduler(),
             final(context).cpu() == old(context).cpu(),
             final(context).session_id() == old(context).session_id(),
+            final(context).quiescent_generation() == old(context).quiescent_generation(),
             final(context).available_fractions() == old(context).available_fractions(),
+            final(context).has_full_authority() == old(context).has_full_authority(),
             final(context).preempt_depth() == old(context).preempt_depth(),
             final(context).wf(),
             final(context).view() == (*final(tv))@,
@@ -738,6 +867,7 @@ impl DisabledPreemptGuard {
             final(context).cpu() == old(context).cpu(),
             final(context).view() == old(context).view(),
             final(context).session_id() == old(context).session_id(),
+            final(context).quiescent_generation() == old(context).quiescent_generation(),
             final(context).available_fractions() == old(context).available_fractions() + 1,
             final(context).preempt_depth() + 1 == old(context).preempt_depth(),
     {
@@ -751,6 +881,13 @@ impl DisabledPreemptGuard {
 }
 
 } // verus!
+#[cfg(not(verus_keep_ghost))]
+impl Drop for DisabledPreemptGuard {
+    fn drop(&mut self) {
+        super::cpu_local::dec_guard_count();
+    }
+}
+
 #[verus_verify]
 impl GuardTransfer for DisabledPreemptGuard {
     #[verifier::external_body]
@@ -792,6 +929,7 @@ pub(crate) fn disable_preempt_in_context(
         final(context).cpu() == old(context).cpu(),
         final(context).view() == old(context).view(),
         final(context).session_id() == old(context).session_id(),
+        final(context).quiescent_generation() == old(context).quiescent_generation(),
         final(context).available_fractions() + 1 == old(context).available_fractions(),
         final(context).preempt_depth() == old(context).preempt_depth() + 1,
         res.is_outermost() <==> old(context).preempt_depth() == 0,

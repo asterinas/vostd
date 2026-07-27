@@ -170,7 +170,11 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
     /// The ghost reader transition occurs in the same invariant opening as the
     /// real acquire load. Executably this is identical to `load_acquire_rcu`.
     #[inline(always)]
-    pub fn load_acquire_rcu_guarded(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+    pub fn load_acquire_rcu_guarded(
+        &self,
+        Ghost(reader): Ghost<rcu_spec::RcuReaderContext>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (
         *mut T,
         Ghost<Timestamp>,
         Ghost<Option<rcu_spec::RcuPublishedObject>>,
@@ -184,6 +188,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
             res.4@.wf(),
             res.4@.domain() == self.constant().domain,
             res.4@.reader_registry() == self.constant().reader_registry,
+            res.4@.reader() == reader,
             match (res.2@, res.3@) {
                 (None, None) => res.0.addr() == 0,
                 (Some(object), Some(info)) => {
@@ -195,6 +200,8 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
                     &&& info.obj() == object.obj
                     &&& info.addr() == object.addr
                     &&& equal(info.ptr(), res.0)
+                    &&& !res.4@.expired().contains(info.obj())
+                    &&& res.4@.protects(info.addr(), info.obj())
                 },
                 _ => false,
             },
@@ -203,6 +210,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
         proof {
             use_type_invariant(self);
         }
+        let ghost start_view = tv@;
         let raw_atomic = self.raw_atomic();
         vstd::invariant::open_atomic_invariant!(self.tracked_atomic_inv() => pair => {
             let tracked (hist, mut g) = pair;
@@ -212,7 +220,8 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
                 assert(hist.id() == raw_atomic.id());
             }
             proof_decl! {
-                let tracked base_guard = g.tracked_start_reader(hist.history());
+                let tracked base_guard =
+                    g.tracked_start_reader(hist.history(), self.id(), start_view, reader);
             }
             let loaded = raw_atomic.load_acquire(Tracked(&hist), Tracked(tv));
             proof {
@@ -256,7 +265,55 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
                 assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
             }
             proof_decl! {
-                let tracked guard = rcu_spec::RcuReadGuardToken::tracked_from_base(base_guard);
+                let tracked mut guard =
+                    rcu_spec::RcuReadGuardToken::tracked_from_base(base_guard);
+            }
+            proof {
+                assert(guard.expired()
+                    == g.root().domain_auth().observed_retired(self.id(), start_view));
+                match &loaded_info {
+                    Some(info) => {
+                        if guard.expired().contains(info.obj()) {
+                            assert(g.root().domain_auth().observed_retired(
+                                self.id(),
+                                start_view,
+                            ).contains(info.obj()));
+                            g.lemma_observed_retired(
+                                hist.history(),
+                                self.id(),
+                                start_view,
+                                info.obj(),
+                            );
+                            let ghost removal = g.removals()[info.obj()];
+                            assert(removal.root == self.id());
+                            assert(removal.observed_by(start_view));
+                            assert(start_view.seen_at(self.id()) <= loaded.1@);
+                            assert(removal.timestamp <= loaded.1@);
+                            assert(g.removals_wf(hist.history()));
+                            assert(removal.timestamp < hist.history().len());
+                            assert(g.publications()[loaded.1@ as int] != Some(info.obj()));
+                            assert(published == Some(rcu_spec::RcuPublishedObject {
+                                domain: info.domain(),
+                                obj: info.obj(),
+                                addr: info.addr(),
+                            }));
+                            g.lemma_published_object_id(
+                                hist.history(),
+                                loaded.1@,
+                                rcu_spec::RcuPublishedObject {
+                                    domain: info.domain(),
+                                    obj: info.obj(),
+                                    addr: info.addr(),
+                                },
+                            );
+                            assert(g.publications()[loaded.1@ as int] == Some(info.obj()));
+                            assert(false);
+                        }
+                        assert(guard.can_protect(*info));
+                        guard.tracked_protect(info);
+                    },
+                    None => {},
+                }
             }
             result = (
                 loaded.0,
