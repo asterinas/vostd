@@ -47,7 +47,7 @@ verus! {
 /// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
 #[verifier::ext_equal]
 pub tracked struct MetaRegionOwners {
-    pub slots: Map<int, simple_pptr::PointsTo<MetaSlot>>,
+    pub slots: Map<int, &'static simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<int, MetaSlotOwner>,
     /// Outstanding per-instance obligations for both `Frame<M>` and
     /// `Segment<M>`, as a multiset of slot indices. `ManuallyDrop::new(frame,

@@ -260,7 +260,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<PageTablePageMeta<C>>(
-            regions.slots[self.slot_index],
+            *regions.slots[self.slot_index],
             regions.slot_owners[self.slot_index].inner_perms.storage,
             (),
         )

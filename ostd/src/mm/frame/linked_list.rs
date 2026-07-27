@@ -31,7 +31,7 @@ use crate::specs::mm::frame::{
 
 use super::{
     MetaSlot, mapping,
-    meta::{AnyFrameMeta, get_slot},
+    meta::{_VERUS_VERIFIED_get_slot, AnyFrameMeta, get_slot},
     unique::UniqueFrame,
 };
 use crate::{
@@ -394,18 +394,35 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             old(owner).list_id != 0 ==> *final(owner) == *old(owner),
     )]
     pub fn contains(&mut self, frame: Paddr) -> bool {
-        let Ok(slot_ptr) = get_slot(frame) else {
+        let ghost idx = frame_to_index(frame);
+        let ghost perm_idx = if valid_frame_paddr(frame) {
+            idx
+        } else {
+            0
+        };
+        proof {
+            assert(0 < max_meta_slots()) by (compute);
+            broadcast use group_page_meta;
+
+            if valid_frame_paddr(frame) {
+                regions.inv_implies_correct_addr(frame);
+            } else {
+                assert(regions.slot_owners.contains_key(0));
+                assert(regions.slots.contains_key(0));
+            }
+        }
+
+        let tracked slot_perm_ref = regions.slots.tracked_borrow(perm_idx);
+        let tracked slot_perm = *slot_perm_ref;
+        let Ok(slot) = (#[verus_spec(with Tracked(slot_perm))]
+        get_slot(frame)) else {
             return false;
         };
 
         proof {
-            // `get_slot` returned `Ok`, so `valid_frame_paddr(frame)` holds; with
-            // `regions.inv()` that pins the slot in the region maps, its
-            // metadata as init, and its `in_list` permission as governing the
-            // slot's atomic — the same facts `cursor_mut_at` derives in-body.
+            assert(valid_frame_paddr(frame));
             broadcast use group_page_meta;
 
-            let idx = frame_to_index(frame);
             assert(regions.slot_owners.contains_key(idx));
             assert(regions.slots.contains_key(idx));
             assert(regions.slots[idx].is_init());
@@ -414,15 +431,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             ));
         }
 
-        let tracked mut slot_perm = regions.slots.tracked_borrow_mut(frame_to_index(frame));
-        let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(frame_to_index(frame));
-
-        let slot = slot_ptr.take(Tracked(slot_perm));
+        let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
 
         let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         let in_list = slot.in_list.load(Tracked(&mut inner_perms.in_list));
-        slot_ptr.put(Tracked(slot_perm), slot);
 
         in_list == #[verus_spec(with Tracked(owner))]
         self.lazy_get_id()
@@ -459,42 +472,61 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn cursor_mut_at(&mut self, frame: Paddr) -> Option<CursorMut<'_, M>> {
-        if let Ok(slot_ptr) = get_slot(frame) {
-            let ghost idx = frame_to_index(frame);
-            proof {
-                broadcast use group_page_meta;
+        let ghost idx = frame_to_index(frame);
+        let ghost perm_idx = if valid_frame_paddr(frame) {
+            idx
+        } else {
+            0
+        };
+        proof {
+            assert(0 < max_meta_slots()) by (compute);
+            broadcast use group_page_meta;
 
-                assert(regions.slot_owners.contains_key(idx));
-                assert(regions.slots.contains_key(idx));
-            }
-            let tracked slot_perm = regions.slots.tracked_borrow(idx);
-            let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
-            let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
-
-            let slot = slot_ptr.borrow(Tracked(slot_perm));
-
-            let in_list = slot.in_list.load(Tracked(&mut inner_perms.in_list));
-
-            let contains = in_list == #[verus_spec(with Tracked(&owner))]
-            self.lazy_get_id();
-
-            let meta_ptr = ReprPtr::<MetaSlotStorage, Link<M>>::from_pptr(
-                PPtr::<MetaSlotStorage>::from_addr(slot_ptr.addr()),
-            );
-
-            if contains {
-                let ghost link = owner.list.filter(|link: LinkOwner| link.paddr == frame).first();
-                let ghost index = owner.list.index_of(link);
-                let tracked cursor_owner = CursorOwner::tracked_cursor_mut_at_owner(owner, index);
-
-                proof_with!(|= Tracked(Some(cursor_owner)));
-                Some(CursorMut { list: self, current: Some(meta_ptr) })
+            if valid_frame_paddr(frame) {
+                regions.inv_implies_correct_addr(frame);
             } else {
+                assert(regions.slot_owners.contains_key(0));
+                assert(regions.slots.contains_key(0));
+            }
+        }
+
+        let tracked slot_perm_ref = regions.slots.tracked_borrow(perm_idx);
+        let tracked slot_perm = *slot_perm_ref;
+        let Ok(slot) = (#[verus_spec(with Tracked(slot_perm))]
+        get_slot(frame)) else {
+            return {
                 proof_with!(|= Tracked(None));
                 None
-            }
+            };
+        };
+
+        proof {
+            assert(valid_frame_paddr(frame));
+            broadcast use group_page_meta;
+
+            assert(regions.slot_owners.contains_key(idx));
+            assert(regions.slots.contains_key(idx));
+        }
+        let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
+        let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
+
+        let in_list = slot.in_list.load(Tracked(&mut inner_perms.in_list));
+
+        let contains = in_list == #[verus_spec(with Tracked(&owner))]
+        self.lazy_get_id();
+
+        let meta_ptr = ReprPtr::<MetaSlotStorage, Link<M>>::from_pptr(
+            PPtr::<MetaSlotStorage>::from_addr(frame_to_meta(frame)),
+        );
+
+        if contains {
+            let ghost link = owner.list.filter(|link: LinkOwner| link.paddr == frame).first();
+            let ghost index = owner.list.index_of(link);
+            let tracked cursor_owner = CursorOwner::tracked_cursor_mut_at_owner(owner, index);
+
+            proof_with!(|= Tracked(Some(cursor_owner)));
+            Some(CursorMut { list: self, current: Some(meta_ptr) })
         } else {
-            assert(!valid_frame_paddr(frame));
             proof_with!(|= Tracked(None));
             None
         }

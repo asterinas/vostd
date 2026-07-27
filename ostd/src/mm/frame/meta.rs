@@ -103,7 +103,7 @@ use self::mapping::{frame_to_meta, meta_to_frame};
 use crate::mm::io::{Infallible, VmReader};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, index_to_meta},
+    mapping::{frame_to_index, index_to_meta, max_meta_slots},
     meta_owners::*,
     meta_region_owners::MetaRegionOwners,
 };
@@ -317,12 +317,12 @@ pub enum GetFrameError {
         Tracked(slot_perm): Tracked<&'static vstd::simple_pptr::PointsTo<MetaSlot>>
     requires
         valid_frame_paddr(paddr) ==> {
-            &&& slot_perm.pptr() == frame_to_meta(paddr)
+            &&& slot_perm.addr() == frame_to_meta(paddr)
             &&& slot_perm.is_init()
         }
     ensures
         valid_frame_paddr(paddr) == res is Ok,
-        res is Ok ==> res->Ok_0.addr() == frame_to_meta(paddr),
+        res is Ok ==> res->Ok_0 == slot_perm.value(),
 )]
 pub(super) fn get_slot(paddr: Paddr) -> Result<&'static MetaSlot, GetFrameError> {
     if paddr % PAGE_SIZE != 0 {
@@ -401,20 +401,35 @@ impl MetaSlot {
                     *final(repr_perm),
                 ) == metadata
             },
-            !valid_frame_paddr(paddr) ==> res is Err,
+            res is Ok ==> valid_frame_paddr(paddr),
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
     ) -> Result<PPtr<Self>, GetFrameError> {
-        let slot = get_slot(paddr)?;
-
-        proof {
-            regions.inv_implies_correct_addr(paddr);
-        }
         let ghost idx = frame_to_index(paddr);
-        let tracked slot_perm = regions.slots.tracked_borrow(idx);
+        let ghost perm_idx = if valid_frame_paddr(paddr) {
+            idx
+        } else {
+            0
+        };
+        proof {
+            assert(0 < max_meta_slots()) by (compute);
+            if valid_frame_paddr(paddr) {
+                regions.inv_implies_correct_addr(paddr);
+            } else {
+                assert(regions.slot_owners.contains_key(0));
+                assert(regions.slots.contains_key(0));
+            }
+        }
+        let tracked slot_perm_ref = regions.slots.tracked_borrow(perm_idx);
+        let tracked slot_perm = *slot_perm_ref;
+        let slot = #[verus_spec(with Tracked(slot_perm))]
+        get_slot(paddr)?;
+        proof {
+            assert(valid_frame_paddr(paddr));
+        }
         let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         proof {
             axiom_mmio_usage_iff_mmio_paddr(*slot_own);
@@ -422,7 +437,7 @@ impl MetaSlot {
 
         // `Acquire` pairs with the `Release` in `drop_last_in_place` and ensures the metadata
         // initialization won't be reordered before this memory compare-and-exchange.
-        let last_ref_cnt = slot.borrow(Tracked(slot_perm)).ref_count.compare_exchange(
+        let last_ref_cnt = slot.ref_count.compare_exchange(
             Tracked(&mut slot_own.inner_perms.ref_count),
             REF_COUNT_UNUSED,
             0,
@@ -456,23 +471,17 @@ impl MetaSlot {
                 Tracked(repr_perm),
                 Tracked(&mut slot_own.inner_perms.vtable_ptr)
             )]
-            slot.borrow(Tracked(&slot_perm)).write_meta(metadata)
+            slot.write_meta(metadata)
         };
 
         if as_unique_ptr {
             // No one can create a `Frame` instance directly from the page
             // address, so `Relaxed` is fine here.
-            slot.borrow(Tracked(slot_perm)).ref_count.store(
-                Tracked(&mut slot_own.inner_perms.ref_count),
-                REF_COUNT_UNIQUE,
-            );
+            slot.ref_count.store(Tracked(&mut slot_own.inner_perms.ref_count), REF_COUNT_UNIQUE);
         } else {
             // `Release` is used to ensure that the metadata initialization
             // won't be reordered after this memory store.
-            slot.borrow(Tracked(slot_perm)).ref_count.store(
-                Tracked(&mut slot_own.inner_perms.ref_count),
-                1,
-            );
+            slot.ref_count.store(Tracked(&mut slot_own.inner_perms.ref_count), 1);
         }
 
         proof {
@@ -480,7 +489,7 @@ impl MetaSlot {
             axiom_mmio_usage_iff_mmio_paddr(*slot_own);
         }
 
-        Ok(slot)
+        Ok(PPtr::from_addr(frame_to_meta(paddr)))
     }
 
     /// Gets another owning pointer to the metadata slot from the given page.
@@ -504,7 +513,7 @@ impl MetaSlot {
             valid_frame_paddr(paddr) ==> old(regions).ref_count(frame_to_index(paddr)) >= REF_COUNT_MAX ==> may_panic(),
         ensures
             final(regions).inv(),
-            !valid_frame_paddr(paddr) ==> res is Err,
+            res is Ok ==> valid_frame_paddr(paddr),
             res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *final(regions)),
             res matches Ok(ptr) ==> ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
             res is Err ==> *final(regions) == *old(regions),
@@ -513,14 +522,28 @@ impl MetaSlot {
     #[verifier::exec_allows_no_decreases_clause]
     #[verifier::loop_isolation(false)]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
-        let slot = get_slot(paddr)?;
-
-        proof {
-            regions.inv_implies_correct_addr(paddr);
-        }
-
         let ghost idx = frame_to_index(paddr);
-        let tracked slot_perm = regions.slots.tracked_borrow(idx);
+        let ghost perm_idx = if valid_frame_paddr(paddr) {
+            idx
+        } else {
+            0
+        };
+        proof {
+            assert(0 < max_meta_slots()) by (compute);
+            if valid_frame_paddr(paddr) {
+                regions.inv_implies_correct_addr(paddr);
+            } else {
+                assert(regions.slot_owners.contains_key(0));
+                assert(regions.slots.contains_key(0));
+            }
+        }
+        let tracked slot_perm_ref = regions.slots.tracked_borrow(perm_idx);
+        let tracked slot_perm = *slot_perm_ref;
+        let slot = #[verus_spec(with Tracked(slot_perm))]
+        get_slot(paddr)?;
+        proof {
+            assert(valid_frame_paddr(paddr));
+        }
 
         loop
             invariant
@@ -535,9 +558,7 @@ impl MetaSlot {
 
             let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
 
-            match slot.borrow(Tracked(&slot_perm)).ref_count.load(
-                Tracked(&mut slot_own.inner_perms.ref_count),
-            ) {
+            match slot.ref_count.load(Tracked(&mut slot_own.inner_perms.ref_count)) {
                 REF_COUNT_UNUSED => return Err(GetFrameError::Unused),
                 REF_COUNT_UNIQUE => return Err(GetFrameError::Unique),
                 0 => return Err(GetFrameError::Busy),
@@ -552,12 +573,12 @@ impl MetaSlot {
                     //
                     // It ensures that the written metadata will be visible to us.
 
-                    if slot.borrow(Tracked(&slot_perm)).ref_count.compare_exchange_weak(
+                    if slot.ref_count.compare_exchange_weak(
                         Tracked(&mut slot_own.inner_perms.ref_count),
                         last_ref_cnt,
                         last_ref_cnt + 1,
                     ).is_ok() {
-                        return Ok(slot);
+                        return Ok(PPtr::from_addr(frame_to_meta(paddr)));
                     }
                     proof {
                         vstd_extra::auxiliary::axiom_permission_u64_ext_eq(

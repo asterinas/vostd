@@ -275,7 +275,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     pub open spec fn meta_wf_at(self, regions: MetaRegionOwners, i: int) -> bool {
         let idx = meta_to_index(self.list[i].paddr);
         typed_meta_wf::<Link<M>>(
-            regions.slots[idx],
+            *regions.slots[idx],
             regions.slot_owners[idx].inner_perms.storage,
             self.repr_perms[i],
         )
@@ -541,7 +541,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fr.slot_owners[i].usage is Frame
                     &&& fr.slot_owners[i].inner_perms.in_list.value() == new.list_id
                     &&& typed_meta_wf::<Link<M>>(
-                        fr.slots[i],
+                        *fr.slots[i],
                         fr.slot_owners[i].inner_perms.storage,
                         new.repr_perms[np],
                     )
