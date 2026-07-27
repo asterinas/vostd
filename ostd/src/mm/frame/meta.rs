@@ -309,15 +309,22 @@ pub enum GetFrameError {
 /// ## Preconditions
 /// `paddr` is the physical address of a frame, with a valid owner.
 /// ## Postconditions
-/// If `paddr` is aligned properly and in-bounds, the function returns a pointer to its metadata slot.
+/// If `paddr` is aligned properly and in-bounds, the function returns a static reference to its metadata slot.
 /// ## Safety
-/// Verus ensures that the pointer will only be used when we have a permission object, so creating it is safe.
+/// Verus ensures that the pointer is properly dereferenced with a permission object, so creating it is safe.
 #[verus_spec(res =>
+    with
+        Tracked(slot_perm): Tracked<&'static vstd::simple_pptr::PointsTo<MetaSlot>>
+    requires
+        valid_frame_paddr(paddr) ==> {
+            &&& slot_perm.pptr() == frame_to_meta(paddr)
+            &&& slot_perm.is_init()
+        }
     ensures
         valid_frame_paddr(paddr) == res is Ok,
         res is Ok ==> res->Ok_0.addr() == frame_to_meta(paddr),
 )]
-pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
+pub(super) fn get_slot(paddr: Paddr) -> Result<&'static MetaSlot, GetFrameError> {
     if paddr % PAGE_SIZE != 0 {
         return Err(GetFrameError::NotAligned);
     }
@@ -330,7 +337,7 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<PPtr<MetaSlot>, GetFrameError> {
     // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
     // mutably borrowed, so taking an immutable reference to it is safe.
     // Ok(unsafe { &*ptr })
-    Ok(ptr)
+    Ok(ptr.borrow(Tracked(slot_perm)))
 }
 
 #[verus_verify]
