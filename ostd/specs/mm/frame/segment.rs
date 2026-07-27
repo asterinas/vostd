@@ -107,8 +107,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
                 // Per-frame linear-drop: the segment holds one (forgotten)
                 // reference per frame, recorded as a `frame_obligations` count.
                 &&& regions.frame_obligations.count(idx) >= 1
-                &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(idx)
+                &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
                     > 0
@@ -141,10 +140,7 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
             ({
                 let idx = frame_to_index((self.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.frame_obligations.count(idx) >= 1
-                &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(
-                    idx,
-                )
+                &&& regions.contains(idx)
                 // Borrow-protocol transition: `raw_count` is dormant.
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0

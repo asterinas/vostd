@@ -648,8 +648,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     let tracked repr_perm = owner.list_own.repr_perms.tracked_borrow(owner.index);
                 }
                 proof {
-                    assert(regions.slots.contains_key(idx));
-                    assert(regions.slot_owners.contains_key(idx));
+                    assert(regions.contains(idx));
                 }
                 let link = borrow_meta(
                     current,
@@ -707,8 +706,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     let tracked repr_perm = owner.list_own.repr_perms.tracked_borrow(owner.index);
                 }
                 proof {
-                    assert(regions.slots.contains_key(idx));
-                    assert(regions.slot_owners.contains_key(idx));
+                    assert(regions.contains(idx));
                 }
 
                 let link = borrow_meta(
@@ -784,8 +782,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 }
                 let ghost idx = meta_to_index(current.addr());
                 proof {
-                    assert(regions.slots.contains_key(idx));
-                    assert(regions.slot_owners.contains_key(idx));
+                    assert(regions.contains(idx));
                 }
                 let tracked points_to = regions.slots.tracked_borrow(idx);
                 let tracked slot_owner = regions.slot_owners.tracked_borrow_mut(idx);
@@ -1046,8 +1043,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     p - 1
                 };
                 let fp = owner.list_own.meta_value_at(*regions, np);
-                &&& regions.slots.contains_key(i)
-                &&& regions.slot_owners.contains_key(i)
+                &&& regions.contains(i)
                 &&& regions.slots[i].addr() == oldl.list[p].paddr
                 &&& regions.slots[i].pptr() == regions0.slots[i].pptr()
                 &&& regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
@@ -1071,8 +1067,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let fp = owner.list_own.meta_value_at(*regions, np);
                 oldl.relate_region_at_facts(regions0, p);
                 oldl.relate_region_at_facts(regions0, nn);
-                assert(regions.slots.contains_key(i));
-                assert(regions.slot_owners.contains_key(i));
+                assert(regions.contains(i));
             }
             LinkedListOwner::pop_preserves_relate_region(
                 oldl,
@@ -1319,8 +1314,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                     p + 1
                 };
                 let fp = owner.list_own.meta_value_at(*regions, np);
-                &&& regions.slots.contains_key(i)
-                &&& regions.slot_owners.contains_key(i)
+                &&& regions.contains(i)
                 &&& regions.slots[i].addr() == oldl.list[p].paddr
                 &&& regions.slots[i].pptr() == regions0.slots[i].pptr()
                 &&& regions.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
@@ -1357,12 +1351,10 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 if nn >= 0 && nn < oldl.list.len() {
                     oldl.relate_region_at_facts(regions0, nn);
                 }
-                assert(regions.slots.contains_key(i));
-                assert(regions.slot_owners.contains_key(i));
+                assert(regions.contains(i));
             }
 
-            assert(regions.slots.contains_key(ins));
-            assert(regions.slot_owners.contains_key(ins));
+            assert(regions.contains(ins));
 
             LinkedListOwner::insert_preserves_relate_region(
                 oldl,
@@ -1580,8 +1572,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                     #![trigger original_list[j]]
                     0 <= j < n ==> {
                         let idx = meta_to_index(original_list[j].paddr);
-                        &&& original_regions.slot_owners.contains_key(idx)
-                        &&& original_regions.slots.contains_key(idx)
+                        &&& original_regions.contains(idx)
                         &&& original_regions.frame_obligations.count(idx) == 0
                         &&& original_regions.slot_owners[idx].paths_in_pt.is_empty()
                         &&& original_regions.slot_owners[idx].inner_perms.ref_count.value()

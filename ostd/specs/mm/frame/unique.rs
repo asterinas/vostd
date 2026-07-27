@@ -146,8 +146,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     /// obligation in `frame_obligations` (minted at `from_unused`/`from_raw`,
     /// consumed by `drop`/`into_raw`).
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
-        &&& regions.slots.contains_key(self.slot_index)
-        &&& regions.slot_owners.contains_key(self.slot_index)
+        &&& regions.contains(self.slot_index)
         &&& self.meta_wf(regions)
         &&& regions.slots[self.slot_index].addr() == index_to_meta(self.slot_index)
         &&& self.meta_value(regions).wf(self.meta_own)

@@ -184,8 +184,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     let ghost cont_slot_idx = cont.entry_own.tracked_borrow_node().slot_index;
     proof {
         assert(cont.entry_own.metaregion_sound(*regions));
-        assert(regions.slots.contains_key(cont_slot_idx));
-        assert(regions.slot_owners.contains_key(cont_slot_idx));
+        assert(regions.contains(cont_slot_idx));
     }
     let tracked cont_node_owner = cont.entry_own.tracked_borrow_node();
     #[verus_spec(with Tracked(cont_node_owner), Tracked(&*regions))]

@@ -461,8 +461,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             owner_before_replace.in_locked_range(),
             self.metaregion_sound(regions0),
             regions0.inv(),
-            regions0.slot_owners.contains_key(removed_idx),
-            regions0.slots.contains_key(removed_idx),
+            regions0.contains(removed_idx),
             regions0.slot_owners[removed_idx].usage !is PageTable,
             self@.mappings == owner_before_replace@.mappings - PageTableOwner(
                 owner_before_replace.cur_subtree(),

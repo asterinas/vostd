@@ -177,9 +177,8 @@ impl<M: ?Sized> Frame<M> {
         let slot_own = s.slot_owners[idx];
         &&& self.inv()
         &&& s.inv()
-        &&& s.slots.contains_key(idx)
+        &&& s.contains(idx)
         &&& s.slots[idx].pptr() == self.ptr
-        &&& s.slot_owners.contains_key(idx)
         &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
         &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
         &&& slot_own.inner_perms.ref_count.value() > 0

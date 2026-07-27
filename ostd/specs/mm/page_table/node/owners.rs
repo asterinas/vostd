@@ -281,8 +281,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     /// the NodeOwner and the slot perm parked in regions.
     pub open spec fn metaregion_sound_node(self, regions: MetaRegionOwners) -> bool {
         let idx = self.slot_index;
-        &&& regions.slots.contains_key(idx)
-        &&& regions.slot_owners.contains_key(idx)
+        &&& regions.contains(idx)
         &&& self.meta_wf(regions)
         &&& self.meta_value(regions).wf(self.meta_own)
         &&& self.level == self.meta_value(regions).level

@@ -412,8 +412,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_from_raw_spec(pa, level, prop) == item,
             Self::raw_item_well_formed(pa, level, prop),
             valid_frame_paddr(pa),
-            regions.slots.contains_key(frame_to_index(pa)),
-            regions.slot_owners.contains_key(frame_to_index(pa)),
+            regions.contains(frame_to_index(pa)),
             Self::tracked(item) ==> regions.slot_owners[frame_to_index(
                 pa,
             )].inner_perms.ref_count.value() > 0,

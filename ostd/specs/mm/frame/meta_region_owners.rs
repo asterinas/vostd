@@ -111,6 +111,12 @@ impl InvView for MetaRegionOwners {
 }
 
 impl MetaRegionOwners {
+    /// Returns whether the slot permission and its corresponding owner are both present.
+    pub open spec fn contains(self, index: int) -> bool {
+        &&& self.slots.contains_key(index)
+        &&& self.slot_owners.contains_key(index)
+    }
+
     pub open spec fn insert_slot_owner(self, paddr: Paddr, owner: MetaSlotOwner) -> Self {
         let index = frame_to_index(paddr);
         Self { slot_owners: self.slot_owners.insert(index, owner), ..self }

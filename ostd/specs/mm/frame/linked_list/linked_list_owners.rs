@@ -298,8 +298,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     pub open spec fn relate_region_at(self, regions: MetaRegionOwners, i: int) -> bool {
         let idx = meta_to_index(self.list[i].paddr);
         let value = self.meta_value_at(regions, i);
-        &&& regions.slots.contains_key(idx)
-        &&& regions.slot_owners.contains_key(idx)
+        &&& regions.contains(idx)
         &&& regions.slots[idx].addr() == self.list[i].paddr
         &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
         &&& regions.slot_owners[idx].usage is Frame
@@ -396,8 +395,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             ({
                 let idx = meta_to_index(self.list[i].paddr);
                 let value = self.meta_value_at(regions, i);
-                &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners.contains_key(idx)
+                &&& regions.contains(idx)
                 &&& regions.slots[idx].addr() == self.list[i].paddr
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[idx].usage is Frame
@@ -433,8 +431,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             ({
                 let idx = meta_to_index(self.list[i].paddr);
                 let value = self.meta_value_at(regions, i);
-                &&& regions.slots.contains_key(idx)
-                &&& regions.slot_owners.contains_key(idx)
+                &&& regions.contains(idx)
                 &&& self.repr_perms.len() == self.list.len()
                 &&& regions.slots[idx].addr() == self.list[i].paddr
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
@@ -537,8 +534,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                         fr.slot_owners[i].inner_perms.storage,
                         new.repr_perms[np],
                     );
-                    &&& fr.slots.contains_key(i)
-                    &&& fr.slot_owners.contains_key(i)
+                    &&& fr.contains(i)
                     &&& fr.slots[i].addr() == old.list[p].paddr
                     &&& fr.slots[i].pptr() == r0.slots[i].pptr()
                     &&& fr.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
@@ -675,8 +671,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             ({
                 let ins = meta_to_index(new.list[n].paddr);
                 let fpn = new.meta_value_at(fr, n);
-                &&& fr.slots.contains_key(ins)
-                &&& fr.slot_owners.contains_key(ins)
+                &&& fr.contains(ins)
                 &&& fr.slots[ins].addr() == link.paddr
                 &&& fr.slot_owners[ins].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
                 &&& fr.slot_owners[ins].usage is Frame
@@ -713,8 +708,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                         p + 1
                     };
                     let fp = new.meta_value_at(fr, np);
-                    &&& fr.slots.contains_key(i)
-                    &&& fr.slot_owners.contains_key(i)
+                    &&& fr.contains(i)
                     &&& fr.slots[i].addr() == old.list[p].paddr
                     &&& fr.slots[i].pptr() == r0.slots[i].pptr()
                     &&& fr.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
