@@ -480,7 +480,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 #![trigger self.list[i]]
                 0 <= i < self.list.len() ==> {
                     let idx = meta_to_index(self.list[i].paddr);
-                    &&& regions2.slot_owners.contains_key(idx)
+                    &&& regions2.contains(idx)
                     &&& regions2.slot_owners[idx] == regions1.slot_owners[idx]
                 },
         ensures

@@ -540,7 +540,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
             final(regions).frame_obligations == old(regions).frame_obligations.insert(
                 meta_to_index(owner@.value().node().meta_vaddr())),
-            old(regions).slots.contains_key(meta_to_index(owner@.value().node().meta_vaddr())),
+            old(regions).contains(meta_to_index(owner@.value().node().meta_vaddr())),
 
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 meta_to_frame(owner@.value().node().meta_vaddr())),
@@ -558,7 +558,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 idx as int,
                 C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())),
             ),
-            final(regions).slots.contains_key(owner@.value().node().slot_index),
+            final(regions).contains(owner@.value().node().slot_index),
             owner@.value().node().metaregion_sound_node(*final(regions)),
     )]
     #[verifier::external_body]
@@ -729,7 +729,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 child_owner.parent_level,
             ),
             regions.inv(),
-            regions.slots.contains_key(owner.slot_index),
+            regions.contains(owner.slot_index),
             // Panic condition
             idx < NR_ENTRIES,
         ensures
@@ -823,7 +823,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         requires
             self.inner.inner@.invariants(*owner),
             regions.inv(),
-            regions.slots.contains_key(owner.slot_index),
+            regions.contains(owner.slot_index),
             idx < NR_ENTRIES,
         ensures
             pte == owner.children_perm.value()[idx as int],
@@ -865,7 +865,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         requires
             old(self).inner.inner@.invariants(*old(owner)),
             regions.inv(),
-            regions.slots.contains_key(old(owner).slot_index),
+            regions.contains(old(owner).slot_index),
             idx < NR_ENTRIES,
         ensures
             final(owner).inv(),

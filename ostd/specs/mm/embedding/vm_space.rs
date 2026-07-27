@@ -53,7 +53,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         // `structural_inv` slot-perm coverage exception, so coverage
         // stays chainable. (Mirrors `empty_with_owner`'s ensures, which
         // removes `frame_to_index(root_paddr)` from `regions.slots`.)
-        old(regions).slots.contains_key(vm_space_root_idx(res)),
+        old(regions).contains(vm_space_root_idx(res)),
         final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
         final(regions).slot_owners[vm_space_root_idx(res)].usage is PageTable,
         final(regions).slot_owners[vm_space_root_idx(res)].inner_perms.ref_count.value()
@@ -103,7 +103,7 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         // `structural_inv` slot-perm coverage exception, so coverage
         // stays chainable. (Mirrors `empty_with_owner`'s ensures, which
         // removes `frame_to_index(root_paddr)` from `regions.slots`.)
-        old(regions).slots.contains_key(vm_space_root_idx(res)),
+        old(regions).contains(vm_space_root_idx(res)),
         final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
         final(regions).slot_owners[vm_space_root_idx(res)].usage is PageTable,
         final(regions).slot_owners[vm_space_root_idx(res)].inner_perms.ref_count.value()

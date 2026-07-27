@@ -115,9 +115,8 @@ pub open spec fn list_registry_ok<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
         )].inner_perms.in_list.value() == lo.list_id
     &&& lo.list_id != 0 ==> forall|idx: int|
         #![trigger regions.slot_owners[idx]]
-        regions.slot_owners.contains_key(idx)
-            && regions.slot_owners[idx].inner_perms.in_list.value() == lo.list_id ==> exists|i: int|
-
+        regions.contains(idx) && regions.slot_owners[idx].inner_perms.in_list.value() == lo.list_id
+            ==> exists|i: int|
             0 <= i < lo.list.len() && #[trigger] meta_to_index(lo.list[i].paddr) == idx
 }
 
@@ -874,7 +873,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
         if valid_frame_paddr(frame) {
             // A safe slot is a managed region key.
             self.regions.inv_implies_correct_addr(frame);
-            assert(self.regions.slot_owners.contains_key(idx));
+            assert(self.regions.contains(idx));
             if self.lists[id].list_id != 0 {
                 // The registry for list `id` (forward + reverse) from `inv`.
                 assert(list_registry_ok(self.regions, self.lists[id]));
@@ -993,7 +992,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             // `self.list[i]`) to get `relate_region_at(regions, i)`.
             let _ = self.lists[id].list[i];
             self.lists[id].relate_region_at_facts(self.regions, i);
-            assert(self.regions.slot_owners.contains_key(idx));
+            assert(self.regions.contains(idx));
             assert(self.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
             assert(self.regions.slot_owners[idx].usage is Frame);
         };

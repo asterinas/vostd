@@ -566,7 +566,7 @@ impl<M> Frame<M> {
             -> obl: Tracked<vstd_extra::drop_tracking::DropObligation<int>>,
         requires
             Self::from_raw_requires_safety(*old(regions), paddr),
-            old(regions).slots.contains_key(frame_to_index(paddr)),
+            old(regions).contains(frame_to_index(paddr)),
             // Borrow-protocol safety: the slot must be alive (not torn
             // down). The `unsafe` keyword still gates whether the produced
             // Frame corresponds to a real prior `into_raw`; this condition
@@ -725,17 +725,16 @@ impl<M: ?Sized> Drop for Frame<M> {
             // For `idx`, `slot_own.inv()` and the perm/slot agreement at
             // `idx` are already asserted above.
             assert forall|i: int|
-                0 <= i < max_meta_slots() <==> #[trigger] regions.slot_owners.contains_key(i) by {}
+                0 <= i < max_meta_slots() <==> #[trigger] regions.contains(i) by {}
 
-            assert forall|i: int| #[trigger] regions.slots.contains_key(i) implies i
-                < max_meta_slots() by {
+            assert forall|i: int| #[trigger] regions.contains(i) implies i < max_meta_slots() by {
                 if i == idx {
-                    assert(regions.slot_owners.contains_key(idx));
+                    assert(regions.contains(idx));
                 }
             }
 
-            assert forall|i: int| #[trigger] regions.slots.contains_key(i) implies ({
-                &&& regions.slot_owners.contains_key(i)
+            assert forall|i: int| #[trigger] regions.contains(i) implies ({
+                &&& regions.contains(i)
                 &&& regions.slot_owners[i].inv()
                 &&& regions.slots[i].is_init()
                 &&& regions.slots[i].addr() == index_to_meta(i)
@@ -751,7 +750,7 @@ impl<M: ?Sized> Drop for Frame<M> {
             }
 
             assert forall|i: int| #[trigger]
-                regions.slot_owners.contains_key(i) implies regions.slot_owners[i].inv() by {
+                regions.contains(i) implies regions.slot_owners[i].inv() by {
                 if i == idx {
                     assert(slot_own.inv());
                 }
@@ -842,7 +841,7 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index(paddr)),
+        old(regions).contains(frame_to_index(paddr)),
         valid_frame_paddr(paddr),
         // The caller holds a reference, so rc > 0, and the slot must be live
         // (not the UNUSED sentinel). Saturation is caught at runtime by

@@ -218,7 +218,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     type Obligation = DropObligation<int>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(self.index())
+        &&& s.contains(self.index())
         &&& s.slot_owners[meta_to_index(self.ptr.addr())].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED
         &&& s.inv()
@@ -258,7 +258,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     }
 
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        &&& s.slot_owners.contains_key(self.index())
+        &&& s.contains(self.index())
         &&& s.inv()
         &&& s.frame_obligations.count(self.index()) > 0
         &&& obl.value() == self.index()

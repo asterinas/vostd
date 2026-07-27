@@ -1590,9 +1590,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     regions,
                 ).slot_owners[slot].paths_in_pt,
             forall|k: int|
-                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
-                    k,
-                ),
+                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall|slot: int|
                 #![trigger final(regions).slot_owners[slot].inner_perms.ref_count.value()]
                 final(regions).slot_owners[slot].inner_perms.ref_count.value() == old(

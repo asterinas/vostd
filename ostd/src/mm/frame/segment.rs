@@ -103,7 +103,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             #![trigger frame_to_index(pa)]
             (self.start_paddr() <= pa < self.end_paddr() && pa % PAGE_SIZE == 0) ==> {
                 let idx = frame_to_index(pa);
-                &&& perm.slots.contains_key(idx)
+                &&& perm.contains(idx)
                 &&& valid_frame_paddr(pa)
                 &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
@@ -146,7 +146,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                     #![trigger frame_to_index(pa)]
                     (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
                         let idx = frame_to_index(pa);
-                        &&& perm.slots.contains_key(idx)
+                        &&& perm.contains(idx)
                         &&& valid_frame_paddr(pa)
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
@@ -239,7 +239,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& forall|paddr: Paddr|
                     #![trigger frame_to_index(paddr)]
                     (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                        ==> final(regions).slots.contains_key(frame_to_index(paddr))
+                        ==> final(regions).contains(frame_to_index(paddr))
                 &&& range.start < range.end <= MAX_PADDR
             },
     )]
@@ -357,7 +357,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
                             assert(addrs[k] == p);
                             assert(index_to_meta(idx_k) == frame_to_meta(p));
-                            assert(regions.slots.contains_key(idx_k));
+                            assert(regions.contains(idx_k));
                         }
                         proof_decl! {
                             let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
@@ -439,7 +439,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             assert forall|addr: usize|
                 #![trigger frame_to_index(addr)]
                 range.start <= addr < range.end && addr % PAGE_SIZE == 0 implies {
-                regions.slots.contains_key(frame_to_index(addr))
+                regions.contains(frame_to_index(addr))
             } by {
                 let j = (addr - range.start) / PAGE_SIZE as int;
                 assert(addrs[j as int] == addr);
@@ -1306,9 +1306,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     },
                 forall|j: int|
                     #![trigger frame_idx_at(self.range.start, j)]
-                    k <= j < n ==> regions.slot_owners.contains_key(
-                        frame_idx_at(self.range.start, j),
-                    ) && regions.slot_owners[frame_idx_at(self.range.start, j)] == old(
+                    k <= j < n ==> regions.contains(frame_idx_at(self.range.start, j))
+                        && regions.slot_owners[frame_idx_at(self.range.start, j)] == old(
                         regions,
                     ).slot_owners[frame_idx_at(self.range.start, j)],
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
@@ -1403,7 +1402,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     #![trigger frame_to_index(pa)]
                     (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
                         let idx = frame_to_index(pa);
-                        &&& perm.slots.contains_key(idx)
+                        &&& perm.contains(idx)
                         &&& valid_frame_paddr(pa)
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1

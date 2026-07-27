@@ -168,7 +168,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     pub open spec fn item_slot_in_regions(item: C::Item, regions: MetaRegionOwners) -> bool {
         let (pa, level, prop) = C::item_into_raw(item);
         let idx = frame_to_index(pa);
-        &&& regions.slots.contains_key(idx)
+        &&& regions.contains(idx)
         &&& regions.slot_owners[idx].usage !is PageTable
         &&& regions.slot_owners[idx].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED
@@ -187,7 +187,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
                 0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
-                    &&& regions.slots.contains_key(sub_idx)
+                    &&& regions.contains(sub_idx)
                     &&& C::tracked(item)
                         ==> regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED

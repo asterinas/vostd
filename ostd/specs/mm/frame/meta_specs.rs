@@ -128,7 +128,7 @@ impl MetaSlot {
         &&& post.slots.dom() =~= pre.slots.dom()
         &&& forall|k: int|
             #![trigger post.slots[k]]
-            k != idx && pre.slots.contains_key(k) ==> post.slots[k] == pre.slots[k]
+            k != idx && pre.contains(k) ==> post.slots[k] == pre.slots[k]
     }
 
     /// Obligation-ledger effect of producing a fresh live `Frame` handle on

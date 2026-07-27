@@ -523,7 +523,7 @@ impl KVirtArea {
                 let item_i = MappedItem::Tracked(frames[i], prop);
                 let pa_i = KernelPtConfig::item_into_raw_spec(item_i).0;
                 let idx_i = frame_to_index(pa_i);
-                assert(regions.slot_owners.contains_key(idx_i));
+                assert(regions.contains(idx_i));
             };
         }
 
@@ -731,7 +731,7 @@ impl KVirtArea {
             #![trigger crate::specs::mm::frame::mapping::frame_to_index(pa)]
             pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
                 let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
-                &&& regions.slots.contains_key(idx)
+                &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             }
     }
@@ -835,7 +835,7 @@ impl KVirtArea {
                     &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 } by {
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
-                    assert(regions.slot_owners.contains_key(idx));
+                    assert(regions.contains(idx));
                 };
             }
 

@@ -1272,7 +1272,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         let list_id = self.list.lazy_get_id();
 
         proof {
-            assert(regions.slots.contains_key(frame_own.slot_index));
+            assert(regions.contains(frame_own.slot_index));
         }
         let tracked frame_outer = regions.slots.tracked_borrow_mut(frame_own.slot_index);
         let tracked mut frame_so = regions.slot_owners.tracked_borrow_mut(frame_own.slot_index);
@@ -1411,14 +1411,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
         &&& s.1.inv()
         &&& forall|i: int|
             #![trigger s.0.list[i]]
-            0 <= i < s.0.list.len() ==> s.1.slot_owners.contains_key(
-                meta_to_index(s.0.list[i].paddr),
-            )
+            0 <= i < s.0.list.len() ==> s.1.contains(meta_to_index(s.0.list[i].paddr))
         &&& forall|i: int|
             #![trigger s.0.list[i]]
             0 <= i < s.0.list.len() ==> {
                 let idx = meta_to_index(s.0.list[i].paddr);
-                s.1.slots.contains_key(idx)
+                s.1.contains(idx)
             }
         &&& forall|i: int|
             #![trigger s.0.list[i]]
@@ -1559,9 +1557,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                 // Each remaining element's slot is in slot_owners
                 forall|j: int|
                     #![trigger original_list[j]]
-                    k <= j < n ==> regions.slot_owners.contains_key(
-                        meta_to_index(original_list[j].paddr),
-                    ),
+                    k <= j < n ==> regions.contains(meta_to_index(original_list[j].paddr)),
                 // Distinct slot indices in original list (from drop_requires)
                 forall|i: int, j: int|
                     #![trigger original_list[i], original_list[j]]
@@ -1600,7 +1596,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         #![trigger cursor_own.list_own.list[i]]
                         0 <= i < cursor_own.list_own.list.len() implies ({
                         let idx = meta_to_index(cursor_own.list_own.list[i].paddr);
-                        &&& regions.slot_owners.contains_key(idx)
+                        &&& regions.contains(idx)
                         &&& regions.slot_owners[idx] == regions_pre_drop.slot_owners[idx]
                         &&& regions.frame_obligations.count(idx)
                             == regions_pre_drop.frame_obligations.count(idx)

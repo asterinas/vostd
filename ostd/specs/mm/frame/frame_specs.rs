@@ -39,7 +39,7 @@ impl<'a, M: ?Sized> Frame<M> {
     /// gate, since the `UNUSED` sentinel `u64::MAX` also satisfies it; and
     /// the PT-node ownership model only exposes `!= UNUSED`.)
     pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
-        &&& regions.slot_owners.contains_key(frame_to_index(paddr))
+        &&& regions.contains(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].slot_vaddr == frame_to_meta(paddr)
         &&& valid_frame_paddr(paddr)
         &&& regions.inv()
@@ -54,7 +54,7 @@ impl<'a, M: ?Sized> Frame<M> {
         r: Self,
     ) -> bool {
         &&& new_regions.inv()
-        &&& new_regions.slots.contains_key(frame_to_index(paddr))
+        &&& new_regions.contains(frame_to_index(paddr))
         &&& new_regions.slot_owners[frame_to_index(paddr)]
             =~= old_regions.slot_owners[frame_to_index(paddr)]
         &&& new_regions.slot_owners[frame_to_index(paddr)].slot_vaddr == r.ptr.addr()
@@ -62,8 +62,7 @@ impl<'a, M: ?Sized> Frame<M> {
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& forall|i: int|
-            i != frame_to_index(paddr) ==> new_regions.slots.contains_key(i)
-                == old_regions.slots.contains_key(i)
+            i != frame_to_index(paddr) ==> new_regions.contains(i) == old_regions.contains(i)
         &&& r.ptr.addr() == frame_to_meta(paddr)
         &&& r.paddr() == paddr
         &&& r.inv()
@@ -97,9 +96,8 @@ impl<'a, M: ?Sized> Frame<M> {
     ) -> bool {
         &&& forall|i: int|
             #![trigger new_regions.slots[i], old_regions.slots[i]]
-            i != self.index() && old_regions.slots.contains_key(i)
-                ==> new_regions.slots.contains_key(i) && new_regions.slots[i]
-                == old_regions.slots[i]
+            i != self.index() && old_regions.contains(i) ==> new_regions.contains(i)
+                && new_regions.slots[i] == old_regions.slots[i]
         &&& forall|i: int|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != self.index() ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
@@ -204,7 +202,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     type Obligation = DropObligation<int>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(self.index())
+        &&& s.contains(self.index())
         &&& s.inv()
     }
 

@@ -155,7 +155,7 @@ pub unsafe trait NonNullPtr: 'static + Sized + TrackDrop<State = MetaRegionOwner
     ) -> Self::Ref<'a>
         requires
             old(regions).inv(),
-            old(regions).slot_owners.contains_key(meta_to_index(raw.addr())),
+            old(regions).contains(meta_to_index(raw.addr())),
     ;
 
     /// Converts a shared reference to a raw pointer.

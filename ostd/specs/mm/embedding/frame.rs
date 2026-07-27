@@ -79,7 +79,7 @@ pub axiom fn frame_from_unused_embedded(
         // `Frame::from_unused` `requires`: an out-of-bound / misaligned
         // `paddr` is not a precondition violation — it returns `Err`
         // (here `None`) without touching `regions`.
-        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
+        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         // Liveness, mirroring exec `!valid_frame_paddr(paddr) ==> r is Err`:
@@ -117,7 +117,7 @@ pub axiom fn frame_from_in_use_embedded(
         // `valid_frame_paddr`-guarded, mirroring the relaxed exec
         // `Frame::from_in_use` `requires`: a bad `paddr` returns `Err`
         // (here `None`) without touching `regions`.
-        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(
+        valid_frame_paddr(paddr) ==> old(regions).contains(
             frame_to_index(paddr),
         ),
 // Refcount saturation is NOT required: exec
@@ -186,7 +186,7 @@ pub axiom fn frame_from_in_use_embedded(
 pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: Paddr)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index(paddr)),
+        old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
             != REF_COUNT_UNUSED,
@@ -280,7 +280,7 @@ pub(super) proof fn from_unused_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(frame_to_index(paddr)),
+        valid_frame_paddr(paddr) ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         !valid_frame_paddr(paddr) ==> res is None,
@@ -313,7 +313,7 @@ pub(super) proof fn from_in_use_step(
 ) -> (tracked res: Option<FrameEntry>)
     requires
         old(regions).inv(),
-        valid_frame_paddr(paddr) ==> old(regions).slots.contains_key(
+        valid_frame_paddr(paddr) ==> old(regions).contains(
             frame_to_index(paddr),
         ),
 // Saturation `panic_diverge`s in exec — not a precondition.
@@ -352,7 +352,7 @@ pub(super) proof fn from_in_use_step(
 /// axiom covers both via one postcondition keyed on the live refcount.
 pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
     let so = regions.slot_owners[frame_to_index(paddr)];
-    &&& regions.slots.contains_key(frame_to_index(paddr))
+    &&& regions.contains(frame_to_index(paddr))
     &&& so.inner_perms.ref_count.value() > 0
     &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
     &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
