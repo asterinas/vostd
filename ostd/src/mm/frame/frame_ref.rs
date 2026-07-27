@@ -7,7 +7,6 @@ use vstd_extra::cast_ptr::Repr;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::prelude::*;
 
-use crate::mm::frame::MetaPerm;
 use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 
 use crate::specs::mm::frame::{
@@ -40,9 +39,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> FrameRef<'_, M> {
     /// reference covers the borrow's lifetime via the `'a` lifetime).
     ///
     /// # Safety
-    /// By providing a borrowed `MetaPerm` of the appropriate type, the
-    /// caller ensures that the frame has that type and that the
-    /// `FrameRef` will be useless if it outlives the frame.
+    /// The caller's typed frame handle supplies the metadata type; the borrow
+    /// remains tied to the lifetime of that handle.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,

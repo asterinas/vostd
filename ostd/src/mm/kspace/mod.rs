@@ -57,8 +57,7 @@ use crate::mm::page_table::RCClone;
 use crate::specs::arch::*;
 use crate::specs::mm::{
     frame::{
-        mapping::group_page_meta,
-        meta_owners::{MetaPerm, MetaSlotStorage},
+        mapping::group_page_meta, meta_owners::MetaSlotStorage,
         meta_region_owners::MetaRegionOwners,
     },
     page_table::{nr_pte_index_bits_spec, pte_index_bit_offset_spec},

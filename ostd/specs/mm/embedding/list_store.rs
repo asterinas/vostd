@@ -60,7 +60,9 @@ use vstd_extra::{cast_ptr::Repr, ownership::*, set_extra::lemma_finite_int_set_h
 use crate::specs::{
     arch::valid_frame_paddr,
     mm::frame::{
-        linked_list::linked_list_owners::{CursorOwner, LinkOwner, LinkedListOwner, MetaSlotSmall},
+        linked_list::linked_list_owners::{
+            CursorOwner, LinkInnerPerms, LinkOwner, LinkedListOwner, MetaSlotSmall,
+        },
         mapping::frame_to_index,
         meta_owners::PageUsage,
         meta_region_owners::MetaRegionOwners,
@@ -238,10 +240,17 @@ pub proof fn tracked_empty_list_owner<M: AnyFrameMeta + Repr<MetaSlotSmall>>() -
     LinkedListOwner<M>)
     ensures
         res.list =~= Seq::<LinkOwner>::empty(),
+        res.repr_perms =~= Seq::<LinkInnerPerms<M>>::empty(),
         res.list_id == 0,
 {
     let tracked list = Seq::<LinkOwner>::tracked_empty();
-    let tracked res = LinkedListOwner::<M> { list, list_id: 0, _marker: core::marker::PhantomData };
+    let tracked repr_perms = Seq::<LinkInnerPerms<M>>::tracked_empty();
+    let tracked res = LinkedListOwner::<M> {
+        list,
+        repr_perms,
+        list_id: 0,
+        _marker: core::marker::PhantomData,
+    };
     res
 }
 
