@@ -103,7 +103,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
             #![trigger frame_to_index(pa)]
             (self.start_paddr() <= pa < self.end_paddr() && pa % PAGE_SIZE == 0) ==> {
                 let idx = frame_to_index(pa);
-                &&& perm.slots.contains_key(idx)
+                &&& perm.contains(idx)
                 &&& valid_frame_paddr(pa)
                 &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
@@ -146,7 +146,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> RCClone for Segment<M> {
                     #![trigger frame_to_index(pa)]
                     (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
                         let idx = frame_to_index(pa);
-                        &&& perm.slots.contains_key(idx)
+                        &&& perm.contains(idx)
                         &&& valid_frame_paddr(pa)
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1
@@ -239,7 +239,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& forall|paddr: Paddr|
                     #![trigger frame_to_index(paddr)]
                     (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                        ==> final(regions).slots.contains_key(frame_to_index(paddr))
+                        ==> final(regions).contains(frame_to_index(paddr))
                 &&& range.start < range.end <= MAX_PADDR
             },
     )]
@@ -289,8 +289,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                     #![trigger addrs[j]]
                     0 <= j < addrs.len() ==> {
                         let idx = frame_to_index(addrs[j]);
-                        &&& regions.slots.contains_key(idx)
-                        &&& regions.slot_owners.contains_key(idx)
+                        &&& regions.contains(idx)
                         &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -338,8 +337,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                                 #![trigger addrs[j]]
                                 k <= j < addrs.len() ==> {
                                     let idx = frame_to_index(addrs[j]);
-                                    &&& regions.slots.contains_key(idx)
-                                    &&& regions.slot_owners.contains_key(idx)
+                                    &&& regions.contains(idx)
                                     &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                                     &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                                     &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -359,7 +357,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
                             assert(addrs[k] == p);
                             assert(index_to_meta(idx_k) == frame_to_meta(p));
-                            assert(regions.slots.contains_key(idx_k));
+                            assert(regions.contains(idx_k));
                         }
                         proof_decl! {
                             let tracked from_raw_obl: vstd_extra::drop_tracking::DropObligation<int>;
@@ -374,8 +372,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                                 #![trigger addrs[j]]
                                 (k + 1) <= j < addrs.len() implies ({
                                 let idx = frame_to_index(addrs[j]);
-                                &&& regions.slots.contains_key(idx)
-                                &&& regions.slot_owners.contains_key(idx)
+                                &&& regions.contains(idx)
                                 &&& regions.slot_owners[idx] == reclaim_pre.slot_owners[idx]
                             }) by {
                                 assert(addrs[j] != p);
@@ -442,7 +439,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             assert forall|addr: usize|
                 #![trigger frame_to_index(addr)]
                 range.start <= addr < range.end && addr % PAGE_SIZE == 0 implies {
-                regions.slots.contains_key(frame_to_index(addr))
+                regions.contains(frame_to_index(addr))
             } by {
                 let j = (addr - range.start) / PAGE_SIZE as int;
                 assert(addrs[j as int] == addr);
@@ -452,8 +449,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 0 <= i < crate::specs::mm::frame::segment::seg_nframes(segment.range) implies {
                 let idx = frame_to_index((segment.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.frame_obligations.count(idx) >= 1
-                &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(idx)
+                &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -616,8 +612,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 0 <= i < crate::specs::mm::frame::segment::seg_nframes(seg1.range) implies {
                 let idx = frame_to_index((seg1.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.frame_obligations.count(idx) >= 1
-                &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(idx)
+                &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -632,8 +627,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 0 <= i < crate::specs::mm::frame::segment::seg_nframes(seg2.range) implies {
                 let idx = frame_to_index((seg2.range.start + i * PAGE_SIZE) as usize);
                 &&& regions.frame_obligations.count(idx) >= 1
-                &&& regions.slot_owners.contains_key(idx)
-                &&& regions.slots.contains_key(idx)
+                &&& regions.contains(idx)
                 &&& regions.slot_owners[idx].slot_vaddr == index_to_meta(idx)
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
                 &&& regions.slot_owners[idx].inner_perms.ref_count.value()
@@ -1091,8 +1085,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
                     ) implies {
                     let idx = frame_to_index((new_segment.range.start + i * PAGE_SIZE) as usize);
                     &&& (**regions_ref).frame_obligations.count(idx) >= 1
-                    &&& (**regions_ref).slot_owners.contains_key(idx)
-                    &&& (**regions_ref).slots.contains_key(idx)
+                    &&& (**regions_ref).contains(idx)
                     &&& (**regions_ref).slot_owners[idx].slot_vaddr == index_to_meta(idx)
                     &&& (**regions_ref).slot_owners[idx].inner_perms.ref_count.value() > 0
                     &&& (**regions_ref).slot_owners[idx].inner_perms.ref_count.value()
@@ -1308,15 +1301,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     k <= j < n ==> {
                         let idx = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
-                        &&& regions.slot_owners.contains_key(idx)
-                        &&& regions.slots.contains_key(idx)
+                        &&& regions.contains(idx)
                         &&& regions.slot_owners[idx] == old(regions).slot_owners[idx]
                     },
                 forall|j: int|
                     #![trigger frame_idx_at(self.range.start, j)]
-                    k <= j < n ==> regions.slot_owners.contains_key(
-                        frame_idx_at(self.range.start, j),
-                    ) && regions.slot_owners[frame_idx_at(self.range.start, j)] == old(
+                    k <= j < n ==> regions.contains(frame_idx_at(self.range.start, j))
+                        && regions.slot_owners[frame_idx_at(self.range.start, j)] == old(
                         regions,
                     ).slot_owners[frame_idx_at(self.range.start, j)],
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
@@ -1360,8 +1351,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     #![trigger frame_to_index((self.range.start + j * PAGE_SIZE) as usize)]
                     (k + 1) <= j < n implies {
                     let idx = frame_to_index((self.range.start + j * PAGE_SIZE) as usize);
-                    &&& regions.slot_owners.contains_key(idx)
-                    &&& regions.slots.contains_key(idx)
+                    &&& regions.contains(idx)
                     &&& regions.slot_owners[idx] == old(regions).slot_owners[idx]
                 } by {
                     self.relate_regions_distinct(*old(regions), k, j);
@@ -1412,7 +1402,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Segment<M> {
                     #![trigger frame_to_index(pa)]
                     (paddr <= pa < self.range.end && pa % PAGE_SIZE == 0) ==> {
                         let idx = frame_to_index(pa);
-                        &&& perm.slots.contains_key(idx)
+                        &&& perm.contains(idx)
                         &&& valid_frame_paddr(pa)
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
                         &&& perm.slot_owners[idx].inner_perms.ref_count.value() + 1

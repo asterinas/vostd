@@ -7,10 +7,10 @@ use vstd_extra::cast_ptr::Repr;
 use vstd_extra::drop_tracking::*;
 use vstd_extra::prelude::*;
 
-use crate::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
+use crate::mm::frame::meta::mapping::frame_to_meta;
 
 use crate::specs::mm::frame::{
-    mapping::frame_to_index, meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners,
+    mapping::meta_to_index, meta_owners::MetaSlotStorage, meta_region_owners::MetaRegionOwners,
 };
 
 use super::{
@@ -155,7 +155,7 @@ pub unsafe trait NonNullPtr: 'static + Sized + TrackDrop<State = MetaRegionOwner
     ) -> Self::Ref<'a>
         requires
             old(regions).inv(),
-            old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
+            old(regions).contains(meta_to_index(raw.addr())),
     ;
 
     /// Converts a shared reference to a raw pointer.

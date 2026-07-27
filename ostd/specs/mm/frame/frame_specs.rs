@@ -6,7 +6,9 @@ use vstd_extra::{cast_ptr::*, drop_tracking::*, ownership::*};
 use crate::specs::{
     arch::*,
     mm::frame::{
-        mapping::frame_to_index, meta_owners::PageUsage, meta_region_owners::MetaRegionOwners,
+        mapping::{frame_to_index, meta_to_index},
+        meta_owners::PageUsage,
+        meta_region_owners::MetaRegionOwners,
     },
 };
 
@@ -37,7 +39,7 @@ impl<'a, M: ?Sized> Frame<M> {
     /// gate, since the `UNUSED` sentinel `u64::MAX` also satisfies it; and
     /// the PT-node ownership model only exposes `!= UNUSED`.)
     pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
-        &&& regions.slot_owners.contains_key(frame_to_index(paddr))
+        &&& regions.contains(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].slot_vaddr == frame_to_meta(paddr)
         &&& valid_frame_paddr(paddr)
         &&& regions.inv()
@@ -52,7 +54,7 @@ impl<'a, M: ?Sized> Frame<M> {
         r: Self,
     ) -> bool {
         &&& new_regions.inv()
-        &&& new_regions.slots.contains_key(frame_to_index(paddr))
+        &&& new_regions.contains(frame_to_index(paddr))
         &&& new_regions.slot_owners[frame_to_index(paddr)]
             =~= old_regions.slot_owners[frame_to_index(paddr)]
         &&& new_regions.slot_owners[frame_to_index(paddr)].slot_vaddr == r.ptr.addr()
@@ -60,8 +62,7 @@ impl<'a, M: ?Sized> Frame<M> {
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& forall|i: int|
-            i != frame_to_index(paddr) ==> new_regions.slots.contains_key(i)
-                == old_regions.slots.contains_key(i)
+            i != frame_to_index(paddr) ==> new_regions.contains(i) == old_regions.contains(i)
         &&& r.ptr.addr() == frame_to_meta(paddr)
         &&& r.paddr() == paddr
         &&& r.inv()
@@ -95,9 +96,8 @@ impl<'a, M: ?Sized> Frame<M> {
     ) -> bool {
         &&& forall|i: int|
             #![trigger new_regions.slots[i], old_regions.slots[i]]
-            i != self.index() && old_regions.slots.contains_key(i)
-                ==> new_regions.slots.contains_key(i) && new_regions.slots[i]
-                == old_regions.slots[i]
+            i != self.index() && old_regions.contains(i) ==> new_regions.contains(i)
+                && new_regions.slots[i] == old_regions.slots[i]
         &&& forall|i: int|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != self.index() ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
@@ -175,9 +175,8 @@ impl<M: ?Sized> Frame<M> {
         let slot_own = s.slot_owners[idx];
         &&& self.inv()
         &&& s.inv()
-        &&& s.slots.contains_key(idx)
+        &&& s.contains(idx)
         &&& s.slots[idx].pptr() == self.ptr
-        &&& s.slot_owners.contains_key(idx)
         &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED
         &&& slot_own.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
         &&& slot_own.inner_perms.ref_count.value() > 0
@@ -203,7 +202,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
     type Obligation = DropObligation<int>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(self.index())
+        &&& s.contains(self.index())
         &&& s.inv()
     }
 
@@ -231,7 +230,7 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
 
     proof fn tracked_redeem(self, tracked s: &mut Self::State) -> (tracked obl: Self::Obligation) {
         let meta_addr = self.ptr.addr();
-        let index = frame_to_index(meta_to_frame(meta_addr));
+        let index = meta_to_index(meta_addr);
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         s.slot_owners.tracked_insert(index, slot_own);
         // Paired mint axiom: produces the token AND adds its Loc to

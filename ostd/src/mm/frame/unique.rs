@@ -9,7 +9,7 @@ use vstd_extra::ownership::*;
 
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots},
+    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
     meta_owners::{MetaSlotStorage, borrow_meta, borrow_meta_mut},
     meta_region_owners::MetaRegionOwners,
     unique::UniqueFrameOwner,
@@ -69,7 +69,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             Tracked(repr_perm_in): Tracked<M::ReprPerm>,
                 -> owner: Tracked<Option<UniqueFrameOwner<M>>>,
         requires
-            old(regions).slot_owners.contains_key(frame_to_index(paddr)),
+            old(regions).contains(frame_to_index(paddr)),
             old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
             old(regions).inv(),
             <M as OwnerOf>::wf(metadata, meta_own_in),
@@ -183,7 +183,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         let slot = self.slot();
 
         assert(slot_own.inv()) by {
-            assert(old(regions).slot_owners.contains_key(idx));
+            assert(old(regions).contains(idx));
             assert(old(regions).slot_owners[idx].inv());
         }
 
@@ -217,7 +217,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         let tracked mut new_owner = UniqueFrameOwner::<M1>::tracked_from_unused_owner(
             meta_own_in,
             repr_perm,
-            frame_to_index(meta_to_frame(self.ptr.addr())),
+            meta_to_index(self.ptr.addr()),
         );
 
         // SAFETY: The metadata is initialized with type `M1`.
@@ -359,7 +359,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     )]
     pub fn start_paddr(&self) -> Paddr {
         proof {
-            assert(regions.slot_owners.contains_key(owner.slot_index));
+            assert(regions.contains(owner.slot_index));
         }
         let tracked outer = regions.slots.tracked_borrow(owner.slot_index);
         #[verus_spec(with Tracked(outer))]
@@ -432,7 +432,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     }
 
     pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
-        &&& regions.slot_owners.contains_key(
+        &&& regions.contains(
             self.index(),
         )
         // `self` is a live value with a pending Drop; forgetting it (`MD::new`)
@@ -499,7 +499,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         requires
             valid_frame_paddr(paddr),
             old(regions).inv(),
-            old(regions).slot_owners.contains_key(frame_to_index(paddr)),
+            old(regions).contains(frame_to_index(paddr)),
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
         ensures
             res.0.ptr.addr() == frame_to_meta(paddr),
@@ -639,7 +639,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn from_unique(unique: UniqueFrame<M>) -> Self {
-        let ghost idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
+        let ghost idx = meta_to_index(unique.ptr.addr());
         proof {
             broadcast use group_page_meta;
 
@@ -682,7 +682,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             final(regions).slot_owners.dom() == old(regions).slot_owners.dom(),
     )]
     pub fn try_from_shared(frame: Frame<M>) -> Result<Self, Frame<M>> {
-        let ghost idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
+        let ghost idx = meta_to_index(frame.ptr.addr());
         proof {
             broadcast use group_page_meta;
 

@@ -412,8 +412,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::item_from_raw_spec(pa, level, prop) == item,
             Self::raw_item_well_formed(pa, level, prop),
             valid_frame_paddr(pa),
-            regions.slots.contains_key(frame_to_index(pa)),
-            regions.slot_owners.contains_key(frame_to_index(pa)),
+            regions.contains(frame_to_index(pa)),
             Self::tracked(item) ==> regions.slot_owners[frame_to_index(
                 pa,
             )].inner_perms.ref_count.value() > 0,
@@ -985,7 +984,7 @@ impl PageTable<KernelPtConfig> {
             assert(kern_idx != new_idx);
             assert(regions.slot_owners[kern_idx] == regions_before_alloc.slot_owners[kern_idx]);
             assert(kernel_owner.metaregion_sound(*regions));
-            assert(!regions.slots.contains_key(new_idx));
+            assert(!regions.contains(new_idx));
         }
 
         proof_decl! {
@@ -1027,9 +1026,7 @@ impl PageTable<KernelPtConfig> {
             assert(regions_before_self_borrow.slot_owners
                 == regions_after_kroot_borrow.slot_owners);
             assert forall|k: int|
-                regions_before_self_borrow.slots.contains_key(
-                    k,
-                ) implies regions_before_self_borrow.slots[k]
+                regions_before_self_borrow.contains(k) implies regions_before_self_borrow.slots[k]
                 == #[trigger] regions_after_kroot_borrow.slots[k] by {
                 if k == kern_idx {
                     crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
@@ -1047,7 +1044,7 @@ impl PageTable<KernelPtConfig> {
             );
 
             let new_idx = new_idx_g;
-            assert(regions_before_alloc.slots.contains_key(new_idx));
+            assert(regions_before_alloc.contains(new_idx));
             assert(kern_idx != new_idx) by {
                 crate::specs::mm::page_table::node::entry_owners::EntryOwner::<
                     KernelPtConfig,
@@ -1058,12 +1055,11 @@ impl PageTable<KernelPtConfig> {
                 );
             };
 
-            assert(!regions_before_self_borrow.slots.contains_key(new_idx));
-            assert(!regions_after_kroot_borrow.slots.contains_key(new_idx));
+            assert(!regions_before_self_borrow.contains(new_idx));
+            assert(!regions_after_kroot_borrow.contains(new_idx));
             assert forall|k: int|
-                regions_after_kroot_borrow.slots.contains_key(
-                    k,
-                ) implies regions_after_kroot_borrow.slots[k] == #[trigger] regions.slots[k] by {
+                regions_after_kroot_borrow.contains(k) implies regions_after_kroot_borrow.slots[k]
+                == #[trigger] regions.slots[k] by {
                 if k != new_idx {
                     // borrow preserves slots[k] at k != self.index() == new_idx
                 }
@@ -1101,7 +1097,7 @@ impl PageTable<KernelPtConfig> {
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
                                     (pa + j * PAGE_SIZE) as usize,
                                 );
-                                sub_idx != new_idx || (regions.slots.contains_key(sub_idx)
+                                sub_idx != new_idx || (regions.contains(sub_idx)
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
                                     != REF_COUNT_UNUSED
                                     && regions.slot_owners[sub_idx].inner_perms.ref_count.value()
@@ -1134,7 +1130,7 @@ impl PageTable<KernelPtConfig> {
                 // The new node owner's invariants and guard relation.
                 new_node_owner.inv(),
                 new_node_owner.relate_guard(new_node),
-                regions.slots.contains_key(new_node_owner.slot_index),
+                regions.contains(new_node_owner.slot_index),
             decreases KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end - i,
         {
             proof {
@@ -1229,7 +1225,7 @@ impl PageTable<KernelPtConfig> {
             let pte = PageTableEntry::new_pt(pt_addr);
 
             proof {
-                assert(regions.slots.contains_key(new_node_owner.slot_index));
+                assert(regions.contains(new_node_owner.slot_index));
             }
             unsafe {
                 #[verus_spec(with Tracked(&mut new_node_owner), Tracked(&*regions))]
@@ -1309,12 +1305,12 @@ impl<C: PageTableConfig> PageTable<C> {
             // that was (un)locked before remains so.
             final(guards).guards == old(guards).guards,
             // The newly allocated slot was in the free pool before the call.
-            old(regions).slots.contains_key(
+            old(regions).contains(
                 crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
             // After the alloc, the slot is removed from the free pool (now owned
             // by the new pt's NodeOwner).
-            !final(regions).slots.contains_key(
+            !final(regions).contains(
                 crate::specs::mm::frame::mapping::frame_to_index(
                     (final(owner)@->0).0.value().meta_slot_paddr()->0)),
             // Other slots and lock state are preserved.
@@ -1455,7 +1451,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 ==> final(regions).slot_owners[idx].paths_in_pt
                         == old(regions).slot_owners[idx].paths_in_pt,
             forall|idx: int| #![trigger final(regions).slot_owners[idx]]
-                old(regions).slot_owners.contains_key(idx)
+                old(regions).contains(idx)
                 && old(regions).slot_owners[idx].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
@@ -1507,14 +1503,14 @@ impl<C: PageTableConfig> PageTable<C> {
                         == old(regions).slot_owners[idx].paths_in_pt,
             // Non-saturation preservation.
             (forall |i: int| #![trigger old(regions).slot_owners[i]]
-                old(regions).slot_owners.contains_key(i)
+                old(regions).contains(i)
                 && old(regions).slot_owners[i].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
                     < REF_COUNT_MAX)
             ==>
             (forall |i: int| #![trigger final(regions).slot_owners[i]]
-                final(regions).slot_owners.contains_key(i)
+                final(regions).contains(i)
                 && final(regions).slot_owners[i].inner_perms.ref_count.value()
                     != REF_COUNT_UNUSED
                 ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1

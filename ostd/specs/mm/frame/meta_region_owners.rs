@@ -67,7 +67,8 @@ pub ghost struct MetaRegionModel {
 impl Inv for MetaRegionOwners {
     open spec fn inv(self) -> bool {
         &&& {
-            // All accessible slots are within the valid address range.
+            // Keep the map-membership trigger: callers frequently expose a
+            // slot-owner lookup without mentioning the `contains` wrapper.
             forall|i: int|
                 0 <= i < max_meta_slots() <==> #[trigger] self.slot_owners.contains_key(i)
         }
@@ -86,6 +87,12 @@ impl Inv for MetaRegionOwners {
                     &&& self.slot_owners[i].slot_vaddr == self.slots[i].addr()
                 }
         }
+    }
+}
+
+impl MetaRegionModel {
+    pub open spec fn contains(self, index: int) -> bool {
+        self.slots.contains_key(index)
     }
 }
 
@@ -111,6 +118,12 @@ impl InvView for MetaRegionOwners {
 }
 
 impl MetaRegionOwners {
+    /// Returns whether the slot permission and its corresponding owner are both present.
+    pub open spec fn contains(self, index: int) -> bool {
+        &&& self.slot_owners.contains_key(index)
+        &&& self.slots.contains_key(index)
+    }
+
     pub open spec fn insert_slot_owner(self, paddr: Paddr, owner: MetaSlotOwner) -> Self {
         let index = frame_to_index(paddr);
         Self { slot_owners: self.slot_owners.insert(index, owner), ..self }
@@ -139,8 +152,9 @@ impl MetaRegionOwners {
     {
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
-            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> self.slots.contains_key(frame_to_index(paddr))
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0) ==> self.contains(
+                frame_to_index(paddr),
+            )
     }
 
     pub open spec fn paddr_range_not_mapped(self, range: Range<Paddr>) -> bool
@@ -161,8 +175,9 @@ impl MetaRegionOwners {
     {
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
-            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> !self.slots.contains_key(frame_to_index(paddr))
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0) ==> !self.contains(
+                frame_to_index(paddr),
+            )
     }
 
     /// Instantiates `paddr_range_not_mapped` at a specific paddr in the range.
@@ -184,7 +199,7 @@ impl MetaRegionOwners {
             valid_frame_paddr(paddr),
             self.inv(),
         ensures
-            self.slot_owners.contains_key(frame_to_index(paddr)),
+            self.contains(frame_to_index(paddr)),
     {
     }
 

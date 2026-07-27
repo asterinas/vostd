@@ -12,7 +12,7 @@ use crate::specs::{
     arch::{NR_ENTRIES, NR_LEVELS},
     mm::{
         Guards, Mapping, MetaRegionOwners,
-        frame::mapping::frame_to_index,
+        frame::mapping::meta_to_index,
         page_table::{
             AbstractVaddr,
             cursor::{owners::*, page_size_lemmas::lemma_page_size_ge_page_size},
@@ -22,10 +22,7 @@ use crate::specs::{
     },
 };
 
-use crate::mm::{
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr, frame::meta::mapping::meta_to_frame, page_size,
-    page_table::*,
-};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, page_size, page_table::*};
 
 use crate::arch::mm::PagingConsts;
 
@@ -88,8 +85,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
             path,
             CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr),
         ),
-        regions.slot_owners[frame_to_index(meta_to_frame(excepted_addr))].paths_in_pt
-            == set![excepted_path],
+        regions.slot_owners[meta_to_index(excepted_addr)].paths_in_pt == set![excepted_path],
         // Structural path == value path
         path == subtree.value().path,
         path.inv(),
@@ -112,7 +108,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         if subtree.value().node().meta_vaddr() == excepted_addr {
             // addr == excepted_addr contradicts path != excepted_path
             // via metaregion_sound's singleton paths_in_pt.
-            let idx = frame_to_index(meta_to_frame(excepted_addr));
+            let idx = meta_to_index(excepted_addr);
 
             assert(set![subtree.value().path].contains(excepted_path));
             assert(false);
@@ -460,7 +456,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if cont_i.guard.inner.inner@.ptr.addr() == guard.inner.inner@.ptr.addr() {
                 let addr = cont_i.entry_own.node().meta_vaddr();
                 assert(addr == cur_entry.node().meta_vaddr());
-                let idx = frame_to_index(meta_to_frame(addr));
+                let idx = meta_to_index(addr);
                 assert(regions.slot_owners[idx].paths_in_pt == set![cont_i.path()]);
                 assert(regions.slot_owners[idx].paths_in_pt == set![cur_entry_path]);
                 assert(set![cont_i.path()].contains(cur_entry_path));

@@ -15,7 +15,7 @@ use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::{
-    mapping::{frame_to_index, group_page_meta},
+    mapping::{frame_to_index, group_page_meta, meta_to_index},
     meta_region_owners::MetaRegionOwners,
 };
 use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
@@ -283,7 +283,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(self).new_owner_compatible(new_child, *old(owner), *old(new_owner), *old(regions)),
             old(parent_owner).metaregion_sound_node(*old(regions)),
             new_child matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
-                frame_to_index(meta_to_frame(node.ptr.addr())),
+                meta_to_index(node.ptr.addr()),
             ) > 0,
         ensures
             final(self).invariants(*final(new_owner), *final(regions)),
@@ -851,16 +851,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             forall |i: usize| old(guards).unlocked(i) ==> final(guards).unlocked(i),
             // slot_owners unchanged for all indices except the new PT node's index.
             old(owner).value().is_frame() && old(parent_owner).level > 1 ==> {
-                &&& forall|i: int| i != frame_to_index(meta_to_frame(final(owner).value().node().meta_vaddr())) ==>
+                &&& forall|i: int| i != meta_to_index(final(owner).value().node().meta_vaddr()) ==>
                     (#[trigger] final(regions).slot_owners[i]) == old(regions).slot_owners[i]
                 // slots keys preserved (alloc removes then borrow re-inserts).
                 &&& forall|i: int| old(regions).slots.contains_key(i)
                     ==> (#[trigger] final(regions).slots.contains_key(i))
                 // The new PT node's ref_count is not UNUSED.
-                &&& final(regions).slot_owners[frame_to_index(meta_to_frame(final(owner).value().node().meta_vaddr()))]
+                &&& final(regions).slot_owners[meta_to_index(final(owner).value().node().meta_vaddr())]
                     .inner_perms.ref_count.value() != REF_COUNT_UNUSED
                 // The allocated slot had ref_count == UNUSED before allocation.
-                &&& old(regions).slot_owners[frame_to_index(meta_to_frame(final(owner).value().node().meta_vaddr()))]
+                &&& old(regions).slot_owners[meta_to_index(final(owner).value().node().meta_vaddr())]
                     .inner_perms.ref_count.value() == REF_COUNT_UNUSED
             },
             // Parent's other PTEs are preserved: only the entry at self.idx
@@ -949,7 +949,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
             broadcast use group_page_meta;
 
-            let new_idx = frame_to_index(meta_to_frame(new_owner_meta_addr));
+            let new_idx = meta_to_index(new_owner_meta_addr);
             let new_paddr = meta_to_frame(new_owner_meta_addr);
             let nr_pages = page_size(level) / PAGE_SIZE;
 
@@ -1017,8 +1017,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // pending-Drop obligation across the per-child `replace`
                 // calls (each net-zero on the ledger), discharging the
                 // `into_pte` consume after the loop.
-                regions.frame_obligations.count(frame_to_index(meta_to_frame(new_owner_meta_addr)))
-                    > 0,
+                regions.frame_obligations.count(meta_to_index(new_owner_meta_addr)) > 0,
                 parent_owner.inv(),
                 new_owner.value().is_node(),
                 new_owner.inv(),
@@ -1088,13 +1087,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // `metaregion_sound` conjuncts not derivable from
                 // `metaregion_sound_node` (slot_vaddr/wf derive). Carried so
                 // `into_pte`'s `Child::invariants` holds after the loop.
-                regions.slot_owners[frame_to_index(
-                    meta_to_frame(new_owner_meta_addr),
+                regions.slot_owners[meta_to_index(
+                    new_owner_meta_addr,
                 )].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-                0 < regions.slot_owners[frame_to_index(
-                    meta_to_frame(new_owner_meta_addr),
+                0 < regions.slot_owners[meta_to_index(
+                    new_owner_meta_addr,
                 )].inner_perms.ref_count.value() <= REF_COUNT_MAX,
-                regions.slot_owners[frame_to_index(meta_to_frame(new_owner_meta_addr))].paths_in_pt
+                regions.slot_owners[meta_to_index(new_owner_meta_addr)].paths_in_pt
                     == set![new_owner_path],
         {
             proof {
@@ -1254,7 +1253,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // Snapshot the node's own-slot facts while the loop invariant still
             // holds (regions unchanged since loop entry), so we can frame them
             // across the `replace` below.
-            let ghost nidx = frame_to_index(meta_to_frame(new_owner_meta_addr));
+            let ghost nidx = meta_to_index(new_owner_meta_addr);
             proof {
                 // The loop invariant still holds for the current `regions`
                 // (unchanged since entry), so pin the node-slot paths_in_pt fact
@@ -1546,7 +1545,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             },
             old(parent_owner).metaregion_sound_node(*old(regions)),
             new_child matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
-                frame_to_index(meta_to_frame(node.ptr.addr())),
+                meta_to_index(node.ptr.addr()),
             ) > 0,
         ensures
             res.invariants(*final(owner), *final(regions)),
@@ -1591,9 +1590,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     regions,
                 ).slot_owners[slot].paths_in_pt,
             forall|k: int|
-                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(
-                    k,
-                ),
+                old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall|slot: int|
                 #![trigger final(regions).slot_owners[slot].inner_perms.ref_count.value()]
                 final(regions).slot_owners[slot].inner_perms.ref_count.value() == old(

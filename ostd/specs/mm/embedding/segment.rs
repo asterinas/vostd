@@ -94,7 +94,7 @@ pub axiom fn segment_from_unused_embedded(
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> old(regions).slots.contains_key(frame_to_index(paddr)),
+                ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         // `slots` domain preserved (Design B re-parking).
@@ -257,7 +257,7 @@ pub proof fn segment_next_embedded(
     requires
         old(regions).inv(),
         valid_frame_paddr(paddr),
-        old(regions).slots.contains_key(frame_to_index(paddr)),
+        old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)]
                 .inner_perms.ref_count.value() >= 1,
         old(regions).slot_owners[frame_to_index(paddr)]
@@ -315,7 +315,7 @@ pub(super) proof fn from_unused_step(
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> old(regions).slots.contains_key(frame_to_index(paddr)),
+                ==> old(regions).contains(frame_to_index(paddr)),
     ensures
         final(regions).inv(),
         final(regions).slots == old(regions).slots,
