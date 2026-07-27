@@ -15,3 +15,5 @@ impl InAtomicMode for AnyAtomicGuard {
 }
 
 } // verus!
+pub mod cpu_core;
+pub mod cpu_local;
