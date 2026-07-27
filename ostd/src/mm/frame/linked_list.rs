@@ -822,7 +822,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             Tracked(owner) : Tracked<&mut CursorOwner<M>>
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(120)]
+    #[verifier::rlimit(240)]
     pub fn take_current(&mut self) -> (res: Option<
         (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),
     >)
@@ -889,6 +889,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
 
         proof {
             owner.list_own.relate_region_at_facts(*regions, owner.index);
+            if owner.index > 0 {
+                owner.list_own.relate_region_at_facts(*regions, owner.index - 1);
+            }
+            if owner.index < owner.list_own.list.len() - 1 {
+                owner.list_own.relate_region_at_facts(*regions, owner.index + 1);
+            }
         }
 
         let meta_ptr = current.addr();
@@ -919,9 +925,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         frame.meta()).prev;
 
         if let Some(prev) = prev_ptr {
-            proof {
-                owner0.list_own.relate_region_at_facts(regions0, owner0.index - 1);
-            }
             let ghost prev_idx = meta_to_index(owner.list_own.list[owner.index - 1].paddr);
             let tracked prev_points_to = regions.slots.tracked_borrow(prev_idx);
             let tracked prev_slot_owner = regions.slot_owners.tracked_borrow_mut(prev_idx);
@@ -962,9 +965,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         }
 
         if let Some(next) = next_ptr {
-            proof {
-                owner0.list_own.relate_region_at_facts(regions0, owner0.index + 1);
-            }
             let ghost next_idx = meta_to_index(owner.list_own.list[owner.index].paddr);
             let tracked next_points_to = regions.slots.tracked_borrow(next_idx);
             let tracked next_slot_owner = regions.slot_owners.tracked_borrow_mut(next_idx);
