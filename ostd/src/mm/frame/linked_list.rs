@@ -20,7 +20,7 @@ use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::{
     linked_list::linked_list_owners::*,
-    mapping::{frame_to_index, group_page_meta, index_to_meta, max_meta_slots, meta_to_index},
+    mapping::{frame_to_index, group_page_meta, index_to_meta, meta_to_index},
     meta_owners::{
         MetaSlotOwner, MetaSlotStorage, borrow_meta, borrow_meta_mut, typed_meta_value,
         typed_meta_wf,
@@ -410,13 +410,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             return false;
         };
 
-        proof {
-            broadcast use group_page_meta;
-
-            assert(regions.slot_owners.contains_key(idx));
-            assert(regions.slots.contains_key(idx));
-        }
-
         let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
 
         let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
@@ -476,12 +469,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             };
         };
 
-        proof {
-            broadcast use group_page_meta;
-
-            assert(regions.slot_owners.contains_key(idx));
-            assert(regions.slots.contains_key(idx));
-        }
         let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
