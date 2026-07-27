@@ -16,6 +16,7 @@ extern crate alloc;
 
 pub mod arithmetic;
 pub mod array_ptr;
+pub mod atomic_weak;
 pub mod auxiliary;
 pub mod cast_ptr;
 pub mod drop_tracking;

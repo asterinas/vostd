@@ -10,7 +10,7 @@ use crate::specs::{
     sync::{
         rcu as rcu_spec,
         rcu::{GracePeriodView, MonitorStateView},
-        weak_memory::{History, ThreadView, WeakAtomicBool, WmView},
+        weak_memory::{History, RcuMonitorWeakAtomicBool, ThreadView, WmView},
     },
 };
 use crate::sync::{
@@ -22,11 +22,7 @@ verus! {
 
 pub type Callbacks = VecDeque<RcuCallback>;
 
-type MonitorAtomicBool = WeakAtomicBool<
-    (),
-    rcu_spec::RcuMonitorFlagGhost,
-    rcu_spec::RcuMonitorFlagInv,
->;
+type MonitorAtomicBool = RcuMonitorWeakAtomicBool;
 
 /// Evidence captured at a call site where the current task is quiescent.
 ///

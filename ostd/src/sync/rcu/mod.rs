@@ -127,7 +127,7 @@ use crate::{
     specs::{
         sync::{
             rcu as rcu_spec,
-            weak_memory::{ThreadView, WeakAtomicPtr},
+            weak_memory::{RcuWeakAtomicPtr, ThreadView},
         },
         task::InAtomicMode,
     },
@@ -186,11 +186,10 @@ type RcuAtomicGhost<P> = rcu_spec::RcuRootOwnedGhost<
     <P as NonNullPtr>::Permission,
 >;
 
-type RcuAtomicPtr<P> = WeakAtomicPtr<
+type RcuAtomicPtr<P> = RcuWeakAtomicPtr<
     <P as NonNullPtr>::Target,
-    rcu_spec::RcuRootKey,
-    RcuAtomicGhost<P>,
-    rcu_spec::RcuOwnedWeakAtomicInv<RcuPointerOwnership<P>>,
+    <P as NonNullPtr>::Permission,
+    RcuPointerOwnership<P>,
 >;
 
 /// A Read-Copy Update cell for sharing a non-null pointer.
@@ -335,7 +334,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                 reader_registry: root_ghost.reader_registry(),
             };
         }
-        let ptr = WeakAtomicPtr::new(Ghost(key), core::ptr::null_mut(), Tracked(root_ghost));
+        let ptr = RcuAtomicPtr::<P>::new(Ghost(key), core::ptr::null_mut(), Tracked(root_ghost));
         Self {
             ptr,
             ghost_nullable: Ghost(true),
@@ -366,7 +365,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
                 reader_registry: root_ghost.reader_registry(),
             };
         }
-        let ptr = WeakAtomicPtr::new(Ghost(key), raw_ptr, Tracked(root_ghost));
+        let ptr = RcuAtomicPtr::<P>::new(Ghost(key), raw_ptr, Tracked(root_ghost));
         Self {
             ptr,
             ghost_nullable: Ghost(nullable),
