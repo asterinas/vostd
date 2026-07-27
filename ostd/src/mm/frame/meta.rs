@@ -314,15 +314,16 @@ pub enum GetFrameError {
 /// Verus ensures that the pointer is properly dereferenced with a permission object, so creating it is safe.
 #[verus_spec(res =>
     with
-        Tracked(slot_perm): Tracked<&'static vstd::simple_pptr::PointsTo<MetaSlot>>
+        Tracked(slot_perm): Tracked<Option<&'static vstd::simple_pptr::PointsTo<MetaSlot>>>
     requires
         valid_frame_paddr(paddr) ==> {
-            &&& slot_perm.addr() == frame_to_meta(paddr)
-            &&& slot_perm.is_init()
+            &&& slot_perm is Some
+            &&& slot_perm->0.addr() == frame_to_meta(paddr)
+            &&& slot_perm->0.is_init()
         }
     ensures
         valid_frame_paddr(paddr) == res is Ok,
-        res is Ok ==> res->Ok_0 == slot_perm.value(),
+        res is Ok ==> res->Ok_0 == slot_perm->0.value(),
 )]
 pub(super) fn get_slot(paddr: Paddr) -> Result<&'static MetaSlot, GetFrameError> {
     if paddr % PAGE_SIZE != 0 {
@@ -337,7 +338,7 @@ pub(super) fn get_slot(paddr: Paddr) -> Result<&'static MetaSlot, GetFrameError>
     // SAFETY: `ptr` points to a valid `MetaSlot` that will never be
     // mutably borrowed, so taking an immutable reference to it is safe.
     // Ok(unsafe { &*ptr })
-    Ok(ptr.borrow(Tracked(slot_perm)))
+    Ok(ptr.borrow(Tracked(slot_perm.tracked_borrow())))
 }
 
 #[verus_verify]
@@ -408,28 +409,22 @@ impl MetaSlot {
         metadata: M,
         as_unique_ptr: bool,
     ) -> Result<PPtr<Self>, GetFrameError> {
-        let ghost idx = frame_to_index(paddr);
-        let ghost perm_idx = if valid_frame_paddr(paddr) {
-            idx
-        } else {
-            0
-        };
-        proof {
-            assert(0 < max_meta_slots()) by (compute);
+        proof_decl! {
+            let ghost idx = frame_to_index(paddr);
             if valid_frame_paddr(paddr) {
                 regions.inv_implies_correct_addr(paddr);
-            } else {
-                assert(regions.slot_owners.contains_key(0));
-                assert(regions.slots.contains_key(0));
             }
+
+            let tracked slot_perm = if valid_frame_paddr(paddr) {
+                Some(*regions.slots.tracked_borrow(idx))
+            } else {
+                None
+            };
         }
-        let tracked slot_perm_ref = regions.slots.tracked_borrow(perm_idx);
-        let tracked slot_perm = *slot_perm_ref;
+
         let slot = #[verus_spec(with Tracked(slot_perm))]
         get_slot(paddr)?;
-        proof {
-            assert(valid_frame_paddr(paddr));
-        }
+
         let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         proof {
             axiom_mmio_usage_iff_mmio_paddr(*slot_own);
@@ -522,28 +517,19 @@ impl MetaSlot {
     #[verifier::exec_allows_no_decreases_clause]
     #[verifier::loop_isolation(false)]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
-        let ghost idx = frame_to_index(paddr);
-        let ghost perm_idx = if valid_frame_paddr(paddr) {
-            idx
-        } else {
-            0
-        };
-        proof {
-            assert(0 < max_meta_slots()) by (compute);
+        proof_decl! {
+            let ghost idx = frame_to_index(paddr);
             if valid_frame_paddr(paddr) {
                 regions.inv_implies_correct_addr(paddr);
-            } else {
-                assert(regions.slot_owners.contains_key(0));
-                assert(regions.slots.contains_key(0));
             }
+            let tracked slot_perm = if valid_frame_paddr(paddr) {
+                Some(*regions.slots.tracked_borrow(idx))
+            } else {
+                None
+            };
         }
-        let tracked slot_perm_ref = regions.slots.tracked_borrow(perm_idx);
-        let tracked slot_perm = *slot_perm_ref;
         let slot = #[verus_spec(with Tracked(slot_perm))]
         get_slot(paddr)?;
-        proof {
-            assert(valid_frame_paddr(paddr));
-        }
 
         loop
             invariant
