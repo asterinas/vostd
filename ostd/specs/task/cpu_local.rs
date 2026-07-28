@@ -3,7 +3,7 @@
 //!
 //! A CPU-local object is modeled as one logical value for every CPU in its
 //! configured domain.
-//! [`CpuLocalInstance`] owns the authoritative map, while
+//! [`CpuLocalAuth`] owns the authoritative map, while
 //! [`CpuLocalPointsTo`] is the exclusive points-to resource for one CPU's
 //! entry. Distinct CPUs therefore have independently owned resources and may
 //! operate on them concurrently.
@@ -11,7 +11,7 @@
 //! This module only defines the resource algebra used by CPU-local clients. It
 //! does not yet connect the resources to executable CPU-local storage,
 //! preemption guards, or scheduler transitions. Those layers should keep the
-//! authoritative instance in an invariant and transfer each points-to resource
+//! authority in an invariant and transfer each points-to resource
 //! into the corresponding CPU core's proof state.
 use vstd::{
     prelude::*,
@@ -31,7 +31,7 @@ verus! {
 /// The domain is fixed at allocation time. Updating a value requires both this
 /// authority and the matching [`CpuLocalPointsTo`], so the executable invariant
 /// cannot change a CPU's entry without its exclusive per-CPU permission.
-pub tracked struct CpuLocalInstance<V> {
+pub tracked struct CpuLocalAuth<V> {
     auth: GhostMapAuth<CpuId, V>,
 }
 
@@ -47,7 +47,7 @@ pub tracked struct CpuLocalPointsToSet<V> {
 /// Exclusive ownership of one CPU's entry in a CPU-local object.
 ///
 /// Two live points-to resources associated with the same
-/// [`CpuLocalInstance`] necessarily refer to different CPUs. Holding this
+/// [`CpuLocalAuth`] necessarily refer to different CPUs. Holding this
 /// token does not by itself establish that the holder is currently executing
 /// on that CPU; the scheduler glue must additionally bind `cpu()` to its
 /// current-CPU token.
@@ -65,7 +65,7 @@ impl<V> CpuCoreLocalState for CpuLocalPointsTo<V> {
     }
 }
 
-impl<V> View for CpuLocalInstance<V> {
+impl<V> View for CpuLocalAuth<V> {
     type V = Map<CpuId, V>;
 
     closed spec fn view(&self) -> Self::V {
@@ -81,14 +81,14 @@ impl<V> View for CpuLocalPointsToSet<V> {
     }
 }
 
-impl<V> CpuLocalInstance<V> {
+impl<V> CpuLocalAuth<V> {
     /// Allocates proof state for CPU-local contents described by `initial`.
     ///
     /// Allocation returns the authoritative state and exclusive ownership of
     /// every points-to resource. No executable storage is allocated by this
     /// proof function.
     pub proof fn new(initial: Map<CpuId, V>) -> (tracked res: (
-        CpuLocalInstance<V>,
+        CpuLocalAuth<V>,
         CpuLocalPointsToSet<V>,
     ))
         ensures
@@ -99,7 +99,7 @@ impl<V> CpuLocalInstance<V> {
             res.1.cpus() == initial.dom(),
     {
         let tracked (auth, points_to) = GhostMapAuth::new(initial);
-        (CpuLocalInstance { auth }, CpuLocalPointsToSet { points_to })
+        (CpuLocalAuth { auth }, CpuLocalPointsToSet { points_to })
     }
 
     /// Identity shared by the authority and all of its points-to resources.
@@ -120,14 +120,14 @@ impl<V> CpuLocalInstance<V> {
         self@[cpu]
     }
 
-    /// Whether this instance contains exactly the configured CPU set.
+    /// Whether this authority contains exactly the configured CPU set.
     pub open spec fn covers(&self, cpus: Set<CpuId>) -> bool {
         self.cpus() == cpus
     }
 }
 
 impl<V> CpuLocalPointsToSet<V> {
-    /// Identity of the corresponding [`CpuLocalInstance`].
+    /// Identity of the corresponding [`CpuLocalAuth`].
     pub closed spec fn id(&self) -> Loc {
         self.points_to.id()
     }
@@ -175,7 +175,7 @@ impl<V> CpuLocalPointsToSet<V> {
 }
 
 impl<V> CpuLocalPointsTo<V> {
-    /// Identity of the corresponding [`CpuLocalInstance`].
+    /// Identity of the corresponding [`CpuLocalAuth`].
     pub closed spec fn id(&self) -> Loc {
         self.points_to.id()
     }
@@ -191,42 +191,38 @@ impl<V> CpuLocalPointsTo<V> {
     }
 
     /// Establishes agreement with the authoritative CPU-local contents.
-    pub proof fn lemma_agree(tracked &self, tracked instance: &CpuLocalInstance<V>)
+    pub proof fn lemma_agree(tracked &self, tracked auth: &CpuLocalAuth<V>)
         requires
-            self.id() == instance.id(),
+            self.id() == auth.id(),
         ensures
-            instance.cpus().contains(self.cpu()),
-            instance.value(self.cpu()) == self.value(),
+            auth.cpus().contains(self.cpu()),
+            auth.value(self.cpu()) == self.value(),
     {
-        self.points_to.agree(&instance.auth);
+        self.points_to.agree(&auth.auth);
     }
 
     /// Updates this CPU's logical value.
     ///
     /// Other CPUs' points-to resources remain disjoint and retain their values.
-    pub proof fn tracked_update(
-        tracked &mut self,
-        tracked instance: &mut CpuLocalInstance<V>,
-        value: V,
-    )
+    pub proof fn tracked_update(tracked &mut self, tracked auth: &mut CpuLocalAuth<V>, value: V)
         requires
-            old(self).id() == old(instance).id(),
+            old(self).id() == old(auth).id(),
         ensures
             final(self).id() == old(self).id(),
             final(self).cpu() == old(self).cpu(),
             final(self).value() == value,
-            final(instance).id() == old(instance).id(),
-            final(instance).cpus() == old(instance).cpus(),
-            final(instance)@ == old(instance)@.insert(old(self).cpu(), value),
+            final(auth).id() == old(auth).id(),
+            final(auth).cpus() == old(auth).cpus(),
+            final(auth)@ == old(auth)@.insert(old(self).cpu(), value),
     {
-        self.points_to.agree(&instance.auth);
+        self.points_to.agree(&auth.auth);
         let ghost cpu = self.cpu();
-        self.points_to.update(&mut instance.auth, value);
-        assert(instance@ == old(instance)@.insert(cpu, value));
-        assert(instance@.dom() == old(instance)@.dom());
+        self.points_to.update(&mut auth.auth, value);
+        assert(auth@ == old(auth)@.insert(cpu, value));
+        assert(auth@.dom() == old(auth)@.dom());
     }
 
-    /// Two points-to resources belonging to one instance refer to distinct CPUs.
+    /// Two points-to resources belonging to one authority refer to distinct CPUs.
     pub proof fn lemma_distinct(tracked &mut self, tracked other: &CpuLocalPointsTo<V>)
         requires
             old(self).id() == other.id(),
@@ -240,8 +236,8 @@ impl<V> CpuLocalPointsTo<V> {
     }
 
     /// Two live points-to resources for the same CPU cannot belong to the same
-    /// CPU-local instance.
-    pub proof fn lemma_same_cpu_has_distinct_instance(
+    /// CPU-local authority.
+    pub proof fn lemma_same_cpu_has_distinct_auth(
         tracked &mut self,
         tracked other: &CpuLocalPointsTo<V>,
     )
@@ -272,14 +268,14 @@ proof fn cpu_local_points_to_smoke_test<V>(
         initial.contains_key(cpu2),
         cpu1 != cpu2,
 {
-    let tracked (mut instance, mut points_to_set) = CpuLocalInstance::new(initial);
+    let tracked (mut auth, mut points_to_set) = CpuLocalAuth::new(initial);
     let tracked mut points_to1 = points_to_set.tracked_take(cpu1);
     let tracked mut points_to2 = points_to_set.tracked_take(cpu2);
 
     points_to1.lemma_distinct(&points_to2);
     let ghost old_cpu2_value = points_to2.value();
-    points_to1.tracked_update(&mut instance, new_value);
-    points_to2.lemma_agree(&instance);
+    points_to1.tracked_update(&mut auth, new_value);
+    points_to2.lemma_agree(&auth);
     assert(points_to2.value() == old_cpu2_value);
 
     points_to_set.tracked_return(points_to1);
