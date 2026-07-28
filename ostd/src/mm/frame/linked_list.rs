@@ -31,7 +31,7 @@ use crate::specs::mm::frame::{
 
 use super::{
     MetaSlot, mapping,
-    meta::{_VERUS_VERIFIED_get_slot, AnyFrameMeta, get_slot},
+    meta::{AnyFrameMeta, get_slot},
     unique::UniqueFrame,
 };
 use crate::{
@@ -406,7 +406,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             };
         }
         let Ok(slot) = (#[verus_spec(with Tracked(slot_perm))]
-        get_slot(frame)) else {
+        crate::mm::frame::meta::get_slot(frame)) else {
             return false;
         };
 
@@ -462,7 +462,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             };
         }
         let Ok(slot) = (#[verus_spec(with Tracked(slot_perm))]
-        get_slot(frame)) else {
+        crate::mm::frame::meta::get_slot(frame)) else {
             return {
                 proof_with!(|= Tracked(None));
                 None
