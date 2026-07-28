@@ -1823,26 +1823,34 @@ pub unsafe fn load_pte<E: PageTableEntryTrait>(
     unimplemented!()
 }
 
+/// Verus specification for reconstructing an atomic reference from an aligned `usize` pointer.
+#[doc(hidden)]
+pub assume_specification<'a>[ AtomicUsize::from_ptr ](ptr: *mut usize) -> &'a AtomicUsize
+;
+
 /// Stores a page table entry with an atomic instruction.
 ///
 /// # Verification Design
-/// We axiomatize this function as a store operation in the array that represents the page table node.
+/// The executable body performs an atomic store, while the tracked array permission records the
+/// corresponding element update.
 /// ## Preconditions
 /// - The pointer must be a valid pointer to the array that represents the page table node.
+/// - The permission token must be well-formed.
 /// - The array must be initialized so that the verifier knows that it remains initialized after the store.
 /// ## Postconditions
 /// - The new value is stored in the array at the given index.
 /// ## Safety
 /// - We require the caller to provide a permission token to ensure that this function is only called on a valid array
 /// and the pointer is in bounds.
-#[verifier::external_body]
 #[verus_spec(
     with Tracked(perm): Tracked<&mut vstd_extra::array_ptr::PointsTo<E, NR_ENTRIES>>
     requires
+        old(perm).wf(),
         old(perm).addr() == ptr.addr(),
         0 <= ptr.index < NR_ENTRIES,
         old(perm).is_init_all(),
     ensures
+        final(perm).wf(),
         final(perm).value()[ptr.index as int] == new_val,
         final(perm).value() == old(perm).value().update(ptr.index as int, new_val),
         final(perm).addr() == old(perm).addr(),
@@ -1852,6 +1860,14 @@ pub unsafe fn store_pte<E: PageTableEntryTrait>(
     ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
     new_val: E,
     ordering: Ordering,
-);
+) {
+    proof {
+        ptr.tracked_overwrite(perm, ptr.index, new_val);
+    }
+    let ptr = ptr.as_mut_ptr(Tracked(&*perm));
+    let new_raw = new_val.as_usize();
+    let atomic = unsafe { AtomicUsize::from_ptr(ptr.cast()) };
+    atomic.store(new_raw, ordering);
+}
 
 } // verus!
