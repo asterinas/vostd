@@ -395,15 +395,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     )]
     pub fn contains(&mut self, frame: Paddr) -> bool {
         proof_decl! {
-            let ghost idx = frame_to_index(frame);
-                if valid_frame_paddr(frame) {
-                    regions.inv_implies_correct_addr(frame);
-                }
-            let tracked slot_perm = if valid_frame_paddr(frame) {
-                Some(*regions.slots.tracked_borrow(idx))
-            } else {
-                None
-            };
+        let ghost idx = frame_to_index(frame);
+            if valid_frame_paddr(frame) {
+                regions.inv_implies_correct_addr(frame);
+            }
+        let tracked slot_perm = if valid_frame_paddr(frame) {
+            Some(*regions.slots.tracked_borrow(idx))
+        } else {
+            None
+        };
         }
         let Ok(slot) = (#[verus_spec(with Tracked(slot_perm))]
         crate::mm::frame::meta::get_slot(frame)) else {
