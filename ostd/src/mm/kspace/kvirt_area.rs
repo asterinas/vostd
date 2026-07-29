@@ -61,6 +61,7 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
     ensures
         res == frame_as_dynframe(frame),
 {
+    /* frame.into() */
     DynFrame { ptr: frame.ptr, _marker: PhantomData }
 }
 
