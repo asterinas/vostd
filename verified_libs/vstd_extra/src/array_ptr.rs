@@ -536,6 +536,10 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             perm.wf(),
             perm.is_pptr(*self),
             self.index < N,
+        ensures
+            res.addr() == self.addr.wrapping_add(
+                self.index.wrapping_mul(core::mem::size_of::<V>()),
+            ),
     {
         raw_ptr::with_exposed_provenance(
             self.addr.wrapping_add(self.index.wrapping_mul(core::mem::size_of::<V>())),

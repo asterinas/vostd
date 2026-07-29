@@ -1823,11 +1823,6 @@ pub unsafe fn load_pte<E: PageTableEntryTrait>(
     unimplemented!()
 }
 
-/// Verus specification for reconstructing an atomic reference from an aligned `usize` pointer.
-#[doc(hidden)]
-pub assume_specification<'a>[ AtomicUsize::from_ptr ](ptr: *mut usize) -> &'a AtomicUsize
-;
-
 /// Stores a page table entry with an atomic instruction.
 ///
 /// # Verification Design
