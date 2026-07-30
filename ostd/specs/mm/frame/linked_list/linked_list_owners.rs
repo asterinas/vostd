@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
-use vstd::prelude::*;
 use vstd::modes::tracked_swap;
+use vstd::prelude::*;
 
 use vstd::{atomic::*, seq_lib::*, set_lib::*, simple_pptr::*};
 use vstd_extra::{
