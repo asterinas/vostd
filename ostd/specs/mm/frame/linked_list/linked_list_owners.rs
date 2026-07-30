@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 
 use vstd::prelude::*;
+use vstd::modes::tracked_swap;
 
 use vstd::{atomic::*, seq_lib::*, set_lib::*, simple_pptr::*};
 use vstd_extra::{
@@ -896,7 +897,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     /// `list`, so its `inv()` holds vacuously. Used by drop-style call sites
     /// that need to feed an owned `LinkedListOwner` to a downstream API while
     /// themselves only having a `&mut` to it.
-    #[verifier::external_body]
     pub proof fn tracked_take(tracked owner: &mut Self) -> (tracked res: Self)
         ensures
             res == *old(owner),
@@ -904,7 +904,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             final(owner).repr_perms == Seq::<LinkInnerPerms<M>>::empty(),
             final(owner).inv(),
     {
-        unimplemented!()
+        let tracked mut tmp = crate::specs::mm::embedding::list_store::tracked_empty_list_owner::<
+            M,
+        >();
+        tracked_swap(owner, &mut tmp);
+        tmp
     }
 
     /// Discard a logically-empty `LinkedListOwner`. Sound because such an
