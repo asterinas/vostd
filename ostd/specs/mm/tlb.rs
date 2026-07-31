@@ -108,14 +108,19 @@ impl TlbModel {
         TlbModel { pending: self.pending.push(op), mappings: self.mappings }
     }
 
-    pub proof fn tracked_issue_tlb_flush(tracked &mut self, tracked op: TlbFlushOp)
+    pub proof fn tracked_issue_tlb_flush(tracked &mut self, tracked op: &TlbFlushOp)
         requires
             old(self).inv(),
         ensures
-            *final(self) == old(self).issue_tlb_flush(op),
+            *final(self) == old(self).issue_tlb_flush(*op),
             final(self).inv(),
     {
-        self.pending.tracked_push(op);
+        match op {
+            TlbFlushOp::All => self.pending.tracked_push(TlbFlushOp::All),
+            TlbFlushOp::Address(a) => self.pending.tracked_push(TlbFlushOp::Address(*a)),
+            TlbFlushOp::Range(r) => { self.pending.tracked_push(TlbFlushOp::Range(r.start..r.end))
+            },
+        }
     }
 
     pub open spec fn dispatch_tlb_flush_spec(self) -> Self {

@@ -39,9 +39,6 @@ pub struct TlbFlusher<'a  /*, G: PinCurrentCpu*/ > {
     //_pin_current: G,
 }
 
-} // verus!
-verus! {
-
 #[verus_verify]
 impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     /// Creates a new TLB flusher with the specified CPUs to be flushed.
@@ -74,14 +71,10 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
             final(model).inv(),
     )]
     pub fn issue_tlb_flush(&mut self, op: TlbFlushOp) {
-        // Update the ghost TLB model to reflect the pending flush (proof), then
-        // record the operation on the executable ops stack. The proof consumes
-        // `op` (matching the `ensures`), so `push` records a clone.
-        let op_clone = op.clone();
         proof {
-            model.tracked_issue_tlb_flush(op);
+            model.tracked_issue_tlb_flush(&op);
         }
-        self.ops_stack.push(op_clone, None);
+        self.ops_stack.push(op, None);
     }
 
     /// Issues a TLB flush request that must happen before dropping the page.
@@ -104,14 +97,10 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
         op: TlbFlushOp,
         drop_after_flush: Frame<dyn AnyFrameMeta>,
     ) {
-        // Update the ghost TLB model to reflect the pending flush (proof), then
-        // record the operation on the executable ops stack. The proof consumes
-        // `op` (matching the `ensures`), so `push` records a clone.
-        let op_clone = op.clone();
         proof {
-            model.tracked_issue_tlb_flush(op);
+            model.tracked_issue_tlb_flush(&op);
         }
-        self.ops_stack.push(op_clone, Some(drop_after_flush));
+        self.ops_stack.push(op, Some(drop_after_flush));
     }
 
     /// Dispatches all the pending TLB flush requests.
@@ -208,9 +197,6 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     }
 }
 
-} // verus!
-verus! {
-
 /// The operation to flush TLB entries.
 #[verifier::allow(autoderive_clone_without_spec)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,10 +227,8 @@ impl TlbFlushOp {
     fn optimize_for_large_range(self) -> Self {
         match self {
             TlbFlushOp::Range(range) => {
-                // Equivalent to `range.len() > FLUSH_ALL_RANGE_THRESHOLD`:
-                // `Range::<usize>::len` is `end.checked_sub(start).unwrap_or(0)`,
-                // i.e. saturating subtraction (never panics on inverted ranges).
-                if range.end.saturating_sub(range.start) > FLUSH_ALL_RANGE_THRESHOLD {
+                if vstd_extra::external::range::range_usize_len(&range)
+                    > FLUSH_ALL_RANGE_THRESHOLD {
                     TlbFlushOp::All
                 } else {
                     TlbFlushOp::Range(range)
@@ -347,12 +331,11 @@ impl OpsStack {
             self.size = 0;
             return;
         }
-        let old_size = self.size;
         for i in 0..other.size
             invariant
-                self.size == old_size + i,
+                self.size == old(self).size + i,
                 i <= other.size,
-                old_size + other.size <= FLUSH_ALL_OPS_THRESHOLD,
+                old(self).size + other.size <= FLUSH_ALL_OPS_THRESHOLD,
         {
             self.ops[self.size] = other.ops[i].clone();
             self.size += 1;
