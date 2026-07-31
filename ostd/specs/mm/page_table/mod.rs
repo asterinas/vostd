@@ -369,6 +369,53 @@ impl AbstractVaddr {
         }
     }
 
+    proof fn lemma_zero_offset_preserves_inv(self)
+        requires
+            self.inv(),
+        ensures
+            (AbstractVaddr { offset: 0, ..self }).inv(),
+    {
+        let new = AbstractVaddr { offset: 0, ..self };
+        assert(new.index == self.index);
+        assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
+            &&& new.index.contains_key(i)
+            &&& 0 <= new.index[i] < NR_ENTRIES
+        } by {
+            assert(self.index.contains_key(i));
+        }
+    }
+
+    /// Updating one valid page-table index with an in-range value preserves the VA invariant.
+    pub proof fn lemma_insert_preserves_inv(self, index: int, value: int)
+        requires
+            self.inv(),
+            0 <= index < NR_LEVELS,
+            0 <= value < NR_ENTRIES,
+        ensures
+            (AbstractVaddr { index: self.index.insert(index, value), ..self }).inv(),
+    {
+        let new = AbstractVaddr { index: self.index.insert(index, value), ..self };
+        assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
+        assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
+            &&& new.index.contains_key(i)
+            &&& 0 <= new.index[i] < NR_ENTRIES
+        } by {
+            if i != index {
+                assert(self.index.contains_key(i));
+            }
+        }
+    }
+
+    proof fn lemma_insert_zero_preserves_inv(self, index: int)
+        requires
+            self.inv(),
+            0 <= index < NR_LEVELS,
+        ensures
+            (AbstractVaddr { index: self.index.insert(index, 0), ..self }).inv(),
+    {
+        self.lemma_insert_preserves_inv(index, 0);
+    }
+
     pub proof fn align_down_inv(self, level: int)
         requires
             1 <= level <= NR_LEVELS,
@@ -382,21 +429,12 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
-            assert(self.align_down(1).index == self.index);
+            self.lemma_zero_offset_preserves_inv();
+
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_inv(level - 1);
-            let new = self.align_down(level);
-            assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
-            assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
-                &&& new.index.contains_key(i)
-                &&& 0 <= new.index[i]
-                &&& new.index[i] < NR_ENTRIES
-            } by {
-                if i != level - 2 {
-                    assert(tmp.index.contains_key(i));
-                }
-            }
+            tmp.lemma_insert_zero_preserves_inv(level - 2);
         }
     }
 
@@ -425,20 +463,19 @@ impl AbstractVaddr {
                     == self.index[i],
         decreases level,
     {
+        self.align_down_inv(level);
         if level == 1 {
-            assert(self.align_down(1).index == self.index);
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_shape(level - 1);
             let new = self.align_down(level);
-            assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
+
             assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
                 &&& new.index.contains_key(i)
                 &&& 0 <= new.index[i]
                 &&& new.index[i] < NR_ENTRIES
             } by {
                 if i != level - 2 {
-                    assert(tmp.index.contains_key(i));
                 }
             }
         }
@@ -1486,6 +1523,7 @@ impl AbstractVaddr {
         if next_index == NR_ENTRIES {
             if level < NR_LEVELS {
                 let next_va = Self { index: self.index.insert(level - 1, 0), ..self };
+                self.lemma_insert_zero_preserves_inv(level - 1);
                 next_va.next_index_wrap_condition(level + 1);
                 self.wrapped_after_carry_equiv(level, level + 1);
                 next_va.next_index_preserves_lower_indices(level + 1, level);

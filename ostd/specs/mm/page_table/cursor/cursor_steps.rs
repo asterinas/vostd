@@ -954,8 +954,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                 self.va.index_increment_adds_page_size(self.level as int);
 
-                let inc_va = inc.va.to_vaddr() as nat;
-                assert(inc_va == self_va + ps);
                 vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(
                     self_va as int,
                     ps as int,
@@ -966,12 +964,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                 AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.va.align_up(self.level as int));
             }
-            // The wrap (`index+1 == NR_ENTRIES`) at `level == guard_level` is
-            // precluded by the strengthened precondition.
-
             return;
         }
         if self.index() + 1 < NR_ENTRIES {
+            self.lemma_inc_index_va_inv();
             let inc = self.inc_index();
 
             inc.va.align_down_concrete(self.level as int);
@@ -981,8 +977,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             self.va.index_increment_adds_page_size(self.level as int);
 
-            let inc_va = inc.va.to_vaddr() as nat;
-            assert(inc_va == self_va + ps);
             vstd::arithmetic::div_mod::lemma_mod_add_multiples_vanish(self_va as int, ps as int);
 
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(self_va as int, ps as int);

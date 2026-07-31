@@ -1293,6 +1293,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
         if self.0.value().is_frame() {
             lemma_page_size_spec_values();
+            ;
             let frame = self.0.value().frame();
             let pt_level = (INC_LEVELS - path.len()) as PagingLevel;
             Self::lemma_vaddr_path_alignment_and_bound(path);
@@ -1310,11 +1311,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             };
             assert(self.view_rec(path) == set![m]);
             let ps = page_size(pt_level) as int;
-            assert((frame.mapped_pa + ps) % ps == 0) by (nonlinear_arith)
-                requires
-                    (frame.mapped_pa as int) % ps == 0,
-                    ps > 0,
-            ;
+            vstd_extra::arithmetic::lemma_mod_0_add(frame.mapped_pa as int, ps, ps);
             // Bridge `vaddr_of(path) == vaddr(path) + LB * 2^48`.
             lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
@@ -1337,15 +1334,32 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             // (B) Overflow: `vaddr_of(path) + ps <= 2^64`.
             //     `vaddr(path) + ps <= 2^48`: from strict bound plus alignment.
             let v = vaddr(path) as int;
-            assert(vaddr_of::<C>(path) + ps <= pow2(64)) by (nonlinear_arith)
+            let limit = 0x1_0000_0000_0000int;
+            assert(limit % ps == 0) by {
+                if ps == 0x1000int {
+                    assert(0x1_0000_0000_0000int % 0x1000int == 0) by (compute_only);
+                } else if ps == 0x20_0000int {
+                    assert(0x1_0000_0000_0000int % 0x20_0000int == 0) by (compute_only);
+                } else {
+                    assert(ps == 0x4000_0000int);
+                    assert(0x1_0000_0000_0000int % 0x4000_0000int == 0) by (compute_only);
+                }
+            };
+            vstd::arithmetic::div_mod::lemma_mod_equivalence(limit, v, ps);
+            let diff = limit - v;
+            let q = diff / ps;
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(diff, ps);
+            assert(q >= 1) by (nonlinear_arith)
                 requires
-                    vaddr_of::<C>(path) == v + lb * 0x1_0000_0000_0000int,
-                    v + ps <= 0x1_0000_0000_0000int,
-                    lb < 0x1_0000int,
-                    lb >= 0,
-                    pow2(64) == 0x1_0000_0000_0000_0000int,
+                    diff > 0,
+                    ps > 0,
+                    diff == ps * q,
             ;
-            assert(m.inv());
+            vstd::arithmetic::mul::lemma_mul_inequality(1, q, ps);
+            vstd::arithmetic::mul::lemma_mul_inequality(lb, 0xffffint, 0x1_0000_0000_0000int);
+            assert(0x1_0000_0000_0000int + 0xffffint * 0x1_0000_0000_0000int
+                == 0x1_0000_0000_0000_0000int) by (compute_only);
+            vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, ps, ps);
         } else if self.0.value().is_node() && path.len() < INC_LEVELS - 1 {
             assert forall|m: Mapping| #[trigger]
                 self.view_rec(path).contains(m) implies m.inv() by {

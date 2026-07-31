@@ -145,10 +145,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ghost start = old_self.locked_range().start as nat;
 
         vstd_extra::arithmetic::lemma_nat_align_down_monotone(prefix_va_val, ps, guard_ps);
-        assert(start % ps == 0);
-        vstd::arithmetic::div_mod::lemma_add_mod_noop(start as int, guard_ps as int, ps as int);
+        vstd_extra::arithmetic::lemma_mod_0_add(start as int, guard_ps as int, ps as int);
 
         vstd_extra::arithmetic::lemma_nat_align_down_sound(old_va_val, ps);
+        if !self.popped_too_high && (self.in_locked_range() || self.level < self.guard_level) {
+            if self.level == self.guard_level {
+                let new_va_val = self.va.to_vaddr() as nat;
+                let diff = (new_va_val - start) as nat;
+                vstd::arithmetic::div_mod::lemma_mod_equivalence(
+                    new_va_val as int,
+                    start as int,
+                    ps as int,
+                );
+                vstd::arithmetic::div_mod::lemma_small_mod(diff, ps);
+            }
+        }
     }
 
     pub proof fn zero_rec_preserves_all_but_va(self, level: PagingLevel)
@@ -187,6 +198,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         // inc_index increments va.index[level-1] by 1. zero_below_level zeroes
         // indices below level (= align_down). The result is align_up(va, ps).
+        self.lemma_inc_index_va_inv();
         let inc = self.inc_index();
         inc.zero_preserves_all_but_va();
         inc.zero_below_level_va();
