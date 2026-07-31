@@ -2,7 +2,6 @@
 //!
 //! These specifications are determined with careful inspection of the std library source code and documentation, and trusted as TCB.
 //! They are subject to change if `vstd` covers more cases in the future.
-pub mod atomic;
 pub mod convert;
 pub mod deref;
 pub mod ilog2;
@@ -13,7 +12,6 @@ pub mod range;
 pub mod slice;
 pub mod smart_ptr;
 
-pub use atomic::*;
 pub use ilog2::*;
 pub use int_specs::*;
 pub use nonnull::*;
