@@ -138,6 +138,7 @@ pub struct CursorMut<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> {
     pub current: Option<ReprPtr<MetaSlotStorage, Link<M>>>,
 }
 
+#[verifier::spinoff_prover]
 proof fn meta_region_inv_at(regions: MetaRegionOwners, i: int)
     requires
         regions.inv(),
@@ -150,6 +151,51 @@ proof fn meta_region_inv_at(regions: MetaRegionOwners, i: int)
         regions.slot_owners[i].slot_vaddr == regions.slots[i].addr(),
 {
     reveal(<MetaRegionOwners as Inv>::inv);
+}
+
+/// Localizes the "no existing slot aliases the inserted frame" universal fact
+/// into its own prover query, so the `MetaRegionOwners::inv` and map-insert
+/// quantifiers do not get over-instantiated inside `insert_before`'s body.
+#[verifier::spinoff_prover]
+proof fn insert_before_slot_distinct<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+    owner0: LinkedListOwner<M>,
+    regions0: MetaRegionOwners,
+    frame_idx: int,
+    nn: int,
+)
+    requires
+        owner0.relate_region(regions0),
+        regions0.inv(),
+        regions0.contains(frame_idx),
+        regions0.slot_owners[frame_idx].inner_perms.in_list.value() == 0,
+        0 <= nn <= owner0.list.len() as int,
+    ensures
+        forall|p: int|
+            #![trigger regions0.slot_owners[meta_to_index(owner0.list[p].paddr)]]
+            (0 <= p < owner0.list.len() as int) ==> frame_idx != meta_to_index(
+                owner0.list[p].paddr,
+            ),
+{
+    hide(LinkedListOwner::relate_region);
+    assert forall|p: int|
+        #![trigger regions0.slot_owners[meta_to_index(owner0.list[p].paddr)]]
+        0 <= p < owner0.list.len() as int implies frame_idx != meta_to_index(
+        owner0.list[p].paddr,
+    ) by {
+        assert(owner0.relate_region_at(regions0, p)) by {
+            reveal(LinkedListOwner::relate_region);
+        };
+        owner0.relate_region_at_facts(regions0, p);
+        if frame_idx == meta_to_index(owner0.list[p].paddr) {
+            assert(owner0.list_id != 0) by {
+                reveal(LinkedListOwner::relate_region);
+            };
+            assert(regions0.slot_owners[frame_idx].inner_perms.in_list.value() == 0);
+            assert(regions0.slot_owners[meta_to_index(
+                owner0.list[p].paddr,
+            )].inner_perms.in_list.value() == owner0.list_id);
+        }
+    }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
@@ -1110,7 +1156,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             Tracked(frame_own): Tracked<&mut UniqueFrameOwner<Link<M>>>
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(200)]
     pub fn insert_before(&mut self, mut frame: UniqueFrame<Link<M>>)
         requires
             old(self).wf_region(*old(owner), *old(regions)),
@@ -1175,18 +1220,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 0 <= p < owner0.list_own.list.len() implies frame_own.slot_index != meta_to_index(
                 owner0.list_own.list[p].paddr,
             ) by {
-                assert(owner0.list_own.relate_region_at(regions0, p)) by {
-                    reveal(LinkedListOwner::relate_region);
-                };
-                owner0.list_own.relate_region_at_facts(regions0, p);
-                if frame_own.slot_index == meta_to_index(owner0.list_own.list[p].paddr) {
-                    assert(regions0.slot_owners[frame_own.slot_index].inner_perms.in_list.value()
-                        == 0);
-                    assert(regions0.slot_owners[meta_to_index(
-                        owner0.list_own.list[p].paddr,
-                    )].inner_perms.in_list.value() == owner0.list_own.list_id);
-                    assert(owner0.list_own.list_id != 0);
-                }
+                insert_before_slot_distinct(owner0.list_own, regions0, frame_own.slot_index, nn);
             }
         }
 
