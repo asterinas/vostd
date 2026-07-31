@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Slabs for implementing the slab allocator.
+use vstd::prelude::*;
+
 use core::{alloc::AllocError, ptr::NonNull};
 
 use super::{slot::HeapSlot, slot_list::SlabSlotList};
-use crate::mm::{
-    FrameAllocOptions, PAGE_SIZE, UniqueFrame,
-    frame::{linked_list::Link, meta::AnyFrameMeta},
-    paddr_to_vaddr,
+use crate::{
+    error::{Error, Error::NoMemory},
+    mm::{
+        PAGE_SIZE,
+        frame::{UniqueFrame, linked_list::Link, meta::AnyFrameMeta},
+    },
+    specs::mm::frame::linked_list::linked_list_owners::MetaSlotSmall,
+    specs::mm::frame::meta_region_owners::MetaRegionOwners,
 };
+use vstd_extra::cast_ptr::Repr;
+
+verus! {
 
 /// A slab.
 ///
@@ -31,7 +40,6 @@ pub struct SlabMeta<const SLOT_SIZE: usize> {
     ///
     /// Slots not inside the slab should not be in the list.
     free_list: SlabSlotList<SLOT_SIZE>,
-
     /// The number of allocated slots in the slab.
     ///
     /// Even if a slot is free, as long as it does not stay in the
@@ -39,14 +47,69 @@ pub struct SlabMeta<const SLOT_SIZE: usize> {
     nr_allocated: u16,
 }
 
-unsafe impl<const SLOT_SIZE: usize> Send for SlabMeta<SLOT_SIZE> {}
-unsafe impl<const SLOT_SIZE: usize> Sync for SlabMeta<SLOT_SIZE> {}
+impl<const SLOT_SIZE: usize> Repr<MetaSlotSmall> for SlabMeta<SLOT_SIZE> {
+    type Perm = ();
+
+    open spec fn wf(_r: MetaSlotSmall, _perm: ()) -> bool {
+        true
+    }
+
+    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotSmall, ()) {
+        (MetaSlotSmall, perm)
+    }
+
+    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotSmall {
+        MetaSlotSmall
+    }
+
+    closed spec fn from_repr_spec(_r: MetaSlotSmall, _perm: ()) -> Self {
+        SlabMeta { free_list: SlabSlotList::new_spec(), nr_allocated: 0 }
+    }
+
+    fn from_repr(_r: MetaSlotSmall, Tracked(_perm): Tracked<&()>) -> Self {
+        SlabMeta { free_list: SlabSlotList::new(), nr_allocated: 0 }
+    }
+
+    #[verifier::external_body]
+    fn from_borrowed<'a>(_r: &'a MetaSlotSmall, Tracked(_perm): Tracked<&'a ()>) -> &'a Self {
+        // Original metadata is stored in the frame slot; this representation
+        // shim is only for Verus's link metadata model.
+        unsafe { &*(_r as *const MetaSlotSmall as *const Self) }
+    }
+
+    #[verifier::external_body]
+    proof fn from_to_repr(self, perm: ()) {
+    }
+
+    #[verifier::external_body]
+    proof fn to_from_repr(r: MetaSlotSmall, perm: ()) {
+    }
+
+    proof fn to_repr_wf(self, perm: ()) {
+    }
+}
+
+#[verifier::external]
+unsafe impl<const SLOT_SIZE: usize> Send for SlabMeta<SLOT_SIZE> {
+
+}
+
+#[verifier::external]
+unsafe impl<const SLOT_SIZE: usize> Sync for SlabMeta<SLOT_SIZE> {
+
+}
 
 unsafe impl<const SLOT_SIZE: usize> AnyFrameMeta for SlabMeta<SLOT_SIZE> {
-    fn on_drop(&mut self, _reader: &mut crate::mm::VmReader<crate::mm::Infallible>) {
+    fn on_drop(
+        &mut self,
+        _reader: &mut crate::mm::VmReader<crate::mm::Infallible>,
+        Tracked(_regions): Tracked<&mut MetaRegionOwners>,
+        Tracked(_vm_io_owner): Tracked<&mut crate::specs::mm::io::VmIoOwner>,
+    ) {
         if self.nr_allocated != 0 {
             // FIXME: We have no mechanisms to forget the slab once we are here,
             // so we require the user to deallocate all slots before dropping.
+            #[cfg(feature = "allow_panic")]
             panic!("{} slots allocated when dropping a slab", self.nr_allocated);
         }
     }
@@ -54,23 +117,55 @@ unsafe impl<const SLOT_SIZE: usize> AnyFrameMeta for SlabMeta<SLOT_SIZE> {
     fn is_untyped(&self) -> bool {
         false
     }
+
+    uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
 impl<const SLOT_SIZE: usize> SlabMeta<SLOT_SIZE> {
+    pub open spec fn valid_slot_size() -> bool {
+        &&& SLOT_SIZE >= core::mem::size_of::<usize>()
+        &&& SLOT_SIZE <= PAGE_SIZE
+    }
+
+    pub open spec fn capacity_spec() -> usize
+        recommends
+            Self::valid_slot_size(),
+    {
+        PAGE_SIZE / SLOT_SIZE
+    }
+
+    pub closed spec fn nr_allocated_spec(&self) -> u16 {
+        self.nr_allocated
+    }
+
     /// Gets the capacity of the slab (regardless of the number of allocated slots).
-    pub const fn capacity(&self) -> u16 {
+    pub const fn capacity(&self) -> (res: u16)
+        requires
+            Self::valid_slot_size(),
+        ensures
+            res as usize == Self::capacity_spec(),
+    {
         (PAGE_SIZE / SLOT_SIZE) as u16
     }
 
     /// Gets the number of allocated slots.
-    pub fn nr_allocated(&self) -> u16 {
+    pub fn nr_allocated(&self) -> (res: u16)
+        ensures
+            res == self.nr_allocated_spec(),
+    {
         self.nr_allocated
     }
 
     /// Allocates a slot from the slab.
-    pub fn alloc(&mut self) -> Result<HeapSlot, AllocError> {
+    pub fn alloc(&mut self) -> (res: Result<HeapSlot, AllocError>)
+        requires
+            old(self).nr_allocated_spec() < u16::MAX,
+        ensures
+            res is Ok ==> final(self).nr_allocated_spec() == old(self).nr_allocated_spec() + 1,
+            res is Err ==> final(self).nr_allocated_spec() == old(self).nr_allocated_spec(),
+    {
         let Some(allocated) = self.free_list.pop() else {
-            log::error!("Allocating a slot from a full slab");
+            // log::error!("Allocating a slot from a full slab");
             return Err(AllocError);
         };
         self.nr_allocated += 1;
@@ -78,6 +173,7 @@ impl<const SLOT_SIZE: usize> SlabMeta<SLOT_SIZE> {
     }
 }
 
+/*
 impl<const SLOT_SIZE: usize> Slab<SLOT_SIZE> {
     /// Allocates a new slab of the given size.
     ///
@@ -130,3 +226,5 @@ impl<const SLOT_SIZE: usize> Slab<SLOT_SIZE> {
         Ok(())
     }
 }
+*/
+} // verus!
