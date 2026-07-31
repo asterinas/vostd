@@ -783,7 +783,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// Closed-form for `vaddr(path.push_tail(i))` by case-split on `path.len() ∈ {0,1,2,3}`.
-    #[verifier::rlimit(400)]
+    #[verifier::rlimit(200)]
     pub proof fn lemma_vaddr_push_tail_eq(path: TreePath<NR_ENTRIES>, i: int)
         requires
             path.inv(),
@@ -1169,7 +1169,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     ///
     /// Proved by case analysis on `path.len() ∈ {0, 1, 2, 3, 4}`, unrolling
     /// `rec_vaddr` and using concrete `pow2` values.
-    #[verifier::rlimit(400)]
+    #[verifier::rlimit(200)]
     proof fn lemma_vaddr_path_alignment_and_bound(path: TreePath<NR_ENTRIES>)
         requires
             path.inv(),

@@ -1601,7 +1601,7 @@ impl AbstractVaddr {
     /// positional (ignoring `leading_bits`); add `leading_bits * 2^48`
     /// manually to obtain the canonical form — see `to_path_vaddr_concrete`
     /// for the canonical statement.
-    #[verifier::rlimit(400)]
+    #[verifier::rlimit(200)]
     pub proof fn to_path_vaddr(self, level: int)
         requires
             self.inv(),

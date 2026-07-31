@@ -459,7 +459,7 @@ pub proof fn lemma_frame_drop_pre_derivable<'rcu>(s: VmStore<'rcu>, fid: FrameId
 {
     let paddr = s.frames[fid].paddr;
     let idx = frame_to_index(paddr);
-    s.regions.inv_implies_correct_addr(paddr);
+
     assert(s.frames.dom().filter(
         |gid: FrameId| frame_to_index(s.frames[gid].paddr) == idx,
     ).contains(fid));
@@ -2931,6 +2931,7 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
 /// post-state's per-slot ensures (every covered slot transitions
 /// `UNUSED → Frame, rc=1, raw_count=1`).
 #[verifier::spinoff_prover]
+#[verifier::rlimit(200)]
 proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Range<Paddr>)
     requires
         old(s).inv(),

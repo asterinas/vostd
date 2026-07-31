@@ -439,7 +439,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).va == old(self).va,
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(infinity)]
+    #[verifier::rlimit(200)]
     pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         if self.va >= self.barrier_va.end {
             proof {
@@ -877,7 +877,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// ## Safety
     /// - This function never accesses nodes outside the locked range, because it is impossible to
     /// create a cursor below the range, and if the cursor is above the range this function will always panic.
-    #[verifier::rlimit(800)]
+    #[verifier::rlimit(200)]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1509,7 +1509,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     ///   by ascending to a common ancestor and updating the slot index within a node.
     /// - On a successful jump the cursor is guaranteed to be within the locked range, so
     ///   it will be safe to use.
-    #[verifier::rlimit(8000)]
+    #[verifier::rlimit(200)]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1639,7 +1639,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// ## Safety
     /// - This function is safe because it only manipulates the cursor, it does not modify
     ///   any of the entries. It can advance the cursor outside of the locked range, however.
-    #[verifier::rlimit(800)]
+    #[verifier::rlimit(200)]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
              Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -3127,7 +3127,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).0.barrier_va == old(self).0.barrier_va,
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(infinity)]
+    #[verifier::rlimit(200)]
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         let ghost self0 = *self;
         let ghost owner0 = *owner;
@@ -3979,7 +3979,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(infinity)]
+    #[verifier::rlimit(200)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> Option<PageTableFrag<C>> {
         broadcast use {CursorContinuation::group_lemmas, CursorOwner::group_lemmas};
 

@@ -1436,7 +1436,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// When the cursor is in the locked range, va.index[guard_level - 1]
     /// matches prefix.index[guard_level - 1]. This is because both va and
     /// prefix are within the same page_size(guard_level)-aligned block.
-    #[verifier::rlimit(2000)]
+    #[verifier::rlimit(200)]
     pub proof fn in_locked_range_guard_index_eq_prefix(self)
         requires
             self.inv(),
@@ -1703,7 +1703,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// The node at `level+1` containing `va` fits within the locked range.
-    #[verifier::rlimit(20000)]
+    #[verifier::rlimit(200)]
     pub proof fn node_within_locked_range(self, level: PagingLevel)
         requires
             self.inv(),
