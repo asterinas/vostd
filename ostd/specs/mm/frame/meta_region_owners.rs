@@ -131,7 +131,6 @@ impl MetaRegionOwners {
 
     pub open spec fn ref_count(self, i: int) -> (res: u64)
         recommends
-            self.inv(),
             0 <= i < max_meta_slots(),
     {
         self.slot_owners[i].inner_perms.ref_count.value()
@@ -147,7 +146,6 @@ impl MetaRegionOwners {
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
         recommends
-            self.inv(),
             range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|
@@ -159,7 +157,6 @@ impl MetaRegionOwners {
 
     pub open spec fn paddr_range_not_mapped(self, range: Range<Paddr>) -> bool
         recommends
-            self.inv(),
             range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|
@@ -170,7 +167,6 @@ impl MetaRegionOwners {
 
     pub open spec fn paddr_range_not_in_region(self, range: Range<Paddr>) -> bool
         recommends
-            self.inv(),
             range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|

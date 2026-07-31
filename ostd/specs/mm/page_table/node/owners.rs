@@ -266,10 +266,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
         )
     }
 
-    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C>
-        recommends
-            self.meta_wf(regions),
-    {
+    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C> {
         typed_meta_value::<PageTablePageMeta<C>>(
             regions.slot_owners[self.slot_index].inner_perms.storage,
             (),

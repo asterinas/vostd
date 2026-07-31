@@ -29,7 +29,7 @@ pub open spec fn frame_to_index(paddr: Paddr) -> int
     (paddr / PAGE_SIZE) as int
 }
 
-pub open spec fn index_to_meta(i: int) -> (res: Vaddr)
+pub open spec fn index_to_meta(i: int) -> Vaddr
     recommends
         0 <= i < max_meta_slots(),
 {

@@ -838,17 +838,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
     /// Returns the number of pages of the contiguous frames.
     #[verifier::inline]
-    pub open spec fn nrpage_spec(&self) -> usize
-        recommends
-            self.inv(),
-    {
+    pub open spec fn nrpage_spec(&self) -> usize {
         self.size() / PAGE_SIZE
     }
 
     /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
     pub closed spec fn split_spec(self, offset: usize) -> (Self, Self)
         recommends
-            self.inv(),
             offset % PAGE_SIZE == 0,
             0 < offset < self.size(),
     {

@@ -266,10 +266,7 @@ impl<'a> VmSpaceOwner {
     ///
     /// This specification function enforces memory isolation by ensuring that the
     /// requested memory range does not intersect with the domain of any active writer.
-    pub open spec fn can_create_reader(&self, vaddr: Vaddr, len: usize) -> bool
-        recommends
-            self.inv(),
-    {
+    pub open spec fn can_create_reader(&self, vaddr: Vaddr, len: usize) -> bool {
         &&& forall|i: int|
             #![trigger self.writers[i]]
             0 <= i < self.writers.len() ==> !self.writers[i].overlaps_with_range(
@@ -280,10 +277,7 @@ impl<'a> VmSpaceOwner {
     /// Checks if we can create a new writer under this VM space owner.
     ///
     /// Similar to [`can_create_reader`], but checks both active readers and writers.
-    pub open spec fn can_create_writer(&self, vaddr: Vaddr, len: usize) -> bool
-        recommends
-            self.inv(),
-    {
+    pub open spec fn can_create_writer(&self, vaddr: Vaddr, len: usize) -> bool {
         &&& forall|i: int|
             #![trigger self.readers[i]]
             0 <= i < self.readers.len() ==> !self.readers[i].overlaps_with_range(
@@ -301,10 +295,7 @@ impl<'a> VmSpaceOwner {
     /// This assumes that we always generate a fresh ID that is not used by any existing
     /// readers or writers. This should be safe as the ID space is unbounded and only used
     /// to reason about different VM IO owners in verification.
-    pub uninterp spec fn new_vm_io_id(&self) -> nat
-        recommends
-            self.inv(),
-    ;
+    pub uninterp spec fn new_vm_io_id(&self) -> nat;
 
     /// Activates the given reader to read data from the user space of the current task.
     /// # Verified Properties

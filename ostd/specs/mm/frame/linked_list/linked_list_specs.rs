@@ -75,10 +75,7 @@ impl CursorModel {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
-    pub open spec fn remove_owner_spec(self, post: Self) -> bool
-        recommends
-            self.index < self.length(),
-    {
+    pub open spec fn remove_owner_spec(self, post: Self) -> bool {
         &&& post.list_own.list == self.list_own.list.remove(self.index)
         &&& post.index == self.index
     }
@@ -131,10 +128,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         assert(post@.list_model == self@.remove().list_model);
     }
 
-    pub open spec fn insert_owner_spec(self, link: LinkOwner, post: Self) -> bool
-        recommends
-            self.index < self.length(),
-    {
+    pub open spec fn insert_owner_spec(self, link: LinkOwner, post: Self) -> bool {
         // The list model (`view_helper`) depends only on the element sequence,
         // not on `list_id`, so this carries no `list_id` clause — letting it
         // hold even when the insert mints a fresh id for a previously-empty list.

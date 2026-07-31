@@ -704,10 +704,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn move_forward_owner_spec(self) -> Self
-        recommends
-            self.inv(),
-            self.level < NR_LEVELS,
-            self.in_locked_range(),
         decreases NR_LEVELS - self.level,
         when self.level <= NR_LEVELS
     {

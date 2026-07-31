@@ -57,14 +57,7 @@ pub open spec fn vaddr_make<const L: usize>(idx: int, offset: usize) -> usize
     (vaddr_shift::<L>(idx) * offset) as usize
 }
 
-pub open spec fn rec_vaddr(
-    path: TreePath<NR_ENTRIES>,
-    idx: int,
-) -> usize/*        recommends
-        0 < NR_LEVELS,
-        path.len() <= NR_LEVELS,
-        0 <= idx <= path.len(),*/
-
+pub open spec fn rec_vaddr(path: TreePath<NR_ENTRIES>, idx: int) -> usize
     decreases path.len() - idx,
     when 0 <= idx <= path.len()
 {

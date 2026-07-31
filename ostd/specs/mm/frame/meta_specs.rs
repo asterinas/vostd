@@ -67,11 +67,7 @@ impl MetaSlot {
         as_unique: bool,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
-    ) -> bool
-        recommends
-            valid_frame_paddr(paddr),
-            pre.inv(),
-    {
+    ) -> bool {
         let idx = frame_to_index(paddr);
         let pre_owner = pre.slot_owners[idx];
         let post_owner = post.slot_owners[idx];
@@ -96,11 +92,7 @@ impl MetaSlot {
         paddr: Paddr,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
-    ) -> bool
-        recommends
-            valid_frame_paddr(paddr),
-            pre.inv(),
-    {
+    ) -> bool {
         let idx = frame_to_index(paddr);
         {
             &&& post.slot_owners.dom() =~= pre.slot_owners.dom()
@@ -179,11 +171,7 @@ impl MetaSlot {
         paddr: Paddr,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
-    ) -> bool
-        recommends
-            valid_frame_paddr(paddr),
-            pre.inv(),
-    {
+    ) -> bool {
         let idx = frame_to_index(paddr);
         let pre_perms = pre.slot_owners[idx].inner_perms.ref_count.value();
         {
@@ -221,7 +209,6 @@ impl MetaSlot {
 
     pub open spec fn inc_ref_count_spec(&self, pre: MetaSlotModel) -> (MetaSlotModel)
         recommends
-            pre.inv(),
             pre.status == MetaSlotStatus::SHARED,
     {
         MetaSlotModel { ref_count: (pre.ref_count + 1) as u64, ..pre }

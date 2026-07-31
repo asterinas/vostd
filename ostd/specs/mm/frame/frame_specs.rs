@@ -126,11 +126,7 @@ impl<M: ?Sized> Frame<M> {
         paddr: Paddr,
         pre: MetaRegionOwners,
         post: MetaRegionOwners,
-    ) -> bool
-        recommends
-            valid_frame_paddr(paddr),
-            pre.inv(),
-    {
+    ) -> bool {
         let idx = frame_to_index(paddr);
         let pre_owner = pre.slot_owners[idx];
         let post_owner = post.slot_owners[idx];
