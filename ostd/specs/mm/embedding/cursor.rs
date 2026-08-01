@@ -5,7 +5,7 @@
 //! Per-op steps operate on tracked owners directly — no store lookups,
 //! no preconditions on store membership, no `if`-guards. The store-side
 //! extract / insert and id-management lives in
-//! [`super::VmStore`]'s methods and the [`super::step`] dispatcher.
+//! [`super::VmStore`]'s methods and the [`super::lemma_step`] dispatcher.
 //!
 //! # Mirroring exec preconditions
 //!
@@ -201,7 +201,7 @@ pub axiom fn vm_space_cursor_mut_embedded<'a, 'rcu>(
 /// `clone_item` bumps `rc` at the leaf slot by one. The returned
 /// `Paddr` here is the cloned leaf's physical address (i.e. the
 /// new handle the caller now logically owns); the embedding's
-/// [`step_query`] registers a fresh [`FrameEntry`] at that paddr
+/// [`super::lemma_step_query`] registers a fresh [`FrameEntry`] at that paddr
 /// to keep `accounting_inv`'s `rc == H + P` chained. `None` covers
 /// three cases: query returned `Err` (out of range), query returned
 /// `Ok(_, None)` (cursor not at a leaf), or query returned a `Some`
@@ -709,7 +709,7 @@ pub(super) proof fn drop_cursor_step<'rcu>(tracked _entry: CursorEntry<'rcu>) {
 /// Per-op step for `Op::Query`. Mirrors
 /// [`cursor_query_embedded`]'s `Option<Paddr>` result: `Some(paddr)`
 /// when query returned a tracked `MappedItem` (and `rc` was bumped at
-/// the leaf), `None` otherwise. The store-level [`step_query`]
+/// the leaf), `None` otherwise. The store-level [`super::lemma_step_query`]
 /// (mod.rs) consumes that paddr to register a fresh `FrameEntry`,
 /// closing accounting.
 pub(super) proof fn cursor_query_step<'rcu>(

@@ -3,7 +3,7 @@
 //! Per-op steps operate on tracked owners directly — no store lookups,
 //! no preconditions on store membership, no `if`-guards. The store-side
 //! extract / insert and id-management lives in
-//! [`super::VmStore`]'s methods and the [`super::step`] dispatcher.
+//! [`super::VmStore`]'s methods and the [`super::lemma_step`] dispatcher.
 use vstd::prelude::*;
 use vstd_extra::ownership::*;
 
@@ -85,7 +85,7 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
 // =============================================================================
 /// Per-op step for `Op::NewVmSpace`. Produces a fresh tracked
 /// `VmSpaceOwner` from the regions; the caller (the dispatcher in
-/// [`super::step`]) is responsible for inserting it into the store
+/// [`super::lemma_step`]) is responsible for inserting it into the store
 /// under a fresh id.
 pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners) -> (tracked res:
     VmSpaceOwner)

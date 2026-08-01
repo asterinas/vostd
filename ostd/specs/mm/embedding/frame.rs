@@ -149,7 +149,7 @@ pub axiom fn frame_from_in_use_embedded(
             // from_in_use` for data frames; success implies the slot
             // is Frame-usage. This matches `VmStore::structural_inv`'s
             // FrameId⟹Frame-usage clause and lets [`from_in_use_step`]
-            // discharge `insert_frame`'s usage precondition.
+            // discharge `lemma_insert_frame`'s usage precondition.
             &&& so.usage is Frame
         },
         // `from_in_use` only `inc_ref_count`s — it never touches the
@@ -386,7 +386,7 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
             regions,
         ).slot_owners[frame_to_index(entry.paddr)].inner_perms.in_list,
         // Surface the rest of `frame_drop_embedded`'s ensures at the
-        // dropped slot — needed by `step_frame_drop` to discharge the
+        // dropped slot — needed by `lemma_step_frame_drop` to discharge the
         // accounting clause (Stage 5).
         final(regions).slot_owners[frame_to_index(entry.paddr)].usage == old(
             regions,

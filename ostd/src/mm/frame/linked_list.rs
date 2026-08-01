@@ -139,7 +139,7 @@ pub struct CursorMut<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> {
 }
 
 #[verifier::spinoff_prover]
-proof fn meta_region_inv_at(regions: MetaRegionOwners, i: int)
+proof fn lemma_meta_region_inv_at(regions: MetaRegionOwners, i: int)
     requires
         regions.inv(),
         regions.contains(i),
@@ -156,7 +156,7 @@ proof fn meta_region_inv_at(regions: MetaRegionOwners, i: int)
 /// into its own prover query, so the `MetaRegionOwners::inv` and map-insert
 /// quantifiers do not get over-instantiated inside `insert_before`'s body.
 #[verifier::spinoff_prover]
-proof fn insert_before_slot_distinct<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
+proof fn lemma_insert_before_slot_distinct<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
     owner0: LinkedListOwner<M>,
     regions0: MetaRegionOwners,
     frame_idx: int,
@@ -1188,21 +1188,24 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             assert(owner0.list_own.list.len() > 0 ==> owner0.list_own.list_id != 0) by {
                 reveal(LinkedListOwner::relate_region);
             };
-            meta_region_inv_at(regions0, frame_own.slot_index);
+            lemma_meta_region_inv_at(regions0, frame_own.slot_index);
             owner0.list_own.length_lt_usize_max(regions0);
             if nn > 0 {
                 assert(owner0.list_own.relate_region_at(regions0, nn - 1)) by {
                     reveal(LinkedListOwner::relate_region);
                 };
                 owner.list_own.relate_region_at_facts(*regions, nn - 1);
-                meta_region_inv_at(regions0, meta_to_index(owner0.list_own.list[nn - 1].paddr));
+                lemma_meta_region_inv_at(
+                    regions0,
+                    meta_to_index(owner0.list_own.list[nn - 1].paddr),
+                );
             }
             if nn < owner.list_own.list.len() {
                 assert(owner0.list_own.relate_region_at(regions0, nn)) by {
                     reveal(LinkedListOwner::relate_region);
                 };
                 owner.list_own.relate_region_at_facts(*regions, nn);
-                meta_region_inv_at(regions0, meta_to_index(owner0.list_own.list[nn].paddr));
+                lemma_meta_region_inv_at(regions0, meta_to_index(owner0.list_own.list[nn].paddr));
             }
             assert forall|p: int|
                 #![trigger
@@ -1210,7 +1213,12 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 0 <= p < owner0.list_own.list.len() implies frame_own.slot_index != meta_to_index(
                 owner0.list_own.list[p].paddr,
             ) by {
-                insert_before_slot_distinct(owner0.list_own, regions0, frame_own.slot_index, nn);
+                lemma_insert_before_slot_distinct(
+                    owner0.list_own,
+                    regions0,
+                    frame_own.slot_index,
+                    nn,
+                );
             }
         }
 
