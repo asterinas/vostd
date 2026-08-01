@@ -4000,6 +4000,7 @@ proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: Segme
 }
 
 #[verifier::spinoff_prover]
+#[verifier::rlimit(200)]
 proof fn lemma_step_segment_clone_range<'rcu>(
     tracked s: &mut VmStore<'rcu>,
     sid: SegmentId,

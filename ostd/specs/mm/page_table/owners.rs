@@ -1932,6 +1932,28 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         let f_path = Self::path_correct_pred();
         let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry);
 
+        assert(g(subtree.value(), path_j)) by {
+            assert(f_sound(subtree.value(), path_j));
+            assert(f_path(subtree.value(), path_j));
+            let entry = subtree.value();
+            if entry.meta_slot_paddr() is Some && entry.meta_slot_paddr()->0
+                == old_entry.meta_slot_paddr()->0 {
+                let idx = frame_to_index(entry.meta_slot_paddr()->0);
+                let old_idx = frame_to_index(old_entry.meta_slot_paddr()->0);
+                assert(idx == old_idx);
+                if entry.is_node() {
+                    assert(regions.slot_owners[idx].paths_in_pt == set![entry.path]);
+                    assert(regions.slot_owners[idx].paths_in_pt.contains(entry.path));
+                } else {
+                    assert(entry.is_frame());
+                    assert(regions.slot_owners[idx].paths_in_pt.contains(entry.path));
+                }
+                assert(set![old_entry.path].contains(entry.path));
+                assert(entry.path == old_entry.path);
+                assert(Self::is_prefix_of(path_j, old_entry.path));
+            }
+        };
+
         if subtree.level() < INC_LEVELS - 1 {
             assert forall|i: int|
                 0 <= i < subtree.children().len() && (
