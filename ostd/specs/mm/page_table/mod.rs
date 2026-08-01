@@ -12,11 +12,12 @@ pub use node::*;
 pub use owners::*;
 pub use view::*;
 
-use core::ops::{Range, RangeInclusive};
+use core::ops::Range;
 
 use align_ext::AlignExt;
 
 use vstd::prelude::*;
+use vstd::std_specs::range::RangeInclusiveView;
 
 use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
 use vstd_extra::{arithmetic::*, ghost_tree::TreePath, ownership::*, prelude::*};
@@ -52,26 +53,26 @@ pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
 /// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
 /// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
 #[verusfmt::skip]
-pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr> {
+pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Vaddr> {
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
     let lb = C::LEADING_BITS_spec() as int;
     let base = lb * 0x1_0000_0000_0000int;
     let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
     let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
-    start..=end
+    RangeInclusiveView { start, end, exhausted: false }
 }
 
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> bool {
     let va_range = vaddr_range_spec::<C>();
-    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end - 1 <= va_range@.end)
+    (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end - 1 <= va_range.end)
 }
 
 /// Sanity-check: for x86_64 user PT, the bounds are
 /// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
-        vaddr_range_spec::<UserPtConfig>()@.start == 0,
-        vaddr_range_spec::<UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
+        vaddr_range_spec::<UserPtConfig>().start == 0,
+        vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
 {
     assert(<UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0);
     lemma_arch_specific_consts_properties::<PagingConsts>();
@@ -81,8 +82,8 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
 /// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
 pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
-        vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
-        vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
+        vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
+        vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
 {
     lemma_arch_specific_consts_properties::<PagingConsts>();
 }

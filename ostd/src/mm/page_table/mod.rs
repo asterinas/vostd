@@ -777,8 +777,8 @@ fn apply_sign_ext<C: PageTableConfig>(va: Vaddr) -> (ret: Vaddr)
 /// exclusive end of a [`Range<Vaddr>`].
 #[verusfmt::skip]
 fn vaddr_range<C: PageTableConfig>() -> (ret: RangeInclusive<Vaddr>)
-    returns
-        vaddr_range_spec::<C>(),
+    ensures
+        ret@ == vaddr_range_spec::<C>(),
 {
     let mut start = pt_va_range_start::<C>();
     let mut end = pt_va_range_end::<C>();

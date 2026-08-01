@@ -224,8 +224,8 @@ impl<C: PageTableConfig> CursorView<C> {
         };
 
         assert forall|m2: Mapping| #[trigger] new_self.mappings.contains(m2) implies {
-            &&& vaddr_range_spec::<C>()@.start <= m2.va_range.start
-            &&& m2.va_range.end <= vaddr_range_spec::<C>()@.end + 1
+            &&& vaddr_range_spec::<C>().start <= m2.va_range.start
+            &&& m2.va_range.end <= vaddr_range_spec::<C>().end + 1
         } by {
             if v.mappings.contains(m2) && m2 != m {
             } else {

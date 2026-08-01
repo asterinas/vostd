@@ -680,7 +680,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // Locked range stays within the config's managed VA space. Established at
         // cursor construction (barrier_va == *va with is_valid_range_spec(va)) and
         // preserved by all cursor operations since they don't modify prefix/guard_level.
-        &&& self.locked_range().end <= vaddr_range_spec::<C>()@.end
+        &&& self.locked_range().end <= vaddr_range_spec::<C>().end
             + 1
         // Per-config tightening: e.g. `KernelPtConfig` overrides this to
         // `FRAME_METADATA_BASE_VADDR`, which the kvirt allocator enforces and
@@ -2343,8 +2343,8 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
         &&& forall|m: Mapping|
             #![auto]
             self.mappings.contains(m) ==> {
-                &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
+                &&& vaddr_range_spec::<C>().start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
             }
         &&& self.non_overlapping()
     }
@@ -2370,8 +2370,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
+                &&& vaddr_range_spec::<C>().start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
             },
 {
     C::lemma_paging_consts_properties();
@@ -2390,8 +2390,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     let end_pre = end_exclusive - 1;
 
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
+        &&& vaddr_range_spec::<C>().start <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
     } by {
         let i = choose|i: int|
             owner.level - 1 <= i < NR_LEVELS && (
@@ -2461,8 +2461,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<KernelPtConfig>()@.start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end + 1
+                &&& vaddr_range_spec::<KernelPtConfig>().start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>().end + 1
             },
 {
     lemma_vaddr_range_spec_kernel();
@@ -2470,8 +2470,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
     let end = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
     let lb = KernelPtConfig::LEADING_BITS_spec() as int;
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<KernelPtConfig>()@.start <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end + 1
+        &&& vaddr_range_spec::<KernelPtConfig>().start <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>().end + 1
     } by {
         let i = choose|i: int|
             owner.level - 1 <= i < NR_LEVELS && (
