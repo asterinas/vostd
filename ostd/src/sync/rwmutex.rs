@@ -45,10 +45,7 @@ tracked struct RwPerms<T> {
     read_retract_token: TokenResource<V_MAX_READ_RETRACT_FRACS>,
     upread_retract_token: Option<UniqueToken>,
     upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
-    read_guard_token: Sum<
-        CountResource<ReadPerm<T>, MAX_READER_U64>,
-        EmptyCount<ReadPerm<T>, MAX_READER_U64>,
-    >,
+    read_guard_token: CountResource<ReadPerm<T>, MAX_READER_U64>,
 }
 
 ghost struct RwId {
@@ -162,19 +159,19 @@ closed spec fn wf(self) -> bool {
 
         let active_writer: bool = g.core_token.is_right();
         let active_upgrade_guard: bool = !active_writer && g.upreader_guard_token is None;
-        let active_read_guards: int = if g.read_guard_token is Left {
-            MAX_READER_U64 - g.read_guard_token.left().frac()
-        } else {
+        let active_read_guards: int = if g.read_guard_token.is_resource_vacant() {
             0
+        } else {
+            MAX_READER_U64 - g.read_guard_token.frac()
         };
         let pending_failed_upread_attempt: bool = g.upread_retract_token is None;
         let failed_reader_attempts: int = V_MAX_READ_RETRACT_FRACS - g.read_retract_token.frac();
 
         &&& if g.core_token.is_left() {
-            g.read_guard_token is Left
+            !g.read_guard_token.is_resource_vacant()
         } else {
             &&& g.upreader_guard_token is None
-            &&& g.read_guard_token is Right
+            &&& g.read_guard_token.is_resource_vacant()
         }
         &&& has_upgrade_bit <==> (active_upgrade_guard || pending_failed_upread_attempt)
         &&& !(active_upgrade_guard && pending_failed_upread_attempt)
@@ -205,23 +202,16 @@ closed spec fn wf(self) -> bool {
             let token = g.upreader_guard_token->0;
             wf_upgradeable_guard_token(ghost_id@.core_token_id, ghost_id@.frac_id, val.id(), token)
         }
-        &&& match g.read_guard_token {
-            Sum::Left(token) => {
-                &&& token.wf()
-                &&& token.id() == ghost_id@.read_guard_token_id
-                &&& token.not_empty() ==> {
-                    let resource = token.resource();
-                    let read_half_cell_perm = resource.0;
-                    let mode_knowledge = resource.1;
-                    &&& mode_knowledge.id() == ghost_id@.core_token_id
-                    &&& read_half_cell_perm.id() == ghost_id@.frac_id
-                    &&& read_half_cell_perm.resource().id() == val.id()
-                    &&& read_half_cell_perm.frac() == 1
-                }
-            },
-            Sum::Right(empty) => {
-                &&& empty.id() == ghost_id@.read_guard_token_id
-            },
+        &&& g.read_guard_token.wf()
+        &&& g.read_guard_token.id() == ghost_id@.read_guard_token_id
+        &&& g.read_guard_token.not_empty() ==> {
+            let resource = g.read_guard_token.resource();
+            let read_half_cell_perm = resource.0;
+            let mode_knowledge = resource.1;
+            &&& mode_knowledge.id() == ghost_id@.core_token_id
+            &&& read_half_cell_perm.id() == ghost_id@.frac_id
+            &&& read_half_cell_perm.resource().id() == val.id()
+            &&& read_half_cell_perm.frac() == 1
         }
     }
 }
@@ -321,7 +311,7 @@ impl<T> RwMutex<T> {
             read_retract_token,
             upread_retract_token: Some(upread_retract_token),
             upreader_guard_token: Some(upreader_guard_token),
-            read_guard_token: Sum::Left(read_guard_token),
+            read_guard_token,
         };
 
         Self {
@@ -398,9 +388,7 @@ impl<T  /*: ?Sized*/ > RwMutex<T> {
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
-                    let tracked mut tmp = g.read_guard_token.tracked_take_left();
-                    read_token = Some(tmp.split_one());
-                    g.read_guard_token = Sum::Left(tmp);
+                    read_token = Some(g.read_guard_token.split_one());
                 } else {
                     retract_read_token = Some(g.read_retract_token.split_one());
                 }
@@ -451,9 +439,7 @@ impl<T  /*: ?Sized*/ > RwMutex<T> {
                 let prev_usize = prev as usize;
                 let next_usize = next as usize;
                 if res is Ok {
-                    let tracked read_guard_token = g.read_guard_token.tracked_take_left();
-                    let tracked (read_resource, read_empty) = read_guard_token.take_resource();
-                    g.read_guard_token = Sum::Right(read_empty);
+                    let tracked read_resource = g.read_guard_token.take_resource();
                     let tracked (read_half_cell_perm, left_token) = read_resource;
                     g.core_token.join_one_left_knowledge(left_token);
                     let tracked upreader_guard_token = g.upreader_guard_token.tracked_take();
@@ -657,9 +643,7 @@ impl<T  /* : ?Sized */ > RwMutexReadGuard<'_, T> {
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 g.core_token.validate_with_one_left_knowledge(&token.borrow().1);
-                let tracked mut tmp = g.read_guard_token.tracked_take_left();
-                tmp.combine(token);
-                g.read_guard_token = Sum::Left(tmp);
+                g.read_guard_token.combine(token);
             }
         )
             == READER {
@@ -755,12 +739,7 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
                     g.core_token.change_to_left(full);
                     upgrade_guard_token = Some(g.core_token.split_one_left_owner());
                     let tracked left_token = g.core_token.split_one_left_knowledge();
-                    let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
-                    let tracked read_guard_token = CountResource::alloc_from_empty(
-                        read_guard_empty,
-                        (read_half_cell_perm, left_token),
-                    );
-                    g.read_guard_token = Sum::Left(read_guard_token);
+                    g.read_guard_token.put_resource((read_half_cell_perm, left_token));
                 } else {
                     err_perm = Some(perm);
                     err_write_guard_token = Some(token);
@@ -835,12 +814,7 @@ impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
                 let tracked upreader_guard_token = g.core_token.split_one_left_owner();
                 g.upreader_guard_token = Some(upreader_guard_token);
                 let tracked left_token = g.core_token.split_one_left_knowledge();
-                let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
-                let tracked read_guard_token = CountResource::alloc_from_empty(
-                    read_guard_empty,
-                    (read_half_cell_perm, left_token),
-                );
-                g.read_guard_token = Sum::Left(read_guard_token);
+                g.read_guard_token.put_resource((read_half_cell_perm, left_token));
             }
         };
         // When the current writer releases, wake up all the sleeping threads.
@@ -965,9 +939,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
                         upread_guard_token.validate_with_one_left_owner(g.upreader_guard_token.tracked_borrow());
                     }
                     g.core_token.join_one_left_owner(upread_guard_token);
-                    let tracked read_guard_token = g.read_guard_token.tracked_take_left();
-                    let tracked (read_resource, read_empty) = read_guard_token.take_resource();
-                    g.read_guard_token = Sum::Right(read_empty);
+                    let tracked read_resource = g.read_guard_token.take_resource();
                     let tracked (read_half_cell_perm, left_token) = read_resource;
                     g.core_token.join_one_left_knowledge(left_token);
                     let tracked mut pointsto = g.core_token.take_resource_left();
