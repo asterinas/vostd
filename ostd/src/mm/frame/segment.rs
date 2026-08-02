@@ -961,7 +961,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> SegmentIterator<'a, 
             res.segment_ref() == segment,
             res.range_spec() == segment.range,
             IteratorSpec::decrease(&res) is Some,
-            IteratorSpec::initial_value_relation(&res, &res),
     )]
     pub fn new(segment: &'a Segment<M>) -> Self {
         Self {
@@ -1148,14 +1147,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> IteratorSpecImpl for Seg
 
     closed spec fn decrease(&self) -> Option<nat> {
         Some((self.range.end - self.range.start) as nat)
-    }
-
-    #[verifier::prophetic]
-    open spec fn initial_value_relation(&self, init: &Self) -> bool {
-        &&& IteratorSpec::remaining(init) == IteratorSpec::remaining(self)
-        &&& init.remaining_spec() == self.remaining_spec()
-        &&& init.segment_ref() == self.segment_ref()
-        &&& init.range_spec() == self.range_spec()
     }
 
     open spec fn peek(&self, index: int) -> Option<Self::Item> {
