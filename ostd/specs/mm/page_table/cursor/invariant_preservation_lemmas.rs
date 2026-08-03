@@ -169,8 +169,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
-            regions1.slot_owners[changed_idx].inner_perms
-                == regions0.slot_owners[changed_idx].inner_perms,
+            regions1.slot_owners[changed_idx].same_permissions(
+                regions0.slot_owners[changed_idx],
+            ),
             regions1.slot_owners[changed_idx].slot_vaddr
                 == regions0.slot_owners[changed_idx].slot_vaddr,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
@@ -403,8 +404,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
-            regions1.slot_owners[changed_idx].inner_perms
-                == regions0.slot_owners[changed_idx].inner_perms,
+            regions1.slot_owners[changed_idx].same_permissions(
+                regions0.slot_owners[changed_idx],
+            ),
             regions1.slot_owners[changed_idx].slot_vaddr
                 == regions0.slot_owners[changed_idx].slot_vaddr,
             regions1.slot_owners[changed_idx].usage == regions0.slot_owners[changed_idx].usage,
@@ -473,8 +475,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int|
                 #![trigger regions1.slot_owners[i]]
                 i != removed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
-            regions1.slot_owners[removed_idx].inner_perms
-                == regions0.slot_owners[removed_idx].inner_perms,
+            regions1.slot_owners[removed_idx].same_permissions(
+                regions0.slot_owners[removed_idx],
+            ),
             regions1.slot_owners[removed_idx].slot_vaddr
                 == regions0.slot_owners[removed_idx].slot_vaddr,
             regions1.slot_owners[removed_idx].usage == regions0.slot_owners[removed_idx].usage,

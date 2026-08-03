@@ -277,7 +277,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         let idx = meta_to_index(self.list[i].paddr);
         typed_meta_wf::<Link<M>>(
             *regions.slots[idx],
-            regions.slot_owners[idx].inner_perms.storage,
+            regions.slot_owners[idx].storage_perm(),
             self.repr_perms[i],
         )
     }
@@ -285,7 +285,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     pub open spec fn meta_value_at(self, regions: MetaRegionOwners, i: int) -> Link<M> {
         let idx = meta_to_index(self.list[i].paddr);
         typed_meta_value::<Link<M>>(
-            regions.slot_owners[idx].inner_perms.storage,
+            regions.slot_owners[idx].storage_perm(),
             self.repr_perms[i],
         )
     }
@@ -298,9 +298,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         let value = self.meta_value_at(regions, i);
         &&& regions.contains(idx)
         &&& regions.slots[idx].addr() == self.list[i].paddr
-        &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        &&& regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
         &&& regions.slot_owners[idx].usage is Frame
-        &&& regions.slot_owners[idx].inner_perms.in_list.value() == self.list_id
+        &&& regions.slot_owners[idx].in_list_perm.value() == self.list_id
         &&& self.meta_wf_at(regions, i)
         &&& regions.slots[idx].addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= regions.slots[idx].addr() < FRAME_METADATA_RANGE.start
@@ -395,9 +395,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 let value = self.meta_value_at(regions, i);
                 &&& regions.contains(idx)
                 &&& regions.slots[idx].addr() == self.list[i].paddr
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[idx].usage is Frame
-                &&& regions.slot_owners[idx].inner_perms.in_list.value() == self.list_id
+                &&& regions.slot_owners[idx].in_list_perm.value() == self.list_id
                 &&& self.meta_wf_at(regions, i)
                 &&& regions.slots[idx].addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= regions.slots[idx].addr()
@@ -432,9 +432,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 &&& regions.contains(idx)
                 &&& self.repr_perms.len() == self.list.len()
                 &&& regions.slots[idx].addr() == self.list[i].paddr
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
                 &&& regions.slot_owners[idx].usage is Frame
-                &&& regions.slot_owners[idx].inner_perms.in_list.value() == self.list_id
+                &&& regions.slot_owners[idx].in_list_perm.value() == self.list_id
                 &&& self.meta_wf_at(regions, i)
                 &&& regions.slots[idx].addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= regions.slots[idx].addr()
@@ -529,18 +529,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                         p - 1
                     };
                     let fp = typed_meta_value::<Link<M>>(
-                        fr.slot_owners[i].inner_perms.storage,
+                        fr.slot_owners[i].storage_perm(),
                         new.repr_perms[np],
                     );
                     &&& fr.contains(i)
                     &&& fr.slots[i].addr() == old.list[p].paddr
                     &&& fr.slots[i].pptr() == r0.slots[i].pptr()
-                    &&& fr.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                    &&& fr.slot_owners[i].ref_count() == REF_COUNT_UNIQUE
                     &&& fr.slot_owners[i].usage is Frame
-                    &&& fr.slot_owners[i].inner_perms.in_list.value() == new.list_id
+                    &&& fr.slot_owners[i].in_list_perm.value() == new.list_id
                     &&& typed_meta_wf::<Link<M>>(
                         *fr.slots[i],
-                        fr.slot_owners[i].inner_perms.storage,
+                        fr.slot_owners[i].storage_perm(),
                         new.repr_perms[np],
                     )
                     &&& fr.slots[i].addr() % META_SLOT_SIZE == 0
@@ -660,15 +660,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             p + 1
         };
         let fp = typed_meta_value::<Link<M>>(
-            fr.slot_owners[i].inner_perms.storage,
+            fr.slot_owners[i].storage_perm(),
             self.repr_perms[np],
         );
         &&& fr.contains(i)
         &&& fr.slots[i].addr() == old.list[p].paddr
         &&& fr.slots[i].pptr() == r0.slots[i].pptr()
-        &&& fr.slot_owners[i].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+        &&& fr.slot_owners[i].ref_count() == REF_COUNT_UNIQUE
         &&& fr.slot_owners[i].usage is Frame
-        &&& fr.slot_owners[i].inner_perms.in_list.value() == self.list_id
+        &&& fr.slot_owners[i].in_list_perm.value() == self.list_id
         &&& self.meta_wf_at(fr, np)
         &&& fr.slots[i].addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= fr.slots[i].addr() < FRAME_METADATA_RANGE.start
@@ -745,9 +745,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                 let fpn = new.meta_value_at(fr, n);
                 &&& fr.contains(ins)
                 &&& fr.slots[ins].addr() == link.paddr
-                &&& fr.slot_owners[ins].inner_perms.ref_count.value() == REF_COUNT_UNIQUE
+                &&& fr.slot_owners[ins].ref_count() == REF_COUNT_UNIQUE
                 &&& fr.slot_owners[ins].usage is Frame
-                &&& fr.slot_owners[ins].inner_perms.in_list.value() == new.list_id
+                &&& fr.slot_owners[ins].in_list_perm.value() == new.list_id
                 &&& new.meta_wf_at(fr, n)
                 &&& fr.slots[ins].addr() % META_SLOT_SIZE == 0
                 &&& FRAME_METADATA_RANGE.start <= fr.slots[ins].addr() < FRAME_METADATA_RANGE.start
@@ -1228,7 +1228,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> UniqueFrameOwner<Link<M>> {
         &&& self.meta_value(regions).prev is None
         &&& self.meta_value(regions).next is None
         &&& self.meta_own.paddr == regions.slots[self.slot_index].addr()
-        &&& regions.slot_owners[self.slot_index].inner_perms.in_list.value() == 0
+        &&& regions.slot_owners[self.slot_index].in_list_perm.value() == 0
     }
 }
 

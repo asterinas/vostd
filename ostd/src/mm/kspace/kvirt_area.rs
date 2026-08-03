@@ -351,7 +351,7 @@ impl KVirtArea {
         let idx = frame_to_index(pa);
         ||| !(self.range.start <= addr < self.range.end)
         ||| (v.present() && !is_mmio_paddr(pa)
-            && regions.slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX)
+            && regions.slot_owners[idx].ref_count() >= REF_COUNT_MAX)
     }
 
     pub fn start(&self) -> Vaddr
@@ -732,7 +732,7 @@ impl KVirtArea {
             pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
                 let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                 &&& regions.contains(idx)
-                &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                &&& regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
             }
     }
 
@@ -832,7 +832,7 @@ impl KVirtArea {
                     pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 implies {
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                     &&& regions.contains(idx)
-                    &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    &&& regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
                 } by {
                     let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                     assert(regions.contains(idx));
@@ -882,7 +882,7 @@ impl KVirtArea {
                         pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
                             let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                             &&& regions.contains(idx)
-                            &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                            &&& regions.slot_owners[idx].ref_count()
                                 != REF_COUNT_UNUSED
                         },
             {

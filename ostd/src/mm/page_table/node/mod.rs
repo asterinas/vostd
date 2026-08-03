@@ -509,7 +509,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(&slot_owner.inner_perms.storage),
+            Tracked(&slot_owner.metadata_perm.storage_perm),
             Tracked(&())
         )]
         let meta = self.meta();
@@ -546,7 +546,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 meta_to_frame(owner@.value().node().meta_vaddr())),
             owner@.value().metaregion_sound(*final(regions)),
             forall|i: int|
-                #[trigger] old(regions).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                #[trigger] old(regions).slot_owners[i].ref_count() != REF_COUNT_UNUSED
                 ==> i != meta_to_index(owner@.value().node().meta_vaddr()),
             owner@.value().match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value().node().meta_vaddr())), level as PagingLevel),
             final(parent_owner).meta_own == old(parent_owner).meta_own,
@@ -773,7 +773,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(&slot_owner.inner_perms.storage),
+            Tracked(&slot_owner.metadata_perm.storage_perm),
             Tracked(&())
         )]
         let meta = self.meta();
@@ -1120,12 +1120,10 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
                     paddr,
                 )
                 // Borrow-protocol transition: `raw_count` is dormant.
-                &&& so.inner_perms.ref_count.value() > 0
-                &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
-                &&& so.inner_perms.ref_count.value() == 1 ==> {
-                    &&& so.inner_perms.storage.is_init()
-                    &&& so.inner_perms.in_list.value() == 0
+                &&& 0 < so.ref_count() <= REF_COUNT_MAX
+                &&& so.ref_count() == 1 ==> {
+                    &&& so.storage_perm().is_init()
+                    &&& so.in_list_perm.value() == 0
                     &&& so.paths_in_pt.is_empty()
                 }
                 // Borrow-protocol redesign: in steady state between

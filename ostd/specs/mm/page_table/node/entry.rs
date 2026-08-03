@@ -108,7 +108,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             regions0.contains(frame_to_index(new_child.meta_slot_paddr()->0)),
             regions0.slot_owners[frame_to_index(
                 new_child.meta_slot_paddr()->0,
-            )].inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+            )].ref_count() == REF_COUNT_UNUSED,
             // Allocator-pool / MMIO disjointness: the freshly-allocated node's
             // paddr is non-MMIO. Rules out an MMIO-frame entry sitting at the
             // same idx as the new node (delivered by `PageTableNode::alloc`).
@@ -162,7 +162,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             &&& regions.contains(frame_to_index(new_owner.meta_slot_paddr()->0))
             &&& regions.slot_owners[frame_to_index(
                 new_owner.meta_slot_paddr()->0,
-            )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            )].ref_count() != REF_COUNT_UNUSED
         }
     }
 

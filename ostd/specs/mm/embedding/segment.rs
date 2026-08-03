@@ -90,7 +90,7 @@ pub axiom fn segment_from_unused_embedded(
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> old(regions).slot_owners[frame_to_index(paddr)]
-                        .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+                        .ref_count() == REF_COUNT_UNUSED,
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
@@ -108,10 +108,10 @@ pub axiom fn segment_from_unused_embedded(
                     let idx = frame_to_index(paddr);
                     let so = final(regions).slot_owners[idx];
                     &&& so.usage is Frame
-                    &&& so.inner_perms.ref_count.value() == 1
+                    &&& so.ref_count() == 1
                     &&& so.paths_in_pt.is_empty()
-                    &&& so.inner_perms.in_list.value() == 0
-                    &&& so.inner_perms.storage.is_init()
+                    &&& so.in_list_perm.value() == 0
+                    &&& so.storage_perm().is_init()
                 },
         // Slots OUTSIDE the range are fully preserved.
         res is Some ==> forall|i: int|
@@ -171,14 +171,14 @@ pub proof fn lemma_segment_drop_embedded(
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> {
                     let so = old(regions).slot_owners[frame_to_index(paddr)];
-                    &&& so.inner_perms.ref_count.value() >= 1
-                    &&& so.inner_perms.ref_count.value()
+                    &&& so.ref_count() >= 1
+                    &&& so.ref_count()
                             <= REF_COUNT_MAX
                     &&& so.usage is Frame
                     // At rc==1 (sole reference being dropped), no PTE
                     // points to this frame — required for the
                     // teardown's `drop_last_in_place_safety_cond`.
-                    &&& so.inner_perms.ref_count.value() == 1
+                    &&& so.ref_count() == 1
                         ==> so.paths_in_pt.is_empty()
                 },
     ensures
@@ -196,12 +196,12 @@ pub proof fn lemma_segment_drop_embedded(
                     &&& so_new.usage == so_old.usage
                     &&& so_new.paths_in_pt == so_old.paths_in_pt
                     &&& so_new.slot_vaddr == so_old.slot_vaddr
-                    &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
-                    &&& so_old.inner_perms.ref_count.value() == 1
-                        ==> so_new.inner_perms.ref_count.value() == REF_COUNT_UNUSED
-                    &&& so_old.inner_perms.ref_count.value() > 1
-                        ==> so_new.inner_perms.ref_count.value()
-                                == (so_old.inner_perms.ref_count.value() - 1) as u64
+                    &&& so_new.in_list_perm == so_old.in_list_perm
+                    &&& so_old.ref_count() == 1
+                        ==> so_new.ref_count() == REF_COUNT_UNUSED
+                    &&& so_old.ref_count() > 1
+                        ==> so_new.ref_count()
+                                == (so_old.ref_count() - 1) as u64
                 },
         // Slots OUTSIDE the range are fully preserved.
         forall|i: int|
@@ -259,9 +259,9 @@ pub proof fn segment_next_embedded(
         valid_frame_paddr(paddr),
         old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)]
-                .inner_perms.ref_count.value() >= 1,
+                .ref_count() >= 1,
         old(regions).slot_owners[frame_to_index(paddr)]
-                .inner_perms.ref_count.value()
+                .ref_count()
             <= REF_COUNT_MAX,
         old(regions).slot_owners[frame_to_index(paddr)].usage
             is Frame,
@@ -273,13 +273,13 @@ pub proof fn segment_next_embedded(
             let idx = frame_to_index(paddr);
             let so_old = old(regions).slot_owners[idx];
             let so_new = final(regions).slot_owners[idx];
-            &&& so_new.inner_perms.ref_count == so_old.inner_perms.ref_count
+            &&& so_new.ref_count_perm == so_old.ref_count_perm
             &&& so_new.usage == so_old.usage
             &&& so_new.slot_vaddr == so_old.slot_vaddr
             &&& so_new.paths_in_pt == so_old.paths_in_pt
-            &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
-            &&& so_new.inner_perms.storage == so_old.inner_perms.storage
-            &&& so_new.inner_perms.vtable_ptr == so_old.inner_perms.vtable_ptr
+            &&& so_new.in_list_perm == so_old.in_list_perm
+            &&& so_new.storage_perm() == so_old.storage_perm()
+            &&& so_new.vtable_ptr_perm() == so_old.vtable_ptr_perm()
         },
         // All other slots fully preserved.
         forall|i: int| #![trigger final(regions).slot_owners[i]]
@@ -311,7 +311,7 @@ pub(super) proof fn from_unused_step(
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> old(regions).slot_owners[frame_to_index(paddr)]
-                        .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+                        .ref_count() == REF_COUNT_UNUSED,
         forall|paddr: Paddr|
             #![trigger frame_to_index(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
@@ -327,7 +327,7 @@ pub(super) proof fn from_unused_step(
                     let idx = frame_to_index(paddr);
                     let so = final(regions).slot_owners[idx];
                     &&& so.usage is Frame
-                    &&& so.inner_perms.ref_count.value() == 1
+                    &&& so.ref_count() == 1
                     &&& so.paths_in_pt.is_empty()
                 },
         res is Some ==> forall|i: int|
@@ -371,11 +371,11 @@ pub(super) proof fn drop_step(
             (entry.range.start <= paddr < entry.range.end
                 && paddr % PAGE_SIZE == 0) ==> {
                 let so = old(regions).slot_owners[frame_to_index(paddr)];
-                &&& so.inner_perms.ref_count.value() >= 1
-                &&& so.inner_perms.ref_count.value()
+                &&& so.ref_count() >= 1
+                &&& so.ref_count()
                         <= REF_COUNT_MAX
                 &&& so.usage is Frame
-                &&& so.inner_perms.ref_count.value() == 1
+                &&& so.ref_count() == 1
                     ==> so.paths_in_pt.is_empty()
             },
     ensures
@@ -391,12 +391,12 @@ pub(super) proof fn drop_step(
                 &&& so_new.usage == so_old.usage
                 &&& so_new.paths_in_pt == so_old.paths_in_pt
                 &&& so_new.slot_vaddr == so_old.slot_vaddr
-                &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
-                &&& so_old.inner_perms.ref_count.value() == 1
-                    ==> so_new.inner_perms.ref_count.value() == REF_COUNT_UNUSED
-                &&& so_old.inner_perms.ref_count.value() > 1
-                    ==> so_new.inner_perms.ref_count.value()
-                            == (so_old.inner_perms.ref_count.value() - 1) as u64
+                &&& so_new.in_list_perm == so_old.in_list_perm
+                &&& so_old.ref_count() == 1
+                    ==> so_new.ref_count() == REF_COUNT_UNUSED
+                &&& so_old.ref_count() > 1
+                    ==> so_new.ref_count()
+                            == (so_old.ref_count() - 1) as u64
             },
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
@@ -434,8 +434,8 @@ pub axiom fn segment_clone_embedded(
                 ==> {
                     let so = old(regions).slot_owners[frame_to_index(paddr)];
                     &&& so.usage is Frame
-                    &&& so.inner_perms.ref_count.value() >= 1
-                    &&& so.inner_perms.ref_count.value() + 1 <= REF_COUNT_MAX
+                    &&& so.ref_count() >= 1
+                    &&& so.ref_count() + 1 <= REF_COUNT_MAX
                 },
     ensures
         final(regions).inv(),
@@ -448,14 +448,14 @@ pub axiom fn segment_clone_embedded(
                     let idx = frame_to_index(paddr);
                     let so_old = old(regions).slot_owners[idx];
                     let so_new = final(regions).slot_owners[idx];
-                    &&& so_new.inner_perms.ref_count.value()
-                            == (so_old.inner_perms.ref_count.value() + 1) as u64
+                    &&& so_new.ref_count()
+                            == (so_old.ref_count() + 1) as u64
                     &&& so_new.usage == so_old.usage
                     &&& so_new.slot_vaddr == so_old.slot_vaddr
                     &&& so_new.paths_in_pt == so_old.paths_in_pt
-                    &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
-                    &&& so_new.inner_perms.storage == so_old.inner_perms.storage
-                    &&& so_new.inner_perms.vtable_ptr == so_old.inner_perms.vtable_ptr
+                    &&& so_new.in_list_perm == so_old.in_list_perm
+                    &&& so_new.storage_perm() == so_old.storage_perm()
+                    &&& so_new.vtable_ptr_perm() == so_old.vtable_ptr_perm()
                 },
         // Slots OUTSIDE the range are fully preserved.
         forall|i: int|

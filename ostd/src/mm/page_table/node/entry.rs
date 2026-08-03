@@ -327,18 +327,18 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // ref_count is preserved per-slot. `into_pte_regions_spec` and
             // `from_pte_regions_spec` only ever rewrite `raw_count` (and the
             // ghost `paths_in_pt` is touched by the surrounding body, never
-            // `inner_perms`); both use the `..old_slot` struct-update form
-            // so `inner_perms.ref_count` is preserved across the rewrite.
+            // the permissions); both use the `..old_slot` struct-update form,
+            // so `ref_count` is preserved across the rewrite.
             forall|idx: int|
-                #![trigger final(regions).slot_owners[idx].inner_perms.ref_count.value()]
-                final(regions).slot_owners[idx].inner_perms.ref_count.value() == old(
+                #![trigger final(regions).slot_owners[idx].ref_count()]
+                final(regions).slot_owners[idx].ref_count() == old(
                     regions,
-                ).slot_owners[idx].inner_perms.ref_count.value(),
+                ).slot_owners[idx].ref_count(),
             forall|idx: int|
-                #![trigger final(regions).slot_owners[idx].inner_perms]
-                final(regions).slot_owners[idx].inner_perms == old(
-                    regions,
-                ).slot_owners[idx].inner_perms,
+                #![trigger final(regions).slot_owners[idx]]
+                final(regions).slot_owners[idx].same_permissions(
+                    old(regions).slot_owners[idx],
+                ),
             final(regions).slots == old(regions).slots,
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
@@ -401,7 +401,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             );
             #[verus_spec(with
                 Tracked(meta_points_to),
-                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&meta_slot_owner.metadata_perm.storage_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.node.nr_children_mut();
@@ -417,7 +417,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             );
             #[verus_spec(with
                 Tracked(meta_points_to),
-                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&meta_slot_owner.metadata_perm.storage_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.node.nr_children_mut();
@@ -572,10 +572,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ==> final(regions).slots[i] == old(regions).slots[i]
                 // The new PT node's ref_count is not UNUSED (was set to 1 by get_from_unused).
                 &&& final(regions).slot_owners[frame_to_index(final(owner).value().meta_slot_paddr()->0)]
-                    .inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    .ref_count() != REF_COUNT_UNUSED
                 // The allocated slot had ref_count == UNUSED before allocation (from get_from_unused).
                 &&& old(regions).slot_owners[frame_to_index(final(owner).value().meta_slot_paddr().unwrap())]
-                    .inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                    .ref_count() == REF_COUNT_UNUSED
                 // Allocator pool is disjoint from MMIO ranges (from `PageTableNode::alloc`).
                 &&& !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                     final(owner).value().meta_slot_paddr().unwrap())
@@ -672,7 +672,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             );
             #[verus_spec(with
                 Tracked(meta_points_to),
-                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&meta_slot_owner.metadata_perm.storage_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.node.nr_children_mut();
@@ -803,7 +803,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                             + j * PAGE_SIZE) as usize);
                     &&& old(regions).slots.contains_key(sub_idx)
                     &&& old(regions).slot_owners[sub_idx].usage !is MMIO ==>
-                        old(regions).slot_owners[sub_idx].inner_perms.ref_count.value()
+                        old(regions).slot_owners[sub_idx].ref_count()
                             != REF_COUNT_UNUSED
                 },
         ensures
@@ -858,10 +858,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     ==> (#[trigger] final(regions).slots.contains_key(i))
                 // The new PT node's ref_count is not UNUSED.
                 &&& final(regions).slot_owners[meta_to_index(final(owner).value().node().meta_vaddr())]
-                    .inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    .ref_count() != REF_COUNT_UNUSED
                 // The allocated slot had ref_count == UNUSED before allocation.
                 &&& old(regions).slot_owners[meta_to_index(final(owner).value().node().meta_vaddr())]
-                    .inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                    .ref_count() == REF_COUNT_UNUSED
             },
             // Parent's other PTEs are preserved: only the entry at self.idx
             // is overwritten (with the new PT pointer). Lets callers re-derive
@@ -976,10 +976,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     != crate::specs::mm::frame::meta_owners::PageUsage::PageTable
                 &&& regions.slot_owners[sub_idx].usage
                     != crate::specs::mm::frame::meta_owners::PageUsage::MMIO ==> {
-                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                    &&& regions.slot_owners[sub_idx].ref_count()
                         != REF_COUNT_UNUSED
-                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() <= REF_COUNT_MAX
+                    &&& regions.slot_owners[sub_idx].ref_count() > 0
+                    &&& regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX
                 }
             } by {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
@@ -1064,10 +1064,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].usage !is PageTable
                         &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                            &&& regions.slot_owners[sub_idx].ref_count()
                                 != REF_COUNT_UNUSED
-                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                            &&& regions.slot_owners[sub_idx].ref_count() > 0
+                            &&& regions.slot_owners[sub_idx].ref_count()
                                 <= REF_COUNT_MAX
                         }
                     },
@@ -1075,10 +1075,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 regions.slots.contains_key(frame_to_index(pa)),
                 regions.slot_owners[frame_to_index(pa)].usage !is PageTable,
                 regions.slot_owners[frame_to_index(pa)].usage !is MMIO ==> {
-                    &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                    &&& regions.slot_owners[frame_to_index(pa)].ref_count()
                         != REF_COUNT_UNUSED
-                    &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0
-                    &&& regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                    &&& regions.slot_owners[frame_to_index(pa)].ref_count() > 0
+                    &&& regions.slot_owners[frame_to_index(pa)].ref_count()
                         <= REF_COUNT_MAX
                 },
                 new_page.ptr.addr() == new_owner_meta_addr,
@@ -1089,10 +1089,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 // `into_pte`'s `Child::invariants` holds after the loop.
                 regions.slot_owners[meta_to_index(
                     new_owner_meta_addr,
-                )].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+                )].ref_count() != REF_COUNT_UNUSED,
                 0 < regions.slot_owners[meta_to_index(
                     new_owner_meta_addr,
-                )].inner_perms.ref_count.value() <= REF_COUNT_MAX,
+                )].ref_count() <= REF_COUNT_MAX,
                 regions.slot_owners[meta_to_index(new_owner_meta_addr)].paths_in_pt
                     == set![new_owner_path],
         {
@@ -1150,10 +1150,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                            &&& regions.slot_owners[sub_idx].ref_count()
                                 != REF_COUNT_UNUSED
-                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
-                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value()
+                            &&& regions.slot_owners[sub_idx].ref_count() > 0
+                            &&& regions.slot_owners[sub_idx].ref_count()
                                 <= REF_COUNT_MAX
                         }
                     } by {
@@ -1320,7 +1320,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 };
                 assert(new_owner.inv());
 
-                // `replace` of a frame child preserves every slot's `inner_perms`
+                // `replace` of a frame child preserves every slot's permissions
                 // (unconditional) and `paths_in_pt` (non-node child), so the new
                 // node's own-slot rc + paths_in_pt are unchanged — re-establish
                 // the loop invariant's node-slot clauses for the next iteration.
@@ -1541,7 +1541,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 &&& old(regions).slots.contains_key(frame_to_index(old(new_owner).meta_slot_paddr()->0))
                 &&& old(regions).slot_owners[frame_to_index(
                     old(new_owner).meta_slot_paddr()->0,
-                )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                )].ref_count() != REF_COUNT_UNUSED
             },
             old(parent_owner).metaregion_sound_node(*old(regions)),
             new_child matches Child::PageTable(node) ==> old(regions).frame_obligations.count(
@@ -1592,15 +1592,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             forall|k: int|
                 old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall|slot: int|
-                #![trigger final(regions).slot_owners[slot].inner_perms.ref_count.value()]
-                final(regions).slot_owners[slot].inner_perms.ref_count.value() == old(
+                #![trigger final(regions).slot_owners[slot].ref_count()]
+                final(regions).slot_owners[slot].ref_count() == old(
                     regions,
-                ).slot_owners[slot].inner_perms.ref_count.value(),
+                ).slot_owners[slot].ref_count(),
             forall|slot: int|
-                #![trigger final(regions).slot_owners[slot].inner_perms]
-                final(regions).slot_owners[slot].inner_perms == old(
-                    regions,
-                ).slot_owners[slot].inner_perms,
+                #![trigger final(regions).slot_owners[slot]]
+                final(regions).slot_owners[slot].same_permissions(
+                    old(regions).slot_owners[slot],
+                ),
             final(regions).slots == old(regions).slots,
             (!old(owner).is_node() && !final(new_owner).is_node()) ==> {
                 &&& final(regions).slots == old(regions).slots
@@ -1656,7 +1656,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             );
             #[verus_spec(with
                 Tracked(meta_points_to),
-                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&meta_slot_owner.metadata_perm.storage_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.nr_children_mut();
@@ -1672,7 +1672,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             );
             #[verus_spec(with
                 Tracked(meta_points_to),
-                Tracked(&meta_slot_owner.inner_perms.storage),
+                Tracked(&meta_slot_owner.metadata_perm.storage_perm),
                 Ghost(parent_owner.meta_own.nr_children.id())
             )]
             let nr_children = self.nr_children_mut();
@@ -1800,9 +1800,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                     && old(regions).slots.contains_key(i)
                 ==> final(regions).slots[i] == old(regions).slots[i],
             final(regions).slot_owners[frame_to_index(final(owner).value().meta_slot_paddr()->0)]
-                .inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+                .ref_count() != REF_COUNT_UNUSED,
             old(regions).slot_owners[frame_to_index(final(owner).value().meta_slot_paddr().unwrap())]
-                .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+                .ref_count() == REF_COUNT_UNUSED,
             !crate::specs::mm::frame::meta_owners::is_mmio_paddr(
                 final(owner).value().meta_slot_paddr().unwrap()),
             final(regions).inv(),
@@ -1909,7 +1909,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(parent_owner.slot_index);
         #[verus_spec(with
             Tracked(meta_points_to),
-            Tracked(&meta_slot_owner.inner_perms.storage),
+            Tracked(&meta_slot_owner.metadata_perm.storage_perm),
             Ghost(parent_owner.meta_own.nr_children.id())
         )]
         let nr_children = self.nr_children_mut();
@@ -2045,7 +2045,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(parent_owner.slot_index);
         #[verus_spec(with
             Tracked(meta_points_to),
-            Tracked(&meta_slot_owner.inner_perms.storage),
+            Tracked(&meta_slot_owner.metadata_perm.storage_perm),
             Ghost(parent_owner.meta_own.nr_children.id())
         )]
         let nr_children = self.nr_children_mut();

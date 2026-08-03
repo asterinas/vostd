@@ -416,11 +416,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
             points_to.is_init(),
             points_to.value().wf(*slot_own),
         returns
-            slot_own.inner_perms.ref_count.value(),
+            slot_own.ref_count(),
     )]
     pub fn reference_count(&self) -> u64 {
         let refcnt = (#[verus_spec(with Tracked(points_to))]
-        self.slot()).ref_count.load(Tracked(&slot_own.inner_perms.ref_count));
+        self.slot()).ref_count.load(Tracked(&slot_own.ref_count_perm));
         refcnt
     }
 
@@ -485,7 +485,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         requires
             self.inv(),
             old(regions).inv(),
-            old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            old(regions).slot_owners[self.index()].ref_count() != REF_COUNT_UNUSED,
             old(regions).slot_owners[self.index()].usage !is PageTable,
             old(regions).frame_obligations.count(self.index()) > 0,
         ensures
@@ -571,7 +571,7 @@ impl<M> Frame<M> {
             // down). The `unsafe` keyword still gates whether the produced
             // Frame corresponds to a real prior `into_raw`; this condition
             // only ensures the slot isn't a dead/unused one.
-            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+            old(regions).slot_owners[frame_to_index(paddr)].ref_count()
                 != REF_COUNT_UNUSED,
         ensures
             Self::from_raw_ensures(*old(regions), *final(regions), paddr, r),
@@ -608,11 +608,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         let idx = self.index();
         &&& self.inv()
         &&& perm.inv()
-        &&& perm.slot_owners[idx].inner_perms.ref_count.value() > 0
-        &&& perm.slot_owners[idx].inner_perms.ref_count.value()
+        &&& perm.slot_owners[idx].ref_count() > 0
+        &&& perm.slot_owners[idx].ref_count()
             != REF_COUNT_UNUSED
         // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-        &&& perm.slot_owners[idx].inner_perms.ref_count.value() >= REF_COUNT_MAX ==> may_panic()
+        &&& perm.slot_owners[idx].ref_count() >= REF_COUNT_MAX ==> may_panic()
         &&& valid_frame_paddr(self.paddr())
     }
 
@@ -625,17 +625,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         let idx = self.index();
         &&& new_perm.inv()
         // ref_count incremented
-        &&& new_perm.slot_owners[idx].inner_perms.ref_count.value()
-            == old_perm.slot_owners[idx].inner_perms.ref_count.value() + 1
-        &&& new_perm.slot_owners[idx].inner_perms.ref_count.id()
-            == old_perm.slot_owners[idx].inner_perms.ref_count.id()
+        &&& new_perm.slot_owners[idx].ref_count()
+            == old_perm.slot_owners[idx].ref_count() + 1
+        &&& new_perm.slot_owners[idx].ref_count_perm.id()
+            == old_perm.slot_owners[idx].ref_count_perm.id()
         // All other fields at idx unchanged
-        &&& new_perm.slot_owners[idx].inner_perms.storage
-            == old_perm.slot_owners[idx].inner_perms.storage
-        &&& new_perm.slot_owners[idx].inner_perms.vtable_ptr
-            == old_perm.slot_owners[idx].inner_perms.vtable_ptr
-        &&& new_perm.slot_owners[idx].inner_perms.in_list
-            == old_perm.slot_owners[idx].inner_perms.in_list
+        &&& new_perm.slot_owners[idx].storage_perm()
+            == old_perm.slot_owners[idx].storage_perm()
+        &&& new_perm.slot_owners[idx].vtable_ptr_perm()
+            == old_perm.slot_owners[idx].vtable_ptr_perm()
+        &&& new_perm.slot_owners[idx].in_list_perm
+            == old_perm.slot_owners[idx].in_list_perm
         &&& new_perm.slot_owners[idx].paths_in_pt == old_perm.slot_owners[idx].paths_in_pt
         &&& new_perm.slot_owners[idx].slot_vaddr == old_perm.slot_owners[idx].slot_vaddr
         &&& new_perm.slot_owners[idx].usage
@@ -695,7 +695,7 @@ impl<M: ?Sized> Drop for Frame<M> {
         let ghost so0 = slot_own;
 
         let last_ref_cnt = slot.ref_count.fetch_sub(
-            Tracked(&mut slot_own.inner_perms.ref_count),
+            Tracked(&mut slot_own.ref_count_perm),
             1,
         );
 
@@ -846,28 +846,28 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
         // The caller holds a reference, so rc > 0, and the slot must be live
         // (not the UNUSED sentinel). Saturation is caught at runtime by
         // `inc_ref_count`'s Arc-style abort.
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() > 0,
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
             != REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
             >= REF_COUNT_MAX ==> may_panic(),
     ensures
         final(regions).inv(),
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
+        final(regions).slot_owners[frame_to_index(paddr)].ref_count() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id() == old(
+        ).slot_owners[frame_to_index(paddr)].ref_count() + 1,
+        final(regions).slot_owners[frame_to_index(paddr)].ref_count_perm.id() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id(),
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage == old(
+        ).slot_owners[frame_to_index(paddr)].ref_count_perm.id(),
+        final(regions).slot_owners[frame_to_index(paddr)].storage_perm() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.storage,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr == old(
+        ).slot_owners[frame_to_index(paddr)].storage_perm(),
+        final(regions).slot_owners[frame_to_index(paddr)].vtable_ptr_perm() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.vtable_ptr,
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list == old(
+        ).slot_owners[frame_to_index(paddr)].vtable_ptr_perm(),
+        final(regions).slot_owners[frame_to_index(paddr)].in_list_perm == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.in_list,
+        ).slot_owners[frame_to_index(paddr)].in_list_perm,
         final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].paths_in_pt,
@@ -890,7 +890,6 @@ impl TryFrom<Frame<dyn AnyFrameMeta>> for UFrame {
 pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
     let tracked perm = regions.slots.tracked_borrow(frame_to_index(paddr));
-    let tracked inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
     let vaddr: Vaddr = frame_to_meta(paddr);
     // SAFETY: `vaddr` points to a valid `MetaSlot` that will never be mutably borrowed, so taking
@@ -898,7 +897,7 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     let slot = PPtr::<MetaSlot>::from_addr(vaddr);
 
     unsafe {
-        #[verus_spec(with Tracked(&mut inner_perms.ref_count))]
+        #[verus_spec(with Tracked(&mut slot_own.ref_count_perm))]
         slot.borrow(Tracked(perm)).inc_ref_count()
     };
 
@@ -906,14 +905,14 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
         let idx = frame_to_index(paddr);
 
         // inc_ref_count preserves permission id
-        assert(inner_perms.ref_count.id() == old(
+        assert(slot_own.ref_count_perm.id() == old(
             regions,
-        ).slot_owners[idx].inner_perms.ref_count.id());
+        ).slot_owners[idx].ref_count_perm.id());
 
         // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, slot_vaddr ok
         assert(slot_own.inv());
 
-        // wf: the slot's cell ids still match the (updated) inner_perms ids
+        // wf: the slot's cell ids still match the updated owner permissions.
         assert(regions.slots[idx].value().wf(slot_own));
 
         regions.slot_owners.tracked_insert(idx, slot_own);

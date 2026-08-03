@@ -133,7 +133,7 @@ impl MetaRegionOwners {
         recommends
             0 <= i < max_meta_slots(),
     {
-        self.slot_owners[i].inner_perms.ref_count.value()
+        self.slot_owners[i].ref_count()
     }
 
     /// `other` agrees with `self` on every slot owner except the one at index

@@ -106,7 +106,7 @@ pub axiom fn frame_from_unused_embedded(
 ;
 
 /// Mirror of [`crate::mm::frame::Frame::from_in_use`]. On `Some`,
-/// `inner_perms.ref_count` increments by 1 at `frame_to_index(paddr)`
+/// `ref_count` increments by 1 at `frame_to_index(paddr)`
 /// and all other slots are preserved.
 pub axiom fn frame_from_in_use_embedded(
     tracked regions: &mut MetaRegionOwners,
@@ -142,9 +142,9 @@ pub axiom fn frame_from_in_use_embedded(
         // `vtable_ptr.is_init()` for SHARED slots, not `storage`.
         res is Some ==> {
             let so = final(regions).slot_owners[frame_to_index(paddr)];
-            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
-            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
-            &&& so.inner_perms.storage.is_init()
+            &&& so.ref_count() != REF_COUNT_UNUSED
+            &&& so.ref_count() != REF_COUNT_UNIQUE
+            &&& so.storage_perm().is_init()
             // Op::FrameFromInUse models `Frame::<dyn AnyFrameMeta>::
             // from_in_use` for data frames; success implies the slot
             // is Frame-usage. This matches `VmStore::structural_inv`'s
@@ -187,14 +187,14 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
     requires
         old(regions).inv(),
         old(regions).contains(frame_to_index(paddr)),
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() > 0,
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
             != REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count()
             <= REF_COUNT_MAX,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == 1 ==> {
-            &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage.is_init()
-            &&& old(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list.value()
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1 ==> {
+            &&& old(regions).slot_owners[frame_to_index(paddr)].storage_perm().is_init()
+            &&& old(regions).slot_owners[frame_to_index(paddr)].in_list_perm.value()
                 == 0
             // Mirrors the FUTURE-plan strengthening of exec
             // `Frame::drop_requires`: at `rc == 1` the dropped handle is
@@ -232,37 +232,37 @@ pub axiom fn frame_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: 
         // is empty — same epistemic status as the `metaregion_sound`-
         // preserves clause (sound to assert, reflecting real exec; not
         // derivable from the incomplete `drop_pre` predicate alone).
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == 1
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1
             ==> final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
         // `drop` never touches the free-list `in_list` field (the
         // decrement branch leaves it; `drop_last_in_place` preserves
         // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list == old(
+        final(regions).slot_owners[frame_to_index(paddr)].in_list_perm == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.in_list,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == 1
+        ).slot_owners[frame_to_index(paddr)].in_list_perm,
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1
             ==> final(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),
         // `drop` never touches the free-list `in_list` field (the
         // decrement branch leaves it; `drop_last_in_place` preserves
         // it). Needed for `VmStore::inv`'s `in_list` coverage (#4).
-        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list == old(
+        final(regions).slot_owners[frame_to_index(paddr)].in_list_perm == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.in_list,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == 1
-            ==> final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
+        ).slot_owners[frame_to_index(paddr)].in_list_perm,
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() == 1
+            ==> final(regions).slot_owners[frame_to_index(paddr)].ref_count()
             == REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 1
-            ==> final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == (
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() - 1) as u64,
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() > 1
+            ==> final(regions).slot_owners[frame_to_index(paddr)].ref_count() == (
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() - 1) as u64,
         // Storage preservation in the decrement branch (rc>1): the
         // exec `fetch_sub` only touches `ref_count`; only the rc==1
         // teardown branch invokes `drop_last_in_place` (which uninits
         // storage). Needed so the embedding accounting clause's
         // `storage.is_init` carries across non-teardown drops.
-        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 1
-            ==> final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage == old(
+        old(regions).slot_owners[frame_to_index(paddr)].ref_count() > 1
+            ==> final(regions).slot_owners[frame_to_index(paddr)].storage_perm() == old(
             regions,
-        ).slot_owners[frame_to_index(paddr)].inner_perms.storage,
+        ).slot_owners[frame_to_index(paddr)].storage_perm(),
         // ---- embedding inv chaining ----
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]
@@ -328,9 +328,9 @@ pub(super) proof fn from_in_use_step(
         // [`frame_from_in_use_embedded`].
         res is Some ==> {
             let so = final(regions).slot_owners[frame_to_index(paddr)];
-            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
-            &&& so.inner_perms.ref_count.value() != REF_COUNT_UNIQUE
-            &&& so.inner_perms.storage.is_init()
+            &&& so.ref_count() != REF_COUNT_UNUSED
+            &&& so.ref_count() != REF_COUNT_UNIQUE
+            &&& so.storage_perm().is_init()
             &&& so.usage is Frame
         },
         final(regions).slots == old(regions).slots,
@@ -353,12 +353,12 @@ pub(super) proof fn from_in_use_step(
 pub open spec fn drop_pre(regions: MetaRegionOwners, paddr: Paddr) -> bool {
     let so = regions.slot_owners[frame_to_index(paddr)];
     &&& regions.contains(frame_to_index(paddr))
-    &&& so.inner_perms.ref_count.value() > 0
-    &&& so.inner_perms.ref_count.value() != REF_COUNT_UNUSED
-    &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
-    &&& so.inner_perms.ref_count.value() == 1 ==> {
-        &&& so.inner_perms.storage.is_init()
-        &&& so.inner_perms.in_list.value() == 0
+    &&& so.ref_count() > 0
+    &&& so.ref_count() != REF_COUNT_UNUSED
+    &&& so.ref_count() <= REF_COUNT_MAX
+    &&& so.ref_count() == 1 ==> {
+        &&& so.storage_perm().is_init()
+        &&& so.in_list_perm.value() == 0
         &&& so.paths_in_pt.is_empty()
     }
 }
@@ -382,9 +382,9 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
         // `in_list` preserved at the dropped slot too — `drop` touches
         // only `ref_count` (+ storage on teardown). Keeps `VmStore::inv`'s
         // `in_list` coverage (#4).
-        final(regions).slot_owners[frame_to_index(entry.paddr)].inner_perms.in_list == old(
+        final(regions).slot_owners[frame_to_index(entry.paddr)].in_list_perm == old(
             regions,
-        ).slot_owners[frame_to_index(entry.paddr)].inner_perms.in_list,
+        ).slot_owners[frame_to_index(entry.paddr)].in_list_perm,
         // Surface the rest of `frame_drop_embedded`'s ensures at the
         // dropped slot — needed by `lemma_step_frame_drop` to discharge the
         // accounting clause (Stage 5).
@@ -396,24 +396,24 @@ pub(super) proof fn drop_step(tracked regions: &mut MetaRegionOwners, tracked en
         ).slot_owners[frame_to_index(entry.paddr)].paths_in_pt,
         // `ref_count == 1` ⟹ no mappings ⟹ empty `paths_in_pt` at the
         // torn-down slot — see [`frame_drop_embedded`].
-        old(regions).slot_owners[frame_to_index(entry.paddr)].inner_perms.ref_count.value() == 1
+        old(regions).slot_owners[frame_to_index(entry.paddr)].ref_count() == 1
             ==> final(regions).slot_owners[frame_to_index(entry.paddr)].paths_in_pt.is_empty(),
         // rc transition (mirrors `frame_drop_embedded` exactly).
-        old(regions).slot_owners[frame_to_index(entry.paddr)].inner_perms.ref_count.value() == 1
+        old(regions).slot_owners[frame_to_index(entry.paddr)].ref_count() == 1
             ==> final(regions).slot_owners[frame_to_index(
             entry.paddr,
-        )].inner_perms.ref_count.value() == REF_COUNT_UNUSED,
-        old(regions).slot_owners[frame_to_index(entry.paddr)].inner_perms.ref_count.value() > 1
+        )].ref_count() == REF_COUNT_UNUSED,
+        old(regions).slot_owners[frame_to_index(entry.paddr)].ref_count() > 1
             ==> final(regions).slot_owners[frame_to_index(
             entry.paddr,
-        )].inner_perms.ref_count.value() == (old(regions).slot_owners[frame_to_index(
+        )].ref_count() == (old(regions).slot_owners[frame_to_index(
             entry.paddr,
-        )].inner_perms.ref_count.value() - 1) as u64,
+        )].ref_count() - 1) as u64,
         // Storage preservation in the decrement branch (rc>1).
-        old(regions).slot_owners[frame_to_index(entry.paddr)].inner_perms.ref_count.value() > 1
-            ==> final(regions).slot_owners[frame_to_index(entry.paddr)].inner_perms.storage == old(
+        old(regions).slot_owners[frame_to_index(entry.paddr)].ref_count() > 1
+            ==> final(regions).slot_owners[frame_to_index(entry.paddr)].storage_perm() == old(
             regions,
-        ).slot_owners[frame_to_index(entry.paddr)].inner_perms.storage,
+        ).slot_owners[frame_to_index(entry.paddr)].storage_perm(),
         forall|c: CursorOwner<'_, UserPtConfig>|
             #![auto]
             c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),

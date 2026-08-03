@@ -156,7 +156,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             self.wf(owner),
             owner.inv(),
             owner.global_inv(*old(regions)),
-            old(regions).slot_owners[self.index()].inner_perms.in_list.value() == 0,
+            old(regions).slot_owners[self.index()].in_list_perm.value() == 0,
             old(regions).inv(),
             <M1 as OwnerOf>::wf(metadata, meta_own_in),
         ensures
@@ -193,19 +193,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             slot.drop_meta_in_place()
         };
 
-        let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
+        let tracked mut metadata_perms = slot_own.tracked_borrow_mut_metadata_perms();
 
         proof {
-            assert(inner_perms.storage.id() == perm_ref.value().storage.id());
+            assert(metadata_perms.storage_perm.id() == perm_ref.value().storage.id());
         }
 
         let slot = self.ptr.borrow(Tracked(perm_ref));
 
         unsafe {
             #[verus_spec(with
-                Tracked(&mut inner_perms.storage),
+                Tracked(&mut metadata_perms.storage_perm),
                 Tracked(&mut repr_perm),
-                Tracked(&mut inner_perms.vtable_ptr)
+                Tracked(&mut metadata_perms.vtable_ptr_perm)
             )]
             slot.write_meta(metadata)
         };
@@ -253,7 +253,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         borrow_meta(
             ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
             Tracked(points_to),
-            Tracked(&slot_owner.inner_perms.storage),
+            Tracked(&slot_owner.metadata_perm.storage_perm),
             Tracked(owner.tracked_borrow_repr_perm()),
         )
     }
@@ -297,10 +297,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
                 == old(regions).slot_owners[old(owner).slot_index].slot_vaddr,
             final(regions).slot_owners[final(owner).slot_index].usage
                 == old(regions).slot_owners[old(owner).slot_index].usage,
-            final(regions).slot_owners[final(owner).slot_index].inner_perms.ref_count
-                == old(regions).slot_owners[old(owner).slot_index].inner_perms.ref_count,
-            final(regions).slot_owners[final(owner).slot_index].inner_perms.in_list
-                == old(regions).slot_owners[old(owner).slot_index].inner_perms.in_list,
+            final(regions).slot_owners[final(owner).slot_index].ref_count_perm
+                == old(regions).slot_owners[old(owner).slot_index].ref_count_perm,
+            final(regions).slot_owners[final(owner).slot_index].in_list_perm
+                == old(regions).slot_owners[old(owner).slot_index].in_list_perm,
             final(regions).slot_owners[final(owner).slot_index].paths_in_pt
                 == old(regions).slot_owners[old(owner).slot_index].paths_in_pt,
             final(regions).frame_obligations == old(regions).frame_obligations,
@@ -421,7 +421,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
         #[verus_spec(with Tracked(perm_ref))]
         let slot = self.slot();
-        slot.ref_count.store(Tracked(&mut slot_own.inner_perms.ref_count), 0);
+        slot.ref_count.store(Tracked(&mut slot_own.ref_count_perm), 0);
 
         // SAFETY: We are the sole owner and the reference count is 0.
         // The slot is initialized.
@@ -464,7 +464,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             self.wf(*owner),
             owner.inv(),
             old(regions).inv(),
-            old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            old(regions).slot_owners[self.index()].ref_count() != REF_COUNT_UNUSED,
         ensures
             Self::into_raw_ensures(self, *old(regions), *final(regions), r),
             final(regions).inv(),
@@ -500,7 +500,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             valid_frame_paddr(paddr),
             old(regions).inv(),
             old(regions).contains(frame_to_index(paddr)),
-            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
+            old(regions).slot_owners[frame_to_index(paddr)].ref_count() == REF_COUNT_UNIQUE,
         ensures
             res.0.ptr.addr() == frame_to_meta(paddr),
             res.0.wf(res.1@),
@@ -591,8 +591,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             // `rc == REF_COUNT_UNIQUE`) gives the storage/vtable init.
             assert(regions.slot_owners.contains_key(idx));
             assert(regions.slot_owners[idx].slot_vaddr == index_to_meta(idx));
-            assert(regions.slot_owners[idx].inner_perms.storage.is_init());
-            assert(regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
+            assert(regions.slot_owners[idx].storage_perm().is_init());
+            assert(regions.slot_owners[idx].vtable_ptr_perm().is_init());
 
             // Running `Drop` discharges the value's pending-Drop obligation.
             let tracked redeem_tok = vstd_extra::drop_tracking::DropObligation::tracked_mint(idx);
@@ -650,11 +650,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         }
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);
-        let tracked mut inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         #[verus_spec(with Tracked(&slot_perm))]
         let slot = unique.slot();
-        slot.ref_count.store(Tracked(&mut inner_perms.ref_count), 1);
+        slot.ref_count.store(Tracked(&mut slot_own.ref_count_perm), 1);
 
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);
@@ -690,12 +689,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
         let tracked mut slot_own = regions.slot_owners.tracked_borrow_mut(idx);
         let tracked slot_perm = regions.slots.tracked_borrow(idx);
-        let tracked inner_perms = slot_own.tracked_borrow_mut_inner_perms();
 
         #[verus_spec(with Tracked(&slot_perm))]
         let slot = frame.slot();
         let res = slot.ref_count.compare_exchange(
-            Tracked(&mut inner_perms.ref_count),
+            Tracked(&mut slot_own.ref_count_perm),
             1,
             REF_COUNT_UNIQUE,
         );

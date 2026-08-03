@@ -106,8 +106,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         &&& self.wf(owner)
         &&& owner.inv()
         &&& s.inv()
-        &&& so.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-        &&& so.inner_perms.in_list.value() == 0
+        &&& so.ref_count() == REF_COUNT_UNIQUE
+        &&& so.in_list_perm.value() == 0
         &&& so.paths_in_pt.is_empty()
     }
 }
@@ -116,14 +116,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<M>(
             *regions.slots[self.slot_index],
-            regions.slot_owners[self.slot_index].inner_perms.storage,
+            regions.slot_owners[self.slot_index].storage_perm(),
             self.repr_perm->0,
         )
     }
 
     pub open spec fn meta_value(self, regions: MetaRegionOwners) -> M {
         typed_meta_value::<M>(
-            regions.slot_owners[self.slot_index].inner_perms.storage,
+            regions.slot_owners[self.slot_index].storage_perm(),
             self.repr_perm->0,
         )
     }
@@ -148,7 +148,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slots[self.slot_index].addr() == index_to_meta(self.slot_index)
         &&& self.meta_value(regions).wf(self.meta_own)
         &&& regions.slot_owners[self.slot_index].slot_vaddr == index_to_meta(self.slot_index)
-        &&& regions.slot_owners[self.slot_index].inner_perms.ref_count.value()
+        &&& regions.slot_owners[self.slot_index].ref_count()
             == REF_COUNT_UNIQUE
         // Data-frame node-repark discriminator (our change): a unique frame's
         // slot is tracked with `Frame` usage, distinguishing it from page-table
@@ -216,7 +216,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         &&& s.contains(self.index())
-        &&& s.slot_owners[meta_to_index(self.ptr.addr())].inner_perms.ref_count.value()
+        &&& s.slot_owners[meta_to_index(self.ptr.addr())].ref_count()
             != REF_COUNT_UNUSED
         &&& s.inv()
     }
@@ -227,7 +227,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         s1: Self::State,
         obl: Self::Obligation,
     ) -> bool {
-        &&& s1.slot_owners[self.index()].inner_perms == s0.slot_owners[self.index()].inner_perms
+        &&& s1.slot_owners[self.index()].same_permissions(s0.slot_owners[self.index()])
         &&& s1.slot_owners[self.index()].slot_vaddr == s0.slot_owners[self.index()].slot_vaddr
         &&& s1.slot_owners[self.index()].usage == s0.slot_owners[self.index()].usage
         &&& s1.slot_owners[self.index()].paths_in_pt == s0.slot_owners[self.index()].paths_in_pt

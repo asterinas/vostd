@@ -392,11 +392,11 @@ impl MetaSlot {
                 &&& final(regions).inv()
                 &&& Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions))
                 &&& <M as Repr<MetaSlotStorage>>::wf(
-                    final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage.value(),
+                    final(regions).slot_owners[frame_to_index(paddr)].storage_perm().value(),
                     *final(repr_perm),
                 )
                 &&& M::from_repr_spec(
-                    final(regions).slot_owners[frame_to_index(paddr)].inner_perms.storage.value(),
+                    final(regions).slot_owners[frame_to_index(paddr)].storage_perm().value(),
                     *final(repr_perm),
                 ) == metadata
             },
@@ -431,7 +431,7 @@ impl MetaSlot {
         // `Acquire` pairs with the `Release` in `drop_last_in_place` and ensures the metadata
         // initialization won't be reordered before this memory compare-and-exchange.
         let last_ref_cnt = slot.ref_count.compare_exchange(
-            Tracked(&mut slot_own.inner_perms.ref_count),
+            Tracked(&mut slot_own.ref_count_perm),
             REF_COUNT_UNUSED,
             0,
         ).map_err(
@@ -448,8 +448,8 @@ impl MetaSlot {
                 // CAS failure leaves `ref_count` unchanged (value + id), so the
                 // re-parked slot is exactly the original — region state intact.
                 vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
-                    regions.slot_owners[idx].inner_perms.ref_count,
-                    old(regions).slot_owners[idx].inner_perms.ref_count,
+                    regions.slot_owners[idx].ref_count_perm,
+                    old(regions).slot_owners[idx].ref_count_perm,
                 );
             }
 
@@ -460,9 +460,9 @@ impl MetaSlot {
 
         unsafe {
             #[verus_spec(with
-                Tracked(&mut slot_own.inner_perms.storage),
+                Tracked(&mut slot_own.metadata_perm.storage_perm),
                 Tracked(repr_perm),
-                Tracked(&mut slot_own.inner_perms.vtable_ptr)
+                Tracked(&mut slot_own.metadata_perm.vtable_ptr_perm)
             )]
             slot.write_meta(metadata)
         };
@@ -470,11 +470,11 @@ impl MetaSlot {
         if as_unique_ptr {
             // No one can create a `Frame` instance directly from the page
             // address, so `Relaxed` is fine here.
-            slot.ref_count.store(Tracked(&mut slot_own.inner_perms.ref_count), REF_COUNT_UNIQUE);
+            slot.ref_count.store(Tracked(&mut slot_own.ref_count_perm), REF_COUNT_UNIQUE);
         } else {
             // `Release` is used to ensure that the metadata initialization
             // won't be reordered after this memory store.
-            slot.ref_count.store(Tracked(&mut slot_own.inner_perms.ref_count), 1);
+            slot.ref_count.store(Tracked(&mut slot_own.ref_count_perm), 1);
         }
 
         proof {
@@ -535,14 +535,14 @@ impl MetaSlot {
         {
             proof {
                 vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
-                    regions.slot_owners[idx].inner_perms.ref_count,
-                    old(regions).slot_owners[idx].inner_perms.ref_count,
+                    regions.slot_owners[idx].ref_count_perm,
+                    old(regions).slot_owners[idx].ref_count_perm,
                 );
             }
 
             let tracked slot_own = regions.slot_owners.tracked_borrow_mut(idx);
 
-            match slot.ref_count.load(Tracked(&mut slot_own.inner_perms.ref_count)) {
+            match slot.ref_count.load(Tracked(&mut slot_own.ref_count_perm)) {
                 REF_COUNT_UNUSED => return Err(GetFrameError::Unused),
                 REF_COUNT_UNIQUE => return Err(GetFrameError::Unique),
                 0 => return Err(GetFrameError::Busy),
@@ -558,7 +558,7 @@ impl MetaSlot {
                     // It ensures that the written metadata will be visible to us.
 
                     if slot.ref_count.compare_exchange_weak(
-                        Tracked(&mut slot_own.inner_perms.ref_count),
+                        Tracked(&mut slot_own.ref_count_perm),
                         last_ref_cnt,
                         last_ref_cnt + 1,
                     ).is_ok() {
@@ -566,8 +566,8 @@ impl MetaSlot {
                     }
                     proof {
                         vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
-                            slot_own.inner_perms.ref_count,
-                            old(regions).slot_owners[idx].inner_perms.ref_count,
+                            slot_own.ref_count_perm,
+                            old(regions).slot_owners[idx].ref_count_perm,
                         );
                     }
 
@@ -764,17 +764,17 @@ impl MetaSlot {
             Tracked(owner): Tracked<&mut MetaSlotOwner>,
         requires
             old(owner).inv(),
-            self.ref_count.id() == old(owner).inner_perms.ref_count.id(),
+            self.ref_count.id() == old(owner).ref_count_perm.id(),
             Self::drop_last_in_place_safety_cond(*old(owner)),
         ensures
             final(owner).inv(),
-            final(owner).inner_perms.ref_count.value() == REF_COUNT_UNUSED,
-            final(owner).inner_perms.ref_count.id() == old(owner).inner_perms.ref_count.id(),
-            final(owner).inner_perms.storage.id() == old(owner).inner_perms.storage.id(),
-            final(owner).inner_perms.storage.is_uninit(),
-            final(owner).inner_perms.vtable_ptr.is_uninit(),
-            final(owner).inner_perms.vtable_ptr.pptr() == old(owner).inner_perms.vtable_ptr.pptr(),
-            final(owner).inner_perms.in_list == old(owner).inner_perms.in_list,
+            final(owner).ref_count() == REF_COUNT_UNUSED,
+            final(owner).ref_count_perm.id() == old(owner).ref_count_perm.id(),
+            final(owner).storage_perm().id() == old(owner).storage_perm().id(),
+            final(owner).storage_perm().is_uninit(),
+            final(owner).vtable_ptr_perm().is_uninit(),
+            final(owner).vtable_ptr_perm().pptr() == old(owner).vtable_ptr_perm().pptr(),
+            final(owner).in_list_perm == old(owner).in_list_perm,
             final(owner).slot_vaddr == old(owner).slot_vaddr,
             final(owner).usage == old(owner).usage,
             final(owner).paths_in_pt == old(owner).paths_in_pt,
@@ -790,7 +790,7 @@ impl MetaSlot {
 
         // `Release` pairs with the `Acquire` in `Frame::from_unused` and ensures
         // `drop_meta_in_place` won't be reordered after this memory store.
-        self.ref_count.store(Tracked(&mut owner.inner_perms.ref_count), REF_COUNT_UNUSED);
+        self.ref_count.store(Tracked(&mut owner.ref_count_perm), REF_COUNT_UNUSED);
     }
 
     /// Drops the metadata of a slot in place.
@@ -815,16 +815,16 @@ impl MetaSlot {
         with
             Tracked(slot_own): Tracked<&mut MetaSlotOwner>,
         requires
-            old(slot_own).inner_perms.ref_count.value() == 0 || old(slot_own).inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
-            old(slot_own).inner_perms.storage.is_init(),
-            old(slot_own).inner_perms.in_list.value() == 0,
+            old(slot_own).ref_count() == 0 || old(slot_own).ref_count() == REF_COUNT_UNIQUE,
+            old(slot_own).storage_perm().is_init(),
+            old(slot_own).in_list_perm.value() == 0,
         ensures
-            final(slot_own).inner_perms.ref_count == old(slot_own).inner_perms.ref_count,
-            final(slot_own).inner_perms.storage.is_uninit(),
-            final(slot_own).inner_perms.storage.id() == old(slot_own).inner_perms.storage.id(),
-            final(slot_own).inner_perms.in_list == old(slot_own).inner_perms.in_list,
-            final(slot_own).inner_perms.vtable_ptr.is_uninit(),
-            final(slot_own).inner_perms.vtable_ptr.pptr() == old(slot_own).inner_perms.vtable_ptr.pptr(),
+            final(slot_own).ref_count_perm == old(slot_own).ref_count_perm,
+            final(slot_own).storage_perm().is_uninit(),
+            final(slot_own).storage_perm().id() == old(slot_own).storage_perm().id(),
+            final(slot_own).in_list_perm == old(slot_own).in_list_perm,
+            final(slot_own).vtable_ptr_perm().is_uninit(),
+            final(slot_own).vtable_ptr_perm().pptr() == old(slot_own).vtable_ptr_perm().pptr(),
             final(slot_own).slot_vaddr == old(slot_own).slot_vaddr,
             final(slot_own).usage == old(slot_own).usage,
             final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
