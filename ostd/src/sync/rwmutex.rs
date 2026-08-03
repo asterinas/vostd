@@ -288,7 +288,7 @@ impl<T> RwMutex<T> {
         proof {
             lemma_consts_properties();
         }
-        let tracked mut frac_perm = Count::<PointsTo<T>>::new(perm);
+        let tracked mut frac_perm = Count::<PointsTo<T>>::alloc(perm);
         let tracked read_half_cell_perm = frac_perm.split(1int);
         let ghost frac_id = frac_perm.id();
         let tracked mut core_token = SumResource::alloc_left(frac_perm);
@@ -618,7 +618,9 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexReadGuard<'_, T> {
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
-        self.inner.val.borrow(Tracked(self.tracked_token.borrow().borrow().0.borrow()))
+        self.inner.val.borrow(
+            Tracked(self.tracked_token.borrow().tracked_borrow().0.tracked_borrow()),
+        )
     }
 }
 
@@ -642,7 +644,7 @@ impl<T  /* : ?Sized */ > RwMutexReadGuard<'_, T> {
                 assume(no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
-                g.core_token.validate_with_one_left_knowledge(&token.borrow().1);
+                g.core_token.validate_with_one_left_knowledge(&token.tracked_borrow().1);
                 g.read_guard_token.combine(token);
             }
         )
@@ -1032,7 +1034,9 @@ impl<T  /*: ?Sized*/ > Deref for RwMutexUpgradeableGuard<'_, T> {
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
-        self.inner.val.borrow(Tracked(self.tracked_token.borrow().tracked_borrow().borrow()))
+        self.inner.val.borrow(
+            Tracked(self.tracked_token.borrow().tracked_borrow().tracked_borrow()),
+        )
     }
 }
 
