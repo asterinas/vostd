@@ -3126,6 +3126,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::spinoff_prover]
     #[verifier::rlimit(200)]
     pub unsafe fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
+        hide(MetaSlotOwner::storage_perm);
+        hide(MetaSlotOwner::vtable_ptr_perm);
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
@@ -3224,6 +3226,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             );
 
             assert(new_owner.value().metaregion_sound(*regions)) by {
+                reveal(MetaSlotOwner::storage_perm);
+                reveal(MetaSlotOwner::vtable_ptr_perm);
                 broadcast use crate::specs::mm::frame::meta_owners::axiom_mmio_usage_iff_mmio_paddr;
 
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
@@ -3261,6 +3265,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     &&& regions.slots[i].value().wf(regions.slot_owners[i])
                     &&& regions.slot_owners[i].slot_vaddr == regions.slots[i].addr()
                 } by {
+                    reveal(MetaSlotOwner::storage_perm);
+                    reveal(MetaSlotOwner::vtable_ptr_perm);
                     assert(regions_before_new_child.slots.contains_key(i));
                     if i == pa_idx_install {
                         assert(regions_before_new_child.slot_owners[pa_idx_install].inv());
