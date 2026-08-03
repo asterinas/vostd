@@ -1184,29 +1184,17 @@ type Result<T> = core::result::Result<T, Error>;
 pub trait VmIo<P: Sized>: Send + Sync + Sized {
     spec fn obeys_vmio_spec() -> bool;
 
-    open spec fn obeys_vmio_read_requires() -> bool
-        recommends
-            Self::obeys_vmio_spec(),
-    {
+    open spec fn obeys_vmio_read_requires() -> bool {
         false
     }
 
-    open spec fn obeys_vmio_write_requires() -> bool
-        recommends
-            Self::obeys_vmio_spec(),
-    {
+    open spec fn obeys_vmio_write_requires() -> bool {
         false
     }
 
-    spec fn obeys_vmio_read_spec() -> bool
-        recommends
-            Self::obeys_vmio_spec(),
-    ;
+    spec fn obeys_vmio_read_spec() -> bool;
 
-    spec fn obeys_vmio_write_spec() -> bool
-        recommends
-            Self::obeys_vmio_spec(),
-    ;
+    spec fn obeys_vmio_write_spec() -> bool;
 
     open spec fn read_requires(
         self,

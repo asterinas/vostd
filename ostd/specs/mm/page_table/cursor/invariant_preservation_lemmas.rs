@@ -118,7 +118,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             regions.inv(),
             self.metaregion_sound(regions),
-            regions.slots.contains_key(changed_idx),
+            regions.contains(changed_idx),
             regions.slot_owners[changed_idx].usage !is PageTable,
         ensures
             self.no_node_at_idx(changed_idx),
@@ -163,7 +163,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.metaregion_sound(regions0),
             regions0.inv(),
-            regions0.slot_owners.contains_key(changed_idx),
+            regions0.contains(changed_idx),
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
             forall|i: int|
@@ -397,7 +397,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.metaregion_sound(regions0),
             regions0.inv(),
-            regions0.slot_owners.contains_key(changed_idx),
+            regions0.contains(changed_idx),
             regions1.slots == regions0.slots,
             regions1.slot_owners.dom() =~= regions0.slot_owners.dom(),
             forall|i: int|
@@ -461,8 +461,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             owner_before_replace.in_locked_range(),
             self.metaregion_sound(regions0),
             regions0.inv(),
-            regions0.slot_owners.contains_key(removed_idx),
-            regions0.slots.contains_key(removed_idx),
+            regions0.contains(removed_idx),
             regions0.slot_owners[removed_idx].usage !is PageTable,
             self@.mappings == owner_before_replace@.mappings - PageTableOwner(
                 owner_before_replace.cur_subtree(),

@@ -10,7 +10,7 @@ use crate::specs::{
     arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS},
     mm::{
         frame::{
-            mapping::{frame_to_index, index_to_meta, max_meta_slots},
+            mapping::{index_to_meta, max_meta_slots, meta_to_index},
             meta_owners::*,
             meta_region_owners::MetaRegionOwners,
         },
@@ -248,7 +248,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
             - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) < MAX_PADDR
         &&& meta_to_frame(index_to_meta(self.slot_index)) == self.children_perm.addr()
-        &&& self.slot_index == frame_to_index(meta_to_frame(index_to_meta(self.slot_index)))
+        &&& self.slot_index == meta_to_index(index_to_meta(self.slot_index))
     }
 }
 
@@ -260,16 +260,13 @@ impl<C: PageTableConfig> NodeOwner<C> {
 
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<PageTablePageMeta<C>>(
-            regions.slots[self.slot_index],
+            *regions.slots[self.slot_index],
             regions.slot_owners[self.slot_index].inner_perms.storage,
             (),
         )
     }
 
-    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C>
-        recommends
-            self.meta_wf(regions),
-    {
+    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C> {
         typed_meta_value::<PageTablePageMeta<C>>(
             regions.slot_owners[self.slot_index].inner_perms.storage,
             (),
@@ -281,8 +278,7 @@ impl<C: PageTableConfig> NodeOwner<C> {
     /// the NodeOwner and the slot perm parked in regions.
     pub open spec fn metaregion_sound_node(self, regions: MetaRegionOwners) -> bool {
         let idx = self.slot_index;
-        &&& regions.slots.contains_key(idx)
-        &&& regions.slot_owners.contains_key(idx)
+        &&& regions.contains(idx)
         &&& self.meta_wf(regions)
         &&& self.meta_value(regions).wf(self.meta_own)
         &&& self.level == self.meta_value(regions).level

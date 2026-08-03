@@ -218,11 +218,7 @@ pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
 pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     repr_perm: M::ReprPerm,
-) -> M
-    recommends
-        storage.is_init(),
-        M::wf(storage.value(), repr_perm),
-{
+) -> M {
     M::from_repr_spec(storage.value(), repr_perm)
 }
 

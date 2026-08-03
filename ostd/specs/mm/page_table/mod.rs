@@ -12,11 +12,12 @@ pub use node::*;
 pub use owners::*;
 pub use view::*;
 
-use core::ops::{Range, RangeInclusive};
+use core::ops::Range;
 
 use align_ext::AlignExt;
 
 use vstd::prelude::*;
+use vstd::std_specs::range::RangeInclusiveView;
 
 use vstd::arithmetic::power2::{lemma_pow2_adds, lemma2_to64, lemma2_to64_rest, pow2};
 use vstd_extra::{arithmetic::*, ghost_tree::TreePath, ownership::*, prelude::*};
@@ -52,26 +53,26 @@ pub open spec fn top_level_index_width_spec<C: PageTableConfig>() -> usize {
 /// for `KernelPtConfig` `(LEADING_BITS=0xffff, idx=256..512)` this is
 /// `(0xffff_8000_0000_0000, 0xffff_ffff_ffff_ffff)`.
 #[verusfmt::skip]
-pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusive<Vaddr> {
+pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> RangeInclusiveView<Vaddr> {
     let off = pte_index_bit_offset_spec::<C>(C::NR_LEVELS()) as nat;
     let lb = C::LEADING_BITS_spec() as int;
     let base = lb * 0x1_0000_0000_0000int;
     let start = (base + (C::TOP_LEVEL_INDEX_RANGE().start) * pow2(off)) as usize;
     let end = (base + (C::TOP_LEVEL_INDEX_RANGE().end) * pow2(off) - 1) as usize;
-    start..=end
+    RangeInclusiveView { start, end, exhausted: false }
 }
 
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: Range<Vaddr>) -> bool {
     let va_range = vaddr_range_spec::<C>();
-    (r.start == 0 && r.end == 0) || (va_range@.start <= r.start && r.end - 1 <= va_range@.end)
+    (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end - 1 <= va_range.end)
 }
 
 /// Sanity-check: for x86_64 user PT, the bounds are
 /// `(0, 0x0000_7FFF_FFFF_FFFF)`, i.e. the low-half 47-bit user VA space.
 pub(crate) proof fn lemma_vaddr_range_spec_user()
     ensures
-        vaddr_range_spec::<UserPtConfig>()@.start == 0,
-        vaddr_range_spec::<UserPtConfig>()@.end == 0x0000_7FFF_FFFF_FFFF,
+        vaddr_range_spec::<UserPtConfig>().start == 0,
+        vaddr_range_spec::<UserPtConfig>().end == 0x0000_7FFF_FFFF_FFFF,
 {
     assert(<UserPtConfig as PageTableConfig>::LEADING_BITS_spec() == 0);
     lemma_arch_specific_consts_properties::<PagingConsts>();
@@ -81,8 +82,8 @@ pub(crate) proof fn lemma_vaddr_range_spec_user()
 /// upper half `(0xFFFF_8000_0000_0000, 0xFFFF_FFFF_FFFF_FFFF)`.
 pub(crate) proof fn lemma_vaddr_range_spec_kernel()
     ensures
-        vaddr_range_spec::<KernelPtConfig>()@.start == 0xFFFF_8000_0000_0000,
-        vaddr_range_spec::<KernelPtConfig>()@.end == 0xFFFF_FFFF_FFFF_FFFF,
+        vaddr_range_spec::<KernelPtConfig>().start == 0xFFFF_8000_0000_0000,
+        vaddr_range_spec::<KernelPtConfig>().end == 0xFFFF_FFFF_FFFF_FFFF,
 {
     lemma_arch_specific_consts_properties::<PagingConsts>();
 }
@@ -369,6 +370,53 @@ impl AbstractVaddr {
         }
     }
 
+    proof fn lemma_zero_offset_preserves_inv(self)
+        requires
+            self.inv(),
+        ensures
+            (AbstractVaddr { offset: 0, ..self }).inv(),
+    {
+        let new = AbstractVaddr { offset: 0, ..self };
+        assert(new.index == self.index);
+        assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
+            &&& new.index.contains_key(i)
+            &&& 0 <= new.index[i] < NR_ENTRIES
+        } by {
+            assert(self.index.contains_key(i));
+        }
+    }
+
+    /// Updating one valid page-table index with an in-range value preserves the VA invariant.
+    pub proof fn lemma_insert_preserves_inv(self, index: int, value: int)
+        requires
+            self.inv(),
+            0 <= index < NR_LEVELS,
+            0 <= value < NR_ENTRIES,
+        ensures
+            (AbstractVaddr { index: self.index.insert(index, value), ..self }).inv(),
+    {
+        let new = AbstractVaddr { index: self.index.insert(index, value), ..self };
+        assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
+        assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
+            &&& new.index.contains_key(i)
+            &&& 0 <= new.index[i] < NR_ENTRIES
+        } by {
+            if i != index {
+                assert(self.index.contains_key(i));
+            }
+        }
+    }
+
+    proof fn lemma_insert_zero_preserves_inv(self, index: int)
+        requires
+            self.inv(),
+            0 <= index < NR_LEVELS,
+        ensures
+            (AbstractVaddr { index: self.index.insert(index, 0), ..self }).inv(),
+    {
+        self.lemma_insert_preserves_inv(index, 0);
+    }
+
     pub proof fn align_down_inv(self, level: int)
         requires
             1 <= level <= NR_LEVELS,
@@ -382,21 +430,12 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
-            assert(self.align_down(1).index == self.index);
+            self.lemma_zero_offset_preserves_inv();
+
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_inv(level - 1);
-            let new = self.align_down(level);
-            assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
-            assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
-                &&& new.index.contains_key(i)
-                &&& 0 <= new.index[i]
-                &&& new.index[i] < NR_ENTRIES
-            } by {
-                if i != level - 2 {
-                    assert(tmp.index.contains_key(i));
-                }
-            }
+            tmp.lemma_insert_zero_preserves_inv(level - 2);
         }
     }
 
@@ -425,20 +464,19 @@ impl AbstractVaddr {
                     == self.index[i],
         decreases level,
     {
+        self.align_down_inv(level);
         if level == 1 {
-            assert(self.align_down(1).index == self.index);
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_shape(level - 1);
             let new = self.align_down(level);
-            assert(new.index.dom() == Set::<int>::range(0, NR_LEVELS as int));
+
             assert forall|i: int| #![trigger new.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
                 &&& new.index.contains_key(i)
                 &&& 0 <= new.index[i]
                 &&& new.index[i] < NR_ENTRIES
             } by {
                 if i != level - 2 {
-                    assert(tmp.index.contains_key(i));
                 }
             }
         }
@@ -1486,6 +1524,7 @@ impl AbstractVaddr {
         if next_index == NR_ENTRIES {
             if level < NR_LEVELS {
                 let next_va = Self { index: self.index.insert(level - 1, 0), ..self };
+                self.lemma_insert_zero_preserves_inv(level - 1);
                 next_va.next_index_wrap_condition(level + 1);
                 self.wrapped_after_carry_equiv(level, level + 1);
                 next_va.next_index_preserves_lower_indices(level + 1, level);
@@ -1563,7 +1602,7 @@ impl AbstractVaddr {
     /// positional (ignoring `leading_bits`); add `leading_bits * 2^48`
     /// manually to obtain the canonical form — see `to_path_vaddr_concrete`
     /// for the canonical statement.
-    #[verifier::rlimit(400)]
+    #[verifier::rlimit(200)]
     pub proof fn to_path_vaddr(self, level: int)
         requires
             self.inv(),

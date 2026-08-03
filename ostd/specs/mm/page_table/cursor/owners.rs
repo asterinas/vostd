@@ -680,7 +680,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // Locked range stays within the config's managed VA space. Established at
         // cursor construction (barrier_va == *va with is_valid_range_spec(va)) and
         // preserved by all cursor operations since they don't modify prefix/guard_level.
-        &&& self.locked_range().end <= vaddr_range_spec::<C>()@.end
+        &&& self.locked_range().end <= vaddr_range_spec::<C>().end
             + 1
         // Per-config tightening: e.g. `KernelPtConfig` overrides this to
         // `FRAME_METADATA_BASE_VADDR`, which the kvirt allocator enforces and
@@ -941,6 +941,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
+    /// Incrementing a nonterminal cursor index preserves the abstract-VA invariant.
+    pub proof fn lemma_inc_index_va_inv(self)
+        requires
+            self.inv(),
+            self.index() + 1 < NR_ENTRIES,
+        ensures
+            self.inc_index().va.inv(),
+    {
+        let new_index = self.continuations[self.level - 1].inc_index().idx as int;
+        self.va.lemma_insert_preserves_inv(self.level - 1, new_index);
+    }
+
     #[verifier::spinoff_prover]
     pub proof fn do_inc_index(tracked &mut self)
         requires
@@ -954,6 +966,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             final(self).inv(),
             *final(self) == old(self).inc_index(),
     {
+        old(self).lemma_inc_index_va_inv();
         self.popped_too_high = false;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         cont.do_inc_index();
@@ -1423,7 +1436,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// When the cursor is in the locked range, va.index[guard_level - 1]
     /// matches prefix.index[guard_level - 1]. This is because both va and
     /// prefix are within the same page_size(guard_level)-aligned block.
-    #[verifier::rlimit(2000)]
+    #[verifier::rlimit(200)]
     pub proof fn in_locked_range_guard_index_eq_prefix(self)
         requires
             self.inv(),
@@ -1690,7 +1703,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// The node at `level+1` containing `va` fits within the locked range.
-    #[verifier::rlimit(20000)]
+    #[verifier::rlimit(200)]
     pub proof fn node_within_locked_range(self, level: PagingLevel)
         requires
             self.inv(),
@@ -2330,8 +2343,8 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
         &&& forall|m: Mapping|
             #![auto]
             self.mappings.contains(m) ==> {
-                &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
+                &&& vaddr_range_spec::<C>().start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
             }
         &&& self.non_overlapping()
     }
@@ -2357,8 +2370,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
+                &&& vaddr_range_spec::<C>().start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
             },
 {
     C::lemma_paging_consts_properties();
@@ -2377,8 +2390,8 @@ pub proof fn lemma_view_in_vaddr_range<'rcu, C: PageTableConfig>(owner: &CursorO
     let end_pre = end_exclusive - 1;
 
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<C>()@.start <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<C>()@.end + 1
+        &&& vaddr_range_spec::<C>().start <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<C>().end + 1
     } by {
         let i = choose|i: int|
             owner.level - 1 <= i < NR_LEVELS && (
@@ -2448,8 +2461,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
         forall|m: Mapping|
             #![auto]
             owner.view_mappings().contains(m) ==> {
-                &&& vaddr_range_spec::<KernelPtConfig>()@.start <= m.va_range.start
-                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end + 1
+                &&& vaddr_range_spec::<KernelPtConfig>().start <= m.va_range.start
+                &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>().end + 1
             },
 {
     lemma_vaddr_range_spec_kernel();
@@ -2457,8 +2470,8 @@ pub proof fn lemma_view_in_vaddr_range_kernel<'rcu>(owner: CursorOwner<'rcu, Ker
     let end = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end as int;
     let lb = KernelPtConfig::LEADING_BITS_spec() as int;
     assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies {
-        &&& vaddr_range_spec::<KernelPtConfig>()@.start <= m.va_range.start
-        &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>()@.end + 1
+        &&& vaddr_range_spec::<KernelPtConfig>().start <= m.va_range.start
+        &&& m.va_range.end <= vaddr_range_spec::<KernelPtConfig>().end + 1
     } by {
         let i = choose|i: int|
             owner.level - 1 <= i < NR_LEVELS && (

@@ -4,7 +4,7 @@
 //! the [`MetaRegionOwners`] plus a registry of every owner object the
 //! caller currently has access to.
 //!
-//! [`Op`] is an ADT enumerating the public exec API. [`step`] is the
+//! [`Op`] is an ADT enumerating the public exec API. [`lemma_step`] is the
 //! single proof-mode dispatcher; it requires `s.inv()` *and* the
 //! per-op precondition [`op_pre`] (which says the ids referenced in
 //! `op` resolve to existing entries with the right cross-store
@@ -52,7 +52,7 @@
 //!      `in_list == 0`, `rc == 1 ⟹ paths empty`) plus the
 //!      `rc == 1 ⟹ handle_count == 1` clause from `s.inv()` + the
 //!      `FrameEntry`'s registration + the segment-cover hypothesis.
-//!      `op_pre[FrameDrop]` and `step_frame_drop` shrink to
+//!      `op_pre[FrameDrop]` and `lemma_step_frame_drop` shrink to
 //!      id-existence + segment-cover only.
 //!    - **Exec layer**: [`crate::mm::frame::Frame::wf_with_region`]
 //!      packages the per-handle cross-object validity (slot/pointer
@@ -104,7 +104,7 @@
 //!     axiom now returns `Option<Paddr>`: `Some(paddr)` when query
 //!     resolved a tracked leaf and `clone_item` bumped `rc` at that
 //!     slot; `None` otherwise (out-of-range / no leaf / MMIO leaf).
-//!     [`step_query`] consumes the paddr to register a fresh
+//!     [`lemma_step_query`] consumes the paddr to register a fresh
 //!     `FrameEntry` so `H` at the cloned slot grows in lockstep with
 //!     `rc`, keeping `accounting_inv`'s `rc == H + P` chained.
 //!
@@ -118,7 +118,7 @@
 //!    `rc==0` to `REF_COUNT_UNUSED` atomically); MMIO slots are
 //!    untouched (preserving the `MetaSlotOwner::inv` MMIO exception
 //!    that allows non-empty `paths_in_pt` at UNUSED).
-//!    [`step_unmap`] discharges accounting via case-splits on
+//!    [`lemma_step_unmap`] discharges accounting via case-splits on
 //!    Frame / non-Frame / MMIO.
 //!
 //! 5. **Shape-B segments** — base + split landed; the rest is
@@ -427,7 +427,7 @@ pub proof fn lemma_handle_count_remove(frames: Map<FrameId, FrameEntry>, fid: Fr
 ///     (`segment_cover_count == 0`).
 ///
 /// Replaces the residual `drop_pre` baggage on `op_pre[FrameDrop]` /
-/// `step_frame_drop` with a single tracked invariant chain. Every
+/// `lemma_step_frame_drop` with a single tracked invariant chain. Every
 /// conjunct is recovered from a specific `VmStore::inv` clause:
 ///   - `slots.contains_key`: structural slot-perm coverage.
 ///   - `raw_count == 0`: structural `raw_count == segment_cover_count`
@@ -459,7 +459,7 @@ pub proof fn lemma_frame_drop_pre_derivable<'rcu>(s: VmStore<'rcu>, fid: FrameId
 {
     let paddr = s.frames[fid].paddr;
     let idx = frame_to_index(paddr);
-    s.regions.inv_implies_correct_addr(paddr);
+
     assert(s.frames.dom().filter(
         |gid: FrameId| frame_to_index(s.frames[gid].paddr) == idx,
     ).contains(fid));
@@ -595,8 +595,8 @@ impl<'a, 'rcu> VmStore<'rcu> {
     /// `cursors` / `vm_ios` / `vm_spaces`) and [`accounting_inv`] (the
     /// exact reference-count equation, which couples `frames` with
     /// `regions.slot_owners` and can only be re-established by a *step*
-    /// that pairs the two changes — see [`extract_frame`] /
-    /// [`insert_frame`] for why the frame-only helpers must require /
+    /// that pairs the two changes — see [`tracked_extract_frame`] /
+    /// [`lemma_insert_frame`] for why the frame-only helpers must require /
     /// ensure only the structural part).
     pub open spec fn inv(self) -> bool {
         self.structural_inv() && self.accounting_inv()
@@ -606,7 +606,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
     /// Preserved by any helper that touches at most one of `frames` /
     /// `regions.slot_owners`, since the accounting equation is the only
     /// clause that mentions both. Frame-only helpers
-    /// ([`extract_frame`] / [`insert_frame`]) require / ensure this.
+    /// ([`tracked_extract_frame`] / [`lemma_insert_frame`]) require / ensure this.
     pub open spec fn structural_inv(self) -> bool {
         &&& self.regions.inv()
         // Slot-perm coverage (Design B). Every in-region slot keeps its
@@ -693,7 +693,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // leaf) commits to a Frame-usage slot. Carrying this in
         // `structural_inv` makes accounting_inv's Frame-scoped clauses
         // apply automatically at registered handles' paddrs and
-        // simplifies `op_pre[Map]` / `step_query` / the Item 4 unmap
+        // simplifies `op_pre[Map]` / `lemma_step_query` / the Item 4 unmap
         // axiom (no need for the caller to re-establish usage).
         &&& forall|fid: FrameId| #[trigger]
             self.frames.dom().contains(fid) ==> self.regions.slot_owners[frame_to_index(
@@ -702,7 +702,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
             // Every registered segment has a well-formed range
             // (page-aligned, in-bound, non-empty). Enforced by
             // `op_pre[SegmentFromUnused]`; carried as an invariant so
-            // `step_segment_drop` can discharge `segment::drop_step`'s
+            // `lemma_step_segment_drop` can discharge `segment::drop_step`'s
             // alignment preconditions from `s.inv()` alone.
         &&& forall|sid: SegmentId| #[trigger]
             self.segments.dom().contains(sid) ==> {
@@ -717,7 +717,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
             // covered slots' usage to Frame, and no op transitions a
             // segment-covered slot back to non-Frame (frame_drop is gated
             // on `segment_cover_count == 0` via `op_pre[FrameDrop]`).
-            // Carried here so `step_segment_drop` can derive the per-slot
+            // Carried here so `lemma_step_segment_drop` can derive the per-slot
             // SHARED+Frame conditions from `s.inv()` alone.
         &&& forall|sid: SegmentId, paddr: Paddr|
             #![trigger
@@ -729,7 +729,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 paddr,
             )].usage is Frame
             // `unique_frames.dom()` is finite (built by finitely many
-            // `insert_unique`), needed wherever the embedding reasons
+            // `lemma_insert_unique`), needed wherever the embedding reasons
             // about the unique-handle set as a whole.
             // Every registered `UniqueEntry`'s paddr is in-bound.
         &&& forall|uid: UniqueId| #[trigger]
@@ -784,8 +784,8 @@ impl<'a, 'rcu> VmStore<'rcu> {
     /// *both* `self.frames` (via `handle_count`) *and*
     /// `self.regions.slot_owners` (via `rc` and `paths_in_pt`), so any
     /// helper that mutates one without the other can break it
-    /// transiently. The frame-only store helpers [`extract_frame`] /
-    /// [`insert_frame`] therefore cannot ensure this clause alone — a
+    /// transiently. The frame-only store helpers [`tracked_extract_frame`] /
+    /// [`lemma_insert_frame`] therefore cannot ensure this clause alone — a
     /// step that pairs a frame change with the matching regions change
     /// (via a frame / cursor `_embedded` axiom) re-establishes it.
     pub open spec fn accounting_inv(self) -> bool {
@@ -796,7 +796,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
         // was **dropped**. Two reasons:
         //
         // (a) It was load-bearing only via Verus SMT heuristics across
-        //     `step_cursor_method`/`step_map`/`step_unmap`: the cursor
+        //     `step_cursor_method`/`lemma_step_map`/`lemma_step_unmap`: the cursor
         //     `_embedded` axioms don't actually constrain `rc`/`storage`
         //     at the touched slot, and accounting_inv preservation
         //     across those steps was working by coincidence. Segments
@@ -839,7 +839,7 @@ impl<'a, 'rcu> VmStore<'rcu> {
                 == 0
             // **Frame in valid rc range ⟹ active head.** Inverse of the
             // active-head guard below — absorbs the pre-active-head assume
-            // in `step_frame_from_in_use`. With segments, "active" includes
+            // in `lemma_step_frame_from_in_use`. With segments, "active" includes
             // the segment-cover contribution.
         &&& forall|idx: int|
             #![trigger self.regions.slot_owners[idx]]
@@ -1003,7 +1003,7 @@ pub enum Op {
 /// `read_val`/`write_val`/`collect`) are documented in
 /// [`super::cursor`] and [`super::io`] axiom comments.
 ///
-/// [`step`] requires `op_pre(*old(s), op)`. Callers must establish the
+/// [`lemma_step`] requires `op_pre(*old(s), op)`. Callers must establish the
 /// precondition for the specific Op variant they're about to apply.
 ///
 /// SOUNDNESS: when we're done building this model, `op_pre` must be
@@ -1075,7 +1075,7 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         // constraint. All other `drop_pre` conjuncts (rc not in
         // sentinels, rc <= MAX, storage.is_init, in_list == 0,
         // rc == 1 ⟹ paths empty / handle_count == 1) plus the
-        // handle-clause are derived inside [`step_frame_drop`] from
+        // handle-clause are derived inside [`lemma_step_frame_drop`] from
         // `s.inv()` via [`lemma_frame_drop_pre_derivable`] — the
         // embedding-level `Frame::wf(state)` (Item 2 in the module-
         // docs roadmap). The lemma chains: structural FrameId⟹Frame
@@ -1094,13 +1094,13 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         // `Segment::from_unused`: no precondition. The exec returns `Err`
         // (NotAligned/OutOfBound) or rolls back a partial allocation when
         // a frame in `range` is not free, leaving `regions` unchanged in
-        // every failure case; `step_segment_from_unused` branches
+        // every failure case; `lemma_step_segment_from_unused` branches
         // internally on success (aligned + in-bound + non-empty +
         // every covered slot UNUSED) and is a no-op otherwise.
         Op::SegmentFromUnused { range: _ } => true,
         // `Segment` drop: id-existence + range well-formedness is
         // satisfied by every registered `SegmentEntry`; the per-slot
-        // SHARED+Frame conditions are derived inside `step_segment_drop`
+        // SHARED+Frame conditions are derived inside `lemma_step_segment_drop`
         // from `s.inv()` (analogue of `lemma_frame_drop_pre_derivable`
         // for segments).
         Op::SegmentDrop { sid } => s.segments.dom().contains(sid),
@@ -1135,17 +1135,17 @@ pub open spec fn op_pre<'rcu>(s: VmStore<'rcu>, op: Op) -> bool {
         // `UniqueFrame::from_unused`: no precondition (mirrors
         // `FrameFromUnused`). The exec returns `Err` and leaves the slot
         // untouched unless the target is genuinely a free frame slot;
-        // `step_unique_from_unused` branches internally on that condition
+        // `lemma_step_unique_from_unused` branches internally on that condition
         // (`valid_frame_paddr` + slot managed + `usage is Unused` +
         // `rc == REF_COUNT_UNUSED`) and both outcomes preserve `s.inv()`.
         Op::UniqueFromUnused { paddr: _ } => true,
         // `UniqueFrame` drop: id-existence. The per-slot UNIQUE / in_list
         // / storage / paths-empty teardown preconditions are derived
-        // inside `step_unique_drop` from `s.inv()` (the structural
+        // inside `lemma_step_unique_drop` from `s.inv()` (the structural
         // unique-entry clause + `MetaSlotOwner::inv`'s UNIQUE branch).
         Op::UniqueDrop { uid } => s.unique_frames.dom().contains(uid),
         // `Frame::from_unique`: id-existence. The UNIQUE-slot facts are
-        // derived inside `step_from_unique` from `s.inv()`.
+        // derived inside `lemma_step_from_unique` from `s.inv()`.
         Op::FromUnique { uid } => s.unique_frames.dom().contains(uid),
         // `UniqueFrame::try_from_shared`: id-existence. The step branches
         // internally on whether `fid`'s slot is the sole reference
@@ -1163,7 +1163,8 @@ impl<'rcu> VmStore<'rcu> {
     /// Requires no cursor or VmIo refers to `vs`, and no activated
     /// ranges remain on `vs` (otherwise `inv` would break after the
     /// removal).
-    pub proof fn extract_vm_space(tracked &mut self, vs: VmSpaceId) -> (tracked res: VmSpaceOwner)
+    pub proof fn tracked_extract_vm_space(tracked &mut self, vs: VmSpaceId) -> (tracked res:
+        VmSpaceOwner)
         requires
             old(self).inv(),
             old(self).vm_spaces.dom().contains(vs),
@@ -1188,7 +1189,11 @@ impl<'rcu> VmStore<'rcu> {
 
     /// Inserts a VmSpaceOwner at the given fresh id. Requires the id is
     /// not already used and the owner satisfies its invariant.
-    pub proof fn insert_vm_space(tracked &mut self, vs: VmSpaceId, tracked owner: VmSpaceOwner)
+    pub proof fn lemma_insert_vm_space(
+        tracked &mut self,
+        vs: VmSpaceId,
+        tracked owner: VmSpaceOwner,
+    )
         requires
             old(self).inv(),
             !old(self).vm_spaces.dom().contains(vs),
@@ -1208,7 +1213,8 @@ impl<'rcu> VmStore<'rcu> {
     }
 
     /// Removes the cursor entry at `c` from the store and returns it.
-    pub proof fn extract_cursor(tracked &mut self, c: CursorId) -> (tracked res: CursorEntry<'rcu>)
+    pub proof fn tracked_extract_cursor(tracked &mut self, c: CursorId) -> (tracked res:
+        CursorEntry<'rcu>)
         requires
             old(self).inv(),
             old(self).cursors.dom().contains(c),
@@ -1231,7 +1237,11 @@ impl<'rcu> VmStore<'rcu> {
     /// not already used, the entry satisfies its inv, the entry's
     /// `vm_space` is in the store, and the entry's owner is sound w.r.t.
     /// the store's regions.
-    pub proof fn insert_cursor(tracked &mut self, c: CursorId, tracked entry: CursorEntry<'rcu>)
+    pub proof fn lemma_insert_cursor(
+        tracked &mut self,
+        c: CursorId,
+        tracked entry: CursorEntry<'rcu>,
+    )
         requires
             old(self).inv(),
             !old(self).cursors.dom().contains(c),
@@ -1253,7 +1263,7 @@ impl<'rcu> VmStore<'rcu> {
     }
 
     /// Removes the VmIo entry at `vio` from the store and returns it.
-    pub proof fn extract_vm_io(tracked &mut self, vio: VmIoId) -> (tracked res: VmIoEntry)
+    pub proof fn tracked_extract_vm_io(tracked &mut self, vio: VmIoId) -> (tracked res: VmIoEntry)
         requires
             old(self).inv(),
             old(self).vm_ios.dom().contains(vio),
@@ -1279,7 +1289,7 @@ impl<'rcu> VmStore<'rcu> {
     /// activated) its owner range is disjoint from every existing
     /// activated entry's owner range (preserves the pairwise-disjoint
     /// invariant in [`VmStore::inv`]).
-    pub proof fn insert_vm_io(tracked &mut self, vio: VmIoId, tracked entry: VmIoEntry)
+    pub proof fn lemma_insert_vm_io(tracked &mut self, vio: VmIoId, tracked entry: VmIoEntry)
         requires
             old(self).inv(),
             !old(self).vm_ios.dom().contains(vio),
@@ -1309,7 +1319,7 @@ impl<'rcu> VmStore<'rcu> {
     /// that calls this is responsible for pairing it with the matching
     /// `frame::drop_step` (or `cursor::map_step` once Op::Map consumes
     /// a tracked frame) and re-establishing accounting at the end.
-    pub proof fn extract_frame(tracked &mut self, fid: FrameId) -> (tracked res: FrameEntry)
+    pub proof fn tracked_extract_frame(tracked &mut self, fid: FrameId) -> (tracked res: FrameEntry)
         requires
             old(self).structural_inv(),
             old(self).frames.dom().contains(fid),
@@ -1334,9 +1344,9 @@ impl<'rcu> VmStore<'rcu> {
     /// `from_*` axioms' `!valid_frame_paddr ==> None` (a registered handle
     /// is necessarily in-bound).
     ///
-    /// Requires / ensures only [`structural_inv`] — see [`extract_frame`]
+    /// Requires / ensures only [`structural_inv`] — see [`tracked_extract_frame`]
     /// for the accounting/structural split rationale.
-    pub proof fn insert_frame(tracked &mut self, fid: FrameId, tracked entry: FrameEntry)
+    pub proof fn lemma_insert_frame(tracked &mut self, fid: FrameId, tracked entry: FrameEntry)
         requires
             old(self).structural_inv(),
             !old(self).frames.dom().contains(fid),
@@ -1363,7 +1373,8 @@ impl<'rcu> VmStore<'rcu> {
     /// Removes the UniqueEntry at `uid` from the store. **Does NOT**
     /// ensure `structural_inv` — the caller must pair this with the
     /// regions UNIQUE→UNUSED teardown before observing `s.inv()`.
-    pub proof fn extract_unique(tracked &mut self, uid: UniqueId) -> (tracked res: UniqueEntry)
+    pub proof fn tracked_extract_unique(tracked &mut self, uid: UniqueId) -> (tracked res:
+        UniqueEntry)
         requires
             old(self).unique_frames.dom().contains(uid),
         ensures
@@ -1385,7 +1396,7 @@ impl<'rcu> VmStore<'rcu> {
     /// UNUSED→UNIQUE transition (via
     /// [`unique::unique_from_unused_embedded`]) before observing
     /// `s.inv()`.
-    pub proof fn insert_unique(tracked &mut self, uid: UniqueId, tracked entry: UniqueEntry)
+    pub proof fn lemma_insert_unique(tracked &mut self, uid: UniqueId, tracked entry: UniqueEntry)
         requires
             !old(self).unique_frames.dom().contains(uid),
         ensures
@@ -1407,7 +1418,8 @@ impl<'rcu> VmStore<'rcu> {
     /// `raw_count == segment_cover_count` clause at every paddr the
     /// segment covered. The caller's step proof must restore it via
     /// [`segment::drop_step`] before observing `s.inv()` again.
-    pub proof fn extract_segment(tracked &mut self, sid: SegmentId) -> (tracked res: SegmentEntry)
+    pub proof fn tracked_extract_segment(tracked &mut self, sid: SegmentId) -> (tracked res:
+        SegmentEntry)
         requires
             old(self).segments.dom().contains(sid),
         ensures
@@ -1428,7 +1440,11 @@ impl<'rcu> VmStore<'rcu> {
     /// `structural_inv` — the caller must pair this with a `regions`
     /// `raw_count` bump at every covered paddr (via
     /// [`segment::from_unused_step`]) before observing `s.inv()`.
-    pub proof fn insert_segment(tracked &mut self, sid: SegmentId, tracked entry: SegmentEntry)
+    pub proof fn lemma_insert_segment(
+        tracked &mut self,
+        sid: SegmentId,
+        tracked entry: SegmentEntry,
+    )
         requires
             !old(self).segments.dom().contains(sid),
         ensures
@@ -1454,7 +1470,7 @@ impl<'rcu> VmStore<'rcu> {
 /// extracts the relevant entries from the store, calls the per-op step
 /// (which has neither preconditions nor `if`-guards on store membership),
 /// and inserts any modified or freshly-produced entries back.
-pub proof fn step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
+pub proof fn lemma_step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
     requires
         old(s).inv(),
         op_pre(*old(s), op),
@@ -1462,67 +1478,87 @@ pub proof fn step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
         final(s).inv(),
 {
     match op {
-        Op::NewVmSpace => step_new_vm_space(s),
-        Op::DropVmSpace { vs } => step_drop_vm_space(s, vs),
-        Op::OpenCursor { vs, va } => step_open_cursor(s, vs, va),
-        Op::OpenCursorMut { vs, va } => step_open_cursor_mut(s, vs, va),
-        Op::DropCursor { c } => step_drop_cursor(s, c),
-        Op::Query { c } => step_query(s, c),
-        Op::FindNext { c, len } => step_find_next(s, c, len),
-        Op::Jump { c, va } => step_jump(s, c, va),
+        Op::NewVmSpace => lemma_step_new_vm_space(s),
+        Op::DropVmSpace { vs } => lemma_step_drop_vm_space(s, vs),
+        Op::OpenCursor { vs, va } => lemma_step_open_cursor(s, vs, va),
+        Op::OpenCursorMut { vs, va } => lemma_step_open_cursor_mut(s, vs, va),
+        Op::DropCursor { c } => lemma_step_drop_cursor(s, c),
+        Op::Query { c } => lemma_step_query(s, c),
+        Op::FindNext { c, len } => lemma_step_find_next(s, c, len),
+        Op::Jump { c, va } => lemma_step_jump(s, c, va),
         Op::VirtAddr { c: _ } => {},
-        Op::Map { c, fid, prop } => step_map(s, c, fid, prop),
-        Op::Unmap { c, len } => step_unmap(s, c, len),
-        Op::ProtectNext { c, len } => step_protect_next(s, c, len),
-        Op::NewReader { vs, vaddr, len } => step_new_vm_io(s, vs, vaddr, len, VmIoKind::Reader),
-        Op::NewWriter { vs, vaddr, len } => step_new_vm_io(s, vs, vaddr, len, VmIoKind::Writer),
-        Op::NewKernelReader { vaddr, len } => step_new_kernel_vm_io(
+        Op::Map { c, fid, prop } => lemma_step_map(s, c, fid, prop),
+        Op::Unmap { c, len } => lemma_step_unmap(s, c, len),
+        Op::ProtectNext { c, len } => lemma_step_protect_next(s, c, len),
+        Op::NewReader { vs, vaddr, len } => lemma_step_new_vm_io(
+            s,
+            vs,
+            vaddr,
+            len,
+            VmIoKind::Reader,
+        ),
+        Op::NewWriter { vs, vaddr, len } => lemma_step_new_vm_io(
+            s,
+            vs,
+            vaddr,
+            len,
+            VmIoKind::Writer,
+        ),
+        Op::NewKernelReader { vaddr, len } => lemma_step_new_kernel_vm_io(
             s,
             vaddr,
             len,
             VmIoKind::Reader,
         ),
-        Op::NewKernelWriter { vaddr, len } => step_new_kernel_vm_io(
+        Op::NewKernelWriter { vaddr, len } => lemma_step_new_kernel_vm_io(
             s,
             vaddr,
             len,
             VmIoKind::Writer,
         ),
-        Op::DropReader { vio } => step_drop_vm_io(s, vio),
-        Op::DropWriter { vio } => step_drop_vm_io(s, vio),
+        Op::DropReader { vio } => lemma_step_drop_vm_io(s, vio),
+        Op::DropWriter { vio } => lemma_step_drop_vm_io(s, vio),
         // Fallible variants: handle-only, no embedding state changes.
         Op::ReaderReadVal { source: _ } => {},
         Op::ReaderCollect { source: _ } => {},
         Op::WriterWriteVal { writer: _ } => {},
-        Op::ReaderLimit { vio, max } => step_vm_io_method(s, vio, io::VmIoMethod::ReaderLimit(max)),
-        Op::ReaderSkip { vio, n } => step_vm_io_method(s, vio, io::VmIoMethod::ReaderSkip(n)),
+        Op::ReaderLimit { vio, max } => lemma_step_vm_io_method(
+            s,
+            vio,
+            io::VmIoMethod::ReaderLimit(max),
+        ),
+        Op::ReaderSkip { vio, n } => lemma_step_vm_io_method(s, vio, io::VmIoMethod::ReaderSkip(n)),
         Op::ReaderQuery { vio: _ } => {},
-        Op::WriterFillZeros { vio, len } => step_vm_io_method(
+        Op::WriterFillZeros { vio, len } => lemma_step_vm_io_method(
             s,
             vio,
             io::VmIoMethod::WriterFillZeros(len),
         ),
-        Op::WriterLimit { vio, max } => step_vm_io_method(s, vio, io::VmIoMethod::WriterLimit(max)),
-        Op::WriterSkip { vio, n } => step_vm_io_method(s, vio, io::VmIoMethod::WriterSkip(n)),
+        Op::WriterLimit { vio, max } => lemma_step_vm_io_method(
+            s,
+            vio,
+            io::VmIoMethod::WriterLimit(max),
+        ),
+        Op::WriterSkip { vio, n } => lemma_step_vm_io_method(s, vio, io::VmIoMethod::WriterSkip(n)),
         Op::WriterQuery { vio: _ } => {},
         // Infallible `read`: produces a fresh activated-Writer val_owner.
-        Op::Read { source, dest } => step_read(s, source, dest),
+        Op::Read { source, dest } => lemma_step_read(s, source, dest),
         // Infallible `write`: no longer surfaces consumed_w; just
         // mutates source/dest owners.
-        Op::Write { source, dest } => step_write(s, source, dest),
-        Op::FrameFromUnused { paddr } => step_frame_from_unused(s, paddr),
-        Op::FrameFromInUse { paddr } => step_frame_from_in_use(s, paddr),
-        Op::FrameDrop { fid } => step_frame_drop(s, fid),
-        Op::SegmentFromUnused { range } => step_segment_from_unused(s, range),
-        Op::SegmentDrop { sid } => step_segment_drop(s, sid),
-        Op::SegmentSplit { sid, offset } => step_segment_split(s, sid, offset),
-        Op::SegmentNext { sid } => step_segment_next(s, sid),
-        Op::SegmentClone { sid } => step_segment_clone(s, sid),
-        Op::SegmentSlice { sid, sub_range } => step_segment_slice(s, sid, sub_range),
-        Op::UniqueFromUnused { paddr } => step_unique_from_unused(s, paddr),
-        Op::UniqueDrop { uid } => step_unique_drop(s, uid),
-        Op::FromUnique { uid } => step_from_unique(s, uid),
-        Op::TryFromShared { fid } => step_try_from_shared(s, fid),
+        Op::Write { source, dest } => lemma_step_write(s, source, dest),
+        Op::FrameFromUnused { paddr } => lemma_step_frame_from_unused(s, paddr),
+        Op::FrameFromInUse { paddr } => lemma_step_frame_from_in_use(s, paddr),
+        Op::FrameDrop { fid } => lemma_step_frame_drop(s, fid),
+        Op::SegmentFromUnused { range } => lemma_step_segment_from_unused(s, range),
+        Op::SegmentDrop { sid } => lemma_step_segment_drop(s, sid),
+        Op::SegmentSplit { sid, offset } => lemma_step_segment_split(s, sid, offset),
+        Op::SegmentNext { sid } => lemma_step_segment_next(s, sid),
+        Op::SegmentClone { sid } => lemma_step_segment_clone(s, sid),
+        Op::SegmentSlice { sid, sub_range } => lemma_step_segment_slice(s, sid, sub_range),
+        Op::UniqueFromUnused { paddr } => lemma_step_unique_from_unused(s, paddr),
+        Op::UniqueDrop { uid } => lemma_step_unique_drop(s, uid),
+        Op::FromUnique { uid } => lemma_step_from_unique(s, uid),
+        Op::TryFromShared { fid } => lemma_step_try_from_shared(s, fid),
     }
 }
 
@@ -1539,8 +1575,8 @@ pub proof fn step<'rcu>(tracked s: &mut VmStore<'rcu>, op: Op)
 /// `UNUSED → non-UNUSED, non-Frame` transition, so the old clause
 /// carries verbatim.
 ///
-/// Shared by [`step_new_vm_space`], [`step_open_cursor`] and
-/// [`step_open_cursor_mut`].
+/// Shared by [`lemma_step_new_vm_space`], [`lemma_step_open_cursor`] and
+/// [`lemma_step_open_cursor_mut`].
 proof fn lemma_accounting_preserved_by_pt_alloc<'rcu>(s_old: VmStore<'rcu>, s_new: VmStore<'rcu>)
     requires
         s_old.inv(),
@@ -1698,7 +1734,7 @@ proof fn lemma_coverage_preserved_slots_eq<'rcu>(s_old: VmStore<'rcu>, s_new: Vm
     };
 }
 
-proof fn step_new_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>)
+proof fn lemma_step_new_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>)
     requires
         old(s).inv(),
     ensures
@@ -1737,10 +1773,10 @@ proof fn step_new_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>)
             }
         }
     };
-    s.insert_vm_space(id, owner);
+    s.lemma_insert_vm_space(id, owner);
 }
 
-proof fn step_drop_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId)
+proof fn lemma_step_drop_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId)
     requires
         old(s).inv(),
         old(s).vm_spaces.dom().contains(vs),
@@ -1751,11 +1787,15 @@ proof fn step_drop_vm_space<'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId)
     ensures
         final(s).inv(),
 {
-    let tracked owner = s.extract_vm_space(vs);
+    let tracked owner = s.tracked_extract_vm_space(vs);
     vm_space::drop_vm_space_step(owner);
 }
 
-proof fn step_open_cursor<'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId, va: Range<Vaddr>)
+proof fn lemma_step_open_cursor<'rcu>(
+    tracked s: &mut VmStore<'rcu>,
+    vs: VmSpaceId,
+    va: Range<Vaddr>,
+)
     requires
         old(s).inv(),
         old(s).vm_spaces.dom().contains(vs),
@@ -1772,13 +1812,17 @@ proof fn step_open_cursor<'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId, va
         Option::Some(entry) => {
             let ghost id = fresh_cursor_id(s.cursors);
             lemma_fresh_cursor_id_not_in_dom(s.cursors);
-            s.insert_cursor(id, entry);
+            s.lemma_insert_cursor(id, entry);
         },
         Option::None => {},
     }
 }
 
-proof fn step_open_cursor_mut<'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId, va: Range<Vaddr>)
+proof fn lemma_step_open_cursor_mut<'rcu>(
+    tracked s: &mut VmStore<'rcu>,
+    vs: VmSpaceId,
+    va: Range<Vaddr>,
+)
     requires
         old(s).inv(),
         old(s).vm_spaces.dom().contains(vs),
@@ -1795,24 +1839,24 @@ proof fn step_open_cursor_mut<'rcu>(tracked s: &mut VmStore<'rcu>, vs: VmSpaceId
         Option::Some(entry) => {
             let ghost id = fresh_cursor_id(s.cursors);
             lemma_fresh_cursor_id_not_in_dom(s.cursors);
-            s.insert_cursor(id, entry);
+            s.lemma_insert_cursor(id, entry);
         },
         Option::None => {},
     }
 }
 
-proof fn step_drop_cursor<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
+proof fn lemma_step_drop_cursor<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
     ensures
         final(s).inv(),
 {
-    let tracked entry = s.extract_cursor(c);
+    let tracked entry = s.tracked_extract_cursor(c);
     cursor::drop_cursor_step(entry);
 }
 
-proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
+proof fn lemma_step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
@@ -1821,13 +1865,13 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
 {
     let ghost old_frames = s.frames;
     let ghost old_regions = s.regions;
-    let tracked mut entry = s.extract_cursor(c);
+    let tracked mut entry = s.tracked_extract_cursor(c);
     let ghost res = cursor::cursor_query_step(&mut entry, &mut s.regions);
     match res {
         Option::None => {
             // No clone happened — slot_owners fully preserved per axiom,
             // s.frames unchanged. accounting_inv chains directly.
-            s.insert_cursor(c, entry);
+            s.lemma_insert_cursor(c, entry);
         },
         Option::Some(paddr) => {
             // Exec query cloned a tracked leaf at `paddr` (rc++ at the
@@ -1839,7 +1883,7 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
             let ghost id = fresh_frame_id(s.frames);
             lemma_fresh_frame_id_not_in_dom(s.frames);
             let tracked frame_entry = tracked_frame_entry_new(paddr);
-            s.insert_frame(id, frame_entry);
+            s.lemma_insert_frame(id, frame_entry);
             // Pre target_idx: usage == Frame (axiom), so by pre clause 3
             // either H_pre > 0 or paths_pre > 0; clause 4 gives
             // pre rc != UNUSED ∧ pre rc != UNIQUE ∧
@@ -1945,48 +1989,49 @@ proof fn step_query<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId)
                     assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
                 }
             };
-            s.insert_cursor(c, entry);
+            s.lemma_insert_cursor(c, entry);
         },
     }
 }
 
-proof fn step_find_next<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize)
+proof fn lemma_step_find_next<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize)
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
     ensures
         final(s).inv(),
 {
-    let tracked mut entry = s.extract_cursor(c);
+    let tracked mut entry = s.tracked_extract_cursor(c);
     cursor::cursor_find_next_step(&mut entry, &mut s.regions, len);
-    s.insert_cursor(c, entry);
+    s.lemma_insert_cursor(c, entry);
 }
 
-proof fn step_jump<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, va: Vaddr)
+proof fn lemma_step_jump<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, va: Vaddr)
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
     ensures
         final(s).inv(),
 {
-    let tracked mut entry = s.extract_cursor(c);
+    let tracked mut entry = s.tracked_extract_cursor(c);
     cursor::cursor_jump_step(&mut entry, &mut s.regions, va);
-    s.insert_cursor(c, entry);
+    s.lemma_insert_cursor(c, entry);
 }
 
-proof fn step_protect_next<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize)
+proof fn lemma_step_protect_next<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize)
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
     ensures
         final(s).inv(),
 {
-    let tracked mut entry = s.extract_cursor(c);
+    let tracked mut entry = s.tracked_extract_cursor(c);
     cursor::cursor_protect_next_step(&mut entry, &mut s.regions, len);
-    s.insert_cursor(c, entry);
+    s.lemma_insert_cursor(c, entry);
 }
 
-proof fn step_map<'rcu>(
+#[verifier::spinoff_prover]
+proof fn lemma_step_map<'rcu>(
     tracked s: &mut VmStore<'rcu>,
     c: CursorId,
     fid: FrameId,
@@ -1999,15 +2044,34 @@ proof fn step_map<'rcu>(
     ensures
         final(s).inv(),
 {
+    hide(VmStore::inv);
+    hide(VmStore::structural_inv);
+    hide(VmStore::accounting_inv);
+    assert(s.structural_inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(s.accounting_inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(s.regions.inv() && s.tlb_model.inv() && s.cursors[c].inv()
+        && s.cursors[c].owner.metaregion_sound(s.regions) && s.vm_spaces.dom().contains(
+        s.cursors[c].vm_space,
+    )) by {
+        reveal(VmStore::structural_inv);
+    };
     // `usage == Frame` at the mapped slot from `structural_inv`'s
     // FrameId⟹Frame-usage clause.
-    assert(s.regions.slot_owners[frame_to_index(s.frames[fid].paddr)].usage is Frame);
+    assert(s.regions.slot_owners[frame_to_index(s.frames[fid].paddr)].usage is Frame) by {
+        reveal(VmStore::structural_inv);
+    };
     let ghost paddr = s.frames[fid].paddr;
     let ghost target_idx = frame_to_index(paddr);
     let ghost old_frames = s.frames;
     let ghost old_regions = s.regions;
     // From `structural_inv`: every registered handle's paddr is in-bound.
-    assert(valid_frame_paddr(paddr));
+    assert(valid_frame_paddr(paddr)) by {
+        reveal(VmStore::structural_inv);
+    };
     s.regions.inv_implies_correct_addr(paddr);
     // Pre target_idx: we hold a FrameEntry at this paddr, so
     // `handle_count(old_frames, target_idx) >= 1`.
@@ -2020,16 +2084,23 @@ proof fn step_map<'rcu>(
     let ghost pre_rc_target = old_regions.slot_owners[target_idx].inner_perms.ref_count.value();
     let ghost pre_paths_target = old_regions.slot_owners[target_idx].paths_in_pt.len();
     let ghost pre_cover_target = segment_cover_count(s.segments, index_to_frame(target_idx));
-    assert(pre_rc_target != REF_COUNT_UNUSED);
-    assert(pre_rc_target != REF_COUNT_UNIQUE);
-    assert(pre_rc_target == handle_count(old_frames, target_idx) + pre_paths_target
-        + pre_cover_target);
-    assert(old_regions.slot_owners[target_idx].inner_perms.storage.is_init());
-    let tracked mut entry = s.extract_cursor(c);
+    assert(pre_rc_target != REF_COUNT_UNUSED && pre_rc_target != REF_COUNT_UNIQUE && pre_rc_target
+        == handle_count(old_frames, target_idx) + pre_paths_target + pre_cover_target
+        && old_regions.slot_owners[target_idx].inner_perms.storage.is_init()) by {
+        reveal(VmStore::accounting_inv);
+    };
+    let tracked mut entry = s.tracked_extract_cursor(c);
     // Consume the FrameEntry: the UFrame's handle ref-count
     // contribution moves to the new PTE; the embedding's `H` at
     // target_idx decrements by 1 in lockstep with `P` incrementing by 1.
-    let tracked _frame_entry = s.extract_frame(fid);
+    assert(s.structural_inv()) by {
+        reveal(VmStore::inv);
+    };
+    let tracked _frame_entry = s.tracked_extract_frame(fid);
+    assert(entry.inv());
+    assert(entry.owner.metaregion_sound(s.regions));
+    assert(s.regions.inv());
+    assert(s.tlb_model.inv());
     cursor::map_step(&mut entry, &mut s.regions, &mut s.tlb_model, paddr, prop);
     // Discharge `accounting_inv` clause-by-clause. The cursor-map axiom
     // gives: rc/usage/storage preserved at target_idx, paths += 1 at
@@ -2044,6 +2115,7 @@ proof fn step_map<'rcu>(
         s.segments,
         index_to_frame(idx),
     ) == 0 by {
+        reveal(VmStore::accounting_inv);
         // post-UNUSED ⟹ slot fully preserved (cursor axiom).
         assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
         lemma_handle_count_remove(old_frames, fid, idx);
@@ -2064,6 +2136,7 @@ proof fn step_map<'rcu>(
         s.segments,
         index_to_frame(idx),
     ) > 0 by {
+        reveal(VmStore::accounting_inv);
         lemma_handle_count_remove(old_frames, fid, idx);
         if idx == target_idx {
             // post rc preserved at target_idx, paths += 1 ⟹ paths.len > 0.
@@ -2096,6 +2169,7 @@ proof fn step_map<'rcu>(
         )
         &&& so.inner_perms.storage.is_init()
     } by {
+        reveal(VmStore::accounting_inv);
         lemma_handle_count_remove(old_frames, fid, idx);
         if idx == target_idx {
             // Pre clause 4 (new): rc == H_pre + P_pre + cover_pre.
@@ -2121,6 +2195,8 @@ proof fn step_map<'rcu>(
         s.frames.dom().contains(fid_other) implies s.regions.slot_owners[frame_to_index(
         s.frames[fid_other].paddr,
     )].usage is Frame by {
+        reveal(VmStore::structural_inv);
+        reveal(VmStore::accounting_inv);
         let other_idx = frame_to_index(s.frames[fid_other].paddr);
         // pre: usage == Frame from old structural_inv.
         assert(old_regions.slot_owners[other_idx].usage is Frame);
@@ -2155,6 +2231,8 @@ proof fn step_map<'rcu>(
         s.segments.dom().contains(sid) && s.segments[sid].range.start <= paddr_c
             < s.segments[sid].range.end && paddr_c % PAGE_SIZE
             == 0 implies s.regions.slot_owners[frame_to_index(paddr_c)].usage is Frame by {
+        reveal(VmStore::structural_inv);
+        reveal(VmStore::accounting_inv);
         let cov_idx = frame_to_index(paddr_c);
         // pre cover >= 1 at cov_idx ⟹ pre slot is Frame + non-UNUSED.
         lemma_segment_cover_contains(old_regions_segments_helper(s), sid, paddr_c);
@@ -2169,7 +2247,15 @@ proof fn step_map<'rcu>(
             assert(s.regions.slot_owners[cov_idx] == old_regions.slot_owners[cov_idx]);
         }
     };
-    s.insert_cursor(c, entry);
+    lemma_accounting_inv_intro(*s);
+    assert(s.structural_inv()) by {
+        reveal(VmStore::structural_inv);
+    };
+    assert(s.inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(s.vm_spaces.dom().contains(entry.vm_space));
+    s.lemma_insert_cursor(c, entry);
 }
 
 // Helper: snapshot the pre-step segments map. Defined as a no-op
@@ -2179,7 +2265,7 @@ spec fn old_regions_segments_helper<'rcu>(s: &VmStore<'rcu>) -> Map<SegmentId, S
     s.segments
 }
 
-proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize)
+proof fn lemma_step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize)
     requires
         old(s).inv(),
         old(s).cursors.dom().contains(c),
@@ -2189,7 +2275,7 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
     let ghost s_before = *s;
     let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
-    let tracked mut entry = s.extract_cursor(c);
+    let tracked mut entry = s.tracked_extract_cursor(c);
     cursor::cursor_mut_regions_step(
         &mut entry,
         &mut s.regions,
@@ -2215,7 +2301,7 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
         // From `regions.inv()`: idx < max_meta_slots ⟹ slot_owners[idx]
         // satisfies MetaSlotOwner::inv (so UNUSED ∧ non-MMIO ⟹ paths
         // empty fires).
-        assert(s.regions.slot_owners.contains_key(idx));
+        assert(s.regions.contains(idx));
         // Post cover == 0. Unmap leaves `s.segments` untouched, so post
         // cover == pre cover. If pre cover >= 1: a witnessing segment +
         // structural `covered ⟹ Frame` gives pre usage == Frame, and pre
@@ -2299,11 +2385,11 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
         // becomes post rc == pre rc + post paths but post rc ≤ pre rc
         // ⟹ post paths == 0 ⟹ post rc == pre rc == UNUSED). So at
         // post non-UNUSED Frame slot, pre rc != UNUSED.
-        assert(s.regions.slot_owners.contains_key(idx));
+        assert(s.regions.contains(idx));
         assert(old_regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED) by {
             if old_regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED {
                 // Trigger MetaSlotOwner::inv on pre at this idx.
-                assert(old_regions.slot_owners.contains_key(idx));
+                assert(old_regions.contains(idx));
                 assert(old_regions.slot_owners[idx].paths_in_pt == Set::empty());
                 // rc-paths invariant: post rc + 0 == UNUSED + post paths
                 //                  ⟹ post rc == UNUSED + post paths.
@@ -2409,7 +2495,7 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
         // `u_idx` is a managed slot.
         assert(valid_frame_paddr(s.unique_frames[u].paddr));
         s.regions.inv_implies_correct_addr(s.unique_frames[u].paddr);
-        assert(s.regions.slot_owners.contains_key(u_idx));
+        assert(s.regions.contains(u_idx));
         // usage / in_list preserved universally by the unmap axiom.
         assert(s.regions.slot_owners[u_idx].usage == old_regions.slot_owners[u_idx].usage);
         assert(s.regions.slot_owners[u_idx].inner_perms.in_list
@@ -2422,10 +2508,10 @@ proof fn step_unmap<'rcu>(tracked s: &mut VmStore<'rcu>, c: CursorId, len: usize
         assert(s.regions.slot_owners[u_idx].paths_in_pt =~= Set::empty());
         assert(s.regions.slot_owners[u_idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
     };
-    s.insert_cursor(c, entry);
+    s.lemma_insert_cursor(c, entry);
 }
 
-proof fn step_new_vm_io<'rcu>(
+proof fn lemma_step_new_vm_io<'rcu>(
     tracked s: &mut VmStore<'rcu>,
     vs: VmSpaceId,
     vaddr: Vaddr,
@@ -2444,13 +2530,13 @@ proof fn step_new_vm_io<'rcu>(
         Option::Some(entry) => {
             let ghost id = fresh_vm_io_id(s.vm_ios);
             lemma_fresh_vm_io_id_not_in_dom(s.vm_ios);
-            s.insert_vm_io(id, entry);
+            s.lemma_insert_vm_io(id, entry);
         },
         Option::None => {},
     }
 }
 
-proof fn step_new_kernel_vm_io<'rcu>(
+proof fn lemma_step_new_kernel_vm_io<'rcu>(
     tracked s: &mut VmStore<'rcu>,
     vaddr: Vaddr,
     len: usize,
@@ -2464,33 +2550,37 @@ proof fn step_new_kernel_vm_io<'rcu>(
     let tracked entry = io::new_kernel_vm_io_step(vaddr, len, kind);
     let ghost id = fresh_vm_io_id(s.vm_ios);
     lemma_fresh_vm_io_id_not_in_dom(s.vm_ios);
-    s.insert_vm_io(id, entry);
+    s.lemma_insert_vm_io(id, entry);
 }
 
-proof fn step_drop_vm_io<'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId)
+proof fn lemma_step_drop_vm_io<'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId)
     requires
         old(s).inv(),
         old(s).vm_ios.dom().contains(vio),
     ensures
         final(s).inv(),
 {
-    let tracked entry = s.extract_vm_io(vio);
+    let tracked entry = s.tracked_extract_vm_io(vio);
     io::drop_vm_io_step(entry);
 }
 
-proof fn step_vm_io_method<'rcu>(tracked s: &mut VmStore<'rcu>, vio: VmIoId, method: io::VmIoMethod)
+proof fn lemma_step_vm_io_method<'rcu>(
+    tracked s: &mut VmStore<'rcu>,
+    vio: VmIoId,
+    method: io::VmIoMethod,
+)
     requires
         old(s).inv(),
         old(s).vm_ios.dom().contains(vio),
     ensures
         final(s).inv(),
 {
-    let tracked mut entry = s.extract_vm_io(vio);
+    let tracked mut entry = s.tracked_extract_vm_io(vio);
     io::vm_io_method_step(&mut entry, method);
-    s.insert_vm_io(vio, entry);
+    s.lemma_insert_vm_io(vio, entry);
 }
 
-proof fn step_read<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: VmIoId)
+proof fn lemma_step_read<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: VmIoId)
     requires
         old(s).inv(),
         old(s).vm_ios.dom().contains(source),
@@ -2503,17 +2593,17 @@ proof fn step_read<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: Vm
     ensures
         final(s).inv(),
 {
-    let tracked mut src = s.extract_vm_io(source);
-    let tracked mut dst = s.extract_vm_io(dest);
+    let tracked mut src = s.tracked_extract_vm_io(source);
+    let tracked mut dst = s.tracked_extract_vm_io(dest);
     let tracked val = io::read_step(&mut src, &mut dst);
-    s.insert_vm_io(source, src);
-    s.insert_vm_io(dest, dst);
+    s.lemma_insert_vm_io(source, src);
+    s.lemma_insert_vm_io(dest, dst);
     let ghost id = fresh_vm_io_id(s.vm_ios);
     lemma_fresh_vm_io_id_not_in_dom(s.vm_ios);
-    s.insert_vm_io(id, val);
+    s.lemma_insert_vm_io(id, val);
 }
 
-proof fn step_write<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: VmIoId)
+proof fn lemma_step_write<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: VmIoId)
     requires
         old(s).inv(),
         old(s).vm_ios.dom().contains(source),
@@ -2526,13 +2616,13 @@ proof fn step_write<'rcu>(tracked s: &mut VmStore<'rcu>, source: VmIoId, dest: V
     ensures
         final(s).inv(),
 {
-    let tracked mut src = s.extract_vm_io(source);
-    let tracked mut dst = s.extract_vm_io(dest);
-    s.insert_vm_io(source, src);
-    s.insert_vm_io(dest, dst);
+    let tracked mut src = s.tracked_extract_vm_io(source);
+    let tracked mut dst = s.tracked_extract_vm_io(dest);
+    s.lemma_insert_vm_io(source, src);
+    s.lemma_insert_vm_io(dest, dst);
 }
 
-proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
+proof fn lemma_step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
     requires
         old(s).inv(),
     ensures
@@ -2554,7 +2644,7 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
                 lemma_fresh_frame_id_not_in_dom(s.frames);
                 let ghost target_idx = frame_to_index(paddr);
                 let ghost entry_paddr = entry.paddr;
-                s.insert_frame(id, entry);
+                s.lemma_insert_frame(id, entry);
                 assert(s.frames[id].paddr == paddr);
 
                 // Pre target_idx was rc=UNUSED ⟹ pre H==0 ∧ pre paths.empty()
@@ -2639,13 +2729,13 @@ proof fn step_frame_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
     }
 }
 
-proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
+proof fn lemma_step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
     requires
         old(s).inv(),
     ensures
         final(s).inv(),
 {
-    // See `step_frame_from_unused`: `op_pre` is `true`. `from_in_use_step`
+    // See `lemma_step_frame_from_unused`: `op_pre` is `true`. `from_in_use_step`
     // requires `valid_frame_paddr ==> slots.contains_key`; guard on it
     // directly (an unparked slot ⟹ the frame is held elsewhere ⟹ the
     // real `from_in_use` fails, a no-op).
@@ -2658,7 +2748,7 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
                 let ghost id = fresh_frame_id(s.frames);
                 lemma_fresh_frame_id_not_in_dom(s.frames);
                 let ghost target_idx = frame_to_index(paddr);
-                s.insert_frame(id, entry);
+                s.lemma_insert_frame(id, entry);
                 assert(s.frames[id].paddr == paddr);
 
                 // 5.5c new clause: "UNUSED ⟹ no users". For target: post
@@ -2730,7 +2820,7 @@ proof fn step_frame_from_in_use<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Padd
     }
 }
 
-proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
+proof fn lemma_step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     requires
         old(s).inv(),
         old(s).frames.dom().contains(fid),
@@ -2759,7 +2849,7 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     let ghost target_idx = frame_to_index(p);
     let ghost old_frames = s.frames;
     let ghost old_regions = s.regions;
-    let tracked entry = s.extract_frame(fid);
+    let tracked entry = s.tracked_extract_frame(fid);
     frame::drop_step(&mut s.regions, entry);
 
     // Discharge accounting_inv on the post-drop state. Handle clause
@@ -2884,16 +2974,133 @@ proof fn step_frame_drop<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     };
 }
 
+/// Discharges the post-state `accounting_inv` for `lemma_step_segment_from_unused`.
+/// Isolated into its own prover query so the three per-`idx` universal clauses
+/// (each matching `s.regions.slot_owners[idx]`) do not blow up the SMT context
+/// of the step's main body check.
+#[verifier::spinoff_prover]
+proof fn lemma_step_segment_from_unused_accounting<'rcu>(
+    s_after: VmStore<'rcu>,
+    old_store: VmStore<'rcu>,
+    range: Range<Paddr>,
+    id: SegmentId,
+    entry: SegmentEntry,
+)
+    requires
+        s_after.regions.inv(),
+        s_after.frames == old_store.frames,
+        // Exactly one fresh segment was inserted.
+        !old_store.segments.dom().contains(id),
+        s_after.segments == old_store.segments.insert(id, entry),
+        entry.range == range,
+        // Range is aligned and in-bounds.
+        range.start % PAGE_SIZE == 0,
+        range.end % PAGE_SIZE == 0,
+        range.start < range.end,
+        range.end <= MAX_PADDR,
+        // Pre-state accounting holds over the old snapshot.
+        old_store.accounting_inv(),
+        old_store.regions.inv(),
+        // In-range slots: post usage/rc/paths/storage from the allocation axiom.
+        forall|paddr: Paddr|
+            #![trigger frame_to_index(paddr)]
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0) ==> {
+                let idx = frame_to_index(paddr);
+                let so = s_after.regions.slot_owners[idx];
+                &&& so.usage is Frame
+                &&& so.inner_perms.ref_count.value() == 1
+                &&& so.paths_in_pt.is_empty()
+                &&& so.inner_perms.storage.is_init()
+            },
+        // Outside-range slots are fully preserved by the allocation axiom.
+        forall|i: int|
+            #![trigger s_after.regions.slot_owners[i]]
+            i < max_meta_slots() && !(range.start <= index_to_frame(i) < range.end)
+                ==> s_after.regions.slot_owners[i] == old_store.regions.slot_owners[i],
+        // Old regions' in-range slots were UNUSED (precondition of the step).
+        forall|paddr: Paddr|
+            #![trigger frame_to_index(paddr)]
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
+                ==> old_store.regions.slot_owners[frame_to_index(
+                paddr,
+            )].inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+    ensures
+        s_after.accounting_inv(),
+{
+    let old_regions = old_store.regions;
+    let old_frames = old_store.frames;
+    let old_segments = old_store.segments;
+    assert forall|idx: int|
+        #![trigger s_after.regions.slot_owners[idx]]
+        0 <= idx < max_meta_slots()
+            && s_after.regions.slot_owners[idx].inner_perms.ref_count.value()
+            == REF_COUNT_UNUSED implies handle_count(s_after.frames, idx) == 0
+        && s_after.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
+        s_after.segments,
+        index_to_frame(idx),
+    ) == 0 by {
+        let paddr = index_to_frame(idx);
+        if range.start <= paddr < range.end {
+            assert(false);
+        } else {
+            lemma_segment_cover_insert_outside(old_segments, id, entry, paddr);
+        }
+    };
+    assert forall|idx: int|
+        #![trigger s_after.regions.slot_owners[idx]]
+        0 <= idx < max_meta_slots() && s_after.regions.slot_owners[idx].usage is Frame
+            && s_after.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            && s_after.regions.slot_owners[idx].inner_perms.ref_count.value()
+            != REF_COUNT_UNIQUE implies handle_count(s_after.frames, idx) > 0
+        || s_after.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
+        s_after.segments,
+        index_to_frame(idx),
+    ) > 0 by {
+        let paddr = index_to_frame(idx);
+        if range.start <= paddr < range.end {
+            lemma_segment_cover_insert_inside(old_segments, id, entry, paddr);
+        } else {
+            lemma_segment_cover_insert_outside(old_segments, id, entry, paddr);
+        }
+    };
+    assert forall|idx: int|
+        #![trigger s_after.regions.slot_owners[idx]]
+        0 <= idx < max_meta_slots() && s_after.regions.slot_owners[idx].usage is Frame && (
+        handle_count(s_after.frames, idx) > 0 || s_after.regions.slot_owners[idx].paths_in_pt.len()
+            > 0 || segment_cover_count(s_after.segments, index_to_frame(idx)) > 0) implies {
+        let so = s_after.regions.slot_owners[idx];
+        let rc = so.inner_perms.ref_count.value();
+        &&& rc != REF_COUNT_UNUSED
+        &&& rc != REF_COUNT_UNIQUE
+        &&& rc == handle_count(s_after.frames, idx) + so.paths_in_pt.len() + segment_cover_count(
+            s_after.segments,
+            index_to_frame(idx),
+        )
+        &&& so.inner_perms.storage.is_init()
+    } by {
+        let paddr = index_to_frame(idx);
+        if range.start <= paddr < range.end {
+            lemma_segment_cover_insert_inside(old_segments, id, entry, paddr);
+            // In-range post slot: rc == 1 (allocation axiom), H == 0 (frames
+            // unchanged and pre UNUSED ⟹ pre H == 0), paths empty, cover == 1.
+        } else {
+            lemma_segment_cover_insert_outside(old_segments, id, entry, paddr);
+        }
+    };
+}
+
 /// `Op::SegmentFromUnused` step. Allocates a fresh `SegmentEntry`
 /// covering `range` on success. Discharges `accounting_inv` from the
 /// post-state's per-slot ensures (every covered slot transitions
 /// `UNUSED → Frame, rc=1, raw_count=1`).
-proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Range<Paddr>)
+#[verifier::spinoff_prover]
+proof fn lemma_step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Range<Paddr>)
     requires
         old(s).inv(),
     ensures
         final(s).inv(),
 {
+    hide(VmStore::accounting_inv);
     // Exec `Segment::from_unused` returns `Err` (NotAligned/OutOfBound)
     // or rolls back its partial allocation (when some frame in `range`
     // is not free), leaving `regions` unchanged in every failure case.
@@ -2913,238 +3120,195 @@ proof fn step_segment_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, range: Ra
         // Slot-perm coverage in `range`: each range slot is `rc == UNUSED`,
         // which fails the PageTable-node coverage exception, so its perm
         // is parked (`slots.contains_key`).
-        assert forall|paddr: Paddr|
-            #![trigger frame_to_index(paddr)]
-            (range.start <= paddr < range.end && paddr % PAGE_SIZE
-                == 0) implies s.regions.slots.contains_key(frame_to_index(paddr)) by {
-            s.regions.inv_implies_correct_addr(paddr);
-        };
         let tracked res = segment::from_unused_step(&mut s.regions, range);
         match res {
             Option::Some(entry) => {
                 let ghost id = fresh_segment_id(s.segments);
                 lemma_fresh_segment_id_not_in_dom(s.segments);
-                s.insert_segment(id, entry);
+                s.lemma_insert_segment(id, entry);
                 // Slot-perm coverage: allocation preserves `slots` and
                 // never touches an unparked PT-root slot.
-                lemma_coverage_preserved_slots_eq(s_before, *s);
-                // Discharge accounting_inv on the post-state.
-                // Per-slot reasoning:
-                //   - Slot in `range`: pre rc=UNUSED ⟹ pre H=0, pre cover=0
-                //     (pre clause 1). Post rc=1, post H=0 (frames unchanged),
-                //     post cover=1 (one new segment covers this paddr).
-                //     Equation: post rc == post H + post paths + post cover
-                //                == 0 + 0 + 1 == 1. ✓
-                //   - Slot outside `range`: fully preserved (axiom); segments
-                //     gained one entry whose range doesn't cover this paddr,
-                //     so cover unchanged. Accounting carries from pre.
-                assert forall|idx: int|
-                    #![trigger s.regions.slot_owners[idx]]
-                    0 <= idx < max_meta_slots()
-                        && s.regions.slot_owners[idx].inner_perms.ref_count.value()
-                        == REF_COUNT_UNUSED implies handle_count(s.frames, idx) == 0
-                    && s.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
-                    s.segments,
-                    index_to_frame(idx),
-                ) == 0 by {
-                    let paddr = index_to_frame(idx);
-                    // Round-trip: idx < max ⟹ paddr aligned, in-bound.
-                    assert(paddr == (idx * PAGE_SIZE) as usize);
-                    assert(paddr % PAGE_SIZE == 0);
-                    assert(frame_to_index(paddr) == idx);
-                    if range.start <= paddr < range.end {
-                        // Slot in range: post rc=1 ≠ UNUSED — contradiction.
-                        assert(false);
-                    } else {
-                        // Slot outside range: fully preserved by axiom.
-                        assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
-                        // segments gained one entry; cover at this paddr is
-                        // the same as before (entry's range doesn't cover paddr).
-                        assert(!(entry.range.start <= paddr < entry.range.end));
-                        lemma_segment_cover_insert_outside(old_segments, id, entry, paddr);
-                    }
-                };
-                assert forall|idx: int|
-                    #![trigger s.regions.slot_owners[idx]]
-                    0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage is Frame
-                        && s.regions.slot_owners[idx].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED
-                        && s.regions.slot_owners[idx].inner_perms.ref_count.value()
-                        != REF_COUNT_UNIQUE implies handle_count(s.frames, idx) > 0
-                    || s.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
-                    s.segments,
-                    index_to_frame(idx),
-                ) > 0 by {
-                    let paddr = index_to_frame(idx);
-                    assert(paddr == (idx * PAGE_SIZE) as usize);
-                    assert(paddr % PAGE_SIZE == 0);
-                    assert(frame_to_index(paddr) == idx);
-                    if range.start <= paddr < range.end {
-                        assert(entry.range == range);
-                        lemma_segment_cover_insert_inside(old_segments, id, entry, paddr);
-                    } else {
-                        assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
-                        assert(!(entry.range.start <= paddr < entry.range.end));
-                        lemma_segment_cover_insert_outside(old_segments, id, entry, paddr);
-                    }
-                };
-                assert forall|idx: int|
-                    #![trigger s.regions.slot_owners[idx]]
-                    0 <= idx < max_meta_slots() && s.regions.slot_owners[idx].usage is Frame && (
-                    handle_count(s.frames, idx) > 0 || s.regions.slot_owners[idx].paths_in_pt.len()
-                        > 0 || segment_cover_count(s.segments, index_to_frame(idx)) > 0) implies {
-                    let so = s.regions.slot_owners[idx];
-                    let rc = so.inner_perms.ref_count.value();
-                    &&& rc != REF_COUNT_UNUSED
-                    &&& rc != REF_COUNT_UNIQUE
-                    &&& rc == handle_count(s.frames, idx) + so.paths_in_pt.len()
-                        + segment_cover_count(s.segments, index_to_frame(idx))
-                    &&& so.inner_perms.storage.is_init()
-                } by {
-                    let paddr = index_to_frame(idx);
-                    assert(paddr == (idx * PAGE_SIZE) as usize);
-                    assert(paddr % PAGE_SIZE == 0);
-                    assert(frame_to_index(paddr) == idx);
-                    if range.start <= paddr < range.end {
-                        assert(entry.range == range);
-                        lemma_segment_cover_insert_inside(old_segments, id, entry, paddr);
-                        // H == 0 at idx because pre UNUSED ⟹ pre H == 0
-                        // (pre clause 1) and frames unchanged.
-                        assert(handle_count(s.frames, idx) == 0);
-                    } else {
-                        assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
-                        assert(!(entry.range.start <= paddr < entry.range.end));
-                        lemma_segment_cover_insert_outside(old_segments, id, entry, paddr);
-                    }
-                };
-                // Discharge structural_inv's `in_list == 0` clause.
-                assert forall|idx: int|
-                    0 <= idx
-                        < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value()
-                    == 0 by {
-                    let paddr = index_to_frame(idx);
-                    assert(paddr == (idx * PAGE_SIZE) as usize);
-                    assert(paddr % PAGE_SIZE == 0);
-                    assert(frame_to_index(paddr) == idx);
-                    if range.start <= paddr < range.end {
-                        // Axiom: in_list == 0 post for in-range slots.
-                    } else {
-                        // Outside: fully preserved.
-                        assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
-                    }
-                };
+                // Discharge accounting_inv on the post-state via an isolated
+                // helper query (the three per-`idx` universal clauses are the
+                // SMT-cost hot spot of this step).
+                lemma_step_segment_from_unused_accounting(*s, s_before, range, id, entry);
                 // structural FrameId⟹Frame-usage: every existing fid's
                 // slot's usage preserved. Frame-usage slots are non-UNUSED
                 // pre (clause 4), so they're outside `range` (which is all
                 // UNUSED pre). Axiom fully preserves outside-range slots.
-                assert forall|fid_other: FrameId| #[trigger]
-                    s.frames.dom().contains(fid_other) implies s.regions.slot_owners[frame_to_index(
-                    s.frames[fid_other].paddr,
-                )].usage is Frame by {
-                    let other_idx = frame_to_index(s.frames[fid_other].paddr);
-                    let other_paddr = index_to_frame(other_idx);
-                    // pre fid_other's slot usage == Frame from old structural.
-                    assert(old_regions.slot_owners[other_idx].usage is Frame);
-                    // pre rc != UNUSED at fid_other's slot (clause 4 + H>=1).
-                    assert(old_frames.dom().filter(
-                        |gid: FrameId| frame_to_index(old_frames[gid].paddr) == other_idx,
-                    ).contains(fid_other));
-                    assert(handle_count(old_frames, other_idx) >= 1);
-                    assert(old_regions.slot_owners[other_idx].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED);
-                    // pre rc != UNUSED ⟹ paddr not in `range` (range slots are
-                    // all UNUSED).
-                    // ⟹ axiom preserves the slot fully.
-                    assert(s.regions.slot_owners[other_idx] == old_regions.slot_owners[other_idx]);
-                };
                 // Discharge the structural unique-entry validity clause. A
                 // UNIQUE slot is `usage == Frame` at `rc == REF_COUNT_UNIQUE`
                 // (`!= UNUSED`), so it is not in the freshly-allocated `range`
                 // (all-UNUSED) and the axiom preserves it fully.
-                assert forall|u: UniqueId| #[trigger] s.unique_frames.dom().contains(u) implies {
-                    let so = s.regions.slot_owners[frame_to_index(s.unique_frames[u].paddr)];
-                    &&& so.usage is Frame
-                    &&& so.inner_perms.ref_count.value() == REF_COUNT_UNIQUE
-                    &&& so.inner_perms.in_list.value() == 0
-                    &&& so.paths_in_pt.is_empty()
-                } by {
-                    let u_idx = frame_to_index(s.unique_frames[u].paddr);
-                    assert(old(s).unique_frames.dom().contains(u));
-                    // Old UNIQUE validity at `u`.
-                    assert(old_regions.slot_owners[u_idx].inner_perms.ref_count.value()
-                        == REF_COUNT_UNIQUE);
-                    assert(old_regions.slot_owners[u_idx].inner_perms.ref_count.value()
-                        != REF_COUNT_UNUSED);
-                    // rc != UNUSED ⟹ not in `range` ⟹ slot preserved.
-                    assert(s.regions.slot_owners[u_idx] == old_regions.slot_owners[u_idx]);
-                };
             },
-            Option::None => {
-                assert(s.regions == old_regions);
-                assert(s.segments == old_segments);
-            },
+            Option::None => {},
         }
     }
 }
 
-/// `Op::SegmentDrop` step. Removes the `SegmentEntry` at `sid` and
-/// releases the segment's forgotten reference at each covered frame.
-/// Frames whose `rc` reaches 1 transition to UNUSED.
-proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
+proof fn lemma_accounting_inv_intro<'rcu>(store: VmStore<'rcu>)
     requires
-        old(s).inv(),
-        old(s).segments.dom().contains(sid),
+        forall|idx: int|
+            #![trigger store.regions.slot_owners[idx]]
+            0 <= idx < max_meta_slots()
+                && store.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                ==> handle_count(store.frames, idx) == 0
+                && store.regions.slot_owners[idx].paths_in_pt.is_empty() && segment_cover_count(
+                store.segments,
+                index_to_frame(idx),
+            ) == 0,
+        forall|idx: int|
+            #![trigger store.regions.slot_owners[idx]]
+            0 <= idx < max_meta_slots() && store.regions.slot_owners[idx].usage is Frame
+                && store.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                && store.regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNIQUE
+                ==> handle_count(store.frames, idx) > 0
+                || store.regions.slot_owners[idx].paths_in_pt.len() > 0 || segment_cover_count(
+                store.segments,
+                index_to_frame(idx),
+            ) > 0,
+        forall|idx: int|
+            #![trigger store.regions.slot_owners[idx]]
+            0 <= idx < max_meta_slots() && store.regions.slot_owners[idx].usage is Frame && (
+            handle_count(store.frames, idx) > 0 || store.regions.slot_owners[idx].paths_in_pt.len()
+                > 0 || segment_cover_count(store.segments, index_to_frame(idx)) > 0) ==> {
+                let so = store.regions.slot_owners[idx];
+                let rc = so.inner_perms.ref_count.value();
+                &&& rc != REF_COUNT_UNUSED
+                &&& rc != REF_COUNT_UNIQUE
+                &&& rc == handle_count(store.frames, idx) + so.paths_in_pt.len()
+                    + segment_cover_count(store.segments, index_to_frame(idx))
+                &&& so.inner_perms.storage.is_init()
+            },
     ensures
-        final(s).inv(),
+        store.accounting_inv(),
 {
-    let ghost s_before = *s;
-    let ghost old_regions = s.regions;
-    let ghost old_frames = s.frames;
-    let ghost old_segments = s.segments;
-    let ghost range = s.segments[sid].range;
-    // Discharge segment::drop_step's preconditions from `s.inv()`
-    // BEFORE extracting (we need old_regions and old_segments).
+    reveal(VmStore::accounting_inv);
+}
+
+#[verifier::spinoff_prover]
+proof fn lemma_drop_segment_with_store_inv<'rcu>(
+    tracked regions: &mut MetaRegionOwners,
+    tracked entry: SegmentEntry,
+    store: VmStore<'rcu>,
+    sid: SegmentId,
+)
+    requires
+        store.inv(),
+        store.segments.dom().contains(sid),
+        entry == store.segments[sid],
+        *old(regions) == store.regions,
+    ensures
+        final(regions).inv(),
+        final(regions).slots == old(regions).slots,
+        forall|paddr: Paddr|
+            #![trigger frame_to_index(paddr)]
+            (entry.range.start <= paddr < entry.range.end && paddr % PAGE_SIZE == 0) ==> {
+                let idx = frame_to_index(paddr);
+                let so_old = old(regions).slot_owners[idx];
+                let so_new = final(regions).slot_owners[idx];
+                &&& so_old.inner_perms.ref_count.value() >= 1
+                &&& so_old.inner_perms.ref_count.value() <= REF_COUNT_MAX
+                &&& so_old.usage is Frame
+                &&& so_old.inner_perms.ref_count.value() == 1 ==> so_old.paths_in_pt.is_empty()
+                &&& so_new.usage == so_old.usage
+                &&& so_new.paths_in_pt == so_old.paths_in_pt
+                &&& so_new.slot_vaddr == so_old.slot_vaddr
+                &&& so_new.inner_perms.in_list == so_old.inner_perms.in_list
+                &&& so_old.inner_perms.ref_count.value() == 1
+                    ==> so_new.inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                &&& so_old.inner_perms.ref_count.value() > 1
+                    ==> so_new.inner_perms.ref_count.value() == (
+                so_old.inner_perms.ref_count.value() - 1) as u64
+            },
+        forall|i: int|
+            #![trigger final(regions).slot_owners[i]]
+            i < max_meta_slots() && !(entry.range.start <= index_to_frame(i) < entry.range.end)
+                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+        forall|i: int|
+            #![trigger final(regions).slot_owners[i]]
+            !old(regions).slots.contains_key(i) ==> final(regions).slot_owners[i] == old(
+                regions,
+            ).slot_owners[i],
+        forall|c: CursorOwner<'_, UserPtConfig>|
+            #![auto]
+            c.metaregion_sound(*old(regions)) ==> c.metaregion_sound(*final(regions)),
+{
+    hide(VmStore::inv);
+    hide(VmStore::structural_inv);
+    hide(VmStore::accounting_inv);
+    assert(store.structural_inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(store.accounting_inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(store.regions.inv()) by {
+        reveal(VmStore::structural_inv);
+    };
+    assert(entry.range.start % PAGE_SIZE == 0 && entry.range.end % PAGE_SIZE == 0
+        && entry.range.start < entry.range.end && entry.range.end <= MAX_PADDR) by {
+        reveal(VmStore::structural_inv);
+    };
     assert forall|paddr: Paddr|
-        #![trigger frame_to_index(paddr)]
-        (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0) implies {
-        let so = old_regions.slot_owners[frame_to_index(paddr)];
+        #![trigger store.regions.slot_owners[frame_to_index(paddr)]]
+        (entry.range.start <= paddr < entry.range.end && paddr % PAGE_SIZE == 0) implies {
+        let so = store.regions.slot_owners[frame_to_index(paddr)];
         &&& so.inner_perms.ref_count.value() >= 1
         &&& so.inner_perms.ref_count.value() <= REF_COUNT_MAX
         &&& so.usage is Frame
         &&& so.inner_perms.ref_count.value() == 1 ==> so.paths_in_pt.is_empty()
     } by {
+        reveal(VmStore::structural_inv);
+        reveal(VmStore::accounting_inv);
         let idx = frame_to_index(paddr);
-        // Cover >= 1 at paddr (this segment covers it).
-        lemma_segment_cover_contains(old_segments, sid, paddr);
-        // Usage == Frame from structural segment-covered ⟹ Frame clause.
-        assert(old_regions.slot_owners[idx].usage is Frame);
-        // Accounting clause 4: active head (cover > 0) ⟹ rc != UNUSED,
-        // rc != UNIQUE, rc == H + P + cover, storage init.
-        let so = old_regions.slot_owners[idx];
+        lemma_segment_cover_contains(store.segments, sid, paddr);
+        let so = store.regions.slot_owners[idx];
         let rc = so.inner_perms.ref_count.value();
-        assert(rc != REF_COUNT_UNUSED);
-        assert(rc != REF_COUNT_UNIQUE);
-        assert(rc == handle_count(old_frames, idx) + so.paths_in_pt.len() + segment_cover_count(
-            old_segments,
-            paddr,
-        ));
-        // rc >= 1 since cover >= 1 ⟹ H + P + cover >= 1.
-        // Triggers MetaSlotOwner::inv's SHARED branch (Item 1): rc in
-        // [1, MAX] ⟹ storage init, in_list == 0.
-        assert(old_regions.slot_owners.contains_key(idx));
-        // rc == 1 case: rc = H + P + cover = 1, cover >= 1 ⟹ cover == 1
-        // and H == 0 and P == 0 ⟹ paths empty.
+        assert(store.regions.contains(idx));
         if rc == 1 {
-            assert(handle_count(old_frames, idx) + so.paths_in_pt.len() + segment_cover_count(
-                old_segments,
+            assert(handle_count(store.frames, idx) + so.paths_in_pt.len() + segment_cover_count(
+                store.segments,
                 paddr,
             ) == 1);
             assert(so.paths_in_pt.len() == 0);
             assert(so.paths_in_pt == Set::empty());
         }
     };
-    let tracked entry = s.extract_segment(sid);
-    segment::drop_step(&mut s.regions, entry);
+    segment::drop_step(regions, entry);
+}
+
+/// `Op::SegmentDrop` step. Removes the `SegmentEntry` at `sid` and
+/// releases the segment's forgotten reference at each covered frame.
+/// Frames whose `rc` reaches 1 transition to UNUSED.
+#[verifier::spinoff_prover]
+proof fn lemma_step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
+    requires
+        old(s).inv(),
+        old(s).segments.dom().contains(sid),
+    ensures
+        final(s).inv(),
+{
+    hide(VmStore::inv);
+    hide(VmStore::structural_inv);
+    hide(VmStore::accounting_inv);
+    assert(s.structural_inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(s.accounting_inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(s.regions.inv()) by {
+        reveal(VmStore::structural_inv);
+    };
+    let ghost s_before = *s;
+    let ghost old_regions = s.regions;
+    let ghost old_frames = s.frames;
+    let ghost old_segments = s.segments;
+    let ghost range = s.segments[sid].range;
+    let tracked entry = s.tracked_extract_segment(sid);
+    assert(entry.range == range);
+    lemma_drop_segment_with_store_inv(&mut s.regions, entry, s_before, sid);
     // Slot-perm coverage: drop preserves `slots` and never touches an
     // unparked PT-root slot, so the coverage exception carries.
     lemma_coverage_preserved_slots_eq(s_before, *s);
@@ -3169,6 +3333,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         0 <= idx
             < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value()
         == 0 by {
+        reveal(VmStore::structural_inv);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(paddr % PAGE_SIZE == 0);
@@ -3188,6 +3353,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         s.segments,
         index_to_frame(idx),
     ) == 0 by {
+        reveal(VmStore::accounting_inv);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(paddr % PAGE_SIZE == 0);
@@ -3221,6 +3387,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         s.segments,
         index_to_frame(idx),
     ) > 0 by {
+        reveal(VmStore::accounting_inv);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(paddr % PAGE_SIZE == 0);
@@ -3257,6 +3424,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         )
         &&& so.inner_perms.storage.is_init()
     } by {
+        reveal(VmStore::accounting_inv);
         let paddr = index_to_frame(idx);
         assert(paddr == (idx * PAGE_SIZE) as usize);
         assert(paddr % PAGE_SIZE == 0);
@@ -3286,7 +3454,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
             // post rc <= MAX (pre rc was, post = pre - 1, still in range).
             // storage.is_init at post: post rc ∈ SHARED (1 <= post rc <= MAX)
             // ⟹ MetaSlotOwner::inv SHARED branch ⟹ storage.is_init.
-            assert(s.regions.slot_owners.contains_key(idx));
+            assert(s.regions.contains(idx));
             assert(s.regions.slot_owners[idx].inner_perms.storage.is_init());
         } else {
             assert(s.regions.slot_owners[idx] == old_regions.slot_owners[idx]);
@@ -3302,6 +3470,8 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         s.frames.dom().contains(fid_other) implies s.regions.slot_owners[frame_to_index(
         s.frames[fid_other].paddr,
     )].usage is Frame by {
+        reveal(VmStore::structural_inv);
+        reveal(VmStore::accounting_inv);
         let other_idx = frame_to_index(s.frames[fid_other].paddr);
         let other_paddr = index_to_frame(other_idx);
         // Pre fid_other's slot: usage == Frame (old structural).
@@ -3331,6 +3501,7 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         s.segments.dom().contains(sid_other) && s.segments[sid_other].range.start <= paddr_c
             < s.segments[sid_other].range.end && paddr_c % PAGE_SIZE
             == 0 implies s.regions.slot_owners[frame_to_index(paddr_c)].usage is Frame by {
+        reveal(VmStore::structural_inv);
         let cov_idx = frame_to_index(paddr_c);
         // sid_other != sid (since sid was removed from s.segments).
         assert(sid_other != sid);
@@ -3352,6 +3523,8 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         &&& so.inner_perms.in_list.value() == 0
         &&& so.paths_in_pt.is_empty()
     } by {
+        reveal(VmStore::structural_inv);
+        reveal(VmStore::accounting_inv);
         let u_paddr = s.unique_frames[u].paddr;
         let u_idx = frame_to_index(u_paddr);
         assert(old(s).unique_frames.dom().contains(u));
@@ -3369,13 +3542,24 @@ proof fn step_segment_drop<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
         // Outside range ⟹ teardown axiom preserves the slot fully.
         assert(s.regions.slot_owners[u_idx] == old_regions.slot_owners[u_idx]);
     };
+    lemma_accounting_inv_intro(*s);
+    assert(s.structural_inv()) by {
+        reveal(VmStore::structural_inv);
+    };
+    assert(s.inv()) by {
+        reveal(VmStore::inv);
+    };
 }
 
 /// `Op::SegmentSplit` step. Replaces `sid` with two fresh segment
 /// entries covering the disjoint halves; `regions` is unchanged.
 /// `accounting_inv` chains because per-paddr `cover_count` is
 /// invariant under the partition (see [`lemma_segment_cover_split`]).
-proof fn step_segment_split<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId, offset: usize)
+proof fn lemma_step_segment_split<'rcu>(
+    tracked s: &mut VmStore<'rcu>,
+    sid: SegmentId,
+    offset: usize,
+)
     requires
         old(s).inv(),
         old(s).segments.dom().contains(sid),
@@ -3406,13 +3590,13 @@ proof fn step_segment_split<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId,
     assert(id_right != sid);
     assert(id_right != id_left);
     // Now extract and insert.
-    let tracked _orig = s.extract_segment(sid);
+    let tracked _orig = s.tracked_extract_segment(sid);
     assert(!s.segments.dom().contains(id_left));
     let tracked entry_l = tracked_segment_entry_new(range.start..mid);
-    s.insert_segment(id_left, entry_l);
+    s.lemma_insert_segment(id_left, entry_l);
     assert(!s.segments.dom().contains(id_right));
     let tracked entry_r = tracked_segment_entry_new(mid..range.end);
-    s.insert_segment(id_right, entry_r);
+    s.lemma_insert_segment(id_right, entry_r);
     // Re-establish structural_inv + accounting_inv. Regions is
     // unchanged; the partition lemma gives per-paddr cover_count
     // preservation; so every invariant clause carries over from
@@ -3572,7 +3756,7 @@ proof fn step_segment_split<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId,
 ///   pre: `pre raw == pre cover` at every idx.
 ///   post at popped: `(pre raw - 1) == (pre cover - 1)`. ✓
 ///   post elsewhere: unchanged.
-proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
+proof fn lemma_step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     requires
         old(s).inv(),
         old(s).segments.dom().contains(sid),
@@ -3602,10 +3786,10 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     assert(pre_rc == pre_H + pre_P + pre_cover);
     assert(pre_rc != REF_COUNT_UNUSED);
     assert(pre_rc != REF_COUNT_UNIQUE);
-    assert(old_regions.slot_owners.contains_key(target_idx));
+    assert(old_regions.contains(target_idx));
     assert(valid_frame_paddr(paddr));
     s.regions.inv_implies_correct_addr(paddr);
-    assert(s.regions.slots.contains_key(target_idx));
+    assert(s.regions.contains(target_idx));
     // page-alignment + bound for shrink_front lemma.
     assert(range.start % PAGE_SIZE == 0);
     assert(range.end <= MAX_PADDR);
@@ -3615,13 +3799,13 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     let ghost fid = fresh_frame_id(s.frames);
     lemma_fresh_frame_id_not_in_dom(s.frames);
     let tracked frame_entry = tracked_frame_entry_new(paddr);
-    s.insert_frame(fid, frame_entry);
+    s.lemma_insert_frame(fid, frame_entry);
     // Now segment manipulation.
-    let tracked _old_entry = s.extract_segment(sid);
+    let tracked _old_entry = s.tracked_extract_segment(sid);
     segment::segment_next_embedded(&mut s.regions, paddr);
     if !will_become_empty {
         let tracked new_entry = tracked_segment_entry_new(new_range_start..new_range_end);
-        s.insert_segment(sid, new_entry);
+        s.lemma_insert_segment(sid, new_entry);
         assert(new_entry == new_entry_ghost);
         assert(s.segments == old_segments.remove(sid).insert(sid, new_entry_ghost));
     } else {
@@ -3815,7 +3999,9 @@ proof fn step_segment_next<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     };
 }
 
-proof fn step_segment_clone_range<'rcu>(
+#[verifier::spinoff_prover]
+#[verifier::rlimit(200)]
+proof fn lemma_step_segment_clone_range<'rcu>(
     tracked s: &mut VmStore<'rcu>,
     sid: SegmentId,
     sub_range: Range<Paddr>,
@@ -3837,6 +4023,18 @@ proof fn step_segment_clone_range<'rcu>(
     ensures
         final(s).inv(),
 {
+    hide(VmStore::inv);
+    hide(VmStore::structural_inv);
+    hide(VmStore::accounting_inv);
+    assert(s.structural_inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(s.accounting_inv()) by {
+        reveal(VmStore::inv);
+    };
+    assert(s.regions.inv()) by {
+        reveal(VmStore::structural_inv);
+    };
     let ghost old_regions = s.regions;
     let ghost old_frames = s.frames;
     let ghost old_segments = s.segments;
@@ -3845,7 +4043,9 @@ proof fn step_segment_clone_range<'rcu>(
 
     // `sub_range ⊆ sid`'s range, and `sid`'s range is in-bound, so the
     // new entry's range is well-formed (aligned / non-empty / bound).
-    assert(sid_range.end <= MAX_PADDR);
+    assert(sid_range.end <= MAX_PADDR) by {
+        reveal(VmStore::structural_inv);
+    };
     assert(sub_range.end <= MAX_PADDR);
 
     // Derive the clone axiom's per-frame preconditions from `s.inv()`:
@@ -3856,13 +4056,15 @@ proof fn step_segment_clone_range<'rcu>(
     // exec `inc_frame_ref_count` saturation guard) comes from this fn's
     // `requires`.
     assert forall|paddr: Paddr|
-        #![trigger frame_to_index(paddr)]
+        #![trigger old_regions.slot_owners[frame_to_index(paddr)]]
         (sub_range.start <= paddr < sub_range.end && paddr % PAGE_SIZE == 0) implies {
         let so = old_regions.slot_owners[frame_to_index(paddr)];
         &&& so.usage is Frame
         &&& so.inner_perms.ref_count.value() >= 1
         &&& so.inner_perms.ref_count.value() + 1 <= REF_COUNT_MAX
     } by {
+        reveal(VmStore::structural_inv);
+        reveal(VmStore::accounting_inv);
         // `paddr` is covered by `sid` (sub_range ⊆ sid's range).
         assert(old_segments.dom().contains(sid));
         assert(sid_range.start <= paddr < sid_range.end);
@@ -3879,7 +4081,7 @@ proof fn step_segment_clone_range<'rcu>(
     lemma_fresh_segment_id_not_in_dom(s.segments);
     assert(sid2 != sid);
     let tracked new_entry = tracked_segment_entry_new(sub_range);
-    s.insert_segment(sid2, new_entry);
+    s.lemma_insert_segment(sid2, new_entry);
     assert(new_entry =~= new_entry_ghost);
     assert(s.segments =~= old_segments.insert(sid2, new_entry_ghost));
     assert(s.frames == old_frames);
@@ -3904,6 +4106,7 @@ proof fn step_segment_clone_range<'rcu>(
     assert forall|idx: int|
         0 <= idx < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].usage
         == old_regions.slot_owners[idx].usage by {
+        reveal(VmStore::structural_inv);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -3918,6 +4121,7 @@ proof fn step_segment_clone_range<'rcu>(
         0 <= idx
             < max_meta_slots() implies #[trigger] s.regions.slot_owners[idx].inner_perms.in_list.value()
         == 0 by {
+        reveal(VmStore::structural_inv);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -3936,6 +4140,7 @@ proof fn step_segment_clone_range<'rcu>(
         s.segments.dom().contains(sid_other) && s.segments[sid_other].range.start <= paddr_c
             < s.segments[sid_other].range.end && paddr_c % PAGE_SIZE
             == 0 implies s.regions.slot_owners[frame_to_index(paddr_c)].usage is Frame by {
+        reveal(VmStore::structural_inv);
         let cov_idx = frame_to_index(paddr_c);
         if sid_other == sid2 {
             // Covered by the new entry ⟹ in sub_range ⊆ sid's range.
@@ -3954,7 +4159,7 @@ proof fn step_segment_clone_range<'rcu>(
         // gives `s.regions` usage == old usage == Frame at cov_idx.
         assert(valid_frame_paddr(paddr_c));
         s.regions.inv_implies_correct_addr(paddr_c);
-        assert(s.regions.slot_owners.contains_key(cov_idx));
+        assert(s.regions.contains(cov_idx));
     };
 
     // --- structural: FrameId ⟹ Frame-usage (frames unchanged) ---
@@ -3962,12 +4167,13 @@ proof fn step_segment_clone_range<'rcu>(
         s.frames.dom().contains(fid_other) implies s.regions.slot_owners[frame_to_index(
         s.frames[fid_other].paddr,
     )].usage is Frame by {
+        reveal(VmStore::structural_inv);
         let other_idx = frame_to_index(s.frames[fid_other].paddr);
         assert(old_frames.dom().contains(fid_other));
         assert(old_regions.slot_owners[other_idx].usage is Frame);
         assert(valid_frame_paddr(s.frames[fid_other].paddr));
         s.regions.inv_implies_correct_addr(s.frames[fid_other].paddr);
-        assert(s.regions.slot_owners.contains_key(other_idx));
+        assert(s.regions.contains(other_idx));
         // `other_0 <= idx < max_meta_slots()` (biimplication) ⟹ universal
         // usage-preservation above gives Frame-usage at other_idx.
     };
@@ -3981,6 +4187,7 @@ proof fn step_segment_clone_range<'rcu>(
         s.segments,
         index_to_frame(idx),
     ) == 0 by {
+        reveal(VmStore::accounting_inv);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -4002,6 +4209,7 @@ proof fn step_segment_clone_range<'rcu>(
         s.segments,
         index_to_frame(idx),
     ) > 0 by {
+        reveal(VmStore::accounting_inv);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -4031,6 +4239,7 @@ proof fn step_segment_clone_range<'rcu>(
         )
         &&& so.inner_perms.storage.is_init()
     } by {
+        reveal(VmStore::accounting_inv);
         let aligned = index_to_frame(idx);
         assert(aligned == (idx * PAGE_SIZE) as usize);
         assert(frame_to_index(aligned) == idx);
@@ -4052,6 +4261,8 @@ proof fn step_segment_clone_range<'rcu>(
         &&& so.inner_perms.in_list.value() == 0
         &&& so.paths_in_pt.is_empty()
     } by {
+        reveal(VmStore::structural_inv);
+        reveal(VmStore::accounting_inv);
         let u_paddr = s.unique_frames[u].paddr;
         let u_idx = frame_to_index(u_paddr);
         assert(old(s).unique_frames.dom().contains(u));
@@ -4068,12 +4279,19 @@ proof fn step_segment_clone_range<'rcu>(
         };
         assert(s.regions.slot_owners[u_idx] == old_regions.slot_owners[u_idx]);
     };
+    lemma_accounting_inv_intro(*s);
+    assert(s.structural_inv()) by {
+        reveal(VmStore::structural_inv);
+    };
+    assert(s.inv()) by {
+        reveal(VmStore::inv);
+    };
 }
 
 /// `Op::SegmentClone` step. Produces a second handle covering the same
 /// range as `sid` (a fresh `SegmentEntry` mirroring `sid`'s range, with
 /// every covered frame's `rc` bumped by 1).
-proof fn step_segment_clone<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
+proof fn lemma_step_segment_clone<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     requires
         old(s).inv(),
         old(s).segments.dom().contains(sid),
@@ -4086,7 +4304,7 @@ proof fn step_segment_clone<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     ensures
         final(s).inv(),
 {
-    // Clone is `step_segment_clone_range` over `sid`'s whole range. The
+    // Clone is `lemma_step_segment_clone_range` over `sid`'s whole range. The
     // range's well-formedness (aligned / non-empty / in-bound) comes
     // from `structural_inv`'s per-segment range clause.
     let ghost r = s.segments[sid].range;
@@ -4094,12 +4312,12 @@ proof fn step_segment_clone<'rcu>(tracked s: &mut VmStore<'rcu>, sid: SegmentId)
     assert(r.end % PAGE_SIZE == 0);
     assert(r.start < r.end);
     assert(r.end <= MAX_PADDR);
-    step_segment_clone_range(s, sid, r);
+    lemma_step_segment_clone_range(s, sid, r);
 }
 
 /// `Op::SegmentSlice` step. Produces a handle covering `sub_range`
 /// (⊆ `sid`'s range), bumping the `rc` of every frame inside it.
-proof fn step_segment_slice<'rcu>(
+proof fn lemma_step_segment_slice<'rcu>(
     tracked s: &mut VmStore<'rcu>,
     sid: SegmentId,
     sub_range: Range<Paddr>,
@@ -4121,10 +4339,10 @@ proof fn step_segment_slice<'rcu>(
     ensures
         final(s).inv(),
 {
-    step_segment_clone_range(s, sid, sub_range);
+    lemma_step_segment_clone_range(s, sid, sub_range);
 }
 
-proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
+proof fn lemma_step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Paddr)
     requires
         old(s).inv(),
     ensures
@@ -4145,7 +4363,7 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
 
         // `idx` in range; `paddr` is its page base.
         s.regions.inv_implies_correct_addr(paddr);
-        assert(s.regions.slot_owners.contains_key(idx));
+        assert(s.regions.contains(idx));
         assert(index_to_frame(idx) == paddr);
 
         // Pre "no users" facts at the UNUSED slot (accounting clause 1).
@@ -4160,7 +4378,7 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
         let ghost uid = fresh_unique_id(s.unique_frames);
         lemma_fresh_unique_id_not_in_dom(s.unique_frames);
         let tracked entry = tracked_unique_entry_new(paddr);
-        s.insert_unique(uid, entry);
+        s.lemma_insert_unique(uid, entry);
         assert(s.unique_frames =~= old_unique.insert(uid, UniqueEntry { paddr }));
         assert(s.frames == old_frames);
         assert(s.segments == old_segments);
@@ -4329,7 +4547,7 @@ proof fn step_unique_from_unused<'rcu>(tracked s: &mut VmStore<'rcu>, paddr: Pad
 /// accounting clause 1 (UNUSED ⟹ no users) because the UNIQUE slot had
 /// none (clause 0); the remaining unique entries stay valid because
 /// injectivity put none of them at `idx`.
-proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
+proof fn lemma_step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     requires
         old(s).inv(),
         old(s).unique_frames.dom().contains(uid),
@@ -4347,7 +4565,7 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     // branch of `MetaSlotOwner::inv`.
     assert(valid_frame_paddr(paddr));
     s.regions.inv_implies_correct_addr(paddr);
-    assert(s.regions.slot_owners.contains_key(idx));
+    assert(s.regions.contains(idx));
     assert(index_to_frame(idx) == paddr);
     assert(s.regions.slot_owners[idx].usage is Frame);
     assert(s.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
@@ -4372,7 +4590,7 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     };
 
     // Remove the entry, then tear the slot down.
-    let tracked _entry = s.extract_unique(uid);
+    let tracked _entry = s.tracked_extract_unique(uid);
     unique::unique_drop_embedded(&mut s.regions, paddr);
     assert(s.unique_frames =~= old_unique.remove(uid));
     assert(s.frames == old_frames);
@@ -4519,7 +4737,7 @@ proof fn step_unique_drop<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
 /// and a fresh `FrameEntry` registered (`H: 0 → 1`). The slot becomes a
 /// SHARED active head with `rc == 1 == H + P + cover` (`P == cover == 0`
 /// derived from the pre-UNIQUE no-users facts).
-proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
+proof fn lemma_step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     requires
         old(s).inv(),
         old(s).unique_frames.dom().contains(uid),
@@ -4536,7 +4754,7 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     // Slot facts from the structural unique-entry clause + UNIQUE branch.
     assert(valid_frame_paddr(paddr));
     s.regions.inv_implies_correct_addr(paddr);
-    assert(s.regions.slot_owners.contains_key(idx));
+    assert(s.regions.contains(idx));
     assert(index_to_frame(idx) == paddr);
     assert(s.regions.slot_owners[idx].usage is Frame);
     assert(s.regions.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNIQUE);
@@ -4558,14 +4776,14 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
     };
 
     // Consume the unique handle, transition rc UNIQUE → 1.
-    let tracked _ue = s.extract_unique(uid);
+    let tracked _ue = s.tracked_extract_unique(uid);
     unique::from_unique_embedded(&mut s.regions, paddr);
 
     // Register the fresh shared FrameEntry.
     let ghost fid = fresh_frame_id(s.frames);
     lemma_fresh_frame_id_not_in_dom(s.frames);
     let tracked fe = tracked_frame_entry_new(paddr);
-    s.insert_frame(fid, fe);
+    s.lemma_insert_frame(fid, fe);
     assert(s.frames =~= old_frames.insert(fid, FrameEntry { paddr }));
     assert(s.unique_frames =~= old_unique.remove(uid));
     assert(s.segments == old_segments);
@@ -4714,7 +4932,7 @@ proof fn step_from_unique<'rcu>(tracked s: &mut VmStore<'rcu>, uid: UniqueId)
 /// then the slot rises `1 → UNIQUE`, the `FrameEntry` is consumed and a
 /// fresh `UniqueEntry` registered. Otherwise the CAS fails and the
 /// store is unchanged.
-proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
+proof fn lemma_step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     requires
         old(s).inv(),
         old(s).frames.dom().contains(fid),
@@ -4727,7 +4945,7 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
     // to `handle_count` (so the slot is an active head).
     assert(valid_frame_paddr(paddr));
     s.regions.inv_implies_correct_addr(paddr);
-    assert(s.regions.slot_owners.contains_key(idx));
+    assert(s.regions.contains(idx));
     assert(index_to_frame(idx) == paddr);
     assert(s.regions.slot_owners[idx].usage is Frame);
     assert(s.frames.dom().filter(
@@ -4749,7 +4967,7 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
         assert(s.regions.slot_owners[idx].paths_in_pt =~= Set::empty());
 
         // Consume the sole FrameEntry, transition rc 1 → UNIQUE.
-        let tracked _fe = s.extract_frame(fid);
+        let tracked _fe = s.tracked_extract_frame(fid);
         assert(s.frames =~= old_frames.remove(fid));
         unique::try_from_shared_embedded(&mut s.regions, paddr);
 
@@ -4757,7 +4975,7 @@ proof fn step_try_from_shared<'rcu>(tracked s: &mut VmStore<'rcu>, fid: FrameId)
         let ghost uid = fresh_unique_id(s.unique_frames);
         lemma_fresh_unique_id_not_in_dom(s.unique_frames);
         let tracked ue = tracked_unique_entry_new(paddr);
-        s.insert_unique(uid, ue);
+        s.lemma_insert_unique(uid, ue);
         assert(s.unique_frames =~= old_unique.insert(uid, UniqueEntry { paddr }));
         assert(s.segments == old_segments);
         // `idx` now has no shared handle (the sole `fid` was removed).

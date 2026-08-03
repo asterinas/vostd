@@ -5,7 +5,7 @@ use vstd_extra::{arithmetic::*, ghost_tree::*, ownership::*};
 
 use crate::specs::{
     arch::{MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE},
-    mm::page_table::{Mapping, cursor::owners::*, owners::PageTableOwner},
+    mm::page_table::{Mapping, cursor::owners::*, owners::PageTableOwner, vaddr_range_spec},
 };
 
 use crate::arch::mm::PagingConsts;
@@ -18,6 +18,43 @@ verus! {
 broadcast use group_ghost_tree_lemmas;
 
 impl<C: PageTableConfig> CursorView<C> {
+    proof fn lemma_split_index_inv(m: Mapping, new_size: usize, k: int)
+        requires
+            m.inv(),
+            new_size > 0,
+            m.page_size % new_size == 0,
+            set![4096usize, 2097152, 1073741824].contains(new_size),
+            m.va_range.start % new_size as int == 0,
+            0 <= k < m.page_size as int / new_size as int,
+        ensures
+            Self::split_index(m, new_size, k as usize).inv(),
+            m.va_range.start <= Self::split_index(m, new_size, k as usize).va_range.start,
+            Self::split_index(m, new_size, k as usize).va_range.end <= m.va_range.end,
+    {
+        let ps = m.page_size as int;
+        let ns = new_size as int;
+        let count = ps / ns;
+        let sub = Self::split_index(m, new_size, k as usize);
+
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps, ns);
+        assert(ps == count * ns) by {
+            vstd::arithmetic::mul::lemma_mul_is_commutative(ns, count);
+        };
+        vstd::arithmetic::mul::lemma_mul_inequality(k + 1, count, ns);
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(ns, k, 1);
+
+        vstd::arithmetic::div_mod::lemma_mod_mod(m.pa_range.start as int, ns, count);
+        assert((m.pa_range.start as int) % ns == 0);
+        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(k, ns);
+        vstd::arithmetic::div_mod::lemma_mod_multiples_basic(k + 1, ns);
+        vstd_extra::arithmetic::lemma_mod_0_add(m.pa_range.start as int, k * ns, ns);
+        vstd_extra::arithmetic::lemma_mod_0_add(m.pa_range.start as int, (k + 1) * ns, ns);
+        vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, k * ns, ns);
+        vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, (k + 1) * ns, ns);
+
+        assert(sub.inv());
+    }
+
     /// After `split_if_mapped_huge_spec(new_size)`, a sub-mapping at `cur_va`
     /// still exists.  The witness is `split_index(m, new_size, k)` where
     /// `k = (cur_va - m.va_range.start) / new_size`.
@@ -141,6 +178,8 @@ impl<C: PageTableConfig> CursorView<C> {
     /// Requires: `v.inv()`, `v.present()`, the mapping at `cur_va` has
     /// `page_size > new_size`, `page_size % new_size == 0`, and `new_size`
     /// is itself a valid page size.
+    #[verifier::rlimit(80)]
+    #[verifier::spinoff_prover]
     pub proof fn split_if_mapped_huge_spec_preserves_inv(v: Self, new_size: usize)
         requires
             v.inv(),
@@ -169,6 +208,31 @@ impl<C: PageTableConfig> CursorView<C> {
         assert(m.va_range.start % new_size as int == 0) by {
             vstd::arithmetic::mul::lemma_mul_is_commutative(count, ns);
             vstd::arithmetic::div_mod::lemma_mod_mod(m.va_range.start as int, ns, count);
+        };
+
+        let domain = Set::<int>::range(0int, count);
+        let new_mappings = domain.map(|n: int| Self::split_index(m, new_size, n as usize));
+        let new_self = v.split_if_mapped_huge_spec(new_size);
+
+        assert forall|m2: Mapping| #[trigger] new_self.mappings.contains(m2) implies m2.inv() by {
+            if v.mappings.contains(m2) && m2 != m {
+            } else {
+                let k = choose|k: int|
+                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == m2;
+                Self::lemma_split_index_inv(m, new_size, k);
+            }
+        };
+
+        assert forall|m2: Mapping| #[trigger] new_self.mappings.contains(m2) implies {
+            &&& vaddr_range_spec::<C>().start <= m2.va_range.start
+            &&& m2.va_range.end <= vaddr_range_spec::<C>().end + 1
+        } by {
+            if v.mappings.contains(m2) && m2 != m {
+            } else {
+                let k = choose|k: int|
+                    0 <= k < count && #[trigger] Self::split_index(m, new_size, k as usize) == m2;
+                Self::lemma_split_index_inv(m, new_size, k);
+            }
         };
     }
 

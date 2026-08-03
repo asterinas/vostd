@@ -1730,8 +1730,8 @@ unsafe impl PageTableConfig for UserPtConfig {
         new_regions: MetaRegionOwners,
         res: Self::Item,
     ) {
-        use crate::specs::mm::frame::mapping::frame_to_index;
-        let frame_idx = frame_to_index(meta_to_frame(item.frame.ptr.addr()));
+        use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_index};
+        let frame_idx = meta_to_index(item.frame.ptr.addr());
         assert(frame_to_index(pa) == frame_idx);
         assert(<MappedItem as RCClone>::clone_ensures(item, old_regions, new_regions, res));
         assert(item.frame.clone_ensures(old_regions, new_regions, res.frame));
@@ -1744,12 +1744,12 @@ unsafe impl PageTableConfig for UserPtConfig {
         prop: PageProperty,
         regions: MetaRegionOwners,
     ) {
-        use crate::specs::mm::frame::mapping::frame_to_index;
+        use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_index};
         broadcast use crate::specs::mm::frame::mapping::group_page_meta;
 
         Self::lemma_item_from_raw_well_formed(pa, level, prop);
         assert(meta_to_frame(item.frame.ptr.addr()) == pa);
-        assert(frame_to_index(meta_to_frame(item.frame.ptr.addr())) == frame_to_index(pa));
+        assert(meta_to_index(item.frame.ptr.addr()) == frame_to_index(pa));
     }
 
     proof fn lemma_page_table_config_constant_requirements() {

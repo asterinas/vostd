@@ -9,7 +9,7 @@ use crate::specs::{
     arch::*,
     mm::{
         frame::{
-            mapping::{frame_to_index, index_to_meta},
+            mapping::{frame_to_index, index_to_meta, meta_to_index},
             meta_owners::PageUsage,
             meta_region_owners::MetaRegionOwners,
         },
@@ -812,8 +812,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         let slot_vaddr = self.node().meta_vaddr();
         let other_addr = other.node().meta_vaddr();
-        let self_idx = frame_to_index(meta_to_frame(slot_vaddr));
-        let other_idx = frame_to_index(meta_to_frame(other_addr));
+        let self_idx = meta_to_index(slot_vaddr);
+        let other_idx = meta_to_index(other_addr);
 
         if slot_vaddr == other_addr {
             assert(set![self.path].contains(other.path));

@@ -218,6 +218,7 @@ pub type Token<const TOTAL: u64> = CountGhost<(), TOTAL>;
 /// Unlike `Frac`, it provides an `empty` state.
 pub tracked struct CountResource<T, const TOTAL: u64> {
     tracked r: Option<Count<T, TOTAL>>,
+    tracked empty: Option<EmptyCount<T, TOTAL>>,
     ghost id: Loc,
 }
 
@@ -228,6 +229,10 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         &&& 0 <= self.frac() <= TOTAL
         &&& match self.r {
             Some(frac) => self.id == frac.id(),
+            None => true,
+        }
+        &&& match self.empty {
+            Some(empty) => self.r is None && self.id == empty.id(),
             None => true,
         }
     }
@@ -244,7 +249,10 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         &&& self.type_inv()
     }
 
-    /// Whether this `CountResource` is empty, i.e., has no fraction.
+    /// Whether this `CountResource` has no fraction.
+    ///
+    /// This does not imply [`Self::is_resource_vacant`]: it may have reached fraction zero
+    /// because all of its fractions were split out.
     pub open spec fn is_empty(self) -> bool {
         self.frac() == 0
     }
@@ -257,6 +265,26 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
     /// Whether this `CountResource` has the full fraction, i.e., `TOTAL`.
     pub open spec fn is_full(self) -> bool {
         self.frac() == TOTAL
+    }
+
+    /// Whether the associated resource slot is vacant and can accept a new resource.
+    ///
+    /// This state is produced by [`Self::take_resource`] and owns the underlying empty token
+    /// needed by [`Self::put_resource`]. Resource vacancy implies [`Self::is_empty`], but the
+    /// converse does not hold when all fractions were removed using [`Self::split`] or
+    /// [`Self::split_one`].
+    pub closed spec fn is_resource_vacant(self) -> bool {
+        self.empty is Some
+    }
+
+    /// A resource-vacant `CountResource` has no fraction.
+    pub proof fn lemma_resource_vacant_implies_empty(tracked &self)
+        requires
+            self.is_resource_vacant(),
+        ensures
+            self.is_empty(),
+    {
+        use_type_invariant(self);
     }
 
     /// Returns the value of type `T` stored in this `CountResource`.
@@ -289,7 +317,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         requires
             TOTAL > 0,
     {
-        Self { r: None, id: arbitrary() }
+        Self { r: None, empty: None, id: arbitrary() }
     }
 
     /// Allocates a new `CountResource` with the given tracked object.
@@ -299,11 +327,12 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         ensures
             res.not_empty(),
             res.is_full(),
+            !res.is_resource_vacant(),
             res@ == value,
             res.wf(),
     {
         let tracked r = Count::new(value);
-        Self { r: Some(r), id: r.id() }
+        Self { r: Some(r), empty: None, id: r.id() }
     }
 
     /// Allocates a new `CountResource` from an `EmptyCount<T,TOTAL>` with the given tracked object.
@@ -315,12 +344,13 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             TOTAL > 0,
         ensures
             res.is_full(),
+            !res.is_resource_vacant(),
             res.id() == empty.id(),
             res.view() == value,
             res.wf(),
     {
         let tracked r = empty.put_resource(value);
-        Self { r: Some(r), id: r.id() }
+        Self { r: Some(r), empty: None, id: r.id() }
     }
 
     /// Splits a `Count` with fraction 1.
@@ -335,6 +365,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             res.id() == final(self).id(),
             res.resource() == old(self)@,
             old(self).frac() == 1 ==> final(self).is_empty(),
+            !final(self).is_resource_vacant(),
             final(self).wf(),
     {
         use_type_invariant(&*self);
@@ -361,6 +392,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             res.id() == final(self).id(),
             res.resource() == old(self)@,
             old(self).frac() == n ==> final(self).is_empty(),
+            !final(self).is_resource_vacant(),
             final(self).wf(),
     {
         use_type_invariant(&*self);
@@ -385,15 +417,17 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
                 &&& final(self).id() == old(self).id()
                 &&& final(self).resource() == other.resource()
                 &&& final(self).frac() == old(self).frac() + other.frac()
+                &&& !final(self).is_resource_vacant()
                 &&& final(self).wf()
                 &&& old(self).frac() > 0 ==> final(self)@ == old(self)@
             },
     {
+        use_type_invariant(&*self);
         if self.is_empty() {
             other.bounded();
+            self.empty = None;
             self.r = Some(other);
         } else {
-            use_type_invariant(&*self);
             self.validate_with_frac(&other);
             let tracked mut r = self.r.tracked_take();
             r.combine(other);
@@ -432,17 +466,39 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         frac.agree(self.r.tracked_borrow());
     }
 
-    /// Consumes the token and takes out the resource.
-    pub proof fn take_resource(tracked self) -> (tracked (res, empty): (T, EmptyCount<T, TOTAL>))
+    /// Takes the resource out and leaves this token ready to accept a new resource.
+    pub proof fn take_resource(tracked &mut self) -> (tracked res: T)
         requires
             self.is_full(),
         ensures
-            res == self@,
-            empty.id() == self.id(),
+            final(self).is_empty(),
+            final(self).is_resource_vacant(),
+            final(self).id() == old(self).id(),
+            res == old(self)@,
+            final(self).wf(),
     {
-        use_type_invariant(&self);
-        let tracked r = self.r.tracked_unwrap();
-        r.take_resource()
+        use_type_invariant(&*self);
+        let tracked r = self.r.tracked_take();
+        let tracked (res, empty) = r.take_resource();
+        self.empty = Some(empty);
+        res
+    }
+
+    /// Puts a resource into a token returned to the empty state by `take_resource`.
+    pub proof fn put_resource(tracked &mut self, tracked value: T)
+        requires
+            old(self).is_resource_vacant(),
+        ensures
+            final(self).is_full(),
+            !final(self).is_resource_vacant(),
+            final(self).id() == old(self).id(),
+            final(self)@ == value,
+            final(self).wf(),
+    {
+        use_type_invariant(&*self);
+        let tracked empty = self.empty.tracked_take();
+        let tracked r = empty.put_resource(value);
+        self.r = Some(r);
     }
 
     /// Updates the resource stored in this `CountResource` and retunrs the old resource if it exists.
@@ -452,15 +508,13 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             old(self).is_full(),
         ensures
             final(self).is_full(),
+            !final(self).is_resource_vacant(),
             res == old(self)@,
             final(self).id() == old(self).id(),
             final(self).wf(),
     {
-        use_type_invariant(&*self);
-        let tracked mut r = self.r.tracked_take();
-        let tracked (res, empty) = r.take_resource();
-        let tracked r = empty.put_resource(value);
-        self.r = Some(r);
+        let tracked res = self.take_resource();
+        self.put_resource(value);
         res
     }
 }

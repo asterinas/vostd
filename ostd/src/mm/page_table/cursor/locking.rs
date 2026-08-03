@@ -68,14 +68,14 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // nodes (bumping some parent ref counts), but ref counts stay within
         // safe bounds during a single lock_range call.
         (forall |i: int| #![trigger old(regions).slot_owners[i]]
-            old(regions).slot_owners.contains_key(i)
+            old(regions).contains(i)
             && old(regions).slot_owners[i].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
             ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
                 < REF_COUNT_MAX)
         ==>
         (forall |i: int| #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners.contains_key(i)
+            final(regions).contains(i)
             && final(regions).slot_owners[i].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[i].inner_perms.ref_count.value() + 1
@@ -92,7 +92,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         // `try_traverse_and_lock_subtree_root`'s in-use preservation with
         // `dfs_acquire_lock`'s `slot_owners ==` preservation.
         forall|idx: int| #![trigger final(regions).slot_owners[idx]]
-            old(regions).slot_owners.contains_key(idx)
+            old(regions).contains(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()
@@ -184,8 +184,7 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     let ghost cont_slot_idx = cont.entry_own.tracked_borrow_node().slot_index;
     proof {
         assert(cont.entry_own.metaregion_sound(*regions));
-        assert(regions.slots.contains_key(cont_slot_idx));
-        assert(regions.slot_owners.contains_key(cont_slot_idx));
+        assert(regions.contains(cont_slot_idx));
     }
     let tracked cont_node_owner = cont.entry_own.tracked_borrow_node();
     #[verus_spec(with Tracked(cont_node_owner), Tracked(&*regions))]
@@ -224,15 +223,13 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
             == pt_own.0.value().path);
         assume((forall|i: int|
             #![trigger old(regions).slot_owners[i]]
-            old(regions).slot_owners.contains_key(i) && old(
-                regions,
-            ).slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED ==> old(
-                regions,
-            ).slot_owners[i].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX) ==> (forall|i: int|
+            old(regions).contains(i) && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                != REF_COUNT_UNUSED ==> old(regions).slot_owners[i].inner_perms.ref_count.value()
+                + 1 < REF_COUNT_MAX) ==> (forall|i: int|
             #![trigger regions.slot_owners[i]]
-            regions.slot_owners.contains_key(i)
-                && regions.slot_owners[i].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX));
+            regions.contains(i) && regions.slot_owners[i].inner_perms.ref_count.value()
+                != REF_COUNT_UNUSED ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
+                < REF_COUNT_MAX));
     }
     res
 }
@@ -316,7 +313,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         // usage are exactly preserved — locking only allocates fresh PT
         // nodes from UNUSED slots; it never mutates a slot already in use.
         forall|idx: int| #![trigger final(regions).slot_owners[idx]]
-            old(regions).slot_owners.contains_key(idx)
+            old(regions).contains(idx)
             && old(regions).slot_owners[idx].inner_perms.ref_count.value()
                 != REF_COUNT_UNUSED
             ==> final(regions).slot_owners[idx].inner_perms.ref_count.value()

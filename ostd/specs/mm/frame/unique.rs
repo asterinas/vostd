@@ -7,7 +7,7 @@ use crate::specs::{
     mm::{
         Paddr,
         frame::{
-            mapping::{frame_to_index, index_to_meta, max_meta_slots},
+            mapping::{frame_to_index, index_to_meta, max_meta_slots, meta_to_index},
             meta_region_owners::MetaRegionOwners,
         },
     },
@@ -115,16 +115,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<M>(
-            regions.slots[self.slot_index],
+            *regions.slots[self.slot_index],
             regions.slot_owners[self.slot_index].inner_perms.storage,
             self.repr_perm->0,
         )
     }
 
-    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> M
-        recommends
-            self.meta_wf(regions),
-    {
+    pub open spec fn meta_value(self, regions: MetaRegionOwners) -> M {
         typed_meta_value::<M>(
             regions.slot_owners[self.slot_index].inner_perms.storage,
             self.repr_perm->0,
@@ -146,8 +143,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     /// obligation in `frame_obligations` (minted at `from_unused`/`from_raw`,
     /// consumed by `drop`/`into_raw`).
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
-        &&& regions.slots.contains_key(self.slot_index)
-        &&& regions.slot_owners.contains_key(self.slot_index)
+        &&& regions.contains(self.slot_index)
         &&& self.meta_wf(regions)
         &&& regions.slots[self.slot_index].addr() == index_to_meta(self.slot_index)
         &&& self.meta_value(regions).wf(self.meta_own)
@@ -219,10 +215,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     type Obligation = DropObligation<int>;
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
-        &&& s.slot_owners.contains_key(self.index())
-        &&& s.slot_owners[frame_to_index(
-            meta_to_frame(self.ptr.addr()),
-        )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& s.contains(self.index())
+        &&& s.slot_owners[meta_to_index(self.ptr.addr())].inner_perms.ref_count.value()
+            != REF_COUNT_UNUSED
         &&& s.inv()
     }
 
@@ -260,7 +255,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     }
 
     open spec fn drop_requires(self, s: Self::State, obl: Self::Obligation) -> bool {
-        &&& s.slot_owners.contains_key(self.index())
+        &&& s.contains(self.index())
         &&& s.inv()
         &&& s.frame_obligations.count(self.index()) > 0
         &&& obl.value() == self.index()

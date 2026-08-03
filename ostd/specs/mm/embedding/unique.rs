@@ -84,7 +84,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
     requires
         old(regions).inv(),
         valid_frame_paddr(paddr),
-        old(regions).slots.contains_key(frame_to_index(paddr)),
+        old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
             == REF_COUNT_UNUSED,
@@ -128,7 +128,7 @@ pub axiom fn unique_from_unused_embedded(tracked regions: &mut MetaRegionOwners,
 pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr: Paddr)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index(paddr)),
+        old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
             == REF_COUNT_UNIQUE,
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.in_list.value() == 0,
@@ -170,7 +170,7 @@ pub axiom fn unique_drop_embedded(tracked regions: &mut MetaRegionOwners, paddr:
 pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr: Paddr)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index(paddr)),
+        old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value()
             == REF_COUNT_UNIQUE,
     ensures
@@ -206,7 +206,7 @@ pub axiom fn from_unique_embedded(tracked regions: &mut MetaRegionOwners, paddr:
 pub axiom fn try_from_shared_embedded(tracked regions: &mut MetaRegionOwners, paddr: Paddr)
     requires
         old(regions).inv(),
-        old(regions).slots.contains_key(frame_to_index(paddr)),
+        old(regions).contains(frame_to_index(paddr)),
         old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == 1,
         old(regions).slot_owners[frame_to_index(paddr)].usage is Frame,
         old(regions).slot_owners[frame_to_index(paddr)].paths_in_pt.is_empty(),

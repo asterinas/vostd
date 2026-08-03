@@ -158,7 +158,7 @@ impl<T, const TOTAL: u64> CountGhost<T, TOTAL> {
         requires
             TOTAL > 0,
         ensures
-            result.frac() == TOTAL as int,
+            result.frac() == TOTAL,
             result@ == v,
     {
         let f = FractionalCarrier::<T, TOTAL>::new(v);

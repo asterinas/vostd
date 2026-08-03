@@ -3,7 +3,7 @@
 //! Per-op steps operate on tracked owners directly — no store lookups,
 //! no preconditions on store membership, no `if`-guards. The store-side
 //! extract / insert and id-management lives in
-//! [`super::VmStore`]'s methods and the [`super::step`] dispatcher.
+//! [`super::VmStore`]'s methods and the [`super::lemma_step`] dispatcher.
 //!
 //! Methods modeled (per the visibility audit against upstream
 //! `/home/sean/vostd/ostd/src/mm/io.rs`):

@@ -2,14 +2,11 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::{mapping::meta_to_index, meta_region_owners::MetaRegionOwners};
 
 use crate::arch::mm::PagingConsts;
 use crate::mm::{
-    Paddr, PagingConstsTrait, PagingLevel, Vaddr,
-    frame::{meta::mapping::meta_to_frame, *},
-    page_prop::PageProperty,
-    page_table::*,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, frame::*, page_prop::PageProperty, page_table::*,
 };
 
 verus! {
@@ -22,7 +19,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
             Self::PageTable(node) => {
                 &&& owner.is_node()
                 &&& node.ptr.addr() == owner.node().meta_vaddr()
-                &&& node.index() == frame_to_index(meta_to_frame(node.ptr.addr()))
+                &&& node.index() == meta_to_index(node.ptr.addr())
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()

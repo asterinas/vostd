@@ -57,14 +57,7 @@ pub open spec fn vaddr_make<const L: usize>(idx: int, offset: usize) -> usize
     (vaddr_shift::<L>(idx) * offset) as usize
 }
 
-pub open spec fn rec_vaddr(
-    path: TreePath<NR_ENTRIES>,
-    idx: int,
-) -> usize/*        recommends
-        0 < NR_LEVELS,
-        path.len() <= NR_LEVELS,
-        0 <= idx <= path.len(),*/
-
+pub open spec fn rec_vaddr(path: TreePath<NR_ENTRIES>, idx: int) -> usize
     decreases path.len() - idx,
     when 0 <= idx <= path.len()
 {
@@ -790,7 +783,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// Closed-form for `vaddr(path.push_tail(i))` by case-split on `path.len() ∈ {0,1,2,3}`.
-    #[verifier::rlimit(400)]
+    #[verifier::rlimit(200)]
     pub proof fn lemma_vaddr_push_tail_eq(path: TreePath<NR_ENTRIES>, i: int)
         requires
             path.inv(),
@@ -1176,7 +1169,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     ///
     /// Proved by case analysis on `path.len() ∈ {0, 1, 2, 3, 4}`, unrolling
     /// `rec_vaddr` and using concrete `pow2` values.
-    #[verifier::rlimit(400)]
+    #[verifier::rlimit(200)]
     proof fn lemma_vaddr_path_alignment_and_bound(path: TreePath<NR_ENTRIES>)
         requires
             path.inv(),
@@ -1293,6 +1286,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
         if self.0.value().is_frame() {
             lemma_page_size_spec_values();
+            ;
             let frame = self.0.value().frame();
             let pt_level = (INC_LEVELS - path.len()) as PagingLevel;
             Self::lemma_vaddr_path_alignment_and_bound(path);
@@ -1310,11 +1304,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             };
             assert(self.view_rec(path) == set![m]);
             let ps = page_size(pt_level) as int;
-            assert((frame.mapped_pa + ps) % ps == 0) by (nonlinear_arith)
-                requires
-                    (frame.mapped_pa as int) % ps == 0,
-                    ps > 0,
-            ;
+            vstd_extra::arithmetic::lemma_mod_0_add(frame.mapped_pa as int, ps, ps);
             // Bridge `vaddr_of(path) == vaddr(path) + LB * 2^48`.
             lemma_vaddr_of_eq_int::<C>(path);
             C::lemma_page_table_config_constant_properties();
@@ -1337,15 +1327,32 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             // (B) Overflow: `vaddr_of(path) + ps <= 2^64`.
             //     `vaddr(path) + ps <= 2^48`: from strict bound plus alignment.
             let v = vaddr(path) as int;
-            assert(vaddr_of::<C>(path) + ps <= pow2(64)) by (nonlinear_arith)
+            let limit = 0x1_0000_0000_0000int;
+            assert(limit % ps == 0) by {
+                if ps == 0x1000int {
+                    assert(0x1_0000_0000_0000int % 0x1000int == 0) by (compute_only);
+                } else if ps == 0x20_0000int {
+                    assert(0x1_0000_0000_0000int % 0x20_0000int == 0) by (compute_only);
+                } else {
+                    assert(ps == 0x4000_0000int);
+                    assert(0x1_0000_0000_0000int % 0x4000_0000int == 0) by (compute_only);
+                }
+            };
+            vstd::arithmetic::div_mod::lemma_mod_equivalence(limit, v, ps);
+            let diff = limit - v;
+            let q = diff / ps;
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(diff, ps);
+            assert(q >= 1) by (nonlinear_arith)
                 requires
-                    vaddr_of::<C>(path) == v + lb * 0x1_0000_0000_0000int,
-                    v + ps <= 0x1_0000_0000_0000int,
-                    lb < 0x1_0000int,
-                    lb >= 0,
-                    pow2(64) == 0x1_0000_0000_0000_0000int,
+                    diff > 0,
+                    ps > 0,
+                    diff == ps * q,
             ;
-            assert(m.inv());
+            vstd::arithmetic::mul::lemma_mul_inequality(1, q, ps);
+            vstd::arithmetic::mul::lemma_mul_inequality(lb, 0xffffint, 0x1_0000_0000_0000int);
+            assert(0x1_0000_0000_0000int + 0xffffint * 0x1_0000_0000_0000int
+                == 0x1_0000_0000_0000_0000int) by (compute_only);
+            vstd_extra::arithmetic::lemma_mod_0_add(m.va_range.start, ps, ps);
         } else if self.0.value().is_node() && path.len() < INC_LEVELS - 1 {
             assert forall|m: Mapping| #[trigger]
                 self.view_rec(path).contains(m) implies m.inv() by {
@@ -1924,6 +1931,28 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         let f_sound = Self::metaregion_sound_pred(regions);
         let f_path = Self::path_correct_pred();
         let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry);
+
+        assert(g(subtree.value(), path_j)) by {
+            assert(f_sound(subtree.value(), path_j));
+            assert(f_path(subtree.value(), path_j));
+            let entry = subtree.value();
+            if entry.meta_slot_paddr() is Some && entry.meta_slot_paddr()->0
+                == old_entry.meta_slot_paddr()->0 {
+                let idx = frame_to_index(entry.meta_slot_paddr()->0);
+                let old_idx = frame_to_index(old_entry.meta_slot_paddr()->0);
+                assert(idx == old_idx);
+                if entry.is_node() {
+                    assert(regions.slot_owners[idx].paths_in_pt == set![entry.path]);
+                    assert(regions.slot_owners[idx].paths_in_pt.contains(entry.path));
+                } else {
+                    assert(entry.is_frame());
+                    assert(regions.slot_owners[idx].paths_in_pt.contains(entry.path));
+                }
+                assert(set![old_entry.path].contains(entry.path));
+                assert(entry.path == old_entry.path);
+                assert(Self::is_prefix_of(path_j, old_entry.path));
+            }
+        };
 
         if subtree.level() < INC_LEVELS - 1 {
             assert forall|i: int|

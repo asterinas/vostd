@@ -116,7 +116,7 @@ pub proof fn lemma_nat_align_down_monotone(x: nat, k1: nat, k2: nat)
     let r = k2 as int / k1 as int;
     lemma_fundamental_div_mod(a, k2 as int);
     lemma_fundamental_div_mod(k2 as int, k1 as int);
-    assert(k2 as int == r * k1 as int);
+    lemma_mul_is_commutative(k2 as int, q);
     lemma_mul_is_associative(q, r, k1 as int);
     lemma_mod_multiples_basic(q * r, k1 as int);
 }
