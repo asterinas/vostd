@@ -486,11 +486,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     // sub-pages. MMIO sub-page slots stay in the free pool with
                     // `rc == UNUSED` and `usage == MMIO`.
                     &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                        &&& regions.slot_owners[sub_idx].ref_count()
-                            != REF_COUNT_UNUSED
+                        &&& regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
                         &&& regions.slot_owners[sub_idx].ref_count() > 0
-                        &&& regions.slot_owners[sub_idx].ref_count()
-                            <= REF_COUNT_MAX
+                        &&& regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX
                     }
                 }
         }
@@ -616,12 +614,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     0 < j < nr_pages ==> {
                         let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
                         sub_idx != changed_idx || r1.slot_owners[sub_idx].usage is MMIO || (
-                        r1.slots.contains_key(sub_idx)
-                            && r1.slot_owners[sub_idx].ref_count()
-                            != REF_COUNT_UNUSED
-                            && r1.slot_owners[sub_idx].ref_count() > 0
-                            && r1.slot_owners[sub_idx].ref_count()
-                            <= REF_COUNT_MAX)
+                        r1.slots.contains_key(sub_idx) && r1.slot_owners[sub_idx].ref_count()
+                            != REF_COUNT_UNUSED && r1.slot_owners[sub_idx].ref_count() > 0
+                            && r1.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX)
                     }
             },
         ensures
@@ -692,11 +687,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                         &&& r1.slots.contains_key(sub_idx)
                         &&& r1.slot_owners[sub_idx].usage !is MMIO ==> {
-                            &&& r1.slot_owners[sub_idx].ref_count()
-                                != REF_COUNT_UNUSED
+                            &&& r1.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
                             &&& r1.slot_owners[sub_idx].ref_count() > 0
-                            &&& r1.slot_owners[sub_idx].ref_count()
-                                <= REF_COUNT_MAX
+                            &&& r1.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX
                         }
                     } by {
                         let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
@@ -742,12 +735,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     > 0
                 // Needed to re-establish the node branch's SHARED range (`<= MAX`).
                 &&& r1.slot_owners[idx].ref_count() <= REF_COUNT_MAX
-                &&& r1.slot_owners[idx].storage_perm()
-                    == r0.slot_owners[idx].storage_perm()
-                &&& r1.slot_owners[idx].vtable_ptr_perm()
-                    == r0.slot_owners[idx].vtable_ptr_perm()
-                &&& r1.slot_owners[idx].in_list_perm
-                    == r0.slot_owners[idx].in_list_perm
+                &&& r1.slot_owners[idx].storage_perm() == r0.slot_owners[idx].storage_perm()
+                &&& r1.slot_owners[idx].vtable_ptr_perm() == r0.slot_owners[idx].vtable_ptr_perm()
+                &&& r1.slot_owners[idx].in_list_perm == r0.slot_owners[idx].in_list_perm
                 &&& r1.slot_owners[idx].slot_vaddr == r0.slot_owners[idx].slot_vaddr
                 &&& r1.slot_owners[idx].paths_in_pt
                     == r0.slot_owners[idx].paths_in_pt

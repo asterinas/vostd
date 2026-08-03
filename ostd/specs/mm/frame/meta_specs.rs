@@ -174,12 +174,9 @@ impl MetaSlot {
             &&& post.slot_owners[idx].ref_count() == pre_perms + 1
             &&& post.slot_owners[idx].ref_count_perm.id()
                 == pre.slot_owners[idx].ref_count_perm.id()
-            &&& post.slot_owners[idx].storage_perm()
-                == pre.slot_owners[idx].storage_perm()
-            &&& post.slot_owners[idx].vtable_ptr_perm()
-                == pre.slot_owners[idx].vtable_ptr_perm()
-            &&& post.slot_owners[idx].in_list_perm
-                == pre.slot_owners[idx].in_list_perm
+            &&& post.slot_owners[idx].storage_perm() == pre.slot_owners[idx].storage_perm()
+            &&& post.slot_owners[idx].vtable_ptr_perm() == pre.slot_owners[idx].vtable_ptr_perm()
+            &&& post.slot_owners[idx].in_list_perm == pre.slot_owners[idx].in_list_perm
             &&& post.slot_owners[idx].slot_vaddr == pre.slot_owners[idx].slot_vaddr
             &&& post.slot_owners[idx].usage == pre.slot_owners[idx].usage
             &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
@@ -188,8 +185,7 @@ impl MetaSlot {
     }
 
     pub open spec fn drop_last_in_place_safety_cond(owner: MetaSlotOwner) -> bool {
-        &&& (owner.ref_count() == 0 || owner.ref_count()
-            == REF_COUNT_UNIQUE)
+        &&& (owner.ref_count() == 0 || owner.ref_count() == REF_COUNT_UNIQUE)
         &&& owner.storage_perm().is_init()
         &&& owner.in_list_perm.value()
             == 0

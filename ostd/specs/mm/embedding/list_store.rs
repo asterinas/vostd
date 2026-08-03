@@ -157,8 +157,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 &&& self.loose[lid].inv()
                 &&& self.loose[lid].global_inv(self.regions)
                 &&& self.loose[lid].frame_link_inv(self.regions)
-                &&& self.regions.slot_owners[self.loose[lid].slot_index].in_list_perm.value()
-                    == 0
+                &&& self.regions.slot_owners[self.loose[lid].slot_index].in_list_perm.value() == 0
             }
             // Distinct lists carry distinct *nonzero* ids (`lazy_get_id`
             // mints a globally fresh id per list — even a list emptied by
@@ -788,8 +787,7 @@ pub axiom fn list_drop_embedded<M: AnyFrameMeta + Repr<MetaSlotSmall>>(
             #![trigger meta_to_index(owner.list[i].paddr)]
             0 <= i < owner.list.len() ==> {
                 let idx = meta_to_index(owner.list[i].paddr);
-                &&& final(regions).slot_owners[idx].ref_count()
-                    == REF_COUNT_UNUSED
+                &&& final(regions).slot_owners[idx].ref_count() == REF_COUNT_UNUSED
                 &&& final(regions).slot_owners[idx].in_list_perm.value() == 0
             },
         // Every slot outside the dropped list is fully preserved.
@@ -1030,14 +1028,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             &&& self.loose[lid2].inv()
             &&& self.loose[lid2].global_inv(self.regions)
             &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0
+            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
         } by {
             assert(old_self.loose.dom().contains(lid2));
             assert(old_self.loose[lid2].global_inv(old_regions));
             assert(old_self.loose[lid2].frame_link_inv(old_regions));
-            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0);
+            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0);
         };
 
         // --- per-cursor preserved (cursor lists are "other lists") ---
@@ -1186,16 +1182,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             &&& self.loose[lid2].inv()
             &&& self.loose[lid2].global_inv(self.regions)
             &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0
+            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
         } by {
             assert(lid2 != lid);
             assert(old_self.loose.dom().contains(lid2));
             assert(old_self.loose[lid2] == self.loose[lid2]);
             assert(old_self.loose[lid2].global_inv(old_regions));
             assert(old_self.loose[lid2].frame_link_inv(old_regions));
-            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0);
+            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0);
             assert(self.loose[lid2].slot_index != fidx);
         };
 
@@ -1330,8 +1324,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 &&& self.loose[lid2].inv()
                 &&& self.loose[lid2].global_inv(self.regions)
                 &&& self.loose[lid2].frame_link_inv(self.regions)
-                &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                    == 0
+                &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
             } by {
                 if lid2 != new_loose {
                     assert(old_self.loose.dom().contains(lid2));
@@ -1472,16 +1465,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             &&& self.loose[lid2].inv()
             &&& self.loose[lid2].global_inv(self.regions)
             &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0
+            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
         } by {
             assert(lid2 != lid);
             assert(old_self.loose.dom().contains(lid2));
             assert(old_self.loose[lid2] == self.loose[lid2]);
             assert(old_self.loose[lid2].global_inv(old_regions));
             assert(old_self.loose[lid2].frame_link_inv(old_regions));
-            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0);
+            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0);
             assert(self.loose[lid2].slot_index != fidx);
         };
 
@@ -1611,8 +1602,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 &&& self.loose[lid2].inv()
                 &&& self.loose[lid2].global_inv(self.regions)
                 &&& self.loose[lid2].frame_link_inv(self.regions)
-                &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                    == 0
+                &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
             } by {
                 if lid2 != new_loose {
                     assert(old_self.loose.dom().contains(lid2));
@@ -1753,16 +1743,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             &&& self.loose[lid2].inv()
             &&& self.loose[lid2].global_inv(self.regions)
             &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0
+            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
         } by {
             assert(lid2 != lid);
             assert(old_self.loose.dom().contains(lid2));
             assert(old_self.loose[lid2] == self.loose[lid2]);
             assert(old_self.loose[lid2].global_inv(old_regions));
             assert(old_self.loose[lid2].frame_link_inv(old_regions));
-            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0);
+            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0);
             assert(self.loose[lid2].slot_index != fidx);
         };
 
@@ -1893,8 +1881,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 &&& self.loose[lid2].inv()
                 &&& self.loose[lid2].global_inv(self.regions)
                 &&& self.loose[lid2].frame_link_inv(self.regions)
-                &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                    == 0
+                &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
             } by {
                 if lid2 != new_loose {
                     assert(old_self.loose.dom().contains(lid2));
@@ -2536,16 +2523,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
             &&& self.loose[lid2].inv()
             &&& self.loose[lid2].global_inv(self.regions)
             &&& self.loose[lid2].frame_link_inv(self.regions)
-            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0
+            &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
         } by {
             assert(lid2 != lid);
             assert(old_self.loose.dom().contains(lid2));
             assert(old_self.loose[lid2] == self.loose[lid2]);
             assert(old_self.loose[lid2].global_inv(old_regions));
             assert(old_self.loose[lid2].frame_link_inv(old_regions));
-            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                == 0);
+            assert(old_regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0);
             assert(self.loose[lid2].slot_index != fidx);
         };
 
@@ -2675,8 +2660,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> ListStore<M> {
                 &&& self.loose[lid2].inv()
                 &&& self.loose[lid2].global_inv(self.regions)
                 &&& self.loose[lid2].frame_link_inv(self.regions)
-                &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value()
-                    == 0
+                &&& self.regions.slot_owners[self.loose[lid2].slot_index].in_list_perm.value() == 0
             } by {
                 if lid2 != new_loose {
                     assert(old_self.loose.dom().contains(lid2));

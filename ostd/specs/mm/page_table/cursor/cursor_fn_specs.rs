@@ -188,16 +188,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.contains(sub_idx)
-                    &&& C::tracked(item)
-                        ==> regions.slot_owners[sub_idx].ref_count()
+                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
                         != REF_COUNT_UNUSED
-                    &&& C::tracked(item)
-                        ==> regions.slot_owners[sub_idx].ref_count()
+                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
                         > 0
                     // SHARED upper bound for tracked sub-pages — carries `rc <= MAX`
                     // into the mapped huge frame's `frame_sub_pages_valid`.
-                    &&& C::tracked(item)
-                        ==> regions.slot_owners[sub_idx].ref_count()
+                    &&& C::tracked(item) ==> regions.slot_owners[sub_idx].ref_count()
                         <= REF_COUNT_MAX
                 }
         }

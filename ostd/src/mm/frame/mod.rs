@@ -625,17 +625,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
         let idx = self.index();
         &&& new_perm.inv()
         // ref_count incremented
-        &&& new_perm.slot_owners[idx].ref_count()
-            == old_perm.slot_owners[idx].ref_count() + 1
+        &&& new_perm.slot_owners[idx].ref_count() == old_perm.slot_owners[idx].ref_count() + 1
         &&& new_perm.slot_owners[idx].ref_count_perm.id()
             == old_perm.slot_owners[idx].ref_count_perm.id()
         // All other fields at idx unchanged
-        &&& new_perm.slot_owners[idx].storage_perm()
-            == old_perm.slot_owners[idx].storage_perm()
+        &&& new_perm.slot_owners[idx].storage_perm() == old_perm.slot_owners[idx].storage_perm()
         &&& new_perm.slot_owners[idx].vtable_ptr_perm()
             == old_perm.slot_owners[idx].vtable_ptr_perm()
-        &&& new_perm.slot_owners[idx].in_list_perm
-            == old_perm.slot_owners[idx].in_list_perm
+        &&& new_perm.slot_owners[idx].in_list_perm == old_perm.slot_owners[idx].in_list_perm
         &&& new_perm.slot_owners[idx].paths_in_pt == old_perm.slot_owners[idx].paths_in_pt
         &&& new_perm.slot_owners[idx].slot_vaddr == old_perm.slot_owners[idx].slot_vaddr
         &&& new_perm.slot_owners[idx].usage
@@ -694,10 +691,7 @@ impl<M: ?Sized> Drop for Frame<M> {
         // `drop_ensures` (refcount transition + identity preservation).
         let ghost so0 = slot_own;
 
-        let last_ref_cnt = slot.ref_count.fetch_sub(
-            Tracked(&mut slot_own.ref_count_perm),
-            1,
-        );
+        let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.ref_count_perm), 1);
 
         if last_ref_cnt == 1 {
             // A fence is needed here with the same reasons stated in the implementation of
@@ -905,9 +899,7 @@ pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
         let idx = frame_to_index(paddr);
 
         // inc_ref_count preserves permission id
-        assert(slot_own.ref_count_perm.id() == old(
-            regions,
-        ).slot_owners[idx].ref_count_perm.id());
+        assert(slot_own.ref_count_perm.id() == old(regions).slot_owners[idx].ref_count_perm.id());
 
         // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, slot_vaddr ok
         assert(slot_own.inv());

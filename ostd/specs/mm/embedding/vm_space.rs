@@ -56,13 +56,10 @@ pub axiom fn vm_space_new_embedded<'a>(tracked regions: &mut MetaRegionOwners) -
         old(regions).contains(vm_space_root_idx(res)),
         final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
         final(regions).slot_owners[vm_space_root_idx(res)].usage is PageTable,
-        final(regions).slot_owners[vm_space_root_idx(res)].ref_count()
-            != REF_COUNT_UNUSED,
+        final(regions).slot_owners[vm_space_root_idx(res)].ref_count() != REF_COUNT_UNUSED,
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].in_list_perm == old(
-                regions,
-            ).slot_owners[i].in_list_perm,
+            final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
         // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
         // nodes — every *changed* slot was UNUSED before and becomes a
         // non-UNUSED PT node (`usage == PageTable`). `accounting_inv`
@@ -106,13 +103,10 @@ pub(super) proof fn new_vm_space_step<'a>(tracked regions: &mut MetaRegionOwners
         old(regions).contains(vm_space_root_idx(res)),
         final(regions).slots == old(regions).slots.remove(vm_space_root_idx(res)),
         final(regions).slot_owners[vm_space_root_idx(res)].usage is PageTable,
-        final(regions).slot_owners[vm_space_root_idx(res)].ref_count()
-            != REF_COUNT_UNUSED,
+        final(regions).slot_owners[vm_space_root_idx(res)].ref_count() != REF_COUNT_UNUSED,
         forall|i: int|
             #![trigger final(regions).slot_owners[i]]
-            final(regions).slot_owners[i].in_list_perm == old(
-                regions,
-            ).slot_owners[i].in_list_perm,
+            final(regions).slot_owners[i].in_list_perm == old(regions).slot_owners[i].in_list_perm,
         // Stage 5.3: `VmSpace::new` / `cursor` only allocate fresh PT
         // nodes — every *changed* slot was UNUSED before and becomes a
         // non-UNUSED PT node (`usage == PageTable`). `accounting_inv`

@@ -182,9 +182,8 @@ proof fn lemma_insert_before_slot_distinct<M: AnyFrameMeta + Repr<MetaSlotSmall>
     ) by {
         owner0.relate_region_at_facts(regions0, p);
         if frame_idx == meta_to_index(owner0.list[p].paddr) {
-            assert(regions0.slot_owners[meta_to_index(
-                owner0.list[p].paddr,
-            )].in_list_perm.value() == owner0.list_id);
+            assert(regions0.slot_owners[meta_to_index(owner0.list[p].paddr)].in_list_perm.value()
+                == owner0.list_id);
         }
     }
 }
@@ -892,8 +891,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let paddr = old(self).current->0.addr();
                 let idx = meta_to_index(paddr);
                 &&& final(regions).slots.dom() == old(regions).slots.dom()
-                &&& final(regions).slot_owners[idx].ref_count()
-                    == REF_COUNT_UNIQUE
+                &&& final(regions).slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
                 &&& final(regions).slot_owners[idx].in_list_perm.value() == 0
                 &&& final(regions).slot_owners[idx].storage_perm().is_init()
                 &&& final(regions).slot_owners[idx].vtable_ptr_perm().is_init()
@@ -1615,8 +1613,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
                         &&& original_regions.contains(idx)
                         &&& original_regions.frame_obligations.count(idx) == 0
                         &&& original_regions.slot_owners[idx].paths_in_pt.is_empty()
-                        &&& original_regions.slot_owners[idx].ref_count()
-                            == REF_COUNT_UNIQUE
+                        &&& original_regions.slot_owners[idx].ref_count() == REF_COUNT_UNIQUE
                     },
             ensures
                 k == n,

@@ -43,8 +43,7 @@ impl<'a, M: ?Sized> Frame<M> {
         &&& regions.slot_owners[frame_to_index(paddr)].slot_vaddr == frame_to_meta(paddr)
         &&& valid_frame_paddr(paddr)
         &&& regions.inv()
-        &&& regions.slot_owners[frame_to_index(paddr)].ref_count()
-            != REF_COUNT_UNUSED
+        &&& regions.slot_owners[frame_to_index(paddr)].ref_count() != REF_COUNT_UNUSED
     }
 
     pub open spec fn from_raw_ensures(
@@ -300,10 +299,8 @@ impl<M: ?Sized> TrackDrop for Frame<M> {
         // is in `[1, REF_COUNT_MAX]`, so these cases are exhaustive:
         //  - last reference (== 1): the slot is torn down to UNUSED.
         //  - otherwise (> 1): the refcount is decremented by one.
-        &&& so0.ref_count() == 1 ==> so1.ref_count()
-            == REF_COUNT_UNUSED
-        &&& so0.ref_count() > 1 ==> so1.ref_count() == (
-        so0.ref_count()
+        &&& so0.ref_count() == 1 ==> so1.ref_count() == REF_COUNT_UNUSED
+        &&& so0.ref_count() > 1 ==> so1.ref_count() == (so0.ref_count()
             - 1) as u64
         // Linear-drop pilot: `Frame::drop` doesn't redeem segment-level
         // obligations, so the segment ledger is preserved.

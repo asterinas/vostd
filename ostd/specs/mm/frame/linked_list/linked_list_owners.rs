@@ -284,10 +284,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
 
     pub open spec fn meta_value_at(self, regions: MetaRegionOwners, i: int) -> Link<M> {
         let idx = meta_to_index(self.list[i].paddr);
-        typed_meta_value::<Link<M>>(
-            regions.slot_owners[idx].metadata_perm,
-            self.repr_perms[i],
-        )
+        typed_meta_value::<Link<M>>(regions.slot_owners[idx].metadata_perm, self.repr_perms[i])
     }
 
     /// The per-link invariant expressed directly over the region-owned slot and
@@ -659,10 +656,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         } else {
             p + 1
         };
-        let fp = typed_meta_value::<Link<M>>(
-            fr.slot_owners[i].metadata_perm,
-            self.repr_perms[np],
-        );
+        let fp = typed_meta_value::<Link<M>>(fr.slot_owners[i].metadata_perm, self.repr_perms[np]);
         &&& fr.contains(i)
         &&& fr.slots[i].addr() == old.list[p].paddr
         &&& fr.slots[i].pptr() == r0.slots[i].pptr()

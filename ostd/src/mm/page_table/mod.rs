@@ -413,17 +413,13 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             Self::raw_item_well_formed(pa, level, prop),
             valid_frame_paddr(pa),
             regions.contains(frame_to_index(pa)),
-            Self::tracked(item) ==> regions.slot_owners[frame_to_index(
-                pa,
-            )].ref_count() > 0,
+            Self::tracked(item) ==> regions.slot_owners[frame_to_index(pa)].ref_count() > 0,
             // `rc != UNUSED` is needed only for tracked frames (untracked clone is a no-op).
-            Self::tracked(item) ==> regions.slot_owners[frame_to_index(
-                pa,
-            )].ref_count() != REF_COUNT_UNUSED,
+            Self::tracked(item) ==> regions.slot_owners[frame_to_index(pa)].ref_count()
+                != REF_COUNT_UNUSED,
             // Saturation aborts (Arc-style) via `inc_ref_count`'s diverging panic.
-            Self::tracked(item) ==> (regions.slot_owners[frame_to_index(
-                pa,
-            )].ref_count() < REF_COUNT_MAX || may_panic()),
+            Self::tracked(item) ==> (regions.slot_owners[frame_to_index(pa)].ref_count()
+                < REF_COUNT_MAX || may_panic()),
         ensures
             item.clone_requires(regions),
     ;
@@ -1098,12 +1094,9 @@ impl PageTable<KernelPtConfig> {
                                     (pa + j * PAGE_SIZE) as usize,
                                 );
                                 sub_idx != new_idx || (regions.contains(sub_idx)
-                                    && regions.slot_owners[sub_idx].ref_count()
-                                    != REF_COUNT_UNUSED
-                                    && regions.slot_owners[sub_idx].ref_count()
-                                    > 0
-                                    && regions.slot_owners[sub_idx].ref_count()
-                                    <= REF_COUNT_MAX)
+                                    && regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
+                                    && regions.slot_owners[sub_idx].ref_count() > 0
+                                    && regions.slot_owners[sub_idx].ref_count() <= REF_COUNT_MAX)
                             }
                     },
             );

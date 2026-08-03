@@ -234,10 +234,7 @@ pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         *res == typed_meta_value::<M>(*metadata_perms, *repr_perm),
 {
     let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(points_to));
-    M::from_borrowed(
-        slot.storage.borrow(Tracked(&metadata_perms.storage_perm)),
-        Tracked(repr_perm),
-    )
+    M::from_borrowed(slot.storage.borrow(Tracked(&metadata_perms.storage_perm)), Tracked(repr_perm))
 }
 
 pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
@@ -262,10 +259,7 @@ pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         final(slot_owner).vtable_ptr_perm() == old(slot_owner).vtable_ptr_perm(),
         final(slot_owner).in_list_perm == old(slot_owner).in_list_perm,
         typed_meta_wf::<M>(*points_to, final(slot_owner).metadata_perm, *final(repr_perm)),
-        *final(res) == typed_meta_value::<M>(
-            final(slot_owner).metadata_perm,
-            *final(repr_perm),
-        ),
+        *final(res) == typed_meta_value::<M>(final(slot_owner).metadata_perm, *final(repr_perm)),
 {
     let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(points_to));
     let tracked metadata_perms = slot_owner.tracked_borrow_mut_metadata_perms();
@@ -374,7 +368,7 @@ impl View for MetaSlotOwner {
 
     open spec fn view(&self) -> Self::V {
         let storage = self.storage_perm().mem_contents();
-        let ref_count = self.ref_count_perm.value();
+        let ref_count = self.ref_count();
         let vtable_ptr = self.vtable_ptr_perm().mem_contents();
         let in_list = self.in_list_perm.value();
         let slot_vaddr = self.slot_vaddr;

@@ -350,8 +350,8 @@ impl KVirtArea {
         let pa = v.query_mapping().pa_range.start;
         let idx = frame_to_index(pa);
         ||| !(self.range.start <= addr < self.range.end)
-        ||| (v.present() && !is_mmio_paddr(pa)
-            && regions.slot_owners[idx].ref_count() >= REF_COUNT_MAX)
+        ||| (v.present() && !is_mmio_paddr(pa) && regions.slot_owners[idx].ref_count()
+            >= REF_COUNT_MAX)
     }
 
     pub fn start(&self) -> Vaddr
@@ -882,8 +882,7 @@ impl KVirtArea {
                         pa_range.start <= pa < pa_range.end && pa % PAGE_SIZE == 0 ==> {
                             let idx = crate::specs::mm::frame::mapping::frame_to_index(pa);
                             &&& regions.contains(idx)
-                            &&& regions.slot_owners[idx].ref_count()
-                                != REF_COUNT_UNUSED
+                            &&& regions.slot_owners[idx].ref_count() != REF_COUNT_UNUSED
                         },
             {
                 let pos: Ghost<int> = Ghost(it.index() as int);

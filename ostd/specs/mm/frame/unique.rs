@@ -122,10 +122,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     }
 
     pub open spec fn meta_value(self, regions: MetaRegionOwners) -> M {
-        typed_meta_value::<M>(
-            regions.slot_owners[self.slot_index].metadata_perm,
-            self.repr_perm->0,
-        )
+        typed_meta_value::<M>(regions.slot_owners[self.slot_index].metadata_perm, self.repr_perm->0)
     }
 
     pub open spec fn perm_inv(self, perm: vstd::simple_pptr::PointsTo<MetaSlot>) -> bool {
@@ -216,8 +213,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
 
     open spec fn tracked_redeem_requires(self, s: Self::State) -> bool {
         &&& s.contains(self.index())
-        &&& s.slot_owners[meta_to_index(self.ptr.addr())].ref_count()
-            != REF_COUNT_UNUSED
+        &&& s.slot_owners[meta_to_index(self.ptr.addr())].ref_count() != REF_COUNT_UNUSED
         &&& s.inv()
     }
 

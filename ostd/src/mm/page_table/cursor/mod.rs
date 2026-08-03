@@ -654,8 +654,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         old(regions).inv_implies_correct_addr(pa);
                         assert(regions.slot_owners.contains_key(idx));
                         assert(owner.cur_entry_owner().inv_base());
-                        if C::tracked(item)
-                            && regions.slot_owners[idx].ref_count()
+                        if C::tracked(item) && regions.slot_owners[idx].ref_count()
                             >= REF_COUNT_MAX {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
@@ -704,10 +703,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(owner@ == old(owner)@);
                         assert(owner@.query_mapping().pa_range.start == pa);
                         if C::tracked(item) {
-                            assert(old_regions.slot_owners[idx].ref_count()
-                                == old(regions).slot_owners[idx].ref_count());
-                            assert(old(regions).slot_owners[idx].ref_count()
-                                < REF_COUNT_MAX);
+                            assert(old_regions.slot_owners[idx].ref_count() == old(
+                                regions,
+                            ).slot_owners[idx].ref_count());
+                            assert(old(regions).slot_owners[idx].ref_count() < REF_COUNT_MAX);
                         } else {
                             EntryOwner::<C>::axiom_frame_is_tracked_iff_not_mmio(
                                 owner.cur_entry_owner(),
@@ -746,8 +745,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                             &&& regions.contains(sub_idx)
                             &&& regions.slot_owners[sub_idx].usage !is MMIO ==> {
-                                &&& regions.slot_owners[sub_idx].ref_count()
-                                    != REF_COUNT_UNUSED
+                                &&& regions.slot_owners[sub_idx].ref_count() != REF_COUNT_UNUSED
                                 &&& regions.slot_owners[sub_idx].ref_count() > 0
                             }
                         } by {
@@ -2987,9 +2985,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         assert(Self::item_slot_in_regions(item, regions_after_ref));
                     };
                     assert forall|idx: int|
-                        old(regions).slot_owners[idx].ref_count()
-                            != REF_COUNT_UNUSED implies (#[trigger] regions.slot_owners[idx])
-                        == old(regions).slot_owners[idx] by {
+                        old(regions).slot_owners[idx].ref_count() != REF_COUNT_UNUSED implies (
+                    #[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx] by {
                         assert(regions0.slot_owners[idx] == old(regions).slot_owners[idx]);
                         assert(regions_after_ref.slot_owners[idx] == regions0.slot_owners[idx]);
                     };
@@ -3359,12 +3356,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 if C::tracked(item) && old(regions).contains(pa_idx2) && old(
                     regions,
                 ).slot_owners[pa_idx2].ref_count() > 0 {
-                    assert(regions_before_new_child.slot_owners[pa_idx2].ref_count()
-                        > 0);
-                    assert(regions_after_new_child.slot_owners[pa_idx2].ref_count()
-                        > 0);
-                    assert(regions_after_replace.slot_owners[pa_idx2].ref_count()
-                        > 0);
+                    assert(regions_before_new_child.slot_owners[pa_idx2].ref_count() > 0);
+                    assert(regions_after_new_child.slot_owners[pa_idx2].ref_count() > 0);
+                    assert(regions_after_replace.slot_owners[pa_idx2].ref_count() > 0);
                 }
             };
 
