@@ -116,14 +116,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<M>(
             *regions.slots[self.slot_index],
-            regions.slot_owners[self.slot_index].storage_perm(),
+            regions.slot_owners[self.slot_index].metadata_perm,
             self.repr_perm->0,
         )
     }
 
     pub open spec fn meta_value(self, regions: MetaRegionOwners) -> M {
         typed_meta_value::<M>(
-            regions.slot_owners[self.slot_index].storage_perm(),
+            regions.slot_owners[self.slot_index].metadata_perm,
             self.repr_perm->0,
         )
     }

@@ -58,7 +58,9 @@ use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::{
     frame::{
         mapping::{frame_to_index, lemma_frame_to_index_injective, meta_to_index},
-        meta_owners::{MetaSlotOwner, MetaSlotStorage, typed_meta_value, typed_meta_wf},
+        meta_owners::{
+            MetaSlotOwner, MetaSlotStorage, MetadataPerms, typed_meta_value, typed_meta_wf,
+        },
         meta_region_owners::MetaRegionOwners,
     },
     page_table::node::owners::*,
@@ -509,7 +511,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(&slot_owner.metadata_perm.storage_perm),
+            Tracked(&slot_owner.metadata_perm),
             Tracked(&())
         )]
         let meta = self.meta();
@@ -773,7 +775,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let tracked slot_owner = regions.slot_owners.tracked_borrow(owner.slot_index);
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(&slot_owner.metadata_perm.storage_perm),
+            Tracked(&slot_owner.metadata_perm),
             Tracked(&())
         )]
         let meta = self.meta();
@@ -785,13 +787,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(res =>
         with
             Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
-            Tracked(storage): Tracked<&'a pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+            Tracked(metadata_perms): Tracked<&'a MetadataPerms>,
             Tracked(repr_perm): Tracked<&'a ()>,
             Ghost(stray_id): Ghost<vstd::cell::CellId>,
         requires
             old(self).inner.inner@.ptr.addr() == points_to.addr(),
-            typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *storage, *repr_perm),
-            typed_meta_value::<PageTablePageMeta<C>>(*storage, *repr_perm).stray.id()
+            typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *metadata_perms, *repr_perm),
+            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perms, *repr_perm).stray.id()
                 == stray_id,
         ensures
             res.id() == stray_id,
@@ -801,7 +803,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(storage),
+            Tracked(metadata_perms),
             Tracked(repr_perm)
         )]
         let meta = self.meta();
@@ -902,12 +904,12 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(res =>
         with
             Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
-            Tracked(storage): Tracked<&'a pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+            Tracked(metadata_perms): Tracked<&'a MetadataPerms>,
             Ghost(nr_children_id): Ghost<vstd::cell::CellId>,
         requires
             old(self).inner.inner@.ptr.addr() == points_to.addr(),
-            typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *storage, ()),
-            typed_meta_value::<PageTablePageMeta<C>>(*storage, ()).nr_children.id()
+            typed_meta_wf::<PageTablePageMeta<C>>(*points_to, *metadata_perms, ()),
+            typed_meta_value::<PageTablePageMeta<C>>(*metadata_perms, ()).nr_children.id()
                 == nr_children_id,
         ensures
             res.id() == nr_children_id,
@@ -917,7 +919,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with
             Tracked(points_to),
-            Tracked(storage),
+            Tracked(metadata_perms),
             Tracked(&())
         )]
         let meta = self.meta();

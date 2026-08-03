@@ -694,7 +694,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let link = borrow_meta(
                     current,
                     Tracked(points_to),
-                    Tracked(&slot_owner.metadata_perm.storage_perm),
+                    Tracked(&slot_owner.metadata_perm),
                     Tracked(repr_perm),
                 );
                 link.next
@@ -753,7 +753,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
                 let link = borrow_meta(
                     current,
                     Tracked(points_to),
-                    Tracked(&slot_owner.metadata_perm.storage_perm),
+                    Tracked(&slot_owner.metadata_perm),
                     Tracked(repr_perm),
                 );
                 link.prev
@@ -1235,7 +1235,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             let opt_prev_link: Option<ReprPtr<MetaSlotStorage, Link<M>>> = borrow_meta(
                 current,
                 Tracked(points_to),
-                Tracked(&slot_owner.metadata_perm.storage_perm),
+                Tracked(&slot_owner.metadata_perm),
                 Tracked(repr_perm),
             ).prev;
 

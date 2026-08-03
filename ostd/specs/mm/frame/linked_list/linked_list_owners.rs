@@ -277,7 +277,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         let idx = meta_to_index(self.list[i].paddr);
         typed_meta_wf::<Link<M>>(
             *regions.slots[idx],
-            regions.slot_owners[idx].storage_perm(),
+            regions.slot_owners[idx].metadata_perm,
             self.repr_perms[i],
         )
     }
@@ -285,7 +285,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
     pub open spec fn meta_value_at(self, regions: MetaRegionOwners, i: int) -> Link<M> {
         let idx = meta_to_index(self.list[i].paddr);
         typed_meta_value::<Link<M>>(
-            regions.slot_owners[idx].storage_perm(),
+            regions.slot_owners[idx].metadata_perm,
             self.repr_perms[i],
         )
     }
@@ -529,7 +529,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                         p - 1
                     };
                     let fp = typed_meta_value::<Link<M>>(
-                        fr.slot_owners[i].storage_perm(),
+                        fr.slot_owners[i].metadata_perm,
                         new.repr_perms[np],
                     );
                     &&& fr.contains(i)
@@ -540,7 +540,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
                     &&& fr.slot_owners[i].in_list_perm.value() == new.list_id
                     &&& typed_meta_wf::<Link<M>>(
                         *fr.slots[i],
-                        fr.slot_owners[i].storage_perm(),
+                        fr.slot_owners[i].metadata_perm,
                         new.repr_perms[np],
                     )
                     &&& fr.slots[i].addr() % META_SLOT_SIZE == 0
@@ -660,7 +660,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             p + 1
         };
         let fp = typed_meta_value::<Link<M>>(
-            fr.slot_owners[i].storage_perm(),
+            fr.slot_owners[i].metadata_perm,
             self.repr_perms[np],
         );
         &&& fr.contains(i)

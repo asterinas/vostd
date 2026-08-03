@@ -261,14 +261,14 @@ impl<C: PageTableConfig> NodeOwner<C> {
     pub open spec fn meta_wf(self, regions: MetaRegionOwners) -> bool {
         typed_meta_wf::<PageTablePageMeta<C>>(
             *regions.slots[self.slot_index],
-            regions.slot_owners[self.slot_index].storage_perm(),
+            regions.slot_owners[self.slot_index].metadata_perm,
             (),
         )
     }
 
     pub open spec fn meta_value(self, regions: MetaRegionOwners) -> PageTablePageMeta<C> {
         typed_meta_value::<PageTablePageMeta<C>>(
-            regions.slot_owners[self.slot_index].storage_perm(),
+            regions.slot_owners[self.slot_index].metadata_perm,
             (),
         )
     }

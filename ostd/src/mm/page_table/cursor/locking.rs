@@ -415,7 +415,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(node_owner.slot_index);
         #[verus_spec(with
             Tracked(meta_points_to),
-            Tracked(&meta_slot_owner.metadata_perm.storage_perm),
+            Tracked(&meta_slot_owner.metadata_perm),
             Tracked(&()),
             Ghost(node_owner.meta_own.stray.id())
         )]
@@ -497,7 +497,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     let tracked meta_slot_owner = regions.slot_owners.tracked_borrow(node_owner.slot_index);
     #[verus_spec(with
         Tracked(meta_points_to),
-        Tracked(&meta_slot_owner.metadata_perm.storage_perm),
+        Tracked(&meta_slot_owner.metadata_perm),
         Tracked(&()),
         Ghost(node_owner.meta_own.stray.id())
     )]

@@ -253,7 +253,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         borrow_meta(
             ReprPtr::<MetaSlotStorage, M>::from_pptr(PPtr::from_addr(self.ptr.addr())),
             Tracked(points_to),
-            Tracked(&slot_owner.metadata_perm.storage_perm),
+            Tracked(&slot_owner.metadata_perm),
             Tracked(owner.tracked_borrow_repr_perm()),
         )
     }

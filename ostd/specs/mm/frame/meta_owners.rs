@@ -200,42 +200,44 @@ pub tracked struct MetadataPerms {
     pub vtable_ptr_perm: vstd::simple_pptr::PointsTo<usize>,
 }
 
-/// Well-formedness of a concrete metadata representation. The permissions for
-/// the outer slot and its storage remain owned by `MetaRegionOwners`; only the
-/// representation-specific permission is supplied by the concrete metadata
-/// owner.
+/// Well-formedness of a concrete metadata representation. The outer slot
+/// permission remains permanently in `MetaRegionOwners`; the metadata bundle
+/// describes the permissions tied to the currently installed metadata.
 pub open spec fn typed_meta_wf<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     points_to: vstd::simple_pptr::PointsTo<MetaSlot>,
-    storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
+    metadata_perms: MetadataPerms,
     repr_perm: M::ReprPerm,
 ) -> bool {
     &&& points_to.is_init()
-    &&& storage.is_init()
-    &&& storage.id() == points_to.value().storage.id()
-    &&& M::wf(storage.value(), repr_perm)
+    &&& metadata_perms.storage_perm.is_init()
+    &&& metadata_perms.storage_perm.id() == points_to.value().storage.id()
+    &&& M::wf(metadata_perms.storage_perm.value(), repr_perm)
 }
 
 pub open spec fn typed_meta_value<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-    storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
+    metadata_perms: MetadataPerms,
     repr_perm: M::ReprPerm,
 ) -> M {
-    M::from_repr_spec(storage.value(), repr_perm)
+    M::from_repr_spec(metadata_perms.storage_perm.value(), repr_perm)
 }
 
 pub fn borrow_meta<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     ptr: cast_ptr::ReprPtr<MetaSlotStorage, M>,
     Tracked(points_to): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
-    Tracked(storage): Tracked<&'a pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
+    Tracked(metadata_perms): Tracked<&'a MetadataPerms>,
     Tracked(repr_perm): Tracked<&'a M::ReprPerm>,
 ) -> (res: &'a M)
     requires
-        typed_meta_wf::<M>(*points_to, *storage, *repr_perm),
+        typed_meta_wf::<M>(*points_to, *metadata_perms, *repr_perm),
         ptr.addr() == points_to.addr(),
     ensures
-        *res == typed_meta_value::<M>(*storage, *repr_perm),
+        *res == typed_meta_value::<M>(*metadata_perms, *repr_perm),
 {
     let slot = PPtr::<MetaSlot>::from_addr(ptr.addr()).borrow(Tracked(points_to));
-    M::from_borrowed(slot.storage.borrow(Tracked(storage)), Tracked(repr_perm))
+    M::from_borrowed(
+        slot.storage.borrow(Tracked(&metadata_perms.storage_perm)),
+        Tracked(repr_perm),
+    )
 }
 
 pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
@@ -247,10 +249,10 @@ pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
     requires
         old(slot_owner).inv(),
         points_to.value().wf(*old(slot_owner)),
-        typed_meta_wf::<M>(*points_to, old(slot_owner).storage_perm(), *old(repr_perm)),
+        typed_meta_wf::<M>(*points_to, old(slot_owner).metadata_perm, *old(repr_perm)),
         ptr.addr() == points_to.addr(),
     ensures
-        *res == typed_meta_value::<M>(old(slot_owner).storage_perm(), *old(repr_perm)),
+        *res == typed_meta_value::<M>(old(slot_owner).metadata_perm, *old(repr_perm)),
         final(slot_owner).inv(),
         points_to.value().wf(*final(slot_owner)),
         final(slot_owner).slot_vaddr == old(slot_owner).slot_vaddr,
@@ -259,9 +261,9 @@ pub fn borrow_meta_mut<'a, M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         final(slot_owner).ref_count_perm == old(slot_owner).ref_count_perm,
         final(slot_owner).vtable_ptr_perm() == old(slot_owner).vtable_ptr_perm(),
         final(slot_owner).in_list_perm == old(slot_owner).in_list_perm,
-        typed_meta_wf::<M>(*points_to, final(slot_owner).storage_perm(), *final(repr_perm)),
+        typed_meta_wf::<M>(*points_to, final(slot_owner).metadata_perm, *final(repr_perm)),
         *final(res) == typed_meta_value::<M>(
-            final(slot_owner).storage_perm(),
+            final(slot_owner).metadata_perm,
             *final(repr_perm),
         ),
 {
