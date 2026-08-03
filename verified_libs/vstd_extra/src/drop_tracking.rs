@@ -106,7 +106,7 @@ impl<T: TrackDrop> ManuallyDrop<T> {
             let tracked obligation = slot.tracked_obligation.get();
         }
         proof_with!(|= Tracked(obligation));
-        std::mem::ManuallyDrop::<T>::into_inner(slot.value)
+        core::mem::ManuallyDrop::<T>::into_inner(slot.value)
     }
 }
 

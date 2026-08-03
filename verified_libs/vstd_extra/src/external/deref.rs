@@ -2,6 +2,7 @@
     note = "If you can, do not use this module as it adds assumptions about the core of Rust's deref semantics."
 )]
 
+use alloc::boxed::Box;
 use core::hint::spin_loop;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
@@ -40,12 +41,12 @@ pub broadcast axiom fn box_deref_spec<T>(b: Box<T>)
         #[trigger] *(b.deref_spec()) == *b,
 ;
 
-pub broadcast axiom fn rc_deref_spec<T>(r: std::rc::Rc<T>)
+pub broadcast axiom fn rc_deref_spec<T>(r: alloc::rc::Rc<T>)
     ensures
         #[trigger] *(r.deref_spec()) == *r,
 ;
 
-pub broadcast axiom fn arc_deref_spec<T>(a: std::sync::Arc<T>)
+pub broadcast axiom fn arc_deref_spec<T>(a: alloc::sync::Arc<T>)
     ensures
         #[trigger] *(a.deref_spec()) == *a,
 ;

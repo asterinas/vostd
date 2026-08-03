@@ -1,3 +1,4 @@
+#![no_std]
 #![allow(non_snake_case)]
 //! A verified version of the [`bitflags`](https://docs.rs/bitflags/latest/bitflags/) crate.
 //!
