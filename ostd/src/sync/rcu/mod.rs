@@ -235,9 +235,7 @@ struct RcuReadGuardInner<'a, P: NonNullPtr> {
     proof_active: bool,
     _inner_guard: DisabledPreemptGuard,
     tracked_info: Tracked<Option<rcu_spec::RcuBlockInfo<<P as NonNullPtr>::Target>>>,
-    tracked_guard: Tracked<
-        Option<rcu_cpu_spec::CpuRcuReadGuardToken<<P as NonNullPtr>::Target>>,
-    >,
+    tracked_guard: Tracked<Option<rcu_cpu_spec::CpuRcuReadGuardToken<<P as NonNullPtr>::Target>>>,
     tracked_session: Tracked<Option<&'a mut RunningTaskContext>>,
 }
 
@@ -431,7 +429,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         &self,
         Ghost(reader): Ghost<rcu_spec::RcuReaderContext>,
         Tracked(cpu_reader): Tracked<rcu_cpu_spec::CpuRcuReaderFragment>,
-        Tracked(binding): Tracked<rcu_cpu_spec::CpuRcuParticipantBinding>,
+        Tracked(binding): Tracked<rcu_cpu_spec::CpuRcuCoreBinding>,
         Tracked(tv): Tracked<&mut ThreadView>,
     ) -> (res: (
         *mut <P as NonNullPtr>::Target,
@@ -443,9 +441,9 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             cpu_reader.wf(),
             reader.cpu == cpu_reader.cpu(),
             reader.generation == cpu_reader.generation(),
-            binding.scheduler() == reader.scheduler,
+            binding.registry() == reader.scheduler,
             binding.cpu() == cpu_reader.cpu(),
-            binding.participant_id() == cpu_reader.participant_id(),
+            binding.single_local_id() == cpu_reader.participant_id(),
             cpu_reader.participant_view().spec_le(old(tv)@),
         ensures
             old(tv)@.spec_le(final(tv)@),
@@ -456,7 +454,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.2@.generation() == cpu_reader.generation(),
             res.2@.participant_view() == cpu_reader.participant_view(),
             res.2@.reader_fragment() == cpu_reader,
-            res.2@.scheduler() == binding.scheduler(),
+            res.2@.scheduler() == binding.registry(),
             res.2@.domain() == self.ptr.constant().domain,
             res.2@.reader_registry() == self.ptr.constant().reader_registry,
             res.2@.retire_observation_registry() == self.ptr.constant().retire_observation_registry,
@@ -585,10 +583,8 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         }
     }
 
-    fn read<'a>(
-        &'a self,
-        Tracked(session): Tracked<&'a mut RunningTaskContext>,
-    ) -> (res: RcuReadGuardInner<'a, P>)
+    fn read<'a>(&'a self, Tracked(session): Tracked<&'a mut RunningTaskContext>) -> (res:
+        RcuReadGuardInner<'a, P>)
         requires
             self.type_inv(),
             old(session).wf(),
@@ -662,8 +658,8 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             assert(tracked_guard@.cpu() == session.cpu());
             assert(tracked_guard@.generation() == session.rcu_generation());
             assert(cpu_reader.fraction() == context_before_reader.rcu_fraction() / 2real);
-            assert(context_before_load.rcu_fraction()
-                == context_before_reader.rcu_fraction() / 2real);
+            assert(context_before_load.rcu_fraction() == context_before_reader.rcu_fraction()
+                / 2real);
             assert(session.rcu_fraction() == context_before_load.rcu_fraction());
             assert(tracked_guard@.reader_fragment().fraction() == cpu_reader.fraction());
             assert(tracked_guard@.reader_fragment().fraction() == session.rcu_fraction());
@@ -701,14 +697,12 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             assert(res.guard_token().participant_id() == stored_context.rcu_participant_id());
             assert(res.guard_token().cpu() == stored_context.cpu());
             assert(res.guard_token().generation() == stored_context.rcu_generation());
-            assert(res.guard_token().reader_fragment().fraction()
-                == stored_context.rcu_fraction());
+            assert(res.guard_token().reader_fragment().fraction() == stored_context.rcu_fraction());
             assert(res.guard_token().reader_context() == reader);
             assert(res.matches_context(stored_context));
         }
         res
     }
-
 }
 
 /// Detaches the proof-only reader state while leaving the executable
@@ -719,16 +713,9 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
 /// before the executable guard can be observed again.
 fn take_reader_state<'a, T>(
     proof_active: &mut bool,
-    Tracked(guard_slot): Tracked<
-        &mut Tracked<Option<rcu_cpu_spec::CpuRcuReadGuardToken<T>>>,
-    >,
-    Tracked(session_slot): Tracked<
-        &mut Tracked<Option<&'a mut RunningTaskContext>>,
-    >,
-) -> (res: Tracked<(
-    rcu_cpu_spec::CpuRcuReadGuardToken<T>,
-    &'a mut RunningTaskContext,
-)>)
+    Tracked(guard_slot): Tracked<&mut Tracked<Option<rcu_cpu_spec::CpuRcuReadGuardToken<T>>>>,
+    Tracked(session_slot): Tracked<&mut Tracked<Option<&'a mut RunningTaskContext>>>,
+) -> (res: Tracked<(rcu_cpu_spec::CpuRcuReadGuardToken<T>, &'a mut RunningTaskContext)>)
     requires
         *old(proof_active),
         old(guard_slot)@ is Some,
@@ -746,7 +733,7 @@ fn take_reader_state<'a, T>(
         let tracked guard = guard_slot.borrow_mut().tracked_take();
         let tracked session = session_slot.borrow_mut().tracked_take();
     }
-    *proof_active = false;
+        * proof_active = false;
     Tracked((guard, session))
 }
 
@@ -754,9 +741,7 @@ fn take_reader_state<'a, T>(
 fn finish_reader_state<'a, P: NonNullPtr>(
     rcu: &RcuInner<P>,
     inner_guard: &mut DisabledPreemptGuard,
-    Tracked(guard): Tracked<
-        rcu_cpu_spec::CpuRcuReadGuardToken<<P as NonNullPtr>::Target>,
-    >,
+    Tracked(guard): Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<<P as NonNullPtr>::Target>>,
     Tracked(session): Tracked<&'a mut RunningTaskContext>,
 ) -> (res: Tracked<&'a mut RunningTaskContext>)
     requires
@@ -766,8 +751,7 @@ fn finish_reader_state<'a, P: NonNullPtr>(
         guard.wf(),
         guard.domain() == rcu.ptr.constant().domain,
         guard.root() == rcu.ptr.id(),
-        guard.retire_observation_registry()
-            == rcu.ptr.constant().retire_observation_registry,
+        guard.retire_observation_registry() == rcu.ptr.constant().retire_observation_registry,
         guard.participant_id() == old(session).rcu_participant_id(),
         guard.reader_fragment().fraction() == old(session).rcu_fraction(),
     ensures
@@ -801,9 +785,7 @@ fn finish_reader_state<'a, P: NonNullPtr>(
 }
 
 fn restore_reader_session<'a>(
-    Tracked(session_slot): Tracked<
-        &mut Tracked<Option<&'a mut RunningTaskContext>>,
-    >,
+    Tracked(session_slot): Tracked<&mut Tracked<Option<&'a mut RunningTaskContext>>>,
     Tracked(session): Tracked<&'a mut RunningTaskContext>,
     Ghost(restored): Ghost<RunningTaskContext>,
 )
@@ -868,10 +850,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
         res
     }
 
-    fn compare_exchange(
-        self,
-        new_ptr: Option<P>,
-    ) -> (res: Result<(), Option<P>>)
+    fn compare_exchange(self, new_ptr: Option<P>) -> (res: Result<(), Option<P>>)
         requires
             self.rcu.is_nullable() || new_ptr is Some,
             self.type_inv(),
@@ -987,26 +966,35 @@ impl<'a, P: NonNullPtr> Drop for RcuReadGuardInner<'a, P> {
             old(self).is_active() ==> {
                 &&& final(self).stored_context().wf()
                 &&& final(self).stored_context().task() == old(self).stored_context().task()
-                &&& final(self).stored_context().scheduler()
-                    == old(self).stored_context().scheduler()
+                &&& final(self).stored_context().scheduler() == old(
+                    self,
+                ).stored_context().scheduler()
                 &&& final(self).stored_context().cpu() == old(self).stored_context().cpu()
                 &&& final(self).stored_context().view() == old(self).stored_context().view()
-                &&& final(self).stored_context().session_id()
-                    == old(self).stored_context().session_id()
-                &&& final(self).stored_context().quiescent_generation()
-                    == old(self).stored_context().quiescent_generation()
-                &&& final(self).stored_context().available_fractions()
-                    == old(self).stored_context().available_fractions() + 1
-                &&& final(self).stored_context().preempt_depth() + 1
-                    == old(self).stored_context().preempt_depth()
-                &&& final(self).stored_context().rcu_participant_id()
-                    == old(self).stored_context().rcu_participant_id()
-                &&& final(self).stored_context().rcu_generation()
-                    == old(self).stored_context().rcu_generation()
-                &&& final(self).stored_context().rcu_participant_view()
-                    == old(self).stored_context().rcu_participant_view()
-                &&& final(self).stored_context().rcu_fraction()
-                    == old(self).stored_context().rcu_fraction() * 2real
+                &&& final(self).stored_context().session_id() == old(
+                    self,
+                ).stored_context().session_id()
+                &&& final(self).stored_context().quiescent_generation() == old(
+                    self,
+                ).stored_context().quiescent_generation()
+                &&& final(self).stored_context().available_fractions() == old(
+                    self,
+                ).stored_context().available_fractions() + 1
+                &&& final(self).stored_context().preempt_depth() + 1 == old(
+                    self,
+                ).stored_context().preempt_depth()
+                &&& final(self).stored_context().rcu_participant_id() == old(
+                    self,
+                ).stored_context().rcu_participant_id()
+                &&& final(self).stored_context().rcu_generation() == old(
+                    self,
+                ).stored_context().rcu_generation()
+                &&& final(self).stored_context().rcu_participant_view() == old(
+                    self,
+                ).stored_context().rcu_participant_view()
+                &&& final(self).stored_context().rcu_fraction() == old(
+                    self,
+                ).stored_context().rcu_fraction() * 2real
             },
         opens_invariants none
         no_unwind
@@ -1403,9 +1391,9 @@ impl<'a, P: NonNullPtr> RcuReadGuardInner<'a, P> {
         *self.tracked_session@->Some_0
     }
 
-    closed spec fn guard_token(
-        self,
-    ) -> rcu_cpu_spec::CpuRcuReadGuardToken<<P as NonNullPtr>::Target>
+    closed spec fn guard_token(self) -> rcu_cpu_spec::CpuRcuReadGuardToken<
+        <P as NonNullPtr>::Target,
+    >
         recommends
             self.tracked_guard@ is Some,
     {

@@ -6,11 +6,11 @@ use crate::{
     specs::sync::{
         rcu::RcuRetiredFacts,
         rcu_cpu::{
-            CpuRcuClosedGeneration, CpuRcuParticipant, CpuRcuParticipantBinding,
-            CpuRcuReaderFragment,
+            CpuRcuClosedGeneration, CpuRcuCoreBinding, CpuRcuParticipant, CpuRcuReaderFragment,
         },
         weak_memory::{ThreadView, WmView},
     },
+    specs::task::cpu_core::{CpuCoreOwner, CpuCoreOwnerHandle, CpuCoreRegistration},
     sync::GuardTransfer, /*, task::atomic_mode::InAtomicMode*/
     task::scheduler::{SchedulerView, TaskThreadView},
 };
@@ -361,8 +361,9 @@ impl PreemptThreadViewSession {
 /// the scheduler when no guard remains live.
 pub tracked struct RunningTaskContext {
     session: PreemptThreadViewSession,
+    core_handle: CpuCoreOwnerHandle<CpuRcuParticipant>,
     rcu_participant: CpuRcuParticipant,
-    rcu_binding: CpuRcuParticipantBinding,
+    rcu_binding: CpuRcuCoreBinding,
     preempt_depth: Ghost<nat>,
     cpu: Ghost<crate::specs::mm::cpu::CpuId>,
 }
@@ -371,22 +372,31 @@ impl RunningTaskContext {
     /// Starts a running interval for a checked-out task view.
     pub proof fn new(
         tracked task_view: TaskThreadView,
+        tracked core_handle: CpuCoreOwnerHandle<CpuRcuParticipant>,
         tracked rcu_participant: CpuRcuParticipant,
-        tracked rcu_binding: CpuRcuParticipantBinding,
+        tracked rcu_binding: CpuRcuCoreBinding,
         sched_view: SchedulerView,
         cpu: crate::specs::mm::cpu::CpuId,
     ) -> (tracked res: Self)
         requires
             task_view.wf(sched_view),
+            core_handle.wf(),
+            core_handle.cpu() == cpu,
+            core_handle.current_task() == Some(task_view.task()),
+            core_handle.expected_locals_key() == seq![rcu_participant.id()],
             rcu_participant.wf(),
             rcu_participant.cpu() == cpu,
             rcu_participant.fraction() == 1real,
             rcu_participant.view().spec_le(task_view.view()),
-            rcu_binding.scheduler() == task_view.scheduler(),
+            rcu_binding.registry() == task_view.scheduler(),
             rcu_binding.cpu() == cpu,
-            rcu_binding.participant_id() == rcu_participant.id(),
+            rcu_binding.owner_id() == core_handle.id(),
+            rcu_binding.locals_key() == core_handle.expected_locals_key(),
+            rcu_binding.single_local_id() == rcu_participant.id(),
             sched_view.cpu_has_rcu_participant(cpu),
             sched_view.cpu_rcu_participant_id(cpu) == rcu_participant.id(),
+            sched_view.cpu_core_registration(cpu).owner_id == core_handle.id(),
+            sched_view.cpu_core_registration(cpu).locals_key == core_handle.expected_locals_key(),
             !sched_view.cpu_rcu_participant_is_stored(cpu),
             sched_view.current.contains_key(cpu),
             sched_view.current[cpu] == Some(task_view.task()),
@@ -395,6 +405,7 @@ impl RunningTaskContext {
             res.task() == task_view.task(),
             res.view() == task_view.view(),
             res.cpu() == cpu,
+            res.core_owner_id() == core_handle.id(),
             res.preempt_depth() == 0,
             res.quiescent_generation() == 0,
             res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
@@ -402,9 +413,9 @@ impl RunningTaskContext {
             res.rcu_generation() == rcu_participant.generation(),
             res.rcu_participant_view() == rcu_participant.view(),
             res.rcu_fraction() == 1real,
-            res.rcu_binding().scheduler() == res.scheduler(),
+            res.rcu_binding().registry() == res.scheduler(),
             res.rcu_binding().cpu() == cpu,
-            res.rcu_binding().participant_id() == res.rcu_participant_id(),
+            res.rcu_binding().single_local_id() == res.rcu_participant_id(),
             res.wf(),
             res.is_quiescent(),
             res.wf_scheduler(sched_view),
@@ -412,6 +423,7 @@ impl RunningTaskContext {
         let tracked session = PreemptThreadViewSession::new(task_view, sched_view);
         let tracked res = RunningTaskContext {
             session,
+            core_handle,
             rcu_participant,
             rcu_binding,
             preempt_depth: Ghost(0),
@@ -438,6 +450,10 @@ impl RunningTaskContext {
 
     pub closed spec fn cpu(self) -> crate::specs::mm::cpu::CpuId {
         self.cpu@
+    }
+
+    pub closed spec fn core_owner_id(self) -> Loc {
+        self.core_handle.id()
     }
 
     pub closed spec fn session_id(self) -> Loc {
@@ -476,17 +492,23 @@ impl RunningTaskContext {
         self.rcu_participant.fraction()
     }
 
-    pub closed spec fn rcu_binding(self) -> CpuRcuParticipantBinding {
+    pub closed spec fn rcu_binding(self) -> CpuRcuCoreBinding {
         self.rcu_binding
     }
 
     pub closed spec fn wf(self) -> bool {
         &&& self.session.wf_session_resource()
         &&& self.available_fractions() + self.preempt_depth() == PREEMPT_SESSION_FRACTIONS
+        &&& self.core_handle.wf()
+        &&& self.core_handle.cpu() == self.cpu()
+        &&& self.core_handle.current_task() == Some(self.task())
+        &&& self.core_handle.expected_locals_key() == seq![self.rcu_participant_id()]
         &&& self.rcu_participant.wf()
-        &&& self.rcu_binding().scheduler() == self.scheduler()
+        &&& self.rcu_binding().registry() == self.scheduler()
         &&& self.rcu_binding().cpu() == self.cpu()
-        &&& self.rcu_binding().participant_id() == self.rcu_participant_id()
+        &&& self.rcu_binding().owner_id() == self.core_owner_id()
+        &&& self.rcu_binding().locals_key() == self.core_handle.expected_locals_key()
+        &&& self.rcu_binding().single_local_id() == self.rcu_participant_id()
         &&& self.rcu_participant.cpu() == self.cpu()
         &&& self.rcu_participant_view().spec_le(self.view())
     }
@@ -510,6 +532,10 @@ impl RunningTaskContext {
         &&& sched_view.current[self.cpu()] == Some(self.task())
         &&& sched_view.cpu_has_rcu_participant(self.cpu())
         &&& sched_view.cpu_rcu_participant_id(self.cpu()) == self.rcu_participant_id()
+        &&& sched_view.cpu_core_registration(self.cpu()).owner_id == self.core_owner_id()
+        &&& sched_view.cpu_core_registration(self.cpu()).locals_key == seq![
+            self.rcu_participant_id(),
+        ]
         &&& !sched_view.cpu_rcu_participant_is_stored(self.cpu())
     }
 
@@ -528,6 +554,10 @@ impl RunningTaskContext {
             sched_view.current[self.cpu()] == Some(self.task()),
             sched_view.cpu_has_rcu_participant(self.cpu()),
             sched_view.cpu_rcu_participant_id(self.cpu()) == self.rcu_participant_id(),
+            sched_view.cpu_core_registration(self.cpu()).owner_id == self.core_owner_id(),
+            sched_view.cpu_core_registration(self.cpu()).locals_key == seq![
+                self.rcu_participant_id(),
+            ],
             !sched_view.cpu_rcu_participant_is_stored(self.cpu()),
         ensures
             self.wf_scheduler(sched_view),
@@ -602,14 +632,15 @@ impl RunningTaskContext {
     }
 
     /// Copies the persistent scheduler binding for a guard or quiescent report.
-    pub proof fn tracked_rcu_binding(tracked &self) -> (tracked binding:
-        CpuRcuParticipantBinding)
+    pub proof fn tracked_rcu_binding(tracked &self) -> (tracked binding: CpuRcuCoreBinding)
         requires
             self.wf(),
         ensures
-            binding.scheduler() == self.scheduler(),
+            binding.registry() == self.scheduler(),
             binding.cpu() == self.cpu(),
-            binding.participant_id() == self.rcu_participant_id(),
+            binding.owner_id() == self.core_owner_id(),
+            binding.locals_key() == seq![self.rcu_participant_id()],
+            binding.single_local_id() == self.rcu_participant_id(),
     {
         self.rcu_binding.tracked_duplicate()
     }
@@ -709,11 +740,7 @@ impl RunningTaskContext {
             final(self).rcu_fraction() == 1real,
     {
         let tracked binding = self.rcu_binding.tracked_duplicate();
-        self.rcu_participant.tracked_report_quiescent_with_in_place(
-            binding,
-            self.view(),
-            learned,
-        )
+        self.rcu_participant.tracked_report_quiescent_with_in_place(binding, self.view(), learned)
     }
 
     /// Records one quiescent boundary for this running session.
@@ -749,7 +776,7 @@ impl RunningTaskContext {
     /// ownership. The full-fraction requirement rules out live preempt guards.
     pub proof fn tracked_into_task_view(tracked self) -> (tracked res: (
         TaskThreadView,
-        CpuRcuParticipant,
+        CpuCoreOwner<CpuRcuParticipant>,
     ))
         requires
             self.wf(),
@@ -759,16 +786,40 @@ impl RunningTaskContext {
             res.0.scheduler() == self.scheduler(),
             res.0.task() == self.task(),
             res.0.view() == self.view(),
-            res.1.id() == self.rcu_participant_id(),
+            res.1.id() == self.core_owner_id(),
             res.1.cpu() == self.cpu(),
-            res.1.generation() == self.rcu_generation(),
-            res.1.view() == self.rcu_participant_view(),
-            res.1.fraction() == 1real,
-            res.1.view().spec_le(res.0.view()),
+            res.1.current_task() == Some(self.task()),
+            res.1.locals_key() == seq![self.rcu_participant_id()],
+            res.1.registration() == (CpuCoreRegistration {
+                owner_id: self.core_owner_id(),
+                locals_key: seq![self.rcu_participant_id()],
+            }),
+            res.1.locals().id() == self.rcu_participant_id(),
+            res.1.locals().generation() == self.rcu_generation(),
+            res.1.locals().view() == self.rcu_participant_view(),
+            res.1.locals().fraction() == 1real,
+            res.1.locals().view().spec_le(res.0.view()),
             res.1.wf(),
     {
         assert(self.available_fractions() == PREEMPT_SESSION_FRACTIONS);
-        (self.session.tracked_into_task_view(), self.rcu_participant)
+        let ghost cpu = self.cpu();
+        let ghost task = self.task();
+        let ghost core_owner_id = self.core_owner_id();
+        let ghost rcu_participant_id = self.rcu_participant_id();
+        let ghost core_view = self.core_handle@;
+        assert(self.core_handle.cpu() == cpu);
+        assert(self.core_handle.current_task() == Some(task));
+        let tracked core = self.core_handle.tracked_restore(self.rcu_participant);
+        assert(core@ == core_view);
+        assert(core.id() == core_owner_id);
+        assert(core.cpu() == cpu);
+        assert(core.current_task() == Some(task));
+        assert(core.locals_key() == seq![rcu_participant_id]);
+        assert(core.registration() == (CpuCoreRegistration {
+            owner_id: core_owner_id,
+            locals_key: seq![rcu_participant_id],
+        }));
+        (self.session.tracked_into_task_view(), core)
     }
 
     /// Scheduler-facing form of `tracked_into_task_view` that preserves the
@@ -776,7 +827,7 @@ impl RunningTaskContext {
     pub proof fn tracked_into_task_view_for_scheduler(
         tracked self,
         sched_view: SchedulerView,
-    ) -> (tracked res: (TaskThreadView, CpuRcuParticipant))
+    ) -> (tracked res: (TaskThreadView, CpuCoreOwner<CpuRcuParticipant>))
         requires
             self.wf_scheduler(sched_view),
             self.is_quiescent(),
@@ -785,19 +836,43 @@ impl RunningTaskContext {
             res.0.task() == self.task(),
             res.0.view() == self.view(),
             res.0.wf(sched_view),
-            res.1.id() == self.rcu_participant_id(),
+            res.1.id() == self.core_owner_id(),
             res.1.cpu() == self.cpu(),
-            res.1.generation() == self.rcu_generation(),
-            res.1.view() == self.rcu_participant_view(),
-            res.1.fraction() == 1real,
-            res.1.view().spec_le(res.0.view()),
+            res.1.current_task() == Some(self.task()),
+            res.1.locals_key() == seq![self.rcu_participant_id()],
+            res.1.registration() == (CpuCoreRegistration {
+                owner_id: self.core_owner_id(),
+                locals_key: seq![self.rcu_participant_id()],
+            }),
+            res.1.locals().id() == self.rcu_participant_id(),
+            res.1.locals().generation() == self.rcu_generation(),
+            res.1.locals().view() == self.rcu_participant_view(),
+            res.1.locals().fraction() == 1real,
+            res.1.locals().view().spec_le(res.0.view()),
             res.1.wf(),
     {
         assert(self.preempt_depth() == 0);
         assert(self.available_fractions() == PREEMPT_SESSION_FRACTIONS);
         assert(self.session.wf(sched_view));
+        let ghost cpu = self.cpu();
+        let ghost task = self.task();
+        let ghost core_owner_id = self.core_owner_id();
+        let ghost rcu_participant_id = self.rcu_participant_id();
+        let ghost core_view = self.core_handle@;
+        assert(self.core_handle.cpu() == cpu);
+        assert(self.core_handle.current_task() == Some(task));
         let tracked task_view = self.session.tracked_into_task_view_for_scheduler(sched_view);
-        (task_view, self.rcu_participant)
+        let tracked core = self.core_handle.tracked_restore(self.rcu_participant);
+        assert(core@ == core_view);
+        assert(core.id() == core_owner_id);
+        assert(core.cpu() == cpu);
+        assert(core.current_task() == Some(task));
+        assert(core.locals_key() == seq![rcu_participant_id]);
+        assert(core.registration() == (CpuCoreRegistration {
+            owner_id: core_owner_id,
+            locals_key: seq![rcu_participant_id],
+        }));
+        (task_view, core)
     }
 }
 
@@ -1174,10 +1249,7 @@ impl DisabledPreemptGuard {
 
     /// Consuming compatibility wrapper for callers that do not need standard
     /// destructor integration.
-    pub(crate) fn release_to_context(
-        self,
-        Tracked(context): Tracked<&mut RunningTaskContext>,
-    )
+    pub(crate) fn release_to_context(self, Tracked(context): Tracked<&mut RunningTaskContext>)
         requires
             old(context).wf(),
             old(context).preempt_depth() > 0,

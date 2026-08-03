@@ -2012,8 +2012,12 @@ impl RcuInactive {
         self.reader
     }
 
+    pub closed spec fn reader_registry(self) -> Loc {
+        self.state.id()
+    }
+
     pub closed spec fn wf(self) -> bool {
-        !self.state.value()
+        true
     }
 
     pub closed spec fn belongs_to(self, domain: RcuDomainAuth) -> bool {
@@ -2057,16 +2061,17 @@ impl RcuBaseGuard {
         self.reader
     }
 
-    /// Weak atomic whose history determined this guard's expired snapshot.
+    /// Root atomic whose removal history determined this guard's expired set.
     pub closed spec fn root(self) -> Loc {
         self.root
     }
 
-    /// Thread view captured immediately before the guarded root load.
+    /// Weak-memory view captured when this read-side critical section began.
     pub closed spec fn start_view(self) -> WmView {
         self.start_view
     }
 
+    /// Registry that issued persistent retirement facts for this domain.
     pub closed spec fn retire_observation_registry(self) -> Loc {
         self.retire_observation_registry
     }
@@ -2080,7 +2085,11 @@ impl RcuBaseGuard {
     }
 
     pub closed spec fn wf(self) -> bool {
-        !self.state.value()
+        &&& !self.state.value()
+        &&& forall|addr: usize| #[trigger]
+            self.protected().dom().contains(addr) ==> !self.expired().contains(
+                self.protected()[addr],
+            )
     }
 
     pub closed spec fn belongs_to(self, domain: RcuDomainAuth) -> bool {
@@ -2107,6 +2116,7 @@ impl RcuBaseGuard {
             res.tid() == self.tid(),
             res.reader() == self.reader(),
             res.wf(),
+            res.reader_registry() == self.reader_registry(),
     {
         RcuInactive { domain: self.domain, state: self.state, reader: self.reader }
     }
@@ -2133,6 +2143,17 @@ impl RcuBaseGuard {
             final(self).protects(info.addr(), info.obj()),
     {
         self.protected = self.protected.insert(info.addr(), info.obj());
+        assert forall|addr: usize| #[trigger]
+            self.protected().dom().contains(addr) implies !self.expired().contains(
+            self.protected()[addr],
+        ) by {
+            if addr == info.addr() {
+                assert(self.protected()[addr] == info.obj());
+            } else {
+                assert(old(self).protected().dom().contains(addr));
+                assert(self.protected()[addr] == old(self).protected()[addr]);
+            }
+        };
     }
 }
 
@@ -2443,6 +2464,15 @@ impl RcuRetiredFact {
         &&& self.observation.value() is Some
     }
 
+    pub open spec fn record(self) -> RcuRetiredRecord {
+        RcuRetiredRecord {
+            domain: self.domain(),
+            obj: self.obj(),
+            retire_observation_registry: self.retire_observation_registry(),
+            removal: self.removal(),
+        }
+    }
+
     pub closed spec fn matches(self, summary: RcuCallbackSummary) -> bool {
         &&& summary.domain == self.domain()
         &&& summary.obj == self.obj()
@@ -2450,20 +2480,12 @@ impl RcuRetiredFact {
         &&& summary.retire_observation_registry == self.retire_observation_registry()
     }
 
-    pub closed spec fn record(self) -> RcuRetiredRecord {
-        RcuRetiredRecord {
-            domain: self.domain(),
-            obj: self.obj(),
-            removal: self.removal(),
-            retire_observation_registry: self.retire_observation_registry(),
-        }
-    }
-
     pub proof fn tracked_duplicate(tracked &self) -> (tracked res: Self)
         requires
             self.wf(),
         ensures
             res.wf(),
+            res.record() == self.record(),
             res.domain() == self.domain(),
             res.obj() == self.obj(),
             res.addr() == self.addr(),
@@ -3038,6 +3060,15 @@ impl<T> RcuReadGuardToken<T> {
             self.wf(),
         ensures
             self.expired().subset_of(self.seen_removed().removed),
+    {
+    }
+
+    pub proof fn lemma_protected_not_expired(tracked &self, addr: usize, obj: nat)
+        requires
+            self.wf(),
+            self.protects(addr, obj),
+        ensures
+            !self.expired().contains(obj),
     {
     }
 

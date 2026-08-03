@@ -68,10 +68,15 @@ use vstd::{map::Map, prelude::*, resource::Loc};
 
 use super::{Task, preempt::RunningTaskContext};
 use crate::{
-    specs::mm::cpu::CpuId,
-    specs::sync::{
-        rcu_cpu::{CpuRcuParticipant, CpuRcuParticipantBinding},
-        weak_memory::{ThreadView, WmView},
+    specs::{
+        mm::cpu::CpuId,
+        sync::{
+            rcu_cpu::CpuRcuParticipant,
+            weak_memory::{ThreadView, WmView},
+        },
+        task::cpu_core::{
+            CpuCoreOwner, CpuCoreOwnerBinding, CpuCoreOwnerHandle, CpuCoreRegistration,
+        },
     },
     sync::{OnceImpl, RoArc, TrivialPred},
 };
@@ -134,9 +139,9 @@ pub ghost enum TaskSchedState {
 /// weak-memory view. `stored_views` records views still owned by the scheduler
 /// resource; `checked_out_views` records views temporarily held by guards.
 /// `cpu_views` persists observations across context switches on each CPU.
-/// `cpu_rcu_participant_ids` permanently binds each registered CPU to one RCU
-/// participant resource. `stored_cpu_rcu_participants` records which complete
-/// participant resources are currently owned by the scheduler.
+/// `cpu_core_registrations` permanently binds each registered CPU to one core
+/// owner and its stable CPU-local aggregate. `stored_cpu_cores` records which
+/// complete owners are currently held by the scheduler.
 pub ghost struct SchedulerView {
     pub id: Loc,
     pub runqueues: Map<CpuId, Seq<Loc>>,
@@ -146,8 +151,8 @@ pub ghost struct SchedulerView {
     pub stored_views: Map<Loc, WmView>,
     pub checked_out_views: Map<Loc, WmView>,
     pub cpu_views: Map<CpuId, WmView>,
-    pub cpu_rcu_participant_ids: Map<CpuId, Loc>,
-    pub stored_cpu_rcu_participants: Set<CpuId>,
+    pub cpu_core_registrations: Map<CpuId, CpuCoreRegistration>,
+    pub stored_cpu_cores: Set<CpuId>,
 }
 
 impl SchedulerView {
@@ -162,8 +167,8 @@ impl SchedulerView {
             stored_views: Map::empty(),
             checked_out_views: Map::empty(),
             cpu_views: Map::empty(),
-            cpu_rcu_participant_ids: Map::empty(),
-            stored_cpu_rcu_participants: Set::empty(),
+            cpu_core_registrations: Map::empty(),
+            stored_cpu_cores: Set::empty(),
         }
     }
 
@@ -208,18 +213,26 @@ impl SchedulerView {
     }
 
     pub open spec fn cpu_has_rcu_participant(self, cpu: CpuId) -> bool {
-        self.cpu_rcu_participant_ids.contains_key(cpu)
+        self.cpu_core_registrations.contains_key(cpu)
+            && self.cpu_core_registrations[cpu].locals_key.len() == 1
     }
 
     pub open spec fn cpu_rcu_participant_id(self, cpu: CpuId) -> Loc
         recommends
             self.cpu_has_rcu_participant(cpu),
     {
-        self.cpu_rcu_participant_ids[cpu]
+        self.cpu_core_registrations[cpu].locals_key[0]
     }
 
     pub open spec fn cpu_rcu_participant_is_stored(self, cpu: CpuId) -> bool {
-        self.stored_cpu_rcu_participants.contains(cpu)
+        self.stored_cpu_cores.contains(cpu)
+    }
+
+    pub open spec fn cpu_core_registration(self, cpu: CpuId) -> CpuCoreRegistration
+        recommends
+            self.cpu_core_registrations.contains_key(cpu),
+    {
+        self.cpu_core_registrations[cpu]
     }
 
     /// The scheduling policy changed no weak-memory ownership state.
@@ -234,8 +247,8 @@ impl SchedulerView {
         &&& self.stored_views == other.stored_views
         &&& self.checked_out_views == other.checked_out_views
         &&& self.cpu_views == other.cpu_views
-        &&& self.cpu_rcu_participant_ids == other.cpu_rcu_participant_ids
-        &&& self.stored_cpu_rcu_participants == other.stored_cpu_rcu_participants
+        &&& self.cpu_core_registrations == other.cpu_core_registrations
+        &&& self.stored_cpu_cores == other.stored_cpu_cores
     }
 
     pub open spec fn task_in_runqueue(self, task: Loc) -> bool {
@@ -301,31 +314,42 @@ impl SchedulerView {
     ///
     /// Scheduler policy may populate that CPU's runqueue/current slot only
     /// after this transition. The initial empty view carries no observations.
-    pub open spec fn register_cpu(self, cpu: CpuId, rcu_participant_id: Loc) -> SchedulerView
+    pub open spec fn register_cpu(
+        self,
+        cpu: CpuId,
+        registration: CpuCoreRegistration,
+    ) -> SchedulerView
         recommends
             !self.cpu_views.contains_key(cpu),
             valid_cpu(cpu),
+            registration.locals_key.len() == 1,
     {
         SchedulerView {
             cpu_views: self.cpu_views.insert(cpu, WmView::empty()),
-            cpu_rcu_participant_ids: self.cpu_rcu_participant_ids.insert(cpu, rcu_participant_id),
-            stored_cpu_rcu_participants: self.stored_cpu_rcu_participants.insert(cpu),
+            cpu_core_registrations: self.cpu_core_registrations.insert(cpu, registration),
+            stored_cpu_cores: self.stored_cpu_cores.insert(cpu),
             ..self
         }
     }
 
-    pub proof fn lemma_register_cpu_preserves_wf(self, cpu: CpuId, rcu_participant_id: Loc)
+    pub proof fn lemma_register_cpu_preserves_wf(
+        self,
+        cpu: CpuId,
+        registration: CpuCoreRegistration,
+    )
         requires
             self.wf(),
             !self.cpu_views.contains_key(cpu),
             valid_cpu(cpu),
+            registration.locals_key.len() == 1,
         ensures
-            self.register_cpu(cpu, rcu_participant_id).wf(),
-            self.register_cpu(cpu, rcu_participant_id).cpu_has_thread_view(cpu),
-            self.register_cpu(cpu, rcu_participant_id).cpu_thread_view(cpu) == WmView::empty(),
-            self.register_cpu(cpu, rcu_participant_id).cpu_rcu_participant_id(cpu)
-                == rcu_participant_id,
-            self.register_cpu(cpu, rcu_participant_id).cpu_rcu_participant_is_stored(cpu),
+            self.register_cpu(cpu, registration).wf(),
+            self.register_cpu(cpu, registration).cpu_has_thread_view(cpu),
+            self.register_cpu(cpu, registration).cpu_thread_view(cpu) == WmView::empty(),
+            self.register_cpu(cpu, registration).cpu_core_registration(cpu) == registration,
+            self.register_cpu(cpu, registration).cpu_rcu_participant_id(cpu)
+                == registration.locals_key[0],
+            self.register_cpu(cpu, registration).cpu_rcu_participant_is_stored(cpu),
     {
     }
 
@@ -362,7 +386,7 @@ impl SchedulerView {
             task_views: self.task_views.insert(task, joined),
             stored_views: self.stored_views.remove(task),
             checked_out_views: self.checked_out_views.insert(task, joined),
-            stored_cpu_rcu_participants: self.stored_cpu_rcu_participants.remove(cpu),
+            stored_cpu_cores: self.stored_cpu_cores.remove(cpu),
             ..self
         }
     }
@@ -416,7 +440,7 @@ impl SchedulerView {
             task_views: self.task_views.insert(task, view),
             stored_views: self.stored_views.insert(task, view),
             checked_out_views: self.checked_out_views.remove(task),
-            stored_cpu_rcu_participants: self.stored_cpu_rcu_participants.insert(cpu),
+            stored_cpu_cores: self.stored_cpu_cores.insert(cpu),
             ..self
         }
     }
@@ -480,11 +504,14 @@ impl SchedulerView {
             )
         // The complete RCU participant follows the same checkout boundary as
         // the current task view, while its identity remains CPU-stable.
-        &&& self.cpu_rcu_participant_ids.dom() == self.cpu_views.dom()
-        &&& self.stored_cpu_rcu_participants.subset_of(self.cpu_views.dom())
+        &&& self.cpu_core_registrations.dom() == self.cpu_views.dom()
         &&& forall|cpu: CpuId| #[trigger]
-            self.cpu_views.contains_key(cpu) ==> (self.stored_cpu_rcu_participants.contains(cpu)
-                <==> !(self.current.contains_key(cpu) && self.current[cpu] is Some
+            self.cpu_core_registrations.contains_key(cpu)
+                ==> self.cpu_core_registrations[cpu].locals_key.len() == 1
+        &&& self.stored_cpu_cores.subset_of(self.cpu_views.dom())
+        &&& forall|cpu: CpuId| #[trigger]
+            self.cpu_views.contains_key(cpu) ==> (self.stored_cpu_cores.contains(cpu) <==> !(
+            self.current.contains_key(cpu) && self.current[cpu] is Some
                 && self.checked_out_views.contains_key(
                 self.current[cpu]->0,
             )))
@@ -549,8 +576,8 @@ tracked struct SchedulerThreadViews {
     scheduler: Ghost<Loc>,
     views: Map<Loc, ThreadView>,
     cpu_views: Map<CpuId, ThreadView>,
-    rcu_participants: Map<CpuId, CpuRcuParticipant>,
-    rcu_bindings: Map<CpuId, CpuRcuParticipantBinding>,
+    cpu_cores: Map<CpuId, CpuCoreOwner<CpuRcuParticipant>>,
+    core_bindings: Map<CpuId, CpuCoreOwnerBinding<CpuRcuParticipant>>,
 }
 
 /// A checked-out per-task `ThreadView`.
@@ -636,19 +663,22 @@ impl SchedulerThreadViews {
             res.scheduler() == scheduler,
             res.view() == Map::<Loc, WmView>::empty(),
             res.cpu_view_map() == Map::<CpuId, WmView>::empty(),
-            res.rcu_participant_id_map() == Map::<CpuId, Loc>::empty(),
-            res.rcu_binding_id_map() == Map::<CpuId, Loc>::empty(),
+            res.core_registration_map() == Map::<CpuId, CpuCoreRegistration>::empty(),
+            res.binding_registration_map() == Map::<CpuId, CpuCoreRegistration>::empty(),
     {
         let tracked views = Map::<Loc, ThreadView>::tracked_empty();
         let tracked cpu_views = Map::<CpuId, ThreadView>::tracked_empty();
-        let tracked rcu_participants = Map::<CpuId, CpuRcuParticipant>::tracked_empty();
-        let tracked rcu_bindings = Map::<CpuId, CpuRcuParticipantBinding>::tracked_empty();
+        let tracked cpu_cores = Map::<CpuId, CpuCoreOwner<CpuRcuParticipant>>::tracked_empty();
+        let tracked core_bindings = Map::<
+            CpuId,
+            CpuCoreOwnerBinding<CpuRcuParticipant>,
+        >::tracked_empty();
         SchedulerThreadViews {
             scheduler: Ghost(scheduler),
             views,
             cpu_views,
-            rcu_participants,
-            rcu_bindings,
+            cpu_cores,
+            core_bindings,
         }
     }
 
@@ -664,12 +694,19 @@ impl SchedulerThreadViews {
         Map::new(self.cpu_views.dom(), |cpu: CpuId| self.cpu_views[cpu]@)
     }
 
-    pub closed spec fn rcu_participant_id_map(self) -> Map<CpuId, Loc> {
-        Map::new(self.rcu_participants.dom(), |cpu: CpuId| self.rcu_participants[cpu].id())
+    pub closed spec fn core_registration_map(self) -> Map<CpuId, CpuCoreRegistration> {
+        Map::new(self.cpu_cores.dom(), |cpu: CpuId| self.cpu_cores[cpu].registration())
     }
 
-    pub closed spec fn rcu_binding_id_map(self) -> Map<CpuId, Loc> {
-        Map::new(self.rcu_bindings.dom(), |cpu: CpuId| self.rcu_bindings[cpu].participant_id())
+    pub closed spec fn binding_registration_map(self) -> Map<CpuId, CpuCoreRegistration> {
+        Map::new(
+            self.core_bindings.dom(),
+            |cpu: CpuId|
+                CpuCoreRegistration {
+                    owner_id: self.core_bindings[cpu].owner_id(),
+                    locals_key: self.core_bindings[cpu].locals_key(),
+                },
+        )
     }
 
     pub closed spec fn contains(self, task: Loc) -> bool {
@@ -694,41 +731,43 @@ impl SchedulerThreadViews {
         self.cpu_views[cpu]@
     }
 
-    closed spec fn rcu_participants_wf(self, sched_view: SchedulerView) -> bool {
-        &&& self.rcu_participants.dom() == sched_view.stored_cpu_rcu_participants
+    closed spec fn cpu_cores_wf(self, sched_view: SchedulerView) -> bool {
+        &&& self.cpu_cores.dom() == sched_view.stored_cpu_cores
         &&& forall|cpu: CpuId| #[trigger]
-            self.rcu_participants.contains_key(cpu) ==> {
-                &&& self.rcu_participants[cpu].wf()
-                &&& self.rcu_participants[cpu].cpu() == cpu
-                &&& self.rcu_participants[cpu].id() == sched_view.cpu_rcu_participant_ids[cpu]
-                &&& self.rcu_participants[cpu].fraction() == 1real
-                &&& self.rcu_participants[cpu].view().spec_le(self.cpu_views[cpu]@)
+            self.cpu_cores.contains_key(cpu) ==> {
+                &&& self.cpu_cores[cpu].wf()
+                &&& self.cpu_cores[cpu].cpu() == cpu
+                &&& self.cpu_cores[cpu].is_idle()
+                &&& self.cpu_cores[cpu].id() == sched_view.cpu_core_registrations[cpu].owner_id
+                &&& self.cpu_cores[cpu].locals_key()
+                    == sched_view.cpu_core_registrations[cpu].locals_key
+                &&& self.cpu_cores[cpu].registration() == sched_view.cpu_core_registrations[cpu]
+                &&& self.cpu_cores[cpu].locals().fraction() == 1real
+                &&& self.cpu_cores[cpu].locals().view().spec_le(self.cpu_views[cpu]@)
             }
     }
 
-    closed spec fn rcu_bindings_wf(self, sched_view: SchedulerView) -> bool {
-        &&& self.rcu_bindings.dom() == sched_view.cpu_rcu_participant_ids.dom()
+    closed spec fn core_bindings_wf(self, sched_view: SchedulerView) -> bool {
+        &&& self.core_bindings.dom() == sched_view.cpu_core_registrations.dom()
         &&& forall|cpu: CpuId| #[trigger]
-            self.rcu_bindings.contains_key(cpu) ==> {
-                &&& self.rcu_bindings[cpu].scheduler() == sched_view.id
-                &&& self.rcu_bindings[cpu].cpu() == cpu
-                &&& self.rcu_bindings[cpu].participant_id()
-                    == sched_view.cpu_rcu_participant_ids[cpu]
+            self.core_bindings.contains_key(cpu) ==> {
+                &&& self.core_bindings[cpu].registry() == sched_view.id
+                &&& self.core_bindings[cpu].cpu() == cpu
+                &&& self.core_bindings[cpu].owner_id()
+                    == sched_view.cpu_core_registrations[cpu].owner_id
+                &&& self.core_bindings[cpu].locals_key()
+                    == sched_view.cpu_core_registrations[cpu].locals_key
             }
     }
 
-    proof fn lemma_rcu_participants_frame(
-        tracked &self,
-        before: SchedulerView,
-        after: SchedulerView,
-    )
+    proof fn lemma_cpu_cores_frame(tracked &self, before: SchedulerView, after: SchedulerView)
         requires
-            self.rcu_participants_wf(before),
-            before.stored_cpu_rcu_participants == after.stored_cpu_rcu_participants,
-            before.cpu_rcu_participant_ids == after.cpu_rcu_participant_ids,
+            self.cpu_cores_wf(before),
+            before.stored_cpu_cores == after.stored_cpu_cores,
+            before.cpu_core_registrations == after.cpu_core_registrations,
             before.cpu_views == after.cpu_views,
         ensures
-            self.rcu_participants_wf(after),
+            self.cpu_cores_wf(after),
     {
     }
 
@@ -739,57 +778,57 @@ impl SchedulerThreadViews {
         &&& self.scheduler() == sched_view.id
         &&& self.view() == sched_view.stored_views
         &&& self.cpu_view_map() == sched_view.cpu_views
-        &&& self.rcu_participants_wf(sched_view)
-        &&& self.rcu_bindings_wf(sched_view)
+        &&& self.cpu_cores_wf(sched_view)
+        &&& self.core_bindings_wf(sched_view)
     }
 
     proof fn tracked_register_cpu(
         tracked &mut self,
-        tracked identity: &mut GhostMapAuth<CpuId, Loc>,
+        tracked identity: &mut GhostMapAuth<CpuId, CpuCoreRegistration>,
         sched_view: SchedulerView,
         cpu: CpuId,
-    ) -> (participant_id: Loc)
+    ) -> (registration: CpuCoreRegistration)
         requires
             old(self).wf(sched_view),
             sched_view.wf(),
             !sched_view.cpu_has_thread_view(cpu),
             valid_cpu(cpu),
             old(identity).id() == sched_view.id,
-            old(identity)@ == sched_view.cpu_rcu_participant_ids,
+            old(identity)@ == sched_view.cpu_core_registrations,
         ensures
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view(),
-            final(self).cpu_view_map() == sched_view.register_cpu(cpu, participant_id).cpu_views,
-            final(self).wf(sched_view.register_cpu(cpu, participant_id)),
+            registration.locals_key.len() == 1,
+            final(self).cpu_view_map() == sched_view.register_cpu(cpu, registration).cpu_views,
+            final(self).wf(sched_view.register_cpu(cpu, registration)),
             final(self).contains_cpu(cpu),
             final(self).cpu_thread_view(cpu) == WmView::empty(),
-            final(self).rcu_participant_id_map().contains_key(cpu),
-            final(self).rcu_participant_id_map()[cpu] == participant_id,
-            final(self).rcu_binding_id_map() == sched_view.register_cpu(
+            final(self).core_registration_map().contains_key(cpu),
+            final(self).core_registration_map()[cpu] == registration,
+            final(self).binding_registration_map() == sched_view.register_cpu(
                 cpu,
-                participant_id,
-            ).cpu_rcu_participant_ids,
+                registration,
+            ).cpu_core_registrations,
             final(identity).id() == old(identity).id(),
-            final(identity)@ == sched_view.register_cpu(
-                cpu,
-                participant_id,
-            ).cpu_rcu_participant_ids,
+            final(identity)@ == sched_view.register_cpu(cpu, registration).cpu_core_registrations,
     {
         let tracked cpu_view = ThreadView::new();
         let tracked participant = CpuRcuParticipant::new(cpu, WmView::empty());
+        participant.lemma_cpu_core_local_state();
         let ghost participant_id = participant.id();
-        let tracked entry = identity.insert(cpu, participant_id);
-        let tracked binding = CpuRcuParticipantBinding::tracked_new(entry);
-        sched_view.lemma_register_cpu_preserves_wf(cpu, participant_id);
+        let tracked core = CpuCoreOwner::new(cpu, participant);
+        let ghost registration = core.registration();
+        assert(core.locals_key() == seq![participant_id]);
+        assert(registration.locals_key.len() == 1);
+        let tracked entry = identity.insert(cpu, registration);
+        let tracked binding = CpuCoreOwnerBinding::tracked_new(entry, &core);
+        sched_view.lemma_register_cpu_preserves_wf(cpu, registration);
         self.cpu_views.tracked_insert(cpu, cpu_view);
-        self.rcu_participants.tracked_insert(cpu, participant);
-        self.rcu_bindings.tracked_insert(cpu, binding);
-        assert(final(self).cpu_view_map() == sched_view.register_cpu(
-            cpu,
-            participant_id,
-        ).cpu_views);
-        assert(final(self).wf(sched_view.register_cpu(cpu, participant_id)));
-        participant_id
+        self.cpu_cores.tracked_insert(cpu, core);
+        self.core_bindings.tracked_insert(cpu, binding);
+        assert(final(self).cpu_view_map() == sched_view.register_cpu(cpu, registration).cpu_views);
+        assert(final(self).wf(sched_view.register_cpu(cpu, registration)));
+        registration
     }
 
     /// Inserts a task view created during task registration.
@@ -804,16 +843,16 @@ impl SchedulerThreadViews {
         requires
             !old(self).contains(token.task()),
             token.scheduler() == old(self).scheduler(),
-            old(self).rcu_participants_wf(rcu_view),
-            old(self).rcu_bindings_wf(rcu_view),
+            old(self).cpu_cores_wf(rcu_view),
+            old(self).core_bindings_wf(rcu_view),
         ensures
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view().insert(token.task(), token.view()),
             final(self).cpu_view_map() == old(self).cpu_view_map(),
-            final(self).rcu_participants == old(self).rcu_participants,
-            final(self).rcu_participants_wf(rcu_view),
-            final(self).rcu_bindings == old(self).rcu_bindings,
-            final(self).rcu_bindings_wf(rcu_view),
+            final(self).cpu_cores == old(self).cpu_cores,
+            final(self).cpu_cores_wf(rcu_view),
+            final(self).core_bindings == old(self).core_bindings,
+            final(self).core_bindings_wf(rcu_view),
     {
         let tracked TaskThreadView { scheduler: _, task: Ghost(task), thread_view } = token;
         self.views.tracked_insert(task, thread_view);
@@ -840,7 +879,7 @@ impl SchedulerThreadViews {
         sched_view.lemma_register_task_preserves_wf(task);
         let tracked thread_view = ThreadView::new();
         let tracked token = TaskThreadView::new(self.scheduler(), task, thread_view);
-        self.lemma_rcu_participants_frame(sched_view, sched_view.register_task(task));
+        self.lemma_cpu_cores_frame(sched_view, sched_view.register_task(task));
         self.tracked_insert_initial_thread_view(token, sched_view.register_task(task));
         assert(final(self).view() == sched_view.register_task(task).stored_views);
         assert(final(self).wf(sched_view.register_task(task)));
@@ -854,7 +893,12 @@ impl SchedulerThreadViews {
         tracked &mut self,
         sched_view: SchedulerView,
         cpu: CpuId,
-    ) -> (tracked res: (TaskThreadView, CpuRcuParticipant, CpuRcuParticipantBinding))
+    ) -> (tracked res: (
+        TaskThreadView,
+        CpuCoreOwnerHandle<CpuRcuParticipant>,
+        CpuRcuParticipant,
+        CpuCoreOwnerBinding<CpuRcuParticipant>,
+    ))
         requires
             old(self).wf(sched_view),
             sched_view.wf(),
@@ -870,14 +914,21 @@ impl SchedulerThreadViews {
             res.0.view() == old(self).thread_view(sched_view.current[cpu]->0).join(
                 old(self).cpu_thread_view(cpu),
             ),
-            res.1.id() == sched_view.cpu_rcu_participant_id(cpu),
-            res.1.cpu() == cpu,
-            res.1.fraction() == 1real,
-            res.1.view().spec_le(res.0.view()),
             res.1.wf(),
-            res.2.scheduler() == sched_view.id,
+            res.1.cpu() == cpu,
+            res.1.current_task() == Some(res.0.task()),
+            res.1.id() == sched_view.cpu_core_registration(cpu).owner_id,
+            res.1.expected_locals_key() == seq![res.2.id()],
+            res.1.expected_locals_key() == sched_view.cpu_core_registration(cpu).locals_key,
+            res.2.id() == sched_view.cpu_rcu_participant_id(cpu),
             res.2.cpu() == cpu,
-            res.2.participant_id() == res.1.id(),
+            res.2.fraction() == 1real,
+            res.2.view().spec_le(res.0.view()),
+            res.2.wf(),
+            res.3.registry() == sched_view.id,
+            res.3.cpu() == cpu,
+            res.3.owner_id() == res.1.id(),
+            res.3.locals_key() == seq![res.2.id()],
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view().remove(sched_view.current[cpu]->0),
             final(self).cpu_view_map() == old(self).cpu_view_map(),
@@ -888,8 +939,15 @@ impl SchedulerThreadViews {
         let task = sched_view.current[cpu]->0;
         let tracked mut thread_view = self.views.tracked_remove(task);
         let tracked cpu_view = self.cpu_views.tracked_borrow(cpu);
-        let tracked participant = self.rcu_participants.tracked_remove(cpu);
-        let tracked binding = self.rcu_bindings.tracked_borrow(cpu).tracked_duplicate();
+        let tracked mut core = self.cpu_cores.tracked_remove(cpu);
+        assert(core.is_idle());
+        assert(core.id() == sched_view.cpu_core_registration(cpu).owner_id);
+        assert(core.locals_key() == sched_view.cpu_core_registration(cpu).locals_key);
+        assert(core.registration() == sched_view.cpu_core_registration(cpu));
+        core.tracked_schedule_in(task);
+        assert(core.registration() == sched_view.cpu_core_registration(cpu));
+        let tracked (core_handle, participant) = core.tracked_open();
+        let tracked binding = self.core_bindings.tracked_borrow(cpu).tracked_duplicate();
         thread_view.tracked_join(cpu_view);
         let tracked token = TaskThreadView {
             scheduler: Ghost(self.scheduler()),
@@ -897,10 +955,17 @@ impl SchedulerThreadViews {
             thread_view,
         };
         let next = sched_view.checkout_task_view(cpu);
+        assert(core_handle.cpu() == cpu);
+        assert(core_handle.current_task() == Some(task));
+        assert(core_handle.id() == sched_view.cpu_core_registration(cpu).owner_id);
+        assert(participant.cpu() == cpu);
+        assert(core_handle.expected_locals_key() == seq![participant.id()]);
+        assert(sched_view.cpu_core_registration(cpu).locals_key == seq![participant.id()]);
+        assert(participant.id() == sched_view.cpu_rcu_participant_id(cpu));
         assert(final(self).view() == next.stored_views);
         assert(final(self).wf(next));
         assert(token.wf(next));
-        (token, participant, binding)
+        (token, core_handle, participant, binding)
     }
 
     /// Checks out the current task's weak-memory view and starts its running
@@ -933,11 +998,16 @@ impl SchedulerThreadViews {
             final(self).wf(sched_view.checkout_task_view(cpu)),
     {
         let ghost next = sched_view.checkout_task_view(cpu);
-        let tracked (task_view, participant, binding) = self.tracked_take_current_thread_view(
-            sched_view,
+        let tracked (task_view, core_handle, participant, binding) =
+            self.tracked_take_current_thread_view(sched_view, cpu);
+        let tracked context = RunningTaskContext::new(
+            task_view,
+            core_handle,
+            participant,
+            binding,
+            next,
             cpu,
         );
-        let tracked context = RunningTaskContext::new(task_view, participant, binding, next, cpu);
         context
     }
 
@@ -982,36 +1052,88 @@ impl SchedulerThreadViews {
         let ghost task = context.task();
         let ghost view = context.view();
         let ghost cpu = context.cpu();
+        let ghost expected_registration = CpuCoreRegistration {
+            owner_id: context.core_owner_id(),
+            locals_key: seq![context.rcu_participant_id()],
+        };
+        let tracked context_binding = context.tracked_rcu_binding();
+        let tracked canonical_binding = self.core_bindings.tracked_borrow(cpu);
+        canonical_binding.lemma_same_cpu_agree(&context_binding);
+        assert(canonical_binding.owner_id() == sched_view.cpu_core_registration(cpu).owner_id);
+        assert(canonical_binding.locals_key() == sched_view.cpu_core_registration(cpu).locals_key);
+        assert(context_binding.owner_id() == context.core_owner_id());
+        assert(context_binding.locals_key() == seq![context.rcu_participant_id()]);
+        assert(expected_registration.owner_id == sched_view.cpu_core_registration(cpu).owner_id);
+        assert(expected_registration.locals_key == sched_view.cpu_core_registration(
+            cpu,
+        ).locals_key);
+        assert(expected_registration == sched_view.cpu_core_registration(cpu));
         sched_view.lemma_update_checked_out_task_view_preserves_wf(task, view);
         let ghost updated = sched_view.update_checked_out_task_view(task, view);
         context.lemma_wf_scheduler(updated);
-        let tracked (task_view, participant) = context.tracked_into_task_view_for_scheduler(
-            updated,
-        );
+        let tracked (task_view, mut core) = context.tracked_into_task_view_for_scheduler(updated);
+        let ghost participant_view = core.locals().view();
+        let ghost participant_id = core.locals().id();
+        let ghost core_registration = core.registration();
+        assert(core_registration == expected_registration);
+        assert(core.id() == core_registration.owner_id);
+        assert(core.locals_key() == core_registration.locals_key);
+        let ghost scheduled_task = core.tracked_schedule_out();
+        assert(core.registration() == core_registration);
+        assert(core.id() == core_registration.owner_id);
+        assert(core.locals_key() == core_registration.locals_key);
+        assert(scheduled_task == task);
         let tracked TaskThreadView { scheduler: _, task: Ghost(task), thread_view } = task_view;
         let tracked cpu_view = self.cpu_views.tracked_borrow_mut(cpu);
         cpu_view.tracked_join(&thread_view);
         self.views.tracked_insert(task, thread_view);
-        self.rcu_participants.tracked_insert(cpu, participant);
+        self.cpu_cores.tracked_insert(cpu, core);
         updated.lemma_checkin_task_view_preserves_wf(cpu, task, view);
         let ghost checked = updated.checkin_task_view(cpu, task, view);
         assert(checked.wf());
         checked.lemma_publish_cpu_view_preserves_wf(cpu, view);
         let ghost next = checked.publish_cpu_view(cpu, view);
         assert(next.wf());
-        assert(participant.view().spec_le(view));
+        assert(participant_view.spec_le(view));
         old(self).cpu_thread_view(cpu).lemma_join_right(view);
-        participant.view().lemma_spec_le_transitive(view, self.cpu_views[cpu]@);
+        participant_view.lemma_spec_le_transitive(view, self.cpu_views[cpu]@);
+        assert(self.cpu_cores.dom() == next.stored_cpu_cores);
         assert forall|stored_cpu: CpuId| #[trigger]
-            self.rcu_participants.contains_key(stored_cpu) implies {
-            &&& self.rcu_participants[stored_cpu].wf()
-            &&& self.rcu_participants[stored_cpu].cpu() == stored_cpu
-            &&& self.rcu_participants[stored_cpu].id() == next.cpu_rcu_participant_ids[stored_cpu]
-            &&& self.rcu_participants[stored_cpu].fraction() == 1real
-            &&& self.rcu_participants[stored_cpu].view().spec_le(self.cpu_views[stored_cpu]@)
+            self.cpu_cores.contains_key(stored_cpu) implies {
+            &&& self.cpu_cores[stored_cpu].wf()
+            &&& self.cpu_cores[stored_cpu].cpu() == stored_cpu
+            &&& self.cpu_cores[stored_cpu].is_idle()
+            &&& self.cpu_cores[stored_cpu].id() == next.cpu_core_registrations[stored_cpu].owner_id
+            &&& self.cpu_cores[stored_cpu].locals_key()
+                == next.cpu_core_registrations[stored_cpu].locals_key
+            &&& self.cpu_cores[stored_cpu].registration() == next.cpu_core_registrations[stored_cpu]
+            &&& self.cpu_cores[stored_cpu].locals().fraction() == 1real
+            &&& self.cpu_cores[stored_cpu].locals().view().spec_le(self.cpu_views[stored_cpu]@)
         } by {
+            assert(next.cpu_core_registrations.contains_key(stored_cpu));
             if stored_cpu == cpu {
-                assert(self.rcu_participants[stored_cpu] == participant);
+                assert(self.cpu_cores[stored_cpu].registration() == core_registration);
+                assert(core_registration == next.cpu_core_registrations[stored_cpu]);
+                assert(self.cpu_cores[stored_cpu].wf());
+                assert(self.cpu_cores[stored_cpu].cpu() == stored_cpu);
+                assert(self.cpu_cores[stored_cpu].is_idle());
+                assert(self.cpu_cores[stored_cpu].id() == core_registration.owner_id);
+                assert(self.cpu_cores[stored_cpu].locals_key() == core_registration.locals_key);
+                assert(self.cpu_cores[stored_cpu].locals().id() == participant_id);
+            } else {
+                assert(old(self).cpu_cores.contains_key(stored_cpu));
+                assert(self.cpu_cores[stored_cpu] == old(self).cpu_cores[stored_cpu]);
+                assert(next.cpu_core_registrations[stored_cpu]
+                    == sched_view.cpu_core_registrations[stored_cpu]);
+                assert(old(self).cpu_cores[stored_cpu].wf());
+                assert(old(self).cpu_cores[stored_cpu].cpu() == stored_cpu);
+                assert(old(self).cpu_cores[stored_cpu].is_idle());
+                assert(old(self).cpu_cores[stored_cpu].id()
+                    == sched_view.cpu_core_registrations[stored_cpu].owner_id);
+                assert(old(self).cpu_cores[stored_cpu].locals_key()
+                    == sched_view.cpu_core_registrations[stored_cpu].locals_key);
+                assert(old(self).cpu_cores[stored_cpu].registration()
+                    == sched_view.cpu_core_registrations[stored_cpu]);
             }
         };
         assert(final(self).view() == next.stored_views);
@@ -1027,7 +1149,7 @@ impl SchedulerThreadViews {
 /// layers together, preventing a proof from changing `SchedulerView` without
 /// moving the corresponding linear token (or vice versa).
 pub tracked struct SchedulerGhostState {
-    identity: GhostMapAuth<CpuId, Loc>,
+    identity: GhostMapAuth<CpuId, CpuCoreRegistration>,
     view: Ghost<SchedulerView>,
     thread_views: SchedulerThreadViews,
 }
@@ -1039,7 +1161,9 @@ impl SchedulerGhostState {
             res.wf(),
             res.view() == SchedulerView::empty(res.id()),
     {
-        let tracked (identity, _entries) = GhostMapAuth::new(Map::<CpuId, Loc>::empty());
+        let tracked (identity, _entries) = GhostMapAuth::new(
+            Map::<CpuId, CpuCoreRegistration>::empty(),
+        );
         let ghost id = identity.id();
         SchedulerView::lemma_empty_wf(id);
         let tracked thread_views = SchedulerThreadViews::empty(id);
@@ -1063,7 +1187,7 @@ impl SchedulerGhostState {
     pub closed spec fn wf(self) -> bool {
         &&& self.view().wf()
         &&& self.view().id == self.id()
-        &&& self.identity@ == self.view().cpu_rcu_participant_ids
+        &&& self.identity@ == self.view().cpu_core_registrations
         &&& self.thread_views.wf(self.view())
     }
 
@@ -1100,19 +1224,19 @@ impl SchedulerGhostState {
             final(self).id() == old(self).id(),
             final(self).view() == old(self).view().register_cpu(
                 cpu,
-                final(self).view().cpu_rcu_participant_id(cpu),
+                final(self).view().cpu_core_registration(cpu),
             ),
             final(self).view().cpu_has_thread_view(cpu),
             final(self).view().cpu_thread_view(cpu) == WmView::empty(),
             final(self).view().cpu_rcu_participant_is_stored(cpu),
     {
         let ghost old_view = self.view@;
-        let ghost participant_id = self.thread_views.tracked_register_cpu(
+        let ghost registration = self.thread_views.tracked_register_cpu(
             &mut self.identity,
             old_view,
             cpu,
         );
-        self.view = Ghost(old_view.register_cpu(cpu, participant_id));
+        self.view = Ghost(old_view.register_cpu(cpu, registration));
         assert(self.wf());
     }
 
