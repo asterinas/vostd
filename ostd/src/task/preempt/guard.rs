@@ -3,7 +3,14 @@ use vstd::{prelude::*, resource::Loc};
 use vstd_extra::resource::ghost_resource::{count::CountGhost, tokens::CountGhostResource};
 
 use crate::{
-    specs::sync::weak_memory::{ThreadView, WmView},
+    specs::sync::{
+        rcu::RcuRetiredFacts,
+        rcu_cpu::{
+            CpuRcuClosedGeneration, CpuRcuParticipant, CpuRcuParticipantBinding,
+            CpuRcuReaderFragment,
+        },
+        weak_memory::{ThreadView, WmView},
+    },
     sync::GuardTransfer, /*, task::atomic_mode::InAtomicMode*/
     task::scheduler::{SchedulerView, TaskThreadView},
 };
@@ -354,6 +361,8 @@ impl PreemptThreadViewSession {
 /// the scheduler when no guard remains live.
 pub tracked struct RunningTaskContext {
     session: PreemptThreadViewSession,
+    rcu_participant: CpuRcuParticipant,
+    rcu_binding: CpuRcuParticipantBinding,
     preempt_depth: Ghost<nat>,
     cpu: Ghost<crate::specs::mm::cpu::CpuId>,
 }
@@ -362,11 +371,23 @@ impl RunningTaskContext {
     /// Starts a running interval for a checked-out task view.
     pub proof fn new(
         tracked task_view: TaskThreadView,
+        tracked rcu_participant: CpuRcuParticipant,
+        tracked rcu_binding: CpuRcuParticipantBinding,
         sched_view: SchedulerView,
         cpu: crate::specs::mm::cpu::CpuId,
     ) -> (tracked res: Self)
         requires
             task_view.wf(sched_view),
+            rcu_participant.wf(),
+            rcu_participant.cpu() == cpu,
+            rcu_participant.fraction() == 1real,
+            rcu_participant.view().spec_le(task_view.view()),
+            rcu_binding.scheduler() == task_view.scheduler(),
+            rcu_binding.cpu() == cpu,
+            rcu_binding.participant_id() == rcu_participant.id(),
+            sched_view.cpu_has_rcu_participant(cpu),
+            sched_view.cpu_rcu_participant_id(cpu) == rcu_participant.id(),
+            !sched_view.cpu_rcu_participant_is_stored(cpu),
             sched_view.current.contains_key(cpu),
             sched_view.current[cpu] == Some(task_view.task()),
         ensures
@@ -377,12 +398,25 @@ impl RunningTaskContext {
             res.preempt_depth() == 0,
             res.quiescent_generation() == 0,
             res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
+            res.rcu_participant_id() == rcu_participant.id(),
+            res.rcu_generation() == rcu_participant.generation(),
+            res.rcu_participant_view() == rcu_participant.view(),
+            res.rcu_fraction() == 1real,
+            res.rcu_binding().scheduler() == res.scheduler(),
+            res.rcu_binding().cpu() == cpu,
+            res.rcu_binding().participant_id() == res.rcu_participant_id(),
             res.wf(),
             res.is_quiescent(),
             res.wf_scheduler(sched_view),
     {
         let tracked session = PreemptThreadViewSession::new(task_view, sched_view);
-        let tracked res = RunningTaskContext { session, preempt_depth: Ghost(0), cpu: Ghost(cpu) };
+        let tracked res = RunningTaskContext {
+            session,
+            rcu_participant,
+            rcu_binding,
+            preempt_depth: Ghost(0),
+            cpu: Ghost(cpu),
+        };
         assert(PREEMPT_SESSION_FRACTIONS == 0x8000_0000u64) by (compute);
         assert(res.wf());
         assert(res.session.wf(sched_view));
@@ -426,9 +460,45 @@ impl RunningTaskContext {
         self.preempt_depth@
     }
 
+    pub closed spec fn rcu_participant_id(self) -> Loc {
+        self.rcu_participant.id()
+    }
+
+    pub closed spec fn rcu_generation(self) -> nat {
+        self.rcu_participant.generation()
+    }
+
+    pub closed spec fn rcu_participant_view(self) -> WmView {
+        self.rcu_participant.view()
+    }
+
+    pub closed spec fn rcu_fraction(self) -> real {
+        self.rcu_participant.fraction()
+    }
+
+    pub closed spec fn rcu_binding(self) -> CpuRcuParticipantBinding {
+        self.rcu_binding
+    }
+
     pub closed spec fn wf(self) -> bool {
         &&& self.session.wf_session_resource()
         &&& self.available_fractions() + self.preempt_depth() == PREEMPT_SESSION_FRACTIONS
+        &&& self.rcu_participant.wf()
+        &&& self.rcu_binding().scheduler() == self.scheduler()
+        &&& self.rcu_binding().cpu() == self.cpu()
+        &&& self.rcu_binding().participant_id() == self.rcu_participant_id()
+        &&& self.rcu_participant.cpu() == self.cpu()
+        &&& self.rcu_participant_view().spec_le(self.view())
+    }
+
+    /// The checked-out task view includes the persistent view of this CPU's
+    /// RCU participant.
+    pub proof fn lemma_rcu_participant_view_le(tracked &self)
+        requires
+            self.wf(),
+        ensures
+            self.rcu_participant_view().spec_le(self.view()),
+    {
     }
 
     /// Relates this running context to the scheduler snapshot from which its
@@ -438,6 +508,9 @@ impl RunningTaskContext {
         &&& self.session.wf(sched_view)
         &&& sched_view.current.contains_key(self.cpu())
         &&& sched_view.current[self.cpu()] == Some(self.task())
+        &&& sched_view.cpu_has_rcu_participant(self.cpu())
+        &&& sched_view.cpu_rcu_participant_id(self.cpu()) == self.rcu_participant_id()
+        &&& !sched_view.cpu_rcu_participant_is_stored(self.cpu())
     }
 
     /// Re-establishes the scheduler relation after the checked-out task view
@@ -453,6 +526,9 @@ impl RunningTaskContext {
             sched_view.task_views[self.task()] == self.view(),
             sched_view.current.contains_key(self.cpu()),
             sched_view.current[self.cpu()] == Some(self.task()),
+            sched_view.cpu_has_rcu_participant(self.cpu()),
+            sched_view.cpu_rcu_participant_id(self.cpu()) == self.rcu_participant_id(),
+            !sched_view.cpu_rcu_participant_is_stored(self.cpu()),
         ensures
             self.wf_scheduler(sched_view),
     {
@@ -464,6 +540,7 @@ impl RunningTaskContext {
         &&& self.preempt_depth() == 0
         &&& self.available_fractions() == PREEMPT_SESSION_FRACTIONS
         &&& self.has_full_authority()
+        &&& self.rcu_fraction() == 1real
     }
 
     /// Borrows the running task's persistent weak-memory view.
@@ -480,10 +557,163 @@ impl RunningTaskContext {
             final(self).available_fractions() == old(self).available_fractions(),
             final(self).has_full_authority() == old(self).has_full_authority(),
             final(self).preempt_depth() == old(self).preempt_depth(),
-            final(self).wf(),
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation(),
+            final(self).rcu_participant_view() == old(self).rcu_participant_view(),
+            final(self).rcu_fraction() == old(self).rcu_fraction(),
             final(self).view() == (*final(tv))@,
+            old(self).view().spec_le((*final(tv))@) ==> final(self).wf(),
     {
         self.session.tracked_borrow_thread_view_mut()
+    }
+
+    /// Starts one RCU reader from this CPU's persistent participant.
+    ///
+    /// Preemption must already be disabled. The returned fragment names the
+    /// participant's current CPU generation and remains live until the reader
+    /// guard is destroyed.
+    pub proof fn tracked_start_rcu_reader(tracked &mut self) -> (tracked reader:
+        CpuRcuReaderFragment)
+        requires
+            old(self).wf(),
+            old(self).preempt_depth() > 0,
+        ensures
+            final(self).wf(),
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).view() == old(self).view(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).preempt_depth() == old(self).preempt_depth(),
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation(),
+            final(self).rcu_participant_view() == old(self).rcu_participant_view(),
+            final(self).rcu_fraction() == old(self).rcu_fraction() / 2real,
+            reader.wf(),
+            reader.participant_id() == old(self).rcu_participant_id(),
+            reader.cpu() == old(self).cpu(),
+            reader.generation() == old(self).rcu_generation(),
+            reader.participant_view() == old(self).rcu_participant_view(),
+            reader.fraction() == old(self).rcu_fraction() / 2real,
+    {
+        self.rcu_participant.tracked_start_reader_in_place(self.view())
+    }
+
+    /// Copies the persistent scheduler binding for a guard or quiescent report.
+    pub proof fn tracked_rcu_binding(tracked &self) -> (tracked binding:
+        CpuRcuParticipantBinding)
+        requires
+            self.wf(),
+        ensures
+            binding.scheduler() == self.scheduler(),
+            binding.cpu() == self.cpu(),
+            binding.participant_id() == self.rcu_participant_id(),
+    {
+        self.rcu_binding.tracked_duplicate()
+    }
+
+    /// Returns a completed reader to this CPU's persistent participant.
+    pub proof fn tracked_stop_rcu_reader(tracked &mut self, tracked reader: CpuRcuReaderFragment)
+        requires
+            old(self).wf(),
+            old(self).preempt_depth() > 0,
+            reader.wf(),
+            reader.participant_id() == old(self).rcu_participant_id(),
+        ensures
+            final(self).wf(),
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).view() == old(self).view(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).preempt_depth() == old(self).preempt_depth(),
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation(),
+            final(self).rcu_participant_view() == old(self).rcu_participant_view(),
+            final(self).rcu_fraction() == old(self).rcu_fraction() + reader.fraction(),
+    {
+        self.rcu_participant.tracked_stop_reader_in_place(reader);
+    }
+
+    /// Closes the current CPU participation generation at a quiescent point.
+    ///
+    /// Unlike [`Self::tracked_record_quiescent`], this transition is backed by
+    /// the persistent CPU participant PCM and returns an unforgeable token
+    /// that conflicts with every reader fragment from the closed generation.
+    pub proof fn tracked_report_rcu_quiescent(tracked &mut self) -> (tracked closed:
+        CpuRcuClosedGeneration)
+        requires
+            old(self).wf(),
+            old(self).is_quiescent(),
+        ensures
+            closed.wf(),
+            closed.scheduler() == old(self).scheduler(),
+            closed.participant_id() == old(self).rcu_participant_id(),
+            closed.cpu() == old(self).cpu(),
+            closed.closed_generation() == old(self).rcu_generation(),
+            closed.view() == old(self).view(),
+            final(self).wf(),
+            final(self).is_quiescent(),
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).view() == old(self).view(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).preempt_depth() == old(self).preempt_depth(),
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation() + 1,
+            final(self).rcu_participant_view() == old(self).view(),
+            final(self).rcu_fraction() == 1real,
+    {
+        let tracked binding = self.rcu_binding.tracked_duplicate();
+        self.rcu_participant.tracked_report_quiescent_in_place(binding, self.view())
+    }
+
+    /// Closes the current CPU generation while publishing retirement facts
+    /// whose detachment observations are covered by this task's current view.
+    pub proof fn tracked_report_rcu_quiescent_with(
+        tracked &mut self,
+        tracked learned: &RcuRetiredFacts,
+    ) -> (tracked closed: CpuRcuClosedGeneration)
+        requires
+            old(self).wf(),
+            old(self).is_quiescent(),
+            learned.observed_by(old(self).view()),
+        ensures
+            closed.wf(),
+            closed.scheduler() == old(self).scheduler(),
+            closed.participant_id() == old(self).rcu_participant_id(),
+            closed.cpu() == old(self).cpu(),
+            closed.closed_generation() == old(self).rcu_generation(),
+            closed.view() == old(self).view(),
+            learned.records().subset_of(closed.known_retired()),
+            final(self).wf(),
+            final(self).is_quiescent(),
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).view() == old(self).view(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).preempt_depth() == old(self).preempt_depth(),
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation() + 1,
+            final(self).rcu_participant_view() == old(self).view(),
+            final(self).rcu_fraction() == 1real,
+    {
+        let tracked binding = self.rcu_binding.tracked_duplicate();
+        self.rcu_participant.tracked_report_quiescent_with_in_place(
+            binding,
+            self.view(),
+            learned,
+        )
     }
 
     /// Records one quiescent boundary for this running session.
@@ -505,6 +735,10 @@ impl RunningTaskContext {
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() == old(self).available_fractions(),
             final(self).preempt_depth() == old(self).preempt_depth(),
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation(),
+            final(self).rcu_participant_view() == old(self).rcu_participant_view(),
+            final(self).rcu_fraction() == old(self).rcu_fraction(),
             final(self).wf(),
             final(self).is_quiescent(),
     {
@@ -513,17 +747,28 @@ impl RunningTaskContext {
 
     /// Ends a running interval and returns the updated task view to scheduler
     /// ownership. The full-fraction requirement rules out live preempt guards.
-    pub proof fn tracked_into_task_view(tracked self) -> (tracked res: TaskThreadView)
+    pub proof fn tracked_into_task_view(tracked self) -> (tracked res: (
+        TaskThreadView,
+        CpuRcuParticipant,
+    ))
         requires
             self.wf(),
             self.preempt_depth() == 0,
+            self.rcu_fraction() == 1real,
         ensures
-            res.scheduler() == self.scheduler(),
-            res.task() == self.task(),
-            res.view() == self.view(),
+            res.0.scheduler() == self.scheduler(),
+            res.0.task() == self.task(),
+            res.0.view() == self.view(),
+            res.1.id() == self.rcu_participant_id(),
+            res.1.cpu() == self.cpu(),
+            res.1.generation() == self.rcu_generation(),
+            res.1.view() == self.rcu_participant_view(),
+            res.1.fraction() == 1real,
+            res.1.view().spec_le(res.0.view()),
+            res.1.wf(),
     {
         assert(self.available_fractions() == PREEMPT_SESSION_FRACTIONS);
-        self.session.tracked_into_task_view()
+        (self.session.tracked_into_task_view(), self.rcu_participant)
     }
 
     /// Scheduler-facing form of `tracked_into_task_view` that preserves the
@@ -531,21 +776,28 @@ impl RunningTaskContext {
     pub proof fn tracked_into_task_view_for_scheduler(
         tracked self,
         sched_view: SchedulerView,
-    ) -> (tracked res: TaskThreadView)
+    ) -> (tracked res: (TaskThreadView, CpuRcuParticipant))
         requires
             self.wf_scheduler(sched_view),
             self.is_quiescent(),
         ensures
-            res.scheduler() == self.scheduler(),
-            res.task() == self.task(),
-            res.view() == self.view(),
-            res.wf(sched_view),
+            res.0.scheduler() == self.scheduler(),
+            res.0.task() == self.task(),
+            res.0.view() == self.view(),
+            res.0.wf(sched_view),
+            res.1.id() == self.rcu_participant_id(),
+            res.1.cpu() == self.cpu(),
+            res.1.generation() == self.rcu_generation(),
+            res.1.view() == self.rcu_participant_view(),
+            res.1.fraction() == 1real,
+            res.1.view().spec_le(res.0.view()),
+            res.1.wf(),
     {
         assert(self.preempt_depth() == 0);
         assert(self.available_fractions() == PREEMPT_SESSION_FRACTIONS);
         assert(self.session.wf(sched_view));
-        let tracked res = self.session.tracked_into_task_view_for_scheduler(sched_view);
-        res
+        let tracked task_view = self.session.tracked_into_task_view_for_scheduler(sched_view);
+        (task_view, self.rcu_participant)
     }
 }
 
@@ -667,6 +919,10 @@ impl RunningTaskContext {
             final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() + 1 == old(self).available_fractions(),
             final(self).preempt_depth() == old(self).preempt_depth() + 1,
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation(),
+            final(self).rcu_participant_view() == old(self).rcu_participant_view(),
+            final(self).rcu_fraction() == old(self).rcu_fraction(),
             resource.matches_context(*final(self)),
             resource.is_outermost() <==> old(self).preempt_depth() == 0,
             resource.is_nested() <==> old(self).preempt_depth() > 0,
@@ -702,6 +958,10 @@ impl RunningTaskContext {
             final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions() + 1,
             final(self).preempt_depth() + 1 == old(self).preempt_depth(),
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation(),
+            final(self).rcu_participant_view() == old(self).rcu_participant_view(),
+            final(self).rcu_fraction() == old(self).rcu_fraction(),
     {
         let ghost old_depth = self.preempt_depth@;
         resource.tracked_return_to_session(&mut self.session);
@@ -722,7 +982,7 @@ pub struct DisabledPreemptGuard {
     //
     // The guard only records whether this scope is outermost or nested. The
     // checked-out `TaskThreadView` is owned by `PreemptThreadViewSession`.
-    tracked_resource: Tracked<PreemptGuardResource>,
+    tracked_resource: Tracked<Option<PreemptGuardResource>>,
 }
 
 /* impl !Send for DisabledPreemptGuard {}
@@ -738,40 +998,54 @@ impl DisabledPreemptGuard {
             tracked_resource.wf(arbitrary()),
         ensures
             res.wf(arbitrary()),
-            res.tracked_resource@ == tracked_resource,
+            res.tracked_resource@ == Some(tracked_resource),
     {
         // The CPU-local backend is outside the current Verus dependency
         // closure, but executable builds must still perform the real
         // preemption-disable transition.
         #[cfg(not(verus_keep_ghost))]
         super::cpu_local::inc_guard_count();
-        Self { _private: (), tracked_resource: Tracked(tracked_resource) }
+        Self { _private: (), tracked_resource: Tracked(Some(tracked_resource)) }
     }
 }
 
 impl DisabledPreemptGuard {
+    pub(crate) closed spec fn has_resource(&self) -> bool {
+        self.tracked_resource@ is Some
+    }
+
+    closed spec fn resource(&self) -> PreemptGuardResource
+        recommends
+            self.tracked_resource@ is Some,
+    {
+        self.tracked_resource@->Some_0
+    }
+
     pub closed spec fn is_outermost(&self) -> bool {
-        self.tracked_resource@.is_outermost()
+        self.resource().is_outermost()
     }
 
     pub closed spec fn is_nested(&self) -> bool {
-        self.tracked_resource@.is_nested()
+        self.resource().is_nested()
     }
 
     pub closed spec fn wf(&self, sched_view: SchedulerView) -> bool {
-        self.tracked_resource@.wf(sched_view)
+        &&& self.tracked_resource@ is Some
+        &&& self.resource().wf(sched_view)
     }
 
     pub closed spec fn matches_session(&self, session: PreemptThreadViewSession) -> bool {
-        self.tracked_resource@.matches_session(session)
+        &&& self.tracked_resource@ is Some
+        &&& self.resource().matches_session(session)
     }
 
     pub closed spec fn matches_context(&self, context: RunningTaskContext) -> bool {
-        self.tracked_resource@.matches_context(context)
+        &&& self.tracked_resource@ is Some
+        &&& self.resource().matches_context(context)
     }
 
     pub closed spec fn quiescent_generation(&self) -> nat {
-        self.tracked_resource@.quiescent_generation()
+        self.resource().quiescent_generation()
     }
 
     /// Extracts the positive preemption depth witnessed by this guard.
@@ -817,13 +1091,13 @@ impl DisabledPreemptGuard {
     {
         assert(before.session.session_task() == before.task());
         assert(after.session.session_task() == after.task());
-        assert(self.tracked_resource@.session_token().task() == before.task());
-        assert(self.tracked_resource@.session_token().task() == after.task());
-        assert(self.tracked_resource@.session_token().quiescent_generation()
+        assert(self.resource().session_token().task() == before.task());
+        assert(self.resource().session_token().task() == after.task());
+        assert(self.resource().session_token().quiescent_generation()
             == before.quiescent_generation());
-        assert(self.tracked_resource@.session_token().quiescent_generation()
+        assert(self.resource().session_token().quiescent_generation()
             == after.quiescent_generation());
-        assert(after.session.token_matches(self.tracked_resource@.session_token()));
+        assert(after.session.token_matches(self.resource().session_token()));
     }
 
     /// Borrows the running task's view while this guard witnesses that
@@ -846,16 +1120,28 @@ impl DisabledPreemptGuard {
             final(context).available_fractions() == old(context).available_fractions(),
             final(context).has_full_authority() == old(context).has_full_authority(),
             final(context).preempt_depth() == old(context).preempt_depth(),
-            final(context).wf(),
+            final(context).rcu_participant_id() == old(context).rcu_participant_id(),
+            final(context).rcu_generation() == old(context).rcu_generation(),
+            final(context).rcu_participant_view() == old(context).rcu_participant_view(),
+            final(context).rcu_fraction() == old(context).rcu_fraction(),
             final(context).view() == (*final(tv))@,
-            guard.matches_context(*final(context)),
+            old(context).view().spec_le((*final(tv))@) ==> final(context).wf(),
+            old(context).view().spec_le((*final(tv))@) ==> guard.matches_context(*final(context)),
     {
         context.tracked_borrow_thread_view_mut()
     }
 
-    /// Consumes this guard, returns its fractional witness, and decrements the
-    /// modeled preemption depth.
-    pub(crate) fn release_to_context(self, Tracked(context): Tracked<&mut RunningTaskContext>)
+    /// Returns this guard's fractional witness and decrements the modeled
+    /// preemption depth.
+    ///
+    /// The proof resource is stored in an `Option` so a containing guard's
+    /// standard `Drop::drop(&mut self)` can consume it exactly once. The
+    /// executable preemption counter is still decremented by this guard's Rust
+    /// destructor.
+    pub(crate) fn release_in_place_to_context(
+        &mut self,
+        Tracked(context): Tracked<&mut RunningTaskContext>,
+    )
         requires
             old(context).wf(),
             old(context).preempt_depth() > 0,
@@ -870,13 +1156,49 @@ impl DisabledPreemptGuard {
             final(context).quiescent_generation() == old(context).quiescent_generation(),
             final(context).available_fractions() == old(context).available_fractions() + 1,
             final(context).preempt_depth() + 1 == old(context).preempt_depth(),
+            final(context).rcu_participant_id() == old(context).rcu_participant_id(),
+            final(context).rcu_generation() == old(context).rcu_generation(),
+            final(context).rcu_participant_view() == old(context).rcu_participant_view(),
+            final(context).rcu_fraction() == old(context).rcu_fraction(),
+            !final(self).has_resource(),
+        opens_invariants none
+        no_unwind
     {
         proof_decl! {
-            let tracked resource = self.tracked_resource.get();
+            let tracked resource = self.tracked_resource.borrow_mut().tracked_take();
         }
         proof {
             context.tracked_enable_preempt(resource);
         }
+    }
+
+    /// Consuming compatibility wrapper for callers that do not need standard
+    /// destructor integration.
+    pub(crate) fn release_to_context(
+        self,
+        Tracked(context): Tracked<&mut RunningTaskContext>,
+    )
+        requires
+            old(context).wf(),
+            old(context).preempt_depth() > 0,
+            self.matches_context(*old(context)),
+        ensures
+            final(context).wf(),
+            final(context).task() == old(context).task(),
+            final(context).scheduler() == old(context).scheduler(),
+            final(context).cpu() == old(context).cpu(),
+            final(context).view() == old(context).view(),
+            final(context).session_id() == old(context).session_id(),
+            final(context).quiescent_generation() == old(context).quiescent_generation(),
+            final(context).available_fractions() == old(context).available_fractions() + 1,
+            final(context).preempt_depth() + 1 == old(context).preempt_depth(),
+            final(context).rcu_participant_id() == old(context).rcu_participant_id(),
+            final(context).rcu_generation() == old(context).rcu_generation(),
+            final(context).rcu_participant_view() == old(context).rcu_participant_view(),
+            final(context).rcu_fraction() == old(context).rcu_fraction(),
+    {
+        let mut this = self;
+        this.release_in_place_to_context(Tracked(context));
     }
 }
 
@@ -932,6 +1254,11 @@ pub(crate) fn disable_preempt_in_context(
         final(context).quiescent_generation() == old(context).quiescent_generation(),
         final(context).available_fractions() + 1 == old(context).available_fractions(),
         final(context).preempt_depth() == old(context).preempt_depth() + 1,
+        final(context).rcu_participant_id() == old(context).rcu_participant_id(),
+        final(context).rcu_generation() == old(context).rcu_generation(),
+        final(context).rcu_participant_view() == old(context).rcu_participant_view(),
+        final(context).rcu_fraction() == old(context).rcu_fraction(),
+        res.has_resource(),
         res.is_outermost() <==> old(context).preempt_depth() == 0,
         res.is_nested() <==> old(context).preempt_depth() > 0,
         res.matches_context(*final(context)),

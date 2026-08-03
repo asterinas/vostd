@@ -131,6 +131,23 @@ impl WmView {
     {
     }
 
+    /// Observing one location can only advance a thread view.
+    pub proof fn lemma_observe(self, id: AtomicId, ts: Timestamp)
+        ensures
+            self.spec_le(self.observe(id, ts)),
+    {
+    }
+
+    /// An acquire read can only advance a thread view.
+    pub proof fn lemma_acquire(self, id: AtomicId, ts: Timestamp, published: Self)
+        ensures
+            self.spec_le(self.observe(id, ts).join(published)),
+    {
+        self.lemma_observe(id, ts);
+        self.observe(id, ts).lemma_join_left(published);
+        self.lemma_spec_le_transitive(self.observe(id, ts), self.observe(id, ts).join(published));
+    }
+
     pub proof fn lemma_spec_le_transitive(self, middle: Self, upper: Self)
         requires
             self.spec_le(middle),
@@ -460,8 +477,12 @@ macro_rules! declare_weak_atomic_type {
             pub fn load_relaxed(
                 &self,
                 Tracked(tv): Tracked<&mut ThreadView>,
-            ) -> (res: ($value_ty, Ghost<Timestamp>)) {
+            ) -> (res: ($value_ty, Ghost<Timestamp>))
+                ensures
+                    old(tv)@.spec_le(final(tv)@),
+            {
                 let result;
+                let ghost start_view = tv@;
                 proof {
                     use_type_invariant(self);
                 }
@@ -474,6 +495,7 @@ macro_rules! declare_weak_atomic_type {
                     }
                     result = self.atomic.load_relaxed(Tracked(&hist), Tracked(tv));
                     proof {
+                        start_view.lemma_observe(self.id(), result.1@);
                         pair = (hist, g);
                     }
                 });

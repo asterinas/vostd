@@ -8,7 +8,7 @@
 pub use vstd_extra::atomic_weak::*;
 pub use vstd_extra::weak_atomic_with_ghost;
 
-use super::rcu as rcu_spec;
+use super::{rcu as rcu_spec, rcu_cpu as rcu_cpu_spec};
 use vstd::prelude::*;
 
 verus! {
@@ -101,6 +101,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
         requires
             self.well_formed(),
         ensures
+            old(tv)@.spec_le(final(tv)@),
             !self.constant().nullable ==> !res.0.is_null(),
             match (res.2@, res.3@) {
                 (None, None) => res.0.addr() == 0,
@@ -117,6 +118,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
             },
     {
         let result;
+        let ghost start_view = tv@;
         proof {
             use_type_invariant(self);
         }
@@ -130,6 +132,11 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
             }
             let loaded = raw_atomic.load_acquire(Tracked(&hist), Tracked(tv));
             proof {
+                start_view.lemma_acquire(
+                    self.id(),
+                    loaded.1@,
+                    hist.msg_at(loaded.1@).view,
+                );
                 assert(hist.valid_ts(loaded.1@));
                 assert(loaded.1@ < hist.history().len());
                 assert(rcu_spec::rcu_owned_root_history_inv(hist.history(), g));
@@ -170,9 +177,10 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
     /// The ghost reader transition occurs in the same invariant opening as the
     /// real acquire load. Executably this is identical to `load_acquire_rcu`.
     #[inline(always)]
-    pub fn load_acquire_rcu_guarded(
+    pub fn load_acquire_rcu_guarded_with_retired(
         &self,
         Ghost(reader): Ghost<rcu_spec::RcuReaderContext>,
+        Tracked(retired_facts): Tracked<&rcu_spec::RcuRetiredFacts>,
         Tracked(tv): Tracked<&mut ThreadView>,
     ) -> (res: (
         *mut T,
@@ -183,12 +191,23 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
     ))
         requires
             self.well_formed(),
+            retired_facts.observed_by(old(tv)@),
         ensures
+            old(tv)@.spec_le(final(tv)@),
             !self.constant().nullable ==> !res.0.is_null(),
             res.4@.wf(),
             res.4@.domain() == self.constant().domain,
             res.4@.reader_registry() == self.constant().reader_registry,
+            res.4@.retire_observation_registry() == self.constant().retire_observation_registry,
             res.4@.reader() == reader,
+            res.4@.root() == self.id(),
+            res.4@.start_view() == old(tv)@,
+            forall|record: rcu_spec::RcuRetiredRecord| #[trigger]
+                retired_facts.records().contains(record) && record.domain == res.4@.domain()
+                    && record.retire_observation_registry == res.4@.retire_observation_registry()
+                    && record.removal.root == res.4@.root() ==> res.4@.expired().contains(
+                    record.obj,
+                ),
             match (res.2@, res.3@) {
                 (None, None) => res.0.addr() == 0,
                 (Some(object), Some(info)) => {
@@ -218,13 +237,33 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
                 assert(hist.id() == self.id());
                 assert(raw_atomic.id() == self.id());
                 assert(hist.id() == raw_atomic.id());
+                assert(rcu_spec::RcuOwnedWeakAtomicInv::<OwnPred>::atomic_inv(
+                    self.constant(),
+                    hist.history(),
+                    g,
+                ));
+                assert(g.retire_observation_registry()
+                    == self.constant().retire_observation_registry);
             }
             proof_decl! {
                 let tracked base_guard =
                     g.tracked_start_reader(hist.history(), self.id(), start_view, reader);
             }
+            proof {
+                g.lemma_retired_facts_observed(
+                    hist.history(),
+                    retired_facts,
+                    self.id(),
+                    start_view,
+                );
+            }
             let loaded = raw_atomic.load_acquire(Tracked(&hist), Tracked(tv));
             proof {
+                start_view.lemma_acquire(
+                    self.id(),
+                    loaded.1@,
+                    hist.msg_at(loaded.1@).view,
+                );
                 assert(hist.valid_ts(loaded.1@));
                 assert(loaded.1@ < hist.history().len());
                 assert(rcu_spec::rcu_owned_root_history_inv(hist.history(), g));
@@ -262,6 +301,12 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
                 }
                 assert(base_guard.domain() == self.constant().domain);
                 assert(base_guard.reader_registry() == self.constant().reader_registry);
+                assert(base_guard.retire_observation_registry()
+                    == g.retire_observation_registry());
+                assert(g.retire_observation_registry()
+                    == self.constant().retire_observation_registry);
+                assert(base_guard.retire_observation_registry()
+                    == self.constant().retire_observation_registry);
                 assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
             }
             proof_decl! {
@@ -329,6 +374,188 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
         result
     }
 
+    /// Acquire-load an RCU root while starting a paper read-side guard.
+    ///
+    /// This compatibility entry point has no CPU-generation retirement
+    /// history, so it starts the guard with only the root invariant's directly
+    /// observed retirements.
+    #[inline(always)]
+    pub fn load_acquire_rcu_guarded(
+        &self,
+        Ghost(reader): Ghost<rcu_spec::RcuReaderContext>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (
+        *mut T,
+        Ghost<Timestamp>,
+        Ghost<Option<rcu_spec::RcuPublishedObject>>,
+        Tracked<Option<rcu_spec::RcuBlockInfo<T>>>,
+        Tracked<rcu_spec::RcuReadGuardToken<T>>,
+    ))
+        requires
+            self.well_formed(),
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            !self.constant().nullable ==> !res.0.is_null(),
+            res.4@.wf(),
+            res.4@.domain() == self.constant().domain,
+            res.4@.reader_registry() == self.constant().reader_registry,
+            res.4@.retire_observation_registry() == self.constant().retire_observation_registry,
+            res.4@.reader() == reader,
+            res.4@.root() == self.id(),
+            res.4@.start_view() == old(tv)@,
+            match (res.2@, res.3@) {
+                (None, None) => res.0.addr() == 0,
+                (Some(object), Some(info)) => {
+                    &&& res.0.addr() != 0
+                    &&& object.addr == res.0.addr()
+                    &&& info.wf()
+                    &&& info.domain() == object.domain
+                    &&& info.domain() == res.4@.domain()
+                    &&& info.obj() == object.obj
+                    &&& info.addr() == object.addr
+                    &&& equal(info.ptr(), res.0)
+                    &&& !res.4@.expired().contains(info.obj())
+                    &&& res.4@.protects(info.addr(), info.obj())
+                },
+                _ => false,
+            },
+    {
+        proof_decl! {
+            let tracked retired_facts = rcu_spec::RcuRetiredFacts::empty();
+        }
+        self.load_acquire_rcu_guarded_with_retired(
+            Ghost(reader),
+            Tracked(&retired_facts),
+            Tracked(tv),
+        )
+    }
+
+    /// Acquire-load an RCU root while retaining the CPU implementation
+    /// fragment in the returned guard.
+    ///
+    /// The caller must split `cpu_reader` after disabling preemption and before
+    /// calling this method. The fragment is therefore live before the first
+    /// protected load, while the participant view bound ensures that the paper
+    /// guard starts no earlier than the CPU state from which it was split.
+    #[inline(always)]
+    pub fn load_acquire_rcu_guarded_cpu(
+        &self,
+        Ghost(reader): Ghost<rcu_spec::RcuReaderContext>,
+        Tracked(cpu_reader): Tracked<rcu_cpu_spec::CpuRcuReaderFragment>,
+        Tracked(binding): Tracked<rcu_cpu_spec::CpuRcuParticipantBinding>,
+        Tracked(tv): Tracked<&mut ThreadView>,
+    ) -> (res: (
+        *mut T,
+        Ghost<Timestamp>,
+        Ghost<Option<rcu_spec::RcuPublishedObject>>,
+        Tracked<Option<rcu_spec::RcuBlockInfo<T>>>,
+        Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<T>>,
+    ))
+        requires
+            self.well_formed(),
+            cpu_reader.wf(),
+            reader.cpu == cpu_reader.cpu(),
+            reader.generation == cpu_reader.generation(),
+            binding.scheduler() == reader.scheduler,
+            binding.cpu() == cpu_reader.cpu(),
+            binding.participant_id() == cpu_reader.participant_id(),
+            cpu_reader.participant_view().spec_le(old(tv)@),
+        ensures
+            old(tv)@.spec_le(final(tv)@),
+            !self.constant().nullable ==> !res.0.is_null(),
+            res.4@.wf(),
+            res.4@.participant_id() == cpu_reader.participant_id(),
+            res.4@.cpu() == cpu_reader.cpu(),
+            res.4@.generation() == cpu_reader.generation(),
+            res.4@.participant_view() == cpu_reader.participant_view(),
+            res.4@.reader_fragment() == cpu_reader,
+            res.4@.scheduler() == binding.scheduler(),
+            res.4@.domain() == self.constant().domain,
+            res.4@.reader_registry() == self.constant().reader_registry,
+            res.4@.retire_observation_registry() == self.constant().retire_observation_registry,
+            res.4@.reader_context() == reader,
+            res.4@.root() == self.id(),
+            res.4@.start_view() == old(tv)@,
+            match (res.2@, res.3@) {
+                (None, None) => res.0.addr() == 0,
+                (Some(object), Some(info)) => {
+                    &&& res.0.addr() != 0
+                    &&& object.addr == res.0.addr()
+                    &&& info.wf()
+                    &&& info.domain() == object.domain
+                    &&& info.domain() == res.4@.domain()
+                    &&& info.obj() == object.obj
+                    &&& info.addr() == object.addr
+                    &&& equal(info.ptr(), res.0)
+                    &&& !res.4@.expired().contains(info.obj())
+                    &&& res.4@.protects(info.addr(), info.obj())
+                },
+                _ => false,
+            },
+    {
+        let loaded = {
+            proof_decl! {
+                let tracked retired_facts =
+                    cpu_reader.tracked_retired_facts_observed_by(tv@);
+            }
+            let loaded = self.load_acquire_rcu_guarded_with_retired(
+                Ghost(reader),
+                Tracked(retired_facts),
+                Tracked(tv),
+            );
+            proof {
+                assert forall|record: rcu_spec::RcuRetiredRecord| #[trigger]
+                    cpu_reader.known_retired().contains(record) && record.domain
+                        == loaded.4@.domain() && record.retire_observation_registry
+                        == loaded.4@.retire_observation_registry() && record.removal.root
+                        == loaded.4@.root() implies loaded.4@.expired().contains(record.obj) by {
+                    assert(retired_facts.records().contains(record));
+                };
+            }
+            loaded
+        };
+        proof {
+            assert(loaded.4@.reader() == reader);
+            assert(match (loaded.2@, loaded.3@) {
+                (None, None) => loaded.0.addr() == 0,
+                (Some(object), Some(info)) => {
+                    &&& loaded.0.addr() != 0
+                    &&& object.addr == loaded.0.addr()
+                    &&& info.wf()
+                    &&& info.domain() == object.domain
+                    &&& info.domain() == loaded.4@.domain()
+                    &&& info.obj() == object.obj
+                    &&& info.addr() == object.addr
+                    &&& equal(info.ptr(), loaded.0)
+                    &&& !loaded.4@.expired().contains(info.obj())
+                    &&& loaded.4@.protects(info.addr(), info.obj())
+                },
+                _ => false,
+            });
+        }
+        let (ptr, timestamp, published, info, Tracked(paper_guard)) = loaded;
+        proof_decl! {
+            let tracked guard =
+                rcu_cpu_spec::CpuRcuReadGuardToken::tracked_new(paper_guard, cpu_reader, binding);
+        }
+        proof {
+            assert(guard.reader_context() == reader);
+            assert(guard.reader_fragment() == cpu_reader);
+            match (&published@, &info@) {
+                (Some(object), Some(info)) => {
+                    assert(info.domain() == guard.domain());
+                    assert(!guard.expired().contains(info.obj()));
+                    assert(guard.protects(info.addr(), info.obj()));
+                },
+                (None, None) => {
+                    assert(ptr.addr() == 0);
+                },
+                _ => assert(false),
+            }
+        }
+        (ptr, timestamp, published, info, Tracked(guard))
+    }
+
     /// End a paper read-side guard without executing another atomic operation.
     #[inline(always)]
     pub fn stop_rcu_reader(&self, Tracked(guard): Tracked<rcu_spec::RcuReadGuardToken<T>>)
@@ -337,24 +564,49 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
             guard.wf(),
             guard.domain() == self.constant().domain,
             guard.reader_registry() == self.constant().reader_registry,
+            guard.retire_observation_registry() == self.constant().retire_observation_registry,
     {
         proof_decl! {
             let tracked base_guard = guard.tracked_into_base();
+            let tracked _inactive = base_guard.tracked_stop();
         }
-        let credit = vstd::invariant::create_open_invariant_credit();
         proof {
             use_type_invariant(self);
-            vstd::invariant::open_atomic_invariant_in_proof!(
-                credit.get() => self.tracked_atomic_inv() => pair => {
-                    let tracked (hist, mut g) = pair;
-                    assert(g.domain() == self.constant().domain);
-                    assert(g.reader_registry() == self.constant().reader_registry);
-                    g.tracked_stop_reader(hist.history(), base_guard);
-                    assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
-                    pair = (hist, g);
-                }
-            );
         }
+    }
+
+    /// Ends a CPU-refined reader and returns its linear CPU fragment.
+    ///
+    /// The fragment is intentionally returned instead of dropped. The standard
+    /// guard destruction path must join it back into the current CPU's
+    /// participant before executable preemption is re-enabled.
+    #[inline(always)]
+    pub fn stop_cpu_rcu_reader(
+        &self,
+        Tracked(guard): Tracked<rcu_cpu_spec::CpuRcuReadGuardToken<T>>,
+    ) -> (res: Tracked<rcu_cpu_spec::CpuRcuReaderFragment>)
+        requires
+            self.well_formed(),
+            guard.wf(),
+            guard.domain() == self.constant().domain,
+            guard.root() == self.id(),
+            guard.retire_observation_registry() == self.constant().retire_observation_registry,
+        ensures
+            res@.wf(),
+            res@ == guard.reader_fragment(),
+            res@.participant_id() == guard.participant_id(),
+            res@.cpu() == guard.cpu(),
+            res@.generation() == guard.generation(),
+        opens_invariants none
+        no_unwind
+    {
+        proof_decl! {
+            let tracked (_inactive, reader) = guard.tracked_stop();
+        }
+        proof {
+            use_type_invariant(self);
+        }
+        Tracked(reader)
     }
 
     /// Release-swap helper for a freshly introduced RCU root pointer.
@@ -381,6 +633,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
                 None => value.is_null(),
             },
         ensures
+            old(tv)@.spec_le(final(tv)@),
             (res.1@ is Some) == !res.0.is_null(),
             res.1@ is Some ==> res.1@->Some_0.object().wf(),
             res.1@ is Some ==> equal(res.1@->Some_0.ptr(), res.0),
@@ -390,6 +643,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
             res.1@ is Some ==> OwnPred::owns(res.0, res.1@->Some_0.ownership()),
     {
         let result;
+        let ghost start_view = tv@;
         proof_decl! {
             let tracked retired_ownership;
         }
@@ -410,6 +664,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
             let snap = swap.1;
             let ghost next = hist.history();
             proof {
+                start_view.lemma_observe(self.id(), prev.len());
                 assert(rcu_spec::rcu_owned_root_history_inv(prev, g));
                 assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
                 rcu_spec::lemma_current_owned_resources::<T, O, OwnPred>(prev, &g);
@@ -487,6 +742,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
                 None => new.is_null(),
             },
         ensures
+            old(tv)@.spec_le(final(tv)@),
             res.0 is Err ==> res.2@.0 is None,
             res.0 is Err ==> res.2@.1 == new_ownership,
             res.0 is Ok ==> res.2@.1 is None,
@@ -499,6 +755,7 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
             res.2@.0 is Some ==> OwnPred::owns(res.0->Ok_0, res.2@.0->Some_0.ownership()),
     {
         let result;
+        let ghost start_view = tv@;
         proof_decl! {
             let tracked retired_ownership;
         }
@@ -523,6 +780,17 @@ impl<T, O, OwnPred> RcuWeakAtomicPtr<T, O, OwnPred> where
             result = (cas_result.0, cas_result.1);
             let ghost next = hist.history();
             proof {
+                let ghost read_view = prev[cas_result.1@ as int].view;
+                let ghost after_read =
+                    start_view.observe(self.id(), cas_result.1@).join(read_view);
+                start_view.lemma_acquire(self.id(), cas_result.1@, read_view);
+                if cas_result.0 is Ok {
+                    after_read.lemma_observe(self.id(), prev.len());
+                    start_view.lemma_spec_le_transitive(
+                        after_read,
+                        after_read.observe(self.id(), prev.len()),
+                    );
+                }
                 assert(rcu_spec::rcu_owned_root_history_inv(prev, g));
                 assert(rcu_spec::rcu_current_ownership_inv::<T, O, OwnPred>(g));
                 rcu_spec::lemma_current_owned_resources::<T, O, OwnPred>(prev, &g);
@@ -636,6 +904,8 @@ impl RcuMonitorWeakAtomicBool {
     ))
         requires
             self.well_formed(),
+        ensures
+            old(tv)@.spec_le(final(tv)@),
     {
         self.inner.load_relaxed(Tracked(tv))
     }
@@ -679,7 +949,10 @@ impl RcuMonitorWeakAtomicBool {
             self.well_formed(),
             state.wf(),
             !value ==> state.no_pending_work(),
+        ensures
+            old(tv)@.spec_le(final(tv)@),
     {
+        let ghost start_view = tv@;
         proof {
             use_type_invariant(self);
         }
@@ -695,6 +968,7 @@ impl RcuMonitorWeakAtomicBool {
             let snap = raw_atomic.store_relaxed(Tracked(&mut hist), Tracked(tv), value);
             let ghost next = hist.history();
             proof {
+                start_view.lemma_observe(self.id(), prev.len());
                 assert(snap@.msg().value == value);
                 rcu_spec::preserve_rcu_monitor_flag_inv_on_push(
                     prev,
