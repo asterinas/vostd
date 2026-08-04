@@ -14,8 +14,9 @@ jobs:
     runs-on: macos-14
     env:
       CARGO_TERM_COLOR: always
-      VERUS_REPOSITORY: https://github.com/verus-lang/verus.git
-      VERUS_BRANCH: irc11
+      VERUS_REPOSITORY: https://github.com/asterinas/verus.git
+      VERUS_BASE_COMMIT: bb61343fc97e4b3a97b1029f385ffb6bbb291da2
+      VERUS_IRC11_PATCH: tools/patches/verus-irc11.patch
       VERUS_PATCH: tools/patches/verus-irc11-vstd.patch
 
     steps:
@@ -55,17 +56,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Get Verus commit
+      - name: Record toolchain revisions
         id: verus
         shell: bash
         run: |
-          VERUS_COMMIT=$(git ls-remote "$VERUS_REPOSITORY" "refs/heads/$VERUS_BRANCH" | cut -f1)
-          if [ -z "$VERUS_COMMIT" ]; then
-            echo "Failed to resolve $VERUS_REPOSITORY branch $VERUS_BRANCH"
-            exit 1
-          fi
-          echo "VERUS_COMMIT=$VERUS_COMMIT" >> "$GITHUB_ENV"
-          echo "Using Verus $VERUS_BRANCH commit: $VERUS_COMMIT"
+          echo "Using pinned Asterinas Verus base: $VERUS_BASE_COMMIT"
           DV_COMMIT=$(git rev-parse HEAD:dv)
           echo "DV_COMMIT=$DV_COMMIT" >> "$GITHUB_ENV"
           echo "Using dv commit: $DV_COMMIT"
@@ -81,7 +76,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: tools/verus
-          key: ${{ runner.os }}-verus-${{ env.VERUS_BRANCH }}-${{ env.VERUS_COMMIT }}-${{ hashFiles('tools/patches/verus-irc11-vstd.patch') }}
+          key: ${{ runner.os }}-verus-irc11-${{ env.VERUS_BASE_COMMIT }}-${{ hashFiles('tools/patches/verus-irc11.patch', 'tools/patches/verus-irc11-vstd.patch') }}
 
       - name: Bootstrap Verus (if needed)
         shell: bash
@@ -89,11 +84,17 @@ jobs:
           if [ "${{ steps.cache-verus.outputs.cache-hit }}" = "true" ]; then
             echo "Using cached Verus"
           else
-            echo "Cache miss, bootstrapping Verus $VERUS_BRANCH..."
+            echo "Cache miss, bootstrapping rebased Verus IRC11..."
             rm -rf tools/verus
-            cargo dv bootstrap --upstream-verus --branch "$VERUS_BRANCH"
+            git clone --no-checkout "$VERUS_REPOSITORY" tools/verus
+            git -C tools/verus checkout --detach "$VERUS_BASE_COMMIT"
+            git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
+            git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
+            cargo dv bootstrap
           fi
-          test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_COMMIT"
+          test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_BASE_COMMIT"
+          test -f tools/verus/source/vstd/atomic_weak.rs
+          test -f tools/verus/source/vstd/thread_view.rs
 
       - name: Enable IRC11 alongside existing SC atomics
         shell: bash

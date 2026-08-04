@@ -11,7 +11,6 @@ index 1c106c81..ef05ea7e 100644
  
  [package.metadata.verus]
 diff --git a/source/vstd/atomic.rs b/source/vstd/atomic.rs
-index 8bb30533..14de2bd9 100644
 --- a/source/vstd/atomic.rs
 +++ b/source/vstd/atomic.rs
 @@ -5,10 +5,8 @@ use super::prelude::*;
@@ -25,11 +24,11 @@ index 8bb30533..14de2bd9 100644
  mod sc_atomic_types {
  
      use core::sync::atomic::{
-@@ -22,6 +20,8 @@ mod sc_atomic_types {
+@@ -22,7 +20,8 @@ mod sc_atomic_types {
      use super::super::modes::*;
      use super::super::pervasive::*;
      use super::super::prelude::*;
-+    use super::super::raw_ptr::PointsTo;
+     use super::super::raw_ptr::PointsTo;
 +    use super::super::thread_view::Objective;
      use super::super::view::*;
      use super::super::wrapping::*;

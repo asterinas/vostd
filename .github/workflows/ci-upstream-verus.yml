@@ -1,4 +1,4 @@
-name: Verify VOSTD with verus-lang/verus IRC11
+name: Verify VOSTD with rebased Verus IRC11
 
 on:
   push:
@@ -23,7 +23,9 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       CARGO_TERM_COLOR: always
-      VERUS_BRANCH: irc11
+      VERUS_REPOSITORY: https://github.com/asterinas/verus.git
+      VERUS_BASE_COMMIT: bb61343fc97e4b3a97b1029f385ffb6bbb291da2
+      VERUS_IRC11_PATCH: tools/patches/verus-irc11.patch
       VERUS_PATCH: tools/patches/verus-irc11-vstd.patch
 
     steps:
@@ -70,8 +72,15 @@ jobs:
           sudo apt update -qq
           sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
 
-      - name: Bootstrap upstream Verus IRC11
-        run: cargo dv bootstrap --upstream-verus --branch "$VERUS_BRANCH"
+      - name: Bootstrap rebased Verus IRC11
+        run: |
+          rm -rf tools/verus
+          git clone --no-checkout "$VERUS_REPOSITORY" tools/verus
+          git -C tools/verus checkout --detach "$VERUS_BASE_COMMIT"
+          git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
+          cargo dv bootstrap
+          test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_BASE_COMMIT"
+          git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_IRC11_PATCH"
 
       - name: Enable IRC11 alongside existing SC atomics
         run: |

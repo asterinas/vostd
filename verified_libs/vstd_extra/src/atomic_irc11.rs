@@ -229,8 +229,7 @@ impl<T> PAtomicWeakPtr<T> {
     ) -> ((value, acquire_view, load): (*mut T, Tracked<AcquireViewSeen>, Ghost<LoadData>))
         requires
             self.loc() == points_to.loc(),
-            order matches Ordering::Acquire
-            |  | order matches Ordering::Relaxed,
+            order matches Ordering::Acquire || order matches Ordering::Relaxed,
         ensures
             match order {
                 Ordering::Acquire => load_acquire(
@@ -270,8 +269,7 @@ impl<T> PAtomicWeakPtr<T> {
     ) -> (store: Ghost<StoreData>)
         requires
             self.loc() == old(points_to).loc(),
-            order matches Ordering::Release
-            |  | order matches Ordering::Relaxed,
+            order matches Ordering::Release || order matches Ordering::Relaxed,
         ensures
             forall|observed_view: ThreadView| #[trigger]
                 old(points_to).get_timestamp(observed_view) == final(points_to).get_timestamp(
@@ -325,11 +323,10 @@ impl<T> PAtomicWeakPtr<T> {
         requires
             self.loc() == old(points_to).loc(),
             success matches Ordering::AcqRel
-            |  | success matches Ordering::Acquire
-            |  | success matches Ordering::Release
-            |  | success matches Ordering::Relaxed,
-            failure matches Ordering::Acquire
-            |  | failure matches Ordering::Relaxed,
+                || success matches Ordering::Acquire
+                || success matches Ordering::Release
+                || success matches Ordering::Relaxed,
+            failure matches Ordering::Acquire || failure matches Ordering::Relaxed,
         ensures
             result is Ok ==> old(points_to).hist().is_max_timestamp(update@.load_timestamp),
             forall|observed_view: ThreadView| #[trigger]
