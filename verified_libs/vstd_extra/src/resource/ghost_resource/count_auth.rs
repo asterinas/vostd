@@ -94,7 +94,7 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
         self.r.value()->n
     }
 
-    /// Whether this token carries the unique authority for the resource slot.
+    /// Whether this token carries the unique authority for the taking/updating the resource.
     pub closed spec fn has_authority(self) -> bool {
         self.r.value()->auth
     }
@@ -249,13 +249,13 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
     }
 
     /// Consumes the `Count` and returns the resource value and an `EmptyCount` with the same id.
-    pub proof fn take_resource(tracked self) -> (tracked pair: (T, EmptyCount<T, TOTAL>))
+    pub proof fn take_resource(tracked self) -> (tracked (resource, empty): (T, EmptyCount<T, TOTAL>))
         requires
             self.frac() == TOTAL,
             self.has_authority(),
         ensures
-            pair.0 == self.resource(),
-            pair.1.id() == self.id(),
+            resource == self.resource(),
+            empty.id() == self.id(),
     {
         use_type_invariant(&self);
         self.r.validate();
