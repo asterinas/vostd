@@ -406,17 +406,6 @@ impl<T, const TOTAL: u64> CountGhostResource<T, TOTAL> {
         use_type_invariant(self);
     }
 
-    pub proof fn validate_full(tracked &self)
-        requires
-            self.is_full(),
-        ensures
-            self.not_empty(),
-            self.frac() == TOTAL,
-            self.wf(),
-    {
-        use_type_invariant(self);
-    }
-
     /// Updates the value stored in this `CountGhostResource`.
     /// The fraction must be full before the update.
     pub proof fn update(tracked &mut self, value: T)

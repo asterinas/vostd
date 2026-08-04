@@ -241,8 +241,8 @@ impl<T, const TOTAL: u64> Count<T, TOTAL> {
 
     /// Borrows the resource value.
     pub proof fn tracked_borrow(tracked &self) -> (tracked ret: &T)
-        ensures
-            ret == self.resource(),
+        returns
+            self.resource(),
     {
         use_type_invariant(self);
         StorageResource::guard(&self.r, imap![() => self.resource()]).tracked_borrow(())
@@ -356,8 +356,7 @@ impl<T, const TOTAL: u64> EmptyCount<T, TOTAL> {
 /// An authoritative pool that stores and dispatches counted fractions.
 ///
 /// The authority and every dispatched [`Count`] use the same [`Loc`]. The
-/// authority remains present when the pool's fraction reaches zero, retaining
-/// agreement on the stored value without a second resource identity.
+/// authority remains present and records the resource when the pool's fraction reaches zero.
 pub tracked struct CountResource<T, const TOTAL: u64> {
     tracked r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
 }
@@ -445,26 +444,15 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         self.r.loc()
     }
 
-    proof fn vacant() -> (tracked res: Self)
-        requires
-            TOTAL > 0,
-        ensures
-            res.is_resource_vacant(),
-            res.is_empty(),
-            res.wf(),
-    {
-        let tracked empty = EmptyCount::alloc();
-        use_type_invariant(&empty);
-        let tracked EmptyCount { r } = empty;
-        Self { r }
-    }
-
     /// Create an arbitrary `CountResource`. Useful as a placeholder.
     pub proof fn arbitrary() -> (tracked res: Self)
         requires
             TOTAL > 0,
     {
-        Self::vacant()
+        let tracked empty = EmptyCount::alloc();
+        use_type_invariant(&empty);
+        let tracked EmptyCount { r } = empty;
+        Self { r }
     }
 
     /// Allocates a new `CountResource` with the given tracked object.
@@ -515,6 +503,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             res.frac() == 1,
             res.id() == final(self).id(),
             res.resource() == old(self)@,
+            !res.has_authority(),
             old(self).frac() == 1 ==> final(self).is_empty(),
             !final(self).is_resource_vacant(),
             final(self).wf(),
@@ -534,13 +523,14 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             res.frac() == n,
             res.id() == final(self).id(),
             res.resource() == old(self)@,
+            !res.has_authority(),
             old(self).frac() == n ==> final(self).is_empty(),
             !final(self).is_resource_vacant(),
             final(self).wf(),
     {
         use_type_invariant(&*self);
         self.r.validate();
-        let tracked mut dummy = Self::vacant();
+        let tracked mut dummy = Self::arbitrary();
         tracked_swap(self, &mut dummy);
         let tracked Self { r } = dummy;
         let p1 = FractionalCarrierOpt::Value { v: r.value()->v, n: r.value()->n - n, auth: true };
@@ -568,7 +558,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         use_type_invariant(&*self);
         use_type_invariant(&other);
         self.r.validate_with_shared(&other.r);
-        let tracked mut dummy = Self::vacant();
+        let tracked mut dummy = Self::arbitrary();
         tracked_swap(self, &mut dummy);
         let tracked Self { r } = dummy;
         self.r = StorageResource::join(r, other.r);
@@ -578,17 +568,6 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
     /// `CountResource` satisfies the type invariant.
     pub proof fn validate(tracked &self)
         ensures
-            self.wf(),
-    {
-        use_type_invariant(self);
-    }
-
-    pub proof fn validate_full(tracked &self)
-        requires
-            self.is_full(),
-        ensures
-            self.not_empty(),
-            self.frac() == TOTAL,
             self.wf(),
     {
         use_type_invariant(self);
@@ -629,7 +608,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             final(self).wf(),
     {
         use_type_invariant(&*self);
-        let tracked mut dummy = Self::vacant();
+        let tracked mut dummy = Self::arbitrary();
         tracked_swap(self, &mut dummy);
         let tracked Self { r } = dummy;
         let tracked count = Count { r };
@@ -651,7 +630,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             final(self).wf(),
     {
         use_type_invariant(&*self);
-        let tracked mut dummy = Self::vacant();
+        let tracked mut dummy = Self::arbitrary();
         tracked_swap(self, &mut dummy);
         let tracked Self { r } = dummy;
         let tracked empty = EmptyCount { r };
