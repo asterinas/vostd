@@ -3532,7 +3532,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             },
     )]
     #[verifier::spinoff_prover]
-    #[verifier::rlimit(600)]
+    #[verifier::rlimit(50)]
     pub unsafe fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
         // This proof touches several cursor snapshots. Keep their quantified invariants
         // opaque by default, then reveal only the concrete facts needed below. Leaving
