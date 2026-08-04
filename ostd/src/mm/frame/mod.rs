@@ -179,8 +179,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     )]
     pub fn eq(&self, other: &Self) -> bool {
         proof {
-            regions.inv_implies_correct_addr(self.paddr());
-            regions.inv_implies_correct_addr(other.paddr());
+            regions.lemma_contains_valid_frame_paddr(self.paddr());
+            regions.lemma_contains_valid_frame_paddr(other.paddr());
         }
         let tracked self_perm = regions.slots.tracked_borrow(self.index());
         let tracked other_perm = regions.slots.tracked_borrow(other.index());
@@ -445,7 +445,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
     )]
     pub fn borrow<'a>(&self) -> FrameRef<'a, M> {
         proof {
-            regions.inv_implies_correct_addr(self.paddr());
+            regions.lemma_contains_valid_frame_paddr(self.paddr());
         }
         let tracked slot_perm = regions.slots.tracked_borrow(self.index());
 
@@ -501,7 +501,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + ?Sized> Frame<M> {
         broadcast use group_page_meta;
 
         proof {
-            regions.inv_implies_correct_addr(self.paddr());
+            regions.lemma_contains_valid_frame_paddr(self.paddr());
         }
 
         let tracked perm = regions.slots.tracked_borrow(self.index());
@@ -647,7 +647,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> RCClone for Frame<M> {
 
     fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> Self {
         proof {
-            perm.inv_implies_correct_addr(self.paddr());
+            perm.lemma_contains_valid_frame_paddr(self.paddr());
         }
 
         let paddr = meta_to_frame(self.ptr.addr());

@@ -400,7 +400,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             proof {
                 broadcast use group_page_meta;
 
-                regions.inv_implies_correct_addr(paddr);
+                regions.lemma_contains_valid_frame_paddr(paddr);
                 let idx = frame_to_index(paddr);
                 axiom_mmio_usage_iff_mmio_paddr(regions.slot_owners[idx]);
                 axiom_mmio_usage_iff_mmio_paddr(regions_pre.slot_owners[idx]);

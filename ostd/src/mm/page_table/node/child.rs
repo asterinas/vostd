@@ -150,7 +150,7 @@ impl<C: PageTableConfig> Child<C> {
             proof {
                 broadcast use group_page_meta;
 
-                regions.inv_implies_correct_addr(paddr);
+                regions.lemma_contains_valid_frame_paddr(paddr);
             }
 
             proof_decl! {
@@ -239,7 +239,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             proof {
                 broadcast use group_page_meta;
 
-                regions.inv_implies_correct_addr(paddr);
+                regions.lemma_contains_valid_frame_paddr(paddr);
             }
 
             let node = unsafe {

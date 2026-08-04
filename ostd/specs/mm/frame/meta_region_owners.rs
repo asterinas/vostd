@@ -190,7 +190,7 @@ impl MetaRegionOwners {
         // instantiating the forall in paddr_range_not_mapped at this paddr.
     }
 
-    pub proof fn inv_implies_correct_addr(self, paddr: usize)
+    pub proof fn lemma_contains_valid_frame_paddr(self, paddr: usize)
         requires
             valid_frame_paddr(paddr),
             self.inv(),
