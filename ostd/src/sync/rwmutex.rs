@@ -204,7 +204,7 @@ closed spec fn wf(self) -> bool {
         }
         &&& g.read_guard_token.wf()
         &&& g.read_guard_token.id() == ghost_id@.read_guard_token_id
-        &&& g.read_guard_token.not_empty() ==> {
+        &&& !g.read_guard_token.is_resource_vacant() ==> {
             let resource = g.read_guard_token.resource();
             let read_half_cell_perm = resource.0;
             let mode_knowledge = resource.1;

@@ -585,12 +585,12 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
         joined.validate();
     }
 
-    /// Borrows the resource while this pool retains at least one fraction.
+    /// Borrows the resource while the associated storage slot is occupied.
     pub proof fn tracked_borrow(tracked &self) -> (tracked res: &T)
         requires
-            self.not_empty(),
-        ensures
-            res == self@,
+            !self.is_resource_vacant(),
+        returns
+            self.resource(),
     {
         use_type_invariant(self);
         StorageResource::guard(&self.r, imap![() => self.resource()]).tracked_borrow(())
@@ -604,7 +604,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             final(self).is_empty(),
             final(self).is_resource_vacant(),
             final(self).id() == old(self).id(),
-            res == old(self)@,
+            res == old(self).resource(),
             final(self).wf(),
     {
         use_type_invariant(&*self);
@@ -626,7 +626,7 @@ impl<T, const TOTAL: u64> CountResource<T, TOTAL> {
             final(self).is_full(),
             !final(self).is_resource_vacant(),
             final(self).id() == old(self).id(),
-            final(self)@ == value,
+            final(self).resource() == value,
             final(self).wf(),
     {
         use_type_invariant(&*self);
