@@ -1,7 +1,7 @@
-use alloc::boxed::Box;
-use alloc::sync::Arc;
 use crate::ownership::*;
 use crate::raw_ptr_extra::*;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use vstd::layout::valid_layout;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
