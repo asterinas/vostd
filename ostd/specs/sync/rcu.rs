@@ -30,12 +30,19 @@ use core::marker::PhantomData;
 
 use crate::specs::mm::cpu::CpuId;
 
-use super::weak_memory::{History, Msg, Timestamp, WeakAtomicInvariantPredicate, WmView};
+use vstd::invariant::InvariantPredicate;
 use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo, GhostPointsTo};
+use vstd::thread_view::Objective;
+use vstd_extra::atomic_irc11::{
+    AtomicHistory as Irc11History, AtomicId as Irc11AtomicId, AtomicPointsTo,
+    ThreadView as Irc11ThreadView,
+};
 
 verus! {
+
+broadcast use {vstd::atomic_weak::group_view_history, vstd::thread_view::group_thread_view_axioms};
 
 pub type LinkIndex = nat;
 
@@ -84,7 +91,7 @@ pub ghost struct RcuCallbackSummary {
     /// The domain-local epoch in which `obj` was retired.
     pub retire_epoch: nat,
     /// Weak-memory observations that must precede safe reclamation.
-    pub retire_view: WmView,
+    pub retire_view: Irc11ThreadView,
 }
 
 /// Persistent identity of one completed base-retirement transition.
@@ -119,11 +126,12 @@ impl RcuCallbackSummary {
 pub ghost struct RcuRemovalObservation {
     pub root: Loc,
     pub timestamp: nat,
+    pub message_view: Irc11ThreadView,
 }
 
 impl RcuRemovalObservation {
-    pub open spec fn observed_by(self, view: WmView) -> bool {
-        self.timestamp <= view.seen_at(self.root)
+    pub open spec fn observed_by(self, view: Irc11ThreadView) -> bool {
+        view.contains(self.message_view)
     }
 }
 
@@ -294,7 +302,8 @@ pub open spec fn current_registration_matches<T>(
 /// unreachable from every incoming link.
 pub tracked struct RcuRootGhost {
     domain: RcuDomainAuth,
-    ghost publications: Seq<Option<nat>>,
+    ghost publications: Map<nat, Option<nat>>,
+    ghost current_timestamp: nat,
 }
 
 impl RcuRootGhost {
@@ -314,15 +323,19 @@ impl RcuRootGhost {
         self.domain.wf()
     }
 
-    pub closed spec fn publications(self) -> Seq<Option<nat>> {
+    pub closed spec fn publications(self) -> Map<nat, Option<nat>> {
         self.publications
+    }
+
+    pub closed spec fn current_timestamp(self) -> nat {
+        self.current_timestamp
     }
 
     pub open spec fn published_at(self, ts: nat) -> Option<RcuPublishedObject>
         recommends
-            ts < self.publications().len(),
+            self.publications().contains_key(ts),
     {
-        match self.publications()[ts as int] {
+        match self.publications()[ts] {
             Some(obj) => Some(
                 RcuPublishedObject { domain: self.domain(), obj, addr: self.objects()[obj] },
             ),
@@ -333,9 +346,9 @@ impl RcuRootGhost {
     /// Allocation identity carried by the latest atomic message.
     pub open spec fn current(self) -> Option<RcuPublishedObject>
         recommends
-            self.publications().len() > 0,
+            self.publications().contains_key(self.current_timestamp()),
     {
-        self.published_at((self.publications().len() - 1) as nat)
+        self.published_at(self.current_timestamp())
     }
 
     /// Allocate a fresh publication registry containing the initial message.
@@ -343,17 +356,21 @@ impl RcuRootGhost {
     /// A non-null initial value is registered exactly once and the registration
     /// resources are returned to the caller. The root history retains only the
     /// allocation ID; it does not consume the unique retire permission.
-    pub proof fn tracked_initial<T>(ptr: *mut T) -> (tracked res: (
-        Self,
-        Option<RcuRegistration<T>>,
-    ))
+    pub proof fn tracked_initial<T>(
+        ptr: *mut T,
+        history: Irc11History<*mut T>,
+        timestamp: nat,
+        message_view: Irc11ThreadView,
+    ) -> (tracked res: (Self, Option<RcuRegistration<T>>))
+        requires
+            history.is_singleton(timestamp, (ptr, message_view)),
         ensures
-            rcu_root_history_inv(seq![Msg { value: ptr, view: WmView::empty() }], res.0),
+            rcu_root_history_inv(history, res.0),
             (res.1 is Some) == (ptr.addr() != 0),
             res.1 is Some ==> res.1->Some_0.0.ptr() == ptr,
             res.1 is Some ==> res.1->Some_0.0.obj() == res.1->Some_0.1.obj(),
             res.1 is Some ==> res.1->Some_0.0.domain() == res.0.domain(),
-            res.1 is Some ==> res.0.publications()[0] == Some(res.1->Some_0.0.obj()),
+            res.1 is Some ==> res.0.publications()[timestamp] == Some(res.1->Some_0.0.obj()),
             res.1 is Some ==> res.1->Some_0.0.wf(),
             match res.1 {
                 Some(registration) => res.0.objects() == Map::empty().insert(
@@ -367,14 +384,35 @@ impl RcuRootGhost {
             res.0.domain_auth().retire_observations() == Map::<nat, RcuRemovalObservation>::empty(),
     {
         let tracked mut domain = RcuDomainAuth::tracked_new();
+        assert(history.is_max_timestamp(timestamp));
+        assert(history.dom() == Set::empty().insert(timestamp)) by {
+            assert forall|ts: nat|
+                history.dom().contains(ts) <==> Set::empty().insert(timestamp).contains(ts) by {
+                if history.dom().contains(ts) {
+                    assert(history.contains_timestamp(ts));
+                    assert(ts == timestamp);
+                }
+            };
+        };
         if ptr.addr() == 0 {
-            (RcuRootGhost { domain, publications: seq![None] }, None)
+            (
+                RcuRootGhost {
+                    domain,
+                    publications: Map::empty().insert(timestamp, None),
+                    current_timestamp: timestamp,
+                },
+                None,
+            )
         } else {
             let tracked (block_info, retire_perm) = domain.tracked_register(ptr);
             let ghost obj = block_info.obj();
             assert(domain.objects().contains_pair(obj, ptr.addr()));
             (
-                RcuRootGhost { domain, publications: seq![Some(obj)] },
+                RcuRootGhost {
+                    domain,
+                    publications: Map::empty().insert(timestamp, Some(obj)),
+                    current_timestamp: timestamp,
+                },
                 Some((block_info, retire_perm)),
             )
         }
@@ -388,13 +426,18 @@ impl RcuRootGhost {
     /// of the append-only atomic history.
     pub proof fn tracked_push_fresh<T>(
         tracked &mut self,
-        prev: History<*mut T>,
-        next: History<*mut T>,
-        msg: Msg<*mut T>,
+        prev: Irc11History<*mut T>,
+        next: Irc11History<*mut T>,
+        old_timestamp: nat,
+        new_timestamp: nat,
+        value: *mut T,
+        message_view: Irc11ThreadView,
     ) -> (tracked res: Option<RcuRegistration<T>>)
         requires
             rcu_root_history_inv(prev, *old(self)),
-            next == prev.push(msg),
+            prev.is_max_timestamp(old_timestamp),
+            new_timestamp == old_timestamp + 1,
+            next == prev.insert(new_timestamp, value, message_view),
         ensures
             rcu_root_history_inv(next, *final(self)),
             final(self).domain() == old(self).domain(),
@@ -411,11 +454,12 @@ impl RcuRootGhost {
             final(self).domain_auth().retire_observations() == old(
                 self,
             ).domain_auth().retire_observations(),
-            (res is Some) == (msg.value.addr() != 0),
-            res is Some ==> res->Some_0.0.ptr() == msg.value,
+            (res is Some) == (value.addr() != 0),
+            res is Some ==> res->Some_0.0.ptr() == value,
             res is Some ==> res->Some_0.0.obj() == res->Some_0.1.obj(),
             res is Some ==> !old(self).objects().contains_key(res->Some_0.0.obj()),
-            final(self).publications() == old(self).publications().push(
+            final(self).publications() == old(self).publications().insert(
+                new_timestamp,
                 match res {
                     Some(registration) => Some(registration.0.obj()),
                     None => None,
@@ -424,44 +468,41 @@ impl RcuRootGhost {
             match res {
                 Some(registration) => final(self).objects() == old(self).objects().insert(
                     registration.0.obj(),
-                    msg.value.addr(),
+                    value.addr(),
                 ),
                 None => final(self).objects() == old(self).objects(),
             },
             current_registration_matches(*final(self), res),
     {
-        let ghost ts = prev.len();
-        assert(self.publications().len() == ts);
-
-        let tracked res = if msg.value.addr() == 0 {
-            self.publications = self.publications.push(None);
+        let tracked res = if value.addr() == 0 {
+            self.publications = self.publications.insert(new_timestamp, None);
             None
         } else {
-            let tracked (block_info, retire_perm) = self.domain.tracked_register(msg.value);
+            let tracked (block_info, retire_perm) = self.domain.tracked_register(value);
             let ghost obj = block_info.obj();
-            self.publications = self.publications.push(Some(obj));
+            self.publications = self.publications.insert(new_timestamp, Some(obj));
             Some((block_info, retire_perm))
         };
+        self.current_timestamp = new_timestamp;
 
-        assert forall|i: int| 0 <= i < next.len() implies {
-            match #[trigger] self.publications()[i] {
-                None => next[i].value.addr() == 0,
+        assert forall|ts: nat| next.contains_timestamp(ts) implies {
+            match #[trigger] self.publications()[ts] {
+                None => next.value(ts).addr() == 0,
                 Some(obj) => {
-                    &&& next[i].value.addr() != 0
-                    &&& self.objects().contains_pair(obj, next[i].value.addr())
+                    &&& next.value(ts).addr() != 0
+                    &&& self.objects().contains_pair(obj, next.value(ts).addr())
                 },
             }
         } by {
-            if i == prev.len() {
-                assert(next[i] == msg);
+            if ts == new_timestamp {
             } else {
-                assert(i < prev.len());
-                assert(next[i] == prev[i]);
-                assert(self.publications()[i] == old(self).publications()[i]);
-                match self.publications()[i] {
+                assert(prev.contains_timestamp(ts));
+                assert(next.value(ts) == prev.value(ts));
+                assert(self.publications()[ts] == old(self).publications()[ts]);
+                match self.publications()[ts] {
                     Some(obj) => {
-                        assert(old(self).objects().contains_pair(obj, prev[i].value.addr()));
-                        assert(self.objects().contains_pair(obj, next[i].value.addr()));
+                        assert(old(self).objects().contains_pair(obj, prev.value(ts).addr()));
+                        assert(self.objects().contains_pair(obj, next.value(ts).addr()));
                     },
                     None => {},
                 }
@@ -477,16 +518,21 @@ impl RcuRootGhost {
     /// `BlockInfo` therefore carries the same allocation identity.
     pub proof fn tracked_push_registered<T>(
         tracked &mut self,
-        prev: History<*mut T>,
-        next: History<*mut T>,
-        msg: Msg<*mut T>,
+        prev: Irc11History<*mut T>,
+        next: Irc11History<*mut T>,
+        old_timestamp: nat,
+        new_timestamp: nat,
+        value: *mut T,
+        message_view: Irc11ThreadView,
         tracked info: &RcuBlockInfo<T>,
     )
         requires
             rcu_root_history_inv(prev, *old(self)),
-            next == prev.push(msg),
+            prev.is_max_timestamp(old_timestamp),
+            new_timestamp == old_timestamp + 1,
+            next == prev.insert(new_timestamp, value, message_view),
             info.domain() == old(self).domain(),
-            info.ptr() == msg.value,
+            info.ptr() == value,
             info.wf(),
         ensures
             rcu_root_history_inv(next, *final(self)),
@@ -505,37 +551,38 @@ impl RcuRootGhost {
                 self,
             ).domain_auth().retire_observations(),
             final(self).objects() == old(self).objects(),
-            final(self).publications() == old(self).publications().push(Some(info.obj())),
+            final(self).publications() == old(self).publications().insert(
+                new_timestamp,
+                Some(info.obj()),
+            ),
     {
-        let ghost ts = prev.len();
-        assert(self.publications().len() == ts);
         self.domain.lemma_block_info_agree(info);
-        self.publications = self.publications.push(Some(info.obj()));
+        self.publications = self.publications.insert(new_timestamp, Some(info.obj()));
+        self.current_timestamp = new_timestamp;
         assert(self.objects() == old(self).objects());
 
-        assert forall|i: int| 0 <= i < next.len() implies {
-            match #[trigger] self.publications()[i] {
-                None => next[i].value.addr() == 0,
+        assert forall|ts: nat| next.contains_timestamp(ts) implies {
+            match #[trigger] self.publications()[ts] {
+                None => next.value(ts).addr() == 0,
                 Some(obj) => {
-                    &&& next[i].value.addr() != 0
-                    &&& self.objects().contains_pair(obj, next[i].value.addr())
+                    &&& next.value(ts).addr() != 0
+                    &&& self.objects().contains_pair(obj, next.value(ts).addr())
                 },
             }
         } by {
-            if i == prev.len() {
-                assert(next[i] == msg);
-                assert(info.addr() == msg.value.addr());
-                assert(msg.value.addr() != 0);
-                assert(self.publications()[i] == Some(info.obj()));
-                assert(self.objects().contains_pair(info.obj(), next[i].value.addr()));
+            if ts == new_timestamp {
+                assert(info.addr() == value.addr());
+                assert(value.addr() != 0);
+                assert(self.publications()[ts] == Some(info.obj()));
+                assert(self.objects().contains_pair(info.obj(), next.value(ts).addr()));
             } else {
-                assert(i < prev.len());
-                assert(next[i] == prev[i]);
-                assert(self.publications()[i] == old(self).publications()[i]);
-                match self.publications()[i] {
+                assert(prev.contains_timestamp(ts));
+                assert(next.value(ts) == prev.value(ts));
+                assert(self.publications()[ts] == old(self).publications()[ts]);
+                match self.publications()[ts] {
                     Some(obj) => {
-                        assert(old(self).objects().contains_pair(obj, prev[i].value.addr()));
-                        assert(self.objects().contains_pair(obj, next[i].value.addr()));
+                        assert(old(self).objects().contains_pair(obj, prev.value(ts).addr()));
+                        assert(self.objects().contains_pair(obj, next.value(ts).addr()));
                     },
                     None => {},
                 }
@@ -545,43 +592,29 @@ impl RcuRootGhost {
 }
 
 /// Agreement between the weak-memory message history and RCU allocation IDs.
-pub open spec fn rcu_root_history_inv<T>(history: History<*mut T>, ghost: RcuRootGhost) -> bool {
-    &&& history.len() >= 1
+pub open spec fn rcu_root_history_inv<T>(
+    history: Irc11History<*mut T>,
+    ghost: RcuRootGhost,
+) -> bool {
     &&& ghost.domain_wf()
-    &&& ghost.publications().len() == history.len()
-    &&& forall|i: int|
-        0 <= i < history.len() ==> {
-            match #[trigger] ghost.publications()[i] {
-                None => history[i].value.addr() == 0,
+    &&& ghost.publications().dom() == history.dom()
+    &&& history.is_max_timestamp(ghost.current_timestamp())
+    &&& forall|ts: nat|
+        history.contains_timestamp(ts) ==> {
+            match #[trigger] ghost.publications()[ts] {
+                None => history.value(ts).addr() == 0,
                 Some(obj) => {
-                    &&& history[i].value.addr() != 0
-                    &&& ghost.objects().contains_pair(obj, history[i].value.addr())
+                    &&& history.value(ts).addr() != 0
+                    &&& ghost.objects().contains_pair(obj, history.value(ts).addr())
                 },
             }
         }
 }
 
-/// The weak-memory invariant for the root pointer stored in an executable RCU
-/// cell.
-///
-/// The key is the cell's nullability: `true` for `RcuOption`, `false` for
-/// `Rcu`. The predicate connects each atomic message both to the public
-/// nullability contract and to its domain-local allocation identity. Physical
-/// ownership, read tokens, and reclamation are deliberately modeled by the
-/// traversal/reclaim tokens below and will be wired in later steps.
-pub struct RcuWeakAtomicInv;
-
-pub open spec fn rcu_history_inv<T>(nullable: bool, history: History<*mut T>) -> bool {
-    &&& history.len() >= 1
-    &&& !nullable ==> forall|i: int|
-        0 <= i < history.len() ==> #[trigger] history[i].value.addr() != 0
-}
-
-impl<T> WeakAtomicInvariantPredicate<bool, *mut T, RcuRootGhost> for RcuWeakAtomicInv {
-    open spec fn atomic_inv(nullable: bool, history: History<*mut T>, g: RcuRootGhost) -> bool {
-        &&& rcu_history_inv(nullable, history)
-        &&& rcu_root_history_inv(history, g)
-    }
+pub open spec fn rcu_history_inv<T>(nullable: bool, history: Irc11History<*mut T>) -> bool {
+    &&& !history.dom().is_empty()
+    &&& !nullable ==> forall|ts: nat|
+        history.contains_timestamp(ts) ==> #[trigger] history.value(ts).addr() != 0
 }
 
 /// Immutable identity carried by an executable RCU root atomic.
@@ -610,6 +643,12 @@ pub tracked struct RcuRootOwnedGhost<T, O = ()> {
     ghost removals: Map<nat, RcuRemovalObservation>,
 }
 
+// The root ghost owns only global resource-algebra state. Its payload remains
+// objective exactly when the client ownership stored in it is objective.
+unsafe impl<T, O: Objective> Objective for RcuRootOwnedGhost<T, O> {
+
+}
+
 impl<T, O> RcuRootOwnedGhost<T, O> {
     pub closed spec fn root(self) -> RcuRootGhost {
         self.root
@@ -619,7 +658,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         self.root().domain()
     }
 
-    pub closed spec fn publications(self) -> Seq<Option<nat>> {
+    pub closed spec fn publications(self) -> Map<nat, Option<nat>> {
         self.root().publications()
     }
 
@@ -633,7 +672,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
 
     pub open spec fn published_at(self, ts: nat) -> Option<RcuPublishedObject>
         recommends
-            ts < self.publications().len(),
+            self.publications().contains_key(ts),
     {
         self.root().published_at(ts)
     }
@@ -690,7 +729,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// Once `removals[obj] = ts`, no message at or after `ts` may publish that
     /// allocation ID again. The currently owned registration is therefore
     /// never in the removed domain.
-    pub open spec fn removals_wf(self, history: History<*mut T>) -> bool {
+    pub open spec fn removals_wf(self, history: Irc11History<*mut T>) -> bool {
         &&& self.removals().dom().subset_of(self.infos().dom())
         &&& match self.current_registration() {
             Some(registration) => !self.removals().contains_key(registration.0.obj()),
@@ -699,9 +738,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         &&& forall|obj: nat|
             self.removals().contains_key(obj) ==> {
                 let ts = (#[trigger] self.removals()[obj]).timestamp;
-                &&& 0 < ts < history.len()
-                &&& forall|i: int|
-                    ts <= i < history.len() ==> #[trigger] self.publications()[i] != Some(obj)
+                &&& history.contains_timestamp(ts)
+                &&& forall|later: nat|
+                    history.contains_timestamp(later) && ts <= later
+                        ==> #[trigger] self.publications()[later] != Some(obj)
             }
     }
 
@@ -728,29 +768,32 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// This is the proof interface used by weak atomic loads. It keeps the
     /// root's internal publication and identity maps opaque to the atomic
     /// wrapper while exporting exact pointer provenance, not just an address.
-    pub proof fn tracked_info_at(tracked &self, history: History<*mut T>, ts: nat) -> (tracked res:
-        Option<RcuBlockInfo<T>>)
+    pub proof fn tracked_info_at(
+        tracked &self,
+        history: Irc11History<*mut T>,
+        ts: nat,
+    ) -> (tracked res: Option<RcuBlockInfo<T>>)
         requires
             rcu_owned_root_history_inv(history, *self),
-            ts < history.len(),
+            history.contains_timestamp(ts),
         ensures
-            ts < self.publications().len(),
+            self.publications().contains_key(ts),
             match (self.published_at(ts), res) {
-                (None, None) => history[ts as int].value.addr() == 0,
+                (None, None) => history.value(ts).addr() == 0,
                 (Some(object), Some(info)) => {
                     &&& object.domain == self.domain()
-                    &&& object.addr == history[ts as int].value.addr()
+                    &&& object.addr == history.value(ts).addr()
                     &&& info.wf()
                     &&& info.domain() == object.domain
                     &&& info.obj() == object.obj
                     &&& info.addr() == object.addr
-                    &&& equal(info.ptr(), history[ts as int].value)
+                    &&& equal(info.ptr(), history.value(ts))
                 },
                 _ => false,
             },
     {
-        assert(ts < self.publications().len());
-        match self.publications()[ts as int] {
+        assert(self.publications().contains_key(ts));
+        match self.publications()[ts] {
             Some(obj) => {
                 let ghost object = RcuPublishedObject {
                     domain: self.domain(),
@@ -759,7 +802,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 };
                 assert(self.published_at(ts) == Some(object));
                 let tracked info = self.tracked_info_for(object);
-                assert(equal(info.ptr(), history[ts as int].value));
+                assert(equal(info.ptr(), history.value(ts)));
                 Some(info)
             },
             None => {
@@ -772,20 +815,20 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// Extracts the allocation ID stored in a non-null root publication.
     pub proof fn lemma_published_object_id(
         tracked &self,
-        history: History<*mut T>,
+        history: Irc11History<*mut T>,
         ts: nat,
         object: RcuPublishedObject,
     )
         requires
             rcu_owned_root_history_inv(history, *self),
-            ts < history.len(),
+            history.contains_timestamp(ts),
             self.published_at(ts) == Some(object),
         ensures
-            self.publications()[ts as int] == Some(object.obj),
+            self.publications()[ts] == Some(object.obj),
     {
-        match self.publications()[ts as int] {
+        match self.publications()[ts] {
             Some(obj) => {
-                assert(self.root().objects().contains_pair(obj, history[ts as int].value.addr()));
+                assert(self.root().objects().contains_pair(obj, history.value(ts).addr()));
                 assert(self.published_at(ts) == Some(
                     RcuPublishedObject {
                         domain: self.domain(),
@@ -804,9 +847,9 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// root-removal observation for that allocation.
     pub proof fn lemma_observed_retired(
         tracked &self,
-        history: History<*mut T>,
+        history: Irc11History<*mut T>,
         root: Loc,
-        view: WmView,
+        view: Irc11ThreadView,
         obj: nat,
     )
         requires
@@ -829,10 +872,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// root's entry-time expired set.
     pub proof fn lemma_retired_facts_observed(
         tracked &self,
-        history: History<*mut T>,
+        history: Irc11History<*mut T>,
         tracked facts: &RcuRetiredFacts,
         root: Loc,
-        view: WmView,
+        view: Irc11ThreadView,
     )
         requires
             rcu_owned_root_history_inv(history, *self),
@@ -858,9 +901,9 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// algorithm.
     pub proof fn tracked_start_reader(
         tracked &mut self,
-        history: History<*mut T>,
+        history: Irc11History<*mut T>,
         root: Loc,
-        start_view: WmView,
+        start_view: Irc11ThreadView,
         reader: RcuReaderContext,
     ) -> (tracked res: RcuBaseGuard)
         requires
@@ -898,15 +941,23 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
 
     /// Initializes root history and retains the initial registration as the
     /// current unique ownership resource.
-    pub proof fn tracked_initial(ptr: *mut T, tracked ownership: Option<O>) -> (tracked res: Self)
+    pub proof fn tracked_initial(
+        ptr: *mut T,
+        tracked ownership: Option<O>,
+        history: Irc11History<*mut T>,
+        timestamp: nat,
+        message_view: Irc11ThreadView,
+    ) -> (tracked res: Self)
         requires
             (ownership is Some) == (ptr.addr() != 0),
+            history.is_singleton(timestamp, (ptr, message_view)),
         ensures
-            rcu_owned_root_history_inv(seq![Msg { value: ptr, view: WmView::empty() }], res),
+            rcu_owned_root_history_inv(history, res),
             (res.current_registration() is Some) == (ptr.addr() != 0),
             res.current_registration() is Some ==> res.current_registration()->Some_0.0.ptr()
                 == ptr,
             res.current_ownership() == ownership,
+            res.removals() == Map::<nat, RcuRemovalObservation>::empty(),
             match res.current_owned() {
                 Some(owned) => {
                     &&& ptr.addr() != 0
@@ -919,7 +970,12 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 },
             },
     {
-        let tracked (root, registration) = RcuRootGhost::tracked_initial(ptr);
+        let tracked (root, registration) = RcuRootGhost::tracked_initial(
+            ptr,
+            history,
+            timestamp,
+            message_view,
+        );
         let tracked mut infos = Map::<nat, RcuBlockInfo<T>>::tracked_empty();
         let tracked current = match registration {
             Some(registration) => {
@@ -945,7 +1001,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         };
         let tracked res = RcuRootOwnedGhost { root, current, infos, removals: Map::empty() };
         assert(res.infos_wf());
-        assert(res.removals_wf(seq![Msg { value: ptr, view: WmView::empty() }]));
+        assert(res.removals_wf(history));
         assert(res.removals() == res.root().domain_auth().retire_observations());
         res
     }
@@ -958,9 +1014,12 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// `RcuPointedBy-detach` rule for internal nodes.
     pub proof fn tracked_push_fresh<OwnPred>(
         tracked &mut self,
-        prev: History<*mut T>,
-        next: History<*mut T>,
-        msg: Msg<*mut T>,
+        prev: Irc11History<*mut T>,
+        next: Irc11History<*mut T>,
+        old_timestamp: nat,
+        new_timestamp: nat,
+        value: *mut T,
+        message_view: Irc11ThreadView,
         root: Loc,
         tracked ownership: Option<O>,
     ) -> (tracked detached: Option<RcuRetiredOwnedObject<T, O>>) where
@@ -969,8 +1028,10 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         requires
             rcu_owned_root_history_inv(prev, *old(self)),
             rcu_current_ownership_inv::<T, O, OwnPred>(*old(self)),
-            next == prev.push(msg),
-            (ownership is Some) == (msg.value.addr() != 0),
+            prev.is_max_timestamp(old_timestamp),
+            new_timestamp == old_timestamp + 1,
+            next == prev.insert(new_timestamp, value, message_view),
+            (ownership is Some) == (value.addr() != 0),
         ensures
             rcu_owned_root_history_inv(next, *final(self)),
             final(self).domain() == old(self).domain(),
@@ -985,26 +1046,34 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                     &&& detached.retired().ptr() == detached.ptr()
                     &&& detached.retired().removal() == (RcuRemovalObservation {
                         root,
-                        timestamp: prev.len(),
+                        timestamp: new_timestamp,
+                        message_view,
                     })
-                    &&& equal(detached.ptr(), prev[(prev.len() - 1) as int].value)
+                    &&& equal(detached.ptr(), prev.value(old_timestamp))
                     &&& old(self).current_ownership() == Some(detached.ownership())
                     &&& OwnPred::owns(detached.ptr(), detached.ownership())
                 },
                 None => old(self).current_registration() is None,
             },
-            (final(self).current_registration() is Some) == (msg.value.addr() != 0),
+            (final(self).current_registration() is Some) == (value.addr() != 0),
             final(self).current_registration() is Some
-                ==> final(self).current_registration()->Some_0.0.ptr() == msg.value,
+                ==> final(self).current_registration()->Some_0.0.ptr() == value,
             final(self).current_ownership() == ownership,
+            final(self).removals() == match detached {
+                Some(detached) => old(self).removals().insert(
+                    detached.obj(),
+                    detached.retired().removal(),
+                ),
+                None => old(self).removals(),
+            },
             match final(self).current_owned() {
                 Some(owned) => {
-                    &&& msg.value.addr() != 0
-                    &&& equal(owned.block_info().ptr(), msg.value)
+                    &&& value.addr() != 0
+                    &&& equal(owned.block_info().ptr(), value)
                     &&& ownership == Some(owned.ownership())
                 },
                 None => {
-                    &&& msg.value.addr() == 0
+                    &&& value.addr() == 0
                     &&& ownership is None
                 },
             },
@@ -1019,7 +1088,14 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
         } else {
             None
         };
-        let tracked new_registration = self.root.tracked_push_fresh(prev, next, msg);
+        let tracked new_registration = self.root.tracked_push_fresh(
+            prev,
+            next,
+            old_timestamp,
+            new_timestamp,
+            value,
+            message_view,
+        );
         let tracked new_current = match new_registration {
             Some(registration) => {
                 let ghost obj = registration.0.obj();
@@ -1049,7 +1125,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 None
             },
         };
-        let ghost removal = RcuRemovalObservation { root, timestamp: prev.len() };
+        let ghost removal = RcuRemovalObservation { root, timestamp: new_timestamp, message_view };
         let tracked detached = match old_current {
             Some(owned) => {
                 let tracked (registration, old_ownership) = owned.tracked_into_parts();
@@ -1092,20 +1168,27 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 },
             }
         };
+        assert(self.removals() == match detached {
+            Some(detached) => old(self).removals().insert(
+                detached.obj(),
+                detached.retired().removal(),
+            ),
+            None => old(self).removals(),
+        });
         assert(current_registration_matches(self.root(), self.current_registration()));
         assert(self.infos_wf());
         assert(self.removals_wf(next)) by {
             assert forall|obj: nat| self.removals().contains_key(obj) implies {
                 let ts = (#[trigger] self.removals()[obj]).timestamp;
-                &&& 0 < ts < next.len()
-                &&& forall|i: int|
-                    ts <= i < next.len() ==> #[trigger] self.publications()[i] != Some(obj)
+                &&& next.contains_timestamp(ts)
+                &&& forall|later: nat|
+                    next.contains_timestamp(later) && ts <= later
+                        ==> #[trigger] self.publications()[later] != Some(obj)
             } by {
                 if removed_obj == Some(obj) {
                     assert(self.removals()[obj] == removal);
-                    assert(self.removals()[obj].timestamp == prev.len());
-                    assert(next.len() == prev.len() + 1);
-                    assert(self.publications()[prev.len() as int] == match new_registration {
+                    assert(self.removals()[obj].timestamp == new_timestamp);
+                    assert(self.publications()[new_timestamp] == match new_registration {
                         Some(registration) => Some(registration.0.obj()),
                         None => None,
                     });
@@ -1118,13 +1201,13 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
                 } else {
                     assert(old(self).removals().contains_key(obj));
                     assert(self.removals()[obj] == old(self).removals()[obj]);
-                    assert forall|i: int|
-                        self.removals()[obj].timestamp <= i
-                            < next.len() implies #[trigger] self.publications()[i] != Some(obj) by {
-                        if i < prev.len() {
-                            assert(self.publications()[i] == old(self).publications()[i]);
+                    assert forall|later: nat|
+                        next.contains_timestamp(later) && self.removals()[obj].timestamp
+                            <= later implies #[trigger] self.publications()[later] != Some(obj) by {
+                        if later != new_timestamp {
+                            assert(prev.contains_timestamp(later));
+                            assert(self.publications()[later] == old(self).publications()[later]);
                         } else {
-                            assert(i == prev.len());
                             if new_registration is Some {
                                 assert(!old(self).root().objects().contains_key(
                                     new_registration->Some_0.0.obj(),
@@ -1143,15 +1226,20 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
     /// or releasing its unique retire permission.
     pub proof fn tracked_republish_current(
         tracked &mut self,
-        prev: History<*mut T>,
-        next: History<*mut T>,
-        msg: Msg<*mut T>,
+        prev: Irc11History<*mut T>,
+        next: Irc11History<*mut T>,
+        old_timestamp: nat,
+        new_timestamp: nat,
+        value: *mut T,
+        message_view: Irc11ThreadView,
     )
         requires
             rcu_owned_root_history_inv(prev, *old(self)),
-            next == prev.push(msg),
+            prev.is_max_timestamp(old_timestamp),
+            new_timestamp == old_timestamp + 1,
+            next == prev.insert(new_timestamp, value, message_view),
             old(self).current_registration() is Some,
-            old(self).current_registration()->Some_0.0.ptr() == msg.value,
+            old(self).current_registration()->Some_0.0.ptr() == value,
         ensures
             rcu_owned_root_history_inv(next, *final(self)),
             final(self).domain() == old(self).domain(),
@@ -1160,27 +1248,37 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
             final(self).current_registration() == old(self).current_registration(),
     {
         let tracked owned = self.current.tracked_take();
-        self.root.tracked_push_registered(prev, next, msg, &owned.registration.0);
+        self.root.tracked_push_registered(
+            prev,
+            next,
+            old_timestamp,
+            new_timestamp,
+            value,
+            message_view,
+            &owned.registration.0,
+        );
         self.current = Some(owned);
         assert(current_registration_matches(self.root(), self.current_registration()));
         assert(self.removals() == self.root().domain_auth().retire_observations());
         assert(self.removals_wf(next)) by {
             assert forall|obj: nat| self.removals().contains_key(obj) implies {
                 let ts = (#[trigger] self.removals()[obj]).timestamp;
-                &&& 0 < ts < next.len()
-                &&& forall|i: int|
-                    ts <= i < next.len() ==> #[trigger] self.publications()[i] != Some(obj)
+                &&& next.contains_timestamp(ts)
+                &&& forall|later: nat|
+                    next.contains_timestamp(later) && ts <= later
+                        ==> #[trigger] self.publications()[later] != Some(obj)
             } by {
                 assert(old(self).removals().contains_key(obj));
                 assert(!old(self).removals().contains_key(owned.registration.0.obj()));
                 assert(obj != owned.registration.0.obj());
-                assert forall|i: int|
-                    self.removals()[obj].timestamp <= i
-                        < next.len() implies #[trigger] self.publications()[i] != Some(obj) by {
-                    if i < prev.len() {
-                        assert(self.publications()[i] == old(self).publications()[i]);
+                assert forall|later: nat|
+                    next.contains_timestamp(later) && self.removals()[obj].timestamp
+                        <= later implies #[trigger] self.publications()[later] != Some(obj) by {
+                    if later != new_timestamp {
+                        assert(prev.contains_timestamp(later));
+                        assert(self.publications()[later] == old(self).publications()[later]);
                     } else {
-                        assert(i == prev.len());
+                        assert(self.publications()[later] == Some(owned.registration.0.obj()));
                     }
                 };
             };
@@ -1191,7 +1289,7 @@ impl<T, O> RcuRootOwnedGhost<T, O> {
 /// The current ownership resource agrees with the latest publication, while
 /// older history entries need only agree with persistent registration metadata.
 pub open spec fn rcu_owned_root_history_inv<T, O>(
-    history: History<*mut T>,
+    history: Irc11History<*mut T>,
     ghost: RcuRootOwnedGhost<T, O>,
 ) -> bool {
     &&& rcu_root_history_inv(history, ghost.root())
@@ -1199,19 +1297,19 @@ pub open spec fn rcu_owned_root_history_inv<T, O>(
     &&& ghost.infos_wf()
     &&& ghost.removals_wf(history)
     &&& ghost.removals() == ghost.root().domain_auth().retire_observations()
-    &&& forall|i: int|
-        0 <= i < history.len() ==> {
-            match #[trigger] ghost.publications()[i] {
-                Some(obj) => equal(ghost.infos()[obj].ptr(), history[i].value),
+    &&& forall|ts: nat|
+        history.contains_timestamp(ts) ==> {
+            match #[trigger] ghost.publications()[ts] {
+                Some(obj) => equal(ghost.infos()[obj].ptr(), history.value(ts)),
                 None => true,
             }
         }
     &&& match ghost.current_registration() {
         Some(registration) => equal(
             registration.0.ptr(),
-            history[(history.len() - 1) as int].value,
+            history.value(ghost.root().current_timestamp()),
         ),
-        None => history[(history.len() - 1) as int].value.addr() == 0,
+        None => history.value(ghost.root().current_timestamp()).addr() == 0,
     }
 }
 
@@ -1240,7 +1338,7 @@ pub open spec fn rcu_current_ownership_inv<T, O, OwnPred>(
 
 /// Opens the structural current-ownership relation for atomic clients.
 pub proof fn lemma_current_owned_resources<T, O, OwnPred>(
-    history: History<*mut T>,
+    history: Irc11History<*mut T>,
     tracked ghost: &RcuRootOwnedGhost<T, O>,
 ) where OwnPred: RcuRootOwnershipPredicate<T, O>
     requires
@@ -1250,10 +1348,10 @@ pub proof fn lemma_current_owned_resources<T, O, OwnPred>(
         match ghost.current_owned() {
             Some(owned) => {
                 &&& owned.block_info().wf()
-                &&& equal(owned.block_info().ptr(), history[(history.len() - 1) as int].value)
+                &&& equal(owned.block_info().ptr(), history.value(ghost.root().current_timestamp()))
                 &&& OwnPred::owns(owned.block_info().ptr(), owned.ownership())
             },
-            None => history[(history.len() - 1) as int].value.addr() == 0,
+            None => history.value(ghost.root().current_timestamp()).addr() == 0,
         },
 {
     match ghost.current_owned() {
@@ -1269,22 +1367,28 @@ pub struct RcuOwnedWeakAtomicInv<OwnPred> {
     _marker: PhantomData<OwnPred>,
 }
 
-impl<T, O, OwnPred> WeakAtomicInvariantPredicate<
-    RcuRootKey,
-    *mut T,
-    RcuRootOwnedGhost<T, O>,
+impl<T, O: Objective, OwnPred> InvariantPredicate<
+    (RcuRootKey, Irc11AtomicId),
+    (AtomicPointsTo<*mut T>, RcuRootOwnedGhost<T, O>),
 > for RcuOwnedWeakAtomicInv<OwnPred> where OwnPred: RcuRootOwnershipPredicate<T, O> {
-    open spec fn atomic_inv(
-        key: RcuRootKey,
-        history: History<*mut T>,
-        g: RcuRootOwnedGhost<T, O>,
+    open spec fn inv(
+        key_loc: (RcuRootKey, Irc11AtomicId),
+        pair: (AtomicPointsTo<*mut T>, RcuRootOwnedGhost<T, O>),
     ) -> bool {
+        let (key, loc) = key_loc;
+        let (points_to, g) = pair;
+        &&& points_to.loc() == loc
         &&& key.domain == g.domain()
         &&& key.reader_registry == g.reader_registry()
         &&& key.retire_observation_registry == g.retire_observation_registry()
-        &&& rcu_history_inv(key.nullable, history)
-        &&& rcu_owned_root_history_inv(history, g)
+        &&& rcu_history_inv(key.nullable, points_to.hist())
+        &&& rcu_owned_root_history_inv(points_to.hist(), g)
         &&& rcu_current_ownership_inv::<T, O, OwnPred>(g)
+        &&& forall|obj: nat|
+            g.removals().contains_key(obj) ==> {
+                let removal = #[trigger] g.removals()[obj];
+                points_to.get_timestamp(removal.message_view) == Some(removal.timestamp)
+            }
     }
 }
 
@@ -1384,43 +1488,58 @@ pub proof fn monitor_state_no_pending_no_summaries(state: MonitorStateView)
 
 /// Ghost summary paired with the RCU monitor's `is_monitoring` flag.
 ///
-/// `states[i]` summarizes the lock-protected monitor state at the moment flag
-/// message `i` was appended. This is intentionally a summary: the concrete
+/// `states[ts]` summarizes the lock-protected monitor state stored with flag
+/// message timestamp `ts`. This is intentionally a summary: the concrete
 /// callback vectors live in the monitor state protected by its lock, and the
-/// agreement between `states[i]` and that state is established by the writer,
+/// agreement between `states[ts]` and that state is established by the writer,
 /// which performs every flag store while holding the monitor lock.
 pub tracked struct RcuMonitorFlagGhost {
-    pub ghost states: Seq<MonitorStateView>,
+    pub ghost states: Map<nat, MonitorStateView>,
+}
+
+unsafe impl Objective for RcuMonitorFlagGhost {
+
 }
 
 impl RcuMonitorFlagGhost {
-    pub open spec fn initial() -> Self {
-        RcuMonitorFlagGhost { states: seq![MonitorStateView::initial()] }
+    pub open spec fn initial(timestamp: nat) -> Self {
+        RcuMonitorFlagGhost {
+            states: Map::empty().insert(timestamp, MonitorStateView::initial()),
+        }
     }
 
     /// Proof-mode constructor for the tracked ghost state stored inside the
     /// monitor flag's weak atomic invariant.
-    pub proof fn tracked_initial() -> (tracked res: Self)
+    pub proof fn tracked_initial(timestamp: nat) -> (tracked res: Self)
         ensures
-            res == Self::initial(),
+            res == Self::initial(timestamp),
     {
-        RcuMonitorFlagGhost { states: seq![MonitorStateView::initial()] }
+        RcuMonitorFlagGhost {
+            states: Map::empty().insert(timestamp, MonitorStateView::initial()),
+        }
     }
 
-    pub open spec fn push(self, state: MonitorStateView) -> Self {
-        RcuMonitorFlagGhost { states: self.states.push(state) }
+    pub open spec fn insert(self, timestamp: nat, state: MonitorStateView) -> Self {
+        RcuMonitorFlagGhost { states: self.states.insert(timestamp, state) }
     }
 
-    pub proof fn tracked_push(tracked self, state: MonitorStateView) -> (tracked res: Self)
+    pub proof fn tracked_insert(
+        tracked self,
+        timestamp: nat,
+        state: MonitorStateView,
+    ) -> (tracked res: Self)
         ensures
-            res == self.push(state),
+            res == self.insert(timestamp, state),
     {
-        RcuMonitorFlagGhost { states: self.states.push(state) }
+        RcuMonitorFlagGhost { states: self.states.insert(timestamp, state) }
     }
 
-    /// Whether the state recorded at flag message `i` still had work pending.
-    pub open spec fn pending_at(self, i: int) -> bool {
-        self.states[i].has_pending_work()
+    /// Whether the state recorded at flag message `timestamp` had work pending.
+    pub open spec fn pending_at(self, timestamp: nat) -> bool
+        recommends
+            self.states.contains_key(timestamp),
+    {
+        self.states[timestamp].has_pending_work()
     }
 }
 
@@ -1438,80 +1557,105 @@ impl RcuMonitorFlagGhost {
 /// flag message, so skipping the slow path can only delay their grace period,
 /// never lose them.
 pub open spec fn rcu_monitor_flag_history_inv(
-    history: History<bool>,
+    history: Irc11History<bool>,
     ghost: RcuMonitorFlagGhost,
 ) -> bool {
-    &&& history.len() >= 1
-    &&& ghost.states.len() == history.len()
-    &&& forall|i: int| 0 <= i < history.len() ==> (#[trigger] ghost.states[i]).wf()
-    &&& forall|i: int|
-        0 <= i < history.len() ==> {
-            !(#[trigger] history[i].value) ==> ghost.states[i].no_pending_work()
+    &&& !history.dom().is_empty()
+    &&& ghost.states.dom() == history.dom()
+    &&& forall|timestamp: nat|
+        history.contains_timestamp(timestamp) ==> (#[trigger] ghost.states[timestamp]).wf()
+    &&& forall|timestamp: nat|
+        history.contains_timestamp(timestamp) ==> {
+            !(#[trigger] history.value(timestamp)) ==> ghost.states[timestamp].no_pending_work()
         }
 }
 
 pub struct RcuMonitorFlagInv;
 
-impl WeakAtomicInvariantPredicate<(), bool, RcuMonitorFlagGhost> for RcuMonitorFlagInv {
-    open spec fn atomic_inv(_k: (), history: History<bool>, ghost: RcuMonitorFlagGhost) -> bool {
-        rcu_monitor_flag_history_inv(history, ghost)
+impl InvariantPredicate<
+    Irc11AtomicId,
+    (AtomicPointsTo<bool>, RcuMonitorFlagGhost),
+> for RcuMonitorFlagInv {
+    open spec fn inv(
+        loc: Irc11AtomicId,
+        pair: (AtomicPointsTo<bool>, RcuMonitorFlagGhost),
+    ) -> bool {
+        &&& pair.0.loc() == loc
+        &&& rcu_monitor_flag_history_inv(pair.0.hist(), pair.1)
     }
 }
 
-pub proof fn rcu_monitor_flag_initial_inv()
+pub proof fn rcu_monitor_flag_initial_inv(
+    history: Irc11History<bool>,
+    timestamp: nat,
+    message_view: Irc11ThreadView,
+)
+    requires
+        history.is_singleton(timestamp, (false, message_view)),
     ensures
-        RcuMonitorFlagInv::atomic_inv(
-            (),
-            seq![Msg { value: false, view: WmView::empty() }],
-            RcuMonitorFlagGhost::initial(),
+        rcu_monitor_flag_history_inv(
+            history,
+            RcuMonitorFlagGhost::initial(timestamp),
         ),
 {
+    assert(history.dom() == Set::empty().insert(timestamp)) by {
+        assert forall|ts: nat|
+            history.dom().contains(ts) <==> Set::empty().insert(timestamp).contains(ts) by {
+            if history.dom().contains(ts) {
+                assert(history.contains_timestamp(ts));
+                assert(ts == timestamp);
+            }
+        };
+    };
 }
 
-/// Pushing one flag message preserves the history invariant, provided the
+/// Inserting one flag message preserves the history invariant, provided the
 /// writer records a well-formed state snapshot and only writes `false` when
 /// that snapshot has no pending work.
 ///
-/// This is the proof obligation of the future `set_monitoring` helper: it
+/// This is the proof obligation discharged by `set_monitoring`: it
 /// stores the flag while holding the monitor lock, so it can supply the
 /// lock-protected state view as the snapshot.
-pub proof fn preserve_rcu_monitor_flag_inv_on_push(
-    prev: History<bool>,
-    next: History<bool>,
-    msg: Msg<bool>,
+pub proof fn preserve_rcu_monitor_flag_inv_on_insert(
+    prev: Irc11History<bool>,
+    next: Irc11History<bool>,
+    timestamp: nat,
+    value: bool,
+    message_view: Irc11ThreadView,
     prev_ghost: RcuMonitorFlagGhost,
     next_ghost: RcuMonitorFlagGhost,
     state: MonitorStateView,
 )
     requires
         rcu_monitor_flag_history_inv(prev, prev_ghost),
-        next == prev.push(msg),
-        next_ghost == prev_ghost.push(state),
+        !prev.contains_timestamp(timestamp),
+        next == prev.insert(timestamp, value, message_view),
+        next_ghost == prev_ghost.insert(timestamp, state),
         state.wf(),
-        !msg.value ==> state.no_pending_work(),
+        !value ==> state.no_pending_work(),
     ensures
         rcu_monitor_flag_history_inv(next, next_ghost),
 {
-    assert(next.len() >= 1);
-    assert(next_ghost.states.len() == next.len());
-    assert forall|i: int| 0 <= i < next.len() implies (#[trigger] next_ghost.states[i]).wf() by {
-        if i == prev.len() {
-            assert(next_ghost.states[i] == state);
+    assert(next_ghost.states.dom() == next.dom());
+    assert forall|ts: nat|
+        next.contains_timestamp(ts) implies (#[trigger] next_ghost.states[ts]).wf() by {
+        if ts == timestamp {
+            assert(next_ghost.states[ts] == state);
         } else {
-            assert(i < prev.len());
-            assert(next_ghost.states[i] == prev_ghost.states[i]);
+            assert(prev.contains_timestamp(ts));
+            assert(next_ghost.states[ts] == prev_ghost.states[ts]);
         }
     };
-    assert forall|i: int| 0 <= i < next.len() implies {
-        !(#[trigger] next[i].value) ==> next_ghost.states[i].no_pending_work()
+    assert forall|ts: nat| next.contains_timestamp(ts) implies {
+        !(#[trigger] next.value(ts)) ==> next_ghost.states[ts].no_pending_work()
     } by {
-        if i == prev.len() {
-            assert(next[i] == msg);
-            assert(next_ghost.states[i] == state);
+        if ts == timestamp {
+            assert(next.value(ts) == value);
+            assert(next_ghost.states[ts] == state);
         } else {
-            assert(i < prev.len());
-            assert(next[i] == prev[i]);
-            assert(next_ghost.states[i] == prev_ghost.states[i]);
+            assert(prev.contains_timestamp(ts));
+            assert(next.value(ts) == prev.value(ts));
+            assert(next_ghost.states[ts] == prev_ghost.states[ts]);
         }
     };
 }
@@ -1520,57 +1664,62 @@ pub proof fn preserve_rcu_monitor_flag_inv_on_push(
 /// message certifies that the monitor state recorded at that message had no
 /// queued callbacks and no incomplete grace period.
 pub proof fn rcu_monitor_flag_false_has_no_pending(
-    history: History<bool>,
+    history: Irc11History<bool>,
     ghost: RcuMonitorFlagGhost,
     ts: nat,
 )
     requires
         rcu_monitor_flag_history_inv(history, ghost),
-        ts < history.len(),
-        !history[ts as int].value,
+        history.contains_timestamp(ts),
+        !history.value(ts),
     ensures
-        ghost.states[ts as int].no_pending_work(),
-        ghost.states[ts as int].pending_summaries() == Seq::<RcuCallbackSummary>::empty(),
-        ghost.states[ts as int].current_gp.is_complete,
+        ghost.states[ts].no_pending_work(),
+        ghost.states[ts].pending_summaries() == Seq::<RcuCallbackSummary>::empty(),
+        ghost.states[ts].current_gp.is_complete,
 {
-    monitor_state_pending_iff_incomplete(ghost.states[ts as int]);
-    monitor_state_no_pending_no_summaries(ghost.states[ts as int]);
+    monitor_state_pending_iff_incomplete(ghost.states[ts]);
+    monitor_state_no_pending_no_summaries(ghost.states[ts]);
 }
 
 pub proof fn preserve_rcu_history_inv_on_push<T>(
     nullable: bool,
-    prev: History<*mut T>,
-    next: History<*mut T>,
-    msg: Msg<*mut T>,
+    prev: Irc11History<*mut T>,
+    next: Irc11History<*mut T>,
+    timestamp: nat,
+    value: *mut T,
+    message_view: Irc11ThreadView,
 )
     requires
         rcu_history_inv(nullable, prev),
-        next == prev.push(msg),
-        nullable || msg.value.addr() != 0,
+        !prev.contains_timestamp(timestamp),
+        next == prev.insert(timestamp, value, message_view),
+        nullable || value.addr() != 0,
     ensures
         rcu_history_inv(nullable, next),
 {
-    assert(next.len() >= 1);
+    assert(!next.dom().is_empty());
     if !nullable {
-        assert forall|i: int| 0 <= i < next.len() implies #[trigger] next[i].value.addr() != 0 by {
-            if i == prev.len() {
-                assert(next[i] == msg);
+        assert forall|ts: nat| next.contains_timestamp(ts) implies #[trigger] next.value(ts).addr()
+            != 0 by {
+            if ts == timestamp {
+                assert(next.value(ts) == value);
             } else {
-                assert(i < prev.len());
+                assert(prev.contains_timestamp(ts));
+                assert(next.value(ts) == prev.value(ts));
             }
         };
     }
 }
 
-pub proof fn rcu_history_inv_read_nonnull<T>(history: History<*mut T>, ts: nat)
+pub proof fn rcu_history_inv_read_nonnull<T>(history: Irc11History<*mut T>, ts: nat)
     requires
         rcu_history_inv(false, history),
-        ts < history.len(),
+        history.contains_timestamp(ts),
     ensures
-        history[ts as int].value.addr() != 0,
-        !history[ts as int].value.is_null(),
+        history.value(ts).addr() != 0,
+        !history.value(ts).is_null(),
 {
-    assert(history[ts as int].value.addr() != 0);
+    assert(history.value(ts).addr() != 0);
 }
 
 /// Link view carried by an RCU read-side guard.
@@ -1684,7 +1833,7 @@ impl RcuDomainAuth {
         self.retire_observations
     }
 
-    pub open spec fn observed_retired(self, root: Loc, view: WmView) -> Set<nat> {
+    pub open spec fn observed_retired(self, root: Loc, view: Irc11ThreadView) -> Set<nat> {
         self.retired().filter(
             |obj: nat|
                 self.retire_observations()[obj].root == root
@@ -1883,7 +2032,7 @@ impl RcuDomainAuth {
         tracked &self,
         tracked inactive: RcuInactive,
         root: Loc,
-        start_view: WmView,
+        start_view: Irc11ThreadView,
     ) -> (tracked res: RcuBaseGuard)
         requires
             self.wf(),
@@ -2038,7 +2187,7 @@ pub tracked struct RcuBaseGuard {
     state: GhostPointsTo<nat, bool>,
     ghost reader: RcuReaderContext,
     ghost root: Loc,
-    ghost start_view: WmView,
+    ghost start_view: Irc11ThreadView,
     ghost retire_observation_registry: Loc,
     ghost expired: Set<nat>,
     ghost protected: Map<usize, nat>,
@@ -2067,7 +2216,7 @@ impl RcuBaseGuard {
     }
 
     /// Weak-memory view captured when this read-side critical section began.
-    pub closed spec fn start_view(self) -> WmView {
+    pub closed spec fn start_view(self) -> Irc11ThreadView {
         self.start_view
     }
 
@@ -2254,18 +2403,18 @@ pub proof fn registered_republication_preserves_allocation_id<T>(ptr: *mut T) ->
     requires
         ptr.addr() != 0,
     ensures
-        res.0.publications().len() == 2,
+        res.0.publications().dom() == Set::empty().insert(0nat).insert(1nat),
         res.0.publications()[0] == Some(res.1.0.obj()),
         res.0.publications()[1] == Some(res.1.0.obj()),
         res.1.0.domain() == res.0.domain(),
         res.1.0.obj() == res.1.1.obj(),
 {
-    let ghost initial = seq![Msg { value: ptr, view: WmView::empty() }];
-    let tracked (mut root, registration_opt) = RcuRootGhost::tracked_initial(ptr);
+    let ghost view = Irc11ThreadView::empty();
+    let ghost initial = Irc11History(Map::empty().insert(0nat, (ptr, view)));
+    let tracked (mut root, registration_opt) = RcuRootGhost::tracked_initial(ptr, initial, 0, view);
     let tracked registration = registration_opt.tracked_unwrap();
-    let ghost msg = Msg { value: ptr, view: WmView::empty() };
-    let ghost next = initial.push(msg);
-    root.tracked_push_registered(initial, next, msg, &registration.0);
+    let ghost next = initial.insert(1, ptr, view);
+    root.tracked_push_registered(initial, next, 0, 1, ptr, view, &registration.0);
     (root, registration)
 }
 
@@ -2290,14 +2439,23 @@ pub proof fn owned_root_replacement_retires_previous_registration<T>(
             == res.0.current_registration()->Some_0.1.obj(),
         res.1.domain() == res.0.domain(),
 {
-    let ghost initial = seq![Msg { value: first_ptr, view: WmView::empty() }];
-    let tracked mut root = RcuRootOwnedGhost::tracked_initial(first_ptr, Some(()));
-    let ghost next_msg = Msg { value: next_ptr, view: WmView::empty() };
-    let ghost next_history = initial.push(next_msg);
+    let ghost view = Irc11ThreadView::empty();
+    let ghost initial = Irc11History(Map::empty().insert(0nat, (first_ptr, view)));
+    let tracked mut root = RcuRootOwnedGhost::tracked_initial(
+        first_ptr,
+        Some(()),
+        initial,
+        0,
+        view,
+    );
+    let ghost next_history = initial.insert(1, next_ptr, view);
     let tracked detached = root.tracked_push_fresh::<UnitRcuRootOwnership>(
         initial,
         next_history,
-        next_msg,
+        0,
+        1,
+        next_ptr,
+        view,
         root.domain(),
         Some(()),
     );
@@ -2552,7 +2710,7 @@ impl RcuRetiredFacts {
     /// The retirement facts themselves are persistent, but this predicate is
     /// the separate weak-memory premise needed before a CPU report may publish
     /// them to readers in a later quiescent generation.
-    pub open spec fn observed_by(self, view: WmView) -> bool {
+    pub open spec fn observed_by(self, view: Irc11ThreadView) -> bool {
         forall|record: RcuRetiredRecord| #[trigger]
             self.records().contains(record) ==> record.removal.observed_by(view)
     }
@@ -2561,7 +2719,7 @@ impl RcuRetiredFacts {
         tracked &self,
         tracked domain: &RcuDomainAuth,
         root: Loc,
-        view: WmView,
+        view: Irc11ThreadView,
         records: Set<RcuRetiredRecord>,
     )
         requires
@@ -2614,7 +2772,7 @@ impl RcuRetiredFacts {
         tracked &self,
         tracked domain: &RcuDomainAuth,
         root: Loc,
-        view: WmView,
+        view: Irc11ThreadView,
     )
         requires
             domain.wf(),
@@ -2836,17 +2994,24 @@ pub proof fn retired_but_unexpired_object_remains_protectable<T>(ptr: *mut T) ->
 {
     let tracked mut domain = RcuDomainAuth::tracked_new();
     let tracked (info, base) = domain.tracked_register(ptr);
+    let ghost reader = arbitrary();
+    let tracked inactive = domain.tracked_register_reader(reader);
+    let tracked mut guard = domain.tracked_guard_start(
+        inactive,
+        domain.id(),
+        Irc11ThreadView::empty(),
+    );
     let ghost seen_removed = RcuSeenRemoved {
         removed: Set::empty().insert(info.obj()),
         link_view: RcuLinkView::empty(),
     };
     let tracked retire = lift_direct_root_retire_perm(base, seen_removed);
-    let ghost removal = RcuRemovalObservation { root: domain.id(), timestamp: 1 };
+    let ghost removal = RcuRemovalObservation {
+        root: domain.id(),
+        timestamp: 1,
+        message_view: Irc11ThreadView::empty(),
+    };
     let tracked _retired = domain.tracked_retire(retire, removal);
-
-    let ghost reader = arbitrary();
-    let tracked inactive = domain.tracked_register_reader(reader);
-    let tracked mut guard = domain.tracked_guard_start(inactive, domain.id(), WmView::empty());
     assert(guard.expired() == Set::<nat>::empty());
     assert(!guard.expired().contains(info.obj()));
     guard.tracked_protect(&info);
@@ -2877,13 +3042,17 @@ pub proof fn observed_retired_object_enters_guard_expired<T>(ptr: *mut T) -> (tr
         link_view: RcuLinkView::empty(),
     };
     let tracked retire = lift_direct_root_retire_perm(base, seen_removed);
-    let ghost removal = RcuRemovalObservation { root: domain.id(), timestamp: 0 };
+    let ghost removal = RcuRemovalObservation {
+        root: domain.id(),
+        timestamp: 0,
+        message_view: Irc11ThreadView::empty(),
+    };
     let tracked _retired = domain.tracked_retire(retire, removal);
 
     let ghost reader = arbitrary();
     let tracked inactive = domain.tracked_register_reader(reader);
-    let tracked guard = domain.tracked_guard_start(inactive, domain.id(), WmView::empty());
-    assert(removal.observed_by(WmView::empty()));
+    let tracked guard = domain.tracked_guard_start(inactive, domain.id(), Irc11ThreadView::empty());
+    assert(removal.observed_by(Irc11ThreadView::empty()));
     assert(guard.expired().contains(info.obj()));
     (guard, info)
 }
@@ -3012,7 +3181,7 @@ impl<T> RcuReadGuardToken<T> {
         self.base.root()
     }
 
-    pub closed spec fn start_view(self) -> WmView {
+    pub closed spec fn start_view(self) -> Irc11ThreadView {
         self.base.start_view()
     }
 

@@ -6,15 +6,12 @@
 //!
 //! # Verification model
 //!
-//! The executable RCU API is being rebuilt around an explicit weak-memory
-//! history model. The atomic root pointer is a trusted executable wrapper around
-//! Rust atomics, while proofs only rely on the specification in
-//! [`specs::sync::weak_memory`]. Each RCU root pointer is represented by a
-//! `WeakAtomicPtr` whose history records the messages that may be observed by
-//! relaxed/acquire loads and CAS operations. Weak atomic operations borrow the
-//! unique `ThreadView` from the current task's `RunningTaskContext`; RCU
-//! never mints a fresh view and therefore preserves observations across RCU
-//! operations and release publication.
+//! The executable RCU API is built on Verus' native IRC11 weak-memory model.
+//! The atomic root pointer is a trusted executable `AtomicPtr` adapter, while
+//! proofs use native `AtomicPointsTo`, `AtomicHistory`, and operation relations.
+//! Weak atomic operations borrow the unique native `ViewSeen` from the current
+//! task's `RunningTaskContext`; RCU never mints a fresh per-operation view and
+//! therefore preserves observations across RCU operations and publication.
 //!
 //! The root-pointer invariant keeps publication metadata for the complete
 //! atomic history. Each non-null message has a domain-local allocation ID, so
@@ -140,15 +137,13 @@ use vstd_extra::rcu_read_pool::RcuReadLease;
 
 use crate::{
     specs::{
-        sync::{
-            rcu as rcu_spec, rcu_cpu as rcu_cpu_spec,
-            weak_memory::{RcuWeakAtomicPtr, ThreadView},
-        },
+        sync::{rcu as rcu_spec, rcu_cpu as rcu_cpu_spec, weak_memory::RcuWeakAtomicPtr},
         task::InAtomicMode,
     },
     sync::Once,
     task::{DisabledPreemptGuard, RunningTaskContext, disable_preempt_in_context},
 };
+use vstd_extra::atomic_irc11::{ThreadViewOrder, ViewSeen};
 
 use non_null::{NonNullPtr, NonNullPtrRef};
 
@@ -196,11 +191,6 @@ impl<P: NonNullPtr> rcu_spec::RcuRootOwnershipPredicate<
 /// non-null history messages. Its publication registry also assigns every
 /// non-null message a domain-local allocation identity, matching the paper's
 /// distinction between physical addresses and allocation IDs.
-type RcuAtomicGhost<P> = rcu_spec::RcuRootOwnedGhost<
-    <P as NonNullPtr>::Target,
-    <P as NonNullPtr>::Permission,
->;
-
 type RcuAtomicPtr<P> = RcuWeakAtomicPtr<
     <P as NonNullPtr>::Target,
     <P as NonNullPtr>::Permission,
@@ -339,20 +329,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             res.type_inv(),
             res.is_nullable(),
     {
-        proof_decl! {
-            let tracked root_ghost: RcuAtomicGhost<P> =
-                rcu_spec::RcuRootOwnedGhost::tracked_initial(
-                    core::ptr::null_mut::<<P as NonNullPtr>::Target>(),
-                    None,
-                );
-            let ghost key = rcu_spec::RcuRootKey {
-                nullable: true,
-                domain: root_ghost.domain(),
-                reader_registry: root_ghost.reader_registry(),
-                retire_observation_registry: root_ghost.retire_observation_registry(),
-            };
-        }
-        let ptr = RcuAtomicPtr::<P>::new(Ghost(key), core::ptr::null_mut(), Tracked(root_ghost));
+        let ptr = RcuAtomicPtr::<P>::new(Ghost(true), core::ptr::null_mut(), Tracked(None));
         Self {
             ptr,
             ghost_nullable: Ghost(true),
@@ -374,17 +351,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         proof {
             assert(!raw_ptr.is_null());
         }
-        proof_decl! {
-            let tracked root_ghost =
-                rcu_spec::RcuRootOwnedGhost::tracked_initial(raw_ptr, Some(perm));
-            let ghost key = rcu_spec::RcuRootKey {
-                nullable,
-                domain: root_ghost.domain(),
-                reader_registry: root_ghost.reader_registry(),
-                retire_observation_registry: root_ghost.retire_observation_registry(),
-            };
-        }
-        let ptr = RcuAtomicPtr::<P>::new(Ghost(key), raw_ptr, Tracked(root_ghost));
+        let ptr = RcuAtomicPtr::<P>::new(Ghost(nullable), raw_ptr, Tracked(Some(perm)));
         Self {
             ptr,
             ghost_nullable: Ghost(nullable),
@@ -393,7 +360,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
     }
 
     #[inline(always)]
-    fn load_ptr_acquire(&self, Tracked(tv): Tracked<&mut ThreadView>) -> (res: (
+    fn load_ptr_acquire(&self, Tracked(tv): Tracked<&mut ViewSeen>) -> (res: (
         *mut <P as NonNullPtr>::Target,
         Tracked<Option<rcu_spec::RcuBlockInfo<<P as NonNullPtr>::Target>>>,
     ))
@@ -430,7 +397,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         Ghost(reader): Ghost<rcu_spec::RcuReaderContext>,
         Tracked(cpu_reader): Tracked<rcu_cpu_spec::CpuRcuReaderFragment>,
         Tracked(binding): Tracked<rcu_cpu_spec::CpuRcuCoreBinding>,
-        Tracked(tv): Tracked<&mut ThreadView>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
     ) -> (res: (
         *mut <P as NonNullPtr>::Target,
         Tracked<Option<rcu_spec::RcuBlockInfo<<P as NonNullPtr>::Target>>>,
@@ -495,7 +462,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         &self,
         new_ptr: *mut <P as NonNullPtr>::Target,
         Tracked(ownership): Tracked<Option<<P as NonNullPtr>::Permission>>,
-        Tracked(tv): Tracked<&mut ThreadView>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
     ) -> (res: (
         *mut <P as NonNullPtr>::Target,
         Tracked<
@@ -567,7 +534,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         }
         let (old_raw, Tracked(detached)) = {
             proof_decl! {
-                let tracked tv = session.tracked_borrow_thread_view_mut();
+                let tracked tv = session.tracked_borrow_irc11_view_mut();
             }
             self.swap_ptr_release(raw, Tracked(perm), Tracked(tv))
         };
@@ -612,11 +579,11 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             assert(session.rcu_participant_view() == context_before_disable.rcu_participant_view());
             assert(context_before_reader.wf());
             assert(context_before_reader.rcu_participant_view().spec_le(
-                context_before_reader.view(),
+                context_before_reader.irc11_view(),
             ));
             assert(cpu_reader.participant_view() == context_before_reader.rcu_participant_view());
             assert(session.view() == context_before_reader.view());
-            assert(cpu_reader.participant_view().spec_le(session.view()));
+            assert(cpu_reader.participant_view().spec_le(session.irc11_view()));
         }
         let ghost reader = rcu_spec::RcuReaderContext {
             scheduler: session.scheduler(),
@@ -627,7 +594,7 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
         };
         let ghost context_before_load = *session;
         proof_decl! {
-            let tracked tv = DisabledPreemptGuard::tracked_borrow_thread_view_mut_from_context(
+            let tracked tv = DisabledPreemptGuard::tracked_borrow_irc11_view_mut_from_context(
                 session,
                 &inner_guard,
             );
@@ -824,40 +791,19 @@ impl<P: NonNullPtr + Send> RcuInner<P> {
             final(session).preempt_depth() == old(session).preempt_depth(),
     {
         proof_decl! {
-            let tracked tv = session.tracked_borrow_thread_view_mut();
+            let tracked tv = session.tracked_borrow_irc11_view_mut();
         }
-        let obj_ptr = #[verus_spec(with => Tracked(tracked_ref_perm))]
-        self.load_read_token();
+        let (obj_ptr, _tracked_info) = self.load_ptr_acquire(Tracked(tv));
         if obj_ptr.is_null() {
             return None;
-        }
-        proof_decl! {
-            // `read_with` returns only the reference and has no guard object to
-            // store the read token. For this temporary skeleton, leak the
-            // verification-only token so the returned ref can borrow it for
-            // `'a`. The final RCU proof should attach this token to the
-            // atomic-mode/CPU epoch state instead.
-            let tracked tracked_ref_perm = tracked_ref_perm.tracked_unwrap();
-            let tracked tracked_ref_perm = tracked_static_ref(tracked_ref_perm);
-            let tracked tracked_ref_perm: <P as NonNullPtrRef<'a>>::RefPermission =
-                P::borrow_perm_as_ref_perm(tracked_ref_perm.tracked_borrow());
         }
         // SAFETY:
         // 1. This pointer is not NULL.
         // 2. The `_guard` guarantees atomic mode for the duration of lifetime
         //    `'a`, the pointer is valid because other writers won't release the
         //    allocation until this task passes the quiescent state.
-        NonNull::new(obj_ptr).map(
-            |ptr|
-                requires
-                    P::ptr_perm_match(
-                        ptr.view_ptr_mut(),
-                        P::ref_perm_view_permission(tracked_ref_perm),
-                    ),
-                {
-                    unsafe { P::raw_as_ref(ptr, Tracked(tracked_ref_perm)) }
-                },
-        )
+
+        NonNull::new(obj_ptr).map(|ptr| unsafe { assume_shared_ref::<P>(ptr) })
     }
 }
 
@@ -878,27 +824,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
             }
         }
 
-        // SAFETY: The guard ensures that `P` will not be dropped. Thus, `P`
-        // outlives the lifetime of `&self`. Additionally, during this period,
-        // it is impossible to create a mutable reference to `P`.
-        NonNull::new(self.obj_ptr).map(
-            |ptr|
-                requires
-                    self.tracked_ref_perm@ is Some,
-                    P::ptr_perm_match(ptr.view_ptr_mut(), self.tracked_ref_perm->0.resource()),
-                {
-                    unsafe {
-                        P::raw_as_ref(
-                            ptr,
-                            Tracked(
-                                P::borrow_perm_as_ref_perm(
-                                    self.tracked_ref_perm.tracked_borrow().tracked_borrow(),
-                                ),
-                            ),
-                        )
-                    }
-                },
-        )
+        res
     }
 
     fn compare_exchange(self, new_ptr: Option<P>) -> (res: Result<(), Option<P>>)
@@ -945,7 +871,7 @@ impl<'a, P: NonNullPtr + Send> RcuReadGuardInner<'a, P> {
 
         let cas_res = {
             proof_decl! {
-                let tracked tv = DisabledPreemptGuard::tracked_borrow_thread_view_mut_from_context(
+                let tracked tv = DisabledPreemptGuard::tracked_borrow_irc11_view_mut_from_context(
                     session,
                     &this._inner_guard,
                 );

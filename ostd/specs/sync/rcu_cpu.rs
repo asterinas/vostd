@@ -63,30 +63,28 @@ use vstd::{
     },
 };
 
-use super::{
-    rcu::{
-        RcuBlockInfo, RcuInactive, RcuProtectedPtr, RcuReadGuardToken, RcuReaderContext,
-        RcuRetiredFacts, RcuRetiredRecord, RcuSeenRemoved,
-    },
-    weak_memory::WmView,
+use super::rcu::{
+    RcuBlockInfo, RcuInactive, RcuProtectedPtr, RcuReadGuardToken, RcuReaderContext,
+    RcuRetiredFacts, RcuRetiredRecord, RcuSeenRemoved,
 };
+use vstd_extra::atomic_irc11::{ThreadView as Irc11ThreadView, ThreadViewOrder};
 
 verus! {
 
-broadcast use vstd::set::group_set_lemmas;
+broadcast use {vstd::set::group_set_lemmas, vstd::thread_view::group_thread_view_axioms};
 
 /// One CPU quiescent report retained by the participant PCM.
 pub ghost struct CpuRcuReportView {
     pub cpu: CpuId,
     pub generation: nat,
-    pub view: WmView,
+    pub view: Irc11ThreadView,
     pub known_retired: Set<RcuRetiredRecord>,
 }
 
 pub(super) ghost struct CpuRcuStateView {
     pub(super) cpu: CpuId,
     pub(super) generation: nat,
-    pub(super) view: WmView,
+    pub(super) view: Irc11ThreadView,
     pub(super) known_retired: Set<RcuRetiredRecord>,
 }
 
@@ -98,7 +96,10 @@ pub(super) ghost struct CpuRcuCarrier {
 }
 
 impl CpuRcuCarrier {
-    pub(super) open spec fn records_observed(records: Set<RcuRetiredRecord>, view: WmView) -> bool {
+    pub(super) open spec fn records_observed(
+        records: Set<RcuRetiredRecord>,
+        view: Irc11ThreadView,
+    ) -> bool {
         forall|record: RcuRetiredRecord| #[trigger]
             records.contains(record) ==> record.removal.observed_by(view)
     }
@@ -106,7 +107,7 @@ impl CpuRcuCarrier {
     pub(super) open spec fn state(
         cpu: CpuId,
         generation: nat,
-        view: WmView,
+        view: Irc11ThreadView,
         known_retired: Set<RcuRetiredRecord>,
         fraction: real,
     ) -> Self {
@@ -319,7 +320,7 @@ impl CpuRcuParticipant {
     }
 
     /// Creates generation zero for one CPU.
-    pub proof fn new(cpu: CpuId, view: WmView) -> (tracked res: Self)
+    pub proof fn new(cpu: CpuId, view: Irc11ThreadView) -> (tracked res: Self)
         ensures
             res.cpu() == cpu,
             res.generation() == 0,
@@ -347,7 +348,7 @@ impl CpuRcuParticipant {
         self.resource.value().state_view().generation
     }
 
-    pub closed spec fn view(self) -> WmView {
+    pub closed spec fn view(self) -> Irc11ThreadView {
         self.resource.value().state_view().view
     }
 
@@ -371,7 +372,7 @@ impl CpuRcuParticipant {
     /// protocol imposes no fixed bound on the number of readers.
     pub proof fn tracked_start_reader(
         tracked self,
-        start_view: WmView,
+        start_view: Irc11ThreadView,
         reader_fraction: real,
     ) -> (tracked res: (CpuRcuParticipant, CpuRcuReaderFragment))
         requires
@@ -449,7 +450,7 @@ impl CpuRcuParticipant {
     /// returning every fragment.
     pub proof fn tracked_start_reader_in_place(
         tracked &mut self,
-        start_view: WmView,
+        start_view: Irc11ThreadView,
     ) -> (tracked reader: CpuRcuReaderFragment)
         requires
             old(self).wf(),
@@ -546,7 +547,7 @@ impl CpuRcuParticipant {
     pub proof fn tracked_report_quiescent_with(
         tracked self,
         tracked binding: CpuRcuCoreBinding,
-        report_view: WmView,
+        report_view: Irc11ThreadView,
         tracked learned: &RcuRetiredFacts,
     ) -> (tracked res: (CpuRcuParticipant, CpuRcuClosedGeneration))
         requires
@@ -591,9 +592,7 @@ impl CpuRcuParticipant {
                 merged_records.contains(record) implies record.removal.observed_by(report_view) by {
                 if old_known_retired.contains(record) {
                     assert(record.removal.observed_by(old_view));
-                    assert(old_view.seen_at(record.removal.root) <= report_view.seen_at(
-                        record.removal.root,
-                    ));
+                    old_view.lemma_spec_le_transitive(report_view, report_view);
                 } else {
                     assert(learned.records().contains(record));
                 }
@@ -702,7 +701,7 @@ impl CpuRcuParticipant {
     pub proof fn tracked_report_quiescent(
         tracked self,
         tracked binding: CpuRcuCoreBinding,
-        report_view: WmView,
+        report_view: Irc11ThreadView,
     ) -> (tracked res: (CpuRcuParticipant, CpuRcuClosedGeneration))
         requires
             self.wf(),
@@ -741,7 +740,7 @@ impl CpuRcuParticipant {
     pub proof fn tracked_report_quiescent_in_place(
         tracked &mut self,
         tracked binding: CpuRcuCoreBinding,
-        report_view: WmView,
+        report_view: Irc11ThreadView,
     ) -> (tracked closed: CpuRcuClosedGeneration)
         requires
             old(self).wf(),
@@ -781,7 +780,7 @@ impl CpuRcuParticipant {
     pub proof fn tracked_report_quiescent_with_in_place(
         tracked &mut self,
         tracked binding: CpuRcuCoreBinding,
-        report_view: WmView,
+        report_view: Irc11ThreadView,
         tracked learned: &RcuRetiredFacts,
     ) -> (tracked closed: CpuRcuClosedGeneration)
         requires
@@ -866,7 +865,7 @@ impl CpuRcuReaderFragment {
         self.resource.value().state_view().generation
     }
 
-    pub closed spec fn participant_view(self) -> WmView {
+    pub closed spec fn participant_view(self) -> Irc11ThreadView {
         self.resource.value().state_view().view
     }
 
@@ -891,8 +890,10 @@ impl CpuRcuReaderFragment {
 
     /// Borrows the persistent retirement facts known at this reader's
     /// generation, after lifting their observations to `view`.
-    pub proof fn tracked_retired_facts_observed_by(tracked &self, view: WmView) -> (tracked res:
-        &RcuRetiredFacts)
+    pub proof fn tracked_retired_facts_observed_by(
+        tracked &self,
+        view: Irc11ThreadView,
+    ) -> (tracked res: &RcuRetiredFacts)
         requires
             self.participant_view().spec_le(view),
         ensures
@@ -906,9 +907,7 @@ impl CpuRcuReaderFragment {
         ) by {
             assert(self.resource.value().state_view().known_retired.contains(record));
             assert(record.removal.observed_by(self.participant_view()));
-            assert(self.participant_view().seen_at(record.removal.root) <= view.seen_at(
-                record.removal.root,
-            ));
+            self.participant_view().lemma_spec_le_transitive(view, view);
         };
         &self.known_retired
     }
@@ -951,7 +950,7 @@ impl<T> CpuRcuReadGuardToken<T> {
         self.reader_fragment().generation()
     }
 
-    pub closed spec fn participant_view(self) -> WmView {
+    pub closed spec fn participant_view(self) -> Irc11ThreadView {
         self.reader_fragment().participant_view()
     }
 
@@ -971,7 +970,7 @@ impl<T> CpuRcuReadGuardToken<T> {
         self.paper_guard().root()
     }
 
-    pub closed spec fn start_view(self) -> WmView {
+    pub closed spec fn start_view(self) -> Irc11ThreadView {
         self.paper_guard().start_view()
     }
 
@@ -1256,7 +1255,7 @@ impl CpuRcuClosedGeneration {
         self.report().generation
     }
 
-    pub closed spec fn view(self) -> WmView {
+    pub closed spec fn view(self) -> Irc11ThreadView {
         self.report().view
     }
 
@@ -1430,7 +1429,7 @@ impl CpuRcuClosedGeneration {
     pub proof fn lemma_later_reader_start_view(
         tracked &self,
         tracked reader: CpuRcuReaderFragment,
-        start_view: WmView,
+        start_view: Irc11ThreadView,
     ) -> (tracked res: CpuRcuReaderFragment)
         requires
             self.wf(),
@@ -1516,7 +1515,7 @@ impl CpuRcuClosedGeneration {
 }
 
 /// Regression proof for both sides of the grace-period reader dichotomy.
-proof fn cpu_rcu_generation_smoke_test(cpu: CpuId, initial: WmView, later: WmView)
+proof fn cpu_rcu_generation_smoke_test(cpu: CpuId, initial: Irc11ThreadView, later: Irc11ThreadView)
     requires
         initial.spec_le(later),
 {

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::thread_view::{ThreadView as Irc11ThreadView, ViewSeen};
 use vstd::{prelude::*, resource::Loc};
+use vstd_extra::atomic_irc11::ThreadViewOrder;
 use vstd_extra::resource::ghost_resource::{count::CountGhost, tokens::CountGhostResource};
 
 use crate::{
@@ -8,7 +10,6 @@ use crate::{
         rcu_cpu::{
             CpuRcuClosedGeneration, CpuRcuCoreBinding, CpuRcuParticipant, CpuRcuReaderFragment,
         },
-        weak_memory::{ThreadView, WmView},
     },
     specs::task::cpu_core::{CpuCoreOwner, CpuCoreOwnerHandle, CpuCoreRegistration},
     sync::GuardTransfer, /*, task::atomic_mode::InAtomicMode*/
@@ -16,6 +17,8 @@ use crate::{
 };
 
 verus! {
+
+broadcast use vstd::thread_view::group_thread_view_axioms;
 
 pub const PREEMPT_SESSION_FRACTIONS: u64 = 1 << 31;
 
@@ -134,6 +137,7 @@ impl PreemptThreadViewSession {
             res.scheduler() == task_view.scheduler(),
             res.task() == task_view.task(),
             res.view() == task_view.view(),
+            res.irc11_view() == task_view.irc11_view(),
             res.session_task() == task_view.task(),
             res.quiescent_generation() == 0,
             res.available_fractions() == PREEMPT_SESSION_FRACTIONS,
@@ -166,8 +170,12 @@ impl PreemptThreadViewSession {
         self.task_view.scheduler()
     }
 
-    pub closed spec fn view(self) -> WmView {
+    pub closed spec fn view(self) -> Irc11ThreadView {
         self.task_view.view()
+    }
+
+    pub open spec fn irc11_view(self) -> Irc11ThreadView {
+        self.view()
     }
 
     pub closed spec fn session_id(self) -> Loc {
@@ -221,6 +229,7 @@ impl PreemptThreadViewSession {
             final(self).task() == old(self).task(),
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).session_task() == old(self).session_task(),
             final(self).quiescent_generation() == old(self).quiescent_generation(),
@@ -242,6 +251,7 @@ impl PreemptThreadViewSession {
             final(self).task() == old(self).task(),
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).session_task() == old(self).session_task(),
             final(self).quiescent_generation() == old(self).quiescent_generation(),
@@ -268,7 +278,7 @@ impl PreemptThreadViewSession {
     /// After the borrow mutates the view, the caller must update the scheduler
     /// snapshot with `SchedulerView::update_checked_out_task_view` before
     /// relying on `wf` again.
-    pub proof fn tracked_borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ThreadView)
+    pub proof fn tracked_borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ViewSeen)
         ensures
             (*tv)@ == old(self).view(),
             final(self).task() == old(self).task(),
@@ -280,8 +290,60 @@ impl PreemptThreadViewSession {
             final(self).has_full_authority() == old(self).has_full_authority(),
             final(self).wf_session_resource() == old(self).wf_session_resource(),
             final(self).view() == (*final(tv))@,
+            final(self).irc11_view() == (*final(tv))@,
     {
-        self.task_view.tracked_borrow_thread_view_mut()
+        let tracked token = self.task_view.tracked_borrow_thread_view_mut();
+        token.tracked_borrow_mut()
+    }
+
+    /// Borrows the task view while preserving an existing lower bound whenever
+    /// the atomic operation grows the native view.
+    proof fn tracked_borrow_thread_view_mut_above(
+        tracked &mut self,
+        lower: Irc11ThreadView,
+    ) -> (tracked tv: &mut ViewSeen)
+        requires
+            lower.spec_le(old(self).view()),
+        ensures
+            (*tv)@ == old(self).view(),
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).session_id() == old(self).session_id(),
+            final(self).session_task() == old(self).session_task(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).has_full_authority() == old(self).has_full_authority(),
+            final(self).wf_session_resource() == old(self).wf_session_resource(),
+            final(self).view() == (*final(tv))@,
+            final(self).irc11_view() == (*final(tv))@,
+            old(self).view().spec_le((*final(tv))@) ==> lower.spec_le((*final(tv))@),
+    {
+        let ghost old_view = self.view();
+        let tracked token = self.task_view.tracked_borrow_thread_view_mut();
+        let tracked tv = token.tracked_borrow_mut();
+        if old_view.spec_le((*final(tv))@) {
+            lower.lemma_spec_le_transitive(old_view, (*final(tv))@);
+        }
+        tv
+    }
+
+    /// Borrows the native subjective view for an IRC11 atomic operation.
+    pub proof fn tracked_borrow_irc11_view_mut(tracked &mut self) -> (tracked view: &mut ViewSeen)
+        ensures
+            (*view)@ == old(self).irc11_view(),
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).view() == (*final(view))@,
+            final(self).session_id() == old(self).session_id(),
+            final(self).session_task() == old(self).session_task(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).has_full_authority() == old(self).has_full_authority(),
+            final(self).wf_session_resource() == old(self).wf_session_resource(),
+            final(self).irc11_view() == (*final(view))@,
+    {
+        let tracked token = self.task_view.tracked_borrow_irc11_view_mut();
+        token.tracked_borrow_mut()
     }
 
     /// Advances the session's quiescent boundary.
@@ -300,6 +362,7 @@ impl PreemptThreadViewSession {
             final(self).task() == old(self).task(),
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() == old(self).available_fractions(),
             final(self).wf_session_resource(),
@@ -330,6 +393,7 @@ impl PreemptThreadViewSession {
             res.scheduler() == self.scheduler(),
             res.task() == self.task(),
             res.view() == self.view(),
+            res.irc11_view() == self.irc11_view(),
     {
         self.task_view
     }
@@ -346,6 +410,7 @@ impl PreemptThreadViewSession {
             res.scheduler() == self.scheduler(),
             res.task() == self.task(),
             res.view() == self.view(),
+            res.irc11_view() == self.irc11_view(),
             res.wf(sched_view),
     {
         self.task_view
@@ -387,7 +452,7 @@ impl RunningTaskContext {
             rcu_participant.wf(),
             rcu_participant.cpu() == cpu,
             rcu_participant.fraction() == 1real,
-            rcu_participant.view().spec_le(task_view.view()),
+            rcu_participant.view().spec_le(task_view.irc11_view()),
             rcu_binding.registry() == task_view.scheduler(),
             rcu_binding.cpu() == cpu,
             rcu_binding.owner_id() == core_handle.id(),
@@ -404,6 +469,7 @@ impl RunningTaskContext {
             res.scheduler() == task_view.scheduler(),
             res.task() == task_view.task(),
             res.view() == task_view.view(),
+            res.irc11_view() == task_view.irc11_view(),
             res.cpu() == cpu,
             res.core_owner_id() == core_handle.id(),
             res.preempt_depth() == 0,
@@ -444,8 +510,12 @@ impl RunningTaskContext {
         self.session.scheduler()
     }
 
-    pub closed spec fn view(self) -> WmView {
+    pub closed spec fn view(self) -> Irc11ThreadView {
         self.session.view()
+    }
+
+    pub open spec fn irc11_view(self) -> Irc11ThreadView {
+        self.view()
     }
 
     pub closed spec fn cpu(self) -> crate::specs::mm::cpu::CpuId {
@@ -484,7 +554,7 @@ impl RunningTaskContext {
         self.rcu_participant.generation()
     }
 
-    pub closed spec fn rcu_participant_view(self) -> WmView {
+    pub closed spec fn rcu_participant_view(self) -> Irc11ThreadView {
         self.rcu_participant.view()
     }
 
@@ -498,6 +568,7 @@ impl RunningTaskContext {
 
     pub closed spec fn wf(self) -> bool {
         &&& self.session.wf_session_resource()
+        &&& self.view() == self.irc11_view()
         &&& self.available_fractions() + self.preempt_depth() == PREEMPT_SESSION_FRACTIONS
         &&& self.core_handle.wf()
         &&& self.core_handle.cpu() == self.cpu()
@@ -510,7 +581,7 @@ impl RunningTaskContext {
         &&& self.rcu_binding().locals_key() == self.core_handle.expected_locals_key()
         &&& self.rcu_binding().single_local_id() == self.rcu_participant_id()
         &&& self.rcu_participant.cpu() == self.cpu()
-        &&& self.rcu_participant_view().spec_le(self.view())
+        &&& self.rcu_participant_view().spec_le(self.irc11_view())
     }
 
     /// The checked-out task view includes the persistent view of this CPU's
@@ -519,7 +590,7 @@ impl RunningTaskContext {
         requires
             self.wf(),
         ensures
-            self.rcu_participant_view().spec_le(self.view()),
+            self.rcu_participant_view().spec_le(self.irc11_view()),
     {
     }
 
@@ -574,7 +645,7 @@ impl RunningTaskContext {
     }
 
     /// Borrows the running task's persistent weak-memory view.
-    pub proof fn tracked_borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ThreadView)
+    pub proof fn tracked_borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ViewSeen)
         requires
             old(self).wf(),
         ensures
@@ -594,7 +665,35 @@ impl RunningTaskContext {
             final(self).view() == (*final(tv))@,
             old(self).view().spec_le((*final(tv))@) ==> final(self).wf(),
     {
-        self.session.tracked_borrow_thread_view_mut()
+        let ghost participant_view = self.rcu_participant_view();
+        assert(self.irc11_view() == self.view());
+        assert(participant_view.spec_le(self.view()));
+        self.session.tracked_borrow_thread_view_mut_above(participant_view)
+    }
+
+    /// Borrows the running task's native IRC11 view.
+    pub proof fn tracked_borrow_irc11_view_mut(tracked &mut self) -> (tracked view: &mut ViewSeen)
+        requires
+            old(self).wf(),
+        ensures
+            (*view)@ == old(self).irc11_view(),
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).cpu() == old(self).cpu(),
+            final(self).view() == (*final(view))@,
+            final(self).session_id() == old(self).session_id(),
+            final(self).quiescent_generation() == old(self).quiescent_generation(),
+            final(self).available_fractions() == old(self).available_fractions(),
+            final(self).has_full_authority() == old(self).has_full_authority(),
+            final(self).preempt_depth() == old(self).preempt_depth(),
+            final(self).rcu_participant_id() == old(self).rcu_participant_id(),
+            final(self).rcu_generation() == old(self).rcu_generation(),
+            final(self).rcu_participant_view() == old(self).rcu_participant_view(),
+            final(self).rcu_fraction() == old(self).rcu_fraction(),
+            final(self).irc11_view() == (*final(view))@,
+            old(self).irc11_view().spec_le((*final(view))@) ==> final(self).wf(),
+    {
+        self.session.tracked_borrow_irc11_view_mut()
     }
 
     /// Starts one RCU reader from this CPU's persistent participant.
@@ -613,6 +712,7 @@ impl RunningTaskContext {
             final(self).scheduler() == old(self).scheduler(),
             final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions(),
@@ -628,7 +728,7 @@ impl RunningTaskContext {
             reader.participant_view() == old(self).rcu_participant_view(),
             reader.fraction() == old(self).rcu_fraction() / 2real,
     {
-        self.rcu_participant.tracked_start_reader_in_place(self.view())
+        self.rcu_participant.tracked_start_reader_in_place(self.irc11_view())
     }
 
     /// Copies the persistent scheduler binding for a guard or quiescent report.
@@ -686,24 +786,25 @@ impl RunningTaskContext {
             closed.participant_id() == old(self).rcu_participant_id(),
             closed.cpu() == old(self).cpu(),
             closed.closed_generation() == old(self).rcu_generation(),
-            closed.view() == old(self).view(),
+            closed.view() == old(self).irc11_view(),
             final(self).wf(),
             final(self).is_quiescent(),
             final(self).task() == old(self).task(),
             final(self).scheduler() == old(self).scheduler(),
             final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions(),
             final(self).preempt_depth() == old(self).preempt_depth(),
             final(self).rcu_participant_id() == old(self).rcu_participant_id(),
             final(self).rcu_generation() == old(self).rcu_generation() + 1,
-            final(self).rcu_participant_view() == old(self).view(),
+            final(self).rcu_participant_view() == old(self).irc11_view(),
             final(self).rcu_fraction() == 1real,
     {
         let tracked binding = self.rcu_binding.tracked_duplicate();
-        self.rcu_participant.tracked_report_quiescent_in_place(binding, self.view())
+        self.rcu_participant.tracked_report_quiescent_in_place(binding, self.irc11_view())
     }
 
     /// Closes the current CPU generation while publishing retirement facts
@@ -715,14 +816,14 @@ impl RunningTaskContext {
         requires
             old(self).wf(),
             old(self).is_quiescent(),
-            learned.observed_by(old(self).view()),
+            learned.observed_by(old(self).irc11_view()),
         ensures
             closed.wf(),
             closed.scheduler() == old(self).scheduler(),
             closed.participant_id() == old(self).rcu_participant_id(),
             closed.cpu() == old(self).cpu(),
             closed.closed_generation() == old(self).rcu_generation(),
-            closed.view() == old(self).view(),
+            closed.view() == old(self).irc11_view(),
             learned.records().subset_of(closed.known_retired()),
             final(self).wf(),
             final(self).is_quiescent(),
@@ -730,17 +831,22 @@ impl RunningTaskContext {
             final(self).scheduler() == old(self).scheduler(),
             final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions(),
             final(self).preempt_depth() == old(self).preempt_depth(),
             final(self).rcu_participant_id() == old(self).rcu_participant_id(),
             final(self).rcu_generation() == old(self).rcu_generation() + 1,
-            final(self).rcu_participant_view() == old(self).view(),
+            final(self).rcu_participant_view() == old(self).irc11_view(),
             final(self).rcu_fraction() == 1real,
     {
         let tracked binding = self.rcu_binding.tracked_duplicate();
-        self.rcu_participant.tracked_report_quiescent_with_in_place(binding, self.view(), learned)
+        self.rcu_participant.tracked_report_quiescent_with_in_place(
+            binding,
+            self.irc11_view(),
+            learned,
+        )
     }
 
     /// Records one quiescent boundary for this running session.
@@ -759,6 +865,7 @@ impl RunningTaskContext {
             final(self).scheduler() == old(self).scheduler(),
             final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).available_fractions() == old(self).available_fractions(),
             final(self).preempt_depth() == old(self).preempt_depth(),
@@ -786,6 +893,7 @@ impl RunningTaskContext {
             res.0.scheduler() == self.scheduler(),
             res.0.task() == self.task(),
             res.0.view() == self.view(),
+            res.0.irc11_view() == self.irc11_view(),
             res.1.id() == self.core_owner_id(),
             res.1.cpu() == self.cpu(),
             res.1.current_task() == Some(self.task()),
@@ -798,7 +906,7 @@ impl RunningTaskContext {
             res.1.locals().generation() == self.rcu_generation(),
             res.1.locals().view() == self.rcu_participant_view(),
             res.1.locals().fraction() == 1real,
-            res.1.locals().view().spec_le(res.0.view()),
+            res.1.locals().view().spec_le(res.0.irc11_view()),
             res.1.wf(),
     {
         assert(self.available_fractions() == PREEMPT_SESSION_FRACTIONS);
@@ -835,6 +943,7 @@ impl RunningTaskContext {
             res.0.scheduler() == self.scheduler(),
             res.0.task() == self.task(),
             res.0.view() == self.view(),
+            res.0.irc11_view() == self.irc11_view(),
             res.0.wf(sched_view),
             res.1.id() == self.core_owner_id(),
             res.1.cpu() == self.cpu(),
@@ -848,7 +957,7 @@ impl RunningTaskContext {
             res.1.locals().generation() == self.rcu_generation(),
             res.1.locals().view() == self.rcu_participant_view(),
             res.1.locals().fraction() == 1real,
-            res.1.locals().view().spec_le(res.0.view()),
+            res.1.locals().view().spec_le(res.0.irc11_view()),
             res.1.wf(),
     {
         assert(self.preempt_depth() == 0);
@@ -961,6 +1070,7 @@ impl PreemptGuardResource {
             final(session).task() == old(session).task(),
             final(session).scheduler() == old(session).scheduler(),
             final(session).view() == old(session).view(),
+            final(session).irc11_view() == old(session).irc11_view(),
             final(session).session_id() == old(session).session_id(),
             final(session).quiescent_generation() == old(session).quiescent_generation(),
             final(session).available_fractions() == old(session).available_fractions() + 1,
@@ -990,6 +1100,7 @@ impl RunningTaskContext {
             final(self).scheduler() == old(self).scheduler(),
             final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() + 1 == old(self).available_fractions(),
@@ -1029,6 +1140,7 @@ impl RunningTaskContext {
             final(self).scheduler() == old(self).scheduler(),
             final(self).cpu() == old(self).cpu(),
             final(self).view() == old(self).view(),
+            final(self).irc11_view() == old(self).irc11_view(),
             final(self).session_id() == old(self).session_id(),
             final(self).quiescent_generation() == old(self).quiescent_generation(),
             final(self).available_fractions() == old(self).available_fractions() + 1,
@@ -1181,7 +1293,7 @@ impl DisabledPreemptGuard {
     pub proof fn tracked_borrow_thread_view_mut_from_context<'context>(
         tracked context: &'context mut RunningTaskContext,
         guard: &DisabledPreemptGuard,
-    ) -> (tracked tv: &'context mut ThreadView)
+    ) -> (tracked tv: &'context mut ViewSeen)
         requires
             old(context).wf(),
             guard.matches_context(*old(context)),
@@ -1204,6 +1316,38 @@ impl DisabledPreemptGuard {
             old(context).view().spec_le((*final(tv))@) ==> guard.matches_context(*final(context)),
     {
         context.tracked_borrow_thread_view_mut()
+    }
+
+    /// Borrows the current task's native IRC11 view while preemption is disabled.
+    pub proof fn tracked_borrow_irc11_view_mut_from_context<'context>(
+        tracked context: &'context mut RunningTaskContext,
+        guard: &DisabledPreemptGuard,
+    ) -> (tracked view: &'context mut ViewSeen)
+        requires
+            old(context).wf(),
+            guard.matches_context(*old(context)),
+        ensures
+            (*view)@ == old(context).irc11_view(),
+            final(context).task() == old(context).task(),
+            final(context).scheduler() == old(context).scheduler(),
+            final(context).cpu() == old(context).cpu(),
+            final(context).view() == (*final(view))@,
+            final(context).session_id() == old(context).session_id(),
+            final(context).quiescent_generation() == old(context).quiescent_generation(),
+            final(context).available_fractions() == old(context).available_fractions(),
+            final(context).has_full_authority() == old(context).has_full_authority(),
+            final(context).preempt_depth() == old(context).preempt_depth(),
+            final(context).rcu_participant_id() == old(context).rcu_participant_id(),
+            final(context).rcu_generation() == old(context).rcu_generation(),
+            final(context).rcu_participant_view() == old(context).rcu_participant_view(),
+            final(context).rcu_fraction() == old(context).rcu_fraction(),
+            final(context).irc11_view() == (*final(view))@,
+            old(context).irc11_view().spec_le((*final(view))@) ==> final(context).wf(),
+            old(context).irc11_view().spec_le((*final(view))@) ==> guard.matches_context(
+                *final(context),
+            ),
+    {
+        context.tracked_borrow_irc11_view_mut()
     }
 
     /// Returns this guard's fractional witness and decrements the modeled

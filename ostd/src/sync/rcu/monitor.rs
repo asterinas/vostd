@@ -11,15 +11,20 @@ use crate::specs::{
         rcu as rcu_spec,
         rcu::{GracePeriodView, MonitorStateView},
         rcu_cpu as rcu_cpu_spec,
-        weak_memory::{History, RcuMonitorWeakAtomicBool, ThreadView, WmView},
+        weak_memory::RcuMonitorWeakAtomicBool,
     },
 };
 use crate::sync::{
     AtomicDataWithOwner, LocalIrqDisabled, SpinLock, once::Predicate as OncePredicate,
 };
 use crate::task::RunningTaskContext;
+use vstd_extra::atomic_irc11::{
+    AtomicHistory as Irc11History, ThreadView, ThreadViewOrder, ThreadViewToken, ViewSeen,
+};
 
 verus! {
+
+broadcast use vstd::thread_view::group_thread_view_axioms;
 
 pub type Callbacks = VecDeque<RcuCallback>;
 
@@ -38,7 +43,7 @@ tracked struct RcuQuiescentContext {
     ghost session: Loc,
     ghost participant: Loc,
     ghost generation: nat,
-    ghost view: WmView,
+    ghost view: ThreadView,
     closed: rcu_cpu_spec::CpuRcuClosedGeneration,
 }
 
@@ -61,7 +66,7 @@ impl RcuQuiescentContext {
             old(context).wf(),
             old(context).is_quiescent(),
             cpu == old(context).cpu(),
-            retired_facts.observed_by(old(context).view()),
+            retired_facts.observed_by(old(context).irc11_view()),
         ensures
             res.cpu == cpu,
             res.task == old(context).task(),
@@ -69,7 +74,7 @@ impl RcuQuiescentContext {
             res.session == old(context).session_id(),
             res.participant == old(context).rcu_participant_id(),
             res.generation == old(context).rcu_generation(),
-            res.view == old(context).view(),
+            res.view == old(context).irc11_view(),
             res.closed.wf(),
             res.closed.scheduler() == res.scheduler,
             res.closed.participant_id() == res.participant,
@@ -90,12 +95,13 @@ impl RcuQuiescentContext {
             final(context).rcu_participant_view() == res.view,
             final(context).rcu_fraction() == 1real,
             final(context).view() == old(context).view(),
+            final(context).irc11_view() == old(context).irc11_view(),
     {
         let ghost task = context.task();
         let ghost scheduler = context.scheduler();
         let ghost session = context.session_id();
         let ghost participant = context.rcu_participant_id();
-        let ghost view = context.view();
+        let ghost view = context.irc11_view();
         let ghost generation = context.rcu_generation();
         let tracked closed = context.tracked_report_rcu_quiescent_with(retired_facts);
         let ghost _session_generation = context.tracked_record_quiescent();
@@ -113,7 +119,7 @@ ghost struct RcuCpuQuiescentReport {
     participant: Loc,
     /// Last reader generation closed by this quiescent transition.
     generation: nat,
-    view: WmView,
+    view: ThreadView,
     epoch: nat,
 }
 
@@ -208,7 +214,7 @@ impl RcuCallback {
         raw: RawCallback,
         Tracked(cert): Tracked<rcu_spec::RcuCallbackSafety>,
         Ghost(retire_epoch): Ghost<nat>,
-        Ghost(retire_view): Ghost<WmView>,
+        Ghost(retire_view): Ghost<ThreadView>,
         Ghost(scheduler): Ghost<Loc>,
     ) -> (res: Self)
         requires
@@ -385,12 +391,7 @@ impl RcuReclaimPermit {
         assert(guard.known_retired().contains(callback.retired_record()));
         assert(callback.removal.observed_by(self.reports@[cpu].view));
         assert(self.reports@[cpu].view.spec_le(guard.start_view()));
-        assert(callback.removal.timestamp <= self.reports@[cpu].view.seen_at(
-            callback.removal.root,
-        ));
-        assert(self.reports@[cpu].view.seen_at(callback.removal.root) <= guard.start_view().seen_at(
-            callback.removal.root,
-        ));
+        self.reports@[cpu].view.lemma_spec_le_transitive(guard.start_view(), guard.start_view());
         guard
     }
 
@@ -949,7 +950,7 @@ pub(super) struct State {
     /// This proof-only token is updated before unlocking and imported after
     /// locking. It gives the existing executable spin lock the release/acquire
     /// semantics needed by the RCU proof without changing its runtime layout.
-    tracked_lock_view: Tracked<ThreadView>,
+    tracked_lock_view: Tracked<ThreadViewToken>,
 }
 
 impl View for State {
@@ -964,7 +965,7 @@ impl View for State {
 }
 
 impl State {
-    closed spec fn lock_view(self) -> WmView {
+    closed spec fn lock_view(self) -> ThreadView {
         self.tracked_lock_view@@
     }
 
@@ -973,7 +974,7 @@ impl State {
     }
 
     /// Imports the view published by the previous monitor-lock holder.
-    fn tracked_acquire_lock_view(&self, Tracked(thread_view): Tracked<&mut ThreadView>)
+    fn tracked_acquire_lock_view(&self, Tracked(thread_view): Tracked<&mut ViewSeen>)
         ensures
             self.wf(),
             final(thread_view)@ == old(thread_view)@.join(self.lock_view()),
@@ -989,14 +990,14 @@ impl State {
         proof {
             let ghost before = thread_view@;
             let ghost lock_view = self.lock_view();
-            thread_view.tracked_join(published_view);
+            published_view.tracked_join_into_view_seen(thread_view);
             before.lemma_join_left(lock_view);
             before.lemma_join_right(lock_view);
         }
     }
 
     /// Publishes the current holder's observations to the next lock acquirer.
-    fn tracked_publish_lock_view(&mut self, Tracked(thread_view): Tracked<&ThreadView>)
+    fn tracked_publish_lock_view(&mut self, Tracked(thread_view): Tracked<&ViewSeen>)
         requires
             old(self).wf(),
         ensures
@@ -1009,7 +1010,35 @@ impl State {
         proof {
             let ghost old_lock_view = old(self).lock_view();
             let ghost holder_view = thread_view@;
-            self.tracked_lock_view.borrow_mut().tracked_join(thread_view);
+            let tracked joined = self.tracked_lock_view.borrow().tracked_joined_view_seen(
+                thread_view,
+            );
+            assert(old_lock_view.spec_le(joined@));
+            assert(holder_view.spec_le(joined@));
+            assert forall|i: int| 0 <= i < self.current_gp.callback_summaries().len() implies (
+            #[trigger] self.current_gp.callback_summaries()[i]).retire_view.spec_le(joined@) by {
+                self.current_gp.callback_summaries()[i].retire_view.lemma_spec_le_transitive(
+                    old_lock_view,
+                    joined@,
+                );
+            };
+            assert forall|i: int| 0 <= i < callback_summaries(self.next_callbacks).len() implies (
+            #[trigger] callback_summaries(self.next_callbacks)[i]).retire_view.spec_le(joined@) by {
+                callback_summaries(self.next_callbacks)[i].retire_view.lemma_spec_le_transitive(
+                    old_lock_view,
+                    joined@,
+                );
+            };
+            assert(self.tracked_retired_facts@.observed_by(joined@)) by {
+                assert forall|record: rcu_spec::RcuRetiredRecord| #[trigger]
+                    self.tracked_retired_facts@.records().contains(
+                        record,
+                    ) implies record.removal.observed_by(joined@) by {
+                    assert(record.removal.observed_by(old_lock_view));
+                    old_lock_view.lemma_spec_le_transitive(joined@, joined@);
+                };
+            };
+            self.tracked_lock_view = Tracked(joined);
             old_lock_view.lemma_join_left(holder_view);
             old_lock_view.lemma_join_right(holder_view);
             assert forall|i: int|
@@ -1043,8 +1072,10 @@ impl State {
                         record,
                     ) implies record.removal.observed_by(final(self).lock_view()) by {
                     assert(record.removal.observed_by(old_lock_view));
-                    assert(old_lock_view.seen_at(record.removal.root)
-                        <= final(self).lock_view().seen_at(record.removal.root));
+                    old_lock_view.lemma_spec_le_transitive(
+                        final(self).lock_view(),
+                        final(self).lock_view(),
+                    );
                 };
             };
         }
@@ -1060,7 +1091,7 @@ impl State {
         let current_gp = GracePeriod::new();
         let next_callbacks = Callbacks::new();
         proof_decl! {
-            let tracked lock_view = ThreadView::new();
+            let tracked lock_view = ThreadViewToken::new();
             let tracked retired_facts = rcu_spec::RcuRetiredFacts::empty();
         }
         let res = Self {
@@ -1193,10 +1224,10 @@ impl State {
             old(context).wf(),
             old(context).is_quiescent(),
             cpu == old(context).cpu(),
-            self.tracked_retired_facts@.observed_by(old(context).view()),
+            self.tracked_retired_facts@.observed_by(old(context).irc11_view()),
         ensures
             res@.cpu == cpu,
-            res@.view == old(context).view(),
+            res@.view == old(context).irc11_view(),
             res@.wf(),
             self.tracked_retired_facts@.records().subset_of(res@.closed.known_retired()),
             final(context).wf(),
@@ -1209,6 +1240,7 @@ impl State {
             final(context).rcu_generation() == old(context).rcu_generation() + 1,
             final(context).rcu_fraction() == 1real,
             final(context).view() == old(context).view(),
+            final(context).irc11_view() == old(context).irc11_view(),
         no_unwind
     {
         proof_decl! {
@@ -1494,7 +1526,7 @@ pub open spec fn monitor_flag_matches_state(flag: bool, state: MonitorStateView)
 /// View-level form of the monitor flag write obligation. Executable monitor
 /// code can call this while holding a guard by passing the protected state's
 /// view, without moving the `State` value out of the lock.
-proof fn monitor_flag_view_push_obligation(flag: bool, state: MonitorStateView)
+proof fn monitor_flag_view_store_obligation(flag: bool, state: MonitorStateView)
     requires
         state.wf(),
         state.has_pending_work() ==> flag,
@@ -1509,17 +1541,17 @@ proof fn monitor_flag_view_push_obligation(flag: bool, state: MonitorStateView)
 /// it: the weak-memory history invariant implies the per-message relation
 /// above, for stale messages as well as the latest one.
 proof fn monitor_flag_message_matches_state(
-    history: History<bool>,
+    history: Irc11History<bool>,
     flag_ghost: rcu_spec::RcuMonitorFlagGhost,
     ts: nat,
 )
     requires
         rcu_spec::rcu_monitor_flag_history_inv(history, flag_ghost),
-        ts < history.len(),
+        history.contains_timestamp(ts),
     ensures
-        monitor_flag_matches_state(history[ts as int].value, flag_ghost.states[ts as int]),
+        monitor_flag_matches_state(history.value(ts), flag_ghost.states[ts]),
 {
-    if !history[ts as int].value {
+    if !history.value(ts) {
         rcu_spec::rcu_monitor_flag_false_has_no_pending(history, flag_ghost, ts);
     }
 }
@@ -1531,16 +1563,16 @@ proof fn monitor_flag_message_matches_state(
 /// every flag store happens under the monitor lock and records the
 /// lock-protected state as its snapshot.
 proof fn monitor_flag_false_certifies_no_pending(
-    history: History<bool>,
+    history: Irc11History<bool>,
     flag_ghost: rcu_spec::RcuMonitorFlagGhost,
     ts: nat,
     state: State,
 )
     requires
         rcu_spec::rcu_monitor_flag_history_inv(history, flag_ghost),
-        ts < history.len(),
-        !history[ts as int].value,
-        flag_ghost.states[ts as int] == state@,
+        history.contains_timestamp(ts),
+        !history.value(ts),
+        flag_ghost.states[ts] == state@,
     ensures
         state.no_pending_work(),
         state.pending_summaries() == Seq::<rcu_spec::RcuCallbackSummary>::empty(),
@@ -1550,9 +1582,9 @@ proof fn monitor_flag_false_certifies_no_pending(
 
 /// Bridge for the future `set_monitoring` helper: while holding the monitor
 /// lock with a well-formed state, writing any flag value that over-approximates
-/// the state's pending work discharges the push obligation of
-/// [`rcu_spec::preserve_rcu_monitor_flag_inv_on_push`].
-proof fn monitor_flag_push_obligation(flag: bool, state: State)
+/// the state's pending work discharges the insertion obligation of
+/// [`rcu_spec::preserve_rcu_monitor_flag_inv_on_insert`].
+proof fn monitor_flag_store_obligation(flag: bool, state: State)
     requires
         state.wf(),
         state.has_pending_work() ==> flag,
@@ -1561,7 +1593,7 @@ proof fn monitor_flag_push_obligation(flag: bool, state: State)
         !flag ==> state@.no_pending_work(),
         monitor_flag_matches_state(flag, state@),
 {
-    monitor_flag_view_push_obligation(flag, state@);
+    monitor_flag_view_store_obligation(flag, state@);
 }
 
 /// A RCU monitor ensures the completion of _grace periods_ by keeping track
@@ -1578,13 +1610,7 @@ impl RcuMonitor {
     /// pending monitor work.
     pub(super) fn new() -> (res: Self) {
         let state = State::new();
-        proof {
-            rcu_spec::rcu_monitor_flag_initial_inv();
-        }
-        proof_decl! {
-            let tracked flag_ghost = rcu_spec::RcuMonitorFlagGhost::tracked_initial();
-        }
-        let is_monitoring = MonitorAtomicBool::new(Ghost(()), false, Tracked(flag_ghost));
+        let is_monitoring = MonitorAtomicBool::new();
         let state = SpinLock::new(state);
         proof {
             use_type_invariant(&is_monitoring);
@@ -1602,7 +1628,7 @@ impl RcuMonitor {
         &self,
         value: bool,
         Ghost(state): Ghost<MonitorStateView>,
-        Tracked(tv): Tracked<&mut ThreadView>,
+        Tracked(tv): Tracked<&mut ViewSeen>,
     )
         requires
             self.wf(),
@@ -1613,7 +1639,7 @@ impl RcuMonitor {
     {
         proof {
             use_type_invariant(self);
-            monitor_flag_view_push_obligation(value, state);
+            monitor_flag_view_store_obligation(value, state);
         }
         self.is_monitoring.store_relaxed_rcu_monitor(value, Ghost(state), Tracked(tv));
     }
@@ -1629,7 +1655,7 @@ impl RcuMonitor {
             Tracked(session): Tracked<&mut RunningTaskContext>,
         requires
             old(session).wf(),
-            cert@.removal().observed_by(old(session).view()),
+            cert@.removal().observed_by(old(session).irc11_view()),
         ensures
             final(session).wf(),
             final(session).task() == old(session).task(),
@@ -1652,22 +1678,22 @@ impl RcuMonitor {
         proof {
             use_type_invariant(self);
         }
-        let ghost retire_view = session.view();
+        let ghost retire_view = session.irc11_view();
         let mut state = self.state.lock();
-        let ghost before_acquire = session.view();
+        let ghost before_acquire = session.irc11_view();
         proof_decl! {
-            let tracked acquire_view = session.tracked_borrow_thread_view_mut();
+            let tracked acquire_view = session.tracked_borrow_irc11_view_mut();
         }
         state.tracked_acquire_lock_view(Tracked(acquire_view));
         proof {
-            retire_view.lemma_spec_le_transitive(before_acquire, session.view());
+            retire_view.lemma_spec_le_transitive(before_acquire, session.irc11_view());
         }
         proof_decl! {
-            let tracked publish_view = session.tracked_borrow_thread_view_mut();
+            let tracked publish_view = session.tracked_borrow_irc11_view_mut();
         }
         state.tracked_publish_lock_view(Tracked(&*publish_view));
         proof {
-            retire_view.lemma_spec_le_transitive(session.view(), state.value().lock_view());
+            retire_view.lemma_spec_le_transitive(session.irc11_view(), state.value().lock_view());
         }
         let ghost retire_epoch = state.view()@.current_gp.epoch + 1;
         proof_decl! {
@@ -1688,12 +1714,12 @@ impl RcuMonitor {
                 use_type_invariant(self);
             }
             proof_decl! {
-                let tracked tv = session.tracked_borrow_thread_view_mut();
+                let tracked tv = session.tracked_borrow_irc11_view_mut();
             }
             self.set_monitoring(true, Ghost(state.view()@), Tracked(tv));
         }
         proof_decl! {
-            let tracked publish_view = session.tracked_borrow_thread_view_mut();
+            let tracked publish_view = session.tracked_borrow_irc11_view_mut();
         }
         state.tracked_publish_lock_view(Tracked(&*publish_view));
         state.drop();
@@ -1729,7 +1755,7 @@ impl RcuMonitor {
             use_type_invariant(self);
         }
         proof_decl! {
-            let tracked fast_tv = session.tracked_borrow_thread_view_mut();
+            let tracked fast_tv = session.tracked_borrow_irc11_view_mut();
         }
         let is_monitoring = self.is_monitoring.load_relaxed(Tracked(fast_tv)).0;
         if !is_monitoring {
@@ -1737,12 +1763,12 @@ impl RcuMonitor {
         }
         let mut state = self.state.lock();
         proof_decl! {
-            let tracked acquire_view = session.tracked_borrow_thread_view_mut();
+            let tracked acquire_view = session.tracked_borrow_irc11_view_mut();
         }
         state.tracked_acquire_lock_view(Tracked(acquire_view));
         if state.current_gp.is_complete {
             proof_decl! {
-                let tracked publish_view = session.tracked_borrow_thread_view_mut();
+                let tracked publish_view = session.tracked_borrow_irc11_view_mut();
             }
             state.tracked_publish_lock_view(Tracked(&*publish_view));
             state.drop();
@@ -1750,14 +1776,16 @@ impl RcuMonitor {
         }
         let this_cpu = CpuId::current(Tracked(&*session));
         proof {
-            assert(state.value().tracked_retired_facts@.observed_by(session.view())) by {
+            assert(state.value().tracked_retired_facts@.observed_by(session.irc11_view())) by {
                 assert forall|record: rcu_spec::RcuRetiredRecord| #[trigger]
                     state.value().tracked_retired_facts@.records().contains(
                         record,
-                    ) implies record.removal.observed_by(session.view()) by {
+                    ) implies record.removal.observed_by(session.irc11_view()) by {
                     assert(record.removal.observed_by(state.value().lock_view()));
-                    assert(state.value().lock_view().seen_at(record.removal.root)
-                        <= session.view().seen_at(record.removal.root));
+                    state.value().lock_view().lemma_spec_le_transitive(
+                        session.irc11_view(),
+                        session.irc11_view(),
+                    );
                 };
             };
         }
@@ -1774,7 +1802,7 @@ impl RcuMonitor {
                 let ghost callback = state.value().current_gp.callback_summaries()[i];
                 callback.retire_view.lemma_spec_le_transitive(
                     state.value().lock_view(),
-                    session.view(),
+                    session.irc11_view(),
                 );
             };
             assert forall|i: int|
@@ -1792,7 +1820,7 @@ impl RcuMonitor {
         );
         if !completed_gp {
             proof_decl! {
-                let tracked publish_view = session.tracked_borrow_thread_view_mut();
+                let tracked publish_view = session.tracked_borrow_irc11_view_mut();
             }
             state.tracked_publish_lock_view(Tracked(&*publish_view));
             state.drop();
@@ -1806,12 +1834,12 @@ impl RcuMonitor {
                 use_type_invariant(self);
             }
             proof_decl! {
-                let tracked tv = session.tracked_borrow_thread_view_mut();
+                let tracked tv = session.tracked_borrow_irc11_view_mut();
             }
             self.set_monitoring(false, Ghost(state.view()@), Tracked(tv));
         }
         proof_decl! {
-            let tracked publish_view = session.tracked_borrow_thread_view_mut();
+            let tracked publish_view = session.tracked_borrow_irc11_view_mut();
         }
         state.tracked_publish_lock_view(Tracked(&*publish_view));
         state.drop();

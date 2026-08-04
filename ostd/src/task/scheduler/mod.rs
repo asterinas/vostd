@@ -65,15 +65,13 @@
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
 use vstd::resource::map::GhostMapAuth;
 use vstd::{map::Map, prelude::*, resource::Loc};
+use vstd_extra::atomic_irc11::{ThreadView as Irc11ThreadView, ThreadViewOrder, ThreadViewToken};
 
 use super::{Task, preempt::RunningTaskContext};
 use crate::{
     specs::{
         mm::cpu::CpuId,
-        sync::{
-            rcu_cpu::CpuRcuParticipant,
-            weak_memory::{ThreadView, WmView},
-        },
+        sync::rcu_cpu::CpuRcuParticipant,
         task::cpu_core::{
             CpuCoreOwner, CpuCoreOwnerBinding, CpuCoreOwnerHandle, CpuCoreRegistration,
         },
@@ -82,6 +80,8 @@ use crate::{
 };
 
 verus! {
+
+broadcast use vstd::thread_view::group_thread_view_axioms;
 
 /// A task-like object that can be identified in scheduler ghost state.
 pub trait Schedulable {
@@ -147,10 +147,10 @@ pub ghost struct SchedulerView {
     pub runqueues: Map<CpuId, Seq<Loc>>,
     pub current: Map<CpuId, Option<Loc>>,
     pub state: Map<Loc, TaskSchedState>,
-    pub task_views: Map<Loc, WmView>,
-    pub stored_views: Map<Loc, WmView>,
-    pub checked_out_views: Map<Loc, WmView>,
-    pub cpu_views: Map<CpuId, WmView>,
+    pub task_views: Map<Loc, Irc11ThreadView>,
+    pub stored_views: Map<Loc, Irc11ThreadView>,
+    pub checked_out_views: Map<Loc, Irc11ThreadView>,
+    pub cpu_views: Map<CpuId, Irc11ThreadView>,
     pub cpu_core_registrations: Map<CpuId, CpuCoreRegistration>,
     pub stored_cpu_cores: Set<CpuId>,
 }
@@ -186,7 +186,7 @@ impl SchedulerView {
         self.task_views.contains_key(task)
     }
 
-    pub open spec fn task_thread_view(self, task: Loc) -> WmView
+    pub open spec fn task_thread_view(self, task: Loc) -> Irc11ThreadView
         recommends
             self.task_has_thread_view(task),
     {
@@ -205,7 +205,7 @@ impl SchedulerView {
         self.cpu_views.contains_key(cpu)
     }
 
-    pub open spec fn cpu_thread_view(self, cpu: CpuId) -> WmView
+    pub open spec fn cpu_thread_view(self, cpu: CpuId) -> Irc11ThreadView
         recommends
             self.cpu_has_thread_view(cpu),
     {
@@ -304,8 +304,8 @@ impl SchedulerView {
     {
         SchedulerView {
             state: self.state.insert(task, TaskSchedState::New),
-            task_views: self.task_views.insert(task, WmView::empty()),
-            stored_views: self.stored_views.insert(task, WmView::empty()),
+            task_views: self.task_views.insert(task, Irc11ThreadView::empty()),
+            stored_views: self.stored_views.insert(task, Irc11ThreadView::empty()),
             ..self
         }
     }
@@ -325,7 +325,7 @@ impl SchedulerView {
             registration.locals_key.len() == 1,
     {
         SchedulerView {
-            cpu_views: self.cpu_views.insert(cpu, WmView::empty()),
+            cpu_views: self.cpu_views.insert(cpu, Irc11ThreadView::empty()),
             cpu_core_registrations: self.cpu_core_registrations.insert(cpu, registration),
             stored_cpu_cores: self.stored_cpu_cores.insert(cpu),
             ..self
@@ -345,7 +345,7 @@ impl SchedulerView {
         ensures
             self.register_cpu(cpu, registration).wf(),
             self.register_cpu(cpu, registration).cpu_has_thread_view(cpu),
-            self.register_cpu(cpu, registration).cpu_thread_view(cpu) == WmView::empty(),
+            self.register_cpu(cpu, registration).cpu_thread_view(cpu) == Irc11ThreadView::empty(),
             self.register_cpu(cpu, registration).cpu_core_registration(cpu) == registration,
             self.register_cpu(cpu, registration).cpu_rcu_participant_id(cpu)
                 == registration.locals_key[0],
@@ -361,7 +361,7 @@ impl SchedulerView {
         ensures
             self.register_task(task).wf(),
             self.register_task(task).state[task] is New,
-            self.register_task(task).task_thread_view(task) == WmView::empty(),
+            self.register_task(task).task_thread_view(task) == Irc11ThreadView::empty(),
             self.register_task(task).task_view_is_stored(task),
             !self.register_task(task).task_view_is_checked_out(task),
     {
@@ -396,7 +396,11 @@ impl SchedulerView {
     /// Weak-memory operations mutate the linear `ThreadView` carried by the
     /// guard. This transition keeps the logical snapshot and checked-out
     /// partition synchronized with that updated view.
-    pub open spec fn update_checked_out_task_view(self, task: Loc, view: WmView) -> SchedulerView
+    pub open spec fn update_checked_out_task_view(
+        self,
+        task: Loc,
+        view: Irc11ThreadView,
+    ) -> SchedulerView
         recommends
             self.task_view_is_checked_out(task),
     {
@@ -409,7 +413,11 @@ impl SchedulerView {
 
     /// Updating the view of the currently checked-out task preserves the
     /// scheduler ownership partition and all scheduling invariants.
-    pub proof fn lemma_update_checked_out_task_view_preserves_wf(self, task: Loc, view: WmView)
+    pub proof fn lemma_update_checked_out_task_view_preserves_wf(
+        self,
+        task: Loc,
+        view: Irc11ThreadView,
+    )
         requires
             self.wf(),
             self.task_view_is_checked_out(task),
@@ -427,7 +435,12 @@ impl SchedulerView {
     ///
     /// The caller must provide the same view that is recorded as checked out;
     /// this prevents check-in from overwriting the task with an unrelated view.
-    pub open spec fn checkin_task_view(self, cpu: CpuId, task: Loc, view: WmView) -> SchedulerView
+    pub open spec fn checkin_task_view(
+        self,
+        cpu: CpuId,
+        task: Loc,
+        view: Irc11ThreadView,
+    ) -> SchedulerView
         recommends
             self.task_view_is_checked_out(task),
             !self.task_view_is_stored(task),
@@ -445,7 +458,12 @@ impl SchedulerView {
         }
     }
 
-    pub proof fn lemma_checkin_task_view_preserves_wf(self, cpu: CpuId, task: Loc, view: WmView)
+    pub proof fn lemma_checkin_task_view_preserves_wf(
+        self,
+        cpu: CpuId,
+        task: Loc,
+        view: Irc11ThreadView,
+    )
         requires
             self.wf(),
             self.task_view_is_checked_out(task),
@@ -462,7 +480,7 @@ impl SchedulerView {
     /// Publishes the outgoing task's observations into the persistent CPU
     /// view. A subsequent task scheduled on this CPU imports the result in
     /// `checkout_task_view`.
-    pub open spec fn publish_cpu_view(self, cpu: CpuId, view: WmView) -> SchedulerView
+    pub open spec fn publish_cpu_view(self, cpu: CpuId, view: Irc11ThreadView) -> SchedulerView
         recommends
             self.cpu_has_thread_view(cpu),
     {
@@ -472,7 +490,7 @@ impl SchedulerView {
         }
     }
 
-    pub proof fn lemma_publish_cpu_view_preserves_wf(self, cpu: CpuId, view: WmView)
+    pub proof fn lemma_publish_cpu_view_preserves_wf(self, cpu: CpuId, view: Irc11ThreadView)
         requires
             self.wf(),
             self.cpu_has_thread_view(cpu),
@@ -574,8 +592,8 @@ impl SchedulerView {
 /// entry after all preemption guards have been released.
 tracked struct SchedulerThreadViews {
     scheduler: Ghost<Loc>,
-    views: Map<Loc, ThreadView>,
-    cpu_views: Map<CpuId, ThreadView>,
+    views: Map<Loc, ThreadViewToken>,
+    cpu_views: Map<CpuId, ThreadViewToken>,
     cpu_cores: Map<CpuId, CpuCoreOwner<CpuRcuParticipant>>,
     core_bindings: Map<CpuId, CpuCoreOwnerBinding<CpuRcuParticipant>>,
 }
@@ -588,15 +606,20 @@ tracked struct SchedulerThreadViews {
 pub tracked struct TaskThreadView {
     scheduler: Ghost<Loc>,
     task: Ghost<Loc>,
-    thread_view: ThreadView,
+    thread_view: ThreadViewToken,
 }
 
 impl TaskThreadView {
-    proof fn new(scheduler: Loc, task: Loc, tracked thread_view: ThreadView) -> (tracked res: Self)
+    proof fn new(
+        scheduler: Loc,
+        task: Loc,
+        tracked thread_view: ThreadViewToken,
+    ) -> (tracked res: Self)
         ensures
             res.scheduler() == scheduler,
             res.task() == task,
             res.view() == thread_view@,
+            res.irc11_view() == thread_view@,
     {
         TaskThreadView { scheduler: Ghost(scheduler), task: Ghost(task), thread_view }
     }
@@ -609,8 +632,13 @@ impl TaskThreadView {
         self.task@
     }
 
-    pub closed spec fn view(self) -> WmView {
+    pub closed spec fn view(self) -> Irc11ThreadView {
         self.thread_view@
+    }
+
+    /// Transitional alias for callers already written against the native view.
+    pub open spec fn irc11_view(self) -> Irc11ThreadView {
+        self.view()
     }
 
     /// Connects the checked-out token to the scheduler view that owns it.
@@ -646,12 +674,27 @@ impl TaskThreadView {
     /// After the borrow mutates the view, the caller must use
     /// `update_checked_out_task_view` on the scheduler view before relying on
     /// `TaskThreadView::wf` again.
-    pub proof fn tracked_borrow_thread_view_mut(tracked &mut self) -> (tracked tv: &mut ThreadView)
+    pub proof fn tracked_borrow_thread_view_mut(tracked &mut self) -> (tracked tv:
+        &mut ThreadViewToken)
         ensures
             (*tv)@ == old(self).view(),
             final(self).task() == old(self).task(),
             final(self).scheduler() == old(self).scheduler(),
             final(self).view() == (*final(tv))@,
+            final(self).irc11_view() == (*final(tv))@,
+    {
+        &mut self.thread_view
+    }
+
+    /// Borrows the native IRC11 view carried by this task.
+    pub proof fn tracked_borrow_irc11_view_mut(tracked &mut self) -> (tracked view:
+        &mut ThreadViewToken)
+        ensures
+            (*view)@ == old(self).irc11_view(),
+            final(self).task() == old(self).task(),
+            final(self).scheduler() == old(self).scheduler(),
+            final(self).view() == (*final(view))@,
+            final(self).irc11_view() == (*final(view))@,
     {
         &mut self.thread_view
     }
@@ -661,13 +704,13 @@ impl SchedulerThreadViews {
     proof fn empty(scheduler: Loc) -> (tracked res: Self)
         ensures
             res.scheduler() == scheduler,
-            res.view() == Map::<Loc, WmView>::empty(),
-            res.cpu_view_map() == Map::<CpuId, WmView>::empty(),
+            res.view() == Map::<Loc, Irc11ThreadView>::empty(),
+            res.cpu_view_map() == Map::<CpuId, Irc11ThreadView>::empty(),
             res.core_registration_map() == Map::<CpuId, CpuCoreRegistration>::empty(),
             res.binding_registration_map() == Map::<CpuId, CpuCoreRegistration>::empty(),
     {
-        let tracked views = Map::<Loc, ThreadView>::tracked_empty();
-        let tracked cpu_views = Map::<CpuId, ThreadView>::tracked_empty();
+        let tracked views = Map::<Loc, ThreadViewToken>::tracked_empty();
+        let tracked cpu_views = Map::<CpuId, ThreadViewToken>::tracked_empty();
         let tracked cpu_cores = Map::<CpuId, CpuCoreOwner<CpuRcuParticipant>>::tracked_empty();
         let tracked core_bindings = Map::<
             CpuId,
@@ -686,11 +729,11 @@ impl SchedulerThreadViews {
         self.scheduler@
     }
 
-    pub closed spec fn view(self) -> Map<Loc, WmView> {
+    pub closed spec fn view(self) -> Map<Loc, Irc11ThreadView> {
         Map::new(self.views.dom(), |task: Loc| self.views[task]@)
     }
 
-    pub closed spec fn cpu_view_map(self) -> Map<CpuId, WmView> {
+    pub closed spec fn cpu_view_map(self) -> Map<CpuId, Irc11ThreadView> {
         Map::new(self.cpu_views.dom(), |cpu: CpuId| self.cpu_views[cpu]@)
     }
 
@@ -713,22 +756,36 @@ impl SchedulerThreadViews {
         self.views.contains_key(task)
     }
 
-    pub closed spec fn thread_view(self, task: Loc) -> WmView
+    pub closed spec fn thread_view(self, task: Loc) -> Irc11ThreadView
         recommends
             self.contains(task),
     {
         self.views[task]@
     }
 
+    pub closed spec fn irc11_thread_view(self, task: Loc) -> Irc11ThreadView
+        recommends
+            self.contains(task),
+    {
+        self.thread_view(task)
+    }
+
     pub closed spec fn contains_cpu(self, cpu: CpuId) -> bool {
         self.cpu_views.contains_key(cpu)
     }
 
-    pub closed spec fn cpu_thread_view(self, cpu: CpuId) -> WmView
+    pub closed spec fn cpu_thread_view(self, cpu: CpuId) -> Irc11ThreadView
         recommends
             self.contains_cpu(cpu),
     {
         self.cpu_views[cpu]@
+    }
+
+    pub closed spec fn irc11_cpu_thread_view(self, cpu: CpuId) -> Irc11ThreadView
+        recommends
+            self.contains_cpu(cpu),
+    {
+        self.cpu_thread_view(cpu)
     }
 
     closed spec fn cpu_cores_wf(self, sched_view: SchedulerView) -> bool {
@@ -802,7 +859,7 @@ impl SchedulerThreadViews {
             final(self).cpu_view_map() == sched_view.register_cpu(cpu, registration).cpu_views,
             final(self).wf(sched_view.register_cpu(cpu, registration)),
             final(self).contains_cpu(cpu),
-            final(self).cpu_thread_view(cpu) == WmView::empty(),
+            final(self).cpu_thread_view(cpu) == Irc11ThreadView::empty(),
             final(self).core_registration_map().contains_key(cpu),
             final(self).core_registration_map()[cpu] == registration,
             final(self).binding_registration_map() == sched_view.register_cpu(
@@ -812,8 +869,8 @@ impl SchedulerThreadViews {
             final(identity).id() == old(identity).id(),
             final(identity)@ == sched_view.register_cpu(cpu, registration).cpu_core_registrations,
     {
-        let tracked cpu_view = ThreadView::new();
-        let tracked participant = CpuRcuParticipant::new(cpu, WmView::empty());
+        let tracked cpu_view = ThreadViewToken::new();
+        let tracked participant = CpuRcuParticipant::new(cpu, Irc11ThreadView::empty());
         participant.lemma_cpu_core_local_state();
         let ghost participant_id = participant.id();
         let tracked core = CpuCoreOwner::new(cpu, participant);
@@ -874,10 +931,10 @@ impl SchedulerThreadViews {
             final(self).cpu_view_map() == old(self).cpu_view_map(),
             final(self).wf(sched_view.register_task(task)),
             final(self).contains(task),
-            final(self).thread_view(task) == WmView::empty(),
+            final(self).thread_view(task) == Irc11ThreadView::empty(),
     {
         sched_view.lemma_register_task_preserves_wf(task);
-        let tracked thread_view = ThreadView::new();
+        let tracked thread_view = ThreadViewToken::new();
         let tracked token = TaskThreadView::new(self.scheduler(), task, thread_view);
         self.lemma_cpu_cores_frame(sched_view, sched_view.register_task(task));
         self.tracked_insert_initial_thread_view(token, sched_view.register_task(task));
@@ -923,7 +980,7 @@ impl SchedulerThreadViews {
             res.2.id() == sched_view.cpu_rcu_participant_id(cpu),
             res.2.cpu() == cpu,
             res.2.fraction() == 1real,
-            res.2.view().spec_le(res.0.view()),
+            res.2.view().spec_le(res.0.irc11_view()),
             res.2.wf(),
             res.3.registry() == sched_view.id,
             res.3.cpu() == cpu,
@@ -947,8 +1004,14 @@ impl SchedulerThreadViews {
         core.tracked_schedule_in(task);
         assert(core.registration() == sched_view.cpu_core_registration(cpu));
         let tracked (core_handle, participant) = core.tracked_open();
+        let ghost participant_view = participant.view();
+        let ghost task_irc11_view = thread_view@;
+        let ghost cpu_irc11_view = cpu_view@;
         let tracked binding = self.core_bindings.tracked_borrow(cpu).tracked_duplicate();
         thread_view.tracked_join(cpu_view);
+        assert(participant_view.spec_le(cpu_irc11_view));
+        task_irc11_view.lemma_join_right(cpu_irc11_view);
+        participant_view.lemma_spec_le_transitive(cpu_irc11_view, thread_view@);
         let tracked token = TaskThreadView {
             scheduler: Ghost(self.scheduler()),
             task: Ghost(task),
@@ -1051,6 +1114,7 @@ impl SchedulerThreadViews {
     {
         let ghost task = context.task();
         let ghost view = context.view();
+        let ghost irc11_context_view = context.irc11_view();
         let ghost cpu = context.cpu();
         let ghost expected_registration = CpuCoreRegistration {
             owner_id: context.core_owner_id(),
@@ -1094,9 +1158,9 @@ impl SchedulerThreadViews {
         checked.lemma_publish_cpu_view_preserves_wf(cpu, view);
         let ghost next = checked.publish_cpu_view(cpu, view);
         assert(next.wf());
-        assert(participant_view.spec_le(view));
-        old(self).cpu_thread_view(cpu).lemma_join_right(view);
-        participant_view.lemma_spec_le_transitive(view, self.cpu_views[cpu]@);
+        assert(participant_view.spec_le(irc11_context_view));
+        old(self).cpu_thread_view(cpu).lemma_join_right(irc11_context_view);
+        participant_view.lemma_spec_le_transitive(irc11_context_view, self.cpu_views[cpu]@);
         assert(self.cpu_cores.dom() == next.stored_cpu_cores);
         assert forall|stored_cpu: CpuId| #[trigger]
             self.cpu_cores.contains_key(stored_cpu) implies {
@@ -1108,7 +1172,9 @@ impl SchedulerThreadViews {
                 == next.cpu_core_registrations[stored_cpu].locals_key
             &&& self.cpu_cores[stored_cpu].registration() == next.cpu_core_registrations[stored_cpu]
             &&& self.cpu_cores[stored_cpu].locals().fraction() == 1real
-            &&& self.cpu_cores[stored_cpu].locals().view().spec_le(self.cpu_views[stored_cpu]@)
+            &&& self.cpu_cores[stored_cpu].locals().view().spec_le(
+                self.cpu_views[stored_cpu]@,
+            )
         } by {
             assert(next.cpu_core_registrations.contains_key(stored_cpu));
             if stored_cpu == cpu {
@@ -1227,7 +1293,7 @@ impl SchedulerGhostState {
                 final(self).view().cpu_core_registration(cpu),
             ),
             final(self).view().cpu_has_thread_view(cpu),
-            final(self).view().cpu_thread_view(cpu) == WmView::empty(),
+            final(self).view().cpu_thread_view(cpu) == Irc11ThreadView::empty(),
             final(self).view().cpu_rcu_participant_is_stored(cpu),
     {
         let ghost old_view = self.view@;
@@ -1251,7 +1317,7 @@ impl SchedulerGhostState {
             final(self).view() == old(self).view().register_task(task),
             final(self).view().state[task] is New,
             final(self).view().task_view_is_stored(task),
-            final(self).view().task_thread_view(task) == WmView::empty(),
+            final(self).view().task_thread_view(task) == Irc11ThreadView::empty(),
     {
         let ghost old_view = self.view@;
         self.thread_views.tracked_register_task(old_view, task);
@@ -1360,7 +1426,7 @@ pub open spec fn can_enqueue(view: SchedulerView, task: Loc, flags: EnqueueFlags
             &&& view.state.contains_key(task)
             &&& view.state[task] is New
             &&& view.task_view_is_stored(task)
-            &&& view.task_thread_view(task) == WmView::empty()
+            &&& view.task_thread_view(task) == Irc11ThreadView::empty()
         },
         EnqueueFlags::Wake => view.state.contains_key(task) && !(view.state[task] is Exited),
     }

@@ -6,6 +6,7 @@ use vstd::resource::Loc;
 use vstd::resource::algebra::ResourceAlgebra;
 use vstd::resource::pcm::{PCM, Resource};
 use vstd::resource::storage_protocol::*;
+use vstd::thread_view::Objective;
 
 verus! {
 
@@ -293,6 +294,14 @@ pub tracked struct Count<T, const TOTAL: u64 = 2> {
 
 pub tracked struct EmptyCount<T, const TOTAL: u64 = 2> {
     r: StorageResource<(), T, FractionalCarrierOpt<T, TOTAL>>,
+}
+
+unsafe impl<T: Objective, const TOTAL: u64> Objective for Count<T, TOTAL> {
+
+}
+
+unsafe impl<T: Objective, const TOTAL: u64> Objective for EmptyCount<T, TOTAL> {
+
 }
 
 impl<T, const TOTAL: u64> Count<T, TOTAL> {

@@ -21,6 +21,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      VERUS_REPOSITORY: https://github.com/verus-lang/verus.git
+      VERUS_BRANCH: irc11
+      VERUS_PATCH: tools/patches/verus-irc11-vstd.patch
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -65,9 +69,13 @@ jobs:
       - name: Get Verus commit
         id: verus
         run: |
-          VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
+          VERUS_COMMIT=$(git ls-remote "$VERUS_REPOSITORY" "refs/heads/$VERUS_BRANCH" | cut -f1)
+          if [ -z "$VERUS_COMMIT" ]; then
+            echo "Failed to resolve $VERUS_REPOSITORY branch $VERUS_BRANCH"
+            exit 1
+          fi
           echo "VERUS_COMMIT=$VERUS_COMMIT" >> "$GITHUB_ENV"
-          echo "Using Verus commit: $VERUS_COMMIT"
+          echo "Using Verus $VERUS_BRANCH commit: $VERUS_COMMIT"
           DV_COMMIT=$(git rev-parse HEAD:dv)
           echo "DV_COMMIT=$DV_COMMIT" >> "$GITHUB_ENV"
           echo "Using dv commit: $DV_COMMIT"
@@ -83,30 +91,39 @@ jobs:
         uses: actions/cache@v6
         with:
           path: tools/verus
-          key: ${{ runner.os }}-verus-${{ env.VERUS_COMMIT }}
+          key: ${{ runner.os }}-verus-${{ env.VERUS_BRANCH }}-${{ env.VERUS_COMMIT }}-${{ hashFiles('tools/patches/verus-irc11-vstd.patch') }}
 
       - name: Cache verusfmt
         id: cache-verusfmt
         uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/verusfmt
-          key: ${{ runner.os }}-verusfmt-${{ env.VERUS_COMMIT }}
+          key: ${{ runner.os }}-verusfmt-${{ env.VERUS_BRANCH }}-${{ env.VERUS_COMMIT }}
 
       - name: Bootstrap Verus (if needed)
         run: |
           if [ "${{ steps.cache-verus.outputs.cache-hit }}" = "true" ]; then
             echo "Using cached Verus"
           else
-            echo "Cache miss, bootstrapping Verus..."
+            echo "Cache miss, bootstrapping Verus $VERUS_BRANCH..."
             rm -rf tools/verus
-            cargo dv bootstrap
+            cargo dv bootstrap --upstream-verus --branch "$VERUS_BRANCH"
           fi
 
           if ! command -v verusfmt >/dev/null 2>&1; then
             echo "verusfmt not found, installing via cargo dv bootstrap..."
-            cargo dv bootstrap
+            cargo dv bootstrap --upstream-verus --branch "$VERUS_BRANCH"
           fi
+          test "$(git -C tools/verus rev-parse HEAD)" = "$VERUS_COMMIT"
           verusfmt --version
+
+      - name: Enable IRC11 alongside existing SC atomics
+        run: |
+          if git -C tools/verus apply --reverse --check "$GITHUB_WORKSPACE/$VERUS_PATCH"; then
+            echo "IRC11 compatibility patch is already applied"
+          else
+            git -C tools/verus apply "$GITHUB_WORKSPACE/$VERUS_PATCH"
+          fi
 
       - name: Build docs
         run: make doc

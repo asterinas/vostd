@@ -28,6 +28,7 @@ use vstd::prelude::*;
 use vstd::resource::Loc;
 use vstd::resource::map::{GhostMapAuth, GhostPersistentPointsTo};
 use vstd::seq::Seq;
+use vstd::thread_view::Objective;
 
 verus! {
 
@@ -190,6 +191,12 @@ pub tracked struct HistAuth<V> {
     // Private: code outside this TCB module must not forge the history length,
     // which would desynchronize `len` from the authoritative map domain.
     ghost len: nat,
+}
+
+// The authoritative map and its logical length are global facts about one
+// atomic location. They contain no thread-subjective view permission.
+unsafe impl<V> Objective for HistAuth<V> {
+
 }
 
 proof fn lemma_timestamp_range_insert_last(hi: Timestamp)
@@ -370,7 +377,7 @@ macro_rules! declare_weak_atomic_type {
             p: Pred,
         }
 
-        impl<K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<$value_ty>, G)> for $pred_adapter<
+        impl<K, G: Objective, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<$value_ty>, G)> for $pred_adapter<
             Pred,
         > where Pred: WeakAtomicInvariantPredicate<K, $value_ty, G> {
             open spec fn inv(k_id: (K, AtomicId), hist_g: (HistAuth<$value_ty>, G)) -> bool {
@@ -390,7 +397,7 @@ macro_rules! declare_weak_atomic_type {
         /// executable atomic id. As in `vstd::atomic_ghost`, outer data
         /// structures put this predicate in their own
         /// `#[verifier::type_invariant]`.
-        pub struct $weak_atomic<K, G, Pred> {
+        pub struct $weak_atomic<K, G: Objective, Pred> {
             #[doc(hidden)]
             atomic: $raw_atomic,
             #[doc(hidden)]
@@ -399,7 +406,7 @@ macro_rules! declare_weak_atomic_type {
             >,
         }
 
-        impl<K, G, Pred> $weak_atomic<K, G, Pred> {
+        impl<K, G: Objective, Pred> $weak_atomic<K, G, Pred> {
             pub closed spec fn constant(&self) -> K {
                 self.atomic_inv@.constant().0
             }
@@ -451,7 +458,7 @@ macro_rules! declare_weak_atomic_type {
             }
         }
 
-        impl<K, G, Pred> $weak_atomic<K, G, Pred> where
+        impl<K, G: Objective, Pred> $weak_atomic<K, G, Pred> where
             Pred: WeakAtomicInvariantPredicate<K, $value_ty, G>,
         {
             #[inline(always)]
@@ -558,10 +565,10 @@ pub struct WeakAtomicPredPtr<T, Pred> {
     p: Pred,
 }
 
-impl<T, K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<*mut T>, G)> for WeakAtomicPredPtr<
-    T,
-    Pred,
-> where Pred: WeakAtomicInvariantPredicate<K, *mut T, G> {
+impl<T, K, G: Objective, Pred> InvariantPredicate<
+    (K, AtomicId),
+    (HistAuth<*mut T>, G),
+> for WeakAtomicPredPtr<T, Pred> where Pred: WeakAtomicInvariantPredicate<K, *mut T, G> {
     open spec fn inv(k_id: (K, AtomicId), hist_g: (HistAuth<*mut T>, G)) -> bool {
         let (k, id) = k_id;
         let (hist, g) = hist_g;
@@ -578,7 +585,7 @@ impl<T, K, G, Pred> InvariantPredicate<(K, AtomicId), (HistAuth<*mut T>, G)> for
 /// any ownership or validity claim about the pointed-to allocation belongs in
 /// the user-supplied ghost state `G` and invariant predicate.
 #[verifier::accept_recursive_types(T)]
-pub struct WeakAtomicPtr<T, K, G, Pred> {
+pub struct WeakAtomicPtr<T, K, G: Objective, Pred> {
     #[doc(hidden)]
     atomic: AtomicPtrW<T>,
     #[doc(hidden)]
@@ -587,7 +594,7 @@ pub struct WeakAtomicPtr<T, K, G, Pred> {
     >,
 }
 
-impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> {
+impl<T, K, G: Objective, Pred> WeakAtomicPtr<T, K, G, Pred> {
     pub closed spec fn constant(&self) -> K {
         self.atomic_inv@.constant().0
     }
@@ -634,7 +641,7 @@ impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> {
     }
 }
 
-impl<T, K, G, Pred> WeakAtomicPtr<T, K, G, Pred> where
+impl<T, K, G: Objective, Pred> WeakAtomicPtr<T, K, G, Pred> where
     Pred: WeakAtomicInvariantPredicate<K, *mut T, G>,
  {
     #[inline(always)]
