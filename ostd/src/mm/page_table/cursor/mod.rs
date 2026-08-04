@@ -197,6 +197,24 @@ impl<C: PageTableConfig> PageTableFrag<C> {
     }
 }
 
+/// Localizes the set arithmetic used when replacing the cursor's current subtree.
+#[verifier::spinoff_prover]
+proof fn lemma_replace_cur_entry_mapping_sets(
+    all: Set<Mapping>,
+    current: Set<Mapping>,
+    replacement: Set<Mapping>,
+    old_subtree: Set<Mapping>,
+    new_subtree: Set<Mapping>,
+)
+    requires
+        current.subset_of(all),
+        old_subtree.subset_of(current),
+        replacement == (current - old_subtree).union(new_subtree),
+    ensures
+        (all - current).union(replacement) == (all - old_subtree).union(new_subtree),
+{
+}
+
 #[verus_verify]
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[verus_spec(res =>
@@ -4141,35 +4159,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     ).view_rec(cont1.put_child(new_owner).path().push_tail(j)).contains(m);
             };
             assert(final_cont.view_mappings() == cont1.view_mappings() + new_sub);
-            // Set arithmetic: (A - B) + C == A - D + E
-            //   where C == (B - D) + E  (i.e., C = cont1.vm + new_sub = (cont0.vm - old_sub) + new_sub)
-            //   and   B = cont0.vm, D = old_sub, E = new_sub, A = owner0.vm
-            assert(owner@.mappings == owner0@.mappings - old_sub + new_sub) by {
-                let a = owner0.view_mappings();
-                let b = cont0.view_mappings();
-                let c = final_cont.view_mappings();
-                let d = old_sub;
-                let e = new_sub;
-                // Known: owner.vm == (a - b).union(c)
-                // Known: c == (b - d) + e
-                // Want:  (a - b).union(c) == (a - d) + e
-                assert forall|m: Mapping| #[trigger] owner.view_mappings().contains(m) implies (a
-                    - d + e).contains(m) by {
-                    if c.contains(m) {
-                        if e.contains(m) {
-                        } else {
-                            assert((b - d).contains(m));
-                            assert(b.contains(m));
-                            assert(a.contains(m));
-                            assert(!d.contains(m));
-                        }
-                    } else {
-                        assert((a - b).contains(m));
-                        assert(a.contains(m));
-                        assert(!b.contains(m));
-                    }
-                };
-            };
+            lemma_replace_cur_entry_mapping_sets(
+                owner0.view_mappings(),
+                cont0.view_mappings(),
+                final_cont.view_mappings(),
+                old_sub,
+                new_sub,
+            );
 
             let level = owner0.level;
             let idx = cont0.idx as int;
