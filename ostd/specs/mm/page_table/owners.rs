@@ -1271,7 +1271,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// `parent_level < NR_LEVELS` constraint plus the arithmetic identity
     /// `page_size(k) ∈ {4K, 2M, 1G}` for `k ∈ {1, 2, 3}`, and VA alignment
     /// + no-overflow via `lemma_vaddr_path_alignment_and_bound`.
-    #[verifier::rlimit(200)]
     pub proof fn view_rec_mapping_inv(self, path: TreePath<NR_ENTRIES>)
         requires
             self.pt_inv(),
